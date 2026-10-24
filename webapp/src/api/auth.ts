@@ -35,6 +35,9 @@ export interface Me {
   rating: number | null;
   rating_count: number;
   created_at?: string;
+  /** Публиковал поездки (водитель по делу) / бронировал чужие — для подписи роли в профиле. */
+  drives?: boolean;
+  books?: boolean;
 }
 
 interface TokenPair {

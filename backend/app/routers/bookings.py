@@ -27,6 +27,7 @@ from ..security import current_user, gen_otp
 from ..logs import log
 from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open, cancelled_in_transit, transit_cancel_car_open
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
+from ..rating_service import guard_rating_on_pause, guard_rating_window
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -382,6 +383,12 @@ class BookingDetailsOut(BaseModel):
     pay_method: str = "negotiate"
     pay_amount: Optional[int] = None
     driver_name: str
+    # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings.
+    passenger_name: str = ""
+    # Телефон пассажира — только водителю и только пока связь открыта (решение Александра 23.10.2026:
+    # «после подтверждения можно открыть номер»), по тому же окну, что телефон водителя пассажиру.
+    passenger_phone: str = ""
+    declined: bool = False   # водитель отклонил неподтверждённую бронь (приёмка 18.10, п.6)
     driver_verified: bool
     driver_phone: str = ""
     driver_car: str = ""
@@ -676,6 +683,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     _ensure_route_coords(session, ride)
     driver = session.get(User, ride.driver_id)
+    passenger = session.get(User, booking.passenger_id)
     profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
     unlocked = booking_contacts_open(booking, ride)
@@ -723,6 +731,11 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
         "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
+        "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
+        # Подросток — нет: у водителя прямая связь со взрослым (minor_guardian_phone), а не с ребёнком
+        # (правило Q14, decisions.md; ревью Opus 23.10, P1-2).
+        "passenger_phone": (passenger.phone if (unlocked and is_driver and passenger and not booking.minor_passenger) else ""),
+        "declined": booking.cancel_reason == "driver_declined",
         "driver_verified": bool(driver.verified) if driver else False,
         "driver_phone": (driver.phone if (unlocked and driver) else ""),
         "driver_car": driver_car,
@@ -820,6 +833,17 @@ def boarding_code(booking_id: int, user: User = Depends(current_user), session: 
     return {"code": booking.boarding_code or ""}
 
 
+def _rating_allowed(session: Session, user_id: int, happened_at) -> bool:
+    """Те же проверки, что у /rate: срок 60 дней и пауза аккаунта (ревью Opus 23.10: человек на паузе
+    видел звёзды и получал отказ). Звёзды в квитанции — только когда оценка правда пройдёт."""
+    try:
+        guard_rating_window(happened_at)
+        guard_rating_on_pause(session, user_id, happened_at)
+    except HTTPException:
+        return False
+    return True
+
+
 @router.get("/trips/{booking_id}/receipt")
 def trip_receipt(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Квитанция завершённой поездки (по брони): маршрут, дата/время, сумма и способ оплаты,
@@ -864,6 +888,9 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
                               ("Пассажир" if role == "driver" else "Водитель")),
         "my_stars": int(my_rating.stars) if my_rating else 0,
         "my_rating_tags": (my_rating.tags or "") if my_rating else "",
+        # Срок оценки ещё открыт (как проверяет /rate): квитанция предлагает «Оценить водителя»
+        # тому, кто пропустил экран «Поездка завершена» (приёмка 18.10, п.7).
+        "can_rate": _rating_allowed(session, user.id, ride.depart_at),
         # Вторая сторона — для «Сообщить о проблеме» пассажира (разбор по брони, POST /incidents).
         "counterparty_id": counterparty.id if counterparty else 0,
         "problem_report_sec": problem_report_left(booking, ride) if role == "passenger" else 0,
@@ -1471,6 +1498,9 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # пропадали чат, «поделиться с близким» и SOS по ней (приёмка PR155, 17.10.2026).
         if booking.status == BookingStatus.onboard and user.id == booking.passenger_id:
             raise _onboard_cancel_refusal()
+        # Водитель снимает бронь, которую ещё не подтверждал, — это отказ, а не отмена поездки
+        # (приёмка 18.10, п.6: пассажиру приходило «Бронь отменена», будто сорвалось что-то общее).
+        declined = booking.status == BookingStatus.pending and user.id == ride.driver_id
         contact_opened = booking.status in (BookingStatus.confirmed, BookingStatus.onboard) or (
             session.exec(select(Message.id).where(Message.booking_id == booking_id).limit(1)).first()
             is not None
@@ -1478,11 +1508,16 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # Белый список кодов (порт из pr88): произвольная строка в БД не попадает, неизвестный
         # код (старый/будущий клиент) не теряем — сводим к "other".
         _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
+        # «Отклонил» ставит только сервер: подделанный код от клиента — «другое» (ревью Opus 23.10).
+        # Отказ помечаем всегда, даже с причиной: экран брони и пуш говорят одно и то же;
+        # причину водителя сохраняем для текста пуша.
+        _reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
+        причина_код = _reason if _reason != "driver_declined" else ("other" if not declined else None)
         changed = session.execute(update(Booking).where(
             Booking.id == booking_id, Booking.status == booking.status,
         ).values(
             status=BookingStatus.cancelled, cancelled_at=utcnow(), contact_then_cancel=contact_opened,
-            cancel_reason=_raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None),
+            cancel_reason="driver_declined" if declined else причина_код,
             cancelled_by=user.id,
         ).execution_options(synchronize_session=False))
         if changed.rowcount == 0:
@@ -1519,15 +1554,18 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         # отменивший (список CANCEL_REASONS), а хвост про другие поездки — только пассажиру:
         # водителю искать нечего, у него своя поездка на месте.
         отменил_водитель = user.id != booking.passenger_id
-        причина_ru, причина_ba = cancel_reason_text(booking.cancel_reason)
+        причина_ru, причина_ba = cancel_reason_text(причина_код if declined and причина_код not in (None, "other")
+                                                    else booking.cancel_reason)
         тело_ru = route + (f". {причина_ru}" if причина_ru else "")
         тело_ba = route + (f". {причина_ba}" if причина_ba else "")
         if отменил_водитель:
             тело_ru += " Посмотри другие поездки по этому маршруту — они есть."
             тело_ba += " Был юл буйынса башҡа сәфәрҙәрҙе ҡара — улар бар."
+        заголовок_ru, заголовок_ba = (("Водитель отклонил бронь", "Йөрөтөүсе бронде кире ҡаҡты") if declined
+                                      else ("Бронь отменена", "Бронь ҡалдырылды"))
         push_notification(
             session, other_id, "booking",
-            "Бронь отменена", "Бронь ҡалдырылды",
+            заголовок_ru, заголовок_ba,
             тело_ru, тело_ba,
             ref_kind="booking", ref_id=booking.id,
         )

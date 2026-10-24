@@ -191,6 +191,14 @@ const ALL_SUITES = [
   // shallow-harness.mjs (экран поездки — active-trip-fixture.mjs).
   // «Едут с тобой» → «Открыть поездку»; звёзды только у завершённых; отменённых в блоке нет.
   { test: "driver-passengers-open-trip-test", src: null, out: null, bundle: false },
+  // «Отклонить» бронь — сначала «Отклонить бронь?», как в Android (приёмка 18.10, п.6).
+  { test: "driver-decline-confirm-test", src: null, out: null, bundle: false },
+  // «Оценить водителя» в квитанции попутки — для тех, кто пропустил экран завершения (приёмка 18.10, п.7).
+  { test: "receipt-rate-later-test", src: null, out: null, bundle: false },
+  // Водитель звонит пассажиру после подтверждения (решение 23.10.2026).
+  { test: "driver-calls-passenger-test", src: null, out: null, bundle: false },
+  // Подпись роли в профиле по делу: «Водитель и пассажир», «Проверен» (просьба Александра 23.10.2026).
+  { test: "profile-role-test", src: null, out: null, bundle: false },
   // Оценка пассажира в два шага, как в Android: выбрал → «Отправить оценку»; «Изменить» / «Отмена».
   { test: "driver-rating-two-step-test", src: null, out: null, bundle: false },
   // Отмена: на «Брони» — только ждущая и своим окном; подтверждённая — на экране поездки с причиной {reason}; «в пути» — никак.

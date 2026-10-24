@@ -7,7 +7,8 @@ import { fetchSupportUnread } from "../api/support";
 import ScreenHeader from "../components/ScreenHeader";
 import RequireAuth from "../components/RequireAuth";
 import BrandMark from "../components/BrandMark";
-import { IconChevron, IconGift, IconLogout, IconShield, IconRides, IconHome, IconTrend, IconBell, IconFilter, IconHospital, IconWheel, IconClock, IconWallet, IconReceipt, IconSettings, IconTicket, IconStore, IconMegaphone, IconUsers, IconHeart, IconMic, IconPencil, IconPin } from "../components/Icons";
+import { IconChevron, IconGift, IconLogout, IconShield, IconRides, IconHome, IconTrend, IconBell, IconFilter, IconHospital, IconWheel, IconClock, IconWallet, IconReceipt, IconSettings, IconTicket, IconStore, IconMegaphone, IconUsers, IconHeart, IconMic, IconPencil, IconPin, IconCheck } from "../components/Icons";
+import { profileRole } from "../utils/profileRole";
 import {
   YuModeTaxi,
   YuModeParcel,
@@ -411,13 +412,13 @@ export default function ProfileScreen() {
               <span className="profile-card__edit" aria-hidden><IconPencil size={18} /></span>
             </div>
             <div className="profile-card__meta">
-              <span className="profile-card__role">
-                {user.role === "driver"
-                  ? appText("Водитель", "Йөрөтөүсе")
-                  : user.role === "admin"
-                    ? appText("Администратор", "Администратор")
-                    : appText("Пассажир", "Пассажир")}
-              </span>
+              <span className="profile-card__role">{appText(...profileRole(user))}</span>
+              {/* Документы водителя одобрены — как в приложении (приёмка 18.10, п.13). */}
+              {user.verified && (
+                <span className="profile-card__verified">
+                  <IconCheck size={14} /> {appText("Проверен", "Тикшерелгән")}
+                </span>
+              )}
               {user.rating != null && (
                 <span className="profile-card__rating">
                   <YuStar size={14} className="star" /> {user.rating.toFixed(1)}

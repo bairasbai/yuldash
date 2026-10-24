@@ -301,9 +301,13 @@ class TripChatMutationNetworkBoundaryTest {
     @Test fun rapidMessagesReachDiskQueueEvenWhenScreenClosesWhileTheyWait() {
         connectLive(); failHistory = true
         val texts = (1..8).map { "closing $it" }
-        texts.forEach { chat.sendText(it) }
-        clock.runCurrent() // Все отправки начались: первая пишет на диск, остальные ждут sendOrder.
-        mounted = false; chat.scope.cancel()
+        // Первая запись на диск ждёт, пока экран не закрыт: без этого быстрый (тёплый) диск успевал отдать
+        // её в сокет ДО закрытия, и тест зависел от скорости диска (ревью 23.10.2026).
+        synchronized(Outbox) {
+            texts.forEach { chat.sendText(it) }
+            clock.runCurrent() // Все отправки начались: первая пишет на диск, остальные ждут sendOrder.
+            mounted = false; chat.scope.cancel()
+        }
         waitFor { Outbox.count(context, 42) == texts.size }
         assertEquals("После закрытия экрана в сокет не отправляем", 0, sentFrames.size)
     }

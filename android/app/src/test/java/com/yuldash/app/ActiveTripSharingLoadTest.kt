@@ -48,6 +48,7 @@ class ActiveTripSharingLoadTest {
     private var oldClick: (() -> Boolean)? = null
     private var job: Job? = null
     private var finished = 0
+    private var trustedOpened = 0
     private val owner = object : LifecycleOwner {
         val registry = LifecycleRegistry(this)
         override val lifecycle: Lifecycle get() = registry
@@ -156,7 +157,7 @@ class ActiveTripSharingLoadTest {
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language, LocalLifecycleOwner provides owner) {
                 ActiveTripScreen(null, if (noContacts) emptyList() else listOf(TrustedContact("Близкий", "Друг", "+70000000000", false, 7), TrustedContact("Другой", "Друг", "+70000000001", false, 8)), if (missingBooking) null else 42,
-                    onBack = {}, onTripEnd = { finished++ }, onSos = {})
+                    onBack = {}, onTripEnd = { finished++ }, onSos = {}, onTrustedContacts = { trustedOpened++ })
             }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
@@ -218,6 +219,10 @@ class ActiveTripSharingLoadTest {
         noContacts = true; mount()
         compose.onNodeWithText("Сначала добавь доверенный контакт в профиле").assertIsDisplayed()
         assertEquals(0, mutations())
+        // Приёмка 18.10, п.8: был тупик — текст без действия. Теперь кнопка ведёт к доверенным контактам.
+        compose.onNodeWithText("Добавить близкого").performClick(); pump()
+        assertEquals(1, trustedOpened)
+        compose.onNode(isDialog()).assertDoesNotExist()
     }
     @Test fun missingBookingShowsUnavailableAndCanClose() {
         missingBooking = true; mount()

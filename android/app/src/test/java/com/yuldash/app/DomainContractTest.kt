@@ -104,13 +104,6 @@ class DomainContractTest {
     }
 
     @Test
-    fun demoPopularRoutes_haveRouteAndDistanceForMapFeedFallback() {
-        assertTrue(demoPopularRoutes.size >= 3)
-        assertTrue(demoPopularRoutes.all { it.from.isNotBlank() && it.to.isNotBlank() })
-        assertTrue(demoPopularRoutes.all { it.distance.endsWith("км") || it.distance.endsWith("РєРј") })
-    }
-
-    @Test
     fun partnerAdRouteMatching_rejectsWrongCompleteRouteButAllowsPartialTargeting() {
         val active = demoPartnerAds.first { it.routeFrom != null && it.routeTo != null }
 

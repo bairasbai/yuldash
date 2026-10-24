@@ -306,8 +306,10 @@ def test_booking_cancel_returns_one_seat_and_both_sides_see_terminal_history(api
     _cancel_booking(api, kit, actor, driver, passenger, ride, bid, 2)
     cancelled = _post(api, actor, f"/bookings/{bid}/cancel", {"reason": "not_going"})
     assert cancelled["contact_then_cancel"] is (state == "confirmed")
+    # Водитель снимает неподтверждённую бронь — это отказ: пассажир видит «Водитель отклонил бронь».
+    title = "Водитель отклонил бронь" if (state, actor_role) == ("pending", "driver") else "Бронь отменена"
     assert len([row for row in kit.notifications(other)
-                if row["title_ru"] == "Бронь отменена" and row.get("ref_id") == bid]) == 1
+                if row["title_ru"] == title and row.get("ref_id") == bid]) == 1
     if request_id is not None:
         assert _request_status(api, passenger, request_id) == "matched"
         _cancel_request(api, driver, passenger, request_id)

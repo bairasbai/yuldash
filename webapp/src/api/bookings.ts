@@ -81,6 +81,10 @@ export interface BookingDetails {
   driver_name: string;
   driver_verified: boolean;
   driver_phone: string; // пусто до разблокировки
+  /** Телефон пассажира — только водителю и только пока связь открыта (решение 23.10.2026). */
+  passenger_phone?: string;
+  /** Водитель отклонил неподтверждённую бронь (сервер решает сам) — «Водитель отклонил бронь». */
+  declined?: boolean;
   driver_car: string;
   /** Госномер и цвет — чтобы сверить машину у обочины. Пусто до подтверждения брони (ПДн). */
   driver_plate?: string;
@@ -145,6 +149,8 @@ export interface TripReceipt {
   pickup_stop?: string | null;
   dropoff_stop?: string | null;
   my_stars?: number | null;
+  /** Срок оценки ещё открыт — пассажиру квитанция предлагает «Оценить водителя» (приёмка 18.10, п.7). */
+  can_rate?: boolean;
   booking_id: number;
   ride_id: number;
   role: string;

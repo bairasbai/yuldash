@@ -851,52 +851,50 @@ private fun plRu(n: Int, one: String, few: String, many: String): String {
 private fun ridesRu(n: Int) = plRu(n, "поездка", "поездки", "поездок")
 private fun driversRu(n: Int) = plRu(n, "водитель", "водителя", "водителей")
 
-// 6 карточек по кругу. Периоды день/неделя/месяц/год + факт → лента «живёт».
-// Числа РЕАЛЬНЫЕ с сервера (feed); офлайн (feed=null) — демо-значения, чтоб лента не выглядела пустой.
+// Карусель на карте: только настоящие числа с сервера (/feed, /popular-routes).
+// Решение Александра 23.10.2026 (вариант А, как на сайте): без ответа сервера карусели нет,
+// нулевой счётчик — нет карточки. Раньше офлайн показывались «142 поездки», «4700 за месяц»,
+// «1200 водителей», демо-маршрут «3 рядом» и всегда — выдуманный факт «каждая 3-я · 78 %».
 internal fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): List<MapFeedCard> {
-    val routes = popular.ifEmpty { demoPopularRoutes }
-    val r0 = routes.getOrNull(0) ?: demoPopularRoutes[0]
-    val r1 = routes.getOrNull(1) ?: r0
-    val today = feed?.today ?: 142
-    val month = feed?.month ?: 4700
-    val year = feed?.year ?: 38500
-    val drivers = feed?.drivers ?: 1200
-    val topFrom = feed?.topFrom?.takeIf { it.isNotBlank() } ?: r1.from
-    val topTo = feed?.topTo?.takeIf { it.isNotBlank() } ?: r1.to
-    val topCount = feed?.topCount?.takeIf { it > 0 } ?: 320
-    val topRoute = routes.firstOrNull { it.from == topFrom && it.to == topTo } ?: r1
-    val donations = feed?.donationsTotal ?: 0   // ₽ донатов от пользователей за всё время (реальные, с /feed)
-    val donationsFmt = if (donations >= 1000) String.format(java.util.Locale.US, "%,d", donations).replace(',', ' ') else donations.toString()
-    return listOf(
-        MapFeedCard(FeedKind.Route, "Популярно", "Популяр",
+    val cards = mutableListOf<MapFeedCard>()
+    popular.firstOrNull()?.let { r0 ->
+        cards += MapFeedCard(FeedKind.Route, "Популярно", "Популяр",
             "${r0.from} → ${r0.to}", "${r0.from} → ${r0.to}",
-            "${r0.nearbyCount} рядом · ${r0.distance}", "${r0.nearbyCount} яҡында · ${r0.distance}",
-            r0.minutes, r0.minutesBa ?: r0.minutes, route = r0),
-        MapFeedCard(FeedKind.Live, "Сегодня", "Бөгөн",
-            "$today ${ridesRu(today)} за день", "Көнөнә $today сәфәр",
-            "Земляки уже в пути", "Яҡташтар юлда",
-            "за 24 ч", "24 сәғәт"),
-        MapFeedCard(FeedKind.Top, "Хит недели", "Аҙна хиты",
-            "$topFrom → $topTo", "$topFrom → $topTo",
+            "Здесь часто ездят", "Бында йыш йөрөйҙәр",
+            "", "", route = r0)
+    }
+    if (feed == null) return cards
+    if (feed.today > 0) cards += MapFeedCard(FeedKind.Live, "Сегодня", "Бөгөн",
+        "${feed.today} ${ridesRu(feed.today)} за день", "Көнөнә ${feed.today} сәфәр",
+        "Земляки уже в пути", "Яҡташтар юлда",
+        "за 24 ч", "24 сәғәт")
+    if (feed.topCount > 0 && feed.topFrom.isNotBlank() && feed.topTo.isNotBlank()) {
+        val topRoute = popular.firstOrNull { it.from == feed.topFrom && it.to == feed.topTo }
+            ?: PopularRoute(from = feed.topFrom, to = feed.topTo, minutes = "", distance = "",
+                nearbyCount = feed.topCount, label = "Хит недели", labelBa = "Аҙна хиты")
+        cards += MapFeedCard(FeedKind.Top, "Хит недели", "Аҙна хиты",
+            "${feed.topFrom} → ${feed.topTo}", "${feed.topFrom} → ${feed.topTo}",
             "Самый частый маршрут недели", "Аҙнаның иң йыш маршруты",
-            "$topCount ${plRu(topCount, "раз", "раза", "раз")}", "$topCount тапҡыр", route = topRoute),
-        MapFeedCard(FeedKind.Fact, "Факт", "Факт",
-            "Каждая 3-я — домой на выходные", "Һәр 3-сө сәфәр — өйгә",
-            "Земляки едут к родным", "Яҡташтар тыуғандарға бара",
-            "78%", "78%"),
-        MapFeedCard(FeedKind.Community, "За месяц", "Айға",
-            "$month ${ridesRu(month)}", "Айына $month сәфәр",
-            "$drivers ${driversRu(drivers)} за рулём", "Юлда $drivers водитель",
-            "месяц", "ай"),
-        MapFeedCard(FeedKind.Community, "За год", "Йылға",
-            "$year ${ridesRu(year)}", "Йылына $year сәфәр",
-            "Спасибо, что вы вместе ❤️", "Бергә булғанға рәхмәт ❤️",
-            "год", "йыл"),
-        MapFeedCard(FeedKind.Donate, "Поддержка", "Ярҙам",
-            "$donationsFmt ₽ собрано", "$donationsFmt ₽ йыйылды",
+            "${feed.topCount} ${plRu(feed.topCount, "раз", "раза", "раз")}", "${feed.topCount} тапҡыр", route = topRoute)
+    }
+    if (feed.month > 0) cards += MapFeedCard(FeedKind.Community, "За месяц", "Айға",
+        "${feed.month} ${ridesRu(feed.month)}", "Айына ${feed.month} сәфәр",
+        if (feed.drivers > 0) "${feed.drivers} ${driversRu(feed.drivers)} за рулём" else "Спасибо, что вы вместе ❤️",
+        if (feed.drivers > 0) "Юлда ${feed.drivers} водитель" else "Бергә булғанға рәхмәт ❤️",
+        "месяц", "ай")
+    if (feed.year > 0) cards += MapFeedCard(FeedKind.Community, "За год", "Йылға",
+        "${feed.year} ${ridesRu(feed.year)}", "Йылына ${feed.year} сәфәр",
+        "Спасибо, что вы вместе ❤️", "Бергә булғанға рәхмәт ❤️",
+        "год", "йыл")
+    if (feed.donationsTotal > 0) {
+        val d = feed.donationsTotal   // ₽ донатов от пользователей за всё время (реальные, с /feed)
+        val fmt = if (d >= 1000) String.format(java.util.Locale.US, "%,d", d).replace(',', ' ') else d.toString()
+        cards += MapFeedCard(FeedKind.Donate, "Поддержка", "Ярҙам",
+            "$fmt ₽ собрано", "$fmt ₽ йыйылды",
             "Спасибо за поддержку ❤️", "Ярҙам өсөн рәхмәт ❤️",
             "за всё время", "бар ваҡыт")
-    )
+    }
+    return cards
 }
 
 @Composable

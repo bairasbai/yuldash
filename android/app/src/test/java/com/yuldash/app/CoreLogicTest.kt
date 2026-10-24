@@ -123,8 +123,8 @@ class CoreLogicTest {
         val route = PopularRoute(
             from = "Темясово",
             to = "Уфа",
-            minutes = "4 ч",
-            distance = "250 км",
+            minutes = "",
+            distance = "",
             nearbyCount = 3,
             label = "Хит",
         )
@@ -143,11 +143,14 @@ class CoreLogicTest {
             )
         )
 
-        assertEquals(7, cards.size)
+        assertEquals(6, cards.size)
         assertEquals(FeedKind.Route, cards[0].kind)
         assertEquals(route, cards[0].route)
+        // «3 рядом» было неправдой: сервер считает опубликованные поездки по маршруту, а не машины рядом.
+        assertFalse(cards[0].sub.contains("рядом"))
         assertTrue(cards.any { it.kind == FeedKind.Live && it.title.startsWith("21 ") })
         assertTrue(cards.any { it.kind == FeedKind.Top && it.title == "Темясово → Уфа" && it.pill == "9 раз" })
+        assertTrue(cards.any { it.title.startsWith("1234 ") && it.sub.startsWith("42 ") })
         assertTrue(cards.any { it.kind == FeedKind.Donate && it.title.startsWith("12 500 ₽") })
     }
 
@@ -175,7 +178,14 @@ class CoreLogicTest {
     }
 
     @Test
-    fun mapFeedFrom_usesDemoRoutesAndServerCountersWhenPopularIsEmpty() {
+    fun mapFeedFrom_withoutServer_showsNothingMadeUp() {
+        // Решение Александра 23.10 (вариант А, как на сайте): без ответа сервера карусели нет —
+        // никаких «142 поездки», «4700 за месяц», «1200 водителей» и демо-маршрутов.
+        assertEquals(emptyList<MapFeedCard>(), mapFeedFrom(emptyList(), null))
+    }
+
+    @Test
+    fun mapFeedFrom_hidesZeroCountersAndHasNoInventedFact() {
         val cards = mapFeedFrom(
             emptyList(),
             FeedDto(
@@ -183,20 +193,31 @@ class CoreLogicTest {
                 week = 0,
                 month = 2,
                 year = 5,
-                drivers = 21,
+                drivers = 0,
                 topFrom = "",
                 topTo = "",
                 topCount = 0,
-                donationsTotal = 999,
+                donationsTotal = 0,
             )
         )
 
-        assertEquals(7, cards.size)
-        assertEquals(demoPopularRoutes[0], cards[0].route)
-        assertTrue(cards[1].title.startsWith("1 "))
-        assertTrue(cards[4].title.startsWith("2 "))
-        assertTrue(cards[5].title.startsWith("5 "))
-        assertTrue(cards.last().title.startsWith("999 "))
+        // Сегодня, месяц, год — настоящие. Хита недели нет — карточки нет. Сборов нет — «0 ₽» не пишем.
+        assertEquals(listOf("1 ", "2 ", "5 "), cards.map { it.title.take(2) })
+        assertTrue(cards.none { it.kind == FeedKind.Route || it.kind == FeedKind.Top || it.kind == FeedKind.Donate })
+        // «Каждая 3-я — домой на выходные · 78 %» никто не считал — этой карточки больше нет.
+        assertTrue(cards.none { it.pill.contains("%") || it.title.contains("3-я") })
+        // Водителей 0 — не пишем «0 водителей за рулём».
+        assertTrue(cards.none { it.sub.contains("за рулём") })
+        assertTrue(mapFeedFrom(emptyList(), FeedDto(0, 0, 0, 0, 0, "", "", 0, 0)).isEmpty())
+    }
+
+    @Test
+    fun mapFeedFrom_topRouteWithoutPopularMatch_stillLeadsToSearch() {
+        val cards = mapFeedFrom(emptyList(), FeedDto(0, 0, 0, 0, 0, "Сибай", "Уфа", 4, 0))
+        val top = cards.single()
+        assertEquals(FeedKind.Top, top.kind)
+        assertEquals("Сибай", top.route?.from)
+        assertEquals("Уфа", top.route?.to)
     }
 
     @Test

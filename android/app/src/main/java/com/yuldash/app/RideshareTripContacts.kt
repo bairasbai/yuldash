@@ -30,6 +30,7 @@ import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,6 +38,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
@@ -75,6 +77,11 @@ internal fun passengerContacts(d: BookingDetailsDto): TripContacts? =
         pickupLat = d.pickupLat,
         pickupLng = d.pickupLng,
     )
+
+/** Водитель звонит пассажиру только по живой подтверждённой брони, номер которой сервер открыл. */
+internal fun driverCanCallPassenger(d: BookingDetailsDto?, bookingStatus: String, terminal: Boolean): Boolean =
+    !terminal && d != null && d.role == "driver" && d.contactUnlocked && d.passengerPhone.isNotBlank() &&
+        (bookingStatus.isBlank() || bookingStatus in CONTACT_STATUSES)
 
 /** Поздние details не откатывают уже известную посадку/закрытие брони. */
 internal fun offlinePassDetails(d: BookingDetailsDto?, bookingId: Int, status: String): BookingDetailsDto? =
@@ -213,5 +220,14 @@ private fun ContactRow(icon: ImageVector, label: String, value: String, modifier
             Text(label, style = CanonMicro, color = CanonMuted)
             Text(value, style = CanonBodyStrong, color = CanonText)
         }
+    }
+}
+
+/** «Поделиться с близким», а близких ещё нет: не тупик, а кнопка «Добавить близкого» (приёмка 18.10, п.8). */
+@Composable
+internal fun NoTrustedContactsHint(onAdd: () -> Unit) {
+    Text(appText("Сначала добавь доверенный контакт в профиле", "Башта профилдә ышаныслы контакт өҫтә"), color = CanonMuted)
+    TextButton(onClick = onAdd, modifier = Modifier.heightIn(min = 48.dp)) {
+        Text(appText("Добавить близкого", "Яҡын кешене өҫтәү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
     }
 }

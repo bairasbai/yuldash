@@ -242,12 +242,22 @@ await t.test("кабинет водителя передаёт «Открыть 
   h.close();
 });
 
+/** Кнопка «Отклонить» с вопросом в карточке брони (поверхностная отрисовка — узел с её свойствами). */
+const declineOf = (card) => {
+  const node = ofType(card, "DeclineBookingButton")[0];
+  assert.ok(node, "доступно действие reject");
+  return node;
+};
+
 for (const lang of ["ru", "ba"]) {
   const L = (ru, ba) => lang === "ba" ? ba : ru;
   const perform = (h, action) => {
     const labels = { confirm: L("Подтвердить", "Раҫлау"), reject: L("Отклонить", "Кире ҡағыу"),
       finish: L("Завершить рейс", "Рейсты тамамлау"), drop: L("Снять поездку", "Сәфәрҙе алыу") };
     const target = action === "confirm" || action === "reject" ? pendingCard(h.parent.tree, 77) : h.parent.tree;
+    // «Отклонить» — кнопка с вопросом «Отклонить бронь?» (DeclineBookingButton, приёмка 18.10 п.6; сам
+    // вопрос — driver-decline-confirm-test): здесь это ответ «Да, отклонить».
+    if (action === "reject") { declineOf(target).props.onDecline(); return; }
     const actionButton = button(target, labels[action]); assert.ok(actionButton, `доступно действие ${action}`);
     actionButton.props.onClick();
   };
@@ -327,10 +337,10 @@ await t.test("новое действие отменяет перечитыва�
   const h = await openCabinet("ru", "reject", true);
   try {
     globalThis.__cabHoldRides = true;
-    button(pendingCard(h.parent.tree, 77), "Отклонить").props.onClick(); await h.sync();
+    declineOf(pendingCard(h.parent.tree, 77)).props.onDecline(); await h.sync();
     const [old] = globalThis.__cabRideLoads;
     assert.ok(old && !old.signal.aborted);
-    button(pendingCard(h.parent.tree, 78), "Отклонить").props.onClick(); await h.sync();
+    declineOf(pendingCard(h.parent.tree, 78)).props.onDecline(); await h.sync();
     const current = globalThis.__cabRideLoads[1];
     assert.equal(old.signal.aborted, true);
     assert.ok(current && !current.signal.aborted);

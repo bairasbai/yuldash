@@ -75,7 +75,6 @@ import androidx.compose.material.icons.filled.Bolt
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.EmojiEvents
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Lightbulb
 import androidx.compose.material.icons.filled.LightMode
 import androidx.compose.material.icons.filled.AddRoad
 import androidx.compose.material.icons.filled.AdminPanelSettings
@@ -643,18 +642,18 @@ private fun MapHero(
     previewRide: Ride? = null,         // выбранная поездка → её маршрут на карте
     requests: List<com.yuldash.app.data.RequestNearDto> = emptyList()  // заявки рядом → маркеры на карте
 ) {
-    // Популярные маршруты — порядок с сервера (из реальных поездок); демо для богатого вида.
+    // Популярные маршруты — порядок с сервера (из реальных поездок). Пока сервер не ответил —
+    // пусто: демо-маршрутов с выдуманным «3 рядом» больше нет (решение 23.10.2026).
     // Поллинг ставится на паузу, когда приложение уходит в фон (repeatOnLifecycle RESUMED):
     // не дёргаем сервер, пока экран не виден — экономия трафика/батареи на масштабе.
     val lifecycleOwner = LocalLifecycleOwner.current
-    var popular by remember { mutableStateOf(demoPopularRoutes) }
+    var popular by remember { mutableStateOf<List<PopularRoute>>(emptyList()) }
     LaunchedEffect(Unit) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 ApiClient.getPopularRoutes().onSuccess { srv ->
-                    if (srv.isNotEmpty()) popular = srv.map { s ->
-                        demoPopularRoutes.firstOrNull { it.from == s.from && it.to == s.to }
-                            ?: PopularRoute(from = s.from, to = s.to, minutes = "—", minutesBa = "—", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
+                    popular = srv.map { s ->
+                        PopularRoute(from = s.from, to = s.to, minutes = "", distance = "", nearbyCount = s.count, label = "Поездки", labelBa = "Сәфәрҙәр")
                     }
                 }
                 delay(45_000)   // обновляем карусель под актуальные поездки
@@ -735,23 +734,22 @@ private fun MapHero(
                     .padding(start = 12.dp, end = 12.dp, top = 12.dp, bottom = 8.dp)
             ) {
                 Column(modifier = Modifier.fillMaxWidth()) {
+                    // Нет настоящих карточек (сервер не ответил, всё по нулям) — нет и карусели.
+                    val feedCards = remember(popular, liveFeed) { mapFeedFrom(popular, liveFeed) }
                     AnimatedVisibility(
-                        visible = !cardCollapsed,
+                        visible = !cardCollapsed && feedCards.isNotEmpty(),
                         enter = slideInHorizontally { it } + fadeIn(),
                         exit = slideOutHorizontally { it } + fadeOut()
                     ) {
                         QuickSearchCard(
-                            feed = remember(popular, liveFeed) { mapFeedFrom(popular, liveFeed) },
-                            // Лента ещё не пришла с сервера → цифры это демо/офлайн-фоллбэк (mapFeedFrom),
-                            // показываем честную подпись «≈ примерно», чтобы не выдавать их за живые.
-                            feedLive = liveFeed != null,
+                            feed = feedCards,
                             onCollapse = { cardCollapsed = true },
                             onRouteChange = { activeRoute = it },
                             compact = true
                         )
                     }
                     AnimatedVisibility(
-                        visible = cardCollapsed,
+                        visible = cardCollapsed && feedCards.isNotEmpty(),
                         modifier = Modifier.align(Alignment.End),
                         enter = slideInHorizontally { it } + fadeIn(),
                         exit = slideOutHorizontally { it } + fadeOut()
@@ -923,11 +921,10 @@ private fun QuickSearchCard(
     feed: List<MapFeedCard>,
     onCollapse: () -> Unit,
     onRouteChange: (PopularRoute) -> Unit,
-    compact: Boolean = false,
-    feedLive: Boolean = false   // лента подтверждена сервером? false → цифры приблизительные (демо/офлайн)
+    compact: Boolean = false
 ) {
-    val safeFeed = feed.ifEmpty { mapFeedFrom(demoPopularRoutes) }
-    val count = safeFeed.size
+    if (feed.isEmpty()) return
+    val count = feed.size
     // Бесконечная карусель: виртуальный счётчик страниц, контент по модулю → всегда вперёд, без отката.
     val pagerState = rememberPagerState(
         initialPage = if (count > 1) count * 1000 else 0,
@@ -945,7 +942,7 @@ private fun QuickSearchCard(
     }
     // Выбор для «Найти поездку» обновляем только на карточках-маршрутах (на цифрах/фактах — держим прошлый).
     LaunchedEffect(pagerState.currentPage, count) {
-        safeFeed[pagerState.currentPage % count].route?.let(onRouteChange)
+        feed[pagerState.currentPage % count].route?.let(onRouteChange)
     }
     var dragAccum by remember { mutableStateOf(0f) }
 
@@ -967,12 +964,11 @@ private fun QuickSearchCard(
                 pageSpacing = 12.dp,
                 userScrollEnabled = false
             ) { page ->
-                val card = safeFeed[page % count]
+                val card = feed[page % count]
                 val icon = when (card.kind) {
                     FeedKind.Route -> Icons.Default.Star
                     FeedKind.Live -> Icons.Default.Bolt
                     FeedKind.Top -> Icons.Default.EmojiEvents
-                    FeedKind.Fact -> Icons.Default.Lightbulb
                     FeedKind.Community -> Icons.Default.Favorite
                     FeedKind.Donate -> Icons.Default.VolunteerActivism
                 }
@@ -994,17 +990,9 @@ private fun QuickSearchCard(
                                 )
                             }
                         }
-                        // Честный сигнал: пока лента не пришла с сервера — цифры демо/офлайн, помечаем «≈ примерно».
-                        if (!feedLive) {
-                            Spacer(Modifier.width(8.dp))
-                            Text(
-                                appText("≈ примерно", "≈ яҡынса"),
-                                color = CanonMuted, fontWeight = FontWeight.Medium,
-                                fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis
-                            )
-                        }
                         Spacer(Modifier.weight(1f))
-                        Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
+                        // У карточки-маршрута пилюли нет: время в пути мы не знаем, а выдумывать не будем.
+                        if (card.pill.isNotBlank()) Surface(color = CanonMint, shape = RoundedCornerShape(14.dp)) {
                             Text(
                                 appText(card.pill, card.pillBa),
                                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
@@ -1039,7 +1027,7 @@ private fun QuickSearchCard(
                         // переход плавный, поэтому смена карточки читается, а не «мигает».
                         Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                             val active = pagerState.currentPage % count
-                            safeFeed.forEachIndexed { index, _ ->
+                            feed.forEachIndexed { index, _ ->
                                 val dotWidth by animateDpAsState(
                                     targetValue = if (index == active) 16.dp else 6.dp,
                                     animationSpec = tween(CanonMotion.NORMAL),

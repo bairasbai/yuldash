@@ -587,7 +587,8 @@ internal fun CreateRideFormContent(
         item {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(appText("Тип поездки", "Сәфәр төрө"), fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                val rideTypeKeys = remember { listOf("regular", "parcel", "cargo", "urgent", "hospital") }
+                val rideFeatures = rememberFeatures()   // «Посылка»/«Груз», пока доставка закрыта, не предлагаем (приёмка 18.10, п.16)
+                val rideTypeKeys = remember(rideFeatures) { listOf("regular", "parcel", "cargo", "urgent", "hospital").filterNot { rideCategoryClosed(it, rideFeatures) } }
                 LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(rideTypeKeys, key = { it }) { key ->
                         val (icon, ru, ba) = rideTypeMeta(key)

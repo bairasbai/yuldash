@@ -53,6 +53,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
@@ -346,10 +347,9 @@ internal fun LoginScreen(
         modifier = Modifier.fillMaxSize(),
         color = CanonBg
     ) {
+        ResizeWindowForKeyboard()   // клавиатура поджимает прокрутку (imePadding ниже), а не сдвигает окно — приёмка 18.10, п.15
         Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .verticalScroll(rememberScrollState())
+            modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
         ) {
             // heightIn, а не height: при системном КРУПНОМ шрифте (им пользуются пожилые) геро
             // растёт под текст, а не режет его. Фото внутри тянется matchParentSize.

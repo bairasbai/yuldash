@@ -164,7 +164,7 @@ export default function CreateRideScreen() {
     return () => ac.abort();
   }, [category, clinicsLoaded]);
 
-  const cats: { key: RideCategory; label: string; icon: JSX.Element }[] = [
+  const allCats: { key: RideCategory; label: string; icon: JSX.Element }[] = [
     { key: "regular", label: appText("Обычная", "Ябай"), icon: <YuModeRideshare size={20} /> },
     { key: "urgent", label: appText("Срочно", "Ашығыс"), icon: <IconBolt size={20} /> },
     { key: "hospital", label: appText("В больницу", "Дауаханаға"), icon: <IconHospital size={20} /> },
@@ -173,6 +173,8 @@ export default function CreateRideScreen() {
     // было нельзя вообще.
     { key: "parcel", label: appText("Возьму посылку", "Аҫылма алам"), icon: <IconBox size={20} /> },
   ];
+  // Пока доставка закрыта, «Возьму посылку» не предлагаем — вела в тупик «Скоро» (приёмка 18.10, п.16).
+  const cats = allCats.filter((c) => c.key !== "parcel" || features.parcels);
 
   const amenList: { key: Amenity; label: string }[] = [
     { key: "baggage", label: appText("Багаж", "Багаж") },
