@@ -33,7 +33,7 @@
 - `routers/auth.py:1063-1109` `_location_summary`; `:1112-1152` `/me/data`; `:1155+` `/me/export` (`:1168-1170` «координаты не идут»).
 - `account.py:281-284,456` — удаление аккаунта удаляет брони; `cleanup.py:145-281` — правила только удаляют строки, брони с оценкой/чатом/SOS живут всегда (`:183-201`).
 - `errors.py:11-13` — `herr` без кода (код добавляет RS-01); сейчас код даёт `_pickup_refusal` (`bookings.py:302-303`).
-- `antifraud.py:446-458` — `log_text_flag` (зовётся из `moderate_open_text`, `:492-493`) делает `session.commit()` сессии вызывающего.
+- `backend/app/antifraud.py:446-458` — `log_text_flag` (зовётся из `moderate_open_text`, `:492-493`) делает `session.commit()` сессии вызывающего.
 - `data/TripPass.kt:13-24` — офлайн-паспорт пассажира (у водителя нет, `BoardingCodeRules.kt:26-28`): пишется при confirmed/onboard (`BookingActiveTripScreen.kt:368-373`), стирается при done/cancelled (`:393-405`).
 - Android: `PickupStopPicker.kt:117-151` `BookingSegmentPicker`; `BookingActiveTripScreen.kt:887-933` `BookingMeetingCard` (`geo:` `:923`); `MapScreen.kt:1961` `PickupPickerOverlay(..., hint)`; `CreateRideScreen.kt:1084` `PickupSuggestionChips`; `DriverPassengerRow.kt:54`; `data/TripPass.kt:41,65`; `data/ApiClient.kt:1078-1100`, `:5446` `detailCode`.
 - Сайт: `components/RideSheet.tsx:135-144`; `screens/ActiveTripScreen.tsx:936-939`; `components/DriverPassengers.tsx:77,249`; `components/YandexMap.tsx:110` (выбора точки нет); `api/geo.ts:84`.
@@ -43,34 +43,28 @@
 ### Сервер (`backend/`)
 1. **Модель** `Booking`: `meet_lat`, `meet_lng`, `alight_lat`, `alight_lng: Optional[float]`; `meet_note`, `alight_note: str = ""` (≤120);
    `meet_landmark_id`, `alight_landmark_id: Optional[int]` без внешнего ключа; `meet_version: int = 0`; `meet_proposal: str = ""`
-   (JSON `kind, lat, lng, note, landmark_id, clear, at`); `meet_changes: int = 0`.
+   (канонический JSON `proposal_id` UUID, `kind`, `point={lat,lng,note,landmark_id,clear}`, `created_at`, `author_id`); `meet_changes: int = 0`.
 2. **`config.py`:** `meeting_point_village_km = 3.0`, `meeting_point_city_km = 15.0`, `meeting_point_keep_days = 30`,
    `meeting_point_max_changes = 5`, `arrival_verify_meeting_enabled = True`.
 3. **`meeting_points.py`:** `MeetingIn` (`lat` −90…90, `lng` −180…180, `note` ≤120, `landmark_id`, `clear`); `validate()` — числа
    конечные, не `(0,0)`; ориентир только `is_seed` (иначе 400 `meeting_landmark_unknown`); пояснение — `moderate_open_text(...,
    check_contact=False, place="meeting_note")`. Опора: остановка — `stop_point`, начало — пин рейса / `from_lat/lng`, конец — `to_lat/lng`;
    радиус по виду (село/райцентр — village, город — city), опора неизвестна — `stop_corridor_km` от прямой (`_to_segment_km`); дальше —
-   400 `meeting_point_far`. Место не выбрано — 409 `meeting_point_needs_stop`. Плюс `passenger_view`, `driver_view(status)`,
-   `gps_target`. Координаты — никогда в лог, ошибку, пуш, аналитику. Модерация коммитит сессию (`antifraud.py:446-458`) и
-   снимает `FOR UPDATE` — звать её до любых изменений объектов; запись дальше — только условным `UPDATE`.
+   400 `meeting_point_far`. Место не выбрано — 409 `meeting_point_needs_stop`. Плюс `booking_public_dto(booking, ride, viewer, phase)` (единый явный allowlist),
+   `gps_target`. Координаты — никогда в лог, ошибку, пуш, аналитику. Модерация коммитит сессию (`backend/app/antifraud.py:446-458`) и
+   снимает `FOR UPDATE` — звать её до любых изменений объектов; после неё заново взять Ride → Booking, перечитать актуальный статус/остановки/версию и повторить проверки. Запись — условным `UPDATE` по версии и фазе.
    Все ошибки плана — `herr(status, ru, ba, code=...)` из RS-01.
 4. **[А] Бронь:** `BookIn.meeting`, `BookIn.alighting`; проверка после разбора места (`:528-533`), до списания мест. `_booking_retry`:
    другая точка — 409 `meeting_point_conflict` с `booking_id`, та же — существующая бронь. В пуш — « · место встречи указано».
-5. **[Б] Команды** (`routers/meeting.py`, регистрация `routers/__init__.py:7,26`; права — `booking_and_ride_for_user`, `services.py:231`):
-   - `POST /bookings/{id}/meeting-point` — пассажир (иначе 403 `meeting_point_not_yours`): `kind` (`pickup`|`dropoff`), `point`,
-     `base_version`. `pending` — применяем; `confirmed` — предложение, пуш водителю без места; `onboard` — только `dropoff`
-     (409 `meeting_point_onboard`); `done`/`cancelled` — 409 `meeting_point_closed`; предел смен — 429 `meeting_point_too_many`;
-     повтор того же — 200 без пуша. Запись — `UPDATE ... WHERE meet_version = :base AND status IN (...)`, 0 строк — 409 `meeting_point_stale`.
-   - `POST /bookings/{id}/meeting-point/answer` — водитель: `proposal_at`, `accept`; `UPDATE ... WHERE meet_proposal = :прочитанное`;
-     «да» — в поля и `meet_version + 1`, «нет» — снять; пуш пассажиру. Предложения нет — 200 `already: true`.
-   - `POST /bookings/{id}/meeting-point/withdraw` — пассажир отзывает, повтор — 200.
-6. **[А] Видимость** (`/details`, `/driver/bookings`, `/bookings/mine`): пассажир — своё всегда. Водитель — `meeting_point_set` и
-   `meeting_proposal_pending` всегда, а координаты, пояснение, ориентир и предложение — **только при статусе брони `confirmed`/`onboard`**
-   (D9, не по окну связи: после `done` — только «место было указано»). Старые
-   `pickup*` в `/details` отдают точку пассажира только той стороне и только в то окно, где точка видна по правилу выше; иначе — как
-   сейчас (`bookings.py:765-767`). Новые поля: `pickup_note`, `pickup_landmark_ru/ba`, `pickup_source`,
-   `dropoff_lat/lng/note/landmark_ru/ba`, `meeting_version`, `meeting_proposal`. Не отдавать: публичная карточка, `routers/share.py`,
-   квитанция (`:847-880`), другие пассажиры.
+5. **[Б] Команды** (`routers/meeting.py`, регистрация `routers/__init__.py:7,26`; права — `booking_and_ride_for_user`, `services.py:231`). Общий запрос содержит `base_version`; предложение идентифицируется неизменным `proposal_id` (UUID), а не временем. Все проверки ниже после модерации, под Ride → Booking с повторным чтением; успешный `UPDATE` всегда `meet_version=meet_version+1`. Число изменённых строк 0 → перечитать и 409 `meeting_point_stale` без записи и пуша. Повтор без фактической перемены — текущий безопасный DTO и `already:true`, без роста версии и пуша.
+   - `POST /bookings/{id}/meeting-point` — только пассажир; `{kind:pickup|dropoff,point,base_version,proposal_id}`. `pending`: применить точку сразу; `confirmed`: сохранить предложение (действует прежняя точка); `onboard`: только предложение `dropoff`, pickup → 409 `meeting_point_onboard`; `done/cancelled` → 409 `meeting_point_closed`. CAS включает `meet_version=:base`, прочитанный статус и старый JSON предложения. Новое предложение заменяет старое только с актуальной версией; повтор того же proposal_id и содержимого — без побочек, другой body с тем же id → 409. `meet_changes` считает прямые изменения и новые предложения, максимум 5, reject/withdraw не лишают возможности снять предложение; обычный rate limit защищает остальные команды.
+   - `POST /bookings/{id}/meeting-point/answer` — только водитель; `{proposal_id,base_version,accept}`. CAS включает id/полный канонический JSON предложения, версию и `status=confirmed` либо `status=onboard AND kind=dropoff`. «Да» — применить point и снять proposal; «нет» — только снять. Оба варианта увеличивают версию. Terminal не меняется; pickup после посадки не применяется. Старый id при другом активном предложении → 409; предложения нет → текущий DTO `already:true` без выдуманного результата «принял».
+   - `POST /bookings/{id}/meeting-point/withdraw` — только пассажир; `{proposal_id,base_version}`. CAS по id/версии/статусу `confirmed|onboard`, на onboard только dropoff; снять предложение и увеличить версию. Поздний withdraw старого id не удаляет новый: 409 при несовпадении; если предложения уже нет — `already:true`. Terminal — 409. Отмена/неявка/завершение брони снимают активный proposal и увеличивают meet_version в своей транзакции; посадка снимает pickup-proposal (высадку сохраняет) с ростом версии.
+   - Уведомления — только после commit победившего перехода: proposal → один водителю, answer → один пассажиру, withdraw → один водителю. Координат/note/proposal в пуше нет; неудачный CAS и replay не уведомляют. Выгрузить конечное состояние из БД перед построением ответа, а не вернуть старый ORM-объект.
+6. **[А] Видимость во ВСЕХ ответах и replay (B1/D9).** В `meeting_points.py` единый `booking_public_dto`: базовый набор явно перечисленных полей, затем разрешённые по viewer/phase расширения. Запрещено строить DTO из `Booking.model_fields`, `model_dump`, `__dict__` или сырой модели с выборочной очисткой. `response_model=Booking` заменить явной выходной схемой, которая не добавляет секретные поля умолчаниями. В область входят create, confirm, cancel/reject, no-show, driver-status, boarding/undo, trip-status, три meeting-команды, детали, mine, driver-bookings и все текущие/RS-05 replay. Каждый путь, включая ранний return, использует одну политику; `idempotency.py` впоследствии вызывает её, не хранит JSON с координатами.
+   - Пассажир — только свои точки/пояснения/активное предложение до зачистки. Водитель — только булевы `meeting_point_set`/`meeting_proposal_pending` при pending/terminal; координаты, note, landmark и proposal только `confirmed|onboard`, если нет отдельного запрета текущей политики доступа. Постороннему — отказ без формы точки; другие пассажиры не получают её.
+   - Новые поля выхода: `pickup_note`, `pickup_landmark_ru/ba`, `pickup_source`, `dropoff_lat/lng/note/landmark_ru/ba`, `meeting_version`, `meeting_proposal`; предложение публично только с безопасно выбранными полями (без author_id). Старые `pickup*` из `/details` подчиняются той же политике для точных координат пассажира; не восстанавливать их через fallback, когда точка скрыта. Сразу после done/cancelled водитель теряет и старые, и новые точные поля независимо от окна связи.
+   - Без точки в публичных Ride DTO, `routers/share.py`, квитанции (`bookings.py:847-880`), ошибках/пушах/логах/аналитике. У схем безопасный default `None`/отсутствие поля; нельзя вставить исходный Booking в envelope. Экспорт своих данных — отдельный owner-only allowlist; водитель чужую точку не экспортирует.
 7. **[В] «Подъезжаю»** (`:1096-1121`): есть `gps_target` — `_nearest_m(driver_points_for_ride(..., with_ride_point=True), цель)`; отказ
    только дальше `stop_refuse_km`, «подтверждено» ближе `arrival_verify_radius_m` (булавка на глаз — ложный отказ дороже, `:978-980`).
    До части В — прежние ветки.
@@ -105,8 +99,8 @@
 ## 4. База данных
 - Имя: `<префикс>_booking_meeting_points_<дата>`, префикс по индексу (очередь 2, после RS-02 А). `down_revision` — голова свежего
   `origin/main` по `alembic heads`; одна голова; up → down → up на SQLite и PostgreSQL; сторожа `test_migrations_reach_production.py`,
-  `test_migrations_match_the_models.py`. Вся миграция — в части А (11 колонок шага 1), Б и В идут без миграции. Идемпотентно
-  (образец `ca_booking_segments_20261018.py`); старые брони — NULL, правила прежние; `downgrade` снимает колонки. **Ждёт «да».**
+  `test_migrations_match_the_models.py`. Вся миграция — в части А (11 колонок шага 1; proposal_id внутри JSON), Б и В идут без миграции. Идемпотентно
+  (образец `ca_booking_segments_20261018.py`); старые брони — NULL, правила прежние; `downgrade` снимает колонки. **Ждёт «да».** Старую схему main с синтетическими бронями прогнать до target на SQLite/PostgreSQL; старые значения и NULL/defaults сохранить, затем оговорённый downgrade → upgrade (N7), без рабочей БД.
 - **Срок хранения и удаление аккаунта:** `meet_*`/`alight_*`/`meet_proposal` — личные данные; `scrub_meeting_points` через 30 дней
   от `ride.depart_at` (отменённые без подтверждения — в ближайшую ночь, при открытом SOS/разборе — после закрытия); не `KEEP_FOREVER`.
   Удаление аккаунта — брони удаляются целиком (`account.py:281-284,456`), правки нет, тест есть.
@@ -126,15 +120,10 @@
 заглушка. Отправка — кнопка в загрузке, без второго запроса; отказ — текст сервера, ввод сохранён. Длинный BA — перенос; тёмная — `Canon*`.
 
 ## 7. Тесты
+Все будущие сценарии — **NOT_EXECUTED**, до приложенного фактического прогона.
 **Сервер** (`ruff check app/ --select F`, `pytest`):
-- `test_meeting_points.py`: точка у остановки и в начале; дальше радиуса — 400 и места целы; чужой ориентир — 400; `pending` —
-  применилось; `confirmed` — предложение и один пуш, повтор — без пуша; ответ «да»/«нет»; устаревший — 409 / `already`; гонка двух
-  запросов с одной версией — проходит один; лимит смен; `onboard` — только высадка; «Подъезжаю»: 4 км — без отказа и без
-  «подтверждено», 300 м — «подтверждено», 7 км — отказ, рубильник выкл. — как раньше.
-- `test_meeting_points_privacy.py` (А): водитель при `pending` и `cancelled` — без точки; при `confirmed`/`onboard` — с ней (и в
-  старых `pickup*`); сразу после `done` (внутри 48-часового окна связи) — без координат и пояснения, только `meeting_point_set`; другой
-  пассажир, гость, `/rides`, `/rides/{id}`, страница близкого, квитанция — без точки; caplog без координат; `/me/export`; удаление
-  аккаунта пассажира и водителя.
+- `test_meeting_points.py`: точка у остановки/начала; далеко → 400 и места целы; чужой ориентир → 400; pending применяет сразу; confirmed создаёт предложение, повтор id/body без пуша; answer да/нет и withdraw повышают версию ровно один раз. PostgreSQL с барьером: proposal↔proposal одной версии (один победитель), answer↔cancel (terminal не воскресает), старый withdraw↔новый proposal (новое сохраняется), answer pickup↔boarded (pickup после посадки не меняется). Проверить число уведомлений каждого победившего перехода и 0 у проигравшего/повтора; предельный meet_changes позволяет reject/withdraw; onboard только dropoff. «Подъезжаю»: 4 км без отказа/подтверждения, 300 м подтверждено, 7 км отказ, выключатель — прежний путь.
+- `test_meeting_points_privacy.py` (А): заполнить все meet/alight/proposal, параметризовать каждый сериализатор/response_model/ранний return и RS-05 replay. Ключевой путь pending → водитель отказал: JSON не содержит точных координат, note, landmark или proposal (ни напрямую, ни вложенно). Cancel/no-show/done/terminal replay: пассажир видит своё, водитель — только set/pending booleans, посторонний — отказ; confirmed/onboard открывают только нужной стороне; сразу после done при окне связи 48ч точка скрыта. Публичные карточки/квитанция/share/другие пассажиры/чужой export — без точки, caplog тоже. Мутация добавляет поле Booking и возвращает raw/model_dump — тест должен краснеть; проверить схему JSON, а не только UI.
 - `test_cleanup.py` (А): отменённая без подтверждения — стёрта в первую ночь; завершённая — через 30 дней от `ride.depart_at`, не
   раньше (бронь завершена позже выезда — срок всё равно от выезда); с открытым SOS/разбором — нет; сухой прогон ничего не меняет.
 - Мутации: видимость водителю по окну связи вместо статуса / без условия версии в `UPDATE` / отказ 800 м — тесты краснеют.
@@ -149,7 +138,7 @@
    и пояснением → водитель видит только «место указано» → подтвердил → точка, пояснение, «Маршрут» открывает карту → пассажир
    предлагает другое место → «Согласиться» → новая точка у обоих; второй круг — «Оставить прежнее».
 3. «Подъезжаю» с эмулятором в 4 км от точки — без отказа, в 200 м — «подтверждено по GPS»; узкий экран, крупный шрифт, без ключа
-   карты — вёрстка цела; ответы `/details` и `/driver/bookings` водителю до подтверждения и после «Завершить» — без координат (вывод приложить).
+   карты — вёрстка цела; ВСЕ ответы команд, деталей, списков и replay водителю до подтверждения и после «Завершить» — без координат/note/proposal (JSON-вывод приложить), pending→отказ также. Проверить гонки proposal/answer/withdraw с отменой и посадкой на PostgreSQL.
 4. Части принимаются своими PR (А — п. 2 без смены места, Б — смена места, В — п. 3); `yuldash-security-privacy` — на А и Б.
 5. Двигает W1-E2E-01 и W1-E2E-05. Остаётся: живые телефоны и GPS (W1-E2E-07, Q11), BA носителем, RS-16. Статус — `docs/audit-blocks.md`.
 
