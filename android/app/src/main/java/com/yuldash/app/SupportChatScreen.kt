@@ -27,6 +27,8 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -265,9 +267,11 @@ private fun NewTicketForm(onCancel: () -> Unit, onCreated: (Int) -> Unit) {
     var sending by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
     val failMsg = appText("Не удалось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Сетте тикшереп ҡабатла.")
+    ResizeWindowForKeyboard()   // Клавиатура сжимает окно, а не сдвигает: иначе на Android 15+ к сдвигу добавляется imePadding — двойной скачок (приёмка PR210, эмулятор 24.10).
 
+    // Прокрутка: с открытой клавиатурой и крупным шрифтом «Отправить» уходила под клавиатуру без пути к ней.
     Column(
-        Modifier.fillMaxSize().padding(16.dp).imePadding(),
+        Modifier.fillMaxSize().padding(16.dp).imePadding().verticalScroll(rememberScrollState()),
         verticalArrangement = Arrangement.spacedBy(12.dp),
     ) {
         Text(appText("Новое обращение", "Яңы мөрәжәғәт"), color = CanonText, fontSize = 24.sp, fontWeight = FontWeight.Bold)

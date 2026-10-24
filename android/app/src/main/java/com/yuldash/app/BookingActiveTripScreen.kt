@@ -1359,6 +1359,7 @@ private fun ActiveTripContent(
     terminalHint: ActiveTripTerminalHint?,
     onTripStopped: () -> Unit, onTrustedContacts: () -> Unit,
 ) {
+    ResizeWindowForKeyboard()   // Клавиатура сжимает окно, а не сдвигает: иначе на Android 15+ к сдвигу добавляется imePadding — двойной скачок (приёмка PR210, эмулятор 24.10).
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
     // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
