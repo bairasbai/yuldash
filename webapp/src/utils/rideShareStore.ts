@@ -26,6 +26,11 @@ export function rideShareKeep(rows: CarrierRow[]): (() => void) | null {
   return shared ? shared.keep(rows) : null;
 }
 
+/** «Завершить» → «Едут с тобой»: держать отправку, пока кабинет её не возьмёт (rideLocationShare.HANDOFF_MS). */
+export function rideShareHandoff(): void {
+  shared?.handoff();
+}
+
 /** Состояние отправки для подписи на экране; сразу присылает текущее. */
 export function subscribeRideShare(fn: (s: RideShareSnapshot) => void): () => void {
   listeners.add(fn);

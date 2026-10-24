@@ -259,6 +259,55 @@ await t.test("«Едут с тобой» держит отправку рейс�
   assert.equal(r.share.snapshot().bookingId, null);
 });
 
+await t.test("переход «Завершить» → кабинет на медленной сети: точку держим, пока кабинет не возьмёт (приёмка, P1-Б)", async () => {
+  const r = await rideOf101and102();
+  r.share.handoff(); // «Завершить» ушло
+  r.rows = [row(101, "done"), row(102, "onboard")];
+  await r.share.action(101, true);
+  await settle();
+  r.release101(); // страница отпустила точку (статус «done»)
+  r.fire(); // прошла пауза на смену маршрута, а кабинет ещё грузится
+  assert.equal(r.last().stopped, false, "точка погасла, пока кабинет грузил свои списки");
+  assert.equal(r.last().id, 102);
+  const releaseCabinet = r.share.keep([row(101, "done"), row(102, "onboard")]);
+  assert.equal(typeof releaseCabinet, "function");
+  const handoffTimer = r.timers.find((tm) => tm.ms === R.HANDOFF_MS);
+  assert.ok(handoffTimer && handoffTimer.done, "кабинет взял точку — переходная держалка снята");
+  releaseCabinet();
+  r.fire();
+  assert.equal(r.share.snapshot().bookingId, null);
+});
+
+await t.test("кабинет так и не взял точку — переход держит её не дольше HANDOFF_MS", async () => {
+  const r = await rideOf101and102();
+  r.share.handoff();
+  r.release101();
+  r.fire(); // пауза на смену маршрута — держит переход
+  assert.equal(r.last().stopped, false);
+  assert.ok(R.HANDOFF_MS <= 20_000, "переход держит точку слишком долго");
+  r.fire(R.HANDOFF_MS); // срок перехода
+  r.fire();
+  assert.equal(r.last().stopped, true);
+  assert.equal(r.share.snapshot().bookingId, null);
+});
+
+await t.test("«Завершить» первым шагом на сайте: ответ ещё в пути, страница отпустила — точка не гаснет", async () => {
+  const r = rig();
+  const release = r.share.open(101);
+  let open;
+  r.gate = new Promise((res) => (open = res));
+  r.rows = [row(101, "done"), row(102, "onboard")];
+  r.share.handoff();
+  const pending = r.share.action(101, true);
+  release();
+  r.fire();
+  open();
+  await pending;
+  await settle();
+  assert.equal(r.last().id, 102, "второй пассажир потерял машину");
+  assert.equal(r.share.snapshot().ride, true);
+});
+
 await t.test("подписка сразу получает текущее состояние", async () => {
   const r = await rideOf101and102();
   let got = null;
@@ -281,6 +330,7 @@ await t.test("«Завершить», а в рейсе ещё едут — во�
   assert.deepEqual(at.remainsAsked, [42]);
   assert.ok(at.nav.includes("/driver"), "водитель остался на закрытой поездке: " + JSON.stringify(at.nav));
   assert.equal(at.ridingFocus, 1, "кабинет не подведёт «Едут с тобой» к верху");
+  assert.equal(at.handoffs, 1, "точку не держат на переход в кабинет — на медленной сети она погаснет");
 });
 
 await t.test("«Завершить» последнего — остаёмся: оценка и квитанция здесь", async () => {

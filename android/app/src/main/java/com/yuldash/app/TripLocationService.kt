@@ -74,6 +74,8 @@ class TripLocationService : Service() {
     private var resolveAttempt = 0
     private var retryTask: Runnable? = null
     private var pendingClose = 0                 // «Завершить» по несущей без режима рейса: ждём список, канал не гасим
+    private var actionLookup = false             // шаг водителя без режима рейса: ждём список — уход с экрана пока не гасит
+    private var releasePending = false           // экран отпустил поездку, пока ждали список: режим не включится — гаснем
     private var destroyed = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val carrierExpiry = Runnable { onCarrierExpired() }
@@ -105,8 +107,8 @@ class TripLocationService : Service() {
         owner = session
         ownerUser = user
         val r = ride
-        // Устаревший экран (Д2): эта бронь уже закрылась, а служба везёт рейс по живой — в мёртвый канал не идём.
-        if (driver && r != null && bookingId in closed && socket != null) { foreground(); return START_STICKY }
+        // Устаревший экран (Д2): эта бронь уже закрылась, а служба везёт рейс по живой (или ищет её) — в мёртвый канал не идём.
+        if (driver && bookingId in closed && (r != null || actionLookup)) { foreground(); return START_STICKY }
         isDriver = driver
         if (!driver || (r != null && bookingId !in r.bookings)) leaveRide()   // другая бронь не этого рейса — режим рейса снят
         if (ride == null) {
@@ -118,6 +120,9 @@ class TripLocationService : Service() {
         watchdog.removeCallbacks(carrierExpiry)
         resolveSeq++   // явный выбор экрана важнее ответа, который ещё в пути
         retryTask?.let(watchdog::removeCallbacks)
+        actionLookup = false
+        releasePending = false
+        pendingClose = 0
         foreground()
         connect(bookingId)
         persist()
@@ -215,18 +220,22 @@ class TripLocationService : Service() {
             return
         }
         val seq = ++resolveSeq
+        if (closedNow) closed += bookingId   // сервер уже закрыл бронь: обратно в её канал не идём
         if (closedNow && bookingId == currentBookingId) pendingClose = bookingId
+        actionLookup = true
         scope.launch {
             val rows = ApiClient.getDriverBookings(expectedGeneration = owner)
             if (!stillMine(seq)) return@launch
             pendingClose = 0
-            // Не узнали рейс — режим не включаем, служба как раньше: канал уже закрыт — гаснем.
-            val list = rows.getOrNull() ?: run { if (socket == null) shutdown(); return@launch }
+            actionLookup = false
+            // Не узнали рейс — режим не включаем, служба как раньше: канал закрыт или экран отпустил — гаснем.
+            val list = rows.getOrNull() ?: run { if (socket == null || releasePending) shutdown(); return@launch }
             val receivedAt = SystemClock.elapsedRealtime()
             val actionRide = list.firstOrNull { it.bookingId == bookingId }?.rideId ?: 0
             val carrierRide = list.firstOrNull { it.bookingId == currentBookingId }?.rideId ?: 0
             // Шаг по другому рейсу — GPS этого рейса не касается (канал уже закрыт — гаснем, как раньше).
-            if (actionRide <= 0 || actionRide != carrierRide) { if (socket == null) shutdown(); return@launch }
+            if (actionRide <= 0 || actionRide != carrierRide) { if (socket == null || releasePending) shutdown(); return@launch }
+            releasePending = false   // режим рейса включается — рейс держит GPS и без экрана
             val bookings = list.filter { it.rideId == actionRide }.map { it.bookingId }.toSet()
             ride = ride?.takeIf { it.rideId == actionRide }?.copy(bookings = bookings)
                 ?: DriverRideMode.start(actionRide, bookings, receivedAt, System.currentTimeMillis())
@@ -247,6 +256,7 @@ class TripLocationService : Service() {
         socket = null
         TripLocationBus.peer = null
         retryTask?.let(watchdog::removeCallbacks)
+        actionLookup = false
         val seq = ++resolveSeq
         scope.launch {
             val result = ApiClient.getDriverBookings(expectedGeneration = owner)
@@ -413,6 +423,8 @@ class TripLocationService : Service() {
         retryTask?.let(watchdog::removeCallbacks)
         retryTask = null
         pendingClose = 0
+        actionLookup = false
+        releasePending = false
         listener?.let { runCatching { lm?.removeUpdates(it) } }
         listener = null
         pacer.reset()
@@ -488,7 +500,7 @@ class TripLocationService : Service() {
          * Водитель в режиме рейса — служба остаётся: GPS принадлежит рейсу, а не экрану (Д2).
          */
         internal fun release(ctx: Context) {
-            if (instance?.get()?.keepsRide() != true) ctx.stopService(Intent(ctx, TripLocationService::class.java))
+            if (instance?.get()?.holdOnRelease() != true) ctx.stopService(Intent(ctx, TripLocationService::class.java))
         }
 
         internal fun clearRestoration(ctx: Context) {
@@ -497,6 +509,17 @@ class TripLocationService : Service() {
     }
 
     private fun keepsRide() = !destroyed && isDriver && ride != null && sessionIsOwners()
+
+    /**
+     * Экран отпустил поездку. Ведём рейс — держим. Шаг водителя только что ушёл и служба ещё ждёт список
+     * (приёмка Д2, P1-А: «Завершить» как первый шаг на этом телефоне) — пока держим, а решит ответ:
+     * режим рейса не включился — гаснем.
+     */
+    private fun holdOnRelease(): Boolean {
+        if (keepsRide()) return true
+        if (!destroyed && isDriver && actionLookup && sessionIsOwners()) { releasePending = true; return true }
+        return false
+    }
 }
 
 /**

@@ -29,7 +29,10 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewModelScope
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.TripLocationBus
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 // Водитель ведёт рейс (Д2, решение Александра 24.10.2026): закрыл бронь одного пассажира, а остальные
 // ещё едут, — он возвращается к «Едут с тобой», а не на карту. Экран поездки и YuldashApp зовут только
@@ -59,23 +62,32 @@ internal fun YuldashViewModel.returnToDriverRide() {
  */
 internal suspend fun YuldashViewModel.driverFinishedBooking(bookingId: Int): Boolean {
     val owner = ApiClient.queueSessionGeneration()
-    if (driverRideHasLiveBookings(bookingId, owner) != true) return false
+    val remains = driverRideHasLiveBookings(bookingId, owner)
+    if (remains == false) driverRideOverBooking.value = bookingId   // «Закрыть» итога потом не ждёт сеть
+    if (remains != true) return false
     if (!ApiClient.isCurrentSession(owner) || activeBookingId.value != bookingId) return false
     returnToDriverRide()
     return true
 }
 
+/** Сколько «Закрыть» итога ждёт ответа о рейсе, прежде чем увести в кабинет без него. */
+internal const val DRIVER_RIDE_LOOKUP_MS = 3_000L
+
 /**
  * Экран поездки закрылся сам или кнопкой (итог «Закрыть», отмена брони). Водитель с живыми бронями
- * рейса — в «Едут с тобой»; не узнали (нет сети) — тоже туда: там свои загрузка и «Повторить». Иначе —
- * [fallback] (карта, как раньше).
+ * рейса — в «Едут с тобой»; не узнали за [DRIVER_RIDE_LOOKUP_MS] (нет сети) — тоже туда: там свои
+ * загрузка и «Повторить». Последняя бронь (уже знаем после «Завершить» — сразу) — [fallback], карта, как раньше.
  */
 internal fun YuldashViewModel.endTripScreen(closedBookingId: Int?, fallback: () -> Unit) {
     activeTrip.value = null
-    if (closedBookingId == null || !isDriverOf(closedBookingId)) { fallback(); return }
+    if (closedBookingId == null || !isDriverOf(closedBookingId) || driverRideOverBooking.value == closedBookingId) {
+        fallback(); return
+    }
     val owner = ApiClient.queueSessionGeneration()
     viewModelScope.launch {
-        val remains = driverRideHasLiveBookings(closedBookingId, owner)
+        // Запрос — отдельной задачей: чтение сети отмену не слышит, и срок у дочерней задачи ждал бы его до конца.
+        val lookup = async(SupervisorJob()) { driverRideHasLiveBookings(closedBookingId, owner) }
+        val remains = withTimeoutOrNull(DRIVER_RIDE_LOOKUP_MS) { lookup.await() }
         if (!ApiClient.isCurrentSession(owner) || screen.value.contentScreen() != Screen.ActiveTrip ||
             activeBookingId.value != closedBookingId) return@launch
         if (remains == false) fallback() else returnToDriverRide()

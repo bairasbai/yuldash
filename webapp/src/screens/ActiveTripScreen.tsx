@@ -50,7 +50,7 @@ import AlertDialog from "../components/AlertDialog";
 import DriverLocationShare from "../components/DriverLocationShare";
 import { driverInTransit } from "../utils/tripLocationShare";
 import { driverRideRemains } from "../utils/driverRideShare";
-import { requestRidingFocus } from "../utils/rideShareStore";
+import { requestRidingFocus, rideShareHandoff } from "../utils/rideShareStore";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { track } from "../analytics";
 import { clearTripPassBoardingCode, dropTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
@@ -586,6 +586,9 @@ export default function ActiveTripScreen() {
     try {
       await setDriverStatus(bookingId, phase);
       if (!currentSession()) return;
+      // Д2: «Завершить» ушло — страница вот-вот отпустит точку, а кабинет подхватит её только после своих
+      // загрузок (на трассе — секунды). Держим её на переход; не подхватили — гаснет сама.
+      if (phase === "done") rideShareHandoff();
       const fresh = await fetchTripState(bookingId);
       if (!currentSession() || currentBookingIdRef.current !== bookingId) return;
       const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;

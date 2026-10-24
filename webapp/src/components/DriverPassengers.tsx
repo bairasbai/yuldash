@@ -41,7 +41,7 @@ import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
 import { BookingSegmentNote } from "./PickupStopChoice";
-import { rideShareKeep, takeRidingFocus } from "../utils/rideShareStore";
+import { rideShareKeep, subscribeRideShare, takeRidingFocus } from "../utils/rideShareStore";
 import RideShareNote from "./RideShareNote";
 
 /** Подтверждённая бронь — по ней можно отметить посадку («Сел») или неявку. */
@@ -74,6 +74,8 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
   /** По какой брони открыт «Сообщить о проблеме» и по каким разбор уже открыт. */
   const [disputeId, setDisputeId] = useState<number | null>(null);
   const [filedIds, setFiledIds] = useState<number[]>([]);
+  /** Д2: сайт ведёт рейс (режим включился, пока кабинет уже грузился) — список ещё раз берёт отправку. */
+  const [rideOn, setRideOn] = useState(false);
 
   const load = useCallback((signal?: AbortSignal) => {
     fetchDriverBookings(signal)
@@ -120,12 +122,13 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
   // Д2: точку рейса, начатую на странице поездки, держит и этот список — пока в нём есть живая бронь рейса.
   // Сам список отправку не начинает (rideShareKeep вернёт null, если её нет).
+  useEffect(() => subscribeRideShare((s) => setRideOn(s.ride && s.bookingId !== null)), []);
   useEffect(() => {
     const release = rideShareKeep(rows);
     return () => {
       release?.();
     };
-  }, [rows]);
+  }, [rows, rideOn]);
 
   // Водитель вернулся из закрытой поездки к оставшимся (Д2) — один раз подвести «Едут с тобой» к верху,
   // плавно (без движения — если человек отключил его в системе).

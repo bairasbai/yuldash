@@ -260,6 +260,49 @@ class TripLocationRideTest {
         assertTrue(noFrames())
     }
 
+    // «Завершить» — первый шаг водителя на этом телефоне (приёмка Д2, P1-А): экран, узнав, что пассажиры остались,
+    // уводит в «Едут с тобой» и отпускает поездку (release), пока служба ещё ждёт свой список.
+    @Test fun releaseWhileTheFirstFinishLookupIsInFlightKeepsGpsForTheOthers() {
+        val s = start(101)
+        expectOpened(101)
+        lookupGate = CountDownLatch(1)
+        serve(row(101, "done"), row(102, "onboard"))
+        TripLocationBus.driverAction(101, closed = true)
+        waitUntil("служба не пошла за списком") { lookups.get() == 1 }
+        TripLocationService.release(app)
+        assertNull("экран ушёл в «Едут с тобой» — служба погасла, второй пассажир теряет машину", shadowOf(app).nextStoppedService)
+        lookupGate!!.countDown()
+        expectOpened(102)
+        assertFalse(stopped(s))
+        assertTrue(TripLocationBus.rideShareActive)
+    }
+
+    @Test fun releaseWhileTheLookupIsInFlightStopsWhenNoOneIsLeft() {
+        val s = start(101)
+        expectOpened(101)
+        lookupGate = CountDownLatch(1)
+        serve(row(101, "done"))
+        TripLocationBus.driverAction(101, closed = true)
+        waitUntil("служба не пошла за списком") { lookups.get() == 1 }
+        TripLocationService.release(app)
+        lookupGate!!.countDown()
+        waitUntil("последний пассажир закрыт, экран отпустил — GPS обязан погаснуть") { stopped(s) }
+        assertTrue(gpsOff())
+        assertTrue(prefs.all.isEmpty())
+    }
+
+    @Test fun staleStartWhileSearchingDoesNotReopenTheClosedChannel() {
+        rideOf101and102()
+        lookupGate = CountDownLatch(1)
+        serve(row(101, "done"), row(102, "onboard"))
+        sockets.getValue(101).close(1008, "Trip ended")
+        waitUntil("служба не пошла за списком") { lookups.get() == 2 }
+        start(101)   // экран закрытой поездки переотправил старт, пока служба ищет следующую бронь
+        assertTrue("служба снова открыла канал закрытой брони и бросила поиск", noneOpened())
+        lookupGate!!.countDown()
+        expectOpened(102)
+    }
+
     @Test fun staleScreenDoesNotReturnGpsToTheClosedChannel() {
         rideOf101and102()
         serve(row(101, "done"), row(102, "onboard"))

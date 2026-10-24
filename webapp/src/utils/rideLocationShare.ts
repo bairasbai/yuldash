@@ -52,6 +52,12 @@ export interface RideShareDeps {
 export const HOLD_GRACE_MS = 1500;
 /** Нет сети при поиске следующей брони — столько повторов (≈ 9 минут), потом гаснем. */
 export const MAX_RESOLVE_ATTEMPTS = 20;
+/**
+ * Переход «Завершить» → кабинет (приёмка Д2, P1-Б): кабинет подхватывает отправку только после своих
+ * загрузок, а на трассе это дольше паузы на смену маршрута. Столько держим отправку сами, пока «Едут с тобой»
+ * не возьмёт её; не взял — гаснем.
+ */
+export const HANDOFF_MS = 20_000;
 
 const isLive = (r: CarrierRow) => r.status === "onboard" || r.status === "confirmed";
 
@@ -69,6 +75,7 @@ export function createRideShare(deps: RideShareDeps) {
   let pendingClose = 0; // «Завершить» по несущей без режима рейса: ждём список, а не гаснем
   let retryTimer: unknown = null;
   let graceTimer: unknown = null;
+  let handoff: { token: symbol; timer: unknown } | null = null; // «Завершить» → кабинет: держим, пока он не взял
   const holders = new Set<symbol>();
   const listeners = new Set<(s: RideShareSnapshot) => void>();
 
@@ -97,6 +104,9 @@ export function createRideShare(deps: RideShareDeps) {
     clearTimer(retryTimer);
     clearTimer(graceTimer);
     retryTimer = graceTimer = null;
+    if (handoff) clearTimer(handoff.timer);
+    handoff = null;
+    holders.clear();
     bookingId = null;
     state = null;
     ride = null;
@@ -234,6 +244,14 @@ export function createRideShare(deps: RideShareDeps) {
     graceTimer = null;
   }
 
+  function endHandoff() {
+    const h = handoff;
+    if (!h) return;
+    handoff = null;
+    clearTimer(h.timer);
+    release(h.token);
+  }
+
   function release(token: symbol) {
     if (!holders.delete(token) || holders.size > 0) return;
     clearTimer(graceTimer);
@@ -271,7 +289,18 @@ export function createRideShare(deps: RideShareDeps) {
       if (!rows.some((x) => x.ride_id === r.rideId && isLive(x) && !closed.has(x.booking_id))) return null;
       const token = Symbol("cabinet");
       hold(token);
+      endHandoff(); // кабинет взял отправку — переходная держалка больше не нужна
       return () => release(token);
+    },
+    /**
+     * «Завершить» прошло, водитель уходит к «Едут с тобой»: держать отправку на время перехода, пока кабинет
+     * не возьмёт её (не дольше [HANDOFF_MS]). Отправки нет — ничего.
+     */
+    handoff(): void {
+      if (bookingId === null || handoff) return;
+      const token = Symbol("handoff");
+      hold(token);
+      handoff = { token, timer: deps.setTimer(endHandoff, HANDOFF_MS) };
     },
     action,
     retry() {
