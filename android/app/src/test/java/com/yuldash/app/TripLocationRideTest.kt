@@ -70,6 +70,7 @@ class TripLocationRideTest {
     @Volatile private var rows = "[]"
     @Volatile private var lookupGate: CountDownLatch? = null
     @Volatile private var offline = false                                 // запросы списка обрываются (нет сети)
+    @Volatile private var closeBeforeReply = 0                            // канал этой брони сервер закроет до ответа на шаг
 
     private val lat0 = 54.7388
     private val lng0 = 55.9721
@@ -92,6 +93,14 @@ class TripLocationRideTest {
                         }
                         override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, reason) }
                     })
+                }
+                if (request.method == "POST" && (path.endsWith("/driver-status") || path.endsWith("/no-show"))) {
+                    val id = Regex("^/bookings/(\\d+)/").find(path)?.groupValues?.get(1)?.toInt()
+                    if (id != null && id == closeBeforeReply) {
+                        sockets[id]?.close(1008, "Trip ended")   // как bookings.driver_status: канал закрыт до ответа
+                        Thread.sleep(500)
+                    }
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"ok":true,"status":"done"}""")
                 }
                 if (path == "/driver/bookings") {
                     lookups.incrementAndGet()
@@ -309,6 +318,31 @@ class TripLocationRideTest {
         assertTrue(result.isSuccess)
         expectOpened(102)
         assertFalse(stopped(s))
+    }
+
+    // Третья приёмка Д2, P2: настоящие ручки клиента — «Завершить», «Не пришёл» и шаг из очереди — сообщают службе
+    // о шаге ДО запроса. Сервер здесь, как настоящий, закрывает канал брони раньше, чем отвечает.
+    private fun closingStepSurvivesTheEarlyChannelClose(send: () -> Result<Unit>) {
+        val s = start(101)
+        expectOpened(101)
+        serve(row(101, "done"), row(102, "onboard"))
+        closeBeforeReply = 101
+        assertTrue(send().isSuccess)
+        expectOpened(102)
+        assertFalse("канал закрылся раньше ответа — служба погасла при живом рейсе", stopped(s))
+    }
+
+    @Test fun finishThroughApiClientSurvivesTheEarlyChannelClose() =
+        closingStepSurvivesTheEarlyChannelClose { kotlinx.coroutines.runBlocking { ApiClient.driverStatus(101, "done") } }
+
+    @Test fun noShowThroughApiClientSurvivesTheEarlyChannelClose() =
+        closingStepSurvivesTheEarlyChannelClose { kotlinx.coroutines.runBlocking { ApiClient.markNoShow(101) } }
+
+    @Test fun queuedFinishSurvivesTheEarlyChannelClose() = closingStepSurvivesTheEarlyChannelClose {
+        kotlinx.coroutines.runBlocking {
+            ApiClient.sendQueuedAction(com.yuldash.app.data.OutboxAction(1L, 101, "driver_status", "done", System.currentTimeMillis()),
+                ApiClient.queueSessionGeneration())
+        }
     }
 
     @Test fun finishRefusedAfterTheChannelClosedTurnsGpsOff() {
