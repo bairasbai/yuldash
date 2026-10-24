@@ -214,18 +214,21 @@ def guard_can_delete(session: Session, user: User) -> None:
                 _ping_duty(user.id, "held", hold.booking_ids,
                            f"просит удалить данные, а по брони {{брони}} (отменили в пути) открыт разбор. Закрой "
                            f"разбор — удаление пройдёт; держим не дольше 30 дней от отмены, до {hold.until_local()} (Уфа).")
+            if hold.blocks:
+                raise hold.refusal()
+            # Удаление проходит, хотя разбор открыт: предел 30 дней истёк. Весть — только когда правда
+            # удаляем (итоговая приёмка 24.10: при отказе «удаляет данные» было бы неправдой).
             if hold.past_cap_ids:
                 _ping_duty(user.id, "past-cap", hold.past_cap_ids,
                            "удаляет данные: разбор по брони {брони} (отменили в пути) открыт дольше 30 дней от "
-                           "отмены и удаление больше не держит. Бронь уйдёт вместе с аккаунтом, спор и улики "
-                           "второй стороны останутся обезличенными.")
-            if hold.blocks:
-                raise hold.refusal()
+                           "отмены и удаление больше не держит. Бронь уйдёт вместе с аккаунтом; останется факт "
+                           "разбора без ссылки на аккаунт (в споре — ещё и материалы второй стороны).")
 
 
 # Предел удержания удаления открытым разбором (решение Александра 24.10.2026): от отмены в пути. Дальше
 # держать весь аккаунт нельзя — по 152-ФЗ после отзыва согласия оставляют только нужное для разбора, а
-# страница удаления обещает «не более 30 дней»; спор и улики второй стороны и так переживают удаление.
+# страница удаления обещает «не более 30 дней»; факт разбора (а в споре — и материалы второй стороны)
+# и так переживает удаление, обезличенным.
 TRANSIT_REVIEW_HOLD_MAX = timedelta(days=30)
 
 
@@ -329,8 +332,10 @@ def transit_cancel_hold(session: Session, my_ride_ids: list, now=None) -> Option
     blocking = sorted((b for b in reviewed if now <= cap[b]), reverse=True)
     past_cap = sorted((b for b in reviewed if now > cap[b]), reverse=True)
     if blocking:
-        return TransitCancelHold(review_open=True, booking_ids=blocking, until=max(cap[b] for b in blocking),
-                                 past_cap_ids=past_cap)
+        # «Не позже» — по всем отменам в пути, чей предел ещё не наступил: по свежей брони без разбора
+        # жалобу могут подать позже, и тогда держит уже она (итоговая приёмка 24.10). Одна бронь — то же число.
+        latest = max(c for c in cap.values() if c >= now)
+        return TransitCancelHold(review_open=True, booking_ids=blocking, until=latest, past_cap_ids=past_cap)
     until = max(at + PROBLEM_REPORT_WINDOW for _bid, _pid, _on, at in rows)
     if until > now:
         return TransitCancelHold(review_open=False, booking_ids=ids, until=until, past_cap_ids=past_cap)

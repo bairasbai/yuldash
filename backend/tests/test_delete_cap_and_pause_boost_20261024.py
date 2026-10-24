@@ -114,9 +114,41 @@ def test_старый_разбор_не_держит_а_свежий_держи�
     r = client.post("/me/delete", headers=driver["auth"])
     assert r.status_code == 409 and r.json()["detail"]["code"] == "transit_cancel_review_open"
     held = [t for t in tg if "просит удалить" in t]
-    past = [t for t in tg if "удаляет данные" in t]
     assert held and re.search(rf"#{bid2}\b", held[0]) and not re.search(rf"#{old_bid}\b", held[0])
-    assert past and re.search(rf"#{old_bid}\b", past[0])
+    assert not [t for t in tg if "удаляет данные" in t], "удаление отказано — «удаляет данные» неправда"
+    # Свежий разбор закрыли — удаление проходит, и только теперь дежурный узнаёт про старый открытый разбор.
+    with Session(engine) as s:
+        for inc in s.exec(select(Incident).where(Incident.booking_id == bid2)).all():
+            inc.status = "resolved"
+            s.add(inc)
+        s.commit()
+    assert client.post("/me/delete", headers=driver["auth"]).status_code == 200
+    past = [t for t in tg if "удаляет данные" in t]
+    assert past and re.search(rf"#{old_bid}\b", past[0]) and "факт разбора" in past[0]
+
+
+def test_не_позже_считается_по_всем_отменам_в_пути(client, user_factory, tg):
+    """Спор по старой отмене (предел через минуту) и свежая отмена без разбора: «не позже» — по свежей,
+    по ней жалобу ещё могут подать (итоговая приёмка 24.10)."""
+    driver, pax, ride, old_bid = _in_transit_with_review(client, user_factory, "непозже", days_ago=30)
+    with Session(engine) as s:   # предел старой — через минуту
+        b = s.get(Booking, old_bid)
+        b.cancelled_at = utcnow() - timedelta(days=30) + timedelta(minutes=1)
+        s.add(b)
+        s.commit()
+    pax2 = user_factory("Предел непозже пассажир-2")
+    ride2 = client.post("/rides", headers=driver["auth"], json={
+        "from_city": "Уфа", "to_city": "Сибай", "price": 500, "seats_total": 3,
+        "depart_at": (utcnow() + timedelta(minutes=20)).isoformat() + "+00:00"}).json()
+    bid2 = client.post("/bookings", headers=pax2["auth"], json={"ride_id": ride2["id"], "seats": 1}).json()["id"]
+    assert client.post(f"/bookings/{bid2}/confirm", headers=driver["auth"]).status_code == 200
+    assert client.post(f"/bookings/{bid2}/driver-status", headers=driver["auth"], json={"status": "boarded"}).status_code == 200
+    assert client.post(f"/bookings/{bid2}/cancel", headers=driver["auth"], json={"reason": "other"}).status_code == 200
+    r = client.post("/me/delete", headers=driver["auth"])
+    assert r.status_code == 409 and r.json()["detail"]["code"] == "transit_cancel_review_open"
+    with Session(engine) as s:
+        fresh_cap = s.get(Booking, bid2).cancelled_at + timedelta(days=30)
+    assert r.json()["detail"]["delete_no_later_than"] == fresh_cap.isoformat()
 
 
 def test_минимум_шесть_часов_остаётся(client, user_factory, tg):
