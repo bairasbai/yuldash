@@ -13,6 +13,7 @@ internal class BoardingUndoState(private val readState: suspend (Int) -> Result<
     private var revision = 0
     private var onboardAt: String? = null
     private var correctedAt: String? = null
+    private val supersededRead = ApiException(409, "")
 
     fun accept(current: String, incoming: String, terms: BoardingUndoTerms): Boolean {
         if (current == "done" || current == "cancelled") return false
@@ -53,6 +54,14 @@ internal class BoardingUndoState(private val readState: suspend (Int) -> Result<
     suspend fun read(bookingId: Int): Result<TripStateDto> {
         val requested = revision
         val result = readState(bookingId)
-        return if (requested == revision) result else Result.failure(ApiException(409, ""))
+        // An underlying failure keeps the old 409 contract, without permission to retry it.
+        return if (requested == revision) result
+            else Result.failure(if (result.isSuccess) supersededRead else ApiException(409, ""))
+    }
+
+    /** Only a locally superseded payload permits one new read; neither old payload is applied. */
+    suspend fun readFresh(bookingId: Int): Result<TripStateDto> {
+        val first = read(bookingId)
+        return if (first.exceptionOrNull() === supersededRead) read(bookingId) else first
     }
 }

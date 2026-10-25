@@ -26,6 +26,7 @@ internal object SessionKeys {
         "refresh_token",   // токен продления сессии
         "refresh_rotation_id", // секрет одной попытки продления, не переживает смену аккаунта
         "refresh_rotation_token", // ключ, к которому привязана эта попытка
+        "offline_trip_session_scope", // подтверждённый владелец нового снимка; новый вход создаёт другой UUID
         "sos_pending_intent", // nonce/hash незавершённого SOS принадлежат этому входу
         "user_name",       // имя человека
         "user_role",       // кем он был в приложении
@@ -93,6 +94,8 @@ internal object SessionKeys {
      * а не в `CLEARED_BY_FILE`: поштучно её удалять не нужно, сброс забирает ящик целиком.
      */
     val CLEARED_BY_STORE: Map<String, List<String>> = mapOf(
+        "yuldash_trip_snapshot_meta_v1" to listOf("barriers"), // только scoped-хэши, закрывают старые записи до физической очистки
+        "yuldash_trip_snapshot_secure_v1" to emptyList(), // динамические owner/scope namespace очищает OfflineTripSnapshots
         "yuldash_trippass_v2" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
         "yuldash_outbox_v2" to listOf(OfflineMigration.JOURNAL, "queue"),
         "yuldash_trippass" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),

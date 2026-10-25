@@ -21,6 +21,11 @@ const sockets = new Set();
 const identity = { owner: process.env.RSACC_OWNER || "RIDESHARE-CLAUDE-FINISH-20261024", repo: resolve(dirname(fileURLToPath(import.meta.url)), "../.."), ports: [LISTEN, UP, 8099] };
 
 function family(ua = "") { return /okhttp|Dalvik|Android/i.test(ua) && !/Chrome/i.test(ua) ? "android" : /Chrome|Mozilla/i.test(ua) ? "browser" : /node|undici/i.test(ua) ? "harness" : "other"; }
+function deadlineMs(value) {
+  if (typeof value !== "string" || !value) return null;
+  const parsed = Date.parse(/[zZ]$|[+-]\d\d:\d\d$/.test(value) ? value : value + "Z");
+  return Number.isFinite(parsed) ? parsed : null;
+}
 function record(e) {
   e = redact(e); e.n = wire.length + 1; e.at = new Date().toISOString(); wire.push(e);
   if (LOG) appendFileSync(LOG, JSON.stringify(e) + "\n");
@@ -49,9 +54,26 @@ const server = http.createServer((req, res) => {
       });
       return;
     }
+    const observeWindows = req.method === "GET" && path.split("?")[0] === "/driver/bookings" && ur.statusCode === 200;
+    const windowChunks = []; let windowBytes = 0;
+    if (observeWindows) ur.on("data", c => { windowBytes += c.length; if (windowBytes <= 1024 * 1024) windowChunks.push(c); });
     res.writeHead(ur.statusCode, ur.headers);
     ur.pipe(res);
-    ur.on("end", () => record({ method: req.method, path: cleanPath(path), client: fam, status: ur.statusCode, ms: Date.now() - t0 }));
+    ur.on("end", () => {
+      let projected = {};
+      if (observeWindows) {
+        try {
+          if (windowBytes > 1024 * 1024) throw new Error("window response exceeds bound");
+          const rows = JSON.parse(Buffer.concat(windowChunks).toString("utf8"));
+          if (!Array.isArray(rows)) throw new Error("driver bookings is not an array");
+          // Keep only timing fields observed by the real client: no phones, codes or coordinates.
+          projected = { driver_windows: rows.map(r => ({ booking_id: r.booking_id ?? r.id, status: r.status,
+            arriving_opens_at_ms: deadlineMs(r.arriving_opens_at), arriving_wait_sec: r.arriving_wait_sec,
+            no_show_at_ms: deadlineMs(r.no_show_at), no_show_wait_sec: r.no_show_wait_sec })) };
+        } catch (e) { projected = { driver_windows_error: String(e.message) }; }
+      }
+      record({ method: req.method, path: cleanPath(path), client: fam, status: ur.statusCode, ms: Date.now() - t0, ...projected });
+    });
   });
   up.on("error", (e) => { record({ method: req.method, path: cleanPath(path), client: fam, outcome: "upstream_error", error: e.code }); res.destroy(); });
   req.pipe(up);

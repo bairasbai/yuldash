@@ -42,8 +42,16 @@ class RideshareDriverExecutionJourneyTest {
     @Volatile private var bookingStatus = "confirmed"
     @Volatile private var rejectedStatus = ""
     @Volatile private var refusal = 409
+    private val diagnosticStartNs = System.nanoTime()
+    private var previousApiTrace: ((String) -> Unit)? = null
+    private fun trace(event: String) {
+        println("driver-journey-diag wallMs=${System.currentTimeMillis()} elapsedNs=${System.nanoTime() - diagnosticStartNs} " +
+            "generation=${ApiClient.queueSessionGeneration()} event=$event")
+    }
 
     @Before fun prepare() {
+        previousApiTrace = ApiClient.testTrace
+        ApiClient.testTrace = { trace("api $it") }
         ApiClient.resetForTest()
         ApiClient.logout() // Controlled REST without authenticated live socket/map.
         TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
@@ -52,8 +60,15 @@ class RideshareDriverExecutionJourneyTest {
         assertTrue(TripPassStore.save(context, pass))
         server.dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse {
+                trace("http-in method=${request.method} path=${request.path}")
+                val response = respond(request)
+                trace("http-out method=${request.method} path=${request.path} code=${response.status.substringAfter(' ').substringBefore(' ')}")
+                return response
+            }
+            private fun respond(request: RecordedRequest): MockResponse {
                 if (request.path == "/bookings/42/driver-status") {
                     val status = JSONObject(request.body.readUtf8()).getString("status")
+                    trace("driver-command status=$status previousPhase=$phase previousStatus=$bookingStatus")
                     posted += status
                     if (status == rejectedStatus) return MockResponse().setResponseCode(refusal)
                         .setBody("""{"detail":{"ru":"Переход отклонён","ba":"Күсеү кире ҡағылды"}}""")
@@ -74,6 +89,10 @@ class RideshareDriverExecutionJourneyTest {
                     "/bookings/42/tip" -> """{"already_thanked":false}"""
                     else -> return MockResponse().setResponseCode(404).setBody("{}")
                 }
+                if (request.path == "/bookings/42/role") {
+                    val state = JSONObject(body)
+                    trace("role-response role=${state.getString("role")} status=${state.getString("status")} driverPhase=${state.getString("driver_phase")}")
+                }
                 return MockResponse().setBody(body)
             }
         }
@@ -83,15 +102,19 @@ class RideshareDriverExecutionJourneyTest {
     }
 
     @After fun cleanup() {
-        compose.runOnIdle { mounted.value = false }
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
+        try {
+            compose.runOnIdle { mounted.value = false }
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            Outbox.initStores(MemoryDiskPreferences(), null)
+            server.shutdown()
+        } finally { ApiClient.testTrace = previousApiTrace }
     }
     private fun mount(text: String) {
+        trace("mount target=$text phase=$phase status=$bookingStatus authLogged=${ApiClient.isLoggedIn()} " +
+            "publishedGeneration=${ApiClient.sessionChanges.value} snapshotTrusted=${com.yuldash.app.data.OfflineTripSnapshots.owner.value != null}")
         mounted.value = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -101,9 +124,22 @@ class RideshareDriverExecutionJourneyTest {
         }
         waitFor(text)
     }
-    private fun waitFor(text: String) = compose.waitUntil(10000) {
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    private fun waitFor(text: String) {
+        try {
+            compose.waitUntil(10000) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (failure: Throwable) {
+            runCatching {
+                trace("wait-failed target=$text type=${failure.javaClass.simpleName} phase=$phase status=$bookingStatus " +
+                    "postedCount=${posted.size} publishedGeneration=${ApiClient.sessionChanges.value} " +
+                    "mainClockMs=${compose.mainClock.currentTime} autoAdvance=${compose.mainClock.autoAdvance}")
+            }
+            runCatching { println("driver-journey-diag semantics-unmerged\n" + compose.onRoot(useUnmergedTree = true).printToString()) }
+                .onFailure { trace("semantics-unavailable type=${it.javaClass.simpleName}") }
+            throw failure
+        }
     }
     private fun pump() {
         repeat(15) {

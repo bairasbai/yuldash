@@ -783,7 +783,8 @@ private fun YuldashAppContent() {
             val sessionToken = ApiClient.currentToken()
             val requestedSession = navigationSession
             if (!ApiClient.isLoggedIn()) { screen = Screen.Login; return@LaunchedEffect }
-            val result = ApiClient.getTripState(bid)
+            val navigationRead = readBookingNavigation(bid)
+            val result = navigationRead.live
             if (!isActive) return@LaunchedEffect
             if (vm.pendingBookingNavigation.value != destination || !ApiClient.isCurrentSession(requestedSession)) return@LaunchedEffect
             // В том числе после обновления токена: новый запрос проверит текущую сессию.
@@ -797,10 +798,12 @@ private fun YuldashAppContent() {
                     // Водителя не ведём на пассажирскую «Бронь»: кабинет или экран поездки (BookingLinkDestination.kt).
                     val onCabinet = screen == Screen.DriverCabinet
                     // Отменили в пути (23.10.2026): пассажира — сразу на экран поездки с SOS, а не на «Найти другую поездку».
-                    val target = vm.applyBookingLink(bid, state.role, state.status, completed, state.cancelledInTransit)
+                    val target = vm.applyLiveSnapshotRoute(bid, state.role, state.status, completed, state.cancelledInTransit)
                     activeTripTerminalHint = knownTerminalTripHint(bid, state.status, state.role, state.cancelledInTransit)
                     if (target != Screen.DriverCabinet) selectedBookingStatus = state.status
                     else if (onCabinet) driverCabinetEpoch++   // уже в кабинете: пересоздаём, чтобы бронь появилась
+                } else if (vm.applyOfflineBookingRead(navigationRead, destination.revision)) {
+                    activeTripTerminalHint = null
                 } else {
                     rideLinkUnavailable = (result.exceptionOrNull() as? ApiException)?.status in listOf(403, 404, 410)
                     failedBookingDestination = completed
@@ -865,14 +868,16 @@ private fun YuldashAppContent() {
     // дочитываем её по сохранённому id. Ответ применяется только к исходному экрану, брони
     // и сессии; уход со страницы отменяет загрузчик. Live-гео включается лишь для активной поездки.
     // Не нашлась текущая бронь / нет сети → Home (прежнее поведение).
-    LaunchedEffect(screen, activeBookingId, navigationSession) {
-        if ((screen == Screen.Booking || screen.contentScreen() == Screen.ActiveTrip) && selectedRide == null && activeTrip == null) {
+    LaunchedEffect(screen, activeBookingId, navigationSession, vm.offlineTripSnapshot.value) {
+        if ((screen == Screen.Booking || screen.contentScreen() == Screen.ActiveTrip) && selectedRide == null && activeTrip == null && vm.offlineTripSnapshot.value == null) {
             val bid = activeBookingId
             val requestedScreen = screen
             val requestedSession = navigationSession
             val restoreScope = this
+            val restoreRevision = vm.privateNavigationRevision
             fun isCurrentRestore() = restoreScope.isActive && screen == requestedScreen &&
                 activeBookingId == bid && selectedRide == null && activeTrip == null &&
+                vm.offlineTripSnapshot.value == null && vm.privateNavigationRevision == restoreRevision &&
                 ApiClient.isCurrentSession(requestedSession)
             var restored = false
             if (bid != null) {
@@ -906,6 +911,12 @@ private fun YuldashAppContent() {
                     if (screen.contentScreen() == Screen.ActiveTrip && !bookingStatusAllowsActiveTrip(b.status) && !b.cancelledInTransit) screen = Screen.Booking
                     restored = true
                 }
+            }
+            if (!restored && bid != null && isCurrentRestore()) restored = restoreBookingSnapshotNavigation(
+                vm, bid, requestedScreen, restoreRevision, requestedSession, ::isCurrentRestore,
+            ) { state ->
+                state?.let { selectedBookingStatus = it.status }
+                activeTripTerminalHint = state?.let { knownTerminalTripHint(bid, it.status, it.role, it.cancelledInTransit) }
             }
             if (!restored && isCurrentRestore()) screen = Screen.Home
         }
@@ -1062,6 +1073,7 @@ private fun YuldashAppContent() {
         }
     }
     CompositionLocalProvider(LocalAppLanguage provides language, LocalOpenDriverProfile provides openDriverProfile) {
+        OfflineSnapshotSaveNotice()
         // Force-update (B9b-1): версия ниже минимальной → блокирующий экран вместо всего приложения.
         // Не экран навигации (enum Screen) намеренно: из него нельзя выйти «Назад» — только обновиться.
         if (forceUpdateRequired) {
@@ -1434,19 +1446,14 @@ private fun YuldashAppContent() {
                 }
             )
             }
-            Screen.ActiveTrip, Screen.TripChat -> ActiveTripScreen(
-                ride = selectedRide, contacts = trustedContacts, bookingId = activeBookingId,
-                terminalHint = activeTripTerminalHint,
-                chatOpen = screen.tripChatView(), onChatOpenChange = vm::showTripChat,
-                onBack = { if (screen.contentScreen() == Screen.ActiveTrip) goBack() }, onTripEnd = { vm.endTripScreen(activeBookingId) { openHome(HomeTab.Map) } },
-                onDriverFinished = { bid -> vm.driverFinishedBooking(bid) },   // остались пассажиры рейса — «Едут с тобой» (Д2)
-                // Дежурный должен узнать из сигнала, с кем и куда человек уехал (аудит 2026-08-06).
-                onSos = { openSos(bookingId = activeBookingId ?: 0) },
-                onSupport = { screen = Screen.Support },
+            Screen.ActiveTrip, Screen.TripChat -> GuardedActiveTripDestination(
+                vm = vm, session = navigationSession, contacts = trustedContacts, terminalHint = activeTripTerminalHint,
+                chatOpen = screen.tripChatView(), onBack = { goBack() },
+                onTripEnd = { vm.endTripScreen(activeBookingId) { openHome(HomeTab.Map) } },
+                onSos = { openSos(bookingId = activeBookingId ?: 0) }, onSupport = { screen = Screen.Support },
                 onTrustedContacts = { openTrustedContacts(returnScreen = Screen.ActiveTrip) },
-                // Отменили в пути: экран помощи остаётся, а живое гео и маршрут на карте гаснут сразу.
                 onTripStopped = { activeTrip = null },
-                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }
+                onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt }, currentReceiptBookingId = { receiptBookingId }
             )
             Screen.Sos -> SosScreen(
                 onBack = { goBack() },

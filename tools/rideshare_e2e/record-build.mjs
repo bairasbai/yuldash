@@ -2,15 +2,20 @@
 // After successful assembleDebug + PWA build: node record-build.mjs after
 // No shared process starts here. The source snapshot and output timestamps must agree.
 import { mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, extname, join, resolve } from "node:path";
 import { EVID, REPO } from "./lib/common.mjs";
 import { sourceSnapshot, sha256File, distHash } from "./lib/provenance.mjs";
 const mode = process.argv[2];
 if (!["before", "after"].includes(mode)) throw new Error("Expected before|after");
 mkdirSync(EVID, { recursive: true });
-const path = join(EVID, "build-inputs.json");
+const path = resolve(process.env.RSACC_BUILD_INPUTS || join(EVID, "build-inputs.json"));
+const bindingPath = resolve(process.env.RSACC_BUILD_BINDING || join(EVID, "build-binding.json"));
+for (const output of [path, bindingPath]) {
+  if (dirname(output).toLowerCase() !== resolve(EVID).toLowerCase() || extname(output) !== ".json") throw new Error("Build records must be JSON directly in this evidence directory");
+}
+if (path.toLowerCase() === bindingPath.toLowerCase()) throw new Error("Input and binding records need distinct paths");
 if (mode === "before") {
-  writeFileSync(path, JSON.stringify({ at: new Date().toISOString(), source: sourceSnapshot(REPO) }, null, 2));
+  writeFileSync(path, JSON.stringify({ at: new Date().toISOString(), source: sourceSnapshot(REPO) }, null, 2), { flag: "wx" });
 } else {
   const before = JSON.parse(readFileSync(path, "utf8")), source = sourceSnapshot(REPO);
   if (JSON.stringify(before.source) !== JSON.stringify(source)) throw new Error("Source/Git changed during build; record a new before snapshot and rebuild");
@@ -31,6 +36,6 @@ if (mode === "before") {
   if (records[0].cwd.replace(/\\/g, "/").toLowerCase() !== join(REPO, "android").replace(/\\/g, "/").toLowerCase() || records[1].cwd.replace(/\\/g, "/").toLowerCase() !== join(REPO, "webapp").replace(/\\/g, "/").toLowerCase()) throw new Error("Build receipts belong to another checkout");
   if (statSync(index).mtimeMs < started) throw new Error("PWA output predates this build");
   const binding = { source, started_at: before.at, finished_at: new Date().toISOString(), apk_sha256: sha256File(apk), pwa_dist_sha256: distHash(REPO), build_receipts: receipts.map((p) => ({ path: p, sha256: sha256File(p) })) };
-  writeFileSync(join(EVID, "build-binding.json"), JSON.stringify(binding, null, 2));
+  writeFileSync(bindingPath, JSON.stringify(binding, null, 2), { flag: "wx" });
 }
 console.log("Build " + mode + " recorded");

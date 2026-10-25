@@ -96,20 +96,29 @@ internal fun NoShowTerms.afterRefusal(code: String, detail: JSONObject?, nowMs: 
 internal object BoardingApi {
 
     /** «Сел»: подтверждённая бронь → «в пути». Не раньше чем за 30 минут до выезда; повтор — тот же ответ. */
-    suspend fun markBoarded(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<BoardingResult> =
-        ApiClient.authorized("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", "boarded"), owner)
+    suspend fun markBoarded(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<BoardingResult> {
+        val ticket = OfflineTripSnapshots.ackTicket()?.takeIf { it.owner.generation == owner }
+        return ApiClient.authorized("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", "boarded"), owner)
             .map(::parseBoardingResult)
+            .onSuccess { OfflineTripSnapshots.boarding(ticket, bookingId, "driver", it) }
             .onSuccess { TripLocationBus.driverAction(bookingId, closed = false) }   // Д2: водитель ведёт рейс с этого телефона
+    }
 
     /** «Отменить» свою отметку — промахнулся карточкой. Только в первые 5 минут, позже сервер ответит 409. */
-    suspend fun undoBoarded(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<BoardingResult> =
-        ApiClient.authorized("POST", "/bookings/$bookingId/boarded/undo", JSONObject(), owner)
+    suspend fun undoBoarded(bookingId: Int, owner: Long = ApiClient.queueSessionGeneration()): Result<BoardingResult> {
+        val ticket = OfflineTripSnapshots.ackTicket()?.takeIf { it.owner.generation == owner }
+        return ApiClient.authorized("POST", "/bookings/$bookingId/boarded/undo", JSONObject(), owner)
             .map(::parseBoardingResult)
+            .onSuccess { OfflineTripSnapshots.boarding(ticket, bookingId, "driver", it) }
+    }
 
     /** Пассажир отвечает только на этот запрос; чужая сессия не может отправить ответ. */
-    suspend fun respondUndo(bookingId: Int, requestId: String, confirm: Boolean, owner: Long): Result<BoardingResult> =
-        ApiClient.authorized("POST", "/bookings/$bookingId/boarded/undo/respond", JSONObject().put("request_id", requestId).put("confirm", confirm), owner)
+    suspend fun respondUndo(bookingId: Int, requestId: String, confirm: Boolean, owner: Long): Result<BoardingResult> {
+        val ticket = OfflineTripSnapshots.ackTicket()?.takeIf { it.owner.generation == owner }
+        return ApiClient.authorized("POST", "/bookings/$bookingId/boarded/undo/respond", JSONObject().put("request_id", requestId).put("confirm", confirm), owner)
             .map(::parseBoardingResult)
+            .onSuccess { OfflineTripSnapshots.boarding(ticket, bookingId, "passenger", it) }
+    }
 
     /**
      * «Подъезжаю» с карточки «Едут с тобой» (поездка с остановками, 18.10.2026): пассажиру уходит

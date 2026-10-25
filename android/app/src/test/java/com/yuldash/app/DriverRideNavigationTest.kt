@@ -160,8 +160,23 @@ class DriverRideNavigationTest {
         val effect = src.substringAfter("LaunchedEffect(activeBookingId, activeTrip").substringBefore("\n    }")
         assertTrue("уход с экрана снова гасит GPS рейса", effect.contains("TripLocationService.release(context)"))
         assertFalse(effect.contains("TripLocationService.stop(context)"))
-        assertTrue(src.contains("onDriverFinished = { bid -> vm.driverFinishedBooking(bid) }"))
-        assertTrue(src.contains("onTripEnd = { vm.endTripScreen(activeBookingId)"))
+        // Cold/offline + FileSizeRatchet moved only the guarded destination. Follow root → helper
+        // → original driver handler; keep release/stop and stale-callback protection checked separately.
+        val destination = src.substringAfter("Screen.ActiveTrip, Screen.TripChat -> GuardedActiveTripDestination(").substringBefore("Screen.Sos ->")
+        assertTrue("root не передаёт ту же VM/сессию в guarded destination", destination.contains("vm = vm, session = navigationSession"))
+        val helper = File("src/main/java/com/yuldash/app/OfflineTripSnapshotNavigation.kt").readText()
+        assertTrue("завершение водителя обошло исходный обработчик/guard",
+            helper.contains("onDriverFinished = { bid -> if (currentLive()) vm.driverFinishedBooking(bid) else false }"))
+        val identity = helper.substringAfter("fun currentIdentity() =").substringBefore("\n        fun currentLive()")
+        val live = helper.lineSequence().first { it.trimStart().startsWith("fun currentLive()") }
+        assertTrue("live guard перестал проверять captured identity и текущий экран",
+            live.contains("currentIdentity() && vm.screen.value.contentScreen() == Screen.ActiveTrip"))
+        assertTrue("уходящий экран потерял проверку session/revision/booking/ride/owner",
+            identity.contains("vm.offlineTripSnapshot.value == null") && identity.contains("vm.selectedRide.value == ride") &&
+                identity.contains("vm.activeBookingId.value == booking") && identity.contains("vm.privateNavigationRevision == revision") &&
+                identity.contains("ApiClient.isCurrentSession(session)") && identity.contains("ApiClient.myUserId() == owner"))
+        assertEquals("обёртка добавила ещё один вызов завершения водителя", 1, Regex("vm\\.driverFinishedBooking\\(").findAll(helper).count())
+        assertTrue(destination.contains("onTripEnd = { vm.endTripScreen(activeBookingId)"))
         val stopper = src.substringAfter("internal fun stopLiveTracking").substringBefore("\n}")
         assertTrue("выход из аккаунта перестал гасить GPS", stopper.contains("TripLocationService.stop(context)"))
     }

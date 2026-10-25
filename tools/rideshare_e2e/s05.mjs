@@ -59,6 +59,26 @@ function noSecretsInText(text, source) {
   const digits = String(text).replace(/[^0-9]/g, "");
   sc.check(!sensitive.some(v => digits.includes(v.replace(/[^0-9]/g, ""))), source + ": other participants' phone and boarding code are absent");
 }
+async function openActiveFamilyLink(link, shot) {
+  const stateUrl = link.replace(/\/+$/, "") + "/state.json";
+  const observed = family.page.waitForResponse(r => r.url() === stateUrl && r.status() === 200, { timeout: 20000 });
+  await family.page.goto(link, { waitUntil: "domcontentloaded" });
+  const response = await observed;
+  const state = await response.json();
+  sc.check(!response.request().headers().authorization, "independent public browser loaded the exact capability state without account authorization");
+  sc.check(state.kind === "ride" && state.status === "wait" && state.passenger_first_name === passenger.firstName
+    && state.from?.text === route.from && state.to?.text === route.to && state.car === null
+    && typeof state.phase_text?.ru === "string" && state.phase_text.ru.length > 0
+    && typeof state.phase_text?.ba === "string" && state.phase_text.ba.length > 0,
+  "public state positively identifies this passenger, route and actual pre-departure phase without a live car");
+  await family.page.locator("#title").filter({ hasText: `${passenger.firstName} · ${state.phase_text.ru}` }).waitFor();
+  await family.page.locator("#route").filter({ hasText: route.title }).waitFor();
+  sc.check(await family.page.locator("#title-ba").innerText() === state.phase_text.ba
+    && !(await family.page.locator("#err").isVisible()) && !(await family.page.locator("#done").isVisible()),
+  "public page actually rendered both phase labels and its route, not a loading or stale fallback");
+  noSecretsInText(await family.page.locator("body").innerText(), "active public family page");
+  await P.shot(family.page, shot);
+}
 async function addContact() {
   if (pair === "A") {
     await AF.goHome(); await AF.nav("Профиль"); await A.scrollTap("Доверенные контакты");
@@ -178,16 +198,12 @@ await runScenario(sc, async () => {
     await addContact();
     family = await openProfile(`family-s05-${pair}-${tag}`, { fresh: true }); sc.pages.push(family.page);
     const firstLink = await share();
-    await family.page.goto(firstLink, { waitUntil: "domcontentloaded" });
-    await family.page.locator("#title").filter({ hasNotText: /Загружаем/ }).waitFor();
-    sc.check(await family.page.locator("#err").isVisible() === false, "public family link displays its trip without login");
-    noSecretsInText(await family.page.locator("body").innerText(), "public family page");
-    await revoke(); await family.page.reload({ waitUntil: "domcontentloaded" });
-    await family.page.getByText(/Ссылка не работает|поездка недоступна|Not Found|Ссылка недействительна/i).first().waitFor();
+    await openActiveFamilyLink(firstLink, "family-active-before-revoke.png");
+    await revoke(); const revoked = await family.page.reload({ waitUntil: "domcontentloaded" });
+    sc.check(revoked?.status() === 404 && /Ссылка не найдена/.test(await family.page.locator("body").innerText()), "reopened revoked public link returns the actual 404 denial");
     sc.check(await family.page.locator('a[href^="tel:"]').count() === 0, "revoked public page has no contact actions");
     const nextLink = await share(); sc.check(nextLink !== firstLink, "sharing after revocation creates a different capability");
-    await family.page.goto(nextLink, { waitUntil: "domcontentloaded" });
-    await family.page.locator("#title").filter({ hasNotText: /Загружаем/ }).waitFor();
+    await openActiveFamilyLink(nextLink, "family-active-new-capability.png");
   });
   await sc.step("finish actual trip through driver UI; family sees final state without map", async () => {
     if (pair === "A") { await P.driverBoard(pwa.page, { passenger: passenger.firstName }); await P.driverOpenTrip(pwa.page, { passenger: passenger.firstName }); await P.tripButton(pwa.page, "Завершить поездку"); }

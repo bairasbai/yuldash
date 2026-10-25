@@ -1,7 +1,7 @@
 // W1-E2E-03 — real UI cancellation/refusal/boarding/last-seat/no-show in both client pairs.
 // node tools/rideshare_e2e/s03.mjs A|B [runTag]; no-show waits for real server time.
 import { Scenario, runScenario } from "./lib/scenario.mjs";
-import { A, AF, ACC, q, q1, sleep, log, pwaClient, androidAs, userIdOf, lastRideOf, standHealthy, ufaClock } from "./lib/stand.mjs";
+import { A, AF, ACC, q, q1, sleep, log, pwaClient, androidAs, userIdOf, lastRideOf, standHealthy, ufaClock, wireFrom, wireSince } from "./lib/stand.mjs";
 import * as P from "./lib/pwa-flows.mjs";
 
 const pair = process.argv[2] || "A";
@@ -20,7 +20,8 @@ async function waitDb(predicate, message, timeout = 20000) {
   while (Date.now() < until) { if (predicate()) return; await sleep(350); }
   sc.check(false, message);
 }
-async function newBooking(name, minutes = 20) {
+async function newBooking(name, minutes = 20, pickup = route.pickup) {
+  const segment = { pickup, dropoff: route.dropoff };
   const price = (pair === "A" ? 610 : 630) + Number(process.env.PRICE_OFFSET || 0) + index++;
   const before = q1("SELECT COUNT(*) n FROM ride WHERE driver_id = ?", userIdOf(driver)).n;
   const depart = ufaClock(minutes);
@@ -33,14 +34,26 @@ async function newBooking(name, minutes = 20) {
   sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id = ?", userIdOf(driver)).n === before + 1, name + ": exactly one ride created");
   created.push({ case: name, ride_id: ride.id, price });
   await sc.step(name + ": passenger books selected stops through UI", async () => {
-    if (pair === "A") { await AF.searchAndOpen({ from: route.pickup, to: route.dropoff, cardText: `${price} ₽` }); await AF.chooseStopsAndBook(route); }
-    else { await P.searchRide(pwa.page, { from: route.pickup, to: route.dropoff, routeText: route.title, cardText: `${price} ₽` }); await P.bookRide(pwa.page, route); }
+    if (pair === "A") { await AF.searchAndOpen({ from: pickup, to: route.dropoff, cardText: `${price} ₽` }); await AF.chooseStopsAndBook(segment); }
+    else { await P.searchRide(pwa.page, { from: pickup, to: route.dropoff, routeText: route.title, cardText: `${price} ₽` }); await P.bookRide(pwa.page, segment); }
   });
   const booking = book(ride);
-  sc.check(booking?.status === "pending" && booking.pickup_stop === route.pickup && booking.dropoff_stop === route.dropoff, name + ": own booking preserves both stops");
+  const storedPickup = pickup === route.from ? "" : pickup; // Server canonical representation of the route start.
+  sc.check(booking?.status === "pending" && booking.pickup_stop === storedPickup && booking.dropoff_stop === route.dropoff, name + ": own booking preserves both stops");
   sc.check(q1("SELECT seats_left FROM ride WHERE id = ?", ride.id).seats_left === 0, name + ": last seat reserved once");
   created.at(-1).booking_id = booking.id;
-  return { ride, booking, price };
+  return { ride, booking, price, segment };
+}
+async function observedDriverWindow(fixture, from) {
+  const end = Date.now() + 25000;
+  while (Date.now() < end) {
+    const events = await wireSince(from);
+    const row = events.filter(e => e.client === (pair === "A" ? "browser" : "android"))
+      .flatMap(e => e.driver_windows || []).findLast(r => r.booking_id === fixture.booking.id);
+    if (row) return row;
+    await sleep(500);
+  }
+  throw new Error("No timing fields observed in this driver's real UI response");
 }
 async function confirm(fixture) {
   if (pair === "A") await P.driverDecide(pwa.page, { passenger: passenger.firstName, action: "Подтвердить" });
@@ -54,7 +67,9 @@ async function passengerOpen(fixture, status = null) {
 async function cancelPassenger(fixture, confirmed = false) {
   await passengerOpen(fixture);
   if (pair === "A") {
-    await A.scrollTap(confirmed ? /^Отменить поездку$/ : /^Отменить бронь$/);
+    // Pending cancellation is fixed at the bottom; the confirmed action is in
+    // scrolling content above the active-trip footer, whose top is around .74.
+    await A.scrollTap(confirmed ? /^Отменить поездку$/ : /^Отменить бронь$/, { maxBottom: confirmed ? 0.72 : 0.96 });
     await A.tapText(/^Да, отменить$/);
   } else {
     await P.click(pwa.page, P.btn(pwa.page, confirmed ? /^Отменить поездку$/ : /^Отменить бронь$/), "passenger cancellation");
@@ -118,10 +133,11 @@ await runScenario(sc, async () => {
     await waitDb(() => book(declined.ride)?.status === "cancelled", "driver decline persisted");
     sc.check(book(declined.ride).cancel_reason === "driver_declined", "driver refusal is distinguished from cancellation");
     sc.check(q1("SELECT seats_left FROM ride WHERE id = ?", declined.ride.id).seats_left === 1, "driver decline restored last seat");
+    const history = { route: route.title, bookingId: declined.booking.id, passengerId: userIdOf(passenger), price: declined.price,
+      expectedStatus: "cancelled", statusLabel: /Отклонена|Водитель отклонил бронь/ };
     if (pair === "A") {
-      await AF.goHome(); await AF.nav("Поездки"); await A.tapText("История");
-      const texts = await AF.screenTexts(5); sc.check(texts.some(t => /Отклонена|Водитель отклонил бронь/.test(t)), "Android history says declined"); A.screencap("declined-history");
-    } else { const text = await P.passengerHistory(pwa.page, { route: route.title, cardText: `${declined.price} ₽` }); sc.check(/Отклонена|Водитель отклонил бронь/.test(text), "PWA history says declined"); }
+      const texts = await AF.passengerHistory(history); sc.check(texts.some(t => /Отклонена|Водитель отклонил бронь/.test(t)), "Android current booking history says declined"); A.screencap("declined-history");
+    } else { const text = await P.passengerHistory(pwa.page, history); sc.check(/Отклонена|Водитель отклонил бронь/.test(text), "PWA current booking history says declined"); }
     oneBooking(declined);
   });
   const pending = await newBooking("pending-cancel"); await sc.step("passenger cancels pending booking", () => cancelPassenger(pending)); oneBooking(pending);
@@ -145,22 +161,44 @@ await runScenario(sc, async () => {
     await extra.page.reload(); await P.bookRide(extra.page, route);
     const second = book(last.ride, ACC.pwaPassenger2);
     sc.check(second?.status === "pending" && q1("SELECT seats_left FROM ride WHERE id = ?", last.ride.id).seats_left === 0, "second passenger reserved exactly the released seat");
+    // RideSheet opens /trip even while pending; cancellation belongs to the
+    // pending booking reached through My trips → Details, as in cancelPassenger.
+    await P.dismissInstall(extra.page);
+    await P.openMyTrip(extra.page, { route: route.title, cardText: `${last.price} ₽` });
+    sc.check(new URL(extra.page.url()).pathname === `/booking/${second.id}`, "second passenger opened the exact pending booking before cancellation");
     await P.click(extra.page, P.btn(extra.page, /^Отменить бронь$/), "second passenger cancels own booking");
     await P.click(extra.page, P.btn(extra.page, /^Да, отменить$/), "confirm own cancellation");
     await waitDb(() => book(last.ride, ACC.pwaPassenger2)?.status === "cancelled", "second passenger cancellation stored");
     sc.check(q1("SELECT COUNT(*) n FROM booking WHERE ride_id = ?", last.ride.id).n === 2 && q1("SELECT seats_left FROM ride WHERE id = ?", last.ride.id).seats_left === 1, "two deliberate bookings, no duplicate, one restored seat");
     await extra.ctx.close(); extra = null;
   });
-  const absent = await newBooking("no-show-real-clock", 6); await confirm(absent);
+  const absent = await newBooking("no-show-real-clock", 6, route.from); await confirm(absent);
   await sc.step("driver announces arrival through UI", async () => {
-    if (pair === "A") { await P.driverOpenTrip(pwa.page, { passenger: passenger.firstName }); await P.tripButton(pwa.page, "Подъезжаю"); }
-    else { await AF.driverCardAction({ passenger: passenger.firstName, action: /^Открыть поездку$/ }); await A.scrollTap(/^Подъезжаю$/); }
+    const from = await wireFrom();
+    if (pair === "A") await P.openDriverCabinet(pwa.page); else { await AF.goHome(); await AF.openDriverCabinet(); }
+    const window = await observedDriverWindow(absent, from), opens = window.arriving_opens_at_ms;
+    sc.check(Number.isFinite(opens) && opens - Date.now() < 25 * 60000, "arrival uses the bounded server window observed by the real UI");
+    sc.facts.arrival_window = window;
+    while (Date.now() < opens + 500) await sleep(Math.min(15000, Math.max(1, opens + 500 - Date.now())));
+    if (pair === "A") {
+      await P.driverOpenTrip(pwa.page, { passenger: passenger.firstName });
+      await P.tripButton(pwa.page, "Выехал");
+      await waitDb(() => book(absent.ride)?.driver_phase === "departed", "driver departure saved by real action");
+      await P.tripButton(pwa.page, "Подъезжаю");
+    } else {
+      await AF.driverCardAction({ passenger: passenger.firstName, action: /^Открыть поездку$/ });
+      await A.scrollTap(/^Я выехал$/);
+      await waitDb(() => book(absent.ride)?.driver_phase === "departed", "driver departure saved by real action");
+      await A.scrollTap(/^Подъезжаю$/);
+    }
     await waitDb(() => !!book(absent.ride)?.arriving_at, "arrival saved by real driver action");
   });
   await sc.step("wait for real no-show deadline; no clock or database rewriting", async () => {
-    const row = book(absent.ride);
-    const utc = s => Date.parse(/[zZ]$|[+-]\d\d:\d\d$/.test(String(s)) ? String(s) : String(s) + "Z");
-    const ready = Math.max(utc(absent.ride.depart_at), utc(row.arriving_at)) + 5 * 60000;
+    const from = await wireFrom();
+    if (pair === "A") await P.openDriverCabinet(pwa.page); else { await AF.goHome(); await AF.openDriverCabinet(); }
+    const window = await observedDriverWindow(absent, from), ready = window.no_show_at_ms;
+    sc.facts.no_show_window = window;
+    sc.check(Number.isFinite(ready), "real UI response contains a finite server no-show deadline");
     const waitMs = ready - Date.now() + 1500;
     sc.check(Number.isFinite(waitMs) && waitMs < 25 * 60000, "real no-show deadline is bounded", { wait_seconds: Math.max(0, Math.ceil(waitMs / 1000)) });
     if (pair === "A") {

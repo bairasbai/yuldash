@@ -1,7 +1,7 @@
 // node tools/rideshare_e2e/s02.mjs A|B <unique-tag>
 // Pair A: Android passenger / PWA driver; pair B reverses the actual clients.
 import { Scenario, runScenario } from "./lib/scenario.mjs";
-import { A, AF, ACC, q, q1, sleep, pwaClient, androidAs, userIdOf, lastRideOf, standHealthy, ufaClock } from "./lib/stand.mjs";
+import { A, AF, ACC, q, q1, sleep, pwaClient, androidAs, userIdOf, lastRideOf, standHealthy, ufaClock, wireFrom, wireSince } from "./lib/stand.mjs";
 import * as P from "./lib/pwa-flows.mjs";
 import * as RQ from "./lib/request-flows.mjs";
 const pair = process.argv[2], tag = process.argv[3];
@@ -17,6 +17,9 @@ await runScenario(sc, async () => {
   pwa = await pwaClient(pair === "A" ? driver : passenger); sc.pages = [pwa.page];
   await androidAs(pair === "A" ? passenger : driver);
   const departure = ufaClock(20), pid = userIdOf(passenger), did = userIdOf(driver);
+  sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id=? AND status='active'", did).n === 0,
+    "synthetic fixture starts without another active ride competing for the request match");
+  sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id=? AND price=?", did, price).n === 0, "current request ride fare is unique in this driver's history");
   const rideCountBefore = q1("SELECT COUNT(*) n FROM ride WHERE driver_id=?", did).n;
   await sc.step("driver publishes one existing ride", async () => {
     if (pair === "A") await P.publishRide(pwa.page, { ...route, departAt: departure.date, seats: 3, price });
@@ -37,7 +40,7 @@ await runScenario(sc, async () => {
   const response = await RQ.until(() => RQ.responseRow(request.id, did), (r) => r?.ride_id === ride.id && r.status === "offered", "bound response saved");
   sc.check(response.pickup_stop === route.pickup && response.dropoff_stop === route.dropoff, "offer binds both explicit stops and the same ride");
   await sc.step("passenger accepts by a real double tap", async () => {
-    if (pair === "A") await RQ.androidAcceptOffer(route); else await RQ.pwaAcceptOffer(pwa.page, route);
+    if (pair === "A") await RQ.androidAcceptOffer({...route,requestPrice:price}); else await RQ.pwaAcceptOffer(pwa.page, {...route,requestPrice:price,driverName:driver.firstName});
   });
   const accepted = await RQ.until(() => RQ.responseRow(request.id, did), (r) => r?.status === "accepted" && r.booking_id, "offer accepted");
   const booking = q1("SELECT * FROM booking WHERE id=?", accepted.booking_id); sc.facts.booking_id = booking.id;
@@ -66,10 +69,15 @@ await runScenario(sc, async () => {
     if (pair === "A") {
       await AF.passengerRateAndReceipt({ stars: 5, route: `${route.from} → ${route.to}`, cardText: `${price} ₽`, expect: [`${route.pickup} → ${route.dropoff}`] });
       await P.driverRatePassenger(pwa.page, { bookingId: booking.id, stars: 4 }); await P.driverReceipt(pwa.page, { bookingId: booking.id });
-      await AF.passengerHistory({ route: `${route.from} → ${route.to}` }); await P.driverArchive(pwa.page, { route: `${route.from} → ${route.to}` });
+      await AF.passengerHistory({ route: `${route.from} → ${route.to}`, bookingId: booking.id, passengerId: pid, price });
+      await P.driverArchive(pwa.page, { route: `${route.from} → ${route.to}`, rideId: ride.id, driverId: did, price });
     } else {
-      await P.passengerRateAndReceipt(pwa.page, { bookingId: booking.id, stars: 5 }); await AF.driverRateAndReceipt({ passenger: passenger.firstName, stars: 4 });
-      await AF.driverArchive({ route: `${route.from} → ${route.to}` }); await P.passengerHistory(pwa.page, { route: `${route.from} → ${route.to}`, cardText: `${price} ₽` });
+      await P.passengerRateAndReceipt(pwa.page, { bookingId: booking.id, stars: 5 });
+      const receiptStart = await wireFrom();
+      await AF.driverRateAndReceipt({ passenger: passenger.firstName, stars: 4, bookingId: booking.id, driverId: did });
+      sc.check((await wireSince(receiptStart)).some(e=>e.path===`/trips/${booking.id}/receipt` && e.status===200 && e.client==="android"),"Android opened the current booking's receipt through its real API");
+      await AF.driverArchive({ route: `${route.from} → ${route.to}`, rideId: ride.id, driverId: did, price });
+      await P.passengerHistory(pwa.page, { route: `${route.from} → ${route.to}`, bookingId: booking.id, passengerId: pid, price });
     }
   });
   sc.check(q("SELECT id FROM rating WHERE booking_id=?", booking.id).length === 2, "both ratings refer to the single booking");

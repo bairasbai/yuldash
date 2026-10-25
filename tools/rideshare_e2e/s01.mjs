@@ -25,6 +25,9 @@ await runScenario(sc, async () => {
   const page = pwa.page;
   sc.pages = [page];
   await sc.step("android account", () => androidAs(pair === "A" ? ACC.andPassenger : ACC.andDriver));
+  const did = userIdOf(driverAcc);
+  sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id=? AND status='active'", did).n === 0, "isolated journey starts without another active driver ride");
+  sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id=? AND price=?", did, PRICE).n === 0, "current journey fare is unique in this driver's history");
   const depart = ufaClock(20);
 
   // 1. Publication
@@ -180,7 +183,7 @@ await runScenario(sc, async () => {
   });
   await sc.step("driver rates passenger and opens receipt", async () => {
     if (pair === "A") { await P.driverRatePassenger(page, { bookingId: b.id, stars: 4 }); await P.driverReceipt(page, { bookingId: b.id }); }
-    else await AF.driverRateAndReceipt({ passenger: passAcc.firstName, stars: 4 });
+    else await AF.driverRateAndReceipt({ passenger: passAcc.firstName, stars: 4, bookingId: b.id, driverId: userIdOf(driverAcc) });
   });
   const ratings = q("SELECT rater_id, ratee_id, stars FROM rating WHERE booking_id = ? ORDER BY id", b.id);
   sc.check(ratings.length === 2 && ratings.some((r) => r.stars === 5 && r.ratee_id === userIdOf(driverAcc)) && ratings.some((r) => r.stars === 4 && r.ratee_id === pid),
@@ -188,8 +191,10 @@ await runScenario(sc, async () => {
 
   // 12. History on both sides
   await sc.step("history on both sides", async () => {
-    if (pair === "A") { await AF.passengerHistory({ route: "Уфа → Мелеуз" }); await P.driverArchive(page, { route: "Уфа → Мелеуз" }); }
-    else { await AF.driverArchive({ route: "Уфа → Мелеуз" }); await P.passengerHistory(page, { route: "Уфа → Мелеуз" }); }
+    const archive = { route: "Уфа → Мелеуз", rideId: ride.id, driverId: did, price: PRICE };
+    const history = { route: "Уфа → Мелеуз", bookingId: b.id, passengerId: pid, price: PRICE };
+    if (pair === "A") { await AF.passengerHistory(history); await P.driverArchive(page, archive); }
+    else { await AF.driverArchive(archive); await P.passengerHistory(page, history); }
   });
   const rideAfter = q1("SELECT seats_left, status FROM ride WHERE id = ?", ride.id);
   const others = q("SELECT COUNT(*) n FROM booking WHERE ride_id = ?", ride.id)[0].n;

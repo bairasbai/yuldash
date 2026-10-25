@@ -11,8 +11,19 @@ export const requestRow = (passengerId) => q1("SELECT * FROM riderequest WHERE p
 export const responseRow = (requestId, driverId) => q1("SELECT * FROM requestresponse WHERE request_id=? AND driver_id=? ORDER BY id DESC LIMIT 1", requestId, driverId);
 
 async function androidField(label, value) {
-  const field = await A.scrollTo(label);
+  await A.scrollTo(label);
+  const editable = (nodes) => {
+    const head = A.find(nodes, label);
+    if (!head) return null;
+    const fields = nodes.filter(n => n.class === "android.widget.EditText" && n.box);
+    const enclosing = fields.find(n => n.box[0] <= head.box[0] && n.box[2] >= head.box[2] && n.box[1] <= head.box[1] && n.box[3] >= head.box[3]);
+    if (enclosing) return enclosing;
+    return fields.filter(n => n.box[1] >= head.box[3] && n.box[1] - head.box[3] < 250 && n.box[0] < head.box[2] && n.box[2] > head.box[0]).sort((a,b) => a.box[1] - b.box[1])[0] || null;
+  };
+  const field = editable(A.dump());
+  if (!field) throw new Error("No editable field associated with " + label);
   A.tapXY(...A.center(field)); await sleep(350); A.typeText(String(value)); A.hideKeyboard();
+  if (editable(A.dump())?.text !== String(value)) throw new Error("The labelled field did not retain its value: " + label);
 }
 export async function requestDateTime(date) {
   await A.scrollTap(/^Дата и время/);
@@ -46,18 +57,19 @@ export async function requestDateTime(date) {
 
 export async function androidCreateRequest({ from, to, price, departAt }) {
   await AF.goHome(); await AF.nav("Заявка");
-  await A.scrollTap(/^Создать заявку$/); await sleep(700);
+  await A.scrollTap(/^(Создать заявку|Создать новую)$/); await sleep(700);
   if (!A.find(A.dump(), /^Откуда$/)) { const expand = A.find(A.dump(), /^Изменить маршрут$/); if (expand) A.tapXY(...A.center(expand)); }
   await AF.pickSuggestion("Откуда", from, from);
   await AF.pickSuggestion("Куда", to, to);
   await requestDateTime(departAt);
   await androidField("Бюджет", price);
-  await A.scrollTap(/^Опубликовать заявку$/);
+  // This action is fixed above the system bar, below the scrolling-content threshold.
+  await A.tapText(/^Опубликовать заявку$/);
   await A.waitFor("Мои заявки", { timeout: 25000 });
 }
 export async function pwaCreateRequest(page, { from, to, price, departAt }) {
   await P.navTab(page, "Заявка");
-  await P.click(page, P.btn(page, /^Создать заявку$/), "create passenger request");
+  await P.click(page, P.btn(page, /^(Создать заявку|Создать новую)$/), "create passenger request");
   const fields = page.locator("input[placeholder='Город или село']");
   await P.pickPlace(page, fields.nth(0), from, from);
   await P.pickPlace(page, fields.nth(1), to, to);
@@ -67,7 +79,7 @@ export async function pwaCreateRequest(page, { from, to, price, departAt }) {
   await page.getByText("Готово! Ищем водителя", { exact: true }).waitFor({ timeout: 25000 });
 }
 export async function androidOfferOwnRide({ passenger, price }) {
-  await AF.goHome(); await AF.nav("Профиль");
+  await AF.openDriverCabinet();
   await A.scrollTap("Заявки пассажиров"); await A.waitFor("По пути"); await A.tapText("По пути");
   const name = await A.scrollTo(passenger);
   let nodes = A.dump(), action = AF.below(nodes, name, /^Предложить поездку$/, 1000);
@@ -76,7 +88,7 @@ export async function androidOfferOwnRide({ passenger, price }) {
   A.tapXY(...A.center(action)); await A.waitFor("Место в моём рейсе");
   await A.tapText("Место в моём рейсе");
   await androidField("Твоя цена, ₽", price);
-  await A.scrollTap("Отправить предложение");
+  await A.scrollTap("Отправить предложение", { maxBottom: 0.96 });
 }
 export async function pwaOfferOwnRide(page, { passenger, price }) {
   await P.openDriverCabinet(page);
@@ -88,20 +100,36 @@ export async function pwaOfferOwnRide(page, { passenger, price }) {
   await page.getByRole("spinbutton", { name: "Цена, ₽", exact: true }).fill(String(price));
   await P.click(page, P.btn(page, /^Отправить отклик$/), "send own ride offer");
 }
-export async function androidAcceptOffer({ pickup, dropoff, doubleTap = true }) {
+export async function androidAcceptOffer({ pickup, dropoff, requestPrice, doubleTap = true }) {
   await AF.goHome(); await AF.nav("Заявка");
-  await A.scrollTap("Посмотреть отклики"); await A.waitFor("Отклики на заявку");
+  if (!requestPrice) throw new Error("Bind the response action to the current synthetic request price");
+  let open = null;
+  for (let i=0;i<10&&!open;i++) {
+    const nodes=A.dump(), budget=A.find(nodes, `${requestPrice} ₽ предлагаю`);
+    if(budget) open=AF.below(nodes,budget,"Посмотреть отклики",600);
+    if(!open) await A.swipeUp(0.3);
+  }
+  if(!open) throw new Error("No response action on the current request card");
+  A.tapXY(...A.center(open)); await A.waitFor("Отклики на заявку");
   const seen = (await AF.screenTexts(5)).join("\n");
   if (!seen.includes(pickup) || !seen.includes(dropoff)) throw new Error("Offer hides one of the two passenger stops");
   // Returning to the top does not submit anything; the action is a real user double tap.
   await A.swipeDown(0.5); await A.swipeDown(0.5);
-  const accept = await A.scrollTo(/^Принять$/);
+  const accept = await A.scrollTo(/^Принять$/, { maxBottom: 0.96 });
   A.tapXY(...A.center(accept)); if (doubleTap) A.tapXY(...A.center(accept));
 }
-export async function pwaAcceptOffer(page, { pickup, dropoff, doubleTap = true }) {
+export async function pwaAcceptOffer(page, { pickup, dropoff, requestPrice, driverName, doubleTap = true }) {
   await P.click(page, P.btn(page, /^Смотреть отклики$/), "open driver responses");
-  const body = await page.locator("body").innerText();
+  if (!requestPrice || !driverName) throw new Error("Bind the current offered ride by its driver and amount");
+  const card = page.locator(".offer-card").filter({ hasText: driverName })
+    .filter({ hasText: new RegExp(`${requestPrice}\\s*₽`) })
+    .filter({ has: page.getByRole("button", { name: "Поехать с ним", exact: true }) });
+  await card.first().waitFor({ state: "visible" });
+  if (await card.count() !== 1) throw new Error("Current offer is ambiguous");
+  await card.getByText(new RegExp(pickup)).first().waitFor();
+  await card.getByText(new RegExp(dropoff)).first().waitFor();
+  const body = await card.innerText();
   if (!body.includes(pickup) || !body.includes(dropoff)) throw new Error("Offer hides one of the two passenger stops");
-  const accept = page.getByRole("button", { name: "Поехать с ним", exact: true });
+  const accept = card.getByRole("button", { name: "Поехать с ним", exact: true });
   if (doubleTap) await accept.dblclick(); else await accept.click();
 }

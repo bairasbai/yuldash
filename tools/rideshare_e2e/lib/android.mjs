@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EVID, log, sleep } from "./common.mjs";
 import { redactText } from "./redact.mjs";
+import { scrollGesture } from "./native-scroll.mjs";
 
 export const ADB = process.env.RSACC_ADB || join(process.env.ANDROID_HOME || join(process.env.LOCALAPPDATA, "Android", "Sdk"), "platform-tools", "adb.exe");
 export const PKG = "com.yuldash.app";
@@ -23,12 +24,16 @@ export const sh = (cmd, o) => adb(["shell", cmd], o);
 function decode(s) { return s.replace(/&#(\d+);/g, (m, d) => (d === "10" || d === "13" ? m : String.fromCodePoint(Number(d)))).replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#10;/g, "\n").replace(/&#13;/g, "").replace(/&amp;/g, "&"); }
 export function parse(xml) {
   const nodes = [];
-  for (const m of xml.matchAll(/<node ([^>]*?)\/?>/g)) {
+  const parents = [];
+  for (const m of xml.matchAll(/<\/?node\b([^>]*?)>/g)) {
+    if (m[0].startsWith("</")) { parents.pop(); continue; }
     const a = {};
     for (const am of m[1].matchAll(/([\w-]+)="([^"]*)"/g)) a[am[1]] = decode(am[2]);
     const b = (a.bounds || "").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
     if (b) a.box = b.slice(1).map(Number);
+    a.parentIndex = parents.at(-1) ?? null;
     nodes.push(a);
+    if (!m[0].endsWith("/>")) parents.push(nodes.length - 1);
   }
   return nodes;
 }
@@ -149,22 +154,39 @@ export async function swipeDown(frac = 0.5, { from = null } = {}) {
   await sleep(600);
 }
 /** Scroll until `want` is visible away from the bars: first down the content, then back up. */
-export async function scrollTo(want, { max = 8, index = 0 } = {}) {
+export async function scrollTo(want, { max = 8, index = 0, maxBottom = 0.88 } = {}) {
   const [, h] = screenSize();
-  const ok = () => { const n = find(dump(), want, { index }); return n && n.box[3] < h * 0.88 && n.box[1] > h * 0.08 ? n : null; };
+  let currentNodes = [];
+  // Scrolling form fields need room below for suggestions; explicit fixed actions may use .96.
+  const ok = () => { currentNodes = dump(); const n = find(currentNodes, want, { index }); return n && n.box[3] < h * maxBottom && n.box[1] > h * 0.08 ? n : null; };
+  const move = async direction => {
+    const targets = currentNodes.map((node, i) => matches(node, want) ? i : -1).filter(i => i >= 0);
+    const gesture = scrollGesture(currentNodes, screenSize(), direction, targets[index] ?? null);
+    sh(`input swipe ${gesture.x} ${gesture.start} ${gesture.x} ${gesture.end} 400`, { quiet: true });
+    log("android.swipe", { dir: direction, content_bounds: gesture.box });
+    await sleep(600);
+  };
   let n = ok();
   if (n) return n;
-  for (let i = 0; i < max; i++) { await swipeUp(0.35); if ((n = ok())) return n; }
-  // The home hero is pinned: downward swipes must begin inside the lower scrolling feed.
-  for (let i = 0; i < max * 2; i++) { await swipeDown(0.35, { from: 0.72 }); if ((n = ok())) return n; }
+  for (let i = 0; i < max; i++) { await move("up"); if ((n = ok())) return n; }
+  for (let i = 0; i < max * 2; i++) { await move("down"); if ((n = ok())) return n; }
   throw new Error("android: not reachable by scrolling: " + want);
 }
 export async function scrollTap(want, opts = {}) {
-  await scrollTo(want, opts);
-  // Compose may finish repositioning lazy items after the first accessibility snapshot.
-  // Re-read the visible control instead of tapping coordinates retained during the scroll.
-  await sleep(400);
-  return await tapText(want, opts);
+  const [, h] = screenSize();
+  for (let attempt = 0; attempt < 3; attempt++) {
+    await scrollTo(want, opts);
+    // Lazy content can move after a response arrives. Only retry positioning;
+    // perform the business tap once, from a fresh in-bounds accessibility node.
+    await sleep(400);
+    const n = find(dump(), want, { index: opts.index || 0 });
+    if (!n || n.box[1] <= h * 0.08 || n.box[3] >= h * (opts.maxBottom ?? 0.88)) continue;
+    tapXY(...center(n));
+    log("android.scrollTap", { want: String(want), what: opts.what || null });
+    await sleep(500);
+    return n;
+  }
+  throw new Error("android: control moved before its single tap: " + want);
 }
 let _size = null;
 export function screenSize() {
@@ -175,7 +197,18 @@ export function screenSize() {
 }
 export function resetSizeCache() { _size = null; }
 
-export function pid() { const out = sh(`pidof ${PKG}`, { quiet: true }).trim(); return out ? Number(out.split(/\s+/)[0]) : null; }
+export function pid() {
+  let output;
+  try { output = sh(`pidof ${PKG}`, { quiet: true }).trim(); }
+  catch (error) {
+    if (error.status === 1 && !error.signal && !String(error.stdout || "").trim() && !String(error.stderr || "").trim()) return null;
+    throw error;
+  }
+  if (!/^[1-9]\d*(?:\s+[1-9]\d*)*$/.test(output)) throw new Error("Malformed Android PID output");
+  const value = Number(output.split(/\s+/)[0]);
+  if (!Number.isSafeInteger(value)) throw new Error("Android PID exceeds safe integer range");
+  return value;
+}
 export function forceStop() { sh(`am force-stop ${PKG}`); }
 export function launch() { sh(`am start -W -a android.intent.action.MAIN -c android.intent.category.LAUNCHER -n ${PKG}/.MainActivity`); }
 export function crashes(sinceEpochMs) {

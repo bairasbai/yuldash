@@ -1,6 +1,8 @@
 // Real-UI Android flows (installed MainActivity via adb taps/typing). No API shortcuts for user actions.
 import * as A from "./android.mjs";
-import { tgBotLogin, lastTgAuthId, log, sleep } from "./common.mjs";
+import { tgBotLogin, lastTgAuthId, log, sleep, q, q1 } from "./common.mjs";
+import { fareMarker, ownRideForArchive, waitRideDone, ownBookingForHistory } from "./history-oracles.mjs";
+import { nativeCardContaining, firstCardRoute } from "./native-card.mjs";
 
 const NAV = ["Карта", "Поездки", "Заявка", "Чат", "Профиль"];
 
@@ -74,8 +76,17 @@ export async function logout() {
 export async function searchAndOpen({ from, to, cardText }) {
   await goHome();
   await sleep(800);
-  await A.tapText("Найти попутку", { what: "scroll feed to its filters" });
-  await sleep(1200);
+  // The home header and city options settle after a fresh login. This action only
+  // scrolls the feed: wait for its actual destination before touching any filter.
+  let filtersReady = false;
+  for (let attempt = 0; attempt < 3 && !filtersReady; attempt++) {
+    await A.tapText("Найти попутку", { what: "scroll feed to its filters" });
+    for (let probe = 0; probe < 4 && !filtersReady; probe++) {
+      await sleep(600);
+      filtersReady = !!A.find(A.dump(), /^Откуда( · .*)?$/);
+    }
+  }
+  if (!filtersReady) throw new Error("home search did not reveal its actual city filters");
   await A.scrollTap(/^Откуда( · .*)?$/);
   await A.tapText(from, { what: "from option" });
   await A.tapText("Готово");
@@ -264,9 +275,15 @@ export async function publishRide({ from, to, stops = [], hh, mm, day = null, se
     A.tapXY(...A.center(target)); await sleep(400);
     A.typeText(s);
     await sleep(1800);
-    const after = A.dump();
-    const edit = after.filter((n) => n.class === "android.widget.EditText" && n.focused === "true")[0];
-    const sug = after.filter((n) => n.text === s && n.class !== "android.widget.EditText" && n.box[1] >= edit.box[3]).sort((a, b) => a.box[1] - b.box[1])[0];
+    A.hideKeyboard();
+    let sug = null;
+    for (let attempt = 0; attempt < 8 && !sug; attempt++) {
+      const after = A.dump();
+      const edit = after.filter(n => n.class === "android.widget.EditText" && n.text === s).sort((a,b) => b.box[1] - a.box[1])[0];
+      if (!edit) throw new Error("Typed stop field is not visible: " + s);
+      sug = after.filter(n => n.text === s && n.class !== "android.widget.EditText" && n.box[1] >= edit.box[3] && n.box[3] < A.screenSize()[1] * .88).sort((a,b) => a.box[1]-b.box[1])[0] || null;
+      if (!sug) await A.swipeUp(.25);
+    }
     if (!sug) throw new Error("stop suggestion missing: " + s);
     A.tapXY(...A.center(sug)); await sleep(600);
     A.hideKeyboard();
@@ -400,65 +417,90 @@ export async function passengerRateAndReceipt({ stars, route, cardText = null, e
   log("android.passenger.rated", { stars });
   return seen;
 }
-export async function passengerHistory({ route }) {
+export async function passengerHistory(input) {
+  const { route, price, bookingId, statusLabel = /^Завершена$/ } = input;
+  ownBookingForHistory(input);
   await goHome();
   await nav("Поездки");
   await A.tapText("История");
   await sleep(1500);
-  const r = await A.scrollTo(route);
-  const nodes = A.dump();
-  const st = below(nodes, r, "Завершена", 300);
-  A.screencap("android-passenger-history");
-  if (!st) throw new Error("history card without «Завершена»");
-  log("android.passenger.history", { route });
+  const [, h] = A.screenSize();
+  for (let page = 0; page < 12; page++) {
+    const nodes = A.dump();
+    for (const priceNode of nodes.filter(n => fareMarker(price).test(n.text || "") && n.box[3] < h * 0.88)) {
+      const card = nativeCardContaining(nodes, priceNode, own => firstCardRoute(own) === route && own.some(n => statusLabel.test(n.text || n["content-desc"] || "")));
+      if (!card?.node.box || card.node.box[1] < h * 0.08 || card.node.box[3] >= h * 0.88) continue;
+      const band = card.nodes.map(n => n.text || n["content-desc"] || "");
+      A.screencap("android-passenger-history");
+      log("android.passenger.history", { route, bookingId, price, exact_status_card: true });
+      return band;
+    }
+    await A.swipeUp(0.22);
+  }
+  throw new Error("Exact own booking is missing from native history");
 }
 
 /** Driver: rate the passenger in the cabinet section «Пассажиры — оцените…», then open the receipt. */
-export async function driverRateAndReceipt({ passenger, stars }) {
+export async function driverRateAndReceipt({ passenger, stars, bookingId, driverId }) {
+  if (!Number.isInteger(bookingId) || !Number.isInteger(driverId)) throw new Error("Bind driver rating to its actual booking and owner");
+  const unrated = q("SELECT b.id FROM booking b JOIN ride r ON r.id=b.ride_id WHERE r.driver_id=? AND b.status='done' AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.booking_id=b.id AND rt.rater_id=?)", driverId, driverId);
+  if (unrated.length !== 1 || unrated[0].id !== bookingId) throw new Error("Synthetic rating fixture must have exactly this one unrated completed booking");
   await openDriverCabinet();
-  const head = await A.scrollTo(/^Пассажиры — оцените/);
+  await A.scrollTo(/^Пассажиры — оцените/);
   let done = false;
-  for (let i = 0; i < 6 && !done; i++) {
+  for (let i = 0; i < 16 && !done; i++) {
     const nodes = A.dump();
-    const hd = A.find(nodes, /^Пассажиры — оцените/);
-    const nm = hd ? nodes.filter((n) => n.text === passenger && n.box[1] > hd.box[1])[0] : null;
-    const star = nm ? below(nodes, nm, new RegExp(`^${stars}( из 5| звезд\\S*| звёзд)$`), 800) : null;
-    if (star && star.box[3] < A.screenSize()[1] * 0.88) { A.tapXY(...A.center(star)); done = true; break; }
+    const prompt = A.find(nodes, "Выбери оценку"), h = A.screenSize()[1];
+    const candidates = prompt ? nodes.filter(n => n.box && n.box[3] <= prompt.box[1] && prompt.box[1]-n.box[3] < 300 && n.box[1] > h*.16).sort((a,b)=>b.box[1]-a.box[1]) : [];
+    const star = A.find(candidates, new RegExp(`^${stars}( из 5| звезд\\S*| звёзд)$`));
+    if (star && prompt.box[3] < h*.88) { A.tapXY(...A.center(star)); done = true; break; }
     await A.swipeUp(0.25);
   }
   if (!done) throw new Error("driver rating stars not found");
-  await sleep(800);
-  const send = A.find(A.dump(), /^Отправить оценку$/);
-  if (send) { A.tapXY(...A.center(send)); await sleep(1500); }
+  await A.scrollTap(/^Отправить оценку$/, { maxBottom: .96 });
+  const deadline = Date.now()+25000;
+  while (Date.now()<deadline && q1("SELECT stars FROM rating WHERE booking_id=? AND rater_id=?",bookingId,driverId)?.stars !== stars) await sleep(400);
+  if(q1("SELECT stars FROM rating WHERE booking_id=? AND rater_id=?",bookingId,driverId)?.stars !== stars) throw new Error("Current booking's driver rating was not persisted");
   A.screencap("android-driver-rated");
-  log("android.driver.rated", { passenger, stars });
-  // receipt from the finished booking
-  await driverCardAction({ passenger, action: /^Открыть поездку$/ });
-  await A.scrollTap(/^Квитанция/);
+  log("android.driver.rated", { passenger, stars, booking_id: bookingId });
+  // Enter the same completed booking through its existing guarded navigation boundary.
+  // Navigation cannot create, confirm or rate a booking; the receipt still loads via the real UI/API.
+  A.adb(["shell","am","start","-W","-n",`${A.PKG}/.MainActivity`,"--es","type","booking","--es","id",String(bookingId),"--es","recipient_user_id",String(driverId),"--es","yuldash_navigation_delivery_id",`receipt-${bookingId}-${Date.now()}`]);
+  await sleep(2000);
+  await A.scrollTap(/^Квитанция/, { maxBottom: .96 });
   await A.waitFor(/Поездка завершена|Квитанция/, { timeout: 20000 });
   A.screencap("android-driver-receipt");
   return await screenTexts(3);
 }
 
 /** Driver: close the whole ride («Завершить рейс») and find it in «Архив». */
-export async function driverArchive({ route }) {
+export async function driverArchive(input) {
+  const { route, rideId, price } = input;
+  const ride = ownRideForArchive(input);
   await openDriverCabinet();
-  const fin = await A.scrollTo(/^Завершить рейс$/).catch(() => null);
-  if (fin) {
-    A.tapXY(...A.center(fin)); await sleep(1000);
-    const c = A.find(A.dump(), /^(Да, завершить|Завершить)$/);
-    if (c) { A.tapXY(...A.center(c)); await sleep(1500); }
+  if (ride.status === "active") {
+    await A.scrollTo(/^Завершить рейс$/);
+    if (ownRideForArchive(input).status !== "active") throw new Error("Current ride changed before its one UI completion action");
+    const nodes = A.dump(), fin = A.find(nodes, /^Завершить рейс$/);
+    if (!fin || !nodes.some(n => n.text === route && n.box[1] < fin.box[1] && fin.box[1]-n.box[1] < 900)
+      || !nodes.some(n => fareMarker(price).test(n.text || "") && n.box[1] < fin.box[1] && fin.box[1]-n.box[1] < 600)) throw new Error("Current active ride marker is not visible above its completion action");
+    A.tapXY(...A.center(fin)); // Same fresh checked node, never a second global lookup.
+    await sleep(500);
   }
+  await waitRideDone(rideId);
   await openDriverCabinet();
-  const arch = await A.scrollTo(/^Архив( поездок)?$/);
-  for (let i = 0; i < 5; i++) {
+  await A.scrollTo(/^Архив( поездок)?$/);
+  const [, h] = A.screenSize();
+  for (let i = 0; i < 8; i++) {
     const nodes = A.dump();
     const hd = A.find(nodes, /^Архив( поездок)?$/);
-    const r = hd ? nodes.filter((n) => n.text === route && n.box[1] > hd.box[1])[0] : null;
-    if (r) { A.screencap("android-driver-archive"); log("android.driver.archive", { route }); return; }
-    await A.swipeUp(0.25);
+    if (hd) for (const p of nodes.filter(n => fareMarker(price).test(n.text || "") && n.box[1] > hd.box[3] && n.box[3] < h * 0.88)) {
+      const card = nativeCardContaining(nodes, p, own => firstCardRoute(own) === route && own.some(n => / · Завершена$/.test(n.text || "")));
+      if (card?.node.box && card.node.box[1] > hd.box[3] && card.node.box[3] < h * 0.88) { A.screencap("android-driver-archive"); log("android.driver.archive", { route, rideId, price, exact_done_row: true }); return; }
+    }
+    await A.swipeUp(0.18);
   }
-  throw new Error("route not in driver archive: " + route);
+  throw new Error("Exact completed current ride is not visible with its native archive heading");
 }
 
 export { A };

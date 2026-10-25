@@ -7,12 +7,15 @@ import { ACC } from "../accounts.mjs";
 export const A = AF.A;
 export { AF, ACC, q, q1, log, sleep };
 
-export async function wireFrom() { const r = await fetch("http://127.0.0.1:8099/log"); return (await r.json()).length; }
-export async function wireSince(n) { const r = await fetch(`http://127.0.0.1:8099/log?from=${n}`); return await r.json(); }
-export async function fault(body) { const r = await fetch("http://127.0.0.1:8099/fault", { method: "POST", body: JSON.stringify(body) }); return await r.json(); }
+// Synchronous adb calls pause Node's socket-close events. Do not retain control
+// connections across them; this affects only the local test control plane.
+const controlHeaders = { Connection: "close" };
+export async function wireFrom() { const r = await fetch("http://127.0.0.1:8099/log", { headers: controlHeaders }); return (await r.json()).length; }
+export async function wireSince(n) { const r = await fetch(`http://127.0.0.1:8099/log?from=${n}`, { headers: controlHeaders }); return await r.json(); }
+export async function fault(body) { const r = await fetch("http://127.0.0.1:8099/fault", { method: "POST", headers: controlHeaders, body: JSON.stringify(body) }); return await r.json(); }
 
 export async function standHealthy(sc) {
-  const identity = await fetch("http://127.0.0.1:8099/identity").then((r) => { if (!r.ok) throw new Error("Owned proxy identity unavailable"); return r.json(); });
+  const identity = await fetch("http://127.0.0.1:8099/identity", { headers: controlHeaders }).then((r) => { if (!r.ok) throw new Error("Owned proxy identity unavailable"); return r.json(); });
   sc.check(identity.owner === (process.env.RSACC_OWNER || "RIDESHARE-CLAUDE-FINISH-20261024") && identity.repo.replace(/\\/g, "/").toLowerCase() === REPO.replace(/\\/g, "/").toLowerCase(), "proxy belongs to this task and this checkout");
   const api = await fetch(API + "/health").then((r) => r.status).catch(() => 0);
   const proxy = await fetch("http://127.0.0.1:8000/health").then((r) => r.status).catch(() => 0);

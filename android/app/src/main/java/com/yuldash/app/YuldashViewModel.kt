@@ -271,6 +271,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     /** Явный выбор внутри приложения отменяет прежнее ожидающее назначение, не серверную операцию. */
     fun navigateLocally(applyRoute: () -> Unit) {
+        offlineTripSnapshot.value = null
         clearPendingPublicRide()
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         pendingScreenNavigation.value?.let(::clearPendingScreen)
@@ -312,6 +313,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     /** Тот же tracker для обычного эффекта и синхронного consume до saved task. */
     fun recordNavigationChange() {
+        if (screen.value.contentScreen() != Screen.ActiveTrip) offlineTripSnapshot.value = null
         val previous = navPrev.value
         val current = screen.value
         val transient = previous in listOf(Screen.Splash, Screen.Login, Screen.Onboarding, Screen.Intro)
@@ -341,6 +343,17 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
     val selectedRide = mutableStateOf<Ride?>(null)
     val activeTrip = mutableStateOf<Ride?>(null)
+    internal val offlineTripSnapshot = mutableStateOf<OfflineTripSnapshotMode?>(null)
+
+    /** Read-only mode deliberately has no Ride object and cannot start live location. */
+    internal fun openOfflineTrip(snapshot: com.yuldash.app.data.OfflineTripSnapshot, revision: Long = privateNavigationRevision) {
+        selectedRide.value = null
+        activeTrip.value = null
+        activeDriverBookingId.value = null
+        activeBookingId.value = snapshot.bookingId
+        offlineTripSnapshot.value = OfflineTripSnapshotMode(snapshot, revision)
+        screen.value = Screen.ActiveTrip
+    }
     // Бронь, в которой я ВОДИТЕЛЬ (её поездку открыли из кабинета или по ссылке с ролью driver). Живому гео
     // нужна роль: пульс стоянки шлёт только водитель (TripLocationService). Привязка к номеру, а не флаг:
     // открыл потом свою пассажирскую бронь — номер другой, роль сама становится «пассажир».
@@ -400,6 +413,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
      */
     fun clearUserData() {
+        offlineTripSnapshot.value = null
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()
         instantChatOrderId.value = 0

@@ -19,7 +19,7 @@ import java.io.File
  * бронью идёт в кабинет (там «Ждут подтверждения»), с подтверждённой — сразу на экран поездки
  * («Я выехал / Подъезжаю»). Пассажир ведёт себя как раньше.
  *
- * `YuldashApp` после ответа сервера зовёт ровно `YuldashViewModel.applyBookingLink` — её и проверяем.
+ * `YuldashApp` после ответа сервера доходит до единственной `applyBookingLink` через проверяемую доменную обёртку.
  */
 class BookingLinkDestinationTest {
 
@@ -166,14 +166,33 @@ class BookingLinkDestinationTest {
     @Test
     fun `YuldashApp применяет ссылку брони через applyBookingLink а не напрямую`() {
         val app = src("YuldashApp.kt")
-        // + признак отмены в пути (23.10.2026): пассажира такой пуш ведёт на экран поездки с SOS.
-        assertTrue("выбор экрана по роли пропал", app.contains("vm.applyBookingLink(bid, state.role, state.status, completed, state.cancelledInTransit)"))
+        // Cold/offline + FileSizeRatchet: новый домен вынесен из root. Проверяем каждое звено,
+        // а не требуем прежнее inline-место; роль/status/completed/отмена в пути не подменяются.
+        assertTrue("root потерял полный проверенный ответ роли", app.contains("vm.applyLiveSnapshotRoute(bid, state.role, state.status, completed, state.cancelledInTransit)"))
+        val route = src("OfflineTripSnapshotNavigation.kt").substringAfter("internal fun YuldashViewModel.applyLiveSnapshotRoute(").substringBefore("\n}")
+        assertTrue("обёртка перестала делегировать единственному маршрутизатору",
+            route.contains("return applyBookingLink(bookingId, role, status, completed, cancelledInTransit)"))
+        assertEquals("обёртка добавила второй обход маршрутизатора", 1, Regex("\\bapplyBookingLink\\(").findAll(route).count())
+        assertFalse("обёртка напрямую подменила экран", route.contains("screen.value ="))
         assertTrue("подсказка экрану поездки потеряла признак отмены в пути",
             app.contains("knownTerminalTripHint(bid, state.status, state.role, state.cancelledInTransit)"))
         assertTrue(
             "обе роли снова идут на «Бронь» без разбора",
             !app.contains("screen = if (completed) Screen.ActiveTrip else Screen.Booking"),
         )
+    }
+
+    @Test fun `доменная обёртка сохраняет роль статус завершение и отмену в пути`() {
+        for (role in listOf("passenger", "driver")) for (status in listOf("pending", "confirmed", "onboard", "done", "cancelled"))
+            for (completed in listOf(false, true)) for (cancelledInTransit in listOf(false, true)) {
+                val direct = newVm(); val wrapped = newVm()
+                val expected = direct.applyBookingLink(43, role, status, completed, cancelledInTransit)
+                assertEquals(expected, wrapped.applyLiveSnapshotRoute(43, role, status, completed, cancelledInTransit))
+                assertEquals(direct.screen.value, wrapped.screen.value)
+                assertEquals(direct.activeBookingId.value, wrapped.activeBookingId.value)
+                assertEquals(direct.activeDriverBookingId.value, wrapped.activeDriverBookingId.value)
+                assertEquals(direct.activeTrip.value, wrapped.activeTrip.value)
+            }
     }
 
     @Test

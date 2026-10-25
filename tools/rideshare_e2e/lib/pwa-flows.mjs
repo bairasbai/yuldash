@@ -1,5 +1,6 @@
 // Real-UI PWA flows used by the scenarios. Each step clicks/types like a person; no API shortcuts.
 import { PWA, shot, sleep, log } from "./pwa.mjs";
+import { fareMarker, ownRideForArchive, waitRideDone, ownBookingForHistory } from "./history-oracles.mjs";
 
 export const vis = (loc) => loc.filter({ visible: true });
 export async function click(page, loc, what) { await vis(loc).first().waitFor({ timeout: 20000 }); await vis(loc).first().click(); log("pwa.click", { what }); }
@@ -191,36 +192,61 @@ export async function chatSee(page, text, timeout = 30000) {
 }
 
 /** Driver: open the finished booking from the rating card and reach its receipt. */
+function observeReceipt(page, bookingId) {
+  if (!Number.isSafeInteger(bookingId) || bookingId <= 0) throw new Error("Exact receipt booking ID required");
+  return page.waitForResponse(r => new URL(r.url()).pathname === `/trips/${bookingId}/receipt` && r.status() === 200,
+    { timeout: 25000 }).then(r => r.json()).catch(() => null);
+}
+async function requireReadyReceipt(page, bookingId, role, observed) {
+  await page.waitForURL(url => url.pathname === `/receipt/${bookingId}`, { timeout: 20000 });
+  const receipt = await observed;
+  if (receipt?.booking_id !== bookingId || receipt.role !== role || !receipt.from_city || !receipt.to_city
+    || !receipt.driver_name || !Number.isFinite(receipt.amount) || receipt.amount < 0) {
+    throw new Error("Current receipt did not return its own successful, role-bound body");
+  }
+  const content = page.locator(".receipt");
+  await content.waitFor({ state: "visible", timeout: 20000 });
+  for (const value of [receipt.from_city, receipt.to_city, receipt.driver_name, receipt.pickup_stop, receipt.dropoff_stop].filter(Boolean)) {
+    await content.getByText(value, { exact: true }).first().waitFor({ timeout: 10000 });
+  }
+  await content.locator(".receipt__total b").waitFor({ state: "visible" });
+  log("pwa.receipt.ready", { bookingId, role, exact_response_200: true, content_visible: true });
+}
 export async function driverReceipt(page, { bookingId }) {
   await openDriverCabinet(page);
   const card = page.locator(`[data-rate-card="${bookingId}"]`);
+  const receipt = observeReceipt(page, bookingId);
   await card.getByRole("button", { name: /^Открыть поездку$/ }).click();
   await sleep(2000);
   if (!/\/receipt\//.test(page.url())) {
     const r = vis(page.getByRole("button", { name: /Квитанция/ }).or(page.getByRole("link", { name: /Квитанция/ })));
     if (await r.count()) { await r.first().click(); await sleep(1500); }
   }
-  await page.getByText(/Квитанция|Чек поездки/).first().waitFor({ timeout: 15000 });
+  await requireReadyReceipt(page, bookingId, "driver", receipt);
   await shot(page, `${page._tag}-driver-receipt.png`);
   log("pwa.driver.receipt", { url: page.url() });
   return await page.locator("main, body").first().innerText();
 }
 
 /** Driver: close the whole ride («Завершить рейс») and see it in the cabinet archive. */
-export async function driverArchive(page, { route }) {
+export async function driverArchive(page, input) {
+  const { route, rideId, price } = input;
+  const ride = ownRideForArchive(input);
   await openDriverCabinet(page);
-  const finish = vis(btn(page, /^Завершить рейс$/));
-  if (await finish.count()) {
-    await finish.first().click(); await sleep(800);
-    const confirm = vis(page.locator("[role=dialog] button, .sheet button").filter({ hasText: /^(Завершить|Да)/ }));
-    if (await confirm.count()) await confirm.first().click();
-    await sleep(1500);
+  if (ride.status === "active") {
+    const current = page.locator(".driver-ride").filter({ has: page.getByRole("heading", { name: route, exact: true }) }).filter({ hasText: fareMarker(price) });
+    await current.waitFor({ state: "visible", timeout: 20000 });
+    if (await current.count() !== 1) throw new Error("Current active ride UI card is ambiguous");
+    if (ownRideForArchive(input).status !== "active") throw new Error("Current ride changed before its one UI completion action");
+    await current.getByRole("button", { name: "Завершить рейс", exact: true }).click();
   }
-  await page.getByText("Архив").first().scrollIntoViewIfNeeded();
-  const arch = page.locator("section, div").filter({ hasText: /^Архив/ });
-  await page.getByText(route).last().waitFor({ timeout: 15000 });
+  await waitRideDone(rideId);
+  const row = page.locator(".archive-list .archive-row").filter({ has: page.locator("strong", { hasText: route }) }).filter({ hasText: fareMarker(price) });
+  await row.waitFor({ state: "visible", timeout: 20000 });
+  if (await row.count() !== 1 || await row.locator("strong").innerText() !== route || !/ · Завершена$/.test(await row.locator("small").innerText())) throw new Error("Exact completed ride is not present in its archive row");
+  await row.scrollIntoViewIfNeeded();
   await shot(page, `${page._tag}-driver-archive.png`);
-  log("pwa.driver.archive", { route });
+  log("pwa.driver.archive", { route, rideId, price, exact_done_row: true });
 }
 
 /** Passenger: «Поездки» tab → booking card (route + optional text) → open its trip. */
@@ -245,25 +271,28 @@ export async function passengerRateAndReceipt(page, { stars, bookingId }) {
   await click(page, btn(page, /^Отправить оценку$/), "send rating");
   await page.getByText(/Спасибо за оценку/).first().waitFor({ timeout: 15000 });
   await shot(page, "passenger-rated.png");
+  const receipt = observeReceipt(page, bookingId);
   await click(page, btn(page, /^Квитанция поездки$/), "receipt");
-  await page.waitForURL(/\/receipt\/\d+/, { timeout: 15000 });
-  await sleep(1500);
+  await requireReadyReceipt(page, bookingId, "passenger", receipt);
   await shot(page, "passenger-receipt.png");
   const text = await page.locator("body").innerText();
   log("pwa.passenger.receipt", { url: page.url() });
   return text;
 }
 
-export async function passengerHistory(page, { route, cardText = null }) {
+export async function passengerHistory(page, input) {
+  const { route, price, bookingId, statusLabel = /^Завершена$/ } = input;
+  ownBookingForHistory(input);
   await navTab(page, "Поездки");
   await click(page, page.locator("button, [role=tab]").filter({ hasText: /^История$/ }), "history tab");
   await sleep(1200);
-  let card = page.locator("article, .list-row, .card, li").filter({ hasText: route });
-  if (cardText) card = card.filter({ hasText: cardText });
-  await vis(card).first().waitFor({ timeout: 15000 });
-  const txt = await vis(card).first().innerText();
+  const card = page.locator(".my-rides-list .my-trip-card").filter({ has: page.getByRole("heading", { name: route, exact: true }) }).filter({ hasText: fareMarker(price) });
+  await card.waitFor({ state: "visible", timeout: 20000 });
+  if (await card.count() !== 1 || !statusLabel.test(await card.locator(".my-trip-card__status").innerText())) throw new Error("Exact booking history card or status is missing");
+  await card.scrollIntoViewIfNeeded();
+  const txt = await card.innerText();
   await shot(page, "passenger-history.png");
-  log("pwa.passenger.history", { route, card: txt.replace(/\s+/g, " ").slice(0, 160) });
+  log("pwa.passenger.history", { route, bookingId, price, card: txt.replace(/\s+/g, " ").slice(0, 160) });
   return txt;
 }
 

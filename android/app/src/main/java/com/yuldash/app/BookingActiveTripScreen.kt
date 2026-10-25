@@ -1422,7 +1422,7 @@ private fun ActiveTripContent(
             // Recheck on lifecycle resume and before every poll: this screen belongs to one login.
             while (tripSession == ApiClient.queueSessionGeneration()) {
                 val detailsFailure = tripDetails.failure
-                val stateResult = boardingGate.read(id)
+                val stateResult = boardingGate.readFresh(id)
                 if (tripSession != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
                 stateResult
                     .onSuccess { st ->
@@ -1586,7 +1586,7 @@ private fun ActiveTripContent(
         voiceScope.launch {
             // Очередь и лента чата — у состояния чата (TripChatState.flushQueued): неотправленное остаётся на экране.
             if (!isTripChatActive() || !chat.flushQueued() || !isTripChatActive()) return@launch
-            boardingGate.read(id).onSuccess { st ->
+            boardingGate.readFresh(id).onSuccess { st ->
                 if (!isTripChatActive()) return@onSuccess
                 if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
                 aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; inTransit.accept(st); acceptBookingStatus(st.status, st.boardingUndo, st.boardingUndoSec); offline = false
@@ -1636,7 +1636,7 @@ private fun ActiveTripContent(
                             bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                            boardingGate.read(bid).onSuccess { s ->
+                            boardingGate.readFresh(bid).onSuccess { s ->
                                 if (!isTripSessionCurrent()) return@onSuccess
                                 if (s.role.isNotBlank()) role = s.role
                                 driverPhase = s.driverPhase
@@ -1673,7 +1673,7 @@ private fun ActiveTripContent(
                         if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
                             bookingStatus = "done"
-                        } else boardingGate.read(bid).onSuccess { s ->
+                        } else boardingGate.readFresh(bid).onSuccess { s ->
                             if (!isTripSessionCurrent()) return@onSuccess
                             if (s.role.isNotBlank()) role = s.role
                             driverPhase = s.driverPhase
