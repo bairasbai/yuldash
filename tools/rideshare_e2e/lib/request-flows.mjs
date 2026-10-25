@@ -80,7 +80,7 @@ export async function pwaCreateRequest(page, { from, to, price, departAt }) {
 }
 export async function androidOfferOwnRide({ passenger, price }) {
   await AF.openDriverCabinet();
-  await A.scrollTap("Заявки пассажиров"); await A.waitFor("По пути"); await A.tapText("По пути");
+  await A.scrollTap("Заявки пассажиров", { max: 24 }); await A.waitFor("По пути"); await A.tapText("По пути");
   const name = await A.scrollTo(passenger);
   let nodes = A.dump(), action = AF.below(nodes, name, /^Предложить поездку$/, 1000);
   if (!action) { await A.swipeUp(0.25); nodes = A.dump(); action = A.find(nodes, /^Предложить поездку$/); }

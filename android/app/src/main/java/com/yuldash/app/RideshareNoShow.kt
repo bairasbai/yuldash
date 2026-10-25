@@ -194,18 +194,24 @@ internal fun ArrivingButton(
     modifier: Modifier = Modifier,
     locked: Boolean = false,
     onRefused: (ApiException) -> Unit = {},
+    host: DriverCabinetBoardingState? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var sending by remember(bookingId) { mutableStateOf(false) }
+    var localSending by remember(bookingId) { mutableStateOf(false) }
+    val sending = host?.row(bookingId)?.busy ?: localSending
     val failMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
     val sentMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
     val tint by animateColorAsState(if (locked) CanonMuted else CanonGreen2, tween(CanonMotion.NORMAL), label = "arrivingTint")
     val edge by animateColorAsState(if (locked) CanonBorder else CanonGreen2, tween(CanonMotion.NORMAL), label = "arrivingEdge")
     OutlinedButton(
         onClick = {
-            if (!sending) {
-                sending = true
+            if (host != null) {
+                host.arriving(bookingId,
+                    onFailure = { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() },
+                    onSuccess = { Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show() })
+            } else if (!sending) {
+                localSending = true
                 scope.launch {
                     BoardingApi.markArriving(bookingId)
                         .onSuccess { terms ->
@@ -216,7 +222,7 @@ internal fun ArrivingButton(
                             if (e is ApiException) onRefused(e)
                             Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
                         }
-                    sending = false
+                    localSending = false
                 }
             }
         },
@@ -256,10 +262,12 @@ internal fun NoShowButton(
     modifier: Modifier = Modifier,
     locked: Boolean = false,
     onRefused: (ApiException) -> Unit = {},
+    host: DriverCabinetBoardingState? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var sending by remember(bookingId) { mutableStateOf(false) }
+    var localSending by remember(bookingId) { mutableStateOf(false) }
+    val sending = host?.row(bookingId)?.busy ?: localSending
     var asking by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
     val tint by animateColorAsState(if (locked) CanonMuted else CanonRed, tween(CanonMotion.NORMAL), label = "noShowTint")
@@ -301,19 +309,25 @@ internal fun NoShowButton(
                     enabled = !sending,
                     onClick = {
                         if (sending) return@TextButton
-                        sending = true
-                        scope.launch {
-                            ApiClient.markNoShow(bookingId)
-                                .onSuccess { asking = false; onSent() }
-                                .onFailure { e ->
-                                    asking = false
-                                    if (e is ApiException && e.detailCode == "passenger_onboard") {
-                                        onBoarded(e.detail?.optInt("boarding_undo_sec")?.coerceAtLeast(0) ?: 0)
+                        if (host != null) {
+                            host.noShow(bookingId,
+                                onFailure = { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() },
+                                onFinished = { asking = false })
+                        } else {
+                            localSending = true
+                            scope.launch {
+                                ApiClient.markNoShow(bookingId)
+                                    .onSuccess { asking = false; onSent() }
+                                    .onFailure { e ->
+                                        asking = false
+                                        if (e is ApiException && e.detailCode == "passenger_onboard") {
+                                            onBoarded(e.detail?.optInt("boarding_undo_sec")?.coerceAtLeast(0) ?: 0)
+                                        }
+                                        if (e is ApiException) onRefused(e)
+                                        Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
                                     }
-                                    if (e is ApiException) onRefused(e)
-                                    Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
-                                }
-                            sending = false
+                                localSending = false
+                            }
                         }
                     },
                     modifier = Modifier.heightIn(min = 48.dp),

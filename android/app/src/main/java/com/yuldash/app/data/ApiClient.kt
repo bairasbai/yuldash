@@ -2376,10 +2376,10 @@ object ApiClient {
     }.onSuccess { if (it.cancelled) Analytics.log("booking_cancel") }
 
     // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
-    suspend fun markNoShow(bookingId: Int): Result<Unit> =
-        TripLocationBus.driverStep(bookingId, closing = true) {
+    suspend fun markNoShow(bookingId: Int, owner: Long = queueSessionGeneration()): Result<Unit> =
+        if (!isCurrentSession(owner)) Result.failure(ApiException(401, "")) else TripLocationBus.driverStep(bookingId, closing = true) {
             OfflineTripSnapshotHooks.bookingTerminal(bookingId) {
-                call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true)
+                call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true, expectedGeneration = owner)
             }
         }.onSuccess { Analytics.log("booking_no_show") }
 

@@ -99,12 +99,18 @@ internal fun DriverBoardingControls(
     // С какого момента можно нажать «Подъезжаю» (`arriving_opens_at`: за 30 минут до выезда); null — старый сервер.
     arrivingOpensAt: String? = null,
     boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
+    host: DriverCabinetBoardingState? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var shown by remember(bookingId, bookingStatus) { mutableStateOf(bookingStatus) }
-    var undoSec by remember(bookingId, bookingStatus, boardingUndoSec) { mutableIntStateOf(boardingUndoSec) }
-    var marking by remember(bookingId) { mutableStateOf(false) }
+    val hosted = host?.row(bookingId)
+    if (host != null && hosted == null) return
+    var localShown by remember(bookingId, bookingStatus) { mutableStateOf(bookingStatus) }
+    var localUndoSec by remember(bookingId, bookingStatus, boardingUndoSec) { mutableIntStateOf(boardingUndoSec) }
+    var localMarking by remember(bookingId) { mutableStateOf(false) }
+    val shown = if (hosted?.noShowSent == true) "no_show" else hosted?.status ?: localShown
+    val undoSec = host?.remaining(bookingId) ?: localUndoSec
+    val marking = hosted?.busy ?: localMarking
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
     AnimatedContent(targetState = shown, modifier = modifier.fillMaxWidth(), label = "driverBoarding") { state ->
         when (state) {
@@ -115,24 +121,28 @@ internal fun DriverBoardingControls(
                 arrivingOpensAt = arrivingOpensAt,
                 marking = marking,
                 onMark = {
-                    if (!marking) {
-                        marking = true
+                    if (host != null) {
+                        host.mark(bookingId) { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
+                    } else if (!marking) {
+                        localMarking = true
                         scope.launch {
                             BoardingApi.markBoarded(bookingId)
-                                .onSuccess { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }
+                                .onSuccess { r -> localUndoSec = r.undoSec; localShown = r.status.ifBlank { "onboard" } }
                                 .onFailure { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
-                            marking = false
+                            localMarking = false
                         }
                     }
                 },
-                onNoShowSent = { shown = "no_show" },
-                onBoarded = { sec -> undoSec = sec; shown = "onboard" },
+                onNoShowSent = { localShown = "no_show" },
+                onBoarded = { sec -> localUndoSec = sec; localShown = "onboard" },
+                host = host,
             )
             "onboard" -> BoardingInCarRow(
                 bookingId = bookingId,
                 undoSec = undoSec,
-                onUndone = { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } },
-                undoTerms = boardingUndo,
+                onUndone = { r -> localUndoSec = r.undoSec; localShown = r.status.ifBlank { "onboard" } },
+                undoTerms = hosted?.undo ?: boardingUndo,
+                host = host,
             ) { BoardedDisputeBlock(bookingId, passengerId, passengerName) }
             "no_show" -> NoShowSentNote()
             else -> Box(Modifier)   // ждёт ответа / закрыта — ни посадке, ни неявке не место
@@ -173,16 +183,18 @@ private fun ConfirmedPassengerControls(
     onMark: () -> Unit,
     onNoShowSent: () -> Unit,
     onBoarded: (undoSec: Int) -> Unit,
+    host: DriverCabinetBoardingState? = null,
 ) {
-    var terms by remember(bookingId, noShowAt, noShowNeedsArriving, arrivingOpensAt) {
+    var localTerms by remember(bookingId, noShowAt, noShowNeedsArriving, arrivingOpensAt) {
         mutableStateOf(NoShowTerms(noShowAt = noShowAt, needsArriving = noShowNeedsArriving, arrivingOpensAt = arrivingOpensAt))
     }
+    val terms = host?.row(bookingId)?.noShow ?: localTerms
     val opensAt = remember(terms) { terms.opensAtMs() }
     val open by rememberNoShowOpen(opensAt)
     // «Подъезжаю» — не раньше чем за 30 минут до выезда (приёмка PR184); часы тикают, только пока ждём её.
     val arrivingAt = remember(terms) { if (terms.needsArriving) terms.arrivingOpensAtMs() else null }
     val arrivingOpen by rememberNoShowOpen(arrivingAt)
-    val onRefused: (ApiException) -> Unit = { e -> terms.afterRefusal(e.detailCode, e.detail)?.let { terms = it } }
+    val onRefused: (ApiException) -> Unit = { e -> terms.afterRefusal(e.detailCode, e.detail)?.let { localTerms = it } }
     val slot = noShowSlot(terms.needsArriving, open)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
@@ -205,10 +217,11 @@ private fun ConfirmedPassengerControls(
                 if (arriving) {
                     ArrivingButton(
                         bookingId,
-                        onArrived = { terms = it },
+                        onArrived = { localTerms = it },
                         modifier = Modifier.fillMaxWidth().testTag("driverArrivingButton"),
                         locked = !arrivingOpen,
                         onRefused = onRefused,
+                        host = host,
                     )
                 } else {
                     NoShowButton(
@@ -218,6 +231,7 @@ private fun ConfirmedPassengerControls(
                         modifier = Modifier.fillMaxWidth(),
                         locked = slot == NoShowSlot.Waiting,
                         onRefused = onRefused,
+                        host = host,
                     )
                 }
             }
@@ -250,18 +264,22 @@ internal fun BoardingInCarRow(
     onUndone: (BoardingResult) -> Unit,
     modifier: Modifier = Modifier,
     undoTerms: BoardingUndoTerms = BoardingUndoTerms(),
+    host: DriverCabinetBoardingState? = null,
     afterWindow: @Composable () -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
-    var left by remember(bookingId, undoSec) { mutableIntStateOf(undoSec) }
-    var undoing by remember(bookingId) { mutableStateOf(false) }
-    var requested by remember(bookingId, undoTerms.pending) { mutableStateOf(undoTerms.pending) }
+    val hosted = host?.row(bookingId)
+    var left by remember(bookingId, undoSec, hosted?.deadline) { mutableIntStateOf(host?.remaining(bookingId) ?: undoSec) }
+    var localUndoing by remember(bookingId) { mutableStateOf(false) }
+    var localRequested by remember(bookingId, undoTerms.pending) { mutableStateOf(undoTerms.pending) }
+    val undoing = hosted?.busy ?: localUndoing
+    val requested = hosted?.undo?.pending ?: localRequested
     val failMsg = appText("Не получилось отменить. Проверь сеть.", "Кире алып булманы. Селтәрҙе тикшер.")
     LaunchedEffect(bookingId, left) {
         if (left > 0) {
             delay(1_000)
-            left -= 1
+            left = host?.remaining(bookingId) ?: (left - 1)
         }
     }
     val clock = boardingUndoClock(left)
@@ -280,17 +298,19 @@ internal fun BoardingInCarRow(
             AnimatedVisibility(visible = left > 0 && !requested) {
                 TextButton(
                     onClick = {
-                        if (!undoing) {
-                            undoing = true
+                        if (host != null) {
+                            host.undo(bookingId) { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
+                        } else if (!undoing) {
+                            localUndoing = true
                             scope.launch {
                                 BoardingApi.undoBoarded(bookingId)
-                                    .onSuccess { requested = it.undo.pending; onUndone(it) }
+                                    .onSuccess { localRequested = it.undo.pending; onUndone(it) }
                                     .onFailure { e ->
                                         // 409 — окно вышло или поездка ушла вперёд: дальше только разбор.
                                         if (e is ApiException && e.status == 409) left = 0
                                         Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
                                     }
-                                undoing = false
+                                localUndoing = false
                             }
                         }
                     },

@@ -1396,6 +1396,13 @@ internal fun DriverCabinetScreen(
     onOpenCompletedTrip: (Int) -> Unit = {},
     focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},   // Д2: вернулись из закрытой поездки — к «Едут с тобой»
 ) {
+    val cabinetSession by ApiClient.sessionChanges.collectAsState(); val cabinetOwner = remember { cabinetSession }
+    val leaveCabinet by rememberUpdatedState(onBack)
+    if (cabinetSession != cabinetOwner) {
+        LaunchedEffect(cabinetOwner) { leaveCabinet() }
+        return
+    }
+    val boardingScope = rememberCoroutineScope(); val boardingHost = remember(cabinetOwner) { DriverCabinetBoardingState(cabinetOwner, boardingScope) }
     val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без линии, панели и поездок такси
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
     var driverRides by remember { mutableStateOf<List<Ride>>(emptyList()) }
@@ -1404,7 +1411,7 @@ internal fun DriverCabinetScreen(
     var ridesLoading by remember { mutableStateOf(true) }   // первая загрузка → скелетон вместо ложного «пусто»
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
-    var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
+    val driverBookings = boardingHost.effectiveRows
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
     var onlineLoaded by remember { mutableStateOf(false) }   // статус пришёл с сервера → можно синкать фоновый сервис
@@ -1471,7 +1478,7 @@ internal fun DriverCabinetScreen(
             // 401 (не вошёл) → это не сеть, показываем обычное «пусто». Иначе — ошибка сети + «Повторить».
             .onFailure { e -> ridesError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
         ridesLoading = false
-        ApiClient.getDriverBookings().onSuccess { driverBookings = it }
+        boardingHost.reload()
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess {
             online = it.online; onlineLoaded = true
@@ -1612,6 +1619,7 @@ internal fun DriverCabinetScreen(
             ridesLoading = ridesLoading,
             onRetryRides = { ridesReload++ },
             driverBookings = driverBookings,
+            boardingHost = boardingHost,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
             debt = debt,
             debtPaying = debtPaying,
@@ -2940,6 +2948,7 @@ internal fun DriverCabinetContent(
     onOpenTrip: (Int) -> Unit = {},  // «Едут с тобой»: открыть экран поездки этой брони (id брони)
     onOpenCompletedTrip: (Int) -> Unit = {},
     focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},   // Д2: список сам доезжает до «Едут с тобой»
+    boardingHost: DriverCabinetBoardingState? = null,
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     val ridesDone = archive.count { it.status == "done" }
@@ -3242,7 +3251,9 @@ internal fun DriverCabinetContent(
         }
         // Едут прямо сейчас: подтверждённые и уже в пути. Оценивать их нельзя (поездка не
         // состоялась — сервер вернёт 409), а вот «Сел» и «пассажир не вышел» нужны именно тут.
-        val ridingBookings = driverBookings.filter { it.status == "confirmed" || it.status == "onboard" }
+        val ridingBookings = driverBookings.filter {
+            it.status == "confirmed" || it.status == "onboard" || boardingHost?.row(it.bookingId)?.noShowSent == true
+        }
         if (ridingBookings.isNotEmpty()) {
             item(key = RIDING_HEADER_KEY) {
                 SectionHeader(
@@ -3260,7 +3271,7 @@ internal fun DriverCabinetContent(
                         PassengerRow(b)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // Посадку отмечает водитель: «Сел» рядом с «Не пришёл» (срок от сервера; на поездке с остановками сначала «Подъезжаю»), «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
-                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo)
+                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo, host = boardingHost)
                     }
                 }
             }

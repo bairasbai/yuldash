@@ -164,6 +164,69 @@ Actualalias01 и helper02 GREEN; новый readonly receipt-format01 на то�
 Состав68/TTL/nonce/owner/DB/hash и весь продукт1302 неизменны; далее scoped commit/binding,
 новые01B→02B→02A→01A→03A→03B→04B→04A→05A→05B на конечном frozen HEAD. Формальный06, BA и07 открыты.
 
+Продолжение18:06UTC: app target0178, Android final14/PWA final07 GREEN и binding03; новый
+01B03 принят13 (17 проверок/22/29/790/6 valid XML). Следующий02B03 RED5, entry заявки после
+архива не достигнутmax8. QA6 saved actual12up и неизменныеrow30/request7; новая ровно одна
+строка RQ max24 принята14. Root отдельно UI отменил7 без удаления и завершил пустой30, прочие
+rows неизменны; повтор02B-rq-fix01 уже выполняется с новым рейсом/заявкой и отдельным run.
+Продукт/HEAD0178 заморожены. По проверенному действующему договору QA допускает отдельный
+source artifact: точная изменённая RQ-копия, patch, immutable baseline0178, EOL и41 SHA;
+reconstruction01 подтвердил целыйharness ecf167fb…e178. Один artifact-source snapshot <64KiB
+зарегистрирован снаружи до создания; это итоговое доказательство, не копия проекта/зависимостей.
+Новые proof не меняют старые01B03/ad4c или failed02B03. После дальнейших QA-уточнений сохранять
+новый точный source-пакет; внутри каждого run код неизменен. Перед новым02 metadata записаны заранее.
+
+25.10,19:27UTC: текущие полные01AB и02AB на0178 приняты независимо13; отдельные QA-версии
+и точные source artifacts сохранены. Полный03A-rq-fix01:24 шага/67 исполнений51 разных labels,
+7 рейсов/8 намеренных броней; все отмены, refusal/consent, освобождение последнего места и
+неявка прошли. Реальное ожидание501806мс, no-show POST на5171мс позже серверного срока;
+часы/старые строки не подменялись. Review13 и92 SHA принимают только03A.
+После этого все7 своих опубликованных рейсов34–40 завершены реальным UI. Первый maintenance
+helper exit1 на сравнении одинаковых значений разных JS prototypes сохранён; новый readonly
+verify02 exit0 подтвердил7 done и неизменность всех броней/заявок/ответов/чужих рейсов.
+03B на0178/ecf завершён RED30: после настоящей onboard37 помощник не нашёл «Исправить
+посадку» в Android-кабинете. Результат/601 wire-событие сохранены, свои Node/browser закрыты.
+QA6 получил только readonly прокрутку/capture без business mutation для различения UI/QA-причины.
+Readonly26 PNG/XML подтвердили доTTL: под «Едут с тобой» карточка показывала «Сел» при
+server37 onboard. Простое увеличение700px/max10 этим не обосновано. QA6 вернул эмулятор;
+Android-агент исследует parent driverBookings/local remember disposal без записи до плана.
+План продолжения: (1) принять причину/минимальный план и завершить только свои failed fixtures
+37/41–44 реальным UI; (2) исправить состояние родителя/пересоздания с регрессией и независимой
+приёмкой, затем debug/androidTest/затронутые проверки; (3) зафиксировать новую реальную версию
+и выполнить необходимые UI-пути на ней. Старые0178 результаты не переназначать новым байтам.
+19:53UTC: cleanupRED37/41–44 завершён реальным UI exit0;73 original wire/exact5POST200,
+независимый13 facts-review принял только обслуживание, RED03B остаётся failed. Профиль
+pwa-d2-maintenance без живых процессов сохранён root для следующего обслуживания.
+План remount01 отклонён fresh reviewer: no-show scope/fullterms и порядок перекрывающихся GET.
+План02 SHA55fc3d85…0227b1 принят fresh gpt-6.1-sol/review02 SHAf9ff6128…5c54e.
+Единственная запись семи разрешённых Android-файлов передана boarding_cabinet_fix под замком;
+старые63 тестовых файла frozenSHA4ba861d8…bda68, сборка/эмулятор остаются root.
+20:13UTC: handoff01 семь SHA/63 прежних файлов совпали. Dev12 на1305 входах
+b6e72b2a…b09c start=end собрал debug/androidTest, но unit-компиляция остановилась на одном
+новом неверном import onAllNodes; тесты этим запуском не исполнены. Gradle/Java завершены,
+identity/ports проверены. Fresh code-review01 не принят до2P2: successful follow-up GET
+теряет server wait deadlines, а same-terminal cancelled GET не убирает local no-show note.
+Автор получил только2 новых testfiles для importfix и действительных RED на successfulGET;
+пять product SHA пока frozen. Потом минимальный Statefix, GREEN и повторная fresh acceptance.
+20:23UTC: stage1 исправил один import и добавил4 actual HTTP/200 GET воспроизведения.
+Narrow dev13 exit1/2м14с:24=20 PASS+ровно4 новых assertion FAIL,0ERROR/SKIP;2XML сохранены,
+1305 SHA58f42cb0…2196 start=end и все5 product SHA прежние. Fresh reviewer принял actualRED,
+не compiler/timeout. Stage2 меняет только State SHA3068864b…71613c: сохранение server wait
+и same-terminal visual cleanup;24 новых/63 прежних теста и4 остальных product SHA неизменны.
+Broad dev14 идёт на1305 входахe054f292…a284d; sourcecapturedBEFORE, code-review02 отдельно.
+20:36UTC: dev14 завершён exit0/11м49с. Сохранены93 XML:724 уникальных PASS,0FAIL/ERROR/SKIP,
+включая24 новых и4 прежних RED13 теперь GREEN;119 API-строк — отдельные запросы, не новые tests.
+1305 входных SHA start=end, State3068864b…71613c и остальные6 handoffSHA стабильны.
+Код принят fresh review02; actual724 принят свежим review14 SHА83c6468a…44dd7d.
+Проверены93 исходных XML/40 Guard-классов139 случаев,625 прежних dev11 ID+24 новых+75 остальных
+выбранных ID; исключены только2 ChatLive, их прежний PASS не складывается с724. Рабочие Java завершены,
+v2/v3 identity/ports0. Inventory2530/check0, scanner09 на11 файлах:2528 exact generated hashes,
+прочих0; перед commit выполняется финальный scan после новых3 docs. Дальше новый честныйHEAD/binding,
+release и сначала03B до повтора остальных обязательных пар. Прежние0178 UI относятся1302.
+Весь03/04–07 пока не принят;
+ни новые01/02, ни отдельный03A не заменяют полный состав. Свои завершённые Node/browser
+проверены по PID+времени+команде; чужой1804 исключён из старой ошибочной ancestry, не завершался.
+
 Дополнительные переводы на проверку носителем (отложены вместе с прежними, не подтверждены):
 
 | Русский | Башкирский — черновик |
