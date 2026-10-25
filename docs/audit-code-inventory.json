@@ -80,7 +80,7 @@
   "counts_by_kind": {
     "android_main": 217,
     "backend_main": 110,
-    "infra_resource_config": 447,
+    "infra_resource_config": 448,
     "public_site_promo": 91,
     "pwa_main": 337,
     "test_support": 1324
@@ -95,7 +95,7 @@
     "B07": 148,
     "B08": 216,
     "B09": 754,
-    "B10": 447,
+    "B10": 448,
     "B11": 92
   },
   "excluded_counts": {
@@ -13397,8 +13397,8 @@
       "path": "tools/rideshare_e2e/helper-checks.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "5a572e5751c6acb17148e42905431e65cddcd27fe9262e749cd493aad3986333",
-      "lines": 17
+      "sha256": "5056437055f226a85b63e366f8bd21c599001b58cf5596af4e744f667f438fce",
+      "lines": 43
     },
     {
       "path": "tools/rideshare_e2e/lib/android-flows.mjs",
@@ -13411,7 +13411,7 @@
       "path": "tools/rideshare_e2e/lib/android.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "6527e8ea2b11b97103a65f67fb0f29fca5e78b1ae788b73436b6c28cd8369b01",
+      "sha256": "a4622e7a75bdcd76f3b1db5e7998ff8946f8e753c1c21aac208a0126c8f21664",
       "lines": 218
     },
     {
@@ -13481,8 +13481,15 @@
       "path": "tools/rideshare_e2e/lib/redact.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "cde7488345dc9a2b21db64c4aa912d0c6ba7a2cc5edc9c5b6966bbea8762cbaf",
-      "lines": 19
+      "sha256": "99e70d4e3b165605eb9f0f35351333b3875df00ae2ed537cb6b923c061db6044",
+      "lines": 34
+    },
+    {
+      "path": "tools/rideshare_e2e/lib/registered-path.mjs",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "c39bc27be77841b9855bdac3832292a149c8c1dde8ab09753f9aa8b4162cfb34",
+      "lines": 39
     },
     {
       "path": "tools/rideshare_e2e/lib/request-flows.mjs",
@@ -13579,8 +13586,8 @@
       "path": "tools/rideshare_e2e/s06.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "22b6a0ad05306acce3f946e8f8fe473db3e08a54c39534fae2523a2d9797b6c3",
-      "lines": 475
+      "sha256": "7f70753bc8105c127897249bf9e9be9b5efdfba516a8332164597762e26cdbf0",
+      "lines": 481
     },
     {
       "path": "tools/rideshare_e2e/stand-common.ps1",

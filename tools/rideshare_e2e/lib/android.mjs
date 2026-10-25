@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EVID, log, sleep } from "./common.mjs";
-import { redactText } from "./redact.mjs";
+import { redactUiXml } from "./redact.mjs";
 import { scrollGesture } from "./native-scroll.mjs";
 
 export const ADB = process.env.RSACC_ADB || join(process.env.ANDROID_HOME || join(process.env.LOCALAPPDATA, "Android", "Sdk"), "platform-tools", "adb.exe");
@@ -47,7 +47,7 @@ export function dump({ label = null, keep = false } = {}) {
     if (res.includes("UI hierchary dumped to:") && res.includes(remote)) {
       const xml = adb(["exec-out", "cat", remote], { quiet: true });
       sh(`rm -f ${remote}`, { quiet: true });
-      if (label || keep) writeFileSync(join(shotDir, `${label || "dump-" + Date.now()}.xml`), redactText(xml));
+      if (label || keep) writeFileSync(join(shotDir, `${label || "dump-" + Date.now()}.xml`), redactUiXml(xml));
       return parse(xml);
     }
     Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, 700);

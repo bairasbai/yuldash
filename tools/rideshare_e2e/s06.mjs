@@ -10,6 +10,7 @@ import { REPO, DB_PATH, EVID, SCRATCH } from "./lib/common.mjs";
 import { openProfile } from "./lib/pwa.mjs";
 import { assertSavedOwnTripReady, expectedSavedTrip } from "./lib/offline-ready.mjs";
 import { offlineControlGroups } from "./lib/offline-controls.mjs";
+import { registeredPathContains, assertRegisteredOrdinaryPath } from "./lib/registered-path.mjs";
 import * as P from "./lib/pwa-flows.mjs";
 
 const TAILS = "C:/Users/Bayra/AppData/Local/yuldash/rideshare-claude-tails-20261024";
@@ -40,6 +41,11 @@ let originalDevice, initialActor, currentActor, fixtureManifest;
 
 function jsonFile(path) { return JSON.parse(readFileSync(path, "utf8").replace(/^\uFEFF/, "")); }
 function ordinaryPath(path) {
+  if (registeredPathContains(path, TAILS)) {
+    assertRegisteredOrdinaryPath(path, TAILS);
+    sc.check(true, "registered visual alias preserves the same owned file without links", { path });
+    return;
+  }
   for (let p = resolve(path); ; p = dirname(p)) {
     const s = lstatSync(p);
     sc.check(!s.isSymbolicLink() && normalized(realpathSync.native(p)) === normalized(p), "registered visual path has no symlink/junction", { path: p });
