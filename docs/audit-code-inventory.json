@@ -80,7 +80,7 @@
   "counts_by_kind": {
     "android_main": 217,
     "backend_main": 110,
-    "infra_resource_config": 446,
+    "infra_resource_config": 447,
     "public_site_promo": 91,
     "pwa_main": 337,
     "test_support": 1324
@@ -95,7 +95,7 @@
     "B07": 148,
     "B08": 216,
     "B09": 754,
-    "B10": 446,
+    "B10": 447,
     "B11": 92
   },
   "excluded_counts": {
@@ -13404,8 +13404,8 @@
       "path": "tools/rideshare_e2e/lib/android-flows.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "10e2047cc9043c997fcf649c4ed6947c0fd79bfd6a0a1d4b66d325c53e69e079",
-      "lines": 506
+      "sha256": "ba7c74dd1315cebc22845fe6f066c85221659e6874be888b204dfcfc26d3b07c",
+      "lines": 545
     },
     {
       "path": "tools/rideshare_e2e/lib/android.mjs",
@@ -13425,7 +13425,7 @@
       "path": "tools/rideshare_e2e/lib/history-oracles.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "c5823f093c63cca747fb31deac5e41118f4b702604002264154e3ff0a7ead42d",
+      "sha256": "bd5e832b4ec8f90183a69ab40eb07344bb86f582c46540ab658823b98c8401e2",
       "lines": 32
     },
     {
@@ -13506,6 +13506,13 @@
       "lines": 68
     },
     {
+      "path": "tools/rideshare_e2e/lib/trip-evidence.mjs",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4ed41e8ac723d11d6bf6974d1765e6ff70281d506183b96c08789d773c713fda",
+      "lines": 35
+    },
+    {
       "path": "tools/rideshare_e2e/proxy.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -13551,8 +13558,8 @@
       "path": "tools/rideshare_e2e/s03.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "299dc40e307788d2f9f9dd8a6ca668f3b8f9b6e76d7ed1375db9002f301c9dbd",
-      "lines": 222
+      "sha256": "abb417960bc887d01d764c5231100acc314b7906400540d4bfeaa20061fa3d4b",
+      "lines": 227
     },
     {
       "path": "tools/rideshare_e2e/s04.mjs",
@@ -13565,8 +13572,8 @@
       "path": "tools/rideshare_e2e/s05.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "6b5c6d56e8fc85db5943c9ca84e46fa303c78c0074a6d25ab2b53eba988070ad",
-      "lines": 248
+      "sha256": "682938a03d49d75b0de7ecdb2673306278336987a840f99577958e5f93ccb904",
+      "lines": 276
     },
     {
       "path": "tools/rideshare_e2e/s06.mjs",

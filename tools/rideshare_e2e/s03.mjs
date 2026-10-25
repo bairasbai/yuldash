@@ -14,6 +14,7 @@ const driver = pair === "A" ? ACC.pwaDriver : ACC.andDriver;
 const passenger = pair === "A" ? ACC.andPassenger : ACC.pwaPassenger;
 const created = [];
 let pwa, extra, index = 0;
+let initialOwnRideCount = null;
 const book = (ride, acc = passenger) => q1("SELECT * FROM booking WHERE ride_id = ? AND passenger_id = ? ORDER BY id DESC LIMIT 1", ride.id, userIdOf(acc));
 async function waitDb(predicate, message, timeout = 20000) {
   const until = Date.now() + timeout;
@@ -80,6 +81,7 @@ async function cancelPassenger(fixture, confirmed = false) {
 }
 function oneBooking(fixture) {
   sc.check(q1("SELECT COUNT(*) n FROM booking WHERE ride_id = ?", fixture.ride.id).n === 1, "no duplicate booking after decision/reload");
+  sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id=?", userIdOf(driver)).n === initialOwnRideCount + created.length, "decision/reload created no extra driver ride");
 }
 async function undoConsent(fixture, consent) {
   if (pair === "A") await P.driverBoard(pwa.page, { passenger: passenger.firstName });
@@ -124,6 +126,7 @@ async function undoConsent(fixture, consent) {
 await runScenario(sc, async () => {
   await standHealthy(sc); await androidAs(pair === "A" ? passenger : driver);
   pwa = await pwaClient(pair === "A" ? driver : passenger); sc.pages = [pwa.page];
+  initialOwnRideCount = q1("SELECT COUNT(*) n FROM ride WHERE driver_id=?", userIdOf(driver)).n;
   sc.facts.requirement_acceptance = "not_accepted_pending_independent_review";
   sc.facts.coverage = ["driver decline", "passenger pending cancellation", "passenger confirmed cancellation", "passenger-consented boarding correction and refusal", "last-seat reservation/release", "no-show after real waiting"];
   const declined = await newBooking("driver-decline");
@@ -214,6 +217,8 @@ await runScenario(sc, async () => {
     await waitDb(() => book(absent.ride)?.status === "cancelled" && book(absent.ride)?.cancel_reason === "no_show", "real no-show persisted");
     sc.check(q1("SELECT seats_left FROM ride WHERE id = ?", absent.ride.id).seats_left === 1, "no-show restores one seat"); oneBooking(absent);
   });
+  sc.check(q1("SELECT COUNT(*) n FROM ride WHERE driver_id=?", userIdOf(driver)).n === initialOwnRideCount + created.length, "final own ride count equals baseline plus exactly the UI publications");
+  sc.facts.own_ride_counts = { before: initialOwnRideCount, publications: created.length, after: q1("SELECT COUNT(*) n FROM ride WHERE driver_id=?", userIdOf(driver)).n };
   sc.facts.created = created; sc.facts.local_execution = "passed";
 }, async () => {
   sc.facts.created = created;

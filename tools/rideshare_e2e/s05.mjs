@@ -9,6 +9,7 @@ import { A, AF, ACC, q1, sleep, pwaClient, androidAs, userIdOf, lastRideOf, stan
 import { API, DB_PATH } from "./lib/common.mjs";
 import { openProfile, pwaLogin } from "./lib/pwa.mjs";
 import * as P from "./lib/pwa-flows.mjs";
+import { privateStopLeak, finishedPublicStateMatches, revokedPublicStateMatches } from "./lib/trip-evidence.mjs";
 
 const pair = process.argv[2] || "A";
 if (!["A", "B"].includes(pair)) throw new Error("Expected pair A or B");
@@ -24,6 +25,7 @@ const route = { from: "Уфа", to: "Мелеуз", stops: ["Стерлитам�
 const price = (pair === "A" ? 701 : 702) + Number(process.env.PRICE_OFFSET || 0);
 const contactName = `Близкий-${pair}-${tag}`;
 let pwa, stranger, family, ride, booking;
+let activeFamilyStateUrl = null;
 const fresh = () => q1("SELECT * FROM booking WHERE id = ?", booking.id);
 const utc = s => Date.parse(/[zZ]$|[+-]\d\d:\d\d$/.test(String(s)) ? String(s) : String(s) + "Z");
 async function until(predicate, what, timeout = 20000) {
@@ -59,8 +61,12 @@ function noSecretsInText(text, source) {
   const digits = String(text).replace(/[^0-9]/g, "");
   sc.check(!sensitive.some(v => digits.includes(v.replace(/[^0-9]/g, ""))), source + ": other participants' phone and boarding code are absent");
 }
+function noPrivateStopsInText(text, source) {
+  sc.check(!privateStopLeak(text, route.pickup, route.dropoff), source + ": no booked private segment or labelled personal stop");
+}
 async function openActiveFamilyLink(link, shot) {
   const stateUrl = link.replace(/\/+$/, "") + "/state.json";
+  activeFamilyStateUrl = stateUrl;
   const observed = family.page.waitForResponse(r => r.url() === stateUrl && r.status() === 200, { timeout: 20000 });
   await family.page.goto(link, { waitUntil: "domcontentloaded" });
   const response = await observed;
@@ -178,7 +184,7 @@ await runScenario(sc, async () => {
     await stranger.page.getByText(/Не получилось|Не удалось|нет доступа|не найдена|недоступна|Не твоя|Бронь не найдена|Поездка не найдена/i).first().waitFor();
     noSecretsInText(await stranger.page.locator("body").innerText(), "PWA foreign booking");
     sc.check(await stranger.page.locator('a[href^="tel:"]').count() === 0, "foreign PWA has no phone actions");
-    sc.check(!(await stranger.page.locator("body").innerText()).includes(`${route.pickup} → ${route.dropoff}`), "foreign PWA does not disclose booked private segment");
+    noPrivateStopsInText(await stranger.page.locator("body").innerText(), "PWA foreign booking");
     await P.shot(stranger.page, "foreign-booking-denied.png");
   });
   await sc.step("switch account in both clients; old trip stays protected", async () => {
@@ -186,11 +192,14 @@ await runScenario(sc, async () => {
     await pwa.page.goto(P.PWA + `/trip/${booking.id}`, { waitUntil: "domcontentloaded" });
     await pwa.page.getByText(/Не получилось|Не удалось|нет доступа|не найдена|недоступна|Не твоя|Бронь не найдена|Поездка не найдена/i).first().waitFor();
     noSecretsInText(await pwa.page.locator("body").innerText(), "PWA after account switch");
+    noPrivateStopsInText(await pwa.page.locator("body").innerText(), "PWA after account switch");
     sc.check(await pwa.page.locator('a[href^="tel:"]').count() === 0, "PWA switched account has no previous phone actions");
     await pwaLogoutAndLogin(webActor);
     await androidAs(foreignNative); await androidTrip(booking.id, foreignNative);
     await A.waitFor(/Не получилось|Не удалось|нет доступа|не найдена|недоступна|Не твоя|Бронь не найдена|Поездка не найдена/i);
-    noSecretsInText(A.dump().map(n => n.text || "").join("\n"), "Android after account switch");
+    const deniedTexts = (await AF.screenTexts(4, { capturePrefix: `foreign-booking-${booking.id}` })).join("\n");
+    noSecretsInText(deniedTexts, "Android after account switch");
+    noPrivateStopsInText(deniedTexts, "Android after account switch");
     sc.check(!A.find(A.dump(), /^Позвонить$/), "Android switched account has no previous phone action");
     A.screencap("foreign-android-after-switch"); await androidAs(nativeActor);
   });
@@ -202,18 +211,34 @@ await runScenario(sc, async () => {
     await revoke(); const revoked = await family.page.reload({ waitUntil: "domcontentloaded" });
     sc.check(revoked?.status() === 404 && /Ссылка не найдена/.test(await family.page.locator("body").innerText()), "reopened revoked public link returns the actual 404 denial");
     sc.check(await family.page.locator('a[href^="tel:"]').count() === 0, "revoked public page has no contact actions");
+    const revokedStateResponse = await family.page.goto(firstLink.replace(/\/+$/, "") + "/state.json", { waitUntil: "domcontentloaded" });
+    const revokedState = await revokedStateResponse.json().catch(() => null);
+    sc.check(!revokedStateResponse.request().headers().authorization && revokedPublicStateMatches(revokedStateResponse.status(), revokedState), "the exact revoked capability state endpoint returns anonymous404 with denial only, no trip or coordinates");
+    sc.facts.revoked_public_state = { actual_status: revokedStateResponse.status(), denial_only: true, anonymous: true };
     const nextLink = await share(); sc.check(nextLink !== firstLink, "sharing after revocation creates a different capability");
     await openActiveFamilyLink(nextLink, "family-active-new-capability.png");
   });
   await sc.step("finish actual trip through driver UI; family sees final state without map", async () => {
+    let finishedState = null;
+    const observeFinished = async response => {
+      if (response.url() !== activeFamilyStateUrl || response.status() !== 200) return;
+      try { const state = await response.json(); if (state.status === "finished") finishedState = state; } catch {}
+    };
+    family.page.on("response", observeFinished);
+    try {
     if (pair === "A") { await P.driverBoard(pwa.page, { passenger: passenger.firstName }); await P.driverOpenTrip(pwa.page, { passenger: passenger.firstName }); await P.tripButton(pwa.page, "Завершить поездку"); }
     else { await AF.driverBoard({ passenger: passenger.firstName }); await AF.driverComplete({ passenger: passenger.firstName }); }
     await until(() => fresh().status === "done", "real driver UI completed own booking");
     await family.page.locator("#done").waitFor({ state: "visible", timeout: 20000 });
     sc.check(/Поездка завершена/.test(await family.page.locator("#done-title").innerText()), "family page describes actual completion");
     sc.check(await family.page.locator("#map").isVisible() === false, "completed family page hides map");
+    await until(() => finishedState !== null, "independent public page received its own exact completed state response");
+    sc.check(finishedPublicStateMatches(finishedState, passenger.firstName), "actual completed public JSON is done for this passenger and contains no route or coordinates at any allowed field");
+    noSecretsInText(JSON.stringify(finishedState), "completed public JSON");
+    sc.facts.completed_public_state = { exact_state200: true, kind: finishedState.kind, status: finishedState.status, outcome: finishedState.outcome, car_null: true, route_fields_absent: true, fields: Object.keys(finishedState).sort() };
     noSecretsInText(await family.page.locator("body").innerText(), "completed family page");
     await P.shot(family.page, "family-completed-no-map.png");
+    } finally { family.page.off("response", observeFinished); }
   });
   await sc.step("historical synthetic fixture: expired contact window is enforced in both real clients", async () => {
     const fixturePath = process.env.RS_E2E05_EXPIRED_FIXTURE;
@@ -231,11 +256,14 @@ await runScenario(sc, async () => {
     sc.check(await pwa.page.locator('a[href^="tel:"]').count() === 0, "PWA expired trip has no call action");
     const wireStart = await wireFrom();
     await androidTrip(b.id, nativeActor); await sleep(1800);
-    const texts = (await AF.screenTexts(4)).join("\n");
+    const texts = (await AF.screenTexts(4, { capturePrefix: `expired-own-${b.id}-before-receipt` })).join("\n");
     noSecretsInText(texts, "Android expired trip");
     sc.check(!texts.split("\n").some(t => t === "Позвонить"), "Android expired trip has no call action throughout scrolled content");
     const wire = await wireSince(wireStart);
-    sc.check(wire.some(event => String(event.path || event.url || "").includes(`/bookings/${b.id}/`) && Number(event.status || event.response_status) === 200), "Android navigation really loaded this expired booking through its API boundary");
+    sc.check(wire.some(event => event.client === "android" && event.method === "GET" && [`/bookings/${b.id}/details`, `/trips/${b.id}/receipt`].includes(event.path) && event.status === 200), "Android navigation loaded this exact expired booking's full details or receipt, not role alone");
+    const receiptText = (await AF.openOwnReceiptAndCheck({ bookingId: b.id, actorId: userIdOf(nativeActor), role: pair === "A" ? "passenger" : "driver", expectStops: pair === "A" })).join("\n");
+    noSecretsInText(receiptText, "Android own expired receipt");
+    sc.check(!receiptText.split("\n").some(text => text === "Позвонить"), "positively rendered own expired receipt also has no call action");
     A.screencap("expired-contact-window"); await P.shot(pwa.page, "expired-contact-window.png");
   });
   sc.facts.local_execution = "passed";

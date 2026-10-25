@@ -1,7 +1,7 @@
 // Read-only fixture oracles: user actions still go through the actual clients.
 import { q, q1, sleep } from "./common.mjs";
 
-export const fareMarker = price => new RegExp(`(?:^|\\D)${price}\\s*₽(?=\\s|$)`);
+export const fareMarker = price => new RegExp(String.raw`(?:^|\D)${price}\s*₽`);
 export function ownRideForArchive({ rideId, driverId, price, route }) {
   if (![rideId, driverId, price].every(Number.isSafeInteger) || price <= 0) throw new Error("Exact archive ride/owner/positive unique price required");
   const ride = q1("SELECT id,driver_id,price,status,from_city,to_city FROM ride WHERE id=?", rideId);

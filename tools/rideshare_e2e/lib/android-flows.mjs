@@ -3,6 +3,7 @@ import * as A from "./android.mjs";
 import { tgBotLogin, lastTgAuthId, log, sleep, q, q1 } from "./common.mjs";
 import { fareMarker, ownRideForArchive, waitRideDone, ownBookingForHistory } from "./history-oracles.mjs";
 import { nativeCardContaining, firstCardRoute } from "./native-card.mjs";
+import { receiptExpectation, receiptContentMatches } from "./trip-evidence.mjs";
 
 const NAV = ["Карта", "Поездки", "Заявка", "Чат", "Профиль"];
 
@@ -75,6 +76,9 @@ export async function logout() {
 /** Passenger: feed filters by two stops, reveal unverified, open the ride card that shows `cardText` (unique price). */
 export async function searchAndOpen({ from, to, cardText }) {
   await goHome();
+  // Re-enter the actual screen after publication: an earlier empty city list is cached for two minutes.
+  await nav("Профиль");
+  await nav("Карта");
   await sleep(800);
   // The home header and city options settle after a fresh login. This action only
   // scrolls the feed: wait for its actual destination before touching any filter.
@@ -328,9 +332,15 @@ export async function openMyBooking({ route, status = null, action = /^(Откр
 }
 
 /** Union of visible texts while scrolling a long screen top→bottom. */
-export async function screenTexts(pages = 4) {
+export async function screenTexts(pages = 4, { capturePrefix = null } = {}) {
   const seen = new Set();
-  for (let i = 0; i < pages; i++) { for (const n of A.dump()) if (n.text) seen.add(n.text); if (i < pages - 1) await A.swipeUp(0.45); }
+  for (let i = 0; i < pages; i++) {
+    for (const n of A.dump(capturePrefix ? { label: `${capturePrefix}-page${i}`, keep: true } : {})) {
+      for (const value of [n.text, n["content-desc"]]) if (value) seen.add(value);
+    }
+    if (capturePrefix) A.screencap(`${capturePrefix}-page${i}`);
+    if (i < pages - 1) await A.swipeUp(0.45);
+  }
   return [...seen];
 }
 
@@ -463,14 +473,43 @@ export async function driverRateAndReceipt({ passenger, stars, bookingId, driver
   if(q1("SELECT stars FROM rating WHERE booking_id=? AND rater_id=?",bookingId,driverId)?.stars !== stars) throw new Error("Current booking's driver rating was not persisted");
   A.screencap("android-driver-rated");
   log("android.driver.rated", { passenger, stars, booking_id: bookingId });
-  // Enter the same completed booking through its existing guarded navigation boundary.
-  // Navigation cannot create, confirm or rate a booking; the receipt still loads via the real UI/API.
-  A.adb(["shell","am","start","-W","-n",`${A.PKG}/.MainActivity`,"--es","type","booking","--es","id",String(bookingId),"--es","recipient_user_id",String(driverId),"--es","yuldash_navigation_delivery_id",`receipt-${bookingId}-${Date.now()}`]);
+  return await openOwnReceiptAndCheck({ bookingId, actorId: driverId, role: "driver" });
+}
+
+/** Read-only actual navigation, exact successful receipt GET, and own visible receipt contents. */
+export async function openOwnReceiptAndCheck({ bookingId, actorId, role, expectStops = true }) {
+  const row = q1("SELECT b.id,b.status,b.passenger_id,b.pickup_stop,b.dropoff_stop,COALESCE(b.pay_amount,b.price) amount,r.driver_id,r.from_city,r.to_city,u.name driver_name FROM booking b JOIN ride r ON r.id=b.ride_id JOIN user u ON u.id=r.driver_id WHERE b.id=?", bookingId);
+  const expected = receiptExpectation(row, actorId, role, expectStops);
+  const headers = { Connection: "close" };
+  const cursor = (await (await fetch("http://127.0.0.1:8099/log", { headers })).json()).length;
+  A.adb(["shell","am","start","-W","-n",`${A.PKG}/.MainActivity`,"--es","type","booking","--es","id",String(bookingId),"--es","recipient_user_id",String(actorId),"--es","yuldash_navigation_delivery_id",`receipt-${bookingId}-${Date.now()}`]);
   await sleep(2000);
-  await A.scrollTap(/^Квитанция/, { maxBottom: .96 });
-  await A.waitFor(/Поездка завершена|Квитанция/, { timeout: 20000 });
-  A.screencap("android-driver-receipt");
-  return await screenTexts(3);
+  await A.waitFor(/Детали поездки|Моя поездка|Квитанция|Поездка завершена/, { timeout: 25000 });
+  if (A.find(A.dump(), /^Открыть поездку$/)) {
+    await A.scrollTap(/^Открыть поездку$/, { maxBottom: .96 });
+    await A.waitFor(/Поездка завершена|Квитанция поездки|Квитанция/, { timeout: 25000 });
+  }
+  const receiptHeader = nodes => { const node = A.find(nodes, "Квитанция"); return !!node && node.box[1] < A.screenSize()[1] * .25; };
+  const completedNodes = A.dump();
+  if (!receiptHeader(completedNodes)) {
+    const completedHeader = A.find(completedNodes, "Поездка завершена");
+    if (completedHeader && completedHeader.box[1] < A.screenSize()[1] * .25) {
+      await A.scrollTap(/^Квитанция$/, { maxBottom: .96 });
+    } else {
+      await A.scrollTap(/^Квитанция поездки$/, { maxBottom: .96 });
+    }
+  }
+  const headerDeadline = Date.now() + 25000;
+  let headerReady = false;
+  while (Date.now() < headerDeadline && !(headerReady = receiptHeader(A.dump()))) await sleep(400);
+  if (!headerReady) throw new Error("The actual own receipt screen did not open");
+  await A.waitFor("Поездка завершена", { timeout: 20000 });
+  const labels = await screenTexts(6, { capturePrefix: `own-receipt-${role}-${bookingId}` });
+  if (!receiptContentMatches(labels, expected)) throw new Error("Own receipt body did not show the exact route, stops, amount and driver");
+  const wire = await (await fetch(`http://127.0.0.1:8099/log?from=${cursor}`, { headers })).json();
+  if (!wire.some(event => event.client === "android" && event.method === "GET" && event.path === `/trips/${bookingId}/receipt` && event.status === 200)) throw new Error("Visible receipt has no successful exact own receipt API response");
+  log("android.receipt.ready", { bookingId, actorId, role, own_content_visible: true, exact_receipt200: true, captured_pages: 6 });
+  return labels;
 }
 
 /** Driver: close the whole ride («Завершить рейс») and find it in «Архив». */
