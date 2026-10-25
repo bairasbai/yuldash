@@ -35,7 +35,7 @@ models.py:1922–1924 семь legacy статусов. parcels.py:1624–1655 r
 
 1. Реализовать таблицу C2, state_version/terms_version/last_transition_at и атомарный event.
 2. Старые routes вызывают тот же command service и role checks. Map legacy status только по C1, closed_exception не masquerade delivered.
-3. Timeout присваивает case/alert/next_action, но не custody resolved. Reassignment запрещён при unresolved transfer.
+3. Timeout присваивает case/alert/next_action, но не custody resolved. Для обоих legacy путей (возраст returning → returned и in_transit → canceled) результат — nonterminal custody/escalation по C1/K1, не терминальный статус. Назначенный исполнитель/holder и занятая capacity сохраняются до подтверждённой передачи; timeout не разрешает reassignment или повторную продажу места (CP-08, R5A в 11).
 4. Account deletion, admin close, refund и dispute не обходят custody; отдельное разрешённое решение с причиной.
 5. Проверить все writers поиском, включая cron, admin, tests fixtures и shared taxi helpers.
 
@@ -84,6 +84,10 @@ M1: expand state/item/assignment/assignment-item/minimal proof/transfer/event fo
 R3-STOP/CANCEL: upgrade M1 без M3 имеет валидные FK; repeat projector single canceled сохраняет sender/resolved без tracking; delivered+canceled → completed_mixed.
 
 R2-MIG: legacy accepted/in_transit/returning/canceled/terminal без proof → K5; ни fee, ни notify от backfill. Старый worker после cutover отклонён fence. SQLite/PG naive UTC roundtrip по K4, старые taxi сравнения не получают aware datetime.
+
+**REV-CUS-01 → T-CUS-01, SIM-05/15/30/31:** для каждого из двух timer writers проверить заказ до/после порога, повторный tick, рестарт, concurrent proof и попытку нового назначения. Без proof неизменны holder/assignment/carrying reservation, заказ доступен в recovery; повтор не создаёт второй системный case (CP-19 REV-CASE-01). С proof освобождаются только подтверждённые items по K1, ровно один раз; возраст сам по себе не доказательство. Проверка охватывает все writers, не только UI.
+
+**REV-DEP-01:** отмена в пути и удаление аккаунта при unresolved custody — отдельная сверка с PR #212 и CP-21/K6 до будущей реализации. Наличие cancel guard в PR не доказывает корректное deletion/retention поведение. Сообщённый риск удаления старого активного parcel при account deletion — **P1 custody blocker, OPEN** до воспроизведения на согласованном SHA и независимой проверки; не считать PR #212 его решением. Проверить delete/recreate, отзыв credentials и support-mediated recovery: не стирать holder/obligations, не возвращать старый доступ новому аккаунту. Статус PR/веток перепроверить по процедуре в CHANGELOG; текущий план не объявляет merge или исправление main.
 
 SIM-02/05/15; property: no transition from carrier custody to canceled/resolved without transfer or approved exception. PG cancel/pickup race. Mutation: timer sets returned — T-CUS-01 red. Migration unknown не превращается в verified.
 

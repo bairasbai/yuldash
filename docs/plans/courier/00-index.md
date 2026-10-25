@@ -8,6 +8,12 @@
 - Статус текста: `R4.1_FINAL_CLOSURE_PENDING / IMPLEMENTATION_NOT_STARTED`. Статус всех CP: **не начато**. Продуктовые тесты/миграции/runtime: **NOT_EXECUTED**.
 - Документационная публикация не включает тарифы, деньги, код, БД, договоры, production-флаги или выпуск.
 
+## Локальная docs-only ревизия 25.10.2026
+
+Текущая надстройка: **REVIEWED_DOCS_ONLY / IMPLEMENTATION_NOT_ACCEPTED**. До 25.10.2026 13:08 UTC публикация этой ревизии не была разрешена. Решение владельца 25.10.2026 13:09:29 UTC разрешает один новый docs-only коммит поверх ранее опубликованного плана в той же ветке `docs/courier-stage2-20261025`, без переписывания истории. Это не разрешение менять application code/tests/config, создавать PR, сливать в main или включать сервис; остановка implementation сохраняется. [CHANGELOG и передача исполнителю](12-docs-only-revision-changelog.md) — актуальный scope и проверочные следы. Исходные CP-статусы и исторические журналы ниже не повышены этой ревизией.
+
+Опубликованная база — `docs/courier-stage2-20261025`, commit `39c6a4ce72ba2173497ea71b6fba778ed36359c6`: publication receipt подтверждает bounded exact R4.1 documentation PASS. Сохранённые ниже R4.1_PENDING относятся к исторически замороженному тексту, а не к новой ревизии. Formal cross-family acceptance остаётся PENDING; локальные implementation-опыты не означают принятые изменения main или CP-24 PASS.
+
 ## Как читать
 
 1. [Объём продукта и география](01-product-scope.md): все основные виды доставки, семь субъектов, phased capabilities вместо обещания работать всюду сразу.

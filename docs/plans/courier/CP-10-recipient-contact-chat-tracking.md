@@ -97,6 +97,20 @@ GET tracking/recipient track и tracking.updated/eta.changed/degraded/restored �
 
 ## 7. Тесты
 
+**REV-MAP-01 — детализация C9 и ETA-N02/05/06/08/16/18/19, не новый tracking-договор.** На Android и PWA воспроизвести одну и ту же таблицу; numeric freshness/skew limits берутся из явно выбранной test policy и не утверждают production thresholds.
+
+| Проверочный вход | Наблюдаемый критерий |
+|---|---|
+| Старый captured_at при свежем received_at; будущий captured_at вне допуска; duplicate/out-of-order seq | Receipt не подменяет GPS-время; stale/implausible/unknown по C9; старая точка не вытесняет current и не становится fresh из-за будущего времени |
+| Нет новых событий; затем reconnect/GET с той же точкой | Возраст растёт и stale наступает по policy без входящего event; reconnect не сбрасывает возраст и не возобновляет вымышленное движение |
+| Выбран заказ B, поздний socket/HTTP/map callback заказа A; смена assignment/route | Account/order/generation/seq guards применяются до отображения; точка/ETA A не попадают в B, старый callback не оживляет подписку |
+| Logout/account switch/cross-tab logout, unmount, terminal/revoke | Старые subscriptions/watchers/timers прекращены, поздние callbacks игнорируются; cache не раскрывается другому аккаунту, разрешённая история не превращается в live-доступ |
+| Map SDK/load failure, permission denied/withdrawn, background ограничения | Честный fallback статуса/возраста/доступного recovery без ложной точки; остановка ненужных callbacks и bounded retry без утечки слушателей; сбой карты не закрывает custody |
+| RU/BA, отсутствие/старение точки, restore/retry | Одинаковая семантика состояний и действий, no fake movement; BA linguistic review отдельно, screenshot/interaction evidence для обеих платформ |
+
+Проверить lifecycle также после повторных mount/unmount/reconnect: число живых подписок ограничено активным разрешённым scope, предыдущий callback не пишет после cleanup. Unit/fake-clock тест не заменяет browser/device evidence CP-24.
+
+
 SIM-34: sender alone cannot verify recipient; pure grant revoke без новой ссылки/смены лица, old G denied, separate verified channel remains valid по policy.
 
 R3-GRANT: existing active authority grant rotate без recipient change; old grant/proof revoked, новый active; late old verify denied, valid new verify не самоуничтожается.

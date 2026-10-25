@@ -62,6 +62,14 @@ PWA foreground/background limits, cross-browser supported matrix, reconnect/rest
 
 R2 closure matrix принимает только specification fixes, не product test PASS. Independent documentation audit отдельно от formal cross-family acceptance проекта: последняя PENDING до требуемого reviewer family и первичных артефактов. Implementation/runtime NOT_EXECUTED; legal/provider/owner release NOT_APPROVED. Даже положительный same-family аудит не переименовывается в formal cross-family.
 
+### Текущие границы доказательств — REV-EVID-01
+
+Это план, а не акт приёмки локальной implementation-задачи. Сообщённые частичные наборы 58/37/26 pass не переносятся в CP-24: без проверенных target SHA, полного scope и первичных артефактов они не подтверждают ни весь CP, ни provider/device acceptance. Локальные неопубликованные поправки не source of truth и не исправление published/main. Android compilation сообщалась BLOCKED из-за DNS `services.gradle.org`; это не PASS и не доказанный дефект приложения. Физические устройства не проверены; provider и общая test acceptance не доказаны. Итоговая browser-попытка FAILED на selector кнопки «Мои» до tracking: это не evidence работы карты. Дополнительные backend/PG/PWA прогоны из stop-отчёта остаются частичными; финальный dirty diff не прошёл независимый повторный review после авторских поправок к промежуточным queue-дефектам.
+
+Открытые implementation gaps из stop-отчёта: возврат без подтверждения отправителя (CP-09/12), state versioning/retries (CP-02/07), route parcel capacity (CP-08 и документ 11), immutable quote/commission (CP-05/06), deletion/custody P1 (CP-02/21). Эти CP не закрыты локальными опытами; список не заменяет полный acceptance scope.
+
+Отчёт будущего исполнителя должен отдельно указывать: (1) code readiness на exact SHA, (2) staging/synthetic evidence, (3) provider/legal/operations gates, (4) physical Android/PWA acceptance, (5) независимый verdict с family, (6) owner activation конкретного scope. Для каждого уровня нужны собственные status/evidence/blocker, не общий зелёный итог. Pilot city, часы/ответственный поддержки и доступный storage/recovery пока без ответов; LG-11/CP-12/23 остаются OPEN, operational promises запрещены. Formal cross-family review PENDING.
+
 ### API и события
 
 Контрактный diff exact routes/errors/units/permissions/versions reviewed. Provider sandbox and production controlled verification separated. No real charge merely to fill report.

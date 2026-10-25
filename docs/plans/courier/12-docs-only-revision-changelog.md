@@ -1,0 +1,34 @@
+# CHANGELOG — локальное уточнение плана 25.10.2026
+
+**REVIEWED_DOCS_ONLY / IMPLEMENTATION_NOT_ACCEPTED.** Только компактное уточнение существующего плана; application code, tests, config, тарифы, audit acceptance registry не менялись. До 25.10.2026 13:08 UTC ревизия оставалась только локальной, без внешних записей. Независимая bounded docs-only проверка выполнена; отдельный отчёт COURIER-DOCS-ONLY-REVISION-QA-20261025.md хранит exact patch SHA и границы verdict. Формальная cross-family приёмка остаётся PENDING. Все REV-* — критерии будущих проверок, **NOT_EXECUTED**, не runtime findings или PASS.
+
+## База, происхождение и границы
+
+- Опубликованный план: `docs/courier-stage2-20261025`, commit `39c6a4ce72ba2173497ea71b6fba778ed36359c6`; исходные 37 файлов сверены локально по SHA-256 publication receipt `PUBLICATION-RECEIPT-R4.1.json` (его historical verified_at `2026-10-25T08:29:16.404992+00:00`). Новая ревизия хранится отдельно; оригинал не редактировался.
+- Историческая read-only code base: `main 0ef03f4194012431e0996be4d8e748d37e34d63d`. Эта ревизия не утверждает, что это latest main; самостоятельной свежей проверки remote здесь не выполнялось.
+- По переданному результату локальной implementation-задачи: оба timer-риска требуют защиты custody; Android compilation была заблокирована DNS `services.gradle.org`, physical acceptance не выполнялась. Код/diff/локальные коммиты из той задачи в этот пакет не переносятся; опубликованность, интеграция и продуктовая приёмка её поправок не заявляются.
+- Финальный stop-отчёт implementation-задачи получен 25.10.2026 13:00:42 UTC: работа остановлена, без push/merge/deploy; локальная `codex/courier-stage2-local-20261025` с commit prefix `cd532aa` и dirty files не проверенный интегрированный candidate. Browser FAILED до tracking, Android BLOCKED до compilation, финальный независимый rerun отсутствует; CP-24 перечисляет оставшиеся gaps без переноса частичных test counts в приёмку.
+- По координационному сообщению PR #212 касается отмены в пути; возможны пересечения с custody/account-deletion. Публичные ветки проверялись родительской задачей, но неопубликованный другой Codex неизвестен: отсутствие семантического overlap не гарантировано.
+- R4.1 receipt подтверждает bounded exact documentation PASS исходного пакета; исторические pending labels сохранены. Этот verdict не распространяется на новые bytes. Формальная cross-family приёмка PENDING, operational readiness не доказана.
+
+## Матрица «было → уточнено → проверка»
+
+| ID / зона | Что уже было — не создаём дубль | Точечное уточнение | Проверка / traceability |
+|---|---|---|---|
+| REV-CUS-01 / CP-02 | C1/K1, CP-12 и CP-08/R5A: таймер не proof, carrying hold сохраняется | Оба legacy таймера явно входят в один критерий; holder/assignment/capacity не освобождаются по возрасту; повтор/гонка | CP-02 §7 → T-CUS-01, SIM-05/15/30/31; до/после порога, restart, concurrent proof, новый accept |
+| REV-DEP-01 / CP-02 | CP-21/K6: deletion не стирает unresolved obligations; отмена не handover | Отдельная dependency/overlap проверка PR #212 для cancel и account-deletion; reported deletion/custody P1 OPEN, без объявления исправленным main | CP-02 §7; delete/recreate/revoke/support recovery; latest-main/parallel-branch read-only comparison до реализации |
+| REV-CASE-01 / CP-19 | Existing Incident(parcel_id), server filters/pagination, C3/K6 service receipts | Обязательный parcelID; stable causal episode/key, один case при retry/crash; обычные обращения видны при массовых signals | CP-19 §3/7 → SIM-05/09/13, T-UX-01/T-OPS-01; >300 signals, pagination/filters, two-worker replay |
+| REV-STOP-01 / CP-23 | K3 разделяет admissions и safe resolution; история не удаляется | Assignment явно закрыт вместе с new order/payment; history/offline/recovery не скрыты UI early return | CP-23 §3/7 → SIM-15/T-OFF-01/T-OPS-01; stale flags, reconnect, revoked auth, payment unknown |
+| REV-MAP-01 / CP-10 | C9, SIM-37, ETA-N01…22 уже задают freshness, privacy, no fake movement | Таблица наблюдаемых outcomes для no-event aging/future/out-of-order, reconnect, old-order callbacks, lifecycle cleanup/map failure/RU-BA | CP-10 §7 → ETA-N02/05/06/08/16/18/19; fake-clock + actual browser/device scope отдельно |
+| REV-EVID-01 / CP-24 | CP-24/G0 разделяют docs/code/runtime/owner; физические проверки обязательны | Частичные 58/37/26 не CP-24 acceptance; DNS BLOCKED/непроверенные устройства явно отделены; шесть уровней отчёта | CP-24 §3; exact SHA/evidence по каждому уровню, независимый reviewer/family и отдельное owner activation |
+| Owner/economics — без изменения | 08, F1/F1A/F9, OD-01/04 и LG-03/11 | Сохранены on-route platform 0%, DRIVER_SET_PRICE + ADVISORY_ONLY; dedicated rates OWNER_PENDING; city/support/storage без решения | Reviewer сверяет неизменность 08 и owner gates, не утверждает тарифы; 3/8/15%, min 10 ₽ — source defaults, не production proof |
+
+Разрыв 40,00 → 40,01 км / 950 → 630,12 ₽ уже подробно разобран в [08](08-economics-review.md#разрыв-цены-на-границе-40-км). Любая новая формула/цена требует отдельного owner решения; не исправлять молча под видом округления. Экономические расчёты здесь не повторяются.
+
+## Передача параллельному Codex
+
+1. После решения владельца 25.10.2026 13:09:29 UTC разрешены **правки плана и один новый docs-only коммит в той же ветке `docs/courier-stage2-20261025` поверх прежнего опубликованного плана**, без переписывания истории. Получить отдельное разрешение до application code/tests/config edits; implementation остаётся остановленной. Не переносить локальные коммиты остановленной implementation-задачи и не считать их prerequisites.
+2. До применения документации read-only сверить latest main, актуальные AGENTS/RS, PR #212 и фактическую параллельную ветку/dirty worktree с её владельцем; записать точные SHA и lock ownership по D4. Если неопубликованная работа недоступна, overlap остаётся UNKNOWN, не «конфликтов нет»; пересекающийся write scope не начинать до согласования.
+3. Применять patch только к подтверждённой исходной docs-базе либо вручную согласовать документационные изменения с более новой версией. Не использовать blind overwrite, force-push, code cherry-pick или изменение старых acceptance statuses.
+4. Независимый reviewer проверяет exact diff/hash, непротиворечивость C/K/CP и таблицу выше; parent review этой ревизии отдельно от требуемой formal cross-family приёмки. При новых правках перегенерировать patch/manifest и повторить затронутый review.
+5. Review текста и staging/unit PASS сами по себе не разрешают публикацию или запуск. Новое разрешение владельца ограничено одним docs-only коммитом указанной ветки; оно не включает PR, merge/main, product code, deploy, пилот, реальные платежи/заказы, новые тарифы или operational SLA. Owner activation только по CP-23/24 и применимым LG; формальная cross-family приёмка остаётся PENDING.

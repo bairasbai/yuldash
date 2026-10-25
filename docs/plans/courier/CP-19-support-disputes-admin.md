@@ -37,7 +37,8 @@ parcels.py:1753–1789 Incident(parcel_id) и admin1810–1979. PWA AdminParcels
 2. Reporter/other side evidence request/response/resolution/appeal, сроки по accepted policy; закрытый order не лишает права законного спора.
 3. Support read role, dispatcher mutation, financial resolver и superadmin разделены; чувствительные просмотры audited.
 4. Admin actions expected_version+reason+evidence, никакого прямого status/paid toggle. Custody/security gates остаются.
-5. Queue pagination/server filters, returning и unknown outcome включены. SLA alert не закрывает case.
+5. Queue pagination/server filters, returning и unknown outcome включены. SLA alert не закрывает case. Массовые системные сигналы не скрывают обычные обращения за общим limit: server-side фильтры по source/type/status/parcel и устойчивая пагинация доступны до усечения, не только local filter первых 300 строк.
+6. Системный custody-case обязательно связан с `parcel_id` (parcelID в клиентском DTO); тип/причина и causal episode/generation различимы. Повторный worker tick/retry/restart того же события идемпотентно возвращает существующий case, новый реальный эпизод не подавляется. Использовать общий service-principal/receipt договор C3/K6 и существующий Incident, не второй case/receipt ledger. Связь case/alert и доменного результата — атомарная запись либо восстанавливаемый outbox с тем же causal key.
 
 ### B Android
 
@@ -72,6 +73,8 @@ Draft/sending/unknown/open/await evidence/under review/resolved/appealed/escalat
 Обязательны loading/empty/error/offline/retry, сохранённый ввод, длинный BA, light/dark, крупный шрифт,48 dp и контраст≥4.5:1. Состояния requested/pending/applied/unknown/conflict различимы; optimistic UI не доказывает завершение.
 
 ## 7. Тесты
+
+**REV-CASE-01 → SIM-05/09/13, T-CUS-01/T-UX-01/T-OPS-01:** два workers и рестарт на одном parcel/episode дают один системный case; разные parcel/новый episode не схлопываются. Crash между escalation и notification восстанавливает тот же case, без потери parcel context. На наборе больше лимита страницы (включая >300 системных сигналов) обычное обращение находится серверным фильтром и открывается из пагинированной очереди; обход стабильных страниц без пропуска/дубля в фиксированном срезе. Проверить ACL, returning/unknown и последующий case resolution независимо от физического proof.
 
 SIM-05/09/13; owner-role IDOR, revoked admin session, race two resolutions, evidence foreign order, terminal dispute access, recipient token misuse, money action without financial role, no silent closure.
 

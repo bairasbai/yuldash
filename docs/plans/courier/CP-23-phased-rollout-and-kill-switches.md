@@ -35,7 +35,7 @@ P0…P4 scope staged by service×geo×transport×supply/time. Launch gate отд
 
 1. Matrix каждой ячейки: owner, code SHA, tests, legal/provider agreements, tariffs version, supply/training, support/returns, retention, rollback evidence.
 2. effective enable fail-closed из DB owner switch audit, not env-only client hide. Stale cache не включает деньги/категорию.
-3. Kill switch levels: new quotes/orders/offers/payments; active fulfillment/refund/reconcile safe continuation.
+3. Kill switch levels: new quotes/orders/offers/assignments/payments; active fulfillment/refund/reconcile safe continuation по K3. Не блокировать history, допустимый offline snapshot и восстановление уже принятого заказа общим early return на экране/route. Offline не разрешает новые effects: после reconnect сервер заново проверяет текущие gates/auth; новые списания не маскируются под recovery.
 4. Canary cohort/limits, rollback triggers, phase approvals immutable; никаких auto-expansion по количеству downloads.
 5. Mixed Android/server/PWA version compatibility; minimal upgrade before unsupported action.
 
@@ -104,6 +104,8 @@ SIM-30/33: mixed writer запрещает bridge enable, rollback хранит 
 SIM-28/F1A: on-route paid driver + platform fee 0 при любом minimum/tier, scheduled dedicated не zero branch, no hidden fee, quote/statement/net parity; mode change только consent.
 
 R2-GATES: new accept denied при pause, active return разрешён fresh auth, украденный token denied; provider outage допускает verified webhook/reconcile, но не новые неизвестные charges.
+
+**REV-STOP-01 → K3, SIM-15/T-OFF-01/T-OPS-01:** toggle OFF в searching/assigned/collected/returning/payment-unknown; проверить server+Android+PWA. New create/claim/assign/payment запрещены даже со stale флагом и offline очередью. История и существующий recovery остаются доступны законному actor; terminal не симулируется. Logout/revoked auth не обходятся ради recovery. Reconnect старого payment intent сначала reconcile, не новый charge; verified callbacks/refund только в разрешённой модели K3/F12. Не смешивать новое assignment с подтверждённым recovery handoff по уже согласованным K2 основаниям.
 
 SIM-15; turn off during searching/assigned/collected/returning/payment pending; stale client flags, owner switch auth, deploy rollback provider callback, no new orders while draining; production dry-run safe no real transactions.
 
