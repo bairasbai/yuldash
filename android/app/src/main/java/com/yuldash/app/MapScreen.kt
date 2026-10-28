@@ -774,37 +774,8 @@ private fun MapHero(
                 }
             }
         }
-        // Кнопки — отдельный блок ПОД картой (не плавают на ней). Один размер текста, одна высота,
-        // один радиус: пара читается как одна пилюля-действие, зелёная — главная, золотая — вторая.
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // `heightIn(min = ...)` вместо жёсткой высоты и две строки вместо одной: при системном
-            // шрифте 1.5× подпись «Мин водитель» обрезалась до «Мин во…», и кнопка переставала
-            // называть своё действие. Теперь она подрастает под текст, а обычный шрифт вёрстку
-            // не меняет — там обе подписи и так в одну строку. Высоты у пары остаются равными:
-            // Row тянет обе кнопки по самой высокой.
-            Button(
-                onClick = { onFind(activeRoute) },
-                modifier = Modifier.weight(1.25f).heightIn(min = 56.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-            Button(
-                onClick = onDriver,
-                modifier = Modifier.weight(0.95f).heightIn(min = 56.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGold, contentColor = CanonGoldInk),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Я водитель", "Мин йөрөтөүсе"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-            }
-        }
+        // Кнопки — отдельный блок ПОД картой; подписи сохраняют полные слова при крупном шрифте.
+        MapHeroActions(onFind = { onFind(activeRoute) }, onDriver = onDriver)
     }
 }
 

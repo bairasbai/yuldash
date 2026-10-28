@@ -78,12 +78,12 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 218,
+    "android_main": 219,
     "backend_main": 110,
     "infra_resource_config": 448,
     "public_site_promo": 91,
     "pwa_main": 337,
-    "test_support": 1328
+    "test_support": 1329
   },
   "counts_by_block": {
     "B01": 176,
@@ -94,7 +94,7 @@
     "B06": 107,
     "B07": 148,
     "B08": 216,
-    "B09": 755,
+    "B09": 757,
     "B10": 448,
     "B11": 92
   },
@@ -1144,6 +1144,13 @@
       "lines": 570
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/HomeAdaptiveControls.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "d59c402a8d0b8b4e53f0edc70e3bd595f46d8799b13013ffbf79158c15e2a0b0",
+      "lines": 198
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt",
       "kind": "android_main",
       "block": "B07",
@@ -1231,8 +1238,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MapScreen.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "a7eb76b02bab1476282697077280f8c92f2bcd7ceee01434285c4dc1887e8d7a",
-      "lines": 2207
+      "sha256": "9a680daab3808d35631695af5c3b654cd2b3890bbd013c978758373767af9070",
+      "lines": 2178
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MobilityUi.kt",
@@ -1252,8 +1259,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ModeSwitchHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "660f7a868577e36594ad2d138c5df64824af3b376726662b9dd0547a3c5aac94",
-      "lines": 528
+      "sha256": "76d1832d24f42b73ec284cbd960658c746abdb49d17fbd469a27992128c50849",
+      "lines": 565
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MyDataScreen.kt",
@@ -1483,8 +1490,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "26b55dd714f8a3d9117de982edc876b7717530866ed80e75948278a967cb70ec",
-      "lines": 3252
+      "sha256": "6452dba9d6780d1fc694843fd42121d3c27d7a0509ce79365639450192d5ffe8",
+      "lines": 3213
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
@@ -1903,8 +1910,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "42c35b63399efd5bc721166c426a234d6ca46956e75b9e34b043bb52bfe4018f",
-      "lines": 2788
+      "sha256": "d3bc1b74bdf9f93497b315ce3d2c1c8feb808107c8a57843512ac9bd76b8f2d8",
+      "lines": 2668
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -3349,6 +3356,13 @@
       "lines": 181
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/HomeControlsNarrowLayoutTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "55434f90df352a66788ff1d807b8a9af20c36698e7ec1d854ca4f7b1d3eb25c7",
+      "lines": 183
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -4416,8 +4430,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/SelectedControlsAccessibilityTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "8faa14335c3254e880898d84be637888e99d167fddaf23ddc07a2f193a0b1aac",
-      "lines": 179
+      "sha256": "0a073f6d3e7e82ba2dec3ef769de8b639179ee88b528d568732ce1512184427b",
+      "lines": 177
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SensitiveClipboardGuardTest.kt",
@@ -13621,8 +13635,8 @@
       "path": "tools/rideshare_e2e/s06.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "4362a488703e98479c970cbcfcc773b217a2fb5bf6d27d41f4e1cd1f84587547",
-      "lines": 490
+      "sha256": "046d2d919c5b40d96bf123ad9f28f0b4708c24c166358507f555a2c1b5a8650d",
+      "lines": 499
     },
     {
       "path": "tools/rideshare_e2e/stand-common.ps1",
@@ -16323,8 +16337,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "ccf05c828cbea69297064477cc071416b38316c9bcc46ca8b65676400d599ea9",
-      "lines": 20900
+      "sha256": "239f9171da1ea1d63e36e7e1c97efb6a7df18079334c50d3c7aae942f4285a22",
+      "lines": 20909
     },
     {
       "path": "webapp/src/uiPrefs.ts",

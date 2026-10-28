@@ -696,8 +696,14 @@
 .install-sheet__actions {
   margin-top: 12px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+.install-sheet__actions > button {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* ================================================================
@@ -9119,6 +9125,9 @@ select.field__input {
    высоты, палец водителя в машине не промахивается (приёмка PR184). */
 .list-row--stack > .btn-soft--sm {
   min-height: 48px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 /* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. Пустая звезда — CanonMuted,
    как в приложении: на --border её почти не видно (контраст 1.3:1), и «2 из 5» не читается. */

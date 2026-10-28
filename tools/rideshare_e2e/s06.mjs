@@ -227,8 +227,17 @@ async function browserCapture(page, actor, screen, profile, extra = {}) {
   await page.waitForFunction(() => document.body.innerText.trim().length > 0, null, { timeout: 20000 });
   await page.locator(".skeleton-card").first().waitFor({ state: "hidden", timeout: 20000 });
   await sleep(500);
-  const d = await page.evaluate(() => ({ width: innerWidth, scroll: document.documentElement.scrollWidth, text: document.body.innerText.length, theme: document.documentElement.dataset.theme, scale: document.documentElement.dataset.fontScale, zoom: Number(getComputedStyle(document.documentElement).zoom), state: document.querySelector(".state__icon--danger") ? "error" : document.querySelector(".state") ? "empty-or-state" : "content" }));
+  const d = await page.evaluate(() => {
+    const zoom = Number(getComputedStyle(document.documentElement).zoom);
+    const installActions = [...document.querySelectorAll(".install-sheet__actions > button")].flatMap(el => {
+      const r = el.getBoundingClientRect(), s = getComputedStyle(el);
+      return r.width > 0 && r.height > 0 && s.visibility !== "hidden" && s.display !== "none"
+        ? [{ left: r.left, right: r.right, width: r.width / zoom, height: r.height / zoom, client: el.clientWidth, scroll: el.scrollWidth }] : [];
+    });
+    return { width: innerWidth, scroll: document.documentElement.scrollWidth, text: document.body.innerText.length, theme: document.documentElement.dataset.theme, scale: document.documentElement.dataset.fontScale, zoom, installActions, state: document.querySelector(".state__icon--danger") ? "error" : document.querySelector(".state") ? "empty-or-state" : "content" };
+  });
   sc.check(d.width === 320 && d.scroll <= 321 && d.text > 0, "PWA narrow viewport has content without horizontal overflow", { screen, width: d.width, scroll: d.scroll });
+  if (d.installActions.length) sc.check(d.installActions.every(b => b.left >= -1 && b.right <= d.width + 1 && b.width >= 47.5 && b.height >= 47.5 && b.scroll <= b.client + 1), "actual visible install actions fit both viewport edges and retain readable 48px targets", { screen, buttons: d.installActions });
   sc.check(d.theme === (profile.dark ? "dark" : "light") && d.scale === "xlarge" && Math.abs(d.zoom - 1.3) < 0.01, "PWA really applies theme and xlarge zoom", { screen, ...d });
   const screenshot = await P.shot(page, `matrix-${screen}-${profileName(profile)}-320-xlarge.png`);
   matrix.push({ client: "pwa", screen, ...profile, actor_id: userIdOf(actor), width_px: 320, app_font: "xlarge through UI", state_observed: d.state, screenshot, ...extra, independent_visual_review: "not_executed" });
@@ -237,7 +246,7 @@ async function browserCapture(page, actor, screen, profile, extra = {}) {
 // Source contract checked against actual component, stop labels and Back accessibility label.
 const OFFLINE_UI = {
   status: "verified-current-source", componentSource: "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt", componentSha256: "fc2fafc4c586c6d9dc87f3674be0abb988faed1ba3ae26c0c14d0771a616f10e",
-  dependencies: [{"path": "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt", "sha256": "c0a16a98afc6a8f5b5af36475f914fcfc79c4a548a82d5d1186ae4fcb3ab19b8"}, {"path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt", "sha256": "42c35b63399efd5bc721166c426a234d6ca46956e75b9e34b043bb52bfe4018f"}],
+  dependencies: [{"path": "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt", "sha256": "c0a16a98afc6a8f5b5af36475f914fcfc79c4a548a82d5d1186ae4fcb3ab19b8"}, {"path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt", "sha256": "d3bc1b74bdf9f93497b315ce3d2c1c8feb808107c8a57843512ac9bd76b8f2d8"}],
   header: { ru: "Последние сохранённые данные", ba: "Һуңғы һаҡланған мәғлүмәт" },
   warning: { ru: "Показываем сохранённую поездку. Состояние могло измениться.", ba: "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәл үҙгәргән булыуы мөмкин." },
   role: { passenger: { ru: "Ты пассажир", ba: "Һин пассажир" }, driver: { ru: "Ты водитель", ba: "Һин йөрөтөүсе" } },

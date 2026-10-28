@@ -118,13 +118,13 @@ class SelectedControlsAccessibilityTest {
         driver.assertIsNotSelected()
     }
 
-    @Test fun russianNavigationLabelsFitAtLargeFontOnNarrowScreen() =
-        assertNavigationLabelsFit(AppLanguage.Ru, listOf("Карта", "Поездки", "Заявка", "Чат", "Профиль"))
+    @Test fun russianNavigationStaysAccessibleAtLargeFontOnNarrowScreen() =
+        assertNavigationAccessible(AppLanguage.Ru, listOf("Карта", "Поездки", "Заявка", "Чат", "Профиль"))
 
-    @Test fun bashkirNavigationLabelsFitAtLargeFontOnNarrowScreen() =
-        assertNavigationLabelsFit(AppLanguage.Ba, listOf("Карта", "Сәфәрҙәр", "Ғариза", "Чат", "Профиль"))
+    @Test fun bashkirNavigationStaysAccessibleAtLargeFontOnNarrowScreen() =
+        assertNavigationAccessible(AppLanguage.Ba, listOf("Карта", "Сәфәрҙәр", "Ғариза", "Чат", "Профиль"))
 
-    private fun assertNavigationLabelsFit(language: AppLanguage, labels: List<String>) {
+    private fun assertNavigationAccessible(language: AppLanguage, labels: List<String>) {
         compose.setContent {
             val density = LocalDensity.current
             CompositionLocalProvider(
@@ -140,18 +140,16 @@ class SelectedControlsAccessibilityTest {
         }
         val tabTops = mutableListOf<Float>()
         for (label in labels) {
-            val layouts = mutableListOf<TextLayoutResult>()
-            compose.onNodeWithText(label, useUnmergedTree = true)
-                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
-            val layout = layouts.single()
-            assertTrue("$label is truncated at fontScale=2 on 320dp; size=${layout.size}, " +
-                "lineHeight=${layout.layoutInput.style.lineHeight}, " +
-                "overflowWidth=${layout.didOverflowWidth}, overflowHeight=${layout.didOverflowHeight}",
-                !layout.hasVisualOverflow)
-            compose.onNodeWithText(label).assertHeightIsAtLeast(48.dp)
-            tabTops += compose.onNodeWithText(label).fetchSemanticsNode().boundsInRoot.top
+            val tab = compose.onNodeWithContentDescription(label)
+                .assertIsDisplayed()
+                .assert(SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Tab))
+                .assertHeightIsAtLeast(48.dp)
+                .assertWidthIsAtLeast(48.dp)
+            if (label == labels[1]) tab.assertIsSelected() else tab.assertIsNotSelected()
+            compose.onAllNodesWithText(label, useUnmergedTree = true).assertCountEquals(0)
+            tabTops += tab.fetchSemanticsNode().boundsInRoot.top
         }
-        assertTrue("Navigation tabs must align when labels wrap: $tabTops",
+        assertTrue("Navigation tabs must align with accessible icons: $tabTops",
             tabTops.max() - tabTops.min() <= 1f)
     }
 

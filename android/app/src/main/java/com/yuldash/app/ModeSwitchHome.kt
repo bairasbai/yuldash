@@ -70,11 +70,18 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.testTag
+import androidx.compose.material3.LocalTextStyle
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.rememberTextMeasurer
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.sp
 
 /** Режим поиска пассажира. Попутка — по умолчанию (сердце Юлдаша).
@@ -285,7 +292,7 @@ internal fun PassengerModeHome(
  * ~120dp, и блок перестал перетягивать внимание на себя.
  */
 @Composable
-private fun ModeSwitchBar(
+internal fun ModeSwitchBar(
     mode: RideMode,
     onSelect: (RideMode) -> Unit,
     onExplain: () -> Unit,
@@ -315,6 +322,9 @@ private fun ModeSwitchBar(
         RideMode.Courier -> appText("отправить посылку", "бандероль ебәреү")
     }
     val explainCd = appText("Чем отличается?", "Айырмаһы нимәлә?")
+    val density = LocalDensity.current
+    val measurer = rememberTextMeasurer()
+    val labelStyle = LocalTextStyle.current.merge(CanonCaption)
     // Пауза снизу, а не только сверху: переключатель — отдельная вещь, и содержимое вкладки
     // не должно начинаться впритык к нему. Отступ здесь, а не в каждой вкладке: иначе три
     // экрана разойдутся по воздуху, и это будет видно при переключении.
@@ -335,7 +345,26 @@ private fun ModeSwitchBar(
             BoxWithConstraints(Modifier.weight(1f)) {
                 // Ширина одного сегмента известна только здесь — от неё считается сдвиг пилюли.
                 val segW = maxWidth / items.size
-                val offset by animateDpAsState(segW * index, tween(CanonMotion.NORMAL), label = "mode_pill")
+                fun labelsFit(width: Dp, besideIcon: Boolean) = items.all { (m, _, title) ->
+                    val available = width - if (besideIcon) modeVehicleWidth(m) + CanonSpace.xs else 0.dp
+                    val textWidth = with(density) { available.toPx().toInt() }
+                    listOf(FontWeight.Normal, FontWeight.SemiBold).all { weight ->
+                        homeLabelFits(measurer, title, labelStyle.copy(fontWeight = weight), textWidth)
+                    }
+                }
+                val vertical = !labelsFit(segW, true) && !labelsFit(segW, false)
+                val cellWidth = if (vertical) maxWidth else segW
+                val stacked = !labelsFit(cellWidth, true)
+                val labelHeight = with(density) {
+                    items.maxOf { (_, _, title) ->
+                        listOf(FontWeight.Normal, FontWeight.SemiBold).maxOf { weight ->
+                            measurer.measure(AnnotatedString(title), labelStyle.copy(fontWeight = weight)).size.height
+                        }
+                    }.toDp()
+                }
+                val segmentHeight = maxOf(MODE_SEG_HEIGHT, labelHeight + CanonSpace.sm * 2 + if (stacked) 26.dp + CanonSpace.xs else 0.dp)
+                val offset by animateDpAsState(if (vertical) 0.dp else segW * index, tween(CanonMotion.NORMAL), label = "mode_pill")
+                val offsetY by animateDpAsState(if (vertical) segmentHeight * index else 0.dp, tween(CanonMotion.NORMAL), label = "mode_pill_y")
                 // ПОДЛОЖКА выбранного режима. Тонкая рамка цветом режима — не украшение.
                 // Проверка контраста (2026-08-03): подложка и фон контрола — соседние токены,
                 // в тёмной теме CanonPoolingBg на CanonSurface дают 1.02:1, то есть пилюли
@@ -344,42 +373,48 @@ private fun ModeSwitchBar(
                 // Рамка возвращает пилюле собственную границу, не делая её кричащей.
                 Box(
                     Modifier
-                        .offset(x = offset)
-                        .width(segW)
-                        .height(MODE_SEG_HEIGHT)
+                        .offset(x = offset, y = offsetY)
+                        .width(cellWidth)
+                        .height(segmentHeight)
+                        .testTag("home-mode-pill")
                         .clip(CanonFieldShape)
                         .background(activeBg)
                         .border(BorderStroke(1.dp, accent.copy(alpha = 0.42f)), CanonFieldShape)
                 )
-                Row(Modifier.fillMaxWidth()) {
-                    items.forEachIndexed { i, (m, iconRes, title) ->
+                val segment: @Composable (Int, Modifier) -> Unit = { i, cellModifier ->
+                        val (m, iconRes, title) = items[i]
                         val on = i == index
                         val cd = appText(
                             if (on) "$title, выбрано" else "$title, выбрать",
                             if (on) "$title, һайланды" else "$title, һайлау",
                         )
-                        Row(
-                            Modifier
-                                .weight(1f)
-                                .height(MODE_SEG_HEIGHT)
+                        val segmentModifier = cellModifier
+                                .height(segmentHeight)
                                 .clip(CanonFieldShape)
                                 .clickable(onClickLabel = cd) { onSelect(m) }
-                                .semantics { contentDescription = cd },
-                            horizontalArrangement = Arrangement.Center,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                                .semantics { contentDescription = cd }
+                                .testTag("home-mode-${m.name}")
+                        val content: @Composable () -> Unit = {
                             ModeVehicleIcon(iconRes = iconRes, mode = m, active = on)
-                            Spacer(Modifier.width(4.dp))
+                            Spacer(if (stacked) Modifier.height(CanonSpace.xs) else Modifier.width(CanonSpace.xs))
                             Text(
                                 title,
                                 color = if (on) CanonText else CanonMuted,
-                                style = CanonCaption,
+                                style = labelStyle,
                                 fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
                                 maxLines = 1,
-                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
                             )
                         }
-                    }
+                        if (stacked) Column(segmentModifier.padding(vertical = CanonSpace.sm),
+                            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) { content() }
+                        else Row(segmentModifier, horizontalArrangement = Arrangement.Center,
+                            verticalAlignment = Alignment.CenterVertically) { content() }
+                }
+                if (vertical) Column(Modifier.fillMaxWidth()) {
+                    items.indices.forEach { segment(it, Modifier.fillMaxWidth()) }
+                } else Row(Modifier.fillMaxWidth()) {
+                    items.indices.forEach { segment(it, Modifier.weight(1f)) }
                 }
             }
             // «Чем отличается?» — знаком вопроса, и только пока подсказку не прочитали.
@@ -434,11 +469,7 @@ private fun ModeSwitchBar(
 
 @Composable
 private fun ModeVehicleIcon(iconRes: Int, mode: RideMode, active: Boolean) {
-    val width = when (mode) {
-        RideMode.Pooling -> 34.dp
-        RideMode.Taxi -> 38.dp
-        RideMode.Courier -> 32.dp
-    }
+    val width = modeVehicleWidth(mode)
     Image(
         painter = painterResource(iconRes),
         contentDescription = null,
@@ -448,6 +479,12 @@ private fun ModeVehicleIcon(iconRes: Int, mode: RideMode, active: Boolean) {
             .height(26.dp)
             .alpha(if (active) 1f else 0.78f),
     )
+}
+
+private fun modeVehicleWidth(mode: RideMode) = when (mode) {
+    RideMode.Pooling -> 34.dp
+    RideMode.Taxi -> 38.dp
+    RideMode.Courier -> 32.dp
 }
 
 // Высота сегмента = высота тач-цели, потому что кликабелен именно сегмент.

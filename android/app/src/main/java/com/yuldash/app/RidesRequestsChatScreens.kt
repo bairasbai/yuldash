@@ -1764,47 +1764,8 @@ internal fun ChatScreen(
             )
         }
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                chatTabs.zip(listOf(Icons.Default.ChatBubble, Icons.Default.ListAlt, Icons.Default.Settings)).forEach { (tab, icon) ->
-                    val (key, label) = tab
-                    val labelText = label.text()
-                    Box(Modifier.weight(1f)) {
-                        FilledTonalButton(
-                            onClick = {
-                                if (key == "system") onNotifications() else selected = key
-                            },
-                            modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                            shape = RoundedCornerShape(14.dp),
-                            contentPadding = PaddingValues(horizontal = 8.dp),
-                            colors = ButtonDefaults.filledTonalButtonColors(
-                                containerColor = if (selected == key) CanonMint else CanonSurface,
-                                contentColor = CanonText
-                            )
-                        ) {
-                            Icon(icon, contentDescription = null, modifier = Modifier.size(18.dp), tint = if (selected == key) CanonGreen2 else CanonMuted)
-                            Spacer(Modifier.width(4.dp))
-                            Text(labelText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        }
-                        // Бейдж непрочитанных уведомлений на кнопке «Система».
-                        if (key == "system" && notifUnread > 0) {
-                            Box(
-                                Modifier.align(Alignment.TopEnd).padding(4.dp)
-                                    .defaultMinSize(minWidth = 18.dp, minHeight = 18.dp)
-                                    .background(CanonRed, CircleShape)
-                                    .padding(horizontal = 4.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    if (notifUnread > 99) "99+" else notifUnread.toString(),
-                                    color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Bold, maxLines = 1,
-                                )
-                            }
-                        }
-                    }
-                }
+            ChatHomeTabs(chatTabs, selected, notifUnread) { key ->
+                if (key == "system") onNotifications() else selected = key
             }
         }
         if (selected == "requests") {
