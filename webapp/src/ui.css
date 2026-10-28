@@ -8460,6 +8460,18 @@ select.field__input {
 .update-banner__go {
   color: var(--green2);
 }
+@media (max-width: 480px) {
+  .update-banner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .update-banner__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
 
 /* ---- Отметка из очереди не принята сервером (OutboxRefusalBanner) ----
    Тёплая плашка, как .notice: пара --canon-gold-ink на --canon-gold-soft считается сторожем ui-test. */

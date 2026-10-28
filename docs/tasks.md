@@ -1,4 +1,21 @@
 <!-- RIDESHARE-CLAUDE-TAILS-20261024 -->
+28.10, после повторного narrow01: локальный73461476/source1307 `c3d562ce…`/
+QA41 `3f7414ec…` собран. Android70 UP-TO-DATE/1м9с, PWA141 набора/2680 объявленных
+проверок passed (сумма счётчиков журнала, не число уникальных тестов), PWA build exit0.
+Binding `b9cc3880…`, current installed debug7000/testb803 реально совпали по adbSHA.
+Сценарий W1-E2E-06-narrow-layout01 FAILED18:43:49.732: снова driver-cabinet320→394,
+только10 кадров. Теперь восстановление Android/PWA прошло полностью, errors0.
+Observer narrow01 stop-file/exit0/live0/Listen0;176 исходных строк заморожены, Ufa/UTCafter
+проверены. На FAIL-pwa-0 реально виден UpdateBanner: новая версия скачана и ждёт
+пользовательского «Обновить». Нельзя считать disk build hash доказательством loaded CSS.
+Добавлена отдельная локальная правка узкого update-banner (12 CSS строк, no TSX change):
+icon+широкийтекст и отдельная строка кнопок; source35 принят, ui.css `fd54ec9f…`.
+Перед ней7346 source/dist сохранены через148 ссылок:117 новых файлов2579506B,
+31 прежний используется из f140 архива. План TAILS/7346-before-banner-preservation-plan01.json.
+Следующий цикл: новый commit/build02 → собственные d1/p1 обновить обычной UI-кнопкой
+при наличии уведомления → подтвердить реальные CSS/JS bytes текущей сборки → новый06.
+Никакой очистки авторизации/профилей, фикстуры109/110 не менялись, refresh ещё0.
+
 28.10 18:23 UTC: f140 sealed graph действительно проверен ROOT: manifest
 `rideshare-candidate-05-evidence-merged03.json` SHA `0d74d2d9…`, actual checker
 `candidate05-merged03-check01` exit1/blocked, ровно7 ожидаемых blocker только06/07.

@@ -16323,8 +16323,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "3723a1d0e42e53603120c5564a65befd8f6e08b506ebe908f936c6c6904223a3",
-      "lines": 20888
+      "sha256": "ccf05c828cbea69297064477cc071416b38316c9bcc46ca8b65676400d599ea9",
+      "lines": 20900
     },
     {
       "path": "webapp/src/uiPrefs.ts",
