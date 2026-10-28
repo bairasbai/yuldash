@@ -3289,7 +3289,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/FileSizeRatchetTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "bd2493f0722ed11285b683f941add98b9cd47a766cc73bf7b24926a2023f3ad4",
+      "sha256": "2b0d220da6612fbd2514ba1afd00d84d7d99a01da7433d5edf5b16734c6eced2",
       "lines": 131
     },
     {
@@ -3359,8 +3359,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/HomeControlsNarrowLayoutTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "55434f90df352a66788ff1d807b8a9af20c36698e7ec1d854ca4f7b1d3eb25c7",
-      "lines": 183
+      "sha256": "0607c6016da6ada7a86d164e9c8f2b6409cea9e155c13ff8f90abfbe9369e4a1",
+      "lines": 191
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",

@@ -30,12 +30,12 @@ class FileSizeRatchetTest {
         "ProfileScreen.kt" to 4735,   // 24.10.2026: −13 — текст окна «Снять поездку?» уехал в RideCancelWarning.kt, потолок опущен; 23.10.2026: −81 — оценка пассажира водителем уехала в DriverPassengerRow.kt (PassengerStarsRating), потолок опущен; 16.10.2026: +9 — флаг такси в кабинетах (волна 1) и «Открыть поездку» в «Едут с тобой»; 14.10.2026: +4 — опции мест (UI — SeatOptions.kt)
         // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
         "BookingActiveTripScreen.kt" to 3499,   // 24.10: −31 — удаление паспорта и окно его повтора уехали в CancelledInTransit.kt (ActiveTripTerminalCleanup), потолок опущен; 23.10: код посадки (#192) и выбор числа мест (#189) вынесены; 17.10: нижняя панель — в ActiveTripDecisionBar.kt, посадка — в RideshareBoarding.kt; 16.10: маршрутная карточка вынесена
-        "RidesRequestsChatScreens.kt" to 3252,   // 23.10.2026: −110 — экран откликов на заявку (обёртка с границей входа) уехал в RequestResponsesScreen.kt, потолок опущен; 13.10.2026: +2 — запись после «Разрешить» (withResumed)
+        "RidesRequestsChatScreens.kt" to 3213,   // 23.10.2026: −110 — экран откликов на заявку (обёртка с границей входа) уехал в RequestResponsesScreen.kt, потолок опущен; 13.10.2026: +2 — запись после «Разрешить» (withResumed)
         "ParcelsScreen.kt" to 3044,
-        "YuldashApp.kt" to 2788,
+        "YuldashApp.kt" to 2668,
         "CourierScreen.kt" to 2553,
         "SecondaryScreens.kt" to 2345,   // 23.10.2026: −229 — «Мои подписки» уехали в RouteWatchesScreen.kt, сетевая часть — в data/RouteWatchApi.kt; потолок опущен
-        "MapScreen.kt" to 2224,   // 16.10.2026: ряд из 12 чипов → 4 вопроса, условия — в NearbyFiltersPanel.kt; −9 мёртвых импортов
+        "MapScreen.kt" to 2178,   // 16.10.2026: ряд из 12 чипов → 4 вопроса, условия — в NearbyFiltersPanel.kt; −9 мёртвых импортов
         "AccessibilityScreens.kt" to 2150,   // 13.10.2026: +1 — импорт withResumed для того же фикса микрофона
         "TaxiTripScreen.kt" to 1629,
         "FairnessScreens.kt" to 1612,   // 14.10.2026: +1 — initialType у FileIncidentDialog (разбор «Пассажир не вышел» сразу с типом)

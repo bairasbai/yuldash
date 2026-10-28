@@ -88,7 +88,7 @@ class HomeControlsNarrowLayoutTest {
             wholeText(modeLabels[index], p)
             val pill = compose.onNodeWithTag("home-mode-pill").getUnclippedBoundsInRoot()
             val cell = node.getUnclippedBoundsInRoot()
-            assertEquals("Selected pill must follow the whole actual segment", cell.height.value, pill.height.value, 0.5f)
+            assertEquals("Selected pill must follow the whole actual segment", (cell.bottom - cell.top).value, (pill.bottom - pill.top).value, 0.5f)
             // Equal-weight cells and animated Dp offsets may round one pixel differently.
             assertEquals(cell.left.value, pill.left.value, 1f)
             assertEquals(cell.right.value, pill.right.value, 1f)
@@ -154,7 +154,7 @@ class HomeControlsNarrowLayoutTest {
 
     private fun touchSize(node: SemanticsNodeInteraction) {
         val bounds = node.getUnclippedBoundsInRoot()
-        assertTrue("A real clickable target must remain at least 48dp: $bounds", bounds.width >= 48.dp && bounds.height >= 48.dp)
+        assertTrue("A real clickable target must remain at least 48dp: $bounds", bounds.right - bounds.left >= 48.dp && bounds.bottom - bounds.top >= 48.dp)
         val viewport = compose.onNodeWithTag("home-controls-viewport").getUnclippedBoundsInRoot()
         assertTrue("Control must stay inside its available width", bounds.left >= viewport.left && bounds.right <= viewport.right)
     }
@@ -169,9 +169,17 @@ class HomeControlsNarrowLayoutTest {
         assertFalse("No maxLines truncation for $text", layout.multiParagraph.didExceedMaxLines)
         assertEquals(text.length, layout.getLineEnd(layout.lineCount - 1))
         for (line in 0 until layout.lineCount) {
+            val diagnostics = "profile=$p text=$text line=$line/${layout.lineCount} size=${layout.size} paragraph=${layout.multiParagraph.width}x${layout.multiParagraph.height} " +
+                "constraints=${layout.layoutInput.constraints} density=${layout.layoutInput.density} align=${layout.layoutInput.style.textAlign} " +
+                "left=${layout.getLineLeft(line)} right=${layout.getLineRight(line)} top=${layout.getLineTop(line)} bottom=${layout.getLineBottom(line)} " +
+                "node=${node.getUnclippedBoundsInRoot()}"
             assertFalse("No ellipsis for $text", layout.isLineEllipsized(line))
-            assertTrue(layout.getLineLeft(line) >= -1f && layout.getLineRight(line) <= layout.size.width + 1f)
-            assertTrue(layout.getLineTop(line) >= -1f && layout.getLineBottom(line) <= layout.size.height + 1f)
+            // Line coordinates belong to the paragraph; its width can exceed the text node.
+            val left = layout.getLineLeft(line)
+            val right = layout.getLineRight(line)
+            assertTrue("Horizontal glyph bounds must fit: $diagnostics", left >= -1f &&
+                right <= layout.layoutInput.constraints.maxWidth + 1f && right - left <= layout.size.width + 1f)
+            assertTrue("Vertical glyph bounds must fit: $diagnostics", layout.getLineTop(line) >= -1f && layout.getLineBottom(line) <= layout.size.height + 1f)
             val end = layout.getLineEnd(line)
             assertTrue("Never split a word in $text", end == text.length || end <= 0 ||
                 !text[end - 1].isLetterOrDigit() || !text[end].isLetterOrDigit())
