@@ -1,4 +1,43 @@
 <!-- RIDESHARE-CLAUDE-TAILS-20261024 -->
+29.10 МСК, цикл06 перед finalbuild: Android actual unit06 BUILD SUCCESSFUL5м14с,
+54 непустыхXML/320 уникальных PASS,0FAIL/ERROR/SKIP;5 новых ChatCardcases PASS.
+RawXML сохранены, точная карта в diagnostics/qa-narrow-layout06/unit06-preserved-summary.json.
+Оба temporal capture unit (включая testphase) проверены: own identities0; общийadb не трогали.
+PWA check141 набор/2680 сумма объявленных счётчиков, exit0; это не2680 уникальных тестов.
+Fresh независимый source38 CSS/ChatCard принят безP0/P1/P2; итоговая UI-приёмка впереди.
+Product1310 SHA b13190ee19d9adad7506f45bc843f1fb91caf4773fbd56451c07c4d7d2b89dd0,
+QA41 SHA dd132739d72cca64f3325c93d9c6cfee65ac8cc632b50c3f59927f21655e5ce3.
+Secret06 rawexit1:2533 совпадения — точные SHA256 inventory, SHA1 detector совпал,
+неразобранных0; явные изменённые исходники проверены, ключевые файлы не читали.
+
+29.10 МСК, цикл06: перед overwrite сохранены149 точных f687 APK/test/dist refs,
+118 новых файлов184502308B и31 переиспользованный; план/manifest вTAILS,
+pre-adaptive-layout06-preservation.json SHA7ca86c8b405479b2035d04ead663873c8b8f784d8d645a5372ffce14f6388969.
+PWA06 check exit0; capture/verify собственных процессов завершён, same_identity_live0.
+Независимый source33 CSS57 принят, фактическая визуальная проверка ещё впереди.
+У ChatCard найден реальный blank-time вызов заявки; добавляется условие и проверка.
+
+29.10 МСК, цикл06 после FAILED adaptive05: зафиксированы44 базовых кадра
+(20Android+24PWA),244 проверки. Перед первым synthetic-case logout удался,
+но helper ждал видимую кнопку Telegram без прокрутки; LoginScreen352 прокручивается,
+на FAIL-картинке кнопка ниже экрана. Затем cleanup потерял авторизацию и затёр
+первую ошибку. Старый FAILED сохранён (result b8bc016f…),496 событий V3 заморожены,
+Ufa/UTCafter подтверждены; browser observer0/live0/Listen0, физические440/font1.
+Original Rustam/id4/RU/system/normal восстановлен обычным UI (recover05-02 exit0).
+QA login/logout теперь прокручивает CTA/поле имени, bot/identity не менялись;
+reporter сохраняет primary/cleanup/provenance отдельно.5 изолированных проверок
+настоящей функции runScenario прошли, это не E2E. Plan/source33 приняты.
+Новые visual P2: PWA mode overlap и усечённые chat tabs (review35), AndroidChatCard
+дата сжимает Гульназ до Гульна/з (review37). План: минимальная адаптация двух CSS
+контролов; перенести дату диалога отдельной строкой без изменения данных/кликов;
+добавить узкие реальные Compose-проверки, собрать, повторить68, затем extra кадры
+driverCTA/кабинета/banner и независимая приёмка. Два непересекающихся writer lease.
+Локальный Vite4173 теперь явно отдаёт CSS UTF8: ignored config fc8252c2…,
+все CSS/JS/HTML/SW байты до/после совпали. Старый owned32120/19572/23528 остановлен,
+замена18448 с21:42:52Z, процессы/порт будут убраны после проверок. Strict update05
+прошёл у d1/id1+p1/id3:26 совпавших наблюдений, settings restored/contexts closed.
+Исходный cp1252-слой не установлен; точная перекодировка+8B доказана, FAILED04 сохранён.
+
 29.10 МСК, продолжение adaptive04: локальныйHEAD722e6795/source1309 d097523d,
 QA41 94db0a16. Source37 принял8 профилей/4 контролов после третьего fallback.
 Android debug и androidTest собраны; общий04b остановился на компиляции нового

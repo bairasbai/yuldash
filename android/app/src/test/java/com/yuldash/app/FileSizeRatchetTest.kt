@@ -30,7 +30,7 @@ class FileSizeRatchetTest {
         "ProfileScreen.kt" to 4735,   // 24.10.2026: −13 — текст окна «Снять поездку?» уехал в RideCancelWarning.kt, потолок опущен; 23.10.2026: −81 — оценка пассажира водителем уехала в DriverPassengerRow.kt (PassengerStarsRating), потолок опущен; 16.10.2026: +9 — флаг такси в кабинетах (волна 1) и «Открыть поездку» в «Едут с тобой»; 14.10.2026: +4 — опции мест (UI — SeatOptions.kt)
         // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
         "BookingActiveTripScreen.kt" to 3499,   // 24.10: −31 — удаление паспорта и окно его повтора уехали в CancelledInTransit.kt (ActiveTripTerminalCleanup), потолок опущен; 23.10: код посадки (#192) и выбор числа мест (#189) вынесены; 17.10: нижняя панель — в ActiveTripDecisionBar.kt, посадка — в RideshareBoarding.kt; 16.10: маршрутная карточка вынесена
-        "RidesRequestsChatScreens.kt" to 3213,   // 23.10.2026: −110 — экран откликов на заявку (обёртка с границей входа) уехал в RequestResponsesScreen.kt, потолок опущен; 13.10.2026: +2 — запись после «Разрешить» (withResumed)
+        "RidesRequestsChatScreens.kt" to 3211,   // 23.10.2026: −110 — экран откликов на заявку (обёртка с границей входа) уехал в RequestResponsesScreen.kt, потолок опущен; 13.10.2026: +2 — запись после «Разрешить» (withResumed)
         "ParcelsScreen.kt" to 3044,
         "YuldashApp.kt" to 2668,
         "CourierScreen.kt" to 2553,

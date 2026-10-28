@@ -83,14 +83,14 @@
     "infra_resource_config": 448,
     "public_site_promo": 91,
     "pwa_main": 337,
-    "test_support": 1329
+    "test_support": 1330
   },
   "counts_by_block": {
     "B01": 176,
     "B02": 325,
     "B03": 123,
     "B04": 80,
-    "B05": 62,
+    "B05": 63,
     "B06": 107,
     "B07": 148,
     "B08": 216,
@@ -1490,8 +1490,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "6452dba9d6780d1fc694843fd42121d3c27d7a0509ce79365639450192d5ffe8",
-      "lines": 3213
+      "sha256": "79a3c32cae31cbb1cfd0eb8d396ad5e0cbb447bf4e624c845aca617794c4ec0a",
+      "lines": 3211
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
@@ -2992,6 +2992,13 @@
       "lines": 310
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/ChatCardNarrowLayoutTest.kt",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "328a2bd9636bfe0db2a68b07df21cc3a09200bfd8fb75af4005f0321a8a22964",
+      "lines": 149
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/ChatContentTest.kt",
       "kind": "test_support",
       "block": "B05",
@@ -3289,7 +3296,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/FileSizeRatchetTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "2b0d220da6612fbd2514ba1afd00d84d7d99a01da7433d5edf5b16734c6eced2",
+      "sha256": "39bafd979ecdba190f84d66bab05e0ea12fda622f76ca3f5420f8c9394bc0c1c",
       "lines": 131
     },
     {
@@ -13453,7 +13460,7 @@
       "path": "tools/rideshare_e2e/lib/android-flows.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "934b8192e082b750a1a78f9bd6f32ac9baedfb35052ab753dcc64fef8ea9e801",
+      "sha256": "f7d2549e8a41707efc7a9c41dd7f9b70a4a270b839a2de238f5470a4256db1a9",
       "lines": 589
     },
     {
@@ -13551,8 +13558,8 @@
       "path": "tools/rideshare_e2e/lib/scenario.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "d81ee57cec27fac263bf7adb10431d7d4682ca39051cf33966f066e636fa96da",
-      "lines": 102
+      "sha256": "bd3f2021317325de3dccc651fc4b1afa669bfe4dd84274be21fbee08b0acd37a",
+      "lines": 103
     },
     {
       "path": "tools/rideshare_e2e/lib/stand.mjs",
@@ -16337,8 +16344,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "239f9171da1ea1d63e36e7e1c97efb6a7df18079334c50d3c7aae942f4285a22",
-      "lines": 20909
+      "sha256": "2323ce158e7a4e9f8b35cbbd5ff96e266c8f42129e0e71006264fbe741e02b56",
+      "lines": 20966
     },
     {
       "path": "webapp/src/uiPrefs.ts",

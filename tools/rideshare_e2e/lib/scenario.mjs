@@ -85,15 +85,16 @@ export async function runScenario(sc, body, cleanup = async () => {}) {
     ok = true;
   } catch (e) {
     error = String(e.message).split("\n").slice(0, 4).join(" | ");
+    sc.facts.execution_error = error;
     try { if (sc.meta.android !== false) A.screencap("FAIL-android"); } catch {}
     try { for (const [i, pg] of (sc.pages || []).entries()) await pg.screenshot({ path: join(sc.dir, "shots", `FAIL-pwa-${i}.png`) }); } catch {}
   } finally {
-    try { await cleanup(ok); } catch (e) { ok = false; error = "Cleanup failed: " + String(e.message); log("cleanup.error", { error }); }
+    try { await cleanup(ok); } catch (e) { ok = false; const detail = "Cleanup failed: " + String(e.message); sc.facts.cleanup_error = detail; error = [error, detail].filter(Boolean).join(" | "); log("cleanup.error", { error }); }
   }
   try {
     sc.facts.provenance_end = provenance({ android: sc.meta.android !== false });
     if (JSON.stringify(sc.facts.provenance_start) !== JSON.stringify(sc.facts.provenance_end)) throw new Error("Source/build provenance changed during scenario");
-  } catch (e) { ok = false; error = String(e.message); }
+  } catch (e) { ok = false; const detail = String(e.message); sc.facts.provenance_error = detail; error = [error, detail].filter(Boolean).join(" | "); }
   const r = sc.finish(ok, error);
   console.log(JSON.stringify(redact({ scenario: sc.id, result: r.result, checks_passed: r.checks_passed, error })));
   process.exit(ok ? 0 : 1);

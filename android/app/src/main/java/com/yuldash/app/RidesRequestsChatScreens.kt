@@ -2845,18 +2845,16 @@ internal fun ChatCard(initial: String, name: String, subtitle: String, message: 
                 }
                 Text(subtitle, fontSize = 16.sp, lineHeight = 23.sp, fontWeight = FontWeight.Bold)
                 Text(message, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
+                if (time.isNotBlank()) Text(time, color = CanonMuted, style = CanonCaption)
             }
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text(time, color = CanonMuted, fontSize = 14.sp)
-                if (unread > 0) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .background(MaterialTheme.colorScheme.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(unread.toString(), color = Color.White, fontWeight = FontWeight.Bold)
-                    }
+            if (unread > 0) {
+                Box(
+                    modifier = Modifier
+                        .defaultMinSize(minWidth = 30.dp, minHeight = 30.dp)
+                        .background(MaterialTheme.colorScheme.primary, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(unread.toString(), color = Color.White, fontWeight = FontWeight.Bold)
                 }
             }
         }

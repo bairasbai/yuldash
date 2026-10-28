@@ -33,14 +33,14 @@ export async function nav(tab) { await A.tapText(tab, { what: `nav ${tab}` }); a
 
 /** Login screen → Telegram button → (Chrome/intent dismissed) → bot imitation → name+code → home. */
 export async function login({ telegramId, firstName, phone }) {
-  await A.waitFor("Войти через Telegram", { timeout: 30000 });
+  await A.scrollTo("Войти через Telegram", { max: 12 });
   const base = lastTgAuthId();
-  await A.tapText("Войти через Telegram", { what: "login: open bot" });
+  await A.scrollTap("Войти через Telegram", { max: 12, what: "login: open bot" });
   await sleep(2500);
   if (!/com\.yuldash\.app/.test(topActivity())) { A.back(); await sleep(1200); }
   if (!/com\.yuldash\.app/.test(topActivity())) { A.launch(); await sleep(1500); }
   const { code } = await tgBotLogin({ telegramId, firstName, phone, afterId: base });
-  await A.tapText("Твоё имя (необязательно)", { what: "name field" });
+  await A.scrollTap("Твоё имя (необязательно)", { max: 12, what: "name field" });
   A.typeText(firstName);
   A.hideKeyboard();
   await A.scrollTap("Код из Telegram");
@@ -69,7 +69,7 @@ export async function logout() {
   A.screencap("android-logout-confirm");
   const confirm = A.find(A.dump(), /^Выйти$/);
   if (confirm) { A.tapXY(...A.center(confirm)); }
-  await A.waitFor("Войти через Telegram", { timeout: 30000 });
+  await A.scrollTo("Войти через Telegram", { max: 12 });
   log("android.logout", {});
 }
 

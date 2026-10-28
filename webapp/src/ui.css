@@ -20180,6 +20180,63 @@ button.settings-row:active {
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
 }
+/* Узкие переключатели: полные подписи без уменьшения текста; крупный zoom требует запаса до 480px. */
+@media (max-width: 380px) {
+  .mode-switch__pill { flex-direction: column; align-items: stretch; }
+  .mode-switch__track { flex: none; grid-template-columns: minmax(0, 1fr); }
+  .mode-switch__thumb,
+  .mode-switch__divider { display: none; }
+  .mode-switch__seg {
+    height: auto;
+    min-height: 48px;
+    white-space: normal;
+    transition: color var(--motion-quick) ease, background var(--motion-quick) ease;
+  }
+  .mode-switch__seg > span { min-width: 0; overflow-wrap: anywhere; }
+  .mode-switch--pooling .mode-switch__seg.is-on { background: var(--pooling-bg); }
+  .mode-switch--taxi .mode-switch__seg.is-on { background: var(--taxi-bg); }
+  .mode-switch--courier .mode-switch__seg.is-on { background: var(--courier-bg); }
+  .mode-switch__explain { align-self: flex-end; flex: none; }
+  .chat-tabs { flex-direction: column; }
+  .chat-tab { flex: none; justify-content: flex-start; }
+  .chat-tab__icon { flex: none; }
+  .chat-tab__label {
+    flex: 1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .chat-tab__badge { position: static; flex: none; }
+}
+@media (max-width: 480px) {
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__pill { flex-direction: column; align-items: stretch; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__track { flex: none; grid-template-columns: minmax(0, 1fr); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__thumb,
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__divider { display: none; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__seg {
+    height: auto;
+    min-height: 48px;
+    white-space: normal;
+    transition: color var(--motion-quick) ease, background var(--motion-quick) ease;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__seg > span { min-width: 0; overflow-wrap: anywhere; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch--pooling .mode-switch__seg.is-on { background: var(--pooling-bg); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch--taxi .mode-switch__seg.is-on { background: var(--taxi-bg); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch--courier .mode-switch__seg.is-on { background: var(--courier-bg); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__explain { align-self: flex-end; flex: none; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tabs { flex-direction: column; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab { flex: none; justify-content: flex-start; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__icon { flex: none; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__label {
+    flex: 1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__badge { position: static; flex: none; }
+}
 /* ChatEmptyState: карточка 28 с рамкой и тенью, круг мятный (иконка 38, поля 24). */
 .chat-empty {
   display: flex;
