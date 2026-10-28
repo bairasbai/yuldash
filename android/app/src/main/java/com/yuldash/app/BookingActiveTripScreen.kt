@@ -449,6 +449,7 @@ internal fun BookingScreen(
     val shareText = bookingRideShareText(displayRide.copy(price = details?.takeIf { it.seats > 1 && it.price > 0 }?.let { it.price / it.seats } ?: displayRide.price), showPrice = bookingId == null || details != null)   // соседу — цена места, не всей брони
     // Свежие детали знают статус лучше, чем список, из которого открыли бронь.
     val normalizedBookingStatus = (details?.status?.takeIf { it.isNotBlank() } ?: bookingStatus).trim().lowercase()
+    val terminalContactsHidden = bookingId != null && !contactUnlocked && normalizedBookingStatus in setOf("done", "cancelled")
     val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
     // Ждёт ответа водителя — тихо сверяемся с сервером, пока экран на виду: пуш может не дойти, а
     // подтверждение открывает телефон и точку встречи (приёмка 18.10). Сменился статус — полная загрузка.
@@ -655,6 +656,7 @@ internal fun BookingScreen(
                 BookingMeetingCard(
                     contactUnlocked = contactUnlocked,
                     bookingExists = bookingId != null,
+                    terminalContactsHidden = terminalContactsHidden,
                     exactPickup = exactPickup,
                     pickupLat = pickupLat,
                     pickupLng = pickupLng,
@@ -672,13 +674,18 @@ internal fun BookingScreen(
                     )
                 } else {
                     InfoCard(
-                        title = if (bookingId != null)
+                        title = if (terminalContactsHidden)
+                            appText("Номер скрыт", "Номер йәшерелгән")
+                        else if (bookingId != null)
                             appText("Телефон откроется после подтверждения водителем",
                                     "Телефон йөрөтөүсе раҫлағас асыла")
                         else
                             appText("Телефон откроется после подтверждения поездки",
                                     "Телефон сәфәр раҫланғандан һуң асыла"),
-                        text = appText(
+                        text = if (terminalContactsHidden) appText(
+                            "Номер и точная геолокация скрыты.",
+                            "Номер һәм теүәл геолокация йәшерелгән.",
+                        ) else appText(
                             "Так мы защищаем номер и точную геолокацию до взаимного согласия.",
                             "Шулай итеп номерҙы һәм теүәл геолокацияны ике яҡ ризалығына тиклем һаҡлайбыҙ.",
                         ),
@@ -887,6 +894,7 @@ private fun BookingDriverHeroCard(
 private fun BookingMeetingCard(
     contactUnlocked: Boolean,
     bookingExists: Boolean,
+    terminalContactsHidden: Boolean,
     exactPickup: String,
     pickupLat: Double?,
     pickupLng: Double?,
@@ -900,6 +908,7 @@ private fun BookingMeetingCard(
                 when {
                     contactUnlocked && exactPickup.isNotBlank() -> exactPickup
                     contactUnlocked -> appText("Уточни точку в чате", "Нөктәне чатта асыҡла")
+                    terminalContactsHidden -> appText("Место встречи скрыто", "Осрашыу урыны йәшерелгән")
                     bookingExists -> appText("Откроется после подтверждения водителем", "Йөрөтөүсе раҫлағас асыла")
                     else -> appText("Откроется после подтверждения поездки", "Сәфәр раҫланғас асыла")
                 },
@@ -907,8 +916,10 @@ private fun BookingMeetingCard(
             if (!contactUnlocked) {
                 Text(
                     appText(
-                        "Номер и точная геолокация скрыты до взаимного согласия.",
-                        "Номер һәм теүәл геолокация ике яҡ ризалығына тиклем йәшерелгән.",
+                        if (terminalContactsHidden) "Номер и точная геолокация скрыты."
+                        else "Номер и точная геолокация скрыты до взаимного согласия.",
+                        if (terminalContactsHidden) "Номер һәм теүәл геолокация йәшерелгән."
+                        else "Номер һәм теүәл геолокация ике яҡ ризалығына тиклем йәшерелгән.",
                     ),
                     color = CanonMuted,
                     fontSize = 12.sp,

@@ -52,7 +52,29 @@ export async function requestDateTime(date) {
     if (!edit) throw new Error("TimePicker field missing");
     A.tapXY(...A.center(edit)); await sleep(200); A.typeText(String(number).padStart(2, "0"));
   }
-  A.hideKeyboard(); await A.tapText(/^(ОК|OK|Готово)$/); await sleep(600);
+  A.hideKeyboard();
+  // Hiding the IME moves this native dialog. Confirm only its stable positive button.
+  let previousBox = null, confirmed = false;
+  for (let frame = 0; frame < 8; frame++) {
+    const nodes = A.dump();
+    const hour = nodes.find(n => n["resource-id"] === "android:id/input_hour");
+    const minute = nodes.find(n => n["resource-id"] === "android:id/input_minute");
+    const buttons = nodes.filter(n => n["resource-id"] === "android:id/button1"
+      && n.class === "android.widget.Button" && n.enabled === "true" && n.clickable === "true" && n.box);
+    if (buttons.length !== 1 || !hour || !minute) throw new Error("Current native TimePicker controls are missing or ambiguous");
+    if (Number(hour.text) !== ufa.getUTCHours() || Number(minute.text) !== ufa.getUTCMinutes())
+      throw new Error("Native TimePicker did not retain the requested time");
+    const keyboard = A.imeShown(), box = JSON.stringify(buttons[0].box);
+    if (!keyboard && box === previousBox) {
+      A.tapXY(...A.center(buttons[0])); confirmed = true; break;
+    }
+    previousBox = keyboard ? null : box;
+    await sleep(500);
+  }
+  if (!confirmed) throw new Error("Native TimePicker positive button did not settle after keyboard dismissal");
+  await until(() => A.dump(), nodes => !!A.find(nodes, /^Создать заявку$/)
+    && !nodes.some(n => /android:id\/input_(?:hour|minute)$/.test(n["resource-id"] || "")),
+    "native TimePicker closed after its one positive action");
 }
 
 export async function androidCreateRequest({ from, to, price, departAt }) {
@@ -80,7 +102,7 @@ export async function pwaCreateRequest(page, { from, to, price, departAt }) {
 }
 export async function androidOfferOwnRide({ passenger, price }) {
   await AF.openDriverCabinet();
-  await A.scrollTap("Заявки пассажиров", { max: 24 }); await A.waitFor("По пути"); await A.tapText("По пути");
+  await A.scrollTap("Заявки пассажиров", { max: 48 }); await A.waitFor("По пути"); await A.tapText("По пути");
   const name = await A.scrollTo(passenger);
   let nodes = A.dump(), action = AF.below(nodes, name, /^Предложить поездку$/, 1000);
   if (!action) { await A.swipeUp(0.25); nodes = A.dump(); action = A.find(nodes, /^Предложить поездку$/); }

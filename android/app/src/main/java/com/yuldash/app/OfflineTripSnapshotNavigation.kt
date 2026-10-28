@@ -60,11 +60,18 @@ internal fun GuardedActiveTripDestination(
             onRetry = { if (currentOffline()) vm.requestBookingDestination(mode.snapshot.bookingId, mode.snapshot.owner.userId, completed = false) },
             onBack = { vm.navigateLocally(onBack) })
     } else {
+        // A repeated intent may keep the same route; refresh its callbacks when navigation settles.
+        val bookingNavigationPending = vm.pendingBookingNavigation.value
+        val screenNavigationPending = vm.pendingScreenNavigation.value
+        val publicNavigationPending = vm.pendingPublicRideNavigation.value
+        val navigationPending = bookingNavigationPending != null || screenNavigationPending != null || publicNavigationPending != null
         val ride = vm.selectedRide.value
         val booking = vm.activeBookingId.value
         val revision = vm.privateNavigationRevision
         val owner = ApiClient.myUserId()
-        fun currentIdentity() = vm.offlineTripSnapshot.value == null && vm.selectedRide.value == ride &&
+        fun currentIdentity() = !navigationPending && vm.pendingBookingNavigation.value == null &&
+            vm.pendingScreenNavigation.value == null && vm.pendingPublicRideNavigation.value == null &&
+            vm.offlineTripSnapshot.value == null && vm.selectedRide.value == ride &&
             vm.activeBookingId.value == booking && vm.privateNavigationRevision == revision && ApiClient.isCurrentSession(session) && ApiClient.myUserId() == owner
         fun currentLive() = currentIdentity() && vm.screen.value.contentScreen() == Screen.ActiveTrip
         // The same receipt transition may already own its destination before the root's queued ID fallback.

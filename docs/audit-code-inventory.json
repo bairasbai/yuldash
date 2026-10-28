@@ -83,18 +83,18 @@
     "infra_resource_config": 448,
     "public_site_promo": 91,
     "pwa_main": 337,
-    "test_support": 1326
+    "test_support": 1328
   },
   "counts_by_block": {
     "B01": 176,
-    "B02": 324,
+    "B02": 325,
     "B03": 123,
     "B04": 80,
     "B05": 62,
     "B06": 107,
     "B07": 148,
     "B08": 216,
-    "B09": 754,
+    "B09": 755,
     "B10": 448,
     "B11": 92
   },
@@ -860,8 +860,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "0416e4e614537d4996f4da729d81aa6f68860d668c92dac727a7769ba9615229",
-      "lines": 3469
+      "sha256": "7ae4e9d82fc89bab8ca9ae114497233050f31865a231d0bb880b8af5e8672912",
+      "lines": 3480
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingDecisionCards.kt",
@@ -1315,8 +1315,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/OfflineTripSnapshotNavigation.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "51c39dac96ada3627002bd0900479c651bfe9ef526cec81dadcb36714f029d56",
-      "lines": 83
+      "sha256": "7df192ce2e76cbb602a258d0513bdd6eaaeea27c16032cffcbe07b3e157e16f2",
+      "lines": 90
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/OutboxAutoFlush.kt",
@@ -4082,6 +4082,20 @@
       "block": "B09",
       "sha256": "90c0b8da25d6fffd964bf816d0c3c212f4aeb22a67f7ee2be131b63e68af56f2",
       "lines": 199
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ReceiptRepeatedBookingNavigationTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "8b19fa78d37705c9744d4e4c3634fc5b49581cfa58b7afd82a8864cb783bc34b",
+      "lines": 244
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ReceiptRepeatedNavigationBoundaryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "cf0b2c1c36ef4d225c6d9cc8a926d880073b3dd07acd49cb17cb6d7c3f1531a7",
+      "lines": 166
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ReduceMotionTest.kt",
@@ -13425,8 +13439,8 @@
       "path": "tools/rideshare_e2e/lib/android-flows.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "ba7c74dd1315cebc22845fe6f066c85221659e6874be888b204dfcfc26d3b07c",
-      "lines": 545
+      "sha256": "934b8192e082b750a1a78f9bd6f32ac9baedfb35052ab753dcc64fef8ea9e801",
+      "lines": 589
     },
     {
       "path": "tools/rideshare_e2e/lib/android.mjs",
@@ -13516,8 +13530,8 @@
       "path": "tools/rideshare_e2e/lib/request-flows.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "52ac449d015a7d2b9b0035d016eea8cc5a7f52d98f6bdfc4ff5d5f9fe436237c",
-      "lines": 135
+      "sha256": "b9841a991454a97882f9e69311318568718a71748a34bdd024582d551a06a34e",
+      "lines": 157
     },
     {
       "path": "tools/rideshare_e2e/lib/scenario.mjs",
@@ -13586,7 +13600,7 @@
       "path": "tools/rideshare_e2e/s03.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "abb417960bc887d01d764c5231100acc314b7906400540d4bfeaa20061fa3d4b",
+      "sha256": "14f0f0add369c367f2778b4f8ac73358ca2666072b5c95177bb80512e75a5423",
       "lines": 227
     },
     {
@@ -13600,8 +13614,8 @@
       "path": "tools/rideshare_e2e/s05.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "682938a03d49d75b0de7ecdb2673306278336987a840f99577958e5f93ccb904",
-      "lines": 276
+      "sha256": "f235c26287272e11d3ceba67c556ec3fe9fbafed63e6bc814f35a78216359468",
+      "lines": 297
     },
     {
       "path": "tools/rideshare_e2e/s06.mjs",

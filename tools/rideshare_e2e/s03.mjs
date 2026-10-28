@@ -190,9 +190,9 @@ await runScenario(sc, async () => {
       await P.tripButton(pwa.page, "Подъезжаю");
     } else {
       await AF.driverCardAction({ passenger: passenger.firstName, action: /^Открыть поездку$/ });
-      await A.scrollTap(/^Я выехал$/);
+      await A.scrollTap(/^Я выехал$/, { maxBottom: 0.96 });
       await waitDb(() => book(absent.ride)?.driver_phase === "departed", "driver departure saved by real action");
-      await A.scrollTap(/^Подъезжаю$/);
+      await A.scrollTap(/^Подъезжаю$/, { maxBottom: 0.96 });
     }
     await waitDb(() => !!book(absent.ride)?.arriving_at, "arrival saved by real driver action");
   });

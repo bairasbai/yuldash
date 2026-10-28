@@ -123,7 +123,28 @@ async function share() {
 async function revoke() {
   if (pair === "A") {
     await passengerTrip(); await A.scrollTap("Поделиться поездкой с близким");
-    await A.waitFor(/^Отозвать$/); await A.tapText(/^Отозвать$/);
+    await A.waitFor("Ссылка для близкого");
+    let nodes = A.dump();
+    const [w, h] = A.screenSize();
+    const inside = n => n.box && n.box.every(Number.isFinite) && n.box[0] >= 0 && n.box[1] >= 0
+      && n.box[2] <= w && n.box[3] <= h && n.box[2] > n.box[0] && n.box[3] > n.box[1];
+    if (!A.find(nodes, /^Отозвать$/)) {
+      const handles = nodes.filter(n => n["content-desc"] === "Drag handle" && inside(n));
+      const header = A.find(nodes, "Ссылка для близкого");
+      if (handles.length !== 1 || !header || !inside(header) || header.box[1] <= handles[0].box[3]) throw new Error("Loaded own share sheet handle is missing or ambiguous");
+      const [x, y] = A.center(handles[0]), upTo = Math.round(h*.35);
+      if (![x, y, upTo, w, h].every(Number.isInteger) || !(0 < x && x < w && 0 < upTo && upTo < y && y < h)) throw new Error("Unsafe share sheet expansion coordinates");
+      A.sh("input swipe " + x + " " + y + " " + x + " " + upTo + " 400", { quiet: true });
+      await sleep(1000);
+    }
+    await A.waitFor(/^Отозвать$/);
+    nodes = A.dump();
+    const revokes = nodes.filter(n => n.text === "Отозвать" && inside(n));
+    const ownContacts = nodes.filter(n => n.text === contactName && inside(n));
+    if (!A.find(nodes, "Ссылка для близкого") || revokes.length !== 1 || ownContacts.length !== 1
+      || revokes[0].box[0] < ownContacts[0].box[2] || A.center(revokes[0])[1] < ownContacts[0].box[1]
+      || A.center(revokes[0])[1] > ownContacts[0].box[3]) throw new Error("Revoke is not the unique button in this synthetic contact's row");
+    await A.tapText(/^Отозвать$/);
     await A.waitFor("Кому отправить поездку"); A.back();
   } else {
     await P.click(pwa.page, pwa.page.getByRole("button", { name: "Отозвать доступ", exact: true }), "revoke public trip link");

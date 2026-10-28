@@ -370,7 +370,8 @@ export async function openDriverCabinet() {
 /** Driver cabinet: card of the passenger (by name), then the action button inside that card. */
 export async function driverCardAction({ passenger, action, confirm = null }) {
   await openDriverCabinet();
-  for (let i = 0; i < 10; i++) {
+  const maxSwipes = 24;
+  for (let i = 0; i <= maxSwipes; i++) {
     const nodes = A.dump();
     const names = nodes.filter((n) => n.text === passenger);
     for (const nm of names) {
@@ -386,7 +387,7 @@ export async function driverCardAction({ passenger, action, confirm = null }) {
         return;
       }
     }
-    await A.swipeUp(0.35);
+    if (i < maxSwipes) await A.swipeUp(0.35);
   }
   throw new Error(`driver cabinet: no «${action}» for ${passenger}`);
 }
@@ -396,7 +397,7 @@ export const driverBoard = ({ passenger }) => driverCardAction({ passenger, acti
 export async function chatOpenFromInbox({ name, text = null }) {
   await goHome();
   await nav("Чат");
-  if (text) await A.tapText(text, { what: "inbox row by last message" });
+  if (text) await A.scrollTap(text, { what: "inbox row by last message" });
   else await A.tapText(name, { what: "inbox row" });
   await sleep(2000);
   const ok = A.find(A.dump(), "Понятно");
@@ -453,21 +454,64 @@ export async function passengerHistory(input) {
 /** Driver: rate the passenger in the cabinet section «Пассажиры — оцените…», then open the receipt. */
 export async function driverRateAndReceipt({ passenger, stars, bookingId, driverId }) {
   if (!Number.isInteger(bookingId) || !Number.isInteger(driverId)) throw new Error("Bind driver rating to its actual booking and owner");
-  const unrated = q("SELECT b.id FROM booking b JOIN ride r ON r.id=b.ride_id WHERE r.driver_id=? AND b.status='done' AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.booking_id=b.id AND rt.rater_id=?)", driverId, driverId);
-  if (unrated.length !== 1 || unrated[0].id !== bookingId) throw new Error("Synthetic rating fixture must have exactly this one unrated completed booking");
+  if (!passenger || !Number.isInteger(stars) || stars < 1 || stars > 5) throw new Error("Bind the passenger and rating value");
+  const assertUnrated = () => {
+    const unrated = q("SELECT b.id FROM booking b JOIN ride r ON r.id=b.ride_id WHERE r.driver_id=? AND b.status='done' AND NOT EXISTS (SELECT 1 FROM rating rt WHERE rt.booking_id=b.id AND rt.rater_id=?)", driverId, driverId);
+    if (unrated.length !== 1 || unrated[0].id !== bookingId) throw new Error("Synthetic rating fixture must have exactly this one unrated completed booking");
+  };
+  assertUnrated();
+  const matches = (nodes, want) => nodes.filter(n => n.box && n.box[2] > n.box[0] && n.box[3] > n.box[1] &&
+    [n.text, n["content-desc"]].some(s => typeof s === "string" && (typeof want === "string" ? s === want : want.test(s))));
+  const starLabel = new RegExp("^" + stars + "( из 5| звезд\\S*| звёзд)$");
+  const selectedLabel = new RegExp("^Выбрано " + stars + "( из 5| звезд\\S*| звёзд) — подтверди$");
+  const boundCard = (nodes, anchor, label) => nativeCardContaining(nodes, anchor, own =>
+    matches(own, label).length === 1 && matches(own, passenger).length === 1 && matches(own, starLabel).length === 1 &&
+    !matches(own, /^Твоя оценка:|^Изменить$/).length);
+  const alignedTarget = async (label, targetLabel, starTarget) => {
+    for (let adjustment = 0; adjustment <= 6; adjustment++) {
+      const nodes = A.dump(), anchors = matches(nodes, label), h = A.screenSize()[1];
+      if (anchors.length !== 1) throw new Error("Driver rating anchor is missing or ambiguous");
+      const anchor = anchors[0], card = boundCard(nodes, anchor, label);
+      const targets = card ? matches(card.nodes, targetLabel) : [];
+      if (targets.length > 1) throw new Error("Driver rating target is ambiguous inside its card");
+      const target = targets[0], top = h*.16, bottom = h*.90;
+      if (target && target.box[1] >= top && target.box[3] <= bottom && anchor.box[1] >= top && anchor.box[3] <= bottom) return target;
+      if (adjustment === 6) throw new Error("Driver rating card cannot be aligned safely");
+      // A clipped star/name is above its prompt: reveal it by scrolling DOWN.
+      if (!card || anchor.box[1] < top || (target && target.box[1] < top) || (!target && starTarget)) await A.swipeDown(.12);
+      else await A.swipeUp(.12);
+    }
+  };
   await openDriverCabinet();
   await A.scrollTo(/^Пассажиры — оцените/);
-  let done = false;
-  for (let i = 0; i < 16 && !done; i++) {
-    const nodes = A.dump();
-    const prompt = A.find(nodes, "Выбери оценку"), h = A.screenSize()[1];
-    const candidates = prompt ? nodes.filter(n => n.box && n.box[3] <= prompt.box[1] && prompt.box[1]-n.box[3] < 300 && n.box[1] > h*.16).sort((a,b)=>b.box[1]-a.box[1]) : [];
-    const star = A.find(candidates, new RegExp(`^${stars}( из 5| звезд\\S*| звёзд)$`));
-    if (star && prompt.box[3] < h*.88) { A.tapXY(...A.center(star)); done = true; break; }
-    await A.swipeUp(0.25);
+  let selected = false;
+  // Inspect the initial frame AND the frame after the last allowed content swipe.
+  for (let scroll = 0; scroll <= 40; scroll++) {
+    const prompts = matches(A.dump(), "Выбери оценку");
+    if (prompts.length > 1) throw new Error("More than one visible unrated driver card");
+    if (prompts.length === 1) {
+      const star = await alignedTarget("Выбери оценку", starLabel, true);
+      assertUnrated();
+      A.tapXY(...A.center(star));
+      selected = true;
+      break;
+    }
+    if (scroll === 40) break;
+    await A.swipeUp(.30);
   }
-  if (!done) throw new Error("driver rating stars not found");
-  await A.scrollTap(/^Отправить оценку$/, { maxBottom: .96 });
+  if (!selected) throw new Error("driver rating prompt not found within 40 content swipes");
+  const selectionDeadline = Date.now()+5000;
+  let selectionSeen = false;
+  while (Date.now() < selectionDeadline) {
+    const labels = matches(A.dump(), selectedLabel);
+    if (labels.length > 1) throw new Error("Selected driver rating is ambiguous");
+    if (labels.length === 1) { selectionSeen = true; break; }
+    await sleep(300);
+  }
+  if (!selectionSeen) throw new Error("The selected driver rating was not shown");
+  const confirm = await alignedTarget(selectedLabel, /^Отправить оценку$/, false);
+  assertUnrated(); // Selecting a star must not have created or changed the server rating.
+  A.tapXY(...A.center(confirm)); // Exactly one confirmation, scoped to this same card.
   const deadline = Date.now()+25000;
   while (Date.now()<deadline && q1("SELECT stars FROM rating WHERE booking_id=? AND rater_id=?",bookingId,driverId)?.stars !== stars) await sleep(400);
   if(q1("SELECT stars FROM rating WHERE booking_id=? AND rater_id=?",bookingId,driverId)?.stars !== stars) throw new Error("Current booking's driver rating was not persisted");
@@ -528,7 +572,7 @@ export async function driverArchive(input) {
   }
   await waitRideDone(rideId);
   await openDriverCabinet();
-  await A.scrollTo(/^Архив( поездок)?$/);
+  await A.scrollTo(/^Архив( поездок)?$/, { max: 24 });
   const [, h] = A.screenSize();
   for (let i = 0; i < 8; i++) {
     const nodes = A.dump();

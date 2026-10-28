@@ -1,4 +1,481 @@
 <!-- RIDESHARE-CLAUDE-TAILS-20261024 -->
+28.10 10:40UTC: точная V5 пара завершена. Baseline dev21:8 тестов/4PASS/4FAIL;
+после единственного wrapperfix7df dev22:8PASS/0FAIL/ERROR/SKIP,2м39с.
+В обеих версиях одни и те же два файла тестов8b19/7b08; original callback удерживается
+вместо изменяемой semantic-обёртки. Оба входа/роли, immediate и after-repaint oldtap,
+4pendingnegative, coalesced consume, capturedpending и passenger draft/back проверены.
+XML обоих прогонов сохранены; source start=end, ранние/поздние процессы/порты проверены.
+Это scoped unit-proof, не native/newAPK/whole05. Нового коммита/привязки ещё нет.
+После сохранения8GREEN применён только текстовый hintpatchcbad/4252: BookingActiveTrip
+c32a→24b637,3480lines<3499; доступ/срок/сеть не менялись. Подсказка закрытых контактов
+у done/cancelled больше не обещает подтверждение. Далее расширенные проверки на общем коде,
+fresh независимый review, новый commit/build/binding/native и новые whole01–05.
+
+28.10 09:58UTC: тест водителя воспроизвёл настоящий сбой повторной ссылки:
+current receipt expected TripReceipt, actual ActiveTrip. В dev16 всего8FAIL:
+ещё7 — ошибки ожиданий тестового стенда (анимация пассажирского черновика/ручные часы
+boundary mount), не новые дефекты продукта. Автор готовит внешнюю V3 только ожиданий.
+Два исходных XML сохранены неизменными; before/after1307 source23e0 одинаковы,
+ранние/поздние процессы dev16 завершены и порты свободны. Dev15 до тестов не дошёл:
+PowerShell разбил bare -Pkotlin; исправлено строковым массивом по уже существующему docs/qa.
+Наивный VM-only план отклонён независимым review9ee: мог оживлять старые кнопки при pending.
+Узкий wrapper-only plan02be063 условно принят e70 после полноценного baseline;
+production VM9b1/wrapper51c пока неизменны. В Android добавлены только2 новых V2теста.
+Own86 закрыт отдельно:14204exit0/end09:45:02.573,30originalwire/onecomplete,
+9FP/fullrideExceptStatussame/resources0; scoped runtime-review8a315f89 принят, не05PASS.
+До новых сборок сохранены5 уникальных старых APK/lint артефактов251421952B;
+все SHA source=destination, точный планa62/root-registration/proof, dev14XML reuse бездублей.
+
+28.10: новый 05A-cabinet-share-fix02 прошёл 50 условий/8 шагов, own85/79;
+отдельная обычная UI-уборка завершила85, одна запись/35 originalwire, 9FP неизменны.
+Новый 05B завершён FAILED47 на открытии собственной исторической квитанции77;
+это не PASS и не полная приёмка05. Два readonly-прогона подтвердили: повторный tap
+на текущем Done77 не открывает квитанцию, Home→свежий вход77 открывает; 10FP одинаковы.
+План ROOT: (1) отдельно закрыть только свой тестовый рейс86 обычным UI после review;
+(2) сохранить нужные старые build-доказательства и получить RED-тест повторной ссылки;
+(3) минимально исправить причину с сохранением owner/session/booking/revision-защиты;
+(4) новая сборка/проверки/независимая приёмка и новый target без переназначения старых результатов.
+Product4e79/e054 пока не менялся; старые accepted01–04 относятся к прежней версии.
+Затем полный05 и матрица06; подтверждение BA отложено Александром, physical07 открыт.
+
+После временного capacity двух агентов пользователь сказал «Продолжай». ROOT проверил
+реальное состояние: S05f235 уже применён R12, пакет ещё не был создан; повторногоapplyне делал.
+Standowner/health8000+4173 подтверждены. Sealedbuilderc0a выполненROOT впервые
+snapshot-share-sheet-root01/PID26000exit0/absent,08:37UTC;ROOTadoptionзарегистрировандоoutput.
+Пакетqa-share-sheet-01 ровно3файла40323B,manifest067bbf3f…924e6,actual41QA b26aa532…c67a8,
+4override/37Git;producer80927bf9/helper06c2ad00f1 syntax-only,кейс05новыйtagи1182/1183.
+Actualsource принят независимо d01540cf…574ed;actualmaintenanceold78/84 принят37966c8b…6780,
+не full05. Inventorywrite/checkexit0,28484/32964absent;новыйpreexec4284exit0/absent.
+НОВЫЙFULL05A-cabinet-share-fix02 запущен Node10652 creation08:42:03.453510UTC,
+PRICE_OFFSET481/1182/QA41b26;preexec/envbeforePASS/capturev2. Завершённогоresultпока нет.
+ROOTединственныйUI;R12read-only готовит bounded05source/map. APP4e79/e054/APK/PWA прежние,
+candidatee841/01–04acceptedнеизменны. СтарыйFAILED25 и егоd980source сохранены.
+
+Уборка FAILED05A завершена отдельно, не PASS05: maintenance1bbb/PID31988exit0,
+end06:44:50.506UTC,96originalV3/v2resources0. Native DELETE ownshare1(book78/contact1)
+прошёл; anonymousstate404denial-only. PWAвод1 обычнымUI посадил/завершил78,
+затемзакрыл/нашёлточныйarchive84/1180. Ровно4businessmutations;10protectedgroups,
+полная78кромеstatus/onboard_at/done_at иполная84кромеstatus неизменны.
+Доисполненияhelper принят независимым report55e07ccf;послеисполненияprivacy29
+готовитотдельныйruntime-review. OriginalFAILED25 по-прежнемуfailed.
+ROOTпослеуспешнойуборки явноразрешилR12 exactS05patch16d0/plan21f,
+новыйactual41QA/body+patch+manifest/genericproducer/futurehelper06,безизмененияпродукта.
+Sourcehandoffожидается;ROOTбезUIдоfreeze. Новыеполные05A/B ещёне запущены.
+Formalwhole04checker:11честныхблокеров только05/06/07;01–04implemented/accepted,
+exit1сохранён,19096absent;diagnosis9812/17640такжеabsent. Candidatee841неизменён.
+
+Текущий05A закончился FAILED25, не PASS:06:03:27.538–06:14:29.821UTC,
+ride84/book78/1180,shareactive/contactсозданы, bookingconfirmed. Revocation-helper
+не раскрыл окно перед ожиданием «Отозвать».421originalV3/envafter/v2+v3webclients01
+resources0/36984exit1;старыйresultнепереписывается. Readonlyprobe01stable +probe02onedrag:
+кнопкапоявилась,10tableFPsame/business0,9812/17640exit0. Independentprivacy29
+подтвердил диагностику и принял exact QAplan21fbc4b7/patch16d0aeb9;S05покапрежний682938/d980.
+R12готовит толькообычнуюUIуборку ownshare78/booking78/ride84 настаройQA,
+затемразрешённыйdiff→новая41QAс4overrides/37Git→новыеFULL05A/Btagcabinet-share-fix02,
+PRICE_OFFSET481/1182–1183. BA/06/07покаоткрыты;продукт4e79/e054не меняется.
+
+Whole04 A+B принятfresh29:reviewc71d061a/attestd9f2e15b,193ART/102source,
+57successfulconditions/16steps/819wire/15PNG. Candidatee841b6fd применёнR12поROOTразрешению:
+470ART/21EVD/8tests/4ACC/6people,точныйinverse→e323,01–03/source146/125/7mustсохранены.
+Plan3682724f/proof77baf55d;формальныйcheckerследующий. Копий7/129395Bsource=dest,
+регистрациядоmkdir/copy;дваprocess-events02и8PNGоставленынаисходныхпутях.
+
+Текущий запуск — 05A-cabinet-pinned-fix01, Node36984 creation06:03:27.141951UTC,
+цена1180/PRICE_OFFSET479/QA41d980. Preexec/envbefore/capturev2 пройдены; полного результата ещё нет.
+Отдельная историческая фикстура seed02 выполнена один раз06:02:46–48UTC, PID33212exit0/absent:
+A ride82/book76, B ride83/book77; только новые явно синтетические done-строки за72часа,
+нулевые суммы, старые данные/часы не переписаны. Manifest historical-contacts-fixture.json.
+Для поздних Chrome-профилей05 планируется дополнительная v3 capture/verify с отдельной revision.
+Формальная проверка candidatee323:15блокеров остаются только04/05/06/07;
+01/02/03 implemented/accepted, checkerexit1 честно сохранён, PID2768absent.
+Дляwhole04 разрешены7копийB/129395B по c671fb32, sourceplanaa85/102existingpaths;
+R12 создаёт карту и ждёт freshoffline29. Candidate04 ещё не менять.
+Финальный secret-scan16 только подготовлен (helperd88c0710), не выполнен: запуск послеfreezeдоков.
+
+Новый итог: whole02 принят свежим request29 (review5602f41f/attestf6cbd059):
+A20+B21 successfulconditions/14steps/215ART,не41уникальныйтест. Candidatee323b989
+применён R12 по разрешению ROOT:444ART/19EVD/6tests/3ACC/5people,старые01+03и125source
+неизменны; exactinverse→3b1е. Планfd56b7fe/proof8953d2be,формальныйcheckerследующий.
+04B PASSED28/8steps/0fail, result05:46:26.957–05:55:20.704UTC,81/75/1161/d980,
+415originalV3/8PNG/envafterPASS/exit0/resources0;10Brokenpipe+1nullrootсохранены.
+ReadonlyAndroidprocess-events02 за окно B показалиactualcold4308→4474,
+первичныйfailedhostparse01 сохранён отдельно и не менял UI/состояние/часы.
+Уборка81 ordinaryPWA passed/1POST/32wire/9listedFP+fullrideExceptStatussame/exit0/resources0.
+Freshoffline29 сверяет whole04; исходники/продукт прежние. Дальше05A/B, затем68кадров06;
+BA носителем отложен Александром,physical07остаётсяоткрыт.
+
+28.10 08:46МСК: новыйFULL02Bfix02 PASSED21/7steps/0failed,
+result05:33:16.575–05:45:47.876UTC,ride80/book74/request12/443/QA41d980.
+Принятие/двойнойтап/oneRideBookingSeat/payment0ledger0/reload/onboard/done/ratings5+4/
+ownreceipts/точныеhistory+archive80;15PNG+6XML/365originalV3,envafterPASS,
+Node7992exit0/v2resources0.11Brokenpipeстроксохранены. Freshrequest29личносверяет
+whole02 A20/e8b+B21/d980; R12разрешеныминимальные16proofcopiesсрегистрацией,
+candidate3b1еПОКАнеизменён,whole02ещёнепринята.
+НовыйFULL04B-cabinet-pinned-fix01/1161/d980 запущенNode7416
+creation05:46:26.607912UTC/preexec+envbeforePASS/capturev2;сценарийещёвработе.
+
+28.10 08:33МСК: ordinaryUIcleanup11+79 завершён PASS/exit0,05:32:51.192UTC:
+request11cancelled/ride79done/3места, только2statusfields изменены;10protectedgroups
+и остальные поля обоихtargets совпали.2PNG/61originalV3/envowner+sourceguards,
+exitverifyresources0;Brokenpipeсохранён. Это maintenance,неPASS02.
+НовыйFULL02B-cabinet-request-chat-fix02/443/d980 запущен05:33:16.208664UTC,
+Node7992/preexec+envbeforePASS/capturev2;actualfinishожидается,не объявлятьPASSраньше.
+Inventorydriver-requests write/checkexit0;finite29568/26684провереныabsent.
+
+28.10 08:26МСК: целый сценарий01 A+B принят fresh29: review1d12728c/attesta43a54036,
+253ART/36successfulconditions(A19+B17, не уникальные тесты),36PNG+6XML.
+Candidate3b1e0859:01implemented/accepted,03accepted сохранён; checker exit1 честно оставляет
+19блокеров у02/04/05/06/07,01/03безблокеров. Старыйотказ28/FAILED15 не переписан.
+
+02Bfix01/441 FAILED5 на входе «Заявки пассажиров», без отклика/бронирования:
+ride79active3/3,request11active/response0/book0. Readonlyprobe02 нашёл пункт после25жестов,
+10protectedtableFP unchanged/0business. Ровно аргумент QAmax24→48 применён,
+RQb9841a99/new41d9808d98;3filemanifest195bff0e,producercf73d1b9/helper05ef10332a
+созданы/parsePASS, ещё не запускались; продукт4e79/e054 и принятые старые прогоны прежние.
+План: обычными кнопками отменить свою пустую заявку11 и закрыть пустой рейс79,
+сохранив FAILED5; затем новый FULL02Bfix02/443 и независимая whole02приёмка.
+Заявка/рейс не переписываются SQL; часы/дата не подменяются. BA отложен,07 открыт.
+
+28.10 08:04МСК: новыйFULL01Bfix03 PASSED17/14steps/0failed,04:43:13.801–04:55:05.664UTC,
+ride78/booking73/461,QA41aaced/app4e79/e054. РеальныйPID11333→18453/стадиясохранена,
+чат2/onboard/done/обеоценки5+4/ownreceipts/точныеhistory+archive78,onebooking.
+Node9656exit0/envafterPASS/v2resources0/426frozenoriginalV3;stderrBrokenpipeсохранён,
+9HTTP404только/taxi/application,ихнепрятать. Freshmain_journey_acceptance29 личносверяет
+A19QA410+B17QAaacedи253ARTunion;полную01acceptanceждём,старыйотказ28/FAILEDсохранены.
+
+R12whole01фактическийmap a7aea8b0…b31e:253IDs(206existing+40Bexec+7QA),47newrefs,
+10minimalproofcopies162205B зарегистрированыдоmkdir/copy,source=destSHA/size;
+7Bsmallвtraceability-current-04/runtime-01-b-cabinet-request-chat-fix03,
+3sourcesshared-runtime-support02. New2jointoriginalsпринимающийпишетсразуROOTsafe
+traceability-current-04/runtime-01ab-cabinet-final03/review.md+attestation.json,
+безTAILSдубля. CandidateadadпокаНЕменяется;нужныaccepted29иrootразрешение.
+
+ROOTзапустилновыйFULL02B W1-E2E-02-B-cabinet-request-chat-fix01,04:56:27.385UTC,
+Node8320/price441/newproducer9fee/QAaaced/beforePASS/capturev2. Nativeводитель4/PWAпасс3,
+покаofferownrideэтап,app/QAвсёещёfrozen; никакогоPASSдоactualfinish.
+Первичный02A20/7наe8b ужепринят6fb1f22d/a6cadeba,не ретегатьеговaaced.
+
+28.10 07:46МСК: исправлениеratinghelperпровереноactualnativeUI:71/rater4→4,ownreceipt71GET200
+и76UIcomplete200/done. Maintenance31124exit1сохраненакакpartialFAILED,потомуold8scrollbudget
+не достигArchiveheading;157originalwireV3/envowner/resources0. НовыйpostfactsROOT26224exit0/absent:
+9protectedFPunchanged,oldratingsSHAunchanged+onlynewrating34/71/4→3/4stars,exact2businessPOST.
+Allridefields-exceptstatusнезависимодонеcaptured — не заявлять. Readonlyarchive76probe17724exit0/absent
+max24 нашлаexactdone76/460/routeunderheading,10tableFPunchanged/0business;оценка/completeнеповторялись.
+Freshscopednotes0ac3eb91…d06b/61rawSHA подтверждаютpartials/readonly+tinycode,неwhole01.
+
+Применена ровно1строкаQAArchiveheadingmax24(guard/exactrow8неизменны):AF934b8192…e801,
+new41QA aaced24f…0f70;3fileqa-driver-archive-01 manifest68c3393d…0982,producer9fee1ca8…3c83
+(2literal/inverse1ce22),helper04SHA224964a1…40b7(onlyHARNESS/inverse03),ниоднойпродуктовойправки.
+App4e79/e054/1305/APK/PWA/binding3ecпрежние,old410/e8b/a116/failed/partialне ретегированы.
+Sourcehandoffd8e61957…980a/proof719232db…8178,всеfiniteR12helpersabsent.
+
+Новый FULL01B-cabinet-request-chat-fix03 запущен04:43:13.453UTC,Node9656,price461unused,
+newproducerфактическисоздалpreexec/beforePASSнаaaced. Guardдоrun:driver4active0/oldunrated0.
+RootединственныйUI,38Git+3override/sourcefrozen,childcapturev2записана. Новыйfreshgpt6.1
+main_journey_acceptance29 готовитA+Bприёмкупослеactualfinish;passнеобъявляетсядозавершения.
+
+28.10 07:19МСК: новый02A принятнезависимоSCOPED:7steps20conditions/0failed,04:05:46.643–
+04:11:31.659UTC,ride77/booking72/request10/442,response8accepted.320originalwire,
+7PNG,44rawartifacts,actualaccept2taps104ms/onePOST200/oneRide/oneBooking/oneSeat/
+payment0ledger0,5+4ratings/receipts/history/archive. Review6fb1f22d…d106,attesta6cadeba…6f0d;
+QAe8b/product4e79/e054/APK/PWA/start=end/bothenvironmentguardsPASS/resources0.
+Whole02ABнепринята,02Bещёобязателен. Два401доbusinessсrefresh/reloginсохранены.
+
+Ratinghelperplan e7f8743c…cc66f/exactpatcha210e1e7…1103 принятынезависимымcc9473d5…4da9,
+P1/P2=0. Послеexit02A ROOTразрешилR12ровноодинfunctiondiff AF612245…6a31→8747bd1b…021c;
+oldexactowner/oneunratedguardусиленпередобоимитапами,40boundedcontentframes+samecardprompt/
+passenger/star/confirm,upperclipping→DOWN,onechoose/onesend,failclosedambiguity.
+Пландальше:применить→новый3fileQAartifact(старыеRQ/S03reuse)→новыйproducer→freshactualsource
+review→ordinaryUItail71rating/receipt/archive76→новыйFULL01Bfix03/461.
+Безпродуктовыхправок/пересборкиAPK/ретегаFAILED15. ПокаR12sourcewriter,rootнеиспользуетUI.
+
+28.10 07:07МСК: независимый итог текущегоFAILED01B сохранён: review28-01 ff9374d8…e48e,
+attestationf0a15cd9…1575,124rawSHA0diff; whole01NOT_ACCEPTED, historicalAсохранён.
+P1недостающееисполнениеBфинала/P2глубинаQAпоиска, продуктоваяполомкаформынеустановлена.
+Readonly02 нашла71снулевымизвёздами; кодпроверкибудетменятьсяотдельнойQAревизиейпосле
+принятогоплана/полнойостановкиактивногопрогона. Новыйwhole01reviewпослеpassedB—свежийагент.
+
+Параллельнотолькочтениюплана, ROOTзапустилW1-E2E-02-A-cabinet-request-chat-fix01:
+Node38180/04:05:46UTC,RSACC_PRICE442,app4e79/QAe8b/source1305/bindingverified,
+preexec+environmentbeforePASS/capturev2записаны. UIединственныйroot, sharedQAне менять
+доactualfinish/provenanceend. Этотслучайнезависимотunrated71(driver4), используетdriver1/passenger2.
+
+28.10 07:04МСК: разрешённый stand успешно восстановлен: proxyV3 PID2168/API25828/PWA32120/
+headlesslauncher10808+qemu21012; новыеPID/дети/порты записаныresume28-services01.json,
+база прежняяownSQLite/mock. ОбаinstalledAPK совпали сbinding, Ufa/auto0+непрерывныйUTC
+провереныresume28-timezone01; передфинальнымstop вернуть зафиксированные GMT/auto1.
+НовыйFULL01B-cabinet-request-chat-fix02 (QAe8b) FAILED15,13шагов(12ok+1failed),
+Node17124exit1/всеownprofilesclosed/ports0;environmentafterPASS,401originalwireV3
+черезsharedreader. Доошибкиpublication76/460→booking71→confirm→chat2→onboard→realrestart
+→done→passenger5/receipt200 прошли. Не найденызвёздыводителя, driver-rating/receipt/history
+непройдены, whole01непринята. СтарыеFAILED0/11/15 сохранены, новый15 не ретегается.
+
+Readonlynative-rating71 probe01(25664exit0/absent) и02(16884exit0/absent) доказали:
+12doneкарточекdriver4,11старыхоценены4,soleunrated71последняя. Форма71 найдена воframe11
+в02; prompt[77,1796,334,1862],correctstar4[492,1661,586,1755],другаястараязвезда
+[485,494,593,602].5business-tablefingerprints unchanged/0business taps/PNG+XML сохранены.
+ПричинаQA: поискобрываетсяпосле16swipes. R12готовитminimalpatchplan/diffONLY,
+main_journey_acceptance28 независимо проверит; продукт/QAпока не меняются.
+ПослеacceptedQAfix: отдельныйordinaryUItail71rating/receipt+archive76, затемНОВЫЙ
+полныйBfix03/461unused. Не считатьmaintenancePASSсценария;one-unratedguard сохранять.
+
+28.10 06:42МСК: Александр явно разрешил: «Продолжай да разрешаю» — восстановление локального
+стенда и продолжение UIпроверок. Предыдущий запрет на повторный запускproxy разрешением снят;
+старые отклонения/FAILED сохраняются. План:1) поднять неизменённыйproxyV3 на новыхлогах,
+APIна прежнейownSQLite/mock/PWA4173/свойheadless5560 с регистрациейPID/time/cwd/ports;
+2) проверить Ufa timezone безclockset, installedAPK/binding/QAe8b/owner/здоровье;
+3) новый FULL01B cabinet-request-chat-fix02/460 с новымproducer25336, затем02AB/04B/05AB/06;
+4) свежая независимая приёмка реально пройденного, обновление реестра и уборка своихпроцессов.
+App4e79/QAe8b/candidateadad пока frozen;push/main/prod/реальныеплатежи не разрешались.
+
+28.10 04:06МСК: scan14 завершён по тогдашним7файлам:wrapper0/rawdetector1,
+2528точныхgeneratedinventorySHA/other0/acceptedscopedtrue, mobile/keys namesdiffпуст,
+diffcheck0. После этого финальнаяCIMсверка остановилась ДО записи/действий на разборе
+автоматически преобразованной JSONдаты (локализованная строка не ISO). Никаких stop/delete
+не было. В docs/qa добавлено обязательноеPS7 DateKindString+UTC/PID/command правило.
+Поскольку документы изменились после14, его PASS не переназначается конечнымбайтам;
+последнийактуальныйскан —15, результатexternal secret-scan-request-chat-15-triage.json.
+
+28.10 04:02МСК: доступный файловый этап завершён. Независимая source01/02приёмка07
+75298067…2d14 подтверждена; app4e79/QAe8b неизменны, candidateadad заморожен.
+Следующий source04bounded план сохранён externalsource-map04-bounded-plan01.json,
+SHAff65afdf…d935/44420B:26reuse/0newartifacts/0copies,35raw/binding/Git/93anchors.
+Это только выбранные network/cold-controller chains; ordinarysetup/backendguardclosure
+остаётся внешней границей плана,04implemented/wholeAB не приняты. Candidate не менялся.
+
+Для обязательного продолжения реальных UIпроверок нужно явно разрешённое восстановление
+localproxy, которое ранее автоматическаяпроверка отклонила«blocked by policy» без
+подробнойпричины. Ответа Александра пока нет; запуск не повторялся/не обходился.
+Ownstandостановлен,timezoneGMT/auto1 восстановлен, sharedADB сохранён, базаquick_checkok.
+Worktree и нужные доказательства сохраняются для продолжения; новыхпроектныхкопий0/удалённых0.
+Ранее заблокированные3удаленияtmp и6каталоговнеясноговладельца не трогались;
+точные границы/причины/пути — externalfinal-cleanup-plan.md и прежниеcleanupreceipts.
+
+Финальная проверка семи изменённыхфайлов: external scan-current-request-chat-14.py,
+тотже защищённыйscope и точечныйразборgeneratedinventorySHA. Итог — отдельный
+secret-scan-request-chat-14-triage.json +inputs/process/stdout/stderr; документы после
+скана не менять, иначе нужен новыйактуальныйскан. Mobile/keys namesdiff иdiff--check
+проверить на этих же конечныхбайтах. Общийрежим/BA/физическиеустройства открыты.
+
+28.10 04:00МСК: SOURCE_MAP01/02 ПРИНЯТА отдельно от функциональности.
+Свежая независимая07 (gpt-6.1-sol) — ACCEPTED_SOURCE_MAP_01_02_SCOPED, findings0,
+160raw/artifact/binding/GitPASS(149LFCRLF+11exact),9исправленныхпутей/11links,
+13callerfiles/85anchors21edges и relevant ordinary frontier0. Отчётexternal
+traceability-source-01-02-independent-acceptance-07.json SHA75298067…2d14/278570B,
+root лично сверилSHA/размер/verdict. Exactinverse07→bb3c→ebe→427d,
+57A-onlyrefs/25copies581190B и whole03 сохранены; candidateadad не изменён.
+Автор/принимающий не добавляли implementationaccepted/runtime/whole01/02/04/mode:
+unknown/test_ids=[]/обязательныеB остаются. Четыре finiteGit принимающегоexit0/absent,
+новыхсервисов/портов/копий0. Source04пока лишь boundedread-only26reuseplan, не картаготовности.
+
+Последняя formalпроверка currentadad: checkerexit1/23прежнихblockers без новыхошибок,
+03accepted/implemented/executed=true;01/04 runtimeevidence1, ноwhole/executionfalse.
+Receipt traceability-source-map07-scoped-a-current01.*;PID6860 иDBhelper26664 absent
+проверены. СтарыеFAILED/журналы не переписаны. Следующий обязательныйреальный UI шаг:
+новый01Bfix02/460 на томжеAPP4e79/QAe8b после явно разрешённого восстановления стенда.
+Разрешение на отвергнутыйproxyrestart по-прежнему не получено; обходов/повторов нет.
+
+28.10 03:55МСК: final06 d1e5a725…32bb приняла scopedAmetadata, но исходники потребовали
+9directpaths. Автор и независимый reviewer дочитали relevant ordinary frontierдо0:
+7new+2reuse,01+8/02+3. Plan07 8bfc4409…090a/proof07 e4eac4d9…c950 примененыминимально,
+9raw/Git/binding+13callerfiles/85anchors21edges. Новый frozen candidate adad0e49…fc6f,
+136787B/333artifacts/14evidence/2tests/1whole03ACC,IMP01=146/02=125,union160.
+Inverse7artifacts+11links→точныйbb3c; все57refs/2A-onlyEVD/unknown01/02/04/whole03/7must
+сохраненыliteral. Свежийgpt-6.1-sol /root/source_map_acceptance07 выполняетнезависимуюприёмку,
+решенияпока нет; source04пока толькоread-onlyplan. Product/QA/appbuild не менялись.
+
+ПослеостановкисвоегоAPI sqliteпрочитана mode=ro/query_only, PRAGMAquick_check=ok,
+исходныйowner и rawcurrent-db pointerсовпали; значенияпользовательскихполей не запрашивались
+и не выводились (SQLiteпроверилавнутреннююструктуручерезPRAGMA).
+Receipt externalstand-db-preserved28-01(.intent).json,PID26664exit0/connectionclosed,
+копий0,структурнаясохранностьневыдаётсязановыеappchecksилиполныйконтрольданных.
+
+28.10 03:52МСК: whileproxyblocked следующий доступный локальный пункт после Map07 —
+только read-only план прямых source-зависимостей04AB (сеть/повтор/coldowner snapshot/
+terminal freshGET) по fixedscope и уже принятому04A. ПланR12: найти отсутствующиепрямые
+источники→переиспользовать существующиеartifactrefs→подготовить минимальнуюкарту→свежаяприёмка.
+Сейчас изменений04candidate не разрешено; сначала закончить и заморозить Map07, дождаться
+fresh07. Обязательная04Bactual, privacy05/visual06/provider07 не подменяются исходниками.
+Это независимая от остановленного UI файловая работа, не повторный запуск стенда.
+
+28.10: продолжение после разрешения на восстановление proxy (ПОКА НЕ РАЗРЕШЕНО/НЕ ВЫПОЛНЕНО).
+Поскольку ownstand уже остановлен, одногоproxy недостаточно. Перед будущим стартом сверить
+owner/rawDBpointer, отсутствие новыхnamespaceлогов и свободные8010/4173/5560/5561/8000/8099.
+Использовать прежний source start-server.ps1 c явным существующим tails-api.db и Python312,
+новойметкой tails-api-resume28-01; он задаёт sqlite/mock SMS/payments и выключает внешние ключи.
+PWA — прежний start-preview.ps1 с новойметкой tails-preview-resume28-01. Свой Pixel_API35
+поднять только с прежними -no-window/-no-snapshot-load/-no-snapshot-save/-no-audio,
+регистрировать launcher/qemu/всехпозднихSDKchildren и PID/time/cwd/ports. Не использовать
+start-emulator.ps1 безявныхno-window/no-snapshot-load, его defaultargs отличаются от принятых.
+Затем именно подготовленный restart-owned-proxy-v3-reviewed-01.ps1(2664cabe…10a4), если
+Александр явно разрешит отвергнутое действие. Это план, не обход automaticreview и не новыйзапуск.
+После boot вновь отдельно записать исходныйtimezone и установитьUfaтольконаэмуляторе без UTCclockset,
+потом сверить installedAPK/binding/owner/currentQAe8b и environmentbefore/after. Новый FULL01B
+только cabinet-request-chat-fix02/460unused/newproducer25336; старыйFAILED0fix01 сохранить.
+
+28.10 03:38МСК: exact6 исправлены без расширения scope. Sourceplan06 da0ae609…497f,
+proof06 0dbd967f…9860:5new+configreuse, links01=6/02=4,6source+12callerfiles,
+74anchors/41edges. Затем добавлены ровно57уже существующихartifactrefs и2A-only runtimeEVD
+из принятого плана49d34aa4…dbfe; applicationf987ed4b…5fda. Tests0/ACC0/person0/newcopies0.
+Итоговый candidate bb3c8225…73f4/134737B:326artifacts/14evidence/2tests/1whole03ACC,
+IMP01=138/IMP02=122; unknown01/02/04 и test_ids01/04=[]/обязательныеB сохранены.
+Metadata inverse→ebe789f4…71ed, composite inverse→точный427d; все7must/active/baseline
+и прежняя whole03literal неизменны. Новый свежий gpt-6.1-sol /root/source_map_acceptance06
+сверяет sourceclosure иmetadata, решения пока нет. Candidateзаморожен.
+
+Actual checker наbb3c exit1: прежние23blockers без новых ошибок/расхождений;01/04 получают
+runtimeevidence1 каждый, ноaccepted/implemented/executed_completefalse,03true/true/true.
+PID28596 завершён и отсутствие проверено, stdout/process/exitreceipt сохранены отдельно.
+Это не общий GREEN. В docs/qa добавлено правило: прежде чем повторять замечания, сверять
+candidateSHA отчёта и последующиеproofs, не добавлять дубли ради новогоSHA.
+
+28.10 03:33МСК: новая source-приёмка05 (15939a33…2534) не приняла427d:
+прежние7+2 закрыты, но ещё6прямыхфайлов нужны для ordinary01/02 — SeatOptions/seatOptions
+только01 и workday/flood/features/config обеим.146mapped+6missing raw/Git/bindingPASS.
+Ограниченное исправление передано единственному писателюR12, плюс разрешены только
+57уже существующихmetadatarefs+2observed/runtime evidence для01A/04A по плану49d34aa4…dbfe.
+Test/acceptanceзаписи не добавляются: schema могла бы неверно засчитать толькоA за обе роли;
+обязательныеB, unknown реализации и test_ids=[] сохраняются.
+
+Свой стенд остановлен после отсутствующего разрешения на proxyrestart. Перед остановкой
+эмулятора восстановлены исходные GMT/auto_time_zone1, UTC не менялся (receipt02).
+Ранняя cleanup01 остановилась ДО мутаций из-за2ранее неучтённыхSDKchildren; они отдельно
+проверены и зарегистрированы. Cleanup02 выполнила timezone restore/emu kill/API/PWA stop,
+но консервативно остановилась на несовпадении личности PID24052; причина несовпадения
+не установлена, этот FAILED не переписан. Следующее чтение уже не обнаружило24052.
+Фраза «teardown caused» в intent03 — прежняя интерпретация root, не доказанная причина.
+Отдельная03проверка подтвердила launcher/servicePID отсутствуют, закрыла только остаточный
+зарегистрированный conhost39316 и проверила все13известныхPID absent/9портов свободны.
+ОбщийADB11276 сохранён; proxyrestart ни разу не повторялся. Доказательства/БД/worktree
+сохранены для продолжения, новых projectcopies0/удалённых0. PIDcleanup16944/11856 absent.
+Результат: externalowned-stand-stop28-03.json PASS. Перед завершением standby новых
+UIпроцессов нет; после будущего разрешения понадобится поднять свой стенд с новымиPID.
+
+Новая availability28-01 доостановки: adb видел только emulator5560, физических0;
+это не проверка провайдеров и не закрытие07. BAпо-прежнему отложен Александром.
+
+28.10 03:25+0300: source-map05 уже завершена: candidate427d48b2…1c1d/264artifacts,
+IMP01=132/IMP02=118, обаunknown/0tests/0ACC. Закрыты все7paths из review04
+(398bd987…ff26, который относился к прежнемуdd3b77…) плюс2прямыхPWAhelpers,
+9unique/8new/18links; proof05 a3131351…59a1. Ошибочное повторное поручение
+Map06 от root отменено: дубли не добавлялись, candidate не менялся. Новая независимая
+проверка именно427d передана свежемуgpt-6.1-sol /root/source_map_acceptance05.
+Формальная проверка текущего427d завершилась exit1: 23 честных незакрытых связи
+у остальных шести критериев; W1-E2E-03 accepted/implemented/executed=true, blockers0.
+PID2704 завершён и отсутствие проверено; итог режима не объявлен зелёным.
+
+Сохранены только необходимые25малыхroot-safe runtime/supportдоказательств01A/04A,
+581190bytes, регистрациядоmkdir и source/destSHA+sizeequal(scoped-a-runtime-copies01).
+Проектные копии/зависимости/сборки не размножались. Результаты01A/04A не означают
+whole01/04: обязательные обратные роли не закрыты. Proxy restart по-прежнему заблокирован
+автоматической проверкой; ответа Александра на отдельный вопрос пока нет.
+
+28.10 02:49МСК: новый FULL01B-cabinet-request-chat-fix01 Node28768 запущен23:38:25UTC,
+но завершился FAILED0/fetchfailed ДО standHealthy/browser/business. Proxy39228 ранее
+упал23:27:32 на appendFileSync EBUSY open tails-proxy-wire-v2.jsonl; какой процесс
+занял файл — не установлено. API37928/PWA24716 живы,8000/8099 свободны. QA e8b/source
+не причина; actualpackage/preexec приняты отдельно e8781a07…e803,tail74 actualfacts
+приняты29f9f3d6…b598. СтарыеV2/всеFAILED и принятые04A/post75 сохранены.
+
+Восстановление ТОЛЬКО своего proxy с тем же кодом и новым tails-proxy-wire-v3.jsonl
+подготовлено(reviewable externalrestart-owned-proxy-v3-reviewed-01.ps1), но запуск
+автоматически отклонён «blocked by policy», без причины подробнее. Никаких повторов/обходов
+не выполнялось. Александру задан отдельный asyncвопрос о восстановлении8000/8099;
+подтверждение пока не получено. СледующийB должен получить новыйID…fix02/460unused,
+старыйFAILED0 не перезаписывать. Остальные проверки пока только read-only/source/доказательства.
+
+Новый externalread-shared-wire-snapshot-01/extract-shared-wire-03 используют
+FileShare.ReadWrite|Delete, берут только полныеUTF8строки среза и LFextract. Probe01
+воспроизвёл deny-write старымчитателем, новыйчитатель разрешил append, пропустил ровно1байт
+незавершённогоUTF8хвоста и восстановил404original04Aстроки без изменениясодержимого/порядка.
+Это infrastructure-only, не новыеappPASS. FAILED0 получил честный0eventsextract и
+early-exitverification(PID28768absent/profile0), без выдуманного during-runchildren capture.
+
+28.10 02:34МСК, свежий подтверждённый результат: FULL04A-cabinet-pinned-fix01
+PASS29/8steps/404originalwire,23:13:25.208–23:22:43.680UTC,Node20324exit0,
+ride75/booking70/1160. Независимая приёмкаdedde587…f6cd +attestationc055c66f…49d3
+приняла только pairA;48immutableSHA/7PNG/rawreadinessOK1/owner70/onboard/outbox0,
+actualtestAPKb803/две точки/realTCPcut/ручнойfreshGET/finaldone/no duplicates.
+Дополнительный первичный Android eventbuffer дал4ownstarts; runtimebefore16048→cold16312
+сопоставлен со step-хронологией, am_proc_died не захвачен и не приписан. Непустой stderr
+с transient nullroot/Brokenpipe сохранён. Bothbefore/aftertimezoneguardsPASS Asia/auto0/UTC.
+Режим04AB/05/06/07 этим не закрыт; PWA phone в прежнем offlinefallback допустим в scope04A,
+запрет контактов доказан только для новой native readonly-карточки, не всего PWA.
+
+Затем own75 закрыт одним UIcomplete200/36wire/PNG,Node10872exit0/contexts+ports0;
+9capturedprotectedfp inclbooking70 unchanged/fulltargetexceptstatus, самостоятельная
+factприёмка10b80afd…fd34 scopedmaintenance. Не дополнительные29тестов. Tail74 после
+раннего409 снят одним ordinaryUIcancel200/32wire/PNG,Node23616exit0/resources0,
+booking69 unchanged/allprotected/fulltargetexceptstatus; sourceacceptedbd5a47a7,
+actualfactsприёмкавыполняется. Никаких новых SQLwrites/изменениядат/платежей.
+
+После всех этих UIexit применены принятые две QA-правки. Новый41rawQAaggregate
+e8bde9ec…7c8be, minimal4files56267bytes вqa-request-chat-01(2новыхbody/patch/manifest,
+S03override reused),sourceartifacta9c81d90…4b03;builder5c36b21d/producer25336aa4.
+OldQA410/734314/всеисторическиеproofs сохранены отдельно. Product4e79/e054/APKd838/PWAf8b
+прежние; inventorywrite/checkrequest-chat01 exit0/2530sourcefiles. Preexec нового
+W1-E2E-01-B-cabinet-request-chat-fix01 уже создан иenvironmentbeforePASS, самсценарий
+не запущен доactualpackage review. Futureamount460 не использована. Maps01/02 вe94d9c8e
+получили третий semanticreject2e8d81b0…9b1c: прежние33+9+2закрыты/127rawPASS,
+9новыхrequiredpaths(8общих+ChatSocket01),непринятые карты остаютсяunknown; runtime не ретагируется.
+
+28.10 02:10МСК, более свежий срез: FULL01B-cabinet-rating-fix01 FAILED11/237wire,
+Node19920exit1/ownidentity+profiles+ports0; новая бронь69/рейс74/450. Точное первое сообщение
+было ниже видимой части native inbox. Readonly probe02 нашёл его одной безопасной прокруткой,
+box[281,1171,773,1391];2PNG/2XML/rowtaps0/business0. Probe01 остановился ДО UI на сравнении
+обычного объекта с null-prototype SQLite-row;02 только нормализовал форму чтения, старый отказ
+сохранён. One-line textbranch A.tapText→A.scrollTap принят отдельно(code1833d64c…0423),
+но QA410 ещё не менялся. TimePicker patch также принят(code74fe1a41…7b3c), не применён.
+
+Отдельный cleanup69/74 на принятом source87ef7ab7…6b8f выполнялся Node28020:
+отмена69 обычным PWA passenger3 прошла200,69cancelled/seat2→3;complete74 дал409.
+Итог helperFAILED/47wire/1PNG, v2+v3maintenance identity/profile/ports0; повтор не выполнялся.
+Readonly причина: после возобновления уэмулятораGMT/auto_time_zone1, опубликованный74
+получил depart2026-10-28 04:04UTC при фактическом23:03UTC. Serverguard30min корректен.
+23:07:43UTC восстановлены timezoneAsia/Yekaterinburg/auto_time_zone0,UTC не менялся
+(device delta−host delta−84ms,clockset0); исходныеGMT/auto1 записаны для финального возврата.
+Существующий74/дата не правились: готовится отдельный ordinaryUI tail74cancel, все bookings
+включаяcancelled69/прочиеbusinessrows/fullrideexceptstatus защищаются. Новый namespace,
+свежаяcodeприёмка до исполнения, прежнийFAILED сохраняется. Guard параметров времени перед
+и после будущихrun добавлен внешне(readonly), должен проверяться вместе с новым QA-пакетом.
+
+Карты01/02: первая semanticприёмка2172d022…5815 отклонила33пробела; они исправлены,
+втораяc3709d85…6e51 подтвердилаCLOSED33 и116raw/GitPASS, но нашла9новыхпрямыхdependencies.
+Александру сообщён второй отказ. R12 исправляет их +2подтверждённыхcallee bookingchat
+ws_guard/antifraud (antifraud такжеобе публикации/заявка); карты остаютсяunknown/0wholeACC.
+Нового PASS01B/02A и общего «готово» нет. FutureQA request+chat builder/producer приняты
+только по коду, ещё не запускались; новые полные прогоны начнутся после tail74изоляции.
+
+28.10.2026, возобновление: HEAD4e79 и шесть ожидаемых незакоммиченных QA/docs-файлов
+сохранены. Первичные identities API37928/PWA24716/proxy39228/emulator24052+23040 сверены;
+стенд продолжает использовать root, общие adb и чужие процессы не трогались. Новый полный
+02A-cabinet-pinned-fix01 начат 27.10 22:28:03 UTC (28.10 01:28 МСК), Node34164,
+synthetic amount440, pre-execution source/binding записаны до запуска, продукт4e79/e054
+и QA410 прежние. Итог ещё не подтверждён. Отдельный helper изоляции пяти старых оценок
+готовится только вне проекта; UI/ADB остаются у root, source будет принят независимо до запуска.
+
+02A завершён FAILED5/2стадии, exit1: после закрытия клавиатуры TimePicker сменил геометрию,
+а помощник нажал прежний центр ОК y1168; окно осталось открытым. Actual после отказа XML:
+android:id/button1 bounds[727,1416,903,1565], enabled=true; PNG подтверждает диалог.
+129 original wire сохранены, собственные runner/browser/порты проверены0. Единственная
+бизнес-запись — создание synthetic ride73/driver1/440; заявки и отклика нет. Сначала
+ordinaryUI изоляция оценок и отдельно закрытие пустого73 на прежнем QA410; затем узкое
+requestDateTime: ждать стабильный actual positive button без клавиатуры, сверять часы/минуты,
+после одного нажатия требовать закрытия диалога. Старый отказ не переписывать; новая QA-привязка
+и отдельный полный02A с новым ID/неиспользованной суммой, без изменения продукта/часов/guards.
+
+28.10 01:41МСК: изоляция пяти driver4-оценок37/41/46/54/68 принята независимо
+(actual review59ba077e…417f):230 original wire/6businessPOST200/6PNG, прежние25оценок
+и passenger68→driver5stars сохранены,9защищённых отпечатков unchanged; ride72done,
+driver4unrated0/active0/450unused. Это обслуживание, не PASS01B. Отдельно пустой
+ownride73/driver1/440 закрыт обычным PWA UI:36wire/1businessPOST200/archivePNG,
+10отпечатков unchanged/fulltargetexceptstatus; Node39036exit0/contexts+ports0,
+actualreview46060c78…cc493 принял ровно это. Новый FULL01B-cabinet-rating-fix01
+начат27.10 22:41:45UTC (28.10 01:41МСК),Node19920/amount450,preexec доexecution,
+source4e79/e054/QA410 прежние. Продукт и QA заморожены до его конца. Новый результат
+не получен; oldFAILED15 иFAILED02A5 сохранены. Source-map01/02 пополнен10productpaths
+kindimplementation+reuse,но semanticreview выполняется,implementationunknown/wholeACC0.
+
 ## Холодный запуск без сети — продолжение 25.10.2026
 
 Проверка исходников выявила пробел04: обе Android-роли после гибели процесса открывают сетевые
@@ -224,6 +701,79 @@ v2/v3 identity/ports0. Inventory2530/check0, scanner09 на11 файлах:2528 
 прочих0; перед commit выполняется финальный scan после новых3 docs. Дальше новый честныйHEAD/binding,
 release и сначала03B до повтора остальных обязательных пар. Прежние0178 UI относятся1302.
 Весь03/04–07 пока не принят;
+26.10 МСК,21:16UTC25.10: новый appHEAD4e79f295/e054f292(1305) зафиксирован локально.
+PWA08 build GREEN; final17 debug/androidTest+unsignedRelease/R8/lintVital GREEN5м35с,
+source start=end. Binding cabinet-final01: debug d838f2d2…e492c/test b80303dd…764f,
+release unsigned6b39e9c9…a16f1d/PWAf8b07ecb…4932d. Установка debug/test подтверждена
+actual device SHA/Pixel_API35, до новых публикаций active0/unused1100…1181.
+Final15/16 — ошибки только CLI, сохранены failed; новая норма в `qa.md`, ключи не читались.
+Live03B-cabinet-fix01 на4e79: первые отмены/отказ прошли; главное прежнее RED30 теперь
+пройдено настоящим UI: после удаления строки/возврата кнопка исправления доступна,
+посадка сохраняется до ответа, отказ пассажира сохраняет onboard/исходный срок,
+повторный запрос недоступен; затем бронь штатно завершена. Сейчас случай consent;
+полного PASS03B/03AB ещё нет. Ни старые0178 UI, ни component724 не ретегируются новомуRUN.
+Позже этот03B-cabinet-fix01 завершён RED40 на helper confirm42: после10-го swipe кнопка уже
+видна в FAIL PNG, но loop не проверяет последний кадр. QA6 подтвердил бездействий freshXML,
+name/actiondy387<700, одна pending42; приложение менять не понадобилось. Своя42 отменена
+через /booking/42 PWA,45–49 завершеныUI;100originalwire/6POST200/6PNG/otherfingerprints0diff,
+всё это независимо принято только как cleanup, не PASS03B. Helper теперь проверяет0…24
+и делает swipe лишь<24;700/clip/name/одно действие и одно optional confirmation сохранены.
+Pure10 behaviorcases и freshcode-reviewc6741029…6492f приняты. Новый exactsource artifact
+qa-driver-card-navigation-01:41files,1override,44411bytes,baseline4e79/harness19058bdc…c5e7c,
+31exact+9EOL+override восстановлены независимо; before-folderregistry выполнен.
+Повтор W1-E2E-03-B-cabinet-nav-fix01 начат21:45:37UTC, PID2800/sourcee054/harness19058,
+данные1200…1206 заранее проверены unused/active0. App/binding/APK неизменны; это новый fullrun,
+не продолжение/переименование RED40. Будущие01A420/02A440/02B441 выбраны по readonlyproof
+для совместимости frozenQA с форматированием тысяч; прочие маркеры остаются плановыми.
+В22:25:08UTC этот повтор завершился FAILED60: отмены, отказ/согласие на исправление посадки,
+последнее место прошли; перед «Я выехал» помощник отверг закреплённую кнопку ниже.88.
+Readonly preflight50: box[689,2139,885,2194], экран1080×2340, enabledtrue, предки неscrollable,
+actions/swipes0, confirmed50/ride56/1206 неизменны. Только2callsite s03 получили maxBottom.96;
+общая геометрия/число действий/продукт не менялись. ExactQA qa-pinned-actions-01/41files/
+2overrides/harness410b4221…a46fbf; прежний override переиспользован без копии тела.
+План: pure/code приёмка → отдельный actual tail50 diagnostic (не полный03) → изоляция своих
+7fixtures → новый full03B/03A и остальные пары с tag cabinet-pinned-fix01/новым producer.
+Failed60/1375 originalwire/PID+children/profile/ports0 сохранены; полный03 ещё не принят.
+В22:38:16UTC отдельный tail50-pinned01 прошёл10checks/3steps: реальные departure/arrival,
+серверный no-show deadline1792967836501, POST после срока, одна отмена/одно возвращённое место,
+ровно2driver-status+1no-show200. Original65wire/Node14288exit0/ownprofile+ports0; не full03.
+Свои50–56 затем закрыты7UIcompletion/7PNG/72wire, fingerprint защищённых4групп и9selectedполей
+кромеstatus неизменны. HelperNode12424exit0, v2/v3maintenanceidentity/profile/ports0.
+Readonly readiness после обслуживания: ownactive0 у обоих водителей,22будущих маркера unused.
+Новый FULL W1-E2E-03-B-cabinet-pinned-fix01 начат22:39:57UTC25.10, Node16996,
+QA410/source1305e054/HEAD4e79/bindingcabinet01 неизменны,данные1300…1306(offset670).
+Producer7343148a…d350e5 записал exactQAmetadata ДО запуска; ни failed60, ни diagnostic10
+не превращаются вPASSновогоfullrun. Дальше03A1110…16 и остальные пары по плану/amendment02.
+В23:25:15UTC FULL03B-cabinet-pinned-fix01 завершён GREEN66/0failed/24steps,
+50distinct assertion labels (не66уникальныхтестов),7публикаций57…63/8намеренныхброней51…58.
+Actual no-show deadline1792970650580, настоящее ожидание и один POST после срока;
+1546originalwire,app1305e054/HEAD4e79/QA410/installeddebugd838/PWAf8b start=end,
+Node16996exit0, v2/v3last-seat identity/profile/ports0. Fresh B runtime review выполняется.
+Свои57…63 закрыты7UIactions/7PNG/72wire,4группыfingerprint+9selectedridefields кромеstatus
+неизменны; Node8160exit0/contextsclosed/ports0. Post03B readiness:обаownactive0,15оставшихся
+synthetic amountsunused. Новый FULL03A-cabinet-pinned-fix01 начат23:26:29UTC Node8772,
+offset500/1110…1116,тотжеtarget+QA иновыйproducerдоexecution;03ABещёнепринят.
+FreshB принят gpt6.1:review98ca28ba…8b845/attestation27hash7f083c02…e4f86;
+12externalreceipts454851bytes сохраненыonecopyroot-safe,source/destSHA0diff; candidate04
+получил толькоexecutedpassedB/partialscope, implementationunknown/0wholeacceptances сохранены.
+В23:56:09UTC FULL03A прошёл67checks/24steps/51distinctlabels/0failed,7rides64…70/
+8deliberatebookings59…66; actualearlyNoShowdisabled/realwait504345ms/deadline1792972560000,
+одинNoShowPOSTпослесрока.1093originalwire; product4e79/e054/QA410/APKd838/PWAf8b start=end,
+Node8772exit0/v2+v3last-seat identity/profile/ports0. Aиобщая03ABfreshприёмкавыполняются.
+Свои64…70 затем закрыты7UIactions/7PNG/72wire/fingerprints0diff,Node36832exit0;
+этоmaintenance, не ещё7тестов. Новый FULL01A-cabinet-pinned-fix01 начат23:58:06UTC
+Node36544/PRICE_OFFSET-90=420,preexecproducerдоexecution,target+QAтотже.
+26.10,00:13UTC: новый FULL01B-cabinet-pinned-fix01 сохранён FAILED15: чат2/restart/onboard/
+done/passenger5stars+receipt прошли; driverRatingguard отказал ДОнажатия, потому что прежние
+own03done остались без оценки.341originalwire/Node3900exit1/profile+ports0/source4e79e054/QA410
+start=end сохранены. Продукт и guard не менять: native ratingcard не показывает ID/date/price,
+неоднозначную строку нельзя выбирать по имени. План изоляции:
+1. Readonly собственныеunratedIDs+source provenance иactualXML/PNG, UI временнотолькоQA6.
+2. Послеhandback отдельноеboundedordinaryPWAобслуживание точных доказанных synthetic doneIDs
+   черезdata-rate-card=bookingID: сначала4звезды+confirm, затем закрыть толькоfailedride72,
+   безSQLwrites/перезаписи старыхоценок/правки часов;защититьвсе прочиеданныеfingerprints.
+3. Freshcode+factприёмкаsetup,zero-own-unrated/active0,новыйuniqueamount иполный01Bповтор.
+   После03перед02B сохранятьэтоусловие;setupнеPASS01B,старыйFAILED15непереписывать.
 ни новые01/02, ни отдельный03A не заменяют полный состав. Свои завершённые Node/browser
 проверены по PID+времени+команде; чужой1804 исключён из старой ошибочной ancestry, не завершался.
 
@@ -266,6 +816,13 @@ release и сначала03B до повтора остальных обязат
 Напоминание оценить отмену в пути получает только пассажир, с прежними сроками/паузой и без повторов.
 
 Проверки на 25.10.2026, 00:15 МСК: PWA check/tsc/build зелёные, включая ещё 7 незакоммиченных хвостов Claude (имя в чате, формы звёзд, очистка черновиков). Android: после первого расширенного прогона 661 случай/2 отказа исправлен регресс загрузки паспорта, повтор затронутых тестов и всех сторожей — 240/240; assembleDebug и компиляция androidTest зелёные. Первый полный PostgreSQL: 6710 PASS/6 FAIL/13 SKIP; причины шести — устаревшие тестовые ожидания, исправлены, адресный повтор на чистой БД — 15/15. Финальный полный PostgreSQL с покрытием выполняется на новой БД. Живые E2E пока красные: исправлены настройка локального входа, прокрутка в тестовом помощнике и пропущенное имя пассажира в PWA-чате; полный повтор предстоит. Подробности и настоящие коды выхода сохранены в `%LOCALAPPDATA%/yuldash/rideshare-claude-tails-20261024/`, не являются полной приёмкой.
+
+28.10 — ещё два черновика для той же отложенной проверки носителем:
+«Номер и точная геолокация скрыты.» → «Номер һәм теүәл геолокация йәшерелгән.»;
+«Место встречи скрыто» → «Осрашыу урыны йәшерелгән».
+В новом контексте также повторно использована прежняя пара «Номер скрыт» →
+«Номер йәшерелгән» (ранее YuldashApp.kt:2347); её подтверждение здесь не утверждаем.
+Они технически добавлены на двух языках; подтверждение Александра не получено.
 
 Переводы на проверку (черновики модели): «Йөрөтөүсе ултырыу билдәһен төҙәтергә һорай»,
 «Машинаға әле ултырмаған булһаң ғына раҫла.», «Мин әле ултырманым», «Мин машиналамын»,
