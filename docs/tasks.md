@@ -1,4 +1,208 @@
 <!-- RIDESHARE-CLAUDE-TAILS-20261024 -->
+28.10 18:23 UTC: f140 sealed graph действительно проверен ROOT: manifest
+`rideshare-candidate-05-evidence-merged03.json` SHA `0d74d2d9…`, actual checker
+`candidate05-merged03-check01` exit1/blocked, ровно7 ожидаемых blocker только06/07.
+Каждый01–05 accepted=true, SCHEMA/raw/dependency ошибок0. Формат03V3/04V2/05V2
+нормализован автором без изменения прежних deps/unions/runtime; config02 `d3bf9563…`.
+Сборщик05 `1ab5553e…` принят33 `e4285bf1…`: scope-object сериализуется без потери
+содержания в JSON-строку; 7-я дробная цифра времени убрана только в выходной копии,
+исходные attestation неизменны. Старые invalid merged02/SCHEMA5 сохранены.
+Actual checker сохранён один раз в traceability-current-05/candidate05-merged03-check01.json.
+Перед следующей правкой сохранены149 исходных файлов/старых PWA assets,3757519B,
+в f140-before-narrow-layout01; регистрация в TAILS/f140-before-narrow-layout-preservation-plan01.json.
+Новая отдельная UI-правка применена: ui.css `894c19b6…` точно соответствует patch
+`a902fc4a…` и независимой35 `4d16d65e…`: звёзды переносятся, narrow cabinet switch
+получает широкую подпись; действия/48px/тексты прежние. QA06 `4362a488…`:
+локальный max24/single tap, failure XML+PNG с rethrow исходной ошибки, физические
+настройки возвращаются до app/account prefs. Приёмка34 `e30b18ca…`, syntax зелёный.
+Следующие шаги: локальный commit → full PWA check/build + Android assembleDebug
+и новая точная build-binding/QA41 → реальная техническая06+независимый осмотр кадров.
+Прежние01–05 остаются доказательствами f140, не автоматическим PASS новой версии.
+BA и физические устройства/провайдеры07 открыты; visual109/105 и110/106 оставлены
+только для повторной06, ещё не retired. Собственные серверы нужны следующему этапу.
+
+28.10 17:48 UTC: formal04 A/B принят32: 29/28 условий, по8 шагов,
+381+444 исходных строк; review `0c482fc6…`, attestation `8e8fe4b4…`,
+220 reviewed dependencies. Новые05 A/B реально прошли50/49 условий, по8 шагов,
+530+544 строки; собственные107/103 и108/104. Независимая парная05 ещё оформляется.
+19 закрытых входов A сохранены один раз с проверкой rawSHA/bytes.
+Техническая06 `W1-E2E-06-receipt-nav-fix01` FAILED: Android ru-light снят,
+PWA driver-cabinet на320px/xlarge дал scrollWidth394. Затем cleanup не дошёл
+до Android «Настройки»; физическая density440/font1 восстановлены и проверены.
+Матрица содержит только10 снятых состояний, не68; ошибка не замаскирована.
+Observer06 завершён stop-file/exit0, последние exact profiles/processes/Listen2=0;
+157 исходных строк журнала заморожены, Ufa/реальный UTC после прогона проверены.
+Две отдельные visual fixtures109/105 и110/106 созданы helper `0b13ab55…`:
+4 INSERT, прежние ride/booking hashes совпали. Refresh ещё не выполнялся.
+План продолжения: восстановить app preferences с отдельной проверкой → найти
+точную причину PWA overflow и минимально исправить → зелёные PWA проверки/build
+и независимая приёмка → повторить техническую06 с новыми привязками, сохранив FAILED.
+Предыдущие01–05 относятся к f140, последующие изменения им не приписывать.
+BA подтверждение Александром и реальные устройства/провайдеры07 остаются открыты.
+
+28.10 16:31 UTC: действующий formal03 — ТОЛЬКО V2: review-v2 `17172a05…`,
+attestation-v2 `b4c0e396…`, artifacts-v2 `e89961c3…`;162 dependency ART/8999114B,
+union `b9d1825c…`. V1 неизменён, `BLOCKED_ARTIFACT_KIND` (`format-block-v1.json`):
+два необязательных исторических kind=acceptance нельзя включать в текущие revieweddeps.
+В V2 они только historical notes, kind не меняли;35IMP+7evidence+58execution сохранены.
+Свежий33 `71e6aa63…` подтвердил совместимость01/02V2/03V2; новые04/05 этим не приняты.
+Будущий сборщик merge03 `79dac79a…` исправил case-sensitive запрет Mobile/.git,
+проверяет исходные и canonical компоненты до content-read и реальные globals функций.
+Root прочитал целиком;21 mock/AST и свежий33 прошли, реальные forbidden-файлы не открывались.
+Сборщик/config/итоговый manifest ещё не выполнялись/не создавались: нужны actual04/05.
+04A реальноPASSED29,14924exit0/381 originalwire;105/101 завершена без дублей/платежей.
+После этого ownMAIN105 закрыт UI отдельным helper03:1 complete200/1PNG/39wire,
+11 наборов и всё кроме targetstatus совпали, context/observer закрыты/exitverified0.
+04B запущен16:23:44.536804UTC,12872/961, реальные preflight/producer/Ufa/launchintent
+сохранены до старта. Новые05/техническая68-frame06 не запускались; seed visual отсутствует.
+
+28.10 16:13 UTC: оба варианта03 реально пройдены на f140/1307fb7/QA41b26:
+A67/B66 условий, по24 шага;1086+1529=2615 исходных строк журнала. B завершён
+15:52:44.204UTC, runner21928 exit0, result SHA2a2a1fee…;98–104/93–100,
+вторая намеренная бронь99. Последнее место и согласие/отказ прошли; реальная
+неявка после срока, без перевода часов. Свежее scoped B-review32 `57b7ebd4…`;
+формальная общая приёмка03 ещё собирается. Сохранены16+19+1 закрытых внешних
+входов в runtime-03ab-receipt-final01/inputs, source=destination проверены.
+Ограничения B: отдельного prelaunch-intent не было; есть реальный producer02/version
+до старта. Короткий extra-browser ROOT не успел захватить: сохранены16 исходных
+QA lifecycle-записей/8 процессов, нынешняя проверка подтверждает их завершение,
+но родитель и исторические порты в старом журнале отсутствуют. Ничего не реконструировано.
+Семь B-рейсов98–104 завершены обычным UI:7 complete200/7 PNG/67 строк;
+11 наборов и все поля рейсов кроме status совпали, context закрыт, observer03 stop-file/live0.
+ROOT просмотрел7 архивных PNG; эта подготовка отдельна от PASS03.
+Три старых driver-journey случая повторены final25:3 PASS,0 FAIL/ERROR/SKIP,
+48с/1 XML21002B; source1307/QA41 и debug/testAPK/PWA до=после. Старый полный08
+4595PASS+2FAIL сохранён без переназначения; нынешний полный4597 не повторяли.
+Два реально записанных Listen2 порта58660/58614 проверены свободными, старых JVM identity0.
+04A запущен16:08:32.890501UTC,14924/маркер960; отдельный preflight/producer02/
+Ufa before/launchintent сохранены до исполнения.04B/новые05/формальная68-frame06 ещё не запущены,
+visual-consent fixtures ещё не созданы. BA носителем и physical07 открыты.
+
+28.10 15:13 UTC: завершение семи собственных тестовых рейсов91–97 прошло через UI
+помощником cleanup-post03-a-receipt04: actual driver1, семь отдельных complete200,
+семь архивных PNG (ROOT просмотрел все),68 исходных строк журнала.11 защищённых
+наборов совпали; у целевых рейсов менялся только status. Браузер закрыт штатно,
+observer03 завершился stop-file/live0; обе проверки выхода сохранены.
+V3 также сохранён как FAILED: чтение тела /me упало за8мс,22 строки журнала,
+ни одного завершения рейса;11 наборов и семь полных рейсов unchanged. Это не
+доказанная причина старого зависания. Новый V4 source принят32 `4aceb7fe…`;
+независимая actual-приёмка завершающей подготовки принята32 `70a2bd64…`.
+Исходный профиль/SW сохранён.
+03B запущен15:08:52.976UTC, PID21928, семь ценовых маркеров930–936 свободны,
+активных рейсов до запуска0. Одна неоценённая бронь88 ожидаема после03A и не блокирует03B;
+оценки ради прохождения не добавлялись. Product f140/1307fb7 и QA41b26 frozen.
+
+28.10 14:48UTC: actual03A passed67/24steps,7rides91–97/8намеренныхброней85–92,
+1086originalwire. No-showdeadline13:52:00, actualPOST13:52:05.512 (+5512ms), realwait503502ms;
+actualA-review32 d0352483 принят только какA evidence, не whole03. Bещёнезапускался.
+Отдельныйcleanup03V2 завис послеstartup; после точнойсверкиPID/creation/cmd ROOT
+в14:30:03 остановил только Chrome29800 (обычноезакрытиеокнанедоступно). Node24864
+самexit1; primaryFAILED с actualUI/meundefined!=1,completed0; observer31592exit0reason
+timeout, это НЕуспешнаяуборка. Точныйawaitпока неустановлен. Frozenpartial diagnostic116wire
+и abort-intent/result сохранены. Постпроверка14:41:43:11FP иполные7targetrows неизменны,
+businesswrites0; PID/профилиhelper/observerзавершены.03A67PASSнеснят/непереназначен.
+Rootnumeric-resource-supplement01 проверил11закрытыхcaptures:числовыхListen2нет,
+старыхживыхidentity0/ownprofiles0; этонынешнеедополнение, нестарыйtimestamp. Старыеv2/v3
+readonlyотчётынепереписаны; их строковыйListenguard имеетограничение. Консольныйnestedarray
+Count1 не число портов: явное flatten+Measure дало0, реальные case JSON arrays пустые.
+АвторR12 готовит толькоsourceV3 сphase/budgets иновымobserver02, исходныйпрофиль/SW
+неочищать. Внешнийsource-lock RIDESHARE-POST03-V3-SOURCE-R12-20261028 активен;
+снятьтолькоего послеfreeze. Cleanup04/05sources01 frozen, source-review31 не завершён
+из-за selectedmodelcapacity; неисполнятьдо независимойпроверки/учётаawaitbounds.
+
+28.10 13:49UTC: formalordinary02A/B принят reviewer31; актуальные ROOT review-v2d6056df9,
+attestation-v20405f9ce/artifacts-v20ac58635. Старыеv1 сохранены (оформление literalbackslash-n
+исправлено только новымv2). Union249ART=125impl+61source+63execution; A20/7 иB21/7,
+23PNG/6BXML лично,694originalwire. Restart черезforce-stop/launch/restoredUI, AndroidPID
+до/после не записаны — это ограничение не скрыто. Initialdraft05 неизменён.
+Stage01 evidence41544b79 создан отдельно (339ART/2TEST/1ACC только01); настоящий
+checker candidate05-stage01-check01 exit1:01accepted=true, только23ожидаемыхblockers
+02–07. Primary/process byte-preserved с регистрацией, никакихschema/hash/targetошибок.
+03A: отказ пассажира сохранил защиту и запретил повторныйзапрос; согласие отдельно
+снялоотметку; lastseat защитилзанятоеместо и позволилосвобождённое. Ждётнастоящий
+no-show deadline; контроль disabled до срока подтверждён. Часы/даты не переписывались.
+Позднийv3capture realdeadline01 созданприживом25208.03ещёНЕPASSдо7типовA+B.
+Productiondiff двухфайлов f140 сохранён дляпоказа: receipt-navigation-contact-hints-f140.diff,
+7664B, source-registration до создания. Код/HEADне менялись.
+
+28.10 13:26UTC: новые02A/B passed20/21условий и по7шагов, own89/83/950 и90/84/951.
+Frozen320+374=694originalwire; Ufa/UTC before+after, v2+latev3 ресурсы0 наобеихпарах.
+После зарегистрированного сохранения24 закрытых внешних входов356888B в ROOT02inputs
+reviewer31 завершает freshwhole02; старыеPASSнепереназначены,02поканепринят.
+Новый03A e2e-03-a-receipt-nav-fix01 PID25208 создан13:23:11.534456UTC;
+preflight7prices910..916/active0/unrated0, producer02/newbinding/Ufa before зелёные,
+начальныйv2capture создан. Fresh reviewer32 сверил буквальныйbaseline03: нужны actual
+7типовA+B; foreign/stale/expiry/races — supporting source/commonproof, не молчаливое
+расширение обязательного состава. Его source-preparation6d1e0ff1 сохранён;03непринят.
+Обязательное решение Александра неизменно: до согласия пассажира undo не снимает
+onboard-защиту; отказ пассажира сохраняет её. Даты/старыеDBстроки/часы не переписываются.
+
+28.10 13:15UTC: независимая ordinary01A/B приёмка31 принята безP0/P1/P2:37PNG
+(14A+23B),6BXML;146implementation+61source+75execution=282 рассмотренныхART.
+Новые ROOT formal review0320bbad/attestation73db4b66/artifacts33ee9b82 сохранены
+в traceability-current-05/runtime-01ab-receipt-final01. Initialdraft05f68 неизменён;
+отдельный evidence manifest и его machinegate — после остальных локальных пар.
+Новый02A прошёл20условий/7шагов:own89/book83/request13, response10 подтверждён
+точным frozen POST/responses/10/accept200, а не полем result. Wire320/Ufa before+after,
+начальныйv2+позднийv3 ресурсы0. Новый02B e2e-02-b-receipt-nav-fix01 PID32832
+создан13:07:11.241438UTC, price951, preflight/producer02/Ufa before зелёные;
+начальныйcapture при живомпроцессе записан13:09, driver-offerphase продолжается.
+Reviewer31 готовит whole02, свежий reviewer32 — только source-preparation03;
+никакогоactual03/новойприёмки02–07 ещё нет. Cleanup03V2 root прочитал через fullV1
+и все7 exactdelta, observer41a5 прочитан полностью; доactual03 и ROOTadoption не запускать.
+
+28.10 12:59UTC: новые01A/B прошли19/17 условий и по14шагов на f140/newbinding/QAb26.
+A own87/book81/880:12:31:08.621→12:36:17.492,367wire; B own88/book82/890:
+12:38:39.886→12:52:02.246,449wire. Точные времена — в immutable result/process; старые01
+не переназначены. У обоих Ufa/UTC before+after и ранние v2 ресурсы0; уB поздний v3
+finalclients01 реально снят и проверен0. УA поздний capture опоздал и не создан;
+это ограничение сохранено, ранний capture/ctx.close/профили0 есть. Broken pipe SDK
+в stderr сохранён, actual exit0. Независимый reviewer31 готовит новую полную01A/B приёмку.
+Для ROOT-relative ART сохранены ровно34 внешних закрытых входа801542B с регистрацией
+до копирования и source=destination SHA: traceability-current-05/runtime-01ab-receipt-final01/inputs.
+Новые02A: preflight price950/active0/unrated0, producer02 и Ufa before зелёные;
+runner e2e-02-a-receipt-nav-fix01 PID14288 старт12:56:08.533331UTC, ранний v2 записан.
+Будущие03 запускать runnernames e2e-03-a/b-receipt-nav-fix01 (обязательный pin helper).
+Cleanup03 V1 не исполнялся: независимый review нашёл ложную классификацию обычных
+POST и истёкшую гостевую сессию. Новый sealed V2 3d034ce0 принят только как source
+review30 e72c1c08; observer41a5 неизменён. До actual03PASS/helper ROOT adoption
+и проверки реальных IDs не запускать. Runtime names cleanup-post03-a/b-receipt02,
+observer observe-post03-a/b-receipt01; собственную children.json создаёт сам helper.
+
+28.10 12:33UTC: hints04-02 завершён exit0,12:13:12.691–12:23:05.699UTC;8PNG/8XML,
+4 разных состояния RU/BA×light/dark normalfont. ROOT и независимый reviewer31 лично
+проверили все8 снимков; fullcard bounds inside ownscrollviewport, BAmeeting по1 обычной
+корректировке прокрутки. Review c076a965 принят только для done76, не formal06/whole05
+и не одобрение перевода носителем. Frozen142wire:124GET+16mapWS+2POST/me/update,
+других записей нет;10FP и полный набор пользователей совпали, ru/system/normal восстановлены.
+12 старых синтетических оценок поставлены обычным PWA UI: source42cda/reviewa250,
+actual7008exit0/278wire/12ratingPOST200/newrows39–50; прежние оценки и11 защищённых
+наборов данных сохранены, wholeDBinvariance не заявлена. Observer25896 заранее увидел
+оба Chrome до возврата openProfile; остановлен через свойstop, свои профили/порты0.
+Runtime-review30 b49064f2 принят; это отдельная подготовка, не PASS01–06.
+Candidate05 f68c6a9a создан отдельным draft на f140:208ART/5staticEVD/6unknownIMP,
+0tests/ACC; old04e841 неизменён. Actual checker01 exit1:6unknownIMP+7×3 incomplete,
+без ошибок schema/SHA/target. Primary и processproof сохранены в traceability-current-05.
+Producer01 отказал до output из-за односторонней нормализации Windows-пути; immutable02
+6a850698 исправляет одну строку, source-review31 a9855791 принят, actual01Apreexec exit0.
+Передwhole01A:22 неиспользованныхmarker/active0/unrated0, UfaTZ/UTC сверены. PID3160
+запущен12:31:08.260603UTC, price880, QAb26/newbinding; проверка ещё идёт.
+
+28.10 12:07UTC: локальный commit f140371b сохранён без push/main/deploy. Final24 зелёный:
+debug/test/release без подписи, 6м18с; свежая PWA tsc+vite зелёная. Binding receipt-final01
+ceb213da связывает source1307/fb7c и новый debug700042d0; оба APK установлены и сверены.
+Native повторный вход77 прошёл два реальных receipt GET и два открытия; independent review30
+711f7de3 принят только для этой регрессии. 756 unit PASS приняты отдельно d8f130a1.
+Hints03: FAILED после6 кадров из-за неучтённого штатного POST /me/update при смене языка;
+93 исходные строки журнала сохранены, исходные настройки ru/system/normal восстановлены,
+10FP поездок совпали, свои конечные процессы завершены. Старые hints02/03 не переписываем.
+План: (1) исправить только внешнюю классификацию language-save и проверить4профиля;
+(2) отдельно поставить12 UI-оценок прежним собственным синтетическим броням, сохранив
+все прежние оценки и данные поездок/денег; source-review a250c576 условно принят при
+внешнем ROOT-наблюдении Chromium на ранний отказ openProfile; (3) новые whole01–05
+на f140/newbinding; (4) техническая06 и независимая приёмка. BA подтверждение носителем
+отложено Александром; физические07 остаются открытыми. Это не «готово» всего режима.
+
 28.10 10:40UTC: точная V5 пара завершена. Baseline dev21:8 тестов/4PASS/4FAIL;
 после единственного wrapperfix7df dev22:8PASS/0FAIL/ERROR/SKIP,2м39с.
 В обеих версиях одни и те же два файла тестов8b19/7b08; original callback удерживается

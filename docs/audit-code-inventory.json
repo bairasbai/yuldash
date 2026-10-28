@@ -13621,8 +13621,8 @@
       "path": "tools/rideshare_e2e/s06.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "7f70753bc8105c127897249bf9e9be9b5efdfba516a8332164597762e26cdbf0",
-      "lines": 481
+      "sha256": "4362a488703e98479c970cbcfcc773b217a2fb5bf6d27d41f4e1cd1f84587547",
+      "lines": 490
     },
     {
       "path": "tools/rideshare_e2e/stand-common.ps1",
@@ -16323,8 +16323,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "47486d9767f9f4e2d6c2df50d5a1390fb9733cb8ebbbb7b214a50c4dcd7b4eff",
-      "lines": 20874
+      "sha256": "3723a1d0e42e53603120c5564a65befd8f6e08b506ebe908f936c6c6904223a3",
+      "lines": 20888
     },
     {
       "path": "webapp/src/uiPrefs.ts",

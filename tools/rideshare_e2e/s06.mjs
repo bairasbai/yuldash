@@ -117,7 +117,15 @@ async function androidHome() {
 }
 async function androidSettings() {
   await androidHome(); await A.tapText(nav.profile); await sleep(400);
-  await A.scrollTap(/^(Настройки|Көйләүҙәр)$/); await A.scrollTo(/^(Язык|Тел)$/);
+  try { await A.scrollTap(/^(Настройки|Көйләүҙәр)$/, { max: 24 }); }
+  catch (error) {
+    const label = `settings-lookup-failed-${Date.now()}`, diagnosticErrors = [];
+    try { A.dump({ label }); } catch (diagnostic) { diagnosticErrors.push(`XML: ${diagnostic.message}`); }
+    try { A.screencap(label); } catch (diagnostic) { diagnosticErrors.push(`PNG: ${diagnostic.message}`); }
+    (sc.facts.android_settings_lookup_failures ||= []).push({ actor: currentActor?.firstName, at: new Date().toISOString(), error: error.message, label, diagnostic_errors: diagnosticErrors });
+    throw error;
+  }
+  await A.scrollTo(/^(Язык|Тел)$/);
 }
 function visibleChoice(nodes, dictionary) {
   const keys = Object.keys(dictionary).filter(k => !!A.find(nodes, dictionary[k]));
@@ -462,6 +470,13 @@ await runScenario(sc, async () => {
     catch (e) { errors.push(`PWA preferences ${client.actor.firstName}: ${e.message}`); }
     finally { try { await client.ctx.close(); } catch (e) { errors.push(`PWA close ${client.actor.firstName}: ${e.message}`); } }
   }
+  // Return physical settings first so app/account restoration uses the original display.
+  if (originalDevice) try {
+    const override = /Override density:\s*(\d+)/.exec(originalDevice.density);
+    A.sh(override ? `wm density ${override[1]}` : "wm density reset", { quiet: true });
+    A.sh(`settings put system font_scale ${Number(originalDevice.font)}`, { quiet: true }); A.resetSizeCache();
+    sc.check(A.sh("wm density", { quiet: true }).trim() === originalDevice.density.trim() && Number(A.sh("settings get system font_scale", { quiet: true }).trim()) === Number(originalDevice.font), "original device density/font were actually restored");
+  } catch (e) { errors.push(`Android device restoration: ${e.message}`); }
   // Preferences are app/device-wide on Android; preserve every observed account snapshot,
   // restore non-initial accounts first, then return the initial account and its initial settings last.
   const restoreActors = actors.filter(a => androidSaved.has(a.telegramId) && a.telegramId !== initialActor?.telegramId);
@@ -469,12 +484,6 @@ await runScenario(sc, async () => {
   if (!faultRecoveryRequired) {
     for (const actor of restoreActors) try { await selectAndroid(actor); await applyAndroidPrefs(androidSaved.get(actor.telegramId)); } catch (e) { errors.push(`Android preferences/account ${actor.firstName}: ${e.message}`); }
   } else if (restoreActors.length) errors.push("Android app/account preferences skipped until owned proxy is restored");
-  if (originalDevice) try {
-    const override = /Override density:\s*(\d+)/.exec(originalDevice.density);
-    A.sh(override ? `wm density ${override[1]}` : "wm density reset", { quiet: true });
-    A.sh(`settings put system font_scale ${Number(originalDevice.font)}`, { quiet: true }); A.resetSizeCache();
-    sc.check(A.sh("wm density", { quiet: true }).trim() === originalDevice.density.trim() && Number(A.sh("settings get system font_scale", { quiet: true }).trim()) === Number(originalDevice.font), "original device density/font were actually restored");
-  } catch (e) { errors.push(`Android device restoration: ${e.message}`); }
   sc.facts.preference_restoration = { android_snapshots: [...androidSaved.entries()].map(([actor_id, prefs]) => ({ synthetic_telegram_id: actor_id, ...prefs })), initial_actor: initialActor?.firstName, pwa_profiles: [...clients.keys()], errors };
   sc.facts.visual_fixtures_cleanup = "not retired by UI runner; root retains owned visual IDs until evidence acceptance, then external helper retire";
   if (errors.length) throw new Error(errors.join("; "));

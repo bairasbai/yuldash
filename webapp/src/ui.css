@@ -9125,10 +9125,14 @@ select.field__input {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
+  min-width: 0;
 }
 .rate-row .rate-stars {
   margin-top: 0;
   justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 /* Звезда «зажигается»: цвет и размер догоняют выбор — как animate*AsState в приложении. */
 .rate-stars--sm .rate-star.is-on {
@@ -12222,6 +12226,16 @@ button.settings-row:active {
   color: var(--muted);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
+}
+@media (max-width: 380px) {
+  .cabinet .settings-row[role="switch"] {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .cabinet .settings-row[role="switch"] > .settings-row__text {
+    flex: 1 0 100%;
+    order: 1;
+  }
 }
 .settings-row__badge {
   flex: none;
