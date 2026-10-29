@@ -410,6 +410,10 @@ async function nativeConsent(pair, profile, refresh) {
   const wireStart = await wireFrom();
   await nativeLiveNavigation(pair, profile, "online-consent");
   const labels = role === "passenger" ? [text.title, text.description, text.yes, text.no] : [text.pending, text.onboard];
+  if (role === "driver") {
+    await A.waitFor(labels[0]);
+    await A.waitFor(labels.at(-1));
+  }
   await A.scrollTo(labels[0], { maxBottom: 0.96, max: 12 }); await A.scrollTo(labels.at(-1), { maxBottom: 0.96, max: 12 });
   const nodes = A.dump(), [w, h] = A.screenSize();
   for (const label of labels) { const n = A.find(nodes, label); sc.check(n && n.box[0] >= 0 && n.box[2] <= w && n.box[1] >= h * 0.03 && n.box[3] < h * 0.96 && n.enabled !== "false", "exact native consent/driver label is visible in one frame", { pair, role, label }); }
