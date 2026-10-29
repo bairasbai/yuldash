@@ -128,7 +128,7 @@ internal fun OfflineActiveTripSnapshot(
                             else appText("Ты пассажир", "Һин пассажир"), style = CanonCaption, color = CanonMutedStrong)
                         Text("${route.from} → ${route.to}", style = CanonTitle, color = CanonText)
                         Text(formatDepart(route.departAt), style = CanonBody, color = CanonText)
-                        BookingSegmentNote(route.pickup, route.dropoff, route.hasStops, route.from, route.to)
+                        BookingSegmentNote(route.pickup, route.dropoff, route.hasStops, route.from, route.to, showSegmentLabel = false)
                         val stage = when {
                             value.state.status == "onboard" -> appText("Пассажир сел", "Пассажир ултырҙы")
                             value.state.phase == "arriving" -> appText("Водитель подъезжает", "Йөрөтөүсе яҡынлаша")

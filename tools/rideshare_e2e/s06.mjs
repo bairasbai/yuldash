@@ -245,8 +245,8 @@ async function browserCapture(page, actor, screen, profile, extra = {}) {
 
 // Source contract checked against actual component, stop labels and Back accessibility label.
 const OFFLINE_UI = {
-  status: "verified-current-source", componentSource: "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt", componentSha256: "fc2fafc4c586c6d9dc87f3674be0abb988faed1ba3ae26c0c14d0771a616f10e",
-  dependencies: [{"path": "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt", "sha256": "c0a16a98afc6a8f5b5af36475f914fcfc79c4a548a82d5d1186ae4fcb3ab19b8"}, {"path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt", "sha256": "d3bc1b74bdf9f93497b315ce3d2c1c8feb808107c8a57843512ac9bd76b8f2d8"}],
+  status: "verified-current-source", componentSource: "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt", componentSha256: "7aaa1ec9d6736500eabaeb11dd1ffabe580c23acb36f33200cc3f07951c4750d",
+  dependencies: [{"path": "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt", "sha256": "a08b22e777c6606e4430178a3a5cb6472e67555e39e820b013a26cfc4fdd55fa"}, {"path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt", "sha256": "d3bc1b74bdf9f93497b315ce3d2c1c8feb808107c8a57843512ac9bd76b8f2d8"}],
   header: { ru: "Последние сохранённые данные", ba: "Һуңғы һаҡланған мәғлүмәт" },
   warning: { ru: "Показываем сохранённую поездку. Состояние могло измениться.", ba: "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәл үҙгәргән булыуы мөмкин." },
   role: { passenger: { ru: "Ты пассажир", ba: "Һин пассажир" }, driver: { ru: "Ты водитель", ba: "Һин йөрөтөүсе" } },
@@ -337,7 +337,7 @@ async function waitOfflineReadOnly(pair, profile, stops) {
     if (required.every(label => !!A.find(nodes, label)) && timestamp) {
       const [w, h] = A.screenSize();
       const checked = [...required.map(label => ({ label, node: A.find(nodes, label) })), { label: "saved-time", node: timestamp }];
-      for (const { label, node: n } of checked) sc.check(n.box[0] >= 0 && n.box[2] <= w && n.box[1] >= h * 0.03 && n.box[3] < h * 0.96, "read-only header/role/stops/last-stage/warning/time fit the same cold frame", { pair, role: pairs[pair].androidRole, label });
+      for (const { label, node: n } of checked) sc.check(n.box[0] >= 0 && n.box[2] <= w && n.box[1] >= h * 0.03 && n.box[3] < h * 0.96, "read-only header/role/stops/last-stage/warning/time fit the same cold frame", { pair, role: pairs[pair].androidRole, label, box: [...n.box], viewport: [w, h], top_min: h * 0.03, bottom_max: h * 0.96 });
       offlinePrivateAndActionChecks(nodes, pair, profile);
       return { waited_until: new Date().toISOString(), selector_contract: "verified-current-source", visible_last_stage: "onboard", saved_time_text_present: true, saved_time_bounds: timestamp.box };
     }
