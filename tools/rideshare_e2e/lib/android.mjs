@@ -4,7 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { EVID, log, sleep } from "./common.mjs";
 import { redactUiXml } from "./redact.mjs";
-import { scrollGesture } from "./native-scroll.mjs";
+import { scrollGesture, scrollTargetVisible } from "./native-scroll.mjs";
 
 export const ADB = process.env.RSACC_ADB || join(process.env.ANDROID_HOME || join(process.env.LOCALAPPDATA, "Android", "Sdk"), "platform-tools", "adb.exe");
 export const PKG = "com.yuldash.app";
@@ -158,7 +158,7 @@ export async function scrollTo(want, { max = 8, index = 0, maxBottom = 0.88 } = 
   const [, h] = screenSize();
   let currentNodes = [];
   // Scrolling form fields need room below for suggestions; explicit fixed actions may use .96.
-  const ok = () => { currentNodes = dump(); const n = find(currentNodes, want, { index }); return n && n.box[3] < h * maxBottom && n.box[1] > h * 0.08 ? n : null; };
+  const ok = () => { currentNodes = dump(); const n = find(currentNodes, want, { index }); return scrollTargetVisible(currentNodes, n, h, maxBottom) ? n : null; };
   const move = async direction => {
     const targets = currentNodes.map((node, i) => matches(node, want) ? i : -1).filter(i => i >= 0);
     const gesture = scrollGesture(currentNodes, screenSize(), direction, targets[index] ?? null);
@@ -179,8 +179,8 @@ export async function scrollTap(want, opts = {}) {
     // Lazy content can move after a response arrives. Only retry positioning;
     // perform the business tap once, from a fresh in-bounds accessibility node.
     await sleep(400);
-    const n = find(dump(), want, { index: opts.index || 0 });
-    if (!n || n.box[1] <= h * 0.08 || n.box[3] >= h * (opts.maxBottom ?? 0.88)) continue;
+    const nodes = dump(), n = find(nodes, want, { index: opts.index || 0 });
+    if (!scrollTargetVisible(nodes, n, h, opts.maxBottom ?? 0.88)) continue;
     tapXY(...center(n));
     log("android.scrollTap", { want: String(want), what: opts.what || null });
     await sleep(500);

@@ -27,3 +27,23 @@ export function scrollGesture(nodes, [width, height], direction, targetIndex = n
   if (start === end) throw new Error("Native scroll container has no gesture space");
   return { x, start, end, box, nodeIndex: selected };
 }
+
+/** Shared visibility check for positioning and the fresh, single tap. */
+export function scrollTargetVisible(nodes, target, height, maxBottom = 0.88) {
+  if (!target || !Array.isArray(target.box) || target.box.length !== 4 || !target.box.every(Number.isFinite)) return false;
+  if (!Number.isFinite(height) || !Number.isFinite(maxBottom) || height <= 0 || nodes.indexOf(target) < 0) return false;
+  if (target.box[1] <= height * 0.08 || target.box[3] >= height * maxBottom) return false;
+  const visited = new Set();
+  for (let index = target.parentIndex; index !== null;) {
+    if (!Number.isInteger(index) || index < 0 || index >= nodes.length || visited.has(index)) return false;
+    visited.add(index);
+    const ancestor = nodes[index];
+    if (ancestor.scrollable === "true") {
+      const viewport = ancestor.box;
+      if (!Array.isArray(viewport) || viewport.length !== 4 || !viewport.every(Number.isFinite) || viewport[2] <= viewport[0] || viewport[3] <= viewport[1]) return false;
+      if (target.box[0] < viewport[0] || target.box[2] > viewport[2] || target.box[1] < viewport[1] || target.box[3] >= viewport[3]) return false;
+    }
+    index = ancestor.parentIndex;
+  }
+  return true;
+}
