@@ -1,4 +1,86 @@
 <!-- RIDESHARE-CLAUDE-TAILS-20261024 -->
+29.10, consolidated07 CODEFROZEN: acceptedplan03точноприменён(52CSS+2classname),
+SegmentedTabsselectedforegroundCanonOnFilled; identicalREDtestcandidate7b33276d…переустановлен.
+Freshsource43ПРИНЯЛ5файлов, P0/P1/P2нет; handlers/цены/переводынеизменны.
+ActualGREEN07 3м16с,46непустыхXML/222uniquePASS/0FAIL/ERROR/SKIP,
+включаяновые4цветовыхprofilesивсе12SelectedControls; result consolidated07-units/result.json.
+PWAcheck141наборpassed(2680суммаобъявленныхсчётчиков, неunique), exit0.
+Secret07rawexit1/2533 находки—exactinventorySHA256ссовпадениемSHA1detector,untriaged0.
+Передкодомсохранены149старыхbuildrefs/117новых182539887B,
+pre-consolidated07-preservation.json e1715a99…;5изменяемыхoldsourceGit/EOLreconstructchecked,
+безкопийsrcтеланет, архивwholeprojectне создавался.
+API25828PAUSED(ownidentityconfirmed/8010free),таккактихийwinter-check106можетуведомлять.
+42read-onlyaggregatefd433b…currentTripShare/SOS/subscriptions3/4=0, ackNULL; pastnosendUNKNOWN.
+42sourceNoShares→no_shareбезSOS; выбранвариантNO SQLreset/NO winterOK(этоответчеловека).
+12авторитsource-onlyisolatedENVtest/providerdisabled/lifespanofflauncher, mainпокане выполнялся.
+Доновых8/68нужныfreshlauncherreview+actualisolationproof+узкийallowwinter-checksafeStates/WS,
+безвключенияпрочихwrites. ПолнаяактуальнаяUIприёмка/BA/real07ещёоткрыты.
+
+29.10 МСК, correct06b завершился FAILED23:44:23Z:303checks/45matrix
+(44base+AndroidApassengerconsentRULight),PWAAdriverpending105 scroll409>viewport320.
+Result ef0bbc20…; helperrefreshA1actualrecord есть, этоownedsetupwrite, consentanswersнежали.
+Mainrestorationerrors0/Rustamoriginal, provenanceequal,654V3lines frozen.
+Externaloneflagrestore06b actualexit0:907b23c5…/contextsclosedtrue,actor1/3до/после,
+обаoriginalnull восстановлены1→null. Общийobserver06bstop/exit0/last.processes0/listen0,
+46seen; Count1уlast_live_snapshot—этообъект, НЕчислоливыхпроцессов.
+Root10секcaptureprepare/restoreпропущен(helpersзакончилираньше), неclaimsallchildren.
+AndroidRED07 actual4unique=2lightPASS/2darkFAIL, realcontrast3.193128797,7labelsобаcaller.
+XML/candidate7b33276d…/original260f… сохранены вandroid-segmented07-red;
+послеREDoriginaltestвосстановленпобайтно, весьsourceSnapshot==binding6 b131/1310/5996.
+ProductionforegroundещёWhite, CSS/appsourceнеправлены. Source33одобрилone-token/test
+ипланchatCSS36; consent409causeнеподтверждён, общийpayment.segтолькоcandidate.
+Runtime12source-onlypreflight8helper72d44342…frozen, fresh42дочитываетпередactualinspect.
+ПослеDOM8→консолидированныйCSS/CanonOnFilledfix→GREEN/guards/build→быстрыйPWA8gate→full68.
+
+29.10 МСК, newP2изfreshmain06bбезprompt: PWA41нашёлdate-squeezeимени/preview
+вchat, source35readonlyплан36CSSonly (60330abe…), уникальные.chat-inbox>.inbox-row,
+4chatпрофиляпослеfix. Android39на15actualPNG/XMLнашёлWhite/CanonGreen2dark3.19<4.5
+вSegmentedTabs:517; CanonOnFilled:172–189уже предназначендляэтого, draftoneforeground.
+Единственные2caller — RidesScreen/NotificationsScreen; entrynotificationsтолькоGET,
+не нажиматьnotificationcards/«Прочитатьвсё». SourceAndroidwriterпокаТОЛЬКОignoredplan.
+Currentmain68НЕпрерывать/sourceне менять; поaudit-rulesпослеoldsource68+4driver/16PWAextras
+нужныtargetedRED→GREENactualtabtests/guards/build иbounded4trips+4notifications/4chat,
+а неавтоматическийповторнеизменённыхbusiness68. Незатронутыесостоянияприниматьтолькос
+явнойapplicabilityпоточномудвухфайловомуdiff/неизменнымdeps, не «currentwhole68PASS».
+Уточнениекtrial06: он открывалтолькоpwa-d1; captureRevision«pwa-p1»былпозднимвременным
+срезомД1, не доказательствомзапускаП1. Actualrestorationpwa_profiles=[pwa-d1],errors0.
+Новыйcorrect06bоткроетП1наpairB; RootобязанcapturerealП1послестартаB.
+
+29.10 МСК, trial06 закрыт23:16:10Z:275passed/44baseframes, FAILEDтолько
+RootenvSHA bdce/cdce доDBrefresh. Result61a76a90…, restoringerrors0, начальныйРустам,
+provenancestart=end;634оригинальныхV3строки заморожены adaptive-layout06-wire.
+Observerstop/verified0, initial+d1+p1temporaltrees ownlive0, Ufa/UTCafter подтверждены.
+External InstallPromptprecondition06b подготовлен отдельно, S06/QA/APPнеизменны.
+Первыйsource33reviewнашёл2реальныхP2(parserwholequoted/duplicate, stickyfactoryerror);
+overescapeзамечаниеотозвано. Исправленытолько2функции, pure10parser+3mockPASS.
+Freshindependentsource40 принялa2ec8b8d… идопускlauncherac5ec2c3….
+Actualprepare06b23:19:56→23:20:06 exit0, READY/closedtrue/2profiles, SHA
+ da37deb46d1cf66fc9e1edf469c633f8bac86fe3855362837c5685872a41e7d0.
+Личнаяранняяrootcapturehelperпропущена:онужезавершился; общийobserver06b
+былзапущензаранееисобралпрофили. Невыдаватьпропущенныйcaptureзадоказанный.
+Main06bзапущен23:20:46Z PID7192 черезguardedlauncher, helpercorrectcdceизпроверенногофайла.
+ОБЯЗАТЕЛЬНОпослеегоexit/cleanup — helperrestore06b того жеa2ecsource, дажееслиcaseFAILED,
+исходныеoneflagsdurable; покаони1какнамеренноепредусловие. Observer06b25112живдовозврата.
+
+29.10 МСК, current5996c4fd/source1310 b13190ee/QA41dd132739: unit320PASS,
+обаbuild0, actualinstalled453e0cbf/test59ecced9. Binding06 7f6aafb5…;
+строгийupdate06b PASSED (1f3447dc…): actor1/3beforeafter, по1обычномуUpdateclick,
+по16наблюденийресурсов, mandatoryCSS/JS match, prefs restored/contexts closed.
+Observer06b остановлен/verified0. Два pre-UI launch06 отказа (missingPWSH,
+NAMEуказывалexitedreceipt) сохранены, browser0, permanentintentне создавался.
+Source33 уточнил: observer/install metadata clone включает LF→CRLF;
+«inverse» врегистрацияхтекстовыйпосленормализации, неrawbyte inverse.
+Current S06 trial06 идёт наfrozen5996; Root ошибсявenvapproved-helperSHA
+(bdce вместоactualcdce). План нековырятьживойпроцесс/source: дождатьсяштатного
+FAIL наrefresh/cleanup, сохранитьactual44base, повторитьнеизменённыйS06в06b
+через guardedlauncher (проверенныйactualSHA→env). Начатыйabortне выполнился:
+guardувиделliveownedbrowserи остановилтолькоcancellationcommand, runnerне тронут.
+Независимые38/39 просмотрелипервые6PWA/5Android: productP2не найден,
+ноInstallPromptприкрываетchat-tabs. Передfinal68 — отдельный bounded prepare
+(обычныйLater, durableoneflagoriginal), затемcase06b, обязательныйrestore/readback.
+S06/QA/APP не меняются. ПослеPASS+exit — native4driverCTA иPWAextras12real/4fixtures,
+freshindependentполнойпачки, retirement109/110, timezoneGMT/auto1 иownstandcleanup.
+
 29.10 МСК, цикл06 перед finalbuild: Android actual unit06 BUILD SUCCESSFUL5м14с,
 54 непустыхXML/320 уникальных PASS,0FAIL/ERROR/SKIP;5 новых ChatCardcases PASS.
 RawXML сохранены, точная карта в diagnostics/qa-narrow-layout06/unit06-preserved-summary.json.

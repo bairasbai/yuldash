@@ -1490,7 +1490,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "79a3c32cae31cbb1cfd0eb8d396ad5e0cbb447bf4e624c845aca617794c4ec0a",
+      "sha256": "f2607faf4a338b27b6ccb15b7d80ce703435f7a8e6845753689884279da02178",
       "lines": 3211
     },
     {
@@ -4437,8 +4437,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/SelectedControlsAccessibilityTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "0a073f6d3e7e82ba2dec3ef769de8b639179ee88b528d568732ce1512184427b",
-      "lines": 177
+      "sha256": "62ca7aba0cd4dcb7ae665a43d11d5dca8d4391565b41a485972832051cc0d63d",
+      "lines": 222
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SensitiveClipboardGuardTest.kt",
@@ -15056,7 +15056,7 @@
       "path": "webapp/src/components/PassengerBoardingUndo.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "c7fd79876cf4777961de06e7ae6b70fe57114e07c6f2e28368e45037fc2f981d",
+      "sha256": "d6b98f0f10ba1ef9046f4ede92256f9d214255af1e45d97490a8b07876e5cac8",
       "lines": 43
     },
     {
@@ -15518,7 +15518,7 @@
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "d2f1adf0089e0cb8aaf7a286b69920b0f49feb7a37288a103ae3da375397a217",
+      "sha256": "faca213a2ec54d1de92dd9bb826f077a78599db2b43175a45c8fcbeda4968df5",
       "lines": 1334
     },
     {
@@ -16344,8 +16344,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "2323ce158e7a4e9f8b35cbbd5ff96e266c8f42129e0e71006264fbe741e02b56",
-      "lines": 20966
+      "sha256": "aa22a2c8e2435e7750f45c5d78e0f12956750058ec4ef20d1edb9e1b3594629c",
+      "lines": 21018
     },
     {
       "path": "webapp/src/uiPrefs.ts",

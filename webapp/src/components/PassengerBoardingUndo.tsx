@@ -36,7 +36,7 @@ export default function PassengerBoardingUndo({ bookingId, terms, onChanged }: {
   return <section className="act-card" aria-label={appText("Исправление посадки", "Ултырыуҙы төҙәтеү")}>
     <h2 className="act-card__title">{appText("Водитель просит исправить посадку", "Йөрөтөүсе ултырыу билдәһен төҙәтергә һорай")}</h2>
     <p className="act-card__text">{appText("Подтверди только если ты ещё не в машине.", "Машинаға әле ултырмаған булһаң ғына раҫла.")}</p>
-    <button type="button" className="btn btn--green" disabled={busy} onClick={() => void answer(true)}>{appText("Я ещё не сел", "Мин әле ултырманым")}</button>
+    <button type="button" className="btn-primary" disabled={busy} onClick={() => void answer(true)}>{appText("Я ещё не сел", "Мин әле ултырманым")}</button>
     <button type="button" className="btn-soft" disabled={busy} onClick={() => void answer(false)}>{appText("Я в машине", "Мин машиналамын")}</button>
     {error && <p role="alert">{error}</p>}
   </section>;

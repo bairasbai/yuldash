@@ -20207,6 +20207,32 @@ button.settings-row:active {
     text-overflow: clip;
     overflow-wrap: anywhere;
   }
+  .chat-inbox > .inbox-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--space-xs);
+  }
+  .chat-inbox > .inbox-row > .inbox-row__when {
+    grid-column: 2;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  .chat-inbox > .inbox-row .inbox-row__name {
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+  }
+  .active-trip-pay-methods { flex-direction: column; }
+  .active-trip-pay-methods > .seg__item {
+    flex: none;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
   .chat-tab__badge { position: static; flex: none; }
 }
 @media (max-width: 480px) {
@@ -20234,6 +20260,32 @@ button.settings-row:active {
     overflow: visible;
     text-overflow: clip;
     overflow-wrap: anywhere;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-inbox > .inbox-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--space-xs);
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-inbox > .inbox-row > .inbox-row__when {
+    grid-column: 2;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-inbox > .inbox-row .inbox-row__name {
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .active-trip-pay-methods { flex-direction: column; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .active-trip-pay-methods > .seg__item {
+    flex: none;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: break-word;
   }
   :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__badge { position: static; flex: none; }
 }

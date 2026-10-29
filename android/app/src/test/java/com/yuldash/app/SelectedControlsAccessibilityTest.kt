@@ -124,6 +124,51 @@ class SelectedControlsAccessibilityTest {
     @Test fun bashkirNavigationStaysAccessibleAtLargeFontOnNarrowScreen() =
         assertNavigationAccessible(AppLanguage.Ba, listOf("Карта", "Сәфәрҙәр", "Ғариза", "Чат", "Профиль"))
 
+    @Test fun segmentedTabsHaveReadableRussianLightContrast() = assertSegmentedTabsReadable(AppLanguage.Ru, false)
+    @Test fun segmentedTabsHaveReadableRussianDarkContrast() = assertSegmentedTabsReadable(AppLanguage.Ru, true)
+    @Test fun segmentedTabsHaveReadableBashkirLightContrast() = assertSegmentedTabsReadable(AppLanguage.Ba, false)
+    @Test fun segmentedTabsHaveReadableBashkirDarkContrast() = assertSegmentedTabsReadable(AppLanguage.Ba, true)
+
+    private fun assertSegmentedTabsReadable(language: AppLanguage, dark: Boolean) {
+        ThemePrefs.darkOverride = dark
+        val tripLabels = if (language == AppLanguage.Ru) listOf("Активные", "История", "Все")
+            else listOf("Актив", "Тарих", "Бөтәһе")
+        val notificationLabels = if (language == AppLanguage.Ru) listOf("Все", "Поездки", "Доставка", "Сообщения")
+            else listOf("Бөтәһе", "Сәфәрҙәр", "Илтеү", "Хәбәрҙәр")
+        val labelSets = listOf(tripLabels, notificationLabels)
+        var labels by mutableStateOf(labelSets.first())
+        var selected by mutableStateOf(labels.first())
+        var background = Color.Unspecified
+        val callbacks = mutableListOf<String>()
+        val contrastFailures = mutableListOf<String>()
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides language,
+                LocalDensity provides Density(LocalDensity.current.density, fontScale = 1.3f)) {
+                YuldashTheme(darkTheme = dark) {
+                    background = CanonGreen2
+                    androidx.compose.foundation.layout.Box(Modifier.width(320.dp)) {
+                        SegmentedTabs(labels, selected) { callbacks += it; selected = it }
+                    }
+                }
+            }
+        }
+        assertTrue("Read the actual selected fill in the active theme", background != Color.Unspecified)
+        for (callerLabels in labelSets) {
+            compose.runOnIdle { labels = callerLabels; selected = callerLabels.first() }
+            for (label in callerLabels) {
+                compose.onNode(hasScrollAction()).performScrollToNode(hasText(label))
+                compose.onNodeWithText(label).assertIsDisplayed().performClick()
+                compose.waitForIdle()
+                assertTrue("The real tab callback must select $label", selected == label)
+                // Existing helper reads the actual TextLayoutResult.style.color, not CanonOnFilled.
+                // Collect each failure so RED still exercises both callers and every callback.
+                try { assertReadable(label, background) }
+                catch (failure: AssertionError) { contrastFailures += "$callerLabels / $label: ${failure.message}" }
+            }
+        }
+        assertTrue("Every real tab callback must fire exactly once: $callbacks", callbacks == labelSets.flatten())
+        assertTrue("Selected labels require >=4.5 in each caller/theme: ${contrastFailures.joinToString(" | ")}", contrastFailures.isEmpty())
+    }
     private fun assertNavigationAccessible(language: AppLanguage, labels: List<String>) {
         compose.setContent {
             val density = LocalDensity.current

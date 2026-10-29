@@ -514,7 +514,7 @@ internal fun SegmentedTabs(
                 Text(
                     tab,
                     modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                    color = if (selected == tab) Color.White else CanonMuted,
+                    color = if (selected == tab) CanonOnFilled else CanonMuted,
                     fontWeight = if (selected == tab) FontWeight.Bold else FontWeight.Medium,
                     fontSize = 14.sp,
                     maxLines = 1

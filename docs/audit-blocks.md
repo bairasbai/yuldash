@@ -1,6 +1,26 @@
 # Единый реестр проверки Юлдаш
 
-**Текущий незавершённый этап29.10 МСК:** цикл06 после adaptive05.
+**Текущий незавершённый этап29.10 МСК:** consolidated07 UI исправления в ветке,
+actual222uniqueAndroidPASS/0FAIL/ERROR/SKIP, PWA141checkPASS, source43безP0/P1/P2.
+Новаясборка/8statePWAwidthgate/full68 ещёвпереди. API8010пауза: inspect07-old
+на5statesпоймалautomaticwinter-check106/WS; restoreprefs/flagsclosedtrue,
+блокоплатыright409RU/379.55BA доказалcause409/380, Bbutton20.46<48.
+ВнешниеуведомленияизпрошлогоPOST200неподтверждены; currentrecipientcounts0,
+42предложилisolatedENVtestбезoutbound/lifespan, покатолькоsource, restartнебыл.
+No SQLwinterreset/nowinterOK; safeStates/TripShare/SOS/ack0guardsнужныдальше.
+Correct06bFAILED303checks/45rows; restoreerrors0, externalrestore907b23c5…PASS,
+654V3events frozen. Этипрогоныне68PASS; BA/реальныеустройства07открыты.
+
+Предыдущий незавершённый этап29.10 МСК: correct-config06b running23:20:46Z
+на5996c4fd/source1310b13190ee/QA41dd132739. Android320unitPASS,debug/testbuild0,
+PWAcheck141/build0, actualAPK453e. СтрогийPWAupdate06b1f3447dc…PASSED2profiles.
+ActualInstallPromptprepare06bREADY/closedtrue (da37deb4…), originalsoleflagsсохранены,
+послеcaseобязателенrestore/readbackпередзакрытиемobserver/итогом.
+Предыдущийtrial06 FAILEDнаRootenvhelperSHA typo:275checks/44base, result61a76a90…,
+634V3events, restoredRustam/settings0errors/provenanceequal. Этоне68PASS.
+BA/реальныеустройства07открыты, будущиеextras/независимаяполнаяUIприёмкавпереди.
+
+Предыдущий незавершённый этап29.10 МСК: цикл06 после adaptive05.
 На f687c15505 FAILED:244 проверки и44 базовых кадра, до synthetic-case не дошёл.
 После logout QA ждал Telegram CTA без прокрутки; сохранён result b8bc016f…,
 496 событий V3, восстановление исходного Рустам/id4 отдельным UI recover05-02

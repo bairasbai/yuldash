@@ -1035,7 +1035,7 @@ export default function ActiveTripScreen() {
               "Был — килешеү яҙмаһы ғына, аҡса ҡушымта аша үтмәй."
             )}
           </p>
-          <div className="seg">
+          <div className="seg active-trip-pay-methods">
             {(["cash", "sbp", "negotiate"] as const).map((m) => (
               <button
                 key={m}
