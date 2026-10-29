@@ -288,12 +288,15 @@ class ActiveTripFooterResponsiveTest {
         val previous = ShadowDialog.getLatestDialog()
         compose.runOnIdle { assertTrue(action()) }
         repeat(10) {
+            // Direct OnClick writes state; flush its snapshot and queued Android work before lookup.
+            Snapshot.sendApplyNotifications()
+            compose.mainClock.advanceTimeByFrame()
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             val dialog = ShadowDialog.getLatestDialog()
             if (dialog != null && dialog !== previous && dialog.isShowing) {
                 dialog.window!!.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
                 return
             }
-            compose.mainClock.advanceTimeByFrame()
         }
         fail("Report text-field dialog did not open")
     }
