@@ -2,6 +2,7 @@ package com.yuldash.app
 
 import android.app.Application
 import android.os.Looper
+import android.view.ViewGroup
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.LocalTextStyle
@@ -38,6 +39,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
+import org.robolectric.shadows.ShadowDialog
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CountDownLatch
@@ -112,7 +114,7 @@ class ActiveTripFooterResponsiveTest {
 
     @Test fun openReportDraftSurvivesCompactToFullAndBack() {
         render(AppLanguage.Ru, false)
-        compose.onNodeWithText("Сообщить о проблеме").performClick()
+        openReportDialog()
         compose.onNodeWithText("Как было").assertIsDisplayed()
         val draft = "Проверяю, что описание не теряется"
         compose.onNode(hasSetTextAction()).performTextInput(draft)
@@ -182,7 +184,7 @@ class ActiveTripFooterResponsiveTest {
         stub.enqueue(MockResponse().setHeader("Content-Type", "application/json")
             .setBody("""{"id":42,"booking_id":42,"type":"driver_no_show","status":"open"}"""))
         render(AppLanguage.Ru, false)
-        compose.onNodeWithText("Сообщить о проблеме").performClick()
+        openReportDialog()
         compose.onNode(hasSetTextAction()).performTextInput("Описание для проверки сохранения разбора")
         compose.onNode(hasClickAction() and hasText("Открыть разбор")).performClick()
         val filed = "Разбор открыт. Позовём водителя объясниться, а решение объясним обеим сторонам."
@@ -277,6 +279,23 @@ class ActiveTripFooterResponsiveTest {
             }
         }
         compose.waitForIdle()
+    }
+
+    /** Existing Robolectric-only WRAP_CONTENT/TextField remeasure workaround; product unchanged. */
+    private fun openReportDialog() {
+        val action = compose.onNodeWithText("Сообщить о проблеме").fetchSemanticsNode()
+            .config[SemanticsActions.OnClick].action!!
+        val previous = ShadowDialog.getLatestDialog()
+        compose.runOnIdle { assertTrue(action()) }
+        repeat(10) {
+            val dialog = ShadowDialog.getLatestDialog()
+            if (dialog != null && dialog !== previous && dialog.isShowing) {
+                dialog.window!!.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT)
+                return
+            }
+            compose.mainClock.advanceTimeByFrame()
+        }
+        fail("Report text-field dialog did not open")
     }
 
     private fun viewport() = compose.onNodeWithTag("footer-regression-viewport").getUnclippedBoundsInRoot()
