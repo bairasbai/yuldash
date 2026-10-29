@@ -127,18 +127,36 @@ async function androidSettings() {
   }
   await A.scrollTo(/^(Язык|Тел)$/);
 }
-function visibleChoice(nodes, dictionary) {
+function visibleChoice(nodes, dictionary, kind, captureLabel) {
   const keys = Object.keys(dictionary).filter(k => !!A.find(nodes, dictionary[k]));
-  if (keys.length !== 1) throw new Error("Settings must display exactly one current value");
+  const matches = Object.fromEntries(Object.entries(dictionary).map(([key, want]) =>
+    [key, nodes.filter(n => !!A.find([n], want)).map(n => n.box)]));
+  (sc.facts.android_settings_reads ||= []).push({ kind, capture_label: captureLabel, keys, key_count: keys.length, matches });
+  if (keys.length !== 1) throw new Error(`Settings must display exactly one current value: ${kind}; keys=${keys.length}; XML=${captureLabel}`);
+  const value = A.find(nodes, dictionary[keys[0]]), scrolls = nodes.filter(n => n.scrollable === "true" && n.box);
+  sc.check(scrolls.length === 1, "settings current-value read has one actual scroll viewport", { kind, capture_label: captureLabel, scroll_count: scrolls.length });
+  const viewport = scrolls[0].box;
+  sc.check(value.box[0] >= viewport[0] && value.box[2] <= viewport[2] && value.box[1] >= viewport[1] && value.box[3] < viewport[3],
+    "selected settings value is fully inside its actual scroll viewport", { kind, capture_label: captureLabel, box: value.box, viewport });
   return keys[0];
+}
+async function readAndroidChoice(dictionary, kind) {
+  const before = A.dump(), scrolls = before.filter(n => n.scrollable === "true" && n.box);
+  sc.check(scrolls.length === 1, "settings positioning has one actual scroll viewport", { kind, scroll_count: scrolls.length });
+  const [, height] = A.screenSize(), maxBottom = Math.min(0.88, scrolls[0].box[3] / height);
+  const values = new RegExp(Object.values(dictionary).map(want => `(?:${want.source})`).join("|"));
+  // The heading can fit while its selected value is clipped below the real scroll boundary.
+  await A.scrollTo(values, { maxBottom });
+  const captureLabel = `settings-current-${kind}-${Date.now()}`;
+  return visibleChoice(A.dump({ label: captureLabel }), dictionary, kind, captureLabel);
 }
 async function readAndroidPrefs() {
   await androidSettings();
   const nodes = A.dump();
   const ba = !!A.find(nodes, "Башҡортса"), ru = !!A.find(nodes, "Русский");
   sc.check(ba !== ru, "Android language value is unambiguous");
-  await A.scrollTo(/^Тема$/); const theme = visibleChoice(A.dump(), themeLabels);
-  await A.scrollTo(/^(Размер текста|Текст ҙурлығы)$/); const font = visibleChoice(A.dump(), androidFonts);
+  const theme = await readAndroidChoice(themeLabels, "theme");
+  const font = await readAndroidChoice(androidFonts, "font");
   return { lang: ba ? "ba" : "ru", theme, font };
 }
 async function applyAndroidPrefs(prefs) {
@@ -245,7 +263,7 @@ async function browserCapture(page, actor, screen, profile, extra = {}) {
 
 // Source contract checked against actual component, stop labels and Back accessibility label.
 const OFFLINE_UI = {
-  status: "verified-current-source", componentSource: "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt", componentSha256: "7aaa1ec9d6736500eabaeb11dd1ffabe580c23acb36f33200cc3f07951c4750d",
+  status: "verified-current-source", componentSource: "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt", componentSha256: "11c31a8804679691b014380f29cc9433c3149c8279c60500afc0e9347a4b4e4c",
   dependencies: [{"path": "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt", "sha256": "a08b22e777c6606e4430178a3a5cb6472e67555e39e820b013a26cfc4fdd55fa"}, {"path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt", "sha256": "d3bc1b74bdf9f93497b315ce3d2c1c8feb808107c8a57843512ac9bd76b8f2d8"}],
   header: { ru: "Последние сохранённые данные", ba: "Һуңғы һаҡланған мәғлүмәт" },
   warning: { ru: "Показываем сохранённую поездку. Состояние могло измениться.", ba: "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәл үҙгәргән булыуы мөмкин." },

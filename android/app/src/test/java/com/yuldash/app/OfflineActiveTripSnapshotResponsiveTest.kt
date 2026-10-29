@@ -147,6 +147,23 @@ class OfflineActiveTripSnapshotResponsiveTest {
         for (label in labels) wholeText(compose.onNodeWithText(label, useUnmergedTree = true), window)
         val timePrefix = if (language == AppLanguage.Ru) "Сохранено:" else "Һаҡланған ваҡыт:"
         wholeText(compose.onNode(hasText(timePrefix, substring = true), useUnmergedTree = true), window)
+        val retryText = if (language == AppLanguage.Ru) "Повторить" else "Ҡабатлау"
+        wholeText(compose.onNodeWithText(retryText, useUnmergedTree = true), window)
+        val retry = compose.onNode(hasClickAction() and hasText(retryText))
+        retry.assertIsDisplayed()
+        val button = retry.getUnclippedBoundsInRoot()
+        compose.onAllNodes(hasScrollAction()).assertCountEquals(1)
+        val viewport = compose.onNode(hasScrollAction()).getUnclippedBoundsInRoot()
+        val retryDiagnostic = "retry=$button scroll=$viewport window=$window"
+        println(retryDiagnostic)
+        assertTrue(retryDiagnostic, button.right - button.left >= 48.dp && button.bottom - button.top >= 48.dp)
+        assertTrue(retryDiagnostic, viewport.right > viewport.left && viewport.bottom > viewport.top)
+        assertTrue(retryDiagnostic, viewport.left >= window.left && viewport.right <= window.right &&
+            viewport.top >= window.top && viewport.bottom <= window.bottom)
+        assertTrue(retryDiagnostic, button.left >= viewport.left && button.right <= viewport.right &&
+            button.top >= viewport.top && button.bottom <= viewport.bottom)
+        assertTrue(retryDiagnostic, button.left >= window.left && button.right <= window.right &&
+            button.top >= window.top && button.bottom <= window.bottom)
         assertEquals(0, retries)
         assertEquals(0, backs)
         // Screen remains read-only. Existing privacy/expiry tests verify actual invalidation.

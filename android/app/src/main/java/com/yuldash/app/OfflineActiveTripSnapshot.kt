@@ -116,14 +116,14 @@ internal fun OfflineActiveTripSnapshot(
     Column(Modifier.fillMaxSize().background(CanonBg).safeDrawingPadding()) {
         ScreenTopBar(appText("Последние сохранённые данные", "Һуңғы һаҡланған мәғлүмәт"), onBack)
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(CanonSpace.lg),
-            verticalArrangement = Arrangement.spacedBy(CanonSpace.lg)) {
+            verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
             Text(appText("Показываем сохранённую поездку. Состояние могло измениться.",
                 "Һаҡланған сәфәрҙе күрһәтәбеҙ. Хәл үҙгәргән булыуы мөмкин."), style = CanonBody, color = CanonMutedStrong)
             // No fade-out of expired/private pixels. The draw guard also covers a delayed timer/frame.
             AnimatedVisibility(value != null, enter = fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
                 if (value != null) AppCard(Modifier.drawWithContent { if (visible(value)) drawContent() }) {
                     val route = requireNotNull(value.route)
-                    Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                    Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
                         Text(if (value.state.role == "driver") appText("Ты водитель", "Һин йөрөтөүсе")
                             else appText("Ты пассажир", "Һин пассажир"), style = CanonCaption, color = CanonMutedStrong)
                         Text("${route.from} → ${route.to}", style = CanonTitle, color = CanonText)
