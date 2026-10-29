@@ -352,6 +352,7 @@ internal fun PassengerBoardingWait(
     driverName: String,
     modifier: Modifier = Modifier,
     stage: PassengerReportStage = PassengerReportStage.Waiting,
+    compactMarked: Boolean = false,
 ) {
     var open by remember(bookingId) { mutableStateOf(false) }
     var filed by remember(bookingId) { mutableStateOf(false) }
@@ -373,19 +374,21 @@ internal fun PassengerBoardingWait(
     }
     val respondent = driverName.ifBlank { appText("водителя", "йөрөтөүсене") }
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(
-                when (stage) {
-                    PassengerReportStage.Waiting -> Icons.Default.DirectionsCar
-                    PassengerReportStage.Marked -> Icons.Default.CheckCircle
-                    PassengerReportStage.AfterTrip -> Icons.Default.Info
-                },
-                contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp),
-            )
-            Spacer(Modifier.width(CanonSpace.sm))
-            Text(title, color = CanonText, style = CanonBodyStrong)
+        if (!compactMarked || stage != PassengerReportStage.Marked) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    when (stage) {
+                        PassengerReportStage.Waiting -> Icons.Default.DirectionsCar
+                        PassengerReportStage.Marked -> Icons.Default.CheckCircle
+                        PassengerReportStage.AfterTrip -> Icons.Default.Info
+                    },
+                    contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp),
+                )
+                Spacer(Modifier.width(CanonSpace.sm))
+                Text(title, color = CanonText, style = CanonBodyStrong)
+            }
+            Text(caption, color = CanonMuted, style = CanonCaption)
         }
-        Text(caption, color = CanonMuted, style = CanonCaption)
         AnimatedContent(targetState = filed, label = "boardingWaitReport") { done ->
             if (done) {
                 Text(
@@ -463,7 +466,9 @@ internal fun activeTripBoardingSlot(
         val wait: @Composable () -> Unit = {
             Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
                 if (bookingStatus == "onboard") PassengerBoardingUndo(bookingId, undoTerms, onUndone)
-                PassengerBoardingWait(bookingId, peerId, peerName, stage = stage)
+                PassengerBoardingWait(bookingId, peerId, peerName, stage = stage,
+                    compactMarked = LocalCompactActiveTripFooter.current && undoTerms.pending &&
+                        undoTerms.requestId != null && undoTerms.waitSec > 0)
             }
         }
         return wait

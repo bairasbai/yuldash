@@ -20236,6 +20236,21 @@ button.settings-row:active {
   .chat-tab__badge { position: static; flex: none; }
 }
 @media (max-width: 480px) {
+  /* Крупный текст: место забираем у полей значков, подписи сохраняют свой размер.
+     42px дают не менее 48px после самого малого крупного масштаба (1.15). */
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav { gap: 0; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav > .nav-item {
+    flex: 1 0 auto;
+    min-width: 42px;
+    max-width: none;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav > .nav-item > .nav-pill {
+    padding-inline: var(--space-sm);
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav > .nav-item > .nav-item__label {
+    overflow: visible;
+    text-overflow: clip;
+  }
   :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__pill { flex-direction: column; align-items: stretch; }
   :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__track { flex: none; grid-template-columns: minmax(0, 1fr); }
   :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__thumb,
