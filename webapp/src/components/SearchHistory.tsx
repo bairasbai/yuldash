@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
 import type { RideCity } from "../api/discovery";
 import type { SearchHistoryEntry, SearchRoute } from "../utils/searchHistory";
@@ -27,20 +27,21 @@ export default function SearchHistory({
   entries, cities, ownerSession, activeSession, onRepeat, onRemove, onClear,
 }: Props) {
   const { appText } = useLang();
-  const [ask, setAsk] = useState(false);
-  const alive = useRef(true);
-  const latest = useRef({ ownerSession, activeSession });
-  latest.current = { ownerSession, activeSession };
-  useEffect(() => {
-    alive.current = true;
-    return () => { alive.current = false; };
-  }, []);
-  useEffect(() => setAsk(false), [ownerSession, activeSession, entries.length]);
+  // Каждый период владения получает новый объект: A → B → A не возвращает
+  // старым замыканиям право действовать. Отзываем их при commit, не во время render.
+  const generation = useMemo(() => ({}), [ownerSession, activeSession]);
+  const activeGeneration = useRef<object | null>(null);
+  const [ask, setAsk] = useState<object | null>(null);
+  useLayoutEffect(() => {
+    activeGeneration.current = generation;
+    return () => { activeGeneration.current = null; };
+  }, [generation]);
+  useEffect(() => setAsk(null), [generation, entries.length]);
 
   // Старое подтверждение/нажатие после выхода не действует от имени нового входа.
-  const canAct = () => alive.current && !!ownerSession && ownerSession === activeSession
-    && latest.current.ownerSession === ownerSession && latest.current.activeSession === activeSession;
-  if (!canAct() || !entries.length) return null;
+  const canAct = () => activeGeneration.current === generation && !!ownerSession && ownerSession === activeSession;
+  const close = () => { if (canAct()) setAsk(null); };
+  if (!ownerSession || ownerSession !== activeSession || !entries.length) return null;
 
   const title = appText("Недавно искали", "Яҡында эҙләнеләр");
   const fold = (name: string) => name.toLowerCase().replace(/ё/g, "е");
@@ -86,19 +87,19 @@ export default function SearchHistory({
           );
         })}
       </div>
-      <button type="button" className="btn-ghost" onClick={() => { if (canAct()) setAsk(true); }}>
+      <button type="button" className="btn-ghost" onClick={() => { if (canAct()) setAsk(generation); }}>
         {appText("Очистить историю", "Тарихты таҙартыу")}
       </button>
-      {ask && (
+      {ask === generation && (
         <AlertDialog
           title={appText("Очистить историю поиска?", "Эҙләү тарихын таҙартырғамы?")}
           text={appText("Сохранённые адреса и подписки останутся", "Һаҡланған адрестар һәм яҙылыуҙар ҡала")}
           confirm={{
             label: appText("Очистить", "Таҙартыу"), tone: "danger",
-            onClick: () => { if (canAct()) { onClear(); setAsk(false); } },
+            onClick: () => { if (canAct()) { onClear(); setAsk(null); } },
           }}
-          dismiss={{ label: appText("Оставить", "Ҡалдырыу"), onClick: () => setAsk(false) }}
-          onClose={() => setAsk(false)}
+          dismiss={{ label: appText("Оставить", "Ҡалдырыу"), onClick: close }}
+          onClose={close}
         />
       )}
     </section>

@@ -260,6 +260,69 @@ for (const lang of ["ru", "ba"]) {
     h.unmount();
   });
 
+  for (const first of ["activeSession", "ownerSession"]) {
+    await t.test(`${lang}: A → B → A (${first} первым) не оживляет старые действия`, async () => {
+      const { h, calls } = create();
+      const clearLabel = translated ? "Тарихты таҙартыу" : "Очистить историю";
+      const oldButtons = all(h.tree).filter((node) => node.type === "button");
+      button(h.tree, clearLabel).props.onClick(); await h.settle();
+      const oldConfirm = ofType(h.tree, "AlertDialog")[0].props.confirm.onClick;
+      const second = first === "activeSession" ? "ownerSession" : "activeSession";
+      for (const session of ["son-session", "mother-session"]) {
+        h.props[first] = session; h.render(); await h.settle();
+        assert.equal(h.tree, null, "разные владелец и текущий вход скрывают историю");
+        h.props[second] = session; h.render(); await h.settle();
+        assert.equal(ofType(h.tree, "AlertDialog").length, 0);
+      }
+      for (const node of oldButtons) node.props.onClick();
+      oldConfirm(); await h.settle();
+      assert.deepEqual(calls, { repeat: [], remove: [], clear: 0 });
+      assert.equal(ofType(h.tree, "AlertDialog").length, 0, "старое открытие тоже отозвано");
+
+      // Действия нового периода A должны работать, хотя строковый маркер тот же.
+      const fresh = all(h.tree).filter((node) => node.type === "button" && node.props["aria-label"]);
+      for (const node of fresh) node.props.onClick();
+      assert.deepEqual(calls.repeat, [trip]);
+      assert.deepEqual(calls.remove, [key(entry)]);
+      button(h.tree, clearLabel).props.onClick(); await h.settle();
+      ofType(h.tree, "AlertDialog")[0].props.confirm.onClick(); await h.settle();
+      assert.equal(calls.clear, 1);
+      assert.equal(ofType(h.tree, "AlertDialog").length, 0);
+      h.unmount();
+    });
+  }
+
+  await t.test(`${lang}: старые отмена и закрытие не меняют диалог B и нового A`, async () => {
+    const { h, calls } = create();
+    const clearLabel = translated ? "Тарихты таҙартыу" : "Очистить историю";
+    const open = async () => {
+      button(h.tree, clearLabel).props.onClick(); await h.settle();
+      return ofType(h.tree, "AlertDialog")[0].props;
+    };
+    const oldA = await open();
+    h.props.activeSession = "son-session"; h.render(); await h.settle();
+    h.props.ownerSession = "son-session"; h.render(); await h.settle();
+    const oldB = await open();
+    for (const close of [oldA.dismiss.onClick, oldA.onClose]) {
+      close(); await h.settle();
+      assert.equal(ofType(h.tree, "AlertDialog").length, 1, "старый A не закрывает B");
+    }
+    oldB.dismiss.onClick(); await h.settle();
+    assert.equal(ofType(h.tree, "AlertDialog").length, 0, "текущая отмена B работает");
+
+    h.props.ownerSession = "mother-session"; h.render(); await h.settle();
+    h.props.activeSession = "mother-session"; h.render(); await h.settle();
+    const freshA = await open();
+    for (const close of [oldA.dismiss.onClick, oldA.onClose, oldB.dismiss.onClick, oldB.onClose]) {
+      close(); await h.settle();
+      assert.equal(ofType(h.tree, "AlertDialog").length, 1, "старые A/B не закрывают новый A");
+    }
+    freshA.onClose(); await h.settle();
+    assert.equal(ofType(h.tree, "AlertDialog").length, 0, "текущее закрытие A работает");
+    assert.deepEqual(calls, { repeat: [], remove: [], clear: 0 });
+    h.unmount();
+  });
+
   await t.test(`${lang}: обработчики после ухода с экрана ничего не меняют`, () => {
     const { h, calls } = create();
     const oldButtons = all(h.tree).filter((n) => n.type === "button");
