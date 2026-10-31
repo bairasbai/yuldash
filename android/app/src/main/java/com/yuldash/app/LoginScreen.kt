@@ -421,9 +421,9 @@ private fun LoginFormCard(
     val methodsState = rememberLoginMethodsState(
         onTelegramRemoved = { tgMode = false; needPhone = false },
         onSmsRemoved = { showPhone = false; step = 0 },
-        // Одна ошибка — один баннер: отдельный баннер способов давал вторую кнопку «Повторить».
-        onFetchFailed = { if (error == null) error = errMethodsRefresh },
     )
+    // Текст собирается при отрисовке, а не в момент сбоя: смена языка переводит и уже показанный баннер.
+    val shownError = error ?: (if (methodsState.error) errMethodsRefresh else null)
 
     // Строки ошибок считаем здесь (в @Composable-контексте с currentLanguage) — колбэки получают готовый текст.
     val errEnterTgCode = appTextFor(currentLanguage, "Введи код из Telegram", "Telegram кодын индер")
@@ -467,13 +467,14 @@ private fun LoginFormCard(
         code = code,
         name = nameInput,
         loading = loading,
-        error = error,
+        error = shownError,
         needPhone = needPhone,
         tgMode = tgMode,
         showPhone = showPhone,
         methods = methodsState.methods,
         methodsLoading = methodsState.loading,
         onMethodsRetry = methodsState.retry,
+        onErrorRetry = if (error == null && methodsState.error) methodsState.retry else null,
         onPhoneChange = { phone = it; error = null },
         onCodeChange = { code = sanitizeLoginCodeInput(it); error = null },
         onNameChange = { nameInput = it.take(120) },
@@ -621,6 +622,8 @@ internal fun LoginFormContent(
     methods: List<String> = LoginMethods.fallback,
     methodsLoading: Boolean = false,
     onMethodsRetry: () -> Unit = {},
+    // У сбоя обновления способов свой повтор; у ошибок входа — повтор входа.
+    onErrorRetry: (() -> Unit)? = null,
     telegramBotName: String = TelegramLoginBot.name,
 ) {
     val telegramAvailable = "telegram" in methods && telegramBotName.isNotBlank()
@@ -793,7 +796,7 @@ internal fun LoginFormContent(
                 currentLanguage = currentLanguage,
                 // при развёрнутой SMS-форме ту же ошибку показывает она сама — не дублируем
                 text = if (smsAvailable && showPhone) null else error,
-                onRetry = onTelegramStart,
+                onRetry = onErrorRetry ?: onTelegramStart,
             )
             if (smsAvailable) {
                 LoginSmsSection(

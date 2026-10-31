@@ -51,7 +51,6 @@ internal class LoginMethodsState(
 internal fun rememberLoginMethodsState(
     onTelegramRemoved: () -> Unit,
     onSmsRemoved: () -> Unit,
-    onFetchFailed: () -> Unit = {},
 ): LoginMethodsState {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
@@ -67,7 +66,7 @@ internal fun rememberLoginMethodsState(
             LoginMethods.save(context, methods)
             if ("telegram" !in methods) onTelegramRemoved()
             if ("sms" !in methods) onSmsRemoved()
-        }.onFailure { error = true; onFetchFailed() }
+        }.onFailure { error = true }
         loading = false
     }
     DisposableEffect(lifecycleOwner) {
