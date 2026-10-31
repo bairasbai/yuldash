@@ -12,6 +12,12 @@ from pydantic import BaseModel, Field
 from .models import RideCategory, RideStatus
 
 
+class StopPriceOut(BaseModel):
+    """Цена до одной остановки (RS-02 Б), целые рубли (D7). Единственная форма выдачи."""
+    stop: str
+    price: int
+
+
 class RideIn(BaseModel):
     from_city: str = Field(..., max_length=120)   # города — короткие; отсекаем мусорную строку в БД
     to_city: str = Field(..., max_length=120)
@@ -43,6 +49,9 @@ class RideIn(BaseModel):
     # Десяти остановок с запасом хватает: длиннее человек и не пишет.
     waypoints: str = Field("", max_length=500)
     recurrence: str = Field("none", max_length=20)   # none / daily / weekdays / weekly
+    # RS-02 Б: цена ДО каждой остановки в порядке частей waypoints, целые рубли (D7).
+    # Пусто — одна цена на весь маршрут. Выходные объекты {stop, price} обратно не посылаются.
+    stop_prices: list[int] = Field(default_factory=list)
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
     partner_id: Optional[int] = None  # F22: клиника-назначение (для category=hospital), опционально
@@ -98,6 +107,10 @@ class RideOut(BaseModel):
     seats_on_segment: Optional[int] = None
     # Занято мест всего — только в выдаче водителю о его рейсе (/driver/rides).
     seats_booked: Optional[int] = None
+    # RS-02 Б: цены до каждой остановки (в порядке маршрута) и цена участка запроса в рублях;
+    # участок не выбран/неоднозначен — segment_price = полная цена.
+    stop_prices: list[StopPriceOut] = []
+    segment_price: Optional[int] = None
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str

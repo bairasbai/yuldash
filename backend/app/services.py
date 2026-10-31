@@ -1576,9 +1576,11 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
     rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
     trips = (trips_agg or {}).get(ride.driver_id, 0)                       # F8: завершённых поездок водителя
     since = member_since(drv.created_at if drv else None)   # F8: «С нами с <мес год>», месяц местный
-    from .ride_seats import legs_free   # лениво: ride_seats → ride_stops → services (круг)
+    from .ride_seats import legs_free, stop_prices_out   # лениво: ride_seats → ride_stops → services (круг)
     return RideOut(
         seats_by_leg=legs_free(ride),   # RS-02 А: загрузка по участкам без имён; сырой leg_free — нет
+        stop_prices=stop_prices_out(ride),   # RS-02 Б: единая форма [{stop, price}]; сырой JSON — нет
+        segment_price=ride.price,            # участок не выбран — полная цена; в ленте перекрывается
         **ride.model_dump(exclude={"created_at", "women_only"}),
         # Отметка «только женщины» — не поле, а ОБЕЩАНИЕ, и держится оно на подтверждении
         # модератора. Подтверждение сгорает (отклонили документы, переписали пол), а отметка

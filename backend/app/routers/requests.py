@@ -503,6 +503,8 @@ class RequestFeedOut(BaseModel):
     matched_ride_depart_at: Optional[datetime] = None
     matched_pickup_stop: Optional[str] = None
     matched_dropoff_stop: Optional[str] = None
+    # RS-02 Б: цена участка заявки на своём рейсе в рублях (D7), если рейс подобран.
+    matched_segment_price: Optional[int] = None
 
 
 def _detour_km(req, rides: list) -> Optional[int]:
@@ -731,6 +733,8 @@ def requests_feed(response: Response, on_route: bool = False, user: User = Depen
                 matched_ride_depart_at=match.depart_at if match else None,
                 matched_pickup_stop=(section[0] or match.from_city) if match else None,
                 matched_dropoff_stop=(section[1] or match.to_city) if match else None,
+                matched_segment_price=(ride_seats.segment_price(match, section[0], section[1])
+                                       if match else None),
                 passenger_rating=(round(rating, 1) if rating_count > 0 else None),
                 passenger_rating_count=rating_count,
                 passenger_verified=bool(p and p.verified),
@@ -1528,11 +1532,15 @@ def match_rides(request_id: int, response: Response, user: User = Depends(curren
             if section is not None:
                 sections[ride.id] = section
                 rides.append(ride)
+        # RS-02 Б: цена участка заявки в рублях (D7) — из ORM-рейса (там stop_prices_json).
+        seg_prices = {ride.id: ride_seats.segment_price(ride, sections[ride.id][0], sections[ride.id][1])
+                      for ride in rides}
         page = [r.model_copy(update={
             "matched_stop": sections[r.id][0] or None,
             "matched_from_start": sections[r.id][0] == "",
             "matched_dropoff_stop": sections[r.id][1] or None,
             "matched_to_end": sections[r.id][1] == "",
+            "segment_price": seg_prices[r.id],   # пассажир видит цену своего участка до брони
         }) for r in rides_out(rides, session)]
         out.extend(visible_rides(public_rides_payload(page), user, session))
         if len(out) >= FEED_MAX:

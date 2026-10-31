@@ -11,13 +11,15 @@ PostgreSQL (рядом с FOR UPDATE), и SQLite, где блокировки с
 """
 from __future__ import annotations
 
+import json
 from typing import Optional, Sequence, Tuple
 
 from sqlalchemy import or_
 from sqlmodel import select, update
 
+from .errors import herr
 from .models import Booking, BookingStatus, Ride
-from .ride_stops import parse_stops
+from .ride_stops import is_end, is_start, parse_stops, split_raw
 
 LIVE = (BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)
 
@@ -176,3 +178,84 @@ def release(session, ride_id: int, sp: Tuple[int, int], seats: int) -> None:
 def any_free_sql(n: int = 1):
     """«Есть место хотя бы на одном участке» для выдач — фильтр по столбцам, без заполнения базы."""
     return or_(Ride.seats_left >= n, Ride.seats_free_max >= n)
+
+
+# ---- RS-02 Б: цены до остановок (целые рубли, исключение D7 из AGENTS.md §8) ----
+
+def parse_stop_prices(ride) -> list[int]:
+    """Цены до остановок из JSON-снимка рейса; «»/битые/не список — одна цена на весь маршрут."""
+    raw = (getattr(ride, "stop_prices_json", "") or "").strip()
+    if not raw:
+        return []
+    try:
+        data = json.loads(raw)
+    except ValueError:
+        return []
+    if not isinstance(data, list) or not all(isinstance(p, int) and not isinstance(p, bool) for p in data):
+        return []
+    return data
+
+
+def validate_stop_prices(ride, prices: Sequence[int], entry: Optional[dict] = None) -> list[int]:
+    """Входные цены остановок → проверенный список целых рублей или отказ с кодом.
+
+    Пусто → [] (одна цена). Иначе цена маршрута обязана быть > 0 (`stop_prices_need_price`);
+    число цен равно числу остановок, а остановка — не повтор и не начало/конец маршрута
+    (`stop_prices_count`); строгий рост 1 ≤ p < price (`stop_prices_order`). Цены идут
+    строго в порядке частей waypoints (split_raw) — не по имени: переименование и перестановка
+    остановок (RS-15) присылают новый список целиком."""
+    if not prices:
+        return []
+    price = getattr(ride, "price", 0)
+    parts = split_raw(getattr(ride, "waypoints", ""))
+    if price <= 0:
+        raise herr(400, "Сначала укажи цену до конца маршрута",
+                   "Әүҙә юл аҙағына тиклемге хаҡты күрһәт", code="stop_prices_need_price")
+    if (len(prices) != len(parts) or len(set(parts)) != len(parts)
+            or any(is_start(ride, p, entry) or is_end(ride, p, entry) for p in parts)):
+        raise herr(400, "Цен больше или меньше, чем остановок — проверь",
+                   "Хаҡтар һаны туҡталыштар һанынан дә ҙур ҙа, дә бәләкәй — тикшер",
+                   code="stop_prices_count")
+    prev = 0
+    for p in prices:
+        if not isinstance(p, int) or isinstance(p, bool) or p < 1 or p >= price or p <= prev:
+            raise herr(400,
+                       "Цена до каждой следующей остановки должна быть больше, а до конца маршрута — больше всех",
+                       "Һәр артабанғы туҡталышҡа тиклем хаҡ ҙурыраҡ, ә юл аҙағына тиклем — иң ҙур булырға тейеш",
+                       code="stop_prices_order")
+        prev = p
+    return list(prices)
+
+
+def segment_price(ride, pickup: Optional[str], dropoff: Optional[str]) -> int:
+    """Цена участка в целых рублях (D7): цен остановок нет → полная цена рейса; иначе
+    cum(высадка) − cum(посадка), где cum(начало)=0, cum(конец)=price, остановка — по индексу
+    её части. Незнакомая/пустая посадка → начало, высадка → конец (как span)."""
+    return _segment_price(split_raw(getattr(ride, "waypoints", "")), getattr(ride, "price", 0),
+                          parse_stop_prices(ride), pickup, dropoff)
+
+
+def _segment_price(parts: Sequence[str], price: int, prices: Sequence[int],
+                   pickup: Optional[str], dropoff: Optional[str]) -> int:
+    if not prices or len(prices) != len(parts):
+        return price
+
+    def cum(point: int) -> int:
+        if point <= 0:
+            return 0
+        if point >= len(parts) + 1:
+            return price
+        return prices[point - 1]
+
+    a = parts.index(pickup) + 1 if pickup and pickup in parts else 0
+    b = parts.index(dropoff) + 1 if dropoff and dropoff in parts else len(parts) + 1
+    return cum(b) - cum(a)
+
+
+def stop_prices_out(ride) -> list[dict]:
+    """Единственная форма выдачи: [{stop, price}] в порядке частей waypoints."""
+    parts = split_raw(getattr(ride, "waypoints", ""))
+    prices = parse_stop_prices(ride)
+    if not prices or len(prices) != len(parts):
+        return []
+    return [{"stop": stop, "price": price} for stop, price in zip(parts, prices)]

@@ -374,6 +374,10 @@ class Ride(SQLModel, table=True):
     leg_free: str = ""
     seats_free_max: int = 0     # max свободных по участкам; seats_left = min (весь путь — старым клиентам)
     price: int = 0
+    # RS-02 Б: цены до каждой остановки — JSON-список целых рублей (D7) в порядке частей
+    # waypoints (split_raw), «» — одна цена на весь маршрут, как раньше. Пример: waypoints
+    # «Ургаза», price 500, stop_prices_json «[300]» → Сибай→Ургаза 300 ₽, Ургаза→Акъяр 200 ₽.
+    stop_prices_json: str = ""
     category: RideCategory = RideCategory.regular
     comment: str = ""
     pickup: str = ""                  # где водитель забирает (точка сбора, текст)

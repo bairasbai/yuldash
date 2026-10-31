@@ -21,6 +21,7 @@ import uuid
 
 from sqlmodel import Session, select
 
+from app import ride_seats
 from app.db import engine
 from app.models import Booking, BookingStatus, Ride, RideRequest, User, UserRole
 from app.security import make_token
@@ -102,11 +103,12 @@ def test_cancel_returns_seats_by_fresh_count(client, monkeypatch):
     _book(client, b, ride["id"])                   # свободно 1
 
     def третий_занимает_последнее_место(other: Session):
+        # RS-02 А: параллельное занятие идёт честной дверью — CAS списывает место и поднимает
+        # версию условий; прямая подкрутка счётчика гонку больше не изображает.
         r = other.get(Ride, ride["id"])
-        r.seats_left -= 1                          # свободно 0
+        assert ride_seats.take(other, r, ride_seats.span(r, None, None), 1)
         other.add(Booking(ride_id=ride["id"], passenger_id=c["id"], seats=1, price=300,
                           status=BookingStatus.pending))
-        other.add(r)
 
     _race_once(monkeypatch, bookings_mod, "booking_and_ride_for_user",
                третий_занимает_последнее_место)
@@ -134,10 +136,10 @@ def test_cancel_does_not_overwrite_fresh_no_show(client, monkeypatch):
         bk.no_show = True
         bk.cancel_reason = "no_show"
         bk.cancelled_by = drv["id"]
+        # RS-02 А: возврат места — честной дверью (как настоящая ручка неявки).
         r = other.get(Ride, ride["id"])
-        r.seats_left = min(r.seats_total, r.seats_left + bk.seats)
+        ride_seats.release(other, r.id, ride_seats.span(r, bk.pickup_stop, bk.dropoff_stop), bk.seats)
         other.add(bk)
-        other.add(r)
 
     _race_once(monkeypatch, bookings_mod, "booking_and_ride_for_user", водитель_отметил_неявку)
     assert client.post(f"/bookings/{booking['id']}/cancel", headers=pax["auth"]).status_code == 200
@@ -163,11 +165,11 @@ def test_no_show_returns_seats_by_fresh_count(client, monkeypatch):
     _book(client, b, ride["id"])
 
     def третий_занимает_последнее_место(other: Session):
+        # RS-02 А: честная дверь занятия (CAS + версия), как в тесте отмены выше.
         r = other.get(Ride, ride["id"])
-        r.seats_left -= 1
+        assert ride_seats.take(other, r, ride_seats.span(r, None, None), 1)
         other.add(Booking(ride_id=ride["id"], passenger_id=c["id"], seats=1, price=300,
                           status=BookingStatus.pending))
-        other.add(r)
 
     _race_once(monkeypatch, bookings_mod, "booking_and_ride_for_user",
                третий_занимает_последнее_место)

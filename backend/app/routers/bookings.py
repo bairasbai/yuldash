@@ -298,6 +298,9 @@ class BookIn(BaseModel):
     # 409 ride_terms_changed без резерва мест. Старый клиент без версии — прежние проверки
     # по свежему объекту под замком (это не согласие с незнакомыми новыми условиями).
     expected_terms_version: Optional[int] = None
+    # RS-02 Б: цена ЗА МЕСТО на своём участке, которую клиент видел. Не сошлась с текущей —
+    # 409 price_changed. Старый клиент без неё — бронь по актуальной цене участка под замком.
+    expected_price: Optional[int] = None
 
 
 # Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.
@@ -544,6 +547,14 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     if body.expected_terms_version is not None and ride.terms_version != body.expected_terms_version:
         raise herr(409, "Условия поездки изменились — посмотри новые и забронируй ещё раз",
                    "Сәфәр шарттары үҙгәрҙе — яңыларын ҡара ла тағы бронла", code="ride_terms_changed")
+    # RS-02 Б: цена за место на СВОЁМ участке, которую человек видел перед бронью, — сверяем
+    # с актуальной под тем же замком, до любого списания мест.
+    seg_price = ride_seats.segment_price(ride, pickup_stop, dropoff_stop)
+    if body.expected_price is not None and body.expected_price != seg_price:
+        raise herr(409,
+                   f"Водитель изменил цену: теперь {seg_price} ₽ за место. Проверь и забронируй ещё раз",
+                   f"Йөрөтөүсе хаҡты үҙгәртте: хәҙер бер урын {seg_price} ₽. Тикшер ҙә тағы бронла",
+                   code="price_changed", price=seg_price)
     # Быстрая понятная проверка «мест нет» — на СВОЁМ участке (RS-02 А): место занято только
     # между посадкой и высадкой. Настоящая защита ниже: между этой строкой и списанием мест
     # может вклиниться чужая бронь.
@@ -585,7 +596,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
             )
     else:
         guardian_name = guardian_phone = ""   # не подросток — лишних ПДн не храним
-    total_price = ride.price * body.seats
+    # RS-02 Б: сумма брони — цена СВОЕГО участка × места (цены остановок нет → полная, как раньше).
+    total_price = seg_price * body.seats
     # Договорённость об оплате: способ по умолчанию — «договоримся»; сумма — из цены поездки, если не задана.
     pay_method = body.pay_method or PayMethod.negotiate
     pay_amount = _clean_pay_amount(body.pay_amount)

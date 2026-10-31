@@ -127,7 +127,7 @@ def test_кеш_ленты_не_проносит_связку_мимо_чист�
 
     first = client.get("/rides")
     assert first.status_code == 200
-    assert svc.cache_get_json("rides:active:v2") is not None, "кеш не наполнился — тест слеп"
+    assert svc.cache_get_json("rides:active:v3") is not None, "кеш не наполнился — тест слеп"
 
     second = client.get("/rides")
     assert second.status_code == 200

@@ -1,9 +1,11 @@
 """Поездки: публикация (вкл. регулярные серии), поиск, ценовой ориентир,
 ближайшие по маршруту+гео, карточка поездки."""
+import json
 import re
 from collections import Counter
 from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
+from types import SimpleNamespace
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
@@ -23,7 +25,7 @@ from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Rid
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
 from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
-from ..ride_stops import parse_stops
+from ..ride_stops import parse_stops, split_raw
 from ..safety_logic import (ensure_active, guard_women_only_publish)
 from ..schemas import RideIn, RideOut
 from .. import stop_search
@@ -182,7 +184,7 @@ def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
     `test_ride_waypoints_flows_through`). Совпасть должно всё: изменил хоть остановку, хоть
     комментарий — это новая поездка, и терять её нельзя.
     """
-    fields = body.model_dump(exclude={"pickup_point_id"})
+    fields = body.model_dump(exclude={"pickup_point_id", "stop_prices"})
     recent = session.exec(
         select(Ride).where(
             Ride.driver_id == driver_id,
@@ -191,7 +193,10 @@ def _recent_twin_ride(session: Session, driver_id: int, body: RideIn):
         ).order_by(Ride.id.desc()).limit(20)
     ).all()
     for r in recent:
-        if all(getattr(r, k, None) == v for k, v in fields.items()):
+        # RS-02 Б: цены остановок сверяем отдельно (список рублей против JSON-снимка),
+        # иначе повтор с теми же ценами был бы «новой» поездкой — дубль.
+        if (all(getattr(r, k, None) == v for k, v in fields.items())
+                and ride_seats.parse_stop_prices(r) == list(body.stop_prices or [])):
             return r
     return None
 
@@ -319,9 +324,17 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
         return twin
 
     # (время выезда уже приведено к UTC выше, вместе с проверкой «не в прошлом»)
+    # RS-02 Б: цены остановок проверяем до записи (по частям waypoints и полной цене);
+    # хранение — JSON-список в порядке частей, не по имени остановки.
+    stop_prices = ride_seats.validate_stop_prices(
+        SimpleNamespace(price=body.price, waypoints=body.waypoints,
+                        from_city=body.from_city, to_city=body.to_city),
+        body.stop_prices)
+    stop_prices_json = json.dumps(stop_prices) if stop_prices else ""
     # pickup_point_id — не колонка Ride (только сигнал привязки), исключаем из дампа.
-    dump = body.model_dump(exclude={"pickup_point_id"})
-    ride = Ride(driver_id=user.id, seats_left=body.seats_total, **dump, **geo)
+    dump = body.model_dump(exclude={"pickup_point_id", "stop_prices"})
+    ride = Ride(driver_id=user.id, seats_left=body.seats_total, stop_prices_json=stop_prices_json,
+                **dump, **geo)
     session.add(ride)
     # Регулярная поездка: сразу создаём ближайшие 4 рейса серии (реальные, бронируемые).
     if body.recurrence and body.recurrence != "none":
@@ -339,7 +352,9 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             # найден независимой проверкой 2026-08-03).
             if body.recurrence == "weekdays" and local_now(dt).weekday() >= 5:   # пропускаем сб/вс
                 continue
-            session.add(Ride(driver_id=user.id, seats_left=body.seats_total, **{**dump, "depart_at": dt}, **geo))
+            # RS-02 Б: цены остановок в серию — копия списка.
+            session.add(Ride(driver_id=user.id, seats_left=body.seats_total,
+                             stop_prices_json=stop_prices_json, **{**dump, "depart_at": dt}, **geo))
             made += 1
     # Перенесённое с отменённой поездки поднятие достаётся этой — молча и сразу.
     if apply_boost_credit(user, ride, utcnow()):
@@ -373,6 +388,12 @@ class RideEditIn(BaseModel):
     seats_total: Optional[int] = Field(None, ge=1, le=8)
     back_max_two: Optional[bool] = None          # «сзади максимум двое»
     front_seat_available: Optional[bool] = None  # «переднее место свободно»
+    # RS-02 Б: цены до остановок в порядке частей waypoints (целые рубли, D7).
+    # None — оставить как есть; [] — вернуться к одной цене на весь маршрут.
+    stop_prices: Optional[list[int]] = None
+    # RS-02 А/Б: версия условий, которую видел клиент. Новый клиент обязан прислать;
+    # несовпадение — 409 ride_terms_changed, ничего не пишется.
+    expected_terms_version: Optional[int] = None
 
 
 @router.patch("/rides/{ride_id}", response_model=RideOut)
@@ -397,19 +418,43 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
     )).all()
     changed: list[tuple[str, str]] = []   # что изменилось: (по-русски, по-башкирски)
-    if body.price is not None and body.price != ride.price:
-        if live and body.price > ride.price:
-            raise herr(409, "С активными бронями цену можно только снижать", "Актив брондар менән хаҡты кәметергә генә була")
-        ride.price = body.price
-        changed.append(("цена", "хаҡ"))
-        # Скидку доводим до тех, кому она сделана (волна 119). Раньше правка меняла только
-        # цену объявления: водитель по-соседски снижал с 500 до 300, пассажирке приходил пуш
-        # «цена изменена», а в её брони и в квитанции оставалось 500. У подъезда спор,
-        # и единственная запись, заведённая ради таких споров, показывала старую цифру.
+    # RS-02 Б: новый клиент правит только по свежей версии условий (под тем же замком).
+    if body.expected_terms_version is not None and ride.terms_version != body.expected_terms_version:
+        raise herr(409, "Условия поездки изменились — обнови и попробуй ещё раз",
+                   "Сәфәр шарттары үҙгәрҙе — яңырт та тағы кабатла", code="ride_terms_changed")
+    new_stop_prices: Optional[list] = None
+    if body.stop_prices is not None:
+        probe = SimpleNamespace(price=body.price if body.price is not None else ride.price,
+                                waypoints=ride.waypoints, from_city=ride.from_city, to_city=ride.to_city)
+        new_stop_prices = ride_seats.validate_stop_prices(probe, body.stop_prices)
+    if (body.price is not None and body.price != ride.price) or new_stop_prices is not None:
+        новая_полная = body.price if body.price is not None else ride.price
+        новые_цены = new_stop_prices if new_stop_prices is not None else ride_seats.parse_stop_prices(ride)
+        parts = split_raw(ride.waypoints)
+        # С живыми бронями цену можно только снижать — и полную (cum конца — это она),
+        # и участок КАЖДОЙ брони (RS-02 Б): водитель не поднимет цену ни целиком,
+        # ни перестановкой цен остановок.
+        if live and новая_полная > ride.price:
+            raise herr(409, "С бронями цену можно только снижать — у кого-то из пассажиров она бы выросла",
+                       "Актив брондар менән хаҡты кәметергә генә була — кемдеңдер хаҡы ҙураясаҡ",
+                       code="price_up_with_bookings")
         for b in live:
-            b.price = body.price * b.seats
-            # И в договорённость об оплате: квитанция и карта берут именно её. Без этого
-            # скидка доходила до цены брони, а списали бы прежнюю сумму (ревью 2026-10-13).
+            старая = ride_seats.segment_price(ride, b.pickup_stop, b.dropoff_stop)
+            новая = ride_seats._segment_price(parts, новая_полная, новые_цены, b.pickup_stop, b.dropoff_stop)
+            if новая > старая:
+                raise herr(409, "С бронями цену можно только снижать — у кого-то из пассажиров она бы выросла",
+                           "Актив брондар менән хаҡты кәметергә генә була — кемдеңдер хаҡы ҙураясаҡ",
+                           code="price_up_with_bookings")
+        if body.price is not None and body.price != ride.price:
+            ride.price = body.price
+        if new_stop_prices is not None:
+            ride.stop_prices_json = json.dumps(new_stop_prices) if new_stop_prices else ""
+        changed.append(("цена", "хаҡ"))
+        # Скидку доводим до тех, кому она сделана (волна 119): цена брони — её участок × места.
+        # И в договорённость об оплате: квитанция и карта берут именно её (ревью 2026-10-13).
+        for b in live:
+            b.price = ride_seats._segment_price(parts, новая_полная, новые_цены,
+                                                b.pickup_stop, b.dropoff_stop) * b.seats
             if b.pay_amount is not None and b.pay_amount > b.price:
                 b.pay_amount = b.price
             session.add(b)
@@ -642,7 +687,11 @@ def search_rides(
                                     # RS-02 А: свободно на участке своего запроса (неоднозначен — null)
                                     "seats_on_segment": _seats_on_segment(
                                         r, (marks[r.id][0], marks[r.id][1]),
-                                        (marks[r.id][2], marks[r.id][3]), entry)})
+                                        (marks[r.id][2], marks[r.id][3]), entry),
+                                    # RS-02 Б: цена участка запроса в рублях (из ORM-рейса)
+                                    "segment_price": _seg_price_for(
+                                        by_id[r.id], (marks[r.id][0], marks[r.id][1]),
+                                        (marks[r.id][2], marks[r.id][3]))})
                for r in out]
     public_out = public_rides_payload(out)
     if no_filter:
@@ -669,6 +718,7 @@ def _route_distance_km(from_city: Optional[str], to_city: Optional[str]) -> Opti
 def price_hint(
     from_city: Optional[str] = None,
     to_city: Optional[str] = None,
+    stops: Optional[str] = Query(None, max_length=500),   # RS-02 Б: остановки через запятую (≤4)
     session: Session = Depends(get_session),
 ):
     """Ориентир цены по маршруту: средняя цена прошлых поездок (price>0) + честная оценка
@@ -695,12 +745,44 @@ def price_hint(
         fuel_estimate_kop = round(fuel_rub * 100)
 
     avg = round(sum(prices) / len(prices)) if prices else 0
-    return {
+    out = {
         "avg": avg,
         "count": len(prices),
         "distance_km": distance_km,
         "fuel_estimate_kop": fuel_estimate_kop,
     }
+    # RS-02 Б: подсказка по остановкам для «Поделить по расстоянию» — расстояние от предыдущей
+    # точки по своему справочнику сёл (не Яндекс — платно) и средняя цена прошлых поездок до неё.
+    if stops and from_city:
+        entry = settlements_snapshot(session)
+
+        def _coords(name: str):
+            rows = lookup(entry, name)
+            return (rows[0].lat, rows[0].lng) if rows else None
+
+        stop_legs = []
+        prev_coords = _coords(from_city)
+        for name in [s.strip() for s in stops.split(",") if s.strip()][:4]:
+            coords = _coords(name)
+            km = (round(haversine_km(prev_coords[0], prev_coords[1], coords[0], coords[1]), 1)
+                  if prev_coords and coords else None)
+            q = select(Ride.price).where(Ride.price > 0)
+            cond_f = _city_match(Ride.from_city, session, from_city)
+            cond_t = _city_match(Ride.to_city, session, name)
+            if cond_f is not None:
+                q = q.where(cond_f)
+            if cond_t is not None:
+                q = q.where(cond_t)
+            stop_prices = [p for p in session.exec(q).all() if p and p > 0]
+            stop_legs.append({
+                "stop": name,
+                "distance_km": km,
+                "avg": round(sum(stop_prices) / len(stop_prices)) if stop_prices else 0,
+                "count": len(stop_prices),
+            })
+            prev_coords = coords or prev_coords
+        out["stops"] = stop_legs
+    return out
 
 
 # G7 «Диагностика: почему мало откликов» — мягкие ДОБРЫЕ подсказки водителю по его поездке.
@@ -974,6 +1056,14 @@ def _seats_on_segment(item, matched, dropoff, entry) -> Optional[int]:
     return min(legs[a:b])
 
 
+def _seg_price_for(orm_ride, matched, dropoff) -> int:
+    """Цена участка запроса в рублях (RS-02 Б) из ORM-рейса (в нём stop_prices_json);
+    конец не определён — считается как начало/конец маршрута, т.е. максимум честно."""
+    mstop, mstart = matched
+    dstop, dend = dropoff
+    return ride_seats.segment_price(orm_ride, "" if mstart else mstop, "" if dend else dstop)
+
+
 # Колонки, которые определяют маршрут поездки в «Ближайших»: по ним ответ (подходит ли, расстояние,
 # место посадки) считается один раз на «вид маршрута». Идут в запросе сразу после id/driver_id/only_trusted.
 _NEAR_SHAPE = (Ride.from_lat, Ride.from_lng, Ride.from_city, Ride.to_lat, Ride.to_lng, Ride.to_city,
@@ -1132,6 +1222,9 @@ def rides_near(
         # RS-02 А: свободно на участке СВОЕГО запроса (неоднозначен — null, смотри seats_by_leg)
         out["seats_on_segment"] = _seats_on_segment(
             r, matched_by_id.get(r.id, (None, False)), dropoff_by_id.get(r.id, (None, False)), entry)
+        # RS-02 Б: цена участка запроса в рублях (из ORM-рейса)
+        out["segment_price"] = _seg_price_for(
+            r, matched_by_id.get(r.id, (None, False)), dropoff_by_id.get(r.id, (None, False)))
         items.append(out)
     # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
     # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них

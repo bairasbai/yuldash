@@ -20,12 +20,12 @@ from app.safety_logic import cancel_upcoming_after_suspension
 from app.timeutil import utcnow
 
 
-def _mkride(driver, seats=3, **extra):
+def _mkride(driver, seats=3, price=700, **extra):
     """Рейс Сибай → Ургаза → Бурибай → Акъяр (2 остановки, 3 участка)."""
     with Session(engine) as session:
         ride = Ride(driver_id=driver["id"], from_city="Сибай", to_city="Акъяр",
                     waypoints="Ургаза | Бурибай", depart_at=utcnow() + timedelta(days=4),
-                    seats_total=seats, seats_left=seats, price=700, **extra)
+                    seats_total=seats, seats_left=seats, price=price, **extra)
         session.add(ride)
         session.commit()
         session.refresh(ride)
