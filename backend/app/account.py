@@ -25,9 +25,13 @@
 стираем здесь. Чат-фото/голос и так подметает ретеншен по возрасту.
 """
 import os
-from datetime import timedelta
+import threading
+from dataclasses import dataclass, field
+from datetime import datetime, timedelta
+from typing import Optional
 from urllib.parse import urlparse
 
+from fastapi import HTTPException
 from sqlalchemy import and_, delete, func, or_, update
 from sqlmodel import Session, select
 
@@ -197,6 +201,174 @@ def guard_can_delete(session: Session, user: User) -> None:
                        "уведомление и успеют найти другую машину, — и возвращайся к удалению.",
                        "Һинең сәфәреңә юлаусылар өмөт итә. Рейсты кире ал — улар хәбәр алыр һәм "
                        "башҡа машина табып өлгөрөр, — шунан юйыуға ҡайт.")
+
+        # 6) Поездку отменили, когда пассажир был в машине (решение Александра 24.10.2026). Каскад ниже
+        # стёр бы бронь, ссылку близких и привязку SOS — а человек, возможно, ещё стоит на трассе или
+        # только собирается «Сообщить о проблеме». Держим: не меньше 6 ч от отмены, при открытом разборе —
+        # до его закрытия, но не дольше 30 дней от отмены (второе решение Александра 24.10). Ничего не
+        # трогаем — только отказ с объяснением, когда можно. Дежурный узнаёт о разборе, который держит
+        # удаление, и о том, что истёк 30-дневный предел и удаление пройдёт при открытом разборе.
+        hold = transit_cancel_hold(session, my_ride_ids)
+        if hold is not None:
+            if hold.review_open:
+                _ping_duty(user.id, "held", hold.booking_ids,
+                           f"просит удалить данные, а по брони {{брони}} (отменили в пути) открыт разбор. Закрой "
+                           f"разбор — удаление пройдёт; держим не дольше 30 дней от отмены, до {hold.until_local()} (Уфа).")
+            if hold.blocks:
+                raise hold.refusal()
+            # Удаление проходит, хотя разбор открыт: предел 30 дней истёк. Весть — только когда правда
+            # удаляем (итоговая приёмка 24.10: при отказе «удаляет данные» было бы неправдой).
+            if hold.past_cap_ids:
+                _ping_duty(user.id, "past-cap", hold.past_cap_ids,
+                           "удаляет данные: разбор по брони {брони} (отменили в пути) открыт дольше 30 дней от "
+                           "отмены и удаление больше не держит. Бронь уйдёт вместе с аккаунтом; останется факт "
+                           "разбора без ссылки на аккаунт (в споре — ещё и материалы второй стороны).")
+
+
+# Предел удержания удаления открытым разбором (решение Александра 24.10.2026): от отмены в пути. Дальше
+# держать весь аккаунт нельзя — по 152-ФЗ после отзыва согласия оставляют только нужное для разбора, а
+# страница удаления обещает «не более 30 дней»; факт разбора (а в споре — и материалы второй стороны)
+# и так переживает удаление, обезличенным.
+TRANSIT_REVIEW_HOLD_MAX = timedelta(days=30)
+
+
+@dataclass
+class TransitCancelHold:
+    """Что держит удаление водителя: открытый разбор (не дольше `TRANSIT_REVIEW_HOLD_MAX` от отмены) или
+    окно «Сообщить о проблеме» (6 ч). `past_cap_ids` — брони с разбором, открытым дольше предела: они
+    удаление уже не держат, но дежурному о них скажем."""
+    review_open: bool
+    booking_ids: list
+    until: Optional[datetime] = None   # UTC: конец окна 6 ч или предел 30 дней при открытом разборе
+    past_cap_ids: list = field(default_factory=list)
+
+    @property
+    def blocks(self) -> bool:
+        return self.review_open or self.until is not None
+
+    def until_local(self) -> str:
+        if self.until is None:
+            return ""
+        return (self.until + timedelta(hours=settings.local_tz_offset_hours)).strftime("%d.%m %H:%M")
+
+    def refusal(self) -> HTTPException:
+        when_ru = self.until_local()
+        if self.review_open:
+            # Главное — первым: Android показывает отказ всплывающей строкой (итоговая приёмка 24.10).
+            return HTTPException(status_code=409, detail={
+                "ru": f"Удалить аккаунт можно будет, когда закроют разбор, и не позже {when_ru} по времени Уфы — "
+                      "через 30 дней после отмены. По поездке, которую отменили, когда пассажир был в машине, "
+                      "идёт разбор: данные поездки нужны, чтобы честно разобраться за обе стороны. "
+                      "Вопросы — в поддержку.",
+                "ba": f"Аккаунтты тикшереү ябылғас юйып була, иң һуңы — {when_ru} (Өфө ваҡыты буйынса), "
+                      "кире алыуҙан 30 көн үткәс. Пассажир машинала саҡта кире алынған сәфәр буйынса тикшереү "
+                      "бара: ике яҡ өсөн дә ғәҙел аңлашыу өсөн сәфәр мәғлүмәттәре кәрәк. "
+                      "Һорауҙар булһа — ярҙам хеҙмәтенә яҙ.",
+                "code": "transit_cancel_review_open",
+                "delete_no_later_than": self.until.isoformat(),
+            })
+        return HTTPException(status_code=409, detail={
+            # «Не раньше»: за эти часы может открыться разбор — тогда ждём уже его (проверка плана 24.10).
+            # Срок — первым: Android показывает отказ всплывающей строкой, и длинный хвост там обрезается
+            # (итоговая приёмка 24.10).
+            "ru": f"Удалить аккаунт можно будет не раньше {when_ru} по времени Уфы. Недавно поездку "
+                  "отменили, когда пассажир был в машине: 6 часов после отмены он может сообщить о проблеме, "
+                  "и данные поездки нужны для разбора.",
+            "ba": f"Аккаунтты юйыу — иң иртә {when_ru} (Өфө ваҡыты буйынса). Яҡында пассажир машинала саҡта "
+                  "сәфәр кире алынды: кире алғандан һуң 6 сәғәт эсендә ул проблема тураһында хәбәр итә ала, "
+                  "һәм сәфәр мәғлүмәттәре тикшереү өсөн кәрәк.",
+            "code": "transit_cancel_hold",
+            "delete_after": self.until.isoformat(),
+        })
+
+
+# Открытый разбор: спор «Справедливости» (`safety_logic.ACTIVE_INCIDENT_STATUSES`), жалоба (new /
+# reviewing) или сигнал SOS / «Застрял на трассе» (SosEvent open), пока дежурный его не принял.
+_OPEN_REPORT_STATUSES = ("new", "reviewing")
+
+
+def transit_cancel_hold(session: Session, my_ride_ids: list, now=None) -> Optional[TransitCancelHold]:
+    """Брони на поездках водителя, отменённые в пути (то же правило, что `visibility.cancelled_in_transit`:
+    отменена, посадка отмечена и не снята, отменил не пассажир), и что по ним держит удаление.
+
+    Без момента отмены (`cancelled_at` пуст — старые записи) не держим: как в `_заброшено`, держать
+    человека по пустому полю нельзя. SOS без привязки к брони — тоже разбор этой поездки, если его нажал
+    этот пассажир от посадки до конца окна 6 ч после отмены (экран SOS открывают и без брони — и в машине,
+    и уже на трассе; итоговая приёмка 24.10). При открытом разборе `booking_ids` — брони именно с ним
+    (их номера уходят дежурному), иначе — все отменённые в пути."""
+    from .safety_logic import ACTIVE_INCIDENT_STATUSES
+    from .visibility import PROBLEM_REPORT_WINDOW
+
+    if not my_ride_ids:
+        return None
+    now = now or utcnow()
+    rows = session.exec(select(Booking.id, Booking.passenger_id, Booking.onboard_at, Booking.cancelled_at).where(
+        Booking.ride_id.in_(my_ride_ids),
+        Booking.status == BookingStatus.cancelled,
+        Booking.onboard_at.is_not(None),
+        Booking.cancelled_at.is_not(None),
+        or_(Booking.cancelled_by.is_(None), Booking.cancelled_by != Booking.passenger_id),
+    )).all()
+    if not rows:
+        return None
+    ids = [bid for bid, _pid, _on, _at in rows]
+    reviewed = set(session.exec(select(Incident.booking_id).where(
+        Incident.booking_id.in_(ids), Incident.status.in_(ACTIVE_INCIDENT_STATUSES))).all())
+    reviewed |= set(session.exec(select(Report.booking_id).where(
+        Report.booking_id.in_(ids), Report.status.in_(_OPEN_REPORT_STATUSES))).all())
+    reviewed |= set(session.exec(select(SosEvent.booking_id).where(
+        SosEvent.status == "open", SosEvent.booking_id.in_(ids))).all())
+    # SOS без брони: чей и когда — сверяем с окном каждой брони этого пассажира.
+    loose = session.exec(select(SosEvent.user_id, SosEvent.created_at).where(
+        SosEvent.status == "open", SosEvent.booking_id.is_(None),
+        SosEvent.user_id.in_({pid for _bid, pid, _on, _at in rows}),
+    )).all()
+    for bid, pid, on, at in rows:
+        if any(uid == pid and on <= created <= at + PROBLEM_REPORT_WINDOW for uid, created in loose):
+            reviewed.add(bid)
+    reviewed.discard(None)
+    # Предел 30 дней от отмены: открытый дольше разбор удаление больше не держит (решение 24.10).
+    cap = {bid: at + TRANSIT_REVIEW_HOLD_MAX for bid, _pid, _on, at in rows}
+    blocking = sorted((b for b in reviewed if now <= cap[b]), reverse=True)
+    past_cap = sorted((b for b in reviewed if now > cap[b]), reverse=True)
+    if blocking:
+        # «Не позже» — по всем отменам в пути, чей предел ещё не наступил: по свежей брони без разбора
+        # жалобу могут подать позже, и тогда держит уже она (итоговая приёмка 24.10). Одна бронь — то же число.
+        latest = max(c for c in cap.values() if c >= now)
+        return TransitCancelHold(review_open=True, booking_ids=blocking, until=latest, past_cap_ids=past_cap)
+    until = max(at + PROBLEM_REPORT_WINDOW for _bid, _pid, _on, at in rows)
+    if until > now:
+        return TransitCancelHold(review_open=False, booking_ids=ids, until=until, past_cap_ids=past_cap)
+    if past_cap:
+        return TransitCancelHold(review_open=False, booking_ids=[], past_cap_ids=past_cap)
+    return None
+
+
+# Дежурному — один раз в 6 ч на человека и на повод: «удаление ждёт открытого разбора» или «предел
+# 30 дней истёк, удаление пройдёт при открытом разборе». Только номера броней и аккаунта, без имён и
+# телефонов (проверка плана 24.10.2026).
+_DUTY_PING_SEC = 6 * 3600
+_duty_pinged: dict = {}
+
+
+def _run_in_background(fn) -> None:
+    threading.Thread(target=fn, daemon=True).start()
+
+
+def _ping_duty(user_id: int, kind: str, booking_ids: list, what: str) -> None:
+    """`what` — продолжение фразы «🗑 Аккаунт #N …», `{брони}` подставляется номерами броней."""
+    from . import services
+
+    now = utcnow()
+    key = f"delete-{kind}:{user_id}"
+    seen = _duty_pinged.get(key)
+    if (seen is not None and (now - seen).total_seconds() < _DUTY_PING_SEC) or services.cache_get_json(key):
+        return
+    _duty_pinged[key] = now
+    services.cache_set_json(key, 1, _DUTY_PING_SEC)
+    брони = ", ".join(f"#{b}" for b in booking_ids[:5])
+    text = f"🗑 Аккаунт #{user_id} " + what.replace("{брони}", брони)
+    _run_in_background(lambda: services.notify_admin_telegram(text))
 
 
 def _safe_unlink_media(url: str) -> None:

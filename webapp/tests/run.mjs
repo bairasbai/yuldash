@@ -235,6 +235,8 @@ const ALL_SUITES = [
   // Отменили, когда пассажир был в машине (23.10.2026): экран поездки ведёт к помощи (SOS, «Застряли», разбор,
   // машина и госномер), «Бронь» уводит туда же, «Снять поездку?» предупреждает про пассажиров в машине.
   { test: "cancelled-in-transit-test", src: null, out: null, bundle: false },
+  // «Удалить аккаунт»: отказ сервера 409 (отмена в пути, комиссия, живая поездка) — его текст, а не «проверь связь».
+  { test: "settings-delete-refusal-test", src: null, out: null, bundle: false },
 ];
 
 const SUITES = SANDBOX ? ALL_SUITES.filter((s) => existsSync(join(SANDBOX, `${s.test}.mjs`))) : ALL_SUITES;

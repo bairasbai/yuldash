@@ -1662,15 +1662,20 @@ def public_rides_payload(items: list, *, full: bool = False):
 BOOST_CARRY_DAYS = 30
 
 
-def stash_boost_credit(user, ride, now) -> int:
+def stash_boost_credit(user, ride, now, usable_from=None) -> int:
     """Поездку сняли, а поднятие было оплачено — остаток кладём водителю на счёт.
 
     Раньше деньги просто оставались у нас: человек заплатил за то, чтобы его видели,
     поездка сорвалась, услуга не оказана. Возврат через ЮKassa стоит комиссии платёжной
     системы и ручной работы, а перенос не двигает деньги вовсе и водителю выгоднее.
 
-    Считаем ровно остаток: больше оплаченного не даём, меньше — не отбираем.
+    Считаем ровно остаток: больше оплаченного не даём, меньше — не отбираем. Остаток — это
+    секунды поднятия, а не деньги: рубли и копейки здесь не двигаются вовсе.
     Возвращает перенесённые секунды (0 — переносить было нечего).
+
+    `usable_from` — с какого момента водитель сможет им воспользоваться (конец паузы, решение
+    Александра 24.10.2026): 30 дней срока считаем от него, иначе остаток сгорел бы, пока водитель
+    на паузе и не может опубликовать поездку. Уже лежащий более долгий срок не укорачиваем.
     """
     if not ride.boosted_until or ride.boosted_until <= now:
         return 0
@@ -1678,9 +1683,12 @@ def stash_boost_credit(user, ride, now) -> int:
     if left <= 0:
         return 0
     # Прежний остаток складываем только если он ещё жив: протухший не воскрешаем.
-    kept = user.boost_credit_sec if (user.boost_credit_until and user.boost_credit_until > now) else 0
+    alive = bool(user.boost_credit_until and user.boost_credit_until > now)
+    kept = user.boost_credit_sec if alive else 0
     user.boost_credit_sec = kept + left
-    user.boost_credit_until = now + timedelta(days=BOOST_CARRY_DAYS)
+    start = max(now, usable_from) if usable_from is not None else now
+    until = start + timedelta(days=BOOST_CARRY_DAYS)
+    user.boost_credit_until = max(until, user.boost_credit_until) if alive else until
     ride.boosted_until = None      # на снятой поездке поднятие больше не действует
     return left
 

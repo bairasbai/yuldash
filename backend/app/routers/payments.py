@@ -545,7 +545,13 @@ class BoostFreeIn(BaseModel):
 @router.post("/boost/free")
 def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Поднять СВОЮ поездку бесплатно за реферальный бонус (1 бонус = 24ч поднятия)."""
-    ride = session.get(Ride, body.ride_id)
+    # Порядок замков Ride → User — как у «Снять поездку» (`rides.cancel_ride`: Ride → Booking → User,
+    # проверка плана 24.10.2026). Раньше здесь сначала запиралась строка водителя, а поездка писалась
+    # без замка: встречная отмена давала взаимную блокировку на PostgreSQL, а подъём ложился поверх
+    # только что снятой поездки — бонус сгорал. Теперь поездку перечитываем под замком и проверяем, что
+    # она ещё живая.
+    ride = session.exec(select(Ride).where(Ride.id == body.ride_id).with_for_update()
+                        .execution_options(populate_existing=True)).first()
     if not ride or ride.driver_id != user.id:
         raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел")
     # Поднимать можно только живую поездку (аудит 2026-08-08, волна 153). Платный путь это
@@ -555,7 +561,8 @@ def boost_free(body: BoostFreeIn, user: User = Depends(current_user), session: S
         raise herr(400, "Поездка неактивна", "Сәфәр әүҙем түгел")
     # Списание бонуса под row-lock (как book()): два параллельных free-boost не потратят
     # один и тот же бонус дважды (иначе гонка read-modify-write → 2 бесплатных подъёма, кредиты в минус).
-    locked = session.exec(select(User).where(User.id == user.id).with_for_update()).one()
+    locked = session.exec(select(User).where(User.id == user.id).with_for_update()
+                          .execution_options(populate_existing=True)).one()
     if locked.referral_credits < 1:
         raise herr(400, "Нет бонусов", "Бонус юҡ")
     locked.referral_credits -= 1

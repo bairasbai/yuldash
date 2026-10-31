@@ -16,7 +16,7 @@ from . import trip_wake
 from .config import settings
 from .errors import herr
 from .models import (Booking, BookingStatus, DriverProfile, Incident, Rating, Ride, RideStatus,
-                     SafetyProfile)
+                     SafetyProfile, User)
 from .services import driver_rating, is_blocked
 from .timeutil import utcnow
 
@@ -457,8 +457,13 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
 
     Возвращает число разосланных предупреждений. Вызывается там же, где ставится пауза, —
     чтобы не появилось второго места, где паузу «забыли» довести до конца.
+
+    Оплаченное поднятие (Boost) снятых поездок не сгорает (решение Александра 24.10.2026, «да» на
+    деньги): остаток уходит ему же на счёт тем же путём, что при обычном «Снять поездку», и его срок
+    считается от конца паузы — во время паузы поездку не опубликовать. Никому другому остаток не
+    достаётся. Замки — в том же порядке, что у «Снять поездку»: поездки → брони → строка водителя.
     """
-    from .services import push_notification   # локальный импорт: services тянет safety_logic
+    from .services import push_notification, stash_boost_credit   # локальный импорт: services тянет safety_logic
 
     now = utcnow()
     задето = 0
@@ -470,22 +475,36 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
         b.cancel_reason = "safety"
         session.add(b)
 
-    # 1) Он за рулём: будущие рейсы снимаем целиком.
+    # 1) Он за рулём: будущие рейсы снимаем целиком. Под замком и перечитанными: встречное «Снять
+    #    поездку» или подъём не должны разойтись с паузой (порядок по id — без взаимной блокировки).
     рейсы = session.exec(select(Ride).where(
         Ride.driver_id == user_id,
         Ride.status == RideStatus.active,
         Ride.depart_at > now,
-    )).all()
+    ).order_by(Ride.id).with_for_update().execution_options(populate_existing=True)).all()
     пассажирам: list[tuple[int, str, int]] = []
+    поднятые = []
     for ride in рейсы:
         ride.status = RideStatus.cancelled
         session.add(ride)
+        if ride.boosted_until and ride.boosted_until > now:
+            поднятые.append(ride)
         for b in session.exec(select(Booking).where(
             Booking.ride_id == ride.id,
             Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed]),
-        )).all():
+        ).with_for_update().execution_options(populate_existing=True)).all():
             _снять_бронь(b)
             пассажирам.append((b.passenger_id, f"{ride.from_city} → {ride.to_city}", b.id))
+    if поднятые:
+        # Строка водителя — последней и мягким замком, как в `rides.cancel_ride`.
+        водитель = session.exec(select(User).where(User.id == user_id).with_for_update(key_share=True)
+                                .execution_options(populate_existing=True)).first()
+        профиль = session.exec(select(SafetyProfile).where(SafetyProfile.user_id == user_id)).first()
+        конец_паузы = профиль.suspended_until if профиль is not None else None
+        if водитель is not None:
+            for ride in поднятые:
+                stash_boost_credit(водитель, ride, now, usable_from=конец_паузы)
+            session.add(водитель)
 
     # 2) Он пассажир: его места в чужих будущих рейсах освобождаем — иначе «пауза» означала бы
     #    только «нельзя забронировать новое», и водитель ждал бы отстранённого на остановке.
@@ -501,9 +520,14 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
         _снять_бронь(b)
         водителям.append((ride.driver_id, f"{ride.from_city} → {ride.to_city}", b.id))
 
+    if not рейсы and not водителям:
+        return 0
+    # Атомарно: поездки, брони и остаток поднятия — одной транзакцией. Коммитим и когда предупреждать
+    # некого: раньше поездку без броней до базы доводил лишь следующий commit вызывающего — страховка,
+    # чтобы снятие и перенос остатка не зависели от того, что сделают после (24.10.2026).
+    session.commit()
     if not пассажирам and not водителям:
         return 0
-    session.commit()                   # атомарно: поездки и брони одной транзакцией
     # Каналы координат снятых броней закрываются сразу, а не через сторож (≤ 30 с): водитель на паузе
     # по разбору не должен и полминуты видеть точку пассажирки (приёмка PR157).
     for _uid, _маршрут, bid in пассажирам + водителям:
