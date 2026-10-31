@@ -90,7 +90,13 @@ def test_parcel_channel_drops_nan_before_relay(client, user_factory):
 
 @pytest.mark.parametrize("value,expected", [
     (90, 90), (359.5, 359.5), (360, 0), (-90, 270), (725, 5),
-    (NAN, None), (float("inf"), None), ("x" * 100_000, None), (True, None), (None, None), ([1], None),
+    pytest.param(NAN, None, id="nan"),
+    pytest.param(float("inf"), None, id="inf"),
+    # Явный id: иначе стокилометровый узел ломает PYTEST_CURRENT_TEST на Windows (лимит 32767).
+    pytest.param("x" * 100_000, None, id="huge-string"),
+    pytest.param(True, None, id="bool"),
+    pytest.param(None, None, id="none"),
+    pytest.param([1], None, id="list"),
 ])
 def test_bearing_is_a_number_or_nothing(value, expected):
     assert location._bearing(value) == expected
