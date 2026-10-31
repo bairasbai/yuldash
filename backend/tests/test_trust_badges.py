@@ -9,7 +9,7 @@
   - «Земляк» требует города пользователя, а в модели User/DriverProfile города нет → честно пропущено.
   - «Отвечает быстро» требует времени подтверждения брони, а confirmed_at не хранится → честно пропущено.
 """
-from datetime import datetime, timedelta
+from datetime import timedelta
 
 from app.models import UserRole
 from app.timeutil import utcnow
@@ -102,7 +102,10 @@ def test_member_since_is_registration_month(client, user_factory):
     drv = user_factory("SinceDrv", role=UserRole.driver)
     _publish(client, drv, frm="СНамиГрад", to="Сибай")
     since = _ride_from(client, "СНамиГрад")["driver_since"]
-    assert since == datetime.utcnow().strftime("%Y-%m")   # только что зарегистрирован → текущий месяц
+    # Код считает месяц МЕСТНЫЙ (Уфа, волна 203, `local_month`) — не UTC: в ночь на 1-е число
+    # они расходятся, и тест на границе месяцев падал не на коде, а на себе.
+    from app.timeutil import local_month
+    assert since == local_month(utcnow())   # только что зарегистрирован → текущий месяц
 
 
 # ----------------------------- новый водитель без ложных бейджей -----------------------------

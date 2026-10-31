@@ -780,12 +780,9 @@ internal fun com.yuldash.app.data.RideDto.toUiRide(): Ride = Ride(
     pickupLng = pickupLng,
     receiverName = receiverName,
     parcelSize = parcelSize,
-    termsVersion = termsVersion,
-    seatsByLeg = seatsByLeg,
-    seatsOnSegment = seatsOnSegment,
-    seatsBooked = seatsBooked,
-    stopPrices = stopPrices.map { StopPrice(stop = it.stop, price = it.price) },
-    segmentPrice = segmentPrice,
+    // RS-02 А/Б: версия условий, места по участкам, цены остановок и цена участка.
+    termsVersion = termsVersion, seatsByLeg = seatsByLeg, seatsOnSegment = seatsOnSegment, seatsBooked = seatsBooked,
+    stopPrices = stopPrices.map { StopPrice(stop = it.stop, price = it.price) }, segmentPrice = segmentPrice,
 )
 
 /** Километры коротко: «2.3 км» вблизи, «243 км» вдали. */

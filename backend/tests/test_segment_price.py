@@ -8,7 +8,6 @@
 """
 from types import SimpleNamespace
 
-import pytest
 from sqlmodel import Session, select
 
 from app import ride_seats

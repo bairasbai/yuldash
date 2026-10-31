@@ -26,7 +26,7 @@ class FileSizeRatchetTest {
 
     private val ceilings = mapOf(
         "InstantOrderScreen.kt" to 8258,   // 13.10.2026: +4 — шторка «Куда едем?» не прячется, пока уходит смена адреса
-        "data/ApiClient.kt" to 7853,   // 18.10.2026 (приёмка PR184): −34 — DriverBookingDto и его разбор уехали в data/DriverBookings.kt, потолок опущен до нового размера; ранее 18.10: +2 no_show_needs_arriving; +2 no_show_at в DriverBookingDto (поле и разбор; «Не пришёл» через 15 мин после выезда); 14.10.2026: +12 опции мест (поля DTO и параметры запросов; UI — SeatOptions.kt), +2 passenger_id в DriverBookingDto (разбор по брони «в пути»)
+        "data/ApiClient.kt" to 7863,   // 31.10.2026 (RS-02 В): +10 — параметры expected_price/expected_terms_version в брони и stop_prices в publishRide/editRide после честного выноса разбора в data/RideSegmentDtos.kt (StopPriceDto/StopHintDto/сегментный разбор — там); 18.10.2026 (приёмка PR184): −34 — DriverBookingDto и его разбор уехали в data/DriverBookings.kt, потолок опущен до нового размера; ранее 18.10: +2 no_show_needs_arriving; +2 no_show_at в DriverBookingDto (поле и разбор; «Не пришёл» через 15 мин после выезда); 14.10.2026: +12 опции мест (поля DTO и параметры запросов; UI — SeatOptions.kt), +2 passenger_id в DriverBookingDto (разбор по брони «в пути»)
         "ProfileScreen.kt" to 4735,   // 24.10.2026: −13 — текст окна «Снять поездку?» уехал в RideCancelWarning.kt, потолок опущен; 23.10.2026: −81 — оценка пассажира водителем уехала в DriverPassengerRow.kt (PassengerStarsRating), потолок опущен; 16.10.2026: +9 — флаг такси в кабинетах (волна 1) и «Открыть поездку» в «Едут с тобой»; 14.10.2026: +4 — опции мест (UI — SeatOptions.kt)
         // 13.10.2026: чат поездки уехал в TripChatState.kt / TripChatScreen.kt — потолок опущен до нового размера.
         "BookingActiveTripScreen.kt" to 3499,   // 24.10: −31 — удаление паспорта и окно его повтора уехали в CancelledInTransit.kt (ActiveTripTerminalCleanup), потолок опущен; 23.10: код посадки (#192) и выбор числа мест (#189) вынесены; 17.10: нижняя панель — в ActiveTripDecisionBar.kt, посадка — в RideshareBoarding.kt; 16.10: маршрутная карточка вынесена
@@ -42,7 +42,7 @@ class FileSizeRatchetTest {
         "LoginScreen.kt" to 1330,
         "TaxiDocsScreens.kt" to 1200,
         "SosVerifyScreens.kt" to 1111,   // 23.10.2026: −20 — карточки итога сигнала уехали в SosSignalResult.kt; −135 — место для SOS (свежесть, разрешение, GPS) уехало в SosLocation.kt; потолок опущен
-        "CreateRideScreen.kt" to 1167,   // 14.10.2026: +9 — состояние и проводка опций мест (карточка — SeatOptions.kt)
+        "CreateRideScreen.kt" to 1173,   // 31.10.2026: +6 — RS-02 В: проводка цен остановок после честного выноса (хранилище/редактор/деление по расстоянию — CreateRideStops.kt); 14.10.2026: +9 — состояние и проводка опций мест (карточка — SeatOptions.kt)
         "TaxiOnboardingScreen.kt" to 1108,
         "TaxiReceiptScreen.kt" to 1070,
         "RideshareCompletedScreen.kt" to 1064,

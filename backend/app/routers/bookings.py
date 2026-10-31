@@ -630,14 +630,18 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # Условие внутри `UPDATE` (версия + прежний снимок + «нет живой брони этого пассажира»)
     # работает на ОБЕИХ базах: вторую бронь отсекает сама база, ноль изменённых строк →
     # мест уже нет. Блокировку строки оставляем — она сериализует остальную проверку.
-    reserved = ride_seats.take(
-        session, ride, ride_seats.span(ride, pickup_stop, dropoff_stop), body.seats,
-        extra_where=[~select(Booking.id).where(
-            Booking.ride_id == body.ride_id, Booking.passenger_id == user.id,
-            Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
-        ).exists()],
-    )
-    if not reserved:
+    span_here = ride_seats.span(ride, pickup_stop, dropoff_stop)
+    attempts_left = 3   # RS-02 А3: повтор — только с начала, с полным чтением и перепроверкой
+    while True:
+        reserved = ride_seats.take(
+            session, ride, span_here, body.seats,
+            extra_where=[~select(Booking.id).where(
+                Booking.ride_id == body.ride_id, Booking.passenger_id == user.id,
+                Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+            ).exists()],
+        )
+        if reserved:
+            break
         session.rollback()
         # SQLite не держит FOR UPDATE: другой запрос того же пассажира мог уже
         # записать бронь между чтением existing и UPDATE. Проверяем после отката,
@@ -646,7 +650,29 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry)
         if retry is not None:
             return retry
-        raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
+        attempts_left -= 1
+        if attempts_left <= 0:
+            raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
+        # Гонка ВЕРСИЙ, а не мест (соседняя бронь успела первой, места ещё есть): перечитываем
+        # рейс и перепроверяем условия ЭТОЙ попытки — статус, цену участка и остаток.
+        # Устаревшая версия клиента ловится на входе в book(), до любой попытки.
+        ride = session.exec(select(Ride).where(Ride.id == body.ride_id).with_for_update()
+                            .execution_options(populate_existing=True)).first()
+        if ride is None or ride.status != RideStatus.active:
+            raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
+        fresh_seg = ride_seats.segment_price(ride, pickup_stop, dropoff_stop)
+        if body.expected_price is not None and fresh_seg != body.expected_price:
+            raise herr(409,
+                       f"Водитель изменил цену: теперь {fresh_seg} ₽ за место. Проверь и забронируй ещё раз",
+                       f"Йөрөтөүсе хаҡты үҙгәртте: хәҙер бер урын {fresh_seg} ₽. Тикшер ҙә тағы бронла",
+                       code="price_changed", price=fresh_seg)
+        # Маршрут успели поменять (остановка исчезла) — участок заново не выдумываем.
+        свежие = parse_stops(ride, entry)
+        if (pickup_stop and pickup_stop not in свежие) or (dropoff_stop and dropoff_stop not in свежие):
+            raise herr(409, "Остановки в этой поездке только что изменились — выбери заново",
+                       "Туҡталыштар хәҙер генә үҙгәрҙе — яңынан һайла", code="ride_terms_changed")
+        if ride_seats.free_on(ride, span_here) < body.seats:
+            raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
     session.add(booking)
     try:
         session.commit()

@@ -73,6 +73,15 @@ internal fun seatsOnSpan(ride: Ride, pickup: String?, dropoff: String?): Int? {
     return ride.seatsByLeg.subList(a, b).minOrNull()
 }
 
+/** RS-02 Б: цена на карточке ленты — участка («200 ₽ за место»), а при ценах остановок
+ *  без однозначного участка — честное «Цена зависит от участка» вместо полной суммы. */
+@androidx.compose.runtime.Composable
+internal fun segmentPriceLabel(ride: Ride): String = when {
+    ride.stopPrices.isEmpty() -> "${ride.price} ₽"
+    ride.segmentPrice != null -> appText("${ride.segmentPrice} ₽ за место", "${ride.segmentPrice} ₽ бер урынға")
+    else -> appText("Цена зависит от участка", "Хаҡ участкаға ҡарай")
+}
+
 /** Only server hints on the same ride survive an unfiltered details fetch. */
 internal fun Ride.withRouteHints(previous: Ride?): Ride = if (previous?.id != id) this else copy(
     matchedStop = matchedStop ?: previous.matchedStop, matchedFromStart = matchedFromStart || previous.matchedFromStart,

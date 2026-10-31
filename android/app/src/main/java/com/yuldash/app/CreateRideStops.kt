@@ -1,6 +1,10 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
@@ -16,6 +20,7 @@ import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.SettlementDto
+import kotlinx.coroutines.launch
 
 internal const val MAX_RIDE_STOPS = 4
 internal const val MAX_RIDE_STOP_LENGTH = 60
@@ -144,6 +149,94 @@ internal fun CreateRideStopsEditor(values: List<String>, onChange: (List<String>
 }
 
 // ---------- RS-02 Б: цена до каждой остановки ----------
+
+/** Хранилище цен остановок формы публикации: состояние Compose на полях, экрану нужны
+ *  только «что отправить» и признак ошибки ввода. */
+internal class StopPricesStore(val errorText: String) {
+    var enabled by mutableStateOf(false)
+    var values by mutableStateOf(listOf<String>())
+    var splitBusy by mutableStateOf(false)
+    var splitFailed by mutableStateOf(false)
+    var invalid by mutableStateOf(false)   // правка: ввод неверен (текст показывает редактор)
+}
+
+@Composable
+internal fun rememberStopPricesStore(): StopPricesStore {
+    val err = appText("Проверь цены остановок: каждая больше предыдущей и меньше цены маршрута.",
+                      "Туҡталыш хаҡтарын тикшер: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй.")
+    return remember { StopPricesStore(err) }
+}
+
+/** Хранилище цен остановок для диалога правки своего рейса — предзаполнено текущими ценами. */
+@Composable
+internal fun rememberStopPricesEdit(ride: Ride): StopPricesStore {
+    val err = appText("Цены остановок: каждая больше предыдущей и меньше цены маршрута.",
+                      "Туҡталыш хаҡтары: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй.")
+    return remember(ride.id) {
+        StopPricesStore(err).apply {
+            enabled = ride.stopPrices.isNotEmpty()
+            values = ride.stopPrices.map { it.price.toString() }
+        }
+    }
+}
+
+/** Правка рейса: что отправить в stop_prices — null = не менялось; [] = свернули в одну цену.
+ *  Неверен ввод → invalid=true (текст показывает редактор) и null. */
+internal fun StopPricesStore.editToSend(ride: Ride, basePrice: Int): List<Int>? {
+    if (ride.waypoints.isEmpty()) return null
+    if (!enabled) return if (ride.stopPrices.isNotEmpty()) emptyList() else null
+    val parsed = stopPricesInputValid(basePrice, ride.waypoints.size, values.filter { it.isNotBlank() })
+    if (parsed == null) { invalid = true; return null }
+    return if (parsed == ride.stopPrices.map { it.price }) null else parsed
+}
+
+/** Цены остановок в диалоге правки своего рейса (без «Поделить по расстоянию»; текст ошибки — внутри). */
+@Composable
+internal fun RideEditStopPrices(ride: Ride, price: Int, store: StopPricesStore) {
+    if (ride.waypoints.isEmpty()) return
+    StopPricesEditor(from = ride.from, to = ride.to, stops = ride.waypoints, price = price,
+        enabled = store.enabled, onEnabledChange = { store.enabled = it; store.invalid = false },
+        values = store.values, onValuesChange = { store.values = it; store.invalid = false },
+        splitBusy = false, splitFailed = false, onSplit = null)
+    if (store.invalid) {
+        Text(store.errorText, style = CanonCaption, color = CanonRed)
+    }
+}
+
+/** «Поделить по расстоянию»: км звеньев — свой справочник сервера (price_hint?stops=),
+ *  последнее звено — остаток прямой начало→конец. */
+internal fun StopPricesStore.split(scope: kotlinx.coroutines.CoroutineScope, from: String, to: String, stops: List<String>, total: Int) {
+    if (total <= 0 || stops.isEmpty() || splitBusy) return
+    splitBusy = true
+    splitFailed = false
+    scope.launch {
+        val hint = ApiClient.getPriceHint(from.trim(), to.trim(), stops).getOrNull()
+        splitBusy = false
+        val legs = stops.map { s -> hint?.stopHints?.firstOrNull { it.stop == s }?.distanceKm }
+        val known = legs.filterNotNull().sum()
+        val lastLeg = hint?.distanceKm?.toDouble()?.let { (it - known).takeIf { d -> d > 0 } }
+        val split = splitPriceByLegs(total, legs + lastLeg)
+        if (split == null) { values = emptyList(); splitFailed = true } else values = split.map { it.toString() }
+    }
+}
+
+/** Что отправить серверу: выключено/нет остановок — пустой список; ввод неверен — null. */
+internal fun StopPricesStore.toSend(price: Int, stopsCount: Int, stopsPresent: Boolean): List<Int>? =
+    if (!enabled || !stopsPresent) emptyList()
+    else stopPricesInputValid(price, stopsCount, values.filter { it.isNotBlank() })
+
+/** Самодостаточный редактор цен остановок для формы публикации (слот в CreateRideScreen). */
+@Composable
+internal fun CreateRideStopPrices(store: StopPricesStore, from: String, to: String, stops: List<String>, price: Int) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    StopPricesEditor(
+        from = from, to = to, stops = stops, price = price,
+        enabled = store.enabled, onEnabledChange = { store.enabled = it; store.splitFailed = false },
+        values = store.values, onValuesChange = { store.values = it },
+        splitBusy = store.splitBusy, splitFailed = store.splitFailed,
+        onSplit = { store.split(scope, from, to, stops, price) },
+    )
+}
 
 /** «Поделить по расстоянию»: цена всего маршрута → кумулятивные цены до каждой остановки.
  *  Шаг округления 10 ₽; ломается строгий рост — «предыдущая + 1 ₽»; не помещается

@@ -876,15 +876,6 @@ internal fun InviteDriverCallout() {
     }
 }
 
-/** RS-02 Б: цена на карточке ленты — участка («200 ₽ за место»), а при ценах остановок
- *  без однозначного участка — честное «Цена зависит от участка» вместо полной суммы. */
-@Composable
-private fun segmentPriceLabel(ride: Ride): String = when {
-    ride.stopPrices.isEmpty() -> "${ride.price} ₽"
-    ride.segmentPrice != null -> appText("${ride.segmentPrice} ₽ за место", "${ride.segmentPrice} ₽ бер урынға")
-    else -> appText("Цена зависит от участка", "Хаҡ участкаға ҡарай")
-}
-
 @Composable
 internal fun RideCard(
     ride: Ride,
@@ -986,8 +977,7 @@ internal fun RideCard(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Icon(Icons.Default.Person, contentDescription = null, modifier = Modifier.size(18.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     Spacer(Modifier.width(4.dp))
-                    // RS-02 А/Б: места — на участке запроса (если сервер его однозначил); цена —
-                    // участка, а при ценах остановок без участка — честное «зависит от участка».
+                    // RS-02 А/Б: места и цена — на участке запроса; цены остановок без участка — честное «зависит от участка».
                     Text("${seatsText(ride.seatsOnSegment ?: ride.seats)} · ", color = MaterialTheme.colorScheme.onSurfaceVariant)
                     Text(segmentPriceLabel(ride), color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
                 }

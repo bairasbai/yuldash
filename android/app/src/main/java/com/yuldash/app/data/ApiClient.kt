@@ -930,19 +930,8 @@ object ApiClient {
         return call("GET", path, null, auth = false).map {
             val dist = if (it.has("distance_km") && !it.isNull("distance_km")) it.optDouble("distance_km").toFloat() else null
             val fuel = if (it.has("fuel_estimate_kop") && !it.isNull("fuel_estimate_kop")) it.optInt("fuel_estimate_kop") else null
-            // RS-02 Б: расстояние до каждой остановки от предыдущей точки (свой справочник сервера).
-            val stopHints = it.optJSONArray("stops")?.let { arr ->
-                (0 until arr.length()).mapNotNull { i ->
-                    arr.optJSONObject(i)?.let { s ->
-                        StopHintDto(
-                            stop = s.optString("stop"),
-                            distanceKm = if (s.isNull("distance_km")) null else s.optDouble("distance_km"),
-                            avg = s.optInt("avg"), count = s.optInt("count"),
-                        )
-                    }
-                }
-            } ?: emptyList()
-            PriceHintDto(it.optInt("avg"), it.optInt("count"), dist, fuel, stopHints)
+            // RS-02 Б: расстояние до каждой остановки — разбор в data/RideSegmentDtos.kt.
+            PriceHintDto(it.optInt("avg"), it.optInt("count"), dist, fuel, it.toStopHints())
         }
     }
 
@@ -6453,15 +6442,7 @@ data class PriceHintDto(
     val count: Int,
     val distanceKm: Float? = null,
     val fuelEstimateKop: Int? = null,
-    val stopHints: List<StopHintDto> = emptyList(),   // RS-02 Б: расстояния/цены по остановкам
-)
-
-/** Подсказка по одной остановке маршрута (RS-02 Б): расстояние от предыдущей точки и цены прошлых поездок до неё. */
-data class StopHintDto(
-    val stop: String,
-    val distanceKm: Double? = null,
-    val avg: Int = 0,
-    val count: Int = 0,
+    val stopHints: List<StopHintDto> = emptyList(),   // RS-02 Б: расстояния/цены по остановкам (разбор — RideSegmentDtos.kt)
 )
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
@@ -6490,8 +6471,13 @@ private fun JSONObject.toPickupPointDto() = PickupPointDto(
 )
 
 /** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
- *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем. */
-internal fun JSONObject.toRideDto() = RideDto(
+ *  distance_km нет в /rides → isNull(...) = null; есть в /rides/near → читаем.
+ *  RS-02 А/Б: сегментные места и цены разбирает data/RideSegmentDtos.kt. */
+internal fun JSONObject.toRideDto(): RideDto {
+    val seg = toSegmentExtras()
+    return RideDto(
+    termsVersion = seg.termsVersion, seatsByLeg = seg.seatsByLeg, seatsOnSegment = seg.seatsOnSegment,
+    seatsBooked = seg.seatsBooked, stopPrices = seg.stopPrices, segmentPrice = seg.segmentPrice,
     id = optInt("id"),
     fromCity = optString("from_city"),
     toCity = optString("to_city"),
@@ -6532,17 +6518,8 @@ internal fun JSONObject.toRideDto() = RideDto(
     parcelSize = optString("parcel_size"),
     status = optString("status", "active"),
     partnerId = if (isNull("partner_id")) null else optInt("partner_id"),
-    termsVersion = optLong("terms_version"),
-    seatsByLeg = optJSONArray("seats_by_leg")?.let { arr -> (0 until arr.length()).map { arr.optInt(it) } } ?: emptyList(),
-    seatsOnSegment = if (isNull("seats_on_segment")) null else optInt("seats_on_segment"),
-    seatsBooked = if (isNull("seats_booked")) null else optInt("seats_booked"),
-    stopPrices = optJSONArray("stop_prices")?.let { arr ->
-        (0 until arr.length()).mapNotNull { i ->
-            arr.optJSONObject(i)?.let { StopPriceDto(stop = it.optString("stop"), price = it.optInt("price")) }
-        }
-    } ?: emptyList(),
-    segmentPrice = if (isNull("segment_price")) null else optInt("segment_price"),
 )
+}
 
 private fun JSONObject.toMedicalPartnerDto() = MedicalPartnerDto(
     id = optInt("id"),
@@ -6629,9 +6606,6 @@ data class RideDto(
     val stopPrices: List<StopPriceDto> = emptyList(),
     val segmentPrice: Int? = null,
 )
-
-/** Цена до одной остановки в целых рублях (RS-02 Б, D7). */
-data class StopPriceDto(val stop: String, val price: Int)
 
 /** F22: клиника-партнёр (медцентр) — точка назначения поездки «в больницу». Только логистика,
  *  публичные данные организации. Никаких мед.данных пациента. */

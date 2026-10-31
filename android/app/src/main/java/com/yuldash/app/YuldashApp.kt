@@ -1426,14 +1426,10 @@ private fun YuldashAppContent() {
                                             val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
                                                 ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
                                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                            // Условия уехали (цена/места/маршрут): перечитываем поездку — человек
-                                            // подтверждает бронь уже по НОВЫМ условиям отдельным нажатием (RS-02 В).
-                                            if ((e as? ApiException)?.detailCode in setOf("price_changed", "ride_terms_changed")) {
-                                                appScope.launch {
-                                                    ApiClient.getRide(rid).onSuccess { fresh ->
-                                                        val ui = fresh.toUiRide().withRouteHints(displayedRide)
-                                                        if (isDisplayedBookingUnchanged()) vm.navigateLocally { selectedRide = ui }
-                                                    }
+                                            // Условия уехали (цена/места/маршрут): перечитываем поездку, человек подтверждает уже НОВЫЕ условия (RS-02 В).
+                                            if ((e as? ApiException)?.detailCode in setOf("price_changed", "ride_terms_changed")) appScope.launch {
+                                                ApiClient.getRide(rid).onSuccess { fresh ->
+                                                    if (isDisplayedBookingUnchanged()) vm.navigateLocally { selectedRide = fresh.toUiRide().withRouteHints(displayedRide) }
                                                 }
                                             }
                                             // Своя бронь уже есть — открываем её (номер пришёл в отказе).

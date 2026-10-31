@@ -9,13 +9,11 @@
 """
 from datetime import timedelta
 
-import pytest
 from sqlmodel import Session, select
 
-from app import ride_seats
 from app.account import delete_user_account
 from app.db import engine
-from app.models import Booking, BookingStatus, Ride, User, UserRole
+from app.models import Ride, User, UserRole
 from app.safety_logic import cancel_upcoming_after_suspension
 from app.timeutil import utcnow
 
@@ -172,7 +170,8 @@ def test_booking_with_stale_terms_version_gets_409(client, user_factory):
 
 def test_feeds_see_a_ride_with_a_free_segment(client, user_factory):
     driver = _pax(user_factory, "Seg driver", role=UserRole.driver)
-    rid = _mkride(driver)
+    # Буст: в общей базе прогона тысячи рейсов, а у ленты потолок — наш обязан попасть в неё.
+    rid = _mkride(driver, boosted_until=utcnow() + timedelta(days=1))
     for i in range(3):
         _book(client, _pax(user_factory, f"Seg p{i}"), rid, pickup_stop="Сибай", dropoff_stop="Ургаза")
     assert _state(rid)[1] == 0   # на всём пути мест нет

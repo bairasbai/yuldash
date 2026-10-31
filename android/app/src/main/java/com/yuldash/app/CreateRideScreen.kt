@@ -331,11 +331,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     var publishError by remember { mutableStateOf<String?>(null) }
     var showDeparturePicker by remember { mutableStateOf(false) }
     val publishScope = rememberCoroutineScope()
-    // RS-02 Б: цена до каждой остановки (выключена — одна цена за весь маршрут, как раньше).
-    var stopPricesEnabled by rememberSaveable { mutableStateOf(false) }
-    var stopPriceValues by rememberSaveable { mutableStateOf(listOf<String>()) }
-    var stopPricesSplitBusy by remember { mutableStateOf(false) }
-    var stopPricesSplitFailed by remember { mutableStateOf(false) }
+    val stopPricesStore = rememberStopPricesStore()   // RS-02 Б: цены остановок (редактор — CreateRideStops.kt)
     var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
     LaunchedEffect(from, to) {
@@ -348,8 +344,6 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     val defaultCar = appText("Моя машина", "Минең машина")
     val dropPinLabel = appText("Точка на карте", "Картала нөктә")
     val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
-    val errStopPrices = appText("Проверь цены остановок: каждая больше предыдущей и меньше цены маршрута.",
-                                "Туҡталыш хаҡтарын тикшер: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй.")
     val stopErrors = rideStopErrorMessages()
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
@@ -426,17 +420,9 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                         return@launch
                     }
                     if (publishSession != ApiClient.queueSessionGeneration() || rideCategoryClosed(category)) { publishing = false; return@launch }
-                    // RS-02 Б: цены остановок (включены) — проверка до сети, сервер перепроверяет.
-                    val stopPricesToSend = if (stopPricesEnabled && selectedStops.isNotEmpty()) {
-                        stopPricesInputValid(priceVal, selectedStops.size, stopPriceValues.filter { it.isNotBlank() })
-                    } else {
-                        emptyList()
-                    }
-                    if (stopPricesToSend == null) {
-                        publishing = false
-                        publishError = errStopPrices
-                        return@launch
-                    }
+                    // RS-02 Б: цены остановок — из хранилища (проверка до сети, сервер перепроверяет).
+                    val stopPricesToSend = stopPricesStore.toSend(priceVal, selectedStops.size, selectedStops.isNotEmpty())
+                        ?: run { publishing = false; publishError = stopPricesStore.errorText; return@launch }
                     ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, selectedStops.joinToString(" | "), noMinors, backMaxTwo, frontSeatAvailable, stopPricesToSend)
                         .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString(), waypoints = selectedStops)) }
                         // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
@@ -456,43 +442,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
                     waypoints = waypoints.toMutableList().also { it[index] = value }
                 }, endpoints = listOf(from, to))
             },
-            stopPricesEditor = {
-                StopPricesEditor(
-                    from = from, to = to,
-                    stops = waypoints.filter { it.isNotBlank() },
-                    price = price.toIntOrNull() ?: 0,
-                    enabled = stopPricesEnabled,
-                    onEnabledChange = { stopPricesEnabled = it; stopPricesSplitFailed = false },
-                    values = stopPriceValues,
-                    onValuesChange = { stopPriceValues = it },
-                    splitBusy = stopPricesSplitBusy,
-                    splitFailed = stopPricesSplitFailed,
-                    onSplit = {
-                        // «Поделить по расстоянию»: км звеньев — свой справочник сервера;
-                        // последнее звено — остаток прямой начало→конец (неизвестно — вес 1).
-                        val total = price.toIntOrNull() ?: 0
-                        val stopNames = waypoints.filter { it.isNotBlank() }
-                        if (total > 0 && stopNames.isNotEmpty() && !stopPricesSplitBusy) {
-                            stopPricesSplitBusy = true
-                            stopPricesSplitFailed = false
-                            publishScope.launch {
-                                val hint = ApiClient.getPriceHint(from.trim(), to.trim(), stopNames).getOrNull()
-                                stopPricesSplitBusy = false
-                                val legs = stopNames.map { s -> hint?.stopHints?.firstOrNull { it.stop == s }?.distanceKm }
-                                val known = legs.filterNotNull().sum()
-                                val lastLeg = hint?.distanceKm?.toDouble()?.let { (it - known).takeIf { d -> d > 0 } }
-                                val split = splitPriceByLegs(total, legs + lastLeg)
-                                if (split == null) {
-                                    stopPriceValues = emptyList()
-                                    stopPricesSplitFailed = true
-                                } else {
-                                    stopPriceValues = split.map { it.toString() }
-                                }
-                            }
-                        }
-                    },
-                )
-            },
+            stopPricesEditor = { CreateRideStopPrices(stopPricesStore, from, to, waypoints.filter { it.isNotBlank() }, price.toIntOrNull() ?: 0) },
             routeChips = { PopularRouteChips(geoRoutes) { f, t -> from = f; to = t } },
             // Погода на маршруте: гололёд и метель водитель должен увидеть ДО публикации рейса,
             // а не когда на него уже сели люди. Города резолвит сервер — клиенту геокодер
