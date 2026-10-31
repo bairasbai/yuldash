@@ -63,7 +63,8 @@ const first=button(tree).props.onClick(); const second=button(tree).props.onClic
 assert.equal(h.calls.length,1,'Два быстрых тапа отправляют одну бронь');
 assert.equal(button(render(Sheet,{ride,onClose(){closed++}})).props.disabled,true);
 resolve({id:73});await Promise.all([first,second]);
-assert.deepEqual(h.calls,[{ride_id:42,seats:1,minor_passenger:undefined,minor_guardian_name:undefined,minor_guardian_phone:undefined,pickup_stop:"Уфа",dropoff_stop:"Сибай"}]);
+// RS-02 А/Б: бронь шлёт цену участка и версию условий, которые человек видел на экране.
+assert.deepEqual(h.calls,[{ride_id:42,seats:1,minor_passenger:undefined,minor_guardian_name:undefined,minor_guardian_phone:undefined,pickup_stop:"Уфа",dropoff_stop:"Сибай",expected_price:500,expected_terms_version:undefined}]);
 assert.equal(closed,1);assert.equal(h.routes[0][0],'/trip/73');
 h.reset();h.booking=async()=>{throw new Error('offline')};
 await button(render(Sheet,{ride,onClose(){}})).props.onClick();

@@ -54,6 +54,8 @@ export interface RideCreateInput {
   /** Остановки по пути одной строкой через « | »: A → точки → B. */
   waypoints?: string;
   partner_id?: number | null; // клиника-назначение (category=hospital)
+  /** RS-02 Б: цена ДО каждой остановки в порядке частей waypoints (целые рубли, D7). */
+  stop_prices?: number[];
 }
 
 /** POST /rides → созданная поездка (Ride). RequireAuth. */
@@ -162,16 +164,27 @@ export interface PriceHint {
   count: number; // сколько прошлых поездок в основе
   distance_km: number | null;
   fuel_estimate_kop: number | null;
+  stops?: StopHint[]; // RS-02 Б: расстояние от предыдущей точки и цены прошлых поездок до остановки
+}
+
+/** Подсказка по одной остановке маршрута (RS-02 Б). */
+export interface StopHint {
+  stop: string;
+  distance_km: number | null;
+  avg: number;
+  count: number;
 }
 
 export function fetchPriceHint(
   fromCity: string,
   toCity: string,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  stops?: string[],
 ): Promise<PriceHint> {
   const p = new URLSearchParams();
   if (fromCity.trim()) p.set("from_city", fromCity.trim());
   if (toCity.trim()) p.set("to_city", toCity.trim());
+  if (stops && stops.length) p.set("stops", stops.join(","));
   return apiGet<PriceHint>(`/rides/price_hint?${p.toString()}`, { signal });
 }
 

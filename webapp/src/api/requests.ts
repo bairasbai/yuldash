@@ -79,6 +79,8 @@ export interface RequestFeedItem {
   matched_ride_depart_at?: string | null;
   matched_pickup_stop?: string | null;
   matched_dropoff_stop?: string | null;
+  /** RS-02 Б: цена участка заявки на своём рейсе в целых рублях (D7), если рейс подобран. */
+  matched_segment_price?: number | null;
 }
 
 /** Отклик водителя на мою заявку (GET /requests/{id}/responses).

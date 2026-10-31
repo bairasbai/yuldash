@@ -16,12 +16,13 @@ import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProv
 import { createBooking } from "../api/bookings";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
+import { fetchRide } from "../api/rides";
 import { formatWhen, pluralRu, priceLabel } from "../utils/format";
 import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
-import { initialSegment, keepDropoffAfterPickup, segmentReady, rideMatchState } from "../utils/pickupStops";
+import { initialSegment, keepDropoffAfterPickup, segmentReady, rideMatchState, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 
 export default function RideSheet({
@@ -73,6 +74,11 @@ export default function RideSheet({
   const mounted = useRef(true);
   const bookingAbort = useRef<AbortController | null>(null);
   const pickupReady = segmentReady(ride, pickupStop, dropoffStop);
+  // RS-02 А/Б: условия обновились после 409 (цена/места изменились) — показываем и шлём свежие.
+  const [freshRide, setFreshRide] = useState<Ride | null>(null);
+  const eff = freshRide ?? ride;
+  const available = seatsOnSpan(eff, pickupStop, dropoffStop) ?? eff.seats_left;
+  const perSeat = segmentPriceRub(eff, pickupStop, dropoffStop) ?? eff.price;
   useEffect(() => {
     mounted.current = true;
     const key = `${ownerGeneration}:${ride.id}`;
@@ -82,12 +88,12 @@ export default function RideSheet({
       setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
-      setSeats(1);
+      setSeats(1); setFreshRide(null);
     }
     return () => { mounted.current = false; bookingAbort.current?.abort(); };
   }, [ownerGeneration, ride.id]);
-  // Свободных мест стало меньше выбранного (поездку обновили) — не держим число, которого уже нет.
-  useEffect(() => { setSeats(s => Math.min(s, Math.max(1, ride.seats_left))); }, [ride.seats_left]);
+  // Свободных мест стало меньше выбранного (смена участка, поездку обновили) — НЕ срезаем молча
+  // (RS-02 В): отправка блокируется, человек сам жмёт «Уменьшить до K» или выбирает другую поездку.
 
   async function book() {
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
@@ -110,10 +116,10 @@ export default function RideSheet({
       setError(appText("Выбери места посадки и высадки, чтобы забронировать.", "Бронлау өсөн ултырыу һәм төшөү урындарын һайла."));
       return;
     }
-    if (!Number.isInteger(seats) || seats < 1 || seats > ride.seats_left) {
-      setError(ride.seats_left < 1
+    if (!Number.isInteger(seats) || seats < 1 || seats > available) {
+      setError(available < 1
         ? appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара.")
-        : appText(`Осталось мест: ${ride.seats_left}. Выбери меньше.`, `Ҡалған урындар: ${ride.seats_left}. Әҙерәк һайла.`));
+        : appText(`Осталось мест на твоём участке: ${available}. Выбери меньше.`, `Һинең участкаңда ҡалған урындар: ${available}. Әҙерәк һайла.`));
       return;
     }
     if (minor && (!guardName.trim() || !guardPhone.trim())) {
@@ -142,6 +148,9 @@ export default function RideSheet({
         ...(frontSeat ? { front_seat: true } : {}),
         pickup_stop: pickupStop!,
         dropoff_stop: dropoffStop!,
+        // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
+        expected_price: perSeat,
+        expected_terms_version: eff.terms_version,
       }, ac.signal);
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       refreshOwnBookings();
@@ -153,6 +162,11 @@ export default function RideSheet({
       // 409 «у тебя уже есть бронь» (другое число мест, остановка, подросток): сервер ответил, сеть есть —
       // перечитываем свои брони, и кнопка сама станет «Открыть поездку» (приёмка #189).
       if (e instanceof ApiError && e.status === 409) refreshOwnBookings();
+      // Условия уехали (цена/места/маршрут): перечитываем поездку — следующее нажатие уже
+      // подтверждает НОВЫЕ условия, а серверный текст объясняет, что именно поменялось (RS-02 В).
+      if (e instanceof ApiError && (e.code === "price_changed" || e.code === "ride_terms_changed")) {
+        fetchRide(ride.id).then((fresh) => { if (mounted.current) setFreshRide(fresh); }).catch(() => {});
+      }
       const msg =
         e instanceof ApiError && e.message
           ? e.message
@@ -191,7 +205,7 @@ export default function RideSheet({
         <div className="ride-card__meta" style={{ marginTop: 12 }}>
           <span>{formatWhen(ride.depart_at, ru)}</span>
           <span>
-            <b>{ride.seats_left}</b> {appText("мест", "урын")}
+            <b>{available}</b> {appText("мест", "урын")}
           </span>
           {ride.women_only && (
             <span className="badge badge--woman">
@@ -252,21 +266,38 @@ export default function RideSheet({
               </div>
             </div>
           </button>
-          <div className="ride-card__price">{priceLabel(ride.price, ru)}</div>
+          <div className="ride-card__price">
+            {priceLabel(perSeat, ru)}
+            {(eff.stop_prices?.length ?? 0) > 0 && (
+              <div className="sheet__note">{appText("за место на твоём участке", "бер урын — һинең участкаңда")}</div>
+            )}
+          </div>
         </div>
 
         {!ownBooking && <>
-          <label className="field sheet__seats">
-            <span className="field__label">{appText("Количество мест", "Урындар һаны")}</span>
-            <select className="field__input" style={{ minHeight: 48 }} value={seats} disabled={busy || ride.seats_left < 1}
-              onChange={e => { setSeats(Number(e.target.value)); setError(null); }}>
-              {Array.from({ length: ride.seats_left }, (_, index) => index + 1).map(count => <option key={count} value={count}>{count}</option>)}
-            </select>
-          </label>
+          {seats > available && available >= 1 ? (
+            // RS-02 В: мест стало меньше выбранного — отправка заблокирована (не clamp молча);
+            // человек сам решает: уменьшить или посмотреть другие поездки.
+            <div className="sheet__note" role="alert">
+              {appText(`Свободных мест осталось ${available} — уменьшите число или посмотрите другие поездки.`,
+                       `Буш урындар ${available} ҡалды — һанын кәмет йәки башҡа сәфәрҙәрҙе ҡара.`)}
+              <button type="button" className="btn-ghost" style={{ minHeight: 48 }} onClick={() => setSeats(available)}>
+                {appText(`Уменьшить до ${available}`, `${available} тиклем кәметеү`)}
+              </button>
+            </div>
+          ) : (
+            <label className="field sheet__seats">
+              <span className="field__label">{appText("Количество мест", "Урындар һаны")}</span>
+              <select className="field__input" style={{ minHeight: 48 }} value={seats} disabled={busy || available < 1}
+                onChange={e => { setSeats(Number(e.target.value)); setError(null); }}>
+                {Array.from({ length: Math.max(0, available) }, (_, index) => index + 1).map(count => <option key={count} value={count}>{count}</option>)}
+              </select>
+            </label>
+          )}
           <p className="sheet__note" aria-live="polite">
-            {ride.seats_left > 0
-              ? appText("Итого: ", "Бөтәһе: ") + priceLabel(ride.price * seats, ru)
-              : appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара.")}
+            {available > 0
+              ? appText("Итого: ", "Бөтәһе: ") + priceLabel(perSeat * seats, ru)
+              : appText("На твоём участке мест нет. Посмотри другие поездки.", "Һинең участкаңда урын юҡ. Башҡа сәфәрҙәрҙе ҡара.")}
           </p>
         </>}
 
@@ -355,7 +386,7 @@ export default function RideSheet({
           type="button"
           className="btn-primary sheet__cta"
           onClick={book}
-          disabled={busy || (isAuthed && !ownBooking && (!pickupReady || seats < 1 || seats > ride.seats_left))}
+          disabled={busy || (isAuthed && !ownBooking && (!pickupReady || seats < 1 || seats > available))}
         >
           {busy
             ? appText("Бронируем…", "Бронлайбыҙ…")

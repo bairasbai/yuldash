@@ -66,6 +66,21 @@ export interface Ride {
   pickup_lng?: number | null;
   driver_trips?: number;
   driver_since?: string; // "YYYY-MM"
+  // RS-02 А/Б: версия условий рейса (шлём обратно при брони/правке), свободные места по
+  // участкам и на участке своего запроса, цены до остановок и цена участка в целых рублях
+  // (исключение D7). seats_booked — только в выдаче водителю о своём рейсе.
+  terms_version?: number;
+  seats_by_leg?: number[];
+  seats_on_segment?: number | null;
+  seats_booked?: number | null;
+  stop_prices?: StopPrice[];
+  segment_price?: number | null;
+}
+
+/** Цена до одной остановки в целых рублях (RS-02 Б, D7) — единственная форма выдачи. */
+export interface StopPrice {
+  stop: string;
+  price: number;
 }
 
 /**
@@ -127,6 +142,10 @@ export interface RideEditInput {
   /** Опции мест. Обещанное пассажирам с бронью сервер забрать не даст (409). */
   back_max_two?: boolean;
   front_seat_available?: boolean;
+  /** RS-02 Б: цены до остановок в порядке маршрута (целые рубли); [] — одна цена; не слать — не менять. */
+  stop_prices?: number[];
+  /** RS-02 А/Б: версия условий, которую видел клиент; stale → 409 ride_terms_changed. */
+  expected_terms_version?: number;
 }
 
 /** POST /rides/{id}/edit — правка своей поездки. Пассажирам с бронью уйдёт уведомление. */

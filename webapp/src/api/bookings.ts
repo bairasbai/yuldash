@@ -38,6 +38,10 @@ export interface CreateBookingInput {
   minor_guardian_phone?: string;
   /** «Хочу переднее место». Одно на поездку — гонку двух нажатий разводит сервер (409). */
   front_seat?: boolean;
+  /** RS-02 Б: цена ЗА МЕСТО на своём участке, которую видел клиент; несовпадение → 409 price_changed. */
+  expected_price?: number;
+  /** RS-02 А: версия условий рейса, которую видел клиент; stale → 409 ride_terms_changed. */
+  expected_terms_version?: number;
 }
 
 /** Полная строка брони (ответ POST /bookings). */
@@ -343,6 +347,9 @@ export interface DriverBookingRow {
   my_stars: number;
   /** Пассажир просит переднее место — водитель видит это в заявке до решения. */
   front_seat?: boolean;
+  /** RS-02 А: сколько мест занято и за сколько — водитель видит до подтверждения («1 место · 300 ₽»). */
+  seats?: number;
+  price?: number;
   /** Сколько секунд ещё можно отменить свою отметку «Сел» (0 — уже нельзя). Старый сервер — нет. */
   boarding_undo_sec?: number;
   /**

@@ -231,7 +231,8 @@ export default function DriverCabinetScreen() {
    */
   async function dropRide(r: Ride) {
     if (finishing) return;
-    const занято = Math.max((r.seats_total ?? 0) - (r.seats_left ?? 0), 0);
+    // RS-02 А: занятое — из серверного seats_booked (правда живых броней), а не «всего − остаток».
+    const занято = Math.max(r.seats_booked ?? ((r.seats_total ?? 0) - (r.seats_left ?? 0)), 0);
     const вопрос = занято > 0
       ? appText(
           `Снять поездку? Брони отменятся у ${занято} чел., им придёт уведомление.`,
@@ -461,7 +462,12 @@ export default function DriverCabinetScreen() {
             />
           ) : (
             activeRides.slice(0, 12).map((r, i) => {
-              const taken = Math.max(0, r.seats_total - r.seats_left);
+              // RS-02 А: занятое — из серверного seats_booked (правда живых броней).
+              const taken = Math.max(0, r.seats_booked ?? (r.seats_total - r.seats_left));
+              // Загрузка по участкам: точки маршрута и свободные места по звеньям.
+              const stops = (r.waypoints ?? "").split("|").map((s) => s.trim()).filter(Boolean);
+              const points = [r.from_city, ...stops, r.to_city];
+              const legs = r.seats_by_leg ?? [];
               return (
                 <div key={r.id} className="driver-ride">
                   <article className="my-trip-card" style={{ animationDelay: `${Math.min(i, 8) * 40}ms` }}>
@@ -477,6 +483,17 @@ export default function DriverCabinetScreen() {
                           <IconProfile size={16} />{" "}
                           {appText(`${taken} из ${r.seats_total} занято`, `${r.seats_total}-нән ${taken} банд`)} · {priceLabel(r.price, ru)}
                         </span>
+                        {/* RS-02 А: загрузка по участкам — «Сибай → Ургаза: занято 3 из 3» (без имён). */}
+                        {stops.length > 0 && legs.length === points.length - 1 && (
+                          <span className="my-trip-card__meta" style={{ display: "block" }}>
+                            {legs.map((free, i) => (
+                              <div key={i}>
+                                {appText(`${points[i]} → ${points[i + 1]}: занято ${Math.max(0, r.seats_total - free)} из ${r.seats_total}`,
+                                         `${points[i]} → ${points[i + 1]}: ${r.seats_total} урындан ${Math.max(0, r.seats_total - free)} билдәле`)}
+                              </div>
+                            ))}
+                          </span>
+                        )}
                       </div>
                     </div>
                     <div className="my-trip-card__actions">

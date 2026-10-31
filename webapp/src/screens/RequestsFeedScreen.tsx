@@ -148,7 +148,9 @@ export default function RequestsFeedScreen() {
                 </div>
                 {!!it.matched_ride_id && <p className="sheet__note">{appText("Твой рейс", "Һинең сәфәрең")}: {it.matched_ride_from_city} → {it.matched_ride_to_city}
                   {it.matched_ride_depart_at ? ` · ${formatWhen(it.matched_ride_depart_at, ru)}` : ""}
-                  <br />{it.matched_pickup_stop} → {it.matched_dropoff_stop}</p>}
+                  <br />{it.matched_pickup_stop} → {it.matched_dropoff_stop}
+                  {/* RS-02 Б: цена участка заявки на твоём рейсе — видна до отклика. */}
+                  {it.matched_segment_price != null && <> · {appText(`${it.matched_segment_price} ₽ за место`, `бер урын ${it.matched_segment_price} ₽`)}</>}</p>}
                 {it.comment && (
                   <p className="sheet__comment" style={{ marginTop: 10 }}>
                     {it.comment}

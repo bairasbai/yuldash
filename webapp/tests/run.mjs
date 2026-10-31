@@ -82,6 +82,8 @@ const ALL_SUITES = [
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
   { test: "booking-pending-refresh-test", src: null, out: null, bundle: false },
   { test: "pickup-stop-test", src: null, out: null, bundle: false },
+  // RS-02 А/Б: цена и места участка на сайте — та же таблица, что у сервера и Android.
+  { test: "segment-price-test", src: null, out: null, bundle: false },
   { test: "route-segment-test", src: null, out: null, bundle: false },
   { test: "requests-route-test", src: null, out: null, bundle: false },
   { test: "create-ride-stops-test", src: null, out: null, bundle: false },

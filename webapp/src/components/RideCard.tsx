@@ -39,10 +39,19 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
   const ru = lang !== "ba";
   const ownBooking = useOwnBooking(ride.id);
 
-  const priceLabel =
-    ride.price > 0
+  // RS-02 А/Б: места — на участке запроса (если сервер его однозначил); цена — участка,
+  // а при ценах остановок без участка — честное «зависит от участка» вместо полной суммы.
+  const priceLabel = (() => {
+    const hasStopPrices = (ride.stop_prices?.length ?? 0) > 0;
+    if (hasStopPrices && ride.segment_price != null) {
+      return appText(`${ride.segment_price!.toLocaleString("ru-RU")} ₽ за место`, `${ride.segment_price} ₽ бер урынға`);
+    }
+    if (hasStopPrices) return appText("Цена зависит от участка", "Хаҡ участкаға ҡарай");
+    return ride.price > 0
       ? `${ride.price.toLocaleString("ru-RU")} ₽`
       : appText("Бесплатно", "Түләүһеҙ");
+  })();
+  const seatsLeft = ride.seats_on_segment ?? ride.seats_left;
 
   const card = (
     <article
@@ -60,7 +69,7 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
       <div className="ride-card__meta">
         <span>{formatWhen(ride.depart_at, ru)}</span>
         <span>
-          <b>{ride.seats_left}</b> {appText(pluralRu(ride.seats_left, "место", "места", "мест"), "урын")}
+          <b>{seatsLeft}</b> {appText(pluralRu(seatsLeft, "место", "места", "мест"), "урын")}
         </span>
         {ride.women_only && (
           <span className="badge badge--woman">

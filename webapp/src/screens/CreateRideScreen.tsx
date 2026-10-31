@@ -23,6 +23,7 @@ import CityField from "../components/CityField";
 import StopSuggestField, { MAX_RIDE_STOPS, resolveRideStops, RideStopError, rideStopErrorMessage } from "../components/StopSuggestField";
 import PickupChips from "../components/PickupChips";
 import { priceLabel, rubLabel } from "../utils/format";
+import { legPriceAmounts, splitPriceByLegs } from "../utils/pickupStops";
 import { useDraftSync, clearDraft } from "../utils/formDraft";
 import { minDateTimeNow } from "../utils/dateInput";
 import { SEATS_DEFAULT, clampSeats, seatCap } from "../utils/seatOptions";
@@ -96,6 +97,12 @@ export default function CreateRideScreen() {
    */
   const [waypoints, setWaypoints] = useState<string[]>([]);
   const [partnerId, setPartnerId] = useState<number | null>(null);
+  // RS-02 Б: цена до каждой остановки (выключена — одна цена за весь маршрут, как раньше).
+  const [stopPricesOn, setStopPricesOn] = useState(false);
+  const [stopPriceValues, setStopPriceValues] = useState<string[]>([]);
+  const [splitBusy, setSplitBusy] = useState(false);
+  const [splitFailed, setSplitFailed] = useState(false);
+  const stopNames = waypoints.map((w) => w.trim()).filter(Boolean);
 
   const [amen, setAmen] = useState<Record<Amenity, boolean>>({
     baggage: false,
@@ -239,6 +246,18 @@ export default function CreateRideScreen() {
       // что и приложение, иначе одна и та же поездка выглядела бы по-разному.
       waypoints: selectedStops.join(" | ") || undefined,
     };
+    // RS-02 Б: цены остановок (включены) — проверка до сети, сервер перепроверяет.
+    if (stopPricesOn && selectedStops.length) {
+      const total = body.price ?? 0;
+      const nums = stopPriceValues.filter((v) => v.trim()).map((v) => parseInt(v, 10));
+      const ok = nums.length === selectedStops.length && nums.every((v, i) => Number.isInteger(v) && v > (i ? nums[i - 1] : 0) && v < total);
+      if (!ok) {
+        setError(appText("Проверь цены остановок: каждая больше предыдущей и меньше цены маршрута.",
+                         "Туҡталыш хаҡтарын тикшер: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй."));
+        return;
+      }
+      body.stop_prices = nums;
+    }
       const ride = await publishRide(body);
       track("publish_ride", { category });
       setCreatedId(ride.id);
@@ -532,6 +551,100 @@ export default function CreateRideScreen() {
             </button>
           )}
         </div>
+
+        {/* RS-02 Б: цена до каждой остановки — попутчик платит только за свой путь. */}
+        {stopNames.length > 0 && (
+          <div className="trip-stops" style={{ marginTop: 12 }}>
+            <label style={{ display: "flex", alignItems: "center", gap: 8, minHeight: 48 }}>
+              <input
+                type="checkbox"
+                className="checkbox"
+                checked={stopPricesOn}
+                onChange={(e) => { setStopPricesOn(e.target.checked); setSplitFailed(false); }}
+              />
+              <span>
+                <b>{appText("Цена до каждой остановки", "Һәр туҡталышҡа тиклем хаҡ")}</b>
+                <div className="sheet__note">{appText("Попутчик платит только за свой путь.", "Юлдаш тик үҙ юлы өсөн түләй.")}</div>
+              </span>
+            </label>
+            {stopPricesOn && (
+              <>
+                {stopNames.map((stop, i) => (
+                  <label className="field" key={`sp-${i}`} style={{ marginTop: 8 }}>
+                    <span className="field__label">{appText(`до ${stop}, ₽`, `${stop} тиклем, ₽`)}</span>
+                    <input
+                      className="field__input"
+                      inputMode="numeric"
+                      style={{ minHeight: 48 }}
+                      value={stopPriceValues[i] ?? ""}
+                      onChange={(e) => {
+                        const v = e.target.value.replace(/\D/g, "").slice(0, 5);
+                        setStopPriceValues((prev) => {
+                          const next = [...prev];
+                          while (next.length <= i) next.push("");
+                          next[i] = v;
+                          return next;
+                        });
+                      }}
+                    />
+                  </label>
+                ))}
+                {(() => {
+                  const total = parseInt(price, 10) || 0;
+                  const cum = stopPriceValues.map((v) => parseInt(v, 10) || 0);
+                  if (cum.length === stopNames.length && cum.every((v) => v > 0) && total > 0) {
+                    const legs = legPriceAmounts(cum, total);
+                    const points = [from.trim() || appText("Начало", "Башы"), ...stopNames, to.trim() || appText("Конец", "Аҙағы")];
+                    return (
+                      <p className="sheet__note" style={{ marginTop: 8 }}>
+                        {legs.map((amount, i) => `${points[i]} → ${points[i + 1]}: ${amount} ₽`).join(" · ")}
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+                <button
+                  type="button"
+                  className="btn-soft btn-soft--sm"
+                  style={{ marginTop: 8, minHeight: 48 }}
+                  disabled={splitBusy || !(parseInt(price, 10) > 0)}
+                  onClick={async () => {
+                    // «Поделить по расстоянию»: км звеньев — свой справочник сервера;
+                    // последнее звено — остаток прямой начало→конец.
+                    const total = parseInt(price, 10) || 0;
+                    if (!total || splitBusy) return;
+                    setSplitBusy(true);
+                    setSplitFailed(false);
+                    try {
+                      const hint = await fetchPriceHint(from.trim(), to.trim(), undefined, stopNames);
+                      const legs = stopNames.map((s) => hint.stops?.find((h) => h.stop === s)?.distance_km ?? null);
+                      const known = legs.filter((d): d is number => d !== null).reduce((s, d) => s + d, 0);
+                      const lastLeg = hint.distance_km !== null && hint.distance_km - known > 0 ? hint.distance_km - known : null;
+                      const split = splitPriceByLegs(total, [...legs, lastLeg]);
+                      if (split === null) {
+                        setStopPriceValues([]);
+                        setSplitFailed(true);
+                      } else {
+                        setStopPriceValues(split.map(String));
+                      }
+                    } catch {
+                      setSplitFailed(true);
+                    } finally {
+                      setSplitBusy(false);
+                    }
+                  }}
+                >
+                  {appText("Поделить по расстоянию", "Алыҫлыҡҡа ҡарап бүлеү")}
+                </button>
+                {splitFailed && (
+                  <p className="sheet__note" style={{ marginTop: 4 }}>
+                    {appText("Не получилось поделить — впиши цены сам", "Бүлеп булманы — хаҡты үҙең язы")}
+                  </p>
+                )}
+              </>
+            )}
+          </div>
+        )}
 
         {/* Поездка «возьму посылку»: кому отдать и что за груз. Без этих строк
             объявление бесполезно — отправитель не знает, влезет ли коробка,

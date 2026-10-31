@@ -192,6 +192,12 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
         )}
       </div>
       <div className="list-row__sub">{b.route}</div>
+      {/* RS-02 А: сколько мест и за сколько — водитель видит до подтверждения («1 место · 300 ₽»). */}
+      {(b.seats ?? 0) > 0 && (
+        <div className="list-row__sub">
+          {appText(`${b.seats} ${pluralRu(b.seats!, "место", "места", "мест")} · ${b.price} ₽`, `${b.seats} урын · ${b.price} ₽`)}
+        </div>
+      )}
       <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
     </div>
   );

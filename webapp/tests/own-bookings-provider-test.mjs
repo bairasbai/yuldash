@@ -34,6 +34,8 @@ const mocks = {
     export const fetchBoardingCode=async()=>({code:"1234"});
     export const rateBooking=async()=>({}),ratingTags=()=>[],setPayAgreement=async()=>({});`,
   medical: `export const fetchMedicalPartners=async()=>[{id:8,name:"Клиника",city:"Уфа"}];export const fetchClinicRides=async()=>({items:[globalThis.__ownBookingsHarness.ride,{...globalThis.__ownBookingsHarness.ride,id:43,front_seat_taken:false}]});`,
+  // RS-02 В: RideSheet обновляет условия после 409 через fetchRide — на этом стенде её нет.
+  rides: `export const fetchRide=async()=>{throw new Error("no ride refresh in this harness")};`,
   cabinet: `export const SettingSwitchRow="switch";`,
   features: `const flags={parcels:true,ready:true};export const useFeatures=()=>flags,getFeatures=()=>flags;`,
   soon: `export default ()=>null;`,
@@ -66,7 +68,7 @@ const mocks = {
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
 const suffixes = {
-  "/api/client":"client", "/api/bookings":"bookings", "/api/medical":"medical", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
+  "/api/client":"client", "/api/bookings":"bookings", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
   "/features":"features", "/ComingSoon":"soon",
   "/analytics":"analytics", "/cabinetUi":"cabinet", "/Icons":"icons", "/components/States":"states",
   "/ConsentsScreen":"header", "/components/YandexMap":"map", "/components/StatusPill":"status",

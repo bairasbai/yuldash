@@ -64,10 +64,16 @@ for (const lang of ["ru", "ba"]) {
     assert.equal(h.refreshed, 1, "без ответа сервера список своих броней не трогаем");
     s.unmount();
   });
-  await t.test(`${lang}: мест стало меньше выбранного — число уменьшается до свободных`, async () => {
+  await t.test(`${lang}: мест стало меньше выбранного — отправка заблокирована, «Уменьшить» чинит явно`, async () => {
     reset(); const s = mount(Sheet, { ride, onClose() {} }); s.render();
     selector(s).props.onChange({ target: { value: "3" } }); await s.settle();
     s.props = { ...s.props, ride: { ...ride, seats_left: 2 } }; s.render(); await s.settle();
+    // RS-02 В: число не трогаем молча — выбранное 3 остаётся, бронь заблокирована, рядом действие.
+    assert.equal(cta(s).props.disabled, true, "бронь при seats > доступных заблокирована");
+    assert.ok(text(s.tree).includes(lang === "ru" ? "уменьшите число" : "һанын кәмет"), "предупреждение на месте");
+    const shrink = all(s.tree).find(n => n.type === "button" && text(n).includes(lang === "ru" ? "Уменьшить до 2" : "2 тиклем кәметеү"));
+    assert.ok(shrink, "кнопка «Уменьшить до 2» на месте");
+    shrink.props.onClick(); await s.settle();
     assert.equal(selector(s).props.value, 2);
     assert.ok(text(s.tree).includes((lang === "ru" ? "Итого: " : "Бөтәһе: ") + "1000"));
     assert.equal(cta(s).props.disabled, false);
