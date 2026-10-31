@@ -42,6 +42,7 @@ from .models import (
     LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
+    RideStatus,
     RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
     CarPhotoCheck, PreTripCheck, TaxiApplication, TaxiWorkDay, TextFlag, TgAuth, Trust, TripShare, TrustedContact,
     UploadEvent, User,
@@ -282,6 +283,21 @@ def delete_user_account(session: Session, user: User) -> None:
     if ride_ids:
         booking_conds.append(Booking.ride_id.in_(ride_ids))
     booking_ids = list(session.exec(select(Booking.id).where(or_(*booking_conds))).all())
+    # RS-02 А5: живые брони удаляемого пассажира на ЧУЖИХ активных рейсах — после удаления броней
+    # (шаг 3.9) эти рейсы пересчитают снимок мест в той же транзакции, иначе освободившиеся
+    # места так и числились бы занятыми («свободно = всего − занято» расходилось с правдой).
+    foreign_conds = [
+        Booking.passenger_id == uid,
+        Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
+    ]
+    if ride_ids:
+        foreign_conds.append(~Booking.ride_id.in_(ride_ids))
+    foreign_active_ride_ids = list(session.exec(
+        select(Booking.ride_id).where(
+            and_(*foreign_conds),
+            Booking.ride_id.in_(select(Ride.id).where(Ride.status == RideStatus.active)),
+        )
+    ).all())
 
     def dele(model, *conds) -> None:
         session.execute(delete(model).where(or_(*conds)))
@@ -454,6 +470,15 @@ def delete_user_account(session: Session, user: User) -> None:
     # 3.9 Брони (после всех детей, что на них ссылаются).
     if booking_ids:
         session.execute(delete(Booking).where(Booking.id.in_(booking_ids)))
+    # RS-02 А5: освободившиеся места живых броней пассажира на чужих активных рейсах —
+    # пересчёт снимка в той же транзакции (до удаления самих рейсов удаляемого водителя на 3.10:
+    # сюда попали только ЧУЖИЕ рейсы, они остаются жить).
+    if foreign_active_ride_ids:
+        from . import ride_seats
+        for rid in foreign_active_ride_ids:
+            ride = session.get(Ride, rid)
+            if ride is not None:
+                ride_seats.recompute(session, ride)
     # 3.10 Заявки + поездки.
     session.execute(delete(RideRequest).where(RideRequest.passenger_id == uid))
     session.execute(delete(Ride).where(Ride.driver_id == uid))

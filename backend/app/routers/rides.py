@@ -8,7 +8,7 @@ from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_, text
+from sqlalchemy import and_, func, or_, text
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
@@ -22,6 +22,8 @@ from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
+from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
+from ..ride_stops import parse_stops
 from ..safety_logic import (ensure_active, guard_women_only_publish)
 from ..schemas import RideIn, RideOut
 from .. import stop_search
@@ -394,7 +396,6 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
         Booking.ride_id == ride_id,
         Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)),
     )).all()
-    booked_seats = sum(b.seats for b in live)
     changed: list[tuple[str, str]] = []   # что изменилось: (по-русски, по-башкирски)
     if body.price is not None and body.price != ride.price:
         if live and body.price > ride.price:
@@ -447,25 +448,39 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     cap = seat_cap(new_back, new_front)
     # Прислали то же число мест (клиент шлёт форму целиком) — это не правка мест: потолок ниже
     # срежет лишнее сам, и при бронях это не должно давать 409 (ревью Opus 2026-10-14).
+    seats_changed = False
+    new_total = ride.seats_total
     if (body.seats_total is not None and body.seats_total != ride.seats_total
             and min(body.seats_total, cap) != ride.seats_total):
         if live:
             raise herr(409, "С активными бронями число мест не меняют", "Актив брондар менән урын һанын үҙгәртеп булмай")
-        ride.seats_total = min(body.seats_total, cap)
-        ride.seats_left = ride.seats_total - booked_seats   # броней нет → просто новое число мест
-        changed.append(SEATS_CHANGED)
-    if ride.seats_total > cap:
+        new_total = min(body.seats_total, cap)
+        seats_changed = True
+    if new_total > cap:
         # Опцию включили, а мест в объявлении больше, чем она позволяет: срезаем до потолка.
-        # Уже занятые места не трогаем — если их больше потолка, обещание не выполнить.
-        if booked_seats > cap:
+        # Уже занятые места не трогаем — если на КАКОМ-ТО участке их больше потолка (RS-02 А9:
+        # меряем по худшему участку, а не по сумме рейса), обещание не выполнить.
+        if min(ride_seats.occupancy_snapshot(session, ride, proposed_seats_total=cap)) < 0:
             raise herr(409, "Мест уже забронировано больше, чем поместится при этих условиях",
                        "Был шарттарҙа һыйғандан күберәк урын брондалған инде")
-        ride.seats_total = cap
-        ride.seats_left = cap - booked_seats
-        if SEATS_CHANGED not in changed:
-            changed.append(SEATS_CHANGED)
+        new_total = cap
+        seats_changed = True
+    if seats_changed:
+        ride.seats_total = new_total
+        changed.append(SEATS_CHANGED)
     if not changed:
         return public_ride_payload(ride_out(ride, session), full=True)   # нечего менять; свой рейс — свой текст
+    # Любая правка цены/мест/опций/времени — рост версии условий (RS-02 А3): бронь по устаревшей
+    # версии получит 409 и перечитает. Остатки — чистый пересчёт из живых броней под новое число
+    # мест; снимок и версия пишутся одной CAS в том же commit, что остальные поля.
+    terms_changed = seats_changed or any(t[0] in ("цена", "время", "переднее место", "места сзади")
+                                         for t in changed)
+    if terms_changed:
+        legs = ride_seats.occupancy_snapshot(session, ride, proposed_seats_total=ride.seats_total)
+        if not ride_seats.write_terms(session, ride, legs):
+            session.rollback()
+            raise herr(409, "Условия поездки изменились — обнови и попробуй ещё раз",
+                       "Сәфәр шарттары үҙгәрҙе — яңырт та тағы кабатла", code="ride_terms_changed")
     session.add(ride)
     session.commit()
     session.refresh(ride)
@@ -512,7 +527,7 @@ def search_rides(
         and limit is None
     )
     if no_filter:
-        cached = cache_get_json("rides:active:v2")
+        cached = cache_get_json("rides:active:v3")   # v3: +terms_version/seats_by_leg (RS-02 А)
         if cached is not None:
             return visible_rides(public_rides_payload(cached), user, session)
 
@@ -526,7 +541,8 @@ def search_rides(
         # нет. Заметнее всего это на поездке, созданной из принятого отклика: она рождается
         # сразу занятой под одного пассажира и всё равно висела в списке. Человек открывает
         # карточку, жмёт «Забронировать» и получает отказ — выглядит как поломка приложения.
-        Ride.seats_left > 0,
+        # RS-02 А: «место есть» = на всём пути ИЛИ хотя бы на одном участке.
+        ride_seats.any_free_sql(),
     )
     # «Откуда»/«Куда» — и по остановкам (18.10.2026, `stop_search`): широкое условие в SQL, точная
     # проверка порядка и допустимых остановок — `route_fit` после выборки.
@@ -587,7 +603,8 @@ def search_rides(
         page_ids: list = []
         verdicts: dict = {}
         light = session.execute(q.with_only_columns(
-            Ride.id, Ride.from_city, Ride.to_city, Ride.waypoints))
+            Ride.id, Ride.from_city, Ride.to_city, Ride.waypoints,
+            Ride.leg_free, Ride.seats_left, Ride.seats_free_max, Ride.terms_version))
         try:
             for row in light:
                 shape = (row.from_city, row.to_city, row.waypoints)
@@ -596,6 +613,11 @@ def search_rides(
                     fit = verdicts[shape] = stop_search.route_fit(
                         row, fv or None, tv or None, entry, from_stops=stops_from, to_stops=stops_to)
                 if fit.ok:
+                    # RS-02 А: место нужно на участке запроса; участок неоднозначен —
+                    # общий отсев «хоть на одном» уже сделан в SQL.
+                    sp = _definite_span(row, fit, entry)
+                    if sp is not None and ride_seats.free_on(row, (sp[0], sp[1]), sp[2]) < 1:
+                        continue
                     fits[row.id] = fit
                     page_ids.append(row.id)
                     if len(page_ids) >= want:
@@ -616,11 +638,15 @@ def search_rides(
         marks = {r.id: _matched(fits[r.id], None, by_query=bool(fv)) + _dropoff(fits[r.id], None, by_query=bool(fv))
                  for r in out}
         out = [r.model_copy(update={"matched_stop": marks[r.id][0], "matched_from_start": marks[r.id][1],
-                                    "matched_dropoff_stop": marks[r.id][2], "matched_to_end": marks[r.id][3]})
+                                    "matched_dropoff_stop": marks[r.id][2], "matched_to_end": marks[r.id][3],
+                                    # RS-02 А: свободно на участке своего запроса (неоднозначен — null)
+                                    "seats_on_segment": _seats_on_segment(
+                                        r, (marks[r.id][0], marks[r.id][1]),
+                                        (marks[r.id][2], marks[r.id][3]), entry)})
                for r in out]
     public_out = public_rides_payload(out)
     if no_filter:
-        cache_set_json("rides:active:v2", [r.model_dump(mode="json") for r in public_out], 20)
+        cache_set_json("rides:active:v3", [r.model_dump(mode="json") for r in public_out], 20)
     return visible_rides(public_out, user, session)
 
 
@@ -891,6 +917,63 @@ def _dropoff(fit, pickup, *, by_query: bool):
     return (None, True) if later[0] == len(fit.stops) else (fit.stops[later[0]], False)
 
 
+def _definite_span(ride, fit, entry) -> Optional[tuple]:
+    """RS-02 А: (a, b, n) участка запроса на рейсе по итогу route_fit — только если оба конца
+    однозначны; n = число участков рейса. None — участок неопределён, действует общий отсев SQL."""
+    stops = parse_stops(ride, entry) if (_f_waypoints(ride) or "") else []
+    n = len(stops)
+    if getattr(fit, "matched_from_start", False):
+        a = 0
+    elif getattr(fit, "matched_stop", None) is not None and fit.matched_stop in stops:
+        a = stops.index(fit.matched_stop) + 1
+    else:
+        return None
+    if getattr(fit, "matched_to_end", False):
+        b = n + 1
+    elif getattr(fit, "matched_dropoff_stop", None) is not None and fit.matched_dropoff_stop in stops:
+        b = stops.index(fit.matched_dropoff_stop) + 1
+    else:
+        return None
+    return a, max(a, b), n + 1
+
+
+def _marks_span(row, matched, dropoff, entry) -> Optional[tuple]:
+    """То же по паре отметок `_matched`/`_dropoff` ((stop|None, flag)) строки выдачи."""
+    stops = parse_stops(row, entry) if (_f_waypoints(row) or "") else []
+    mstop, mstart = matched
+    dstop, dend = dropoff
+    if mstart:
+        a = 0
+    elif mstop is not None and mstop in stops:
+        a = stops.index(mstop) + 1
+    else:
+        return None
+    if dend:
+        b = len(stops) + 1
+    elif dstop is not None and dstop in stops:
+        b = stops.index(dstop) + 1
+    else:
+        return None
+    return a, max(a, b), len(stops) + 1
+
+
+def _f_waypoints(obj):
+    return getattr(obj, "waypoints", None) if not isinstance(obj, dict) else obj.get("waypoints")
+
+
+def _seats_on_segment(item, matched, dropoff, entry) -> Optional[int]:
+    """Свободно на участке СВОЕГО запроса для выдачи (RS-02 А): участок однозначен — min по его
+    звеньям из показанного списка `seats_by_leg`; неоднозначен — null, клиент смотрит список."""
+    sp = _marks_span(item, matched, dropoff, entry)
+    if sp is None:
+        return None
+    a, b, n = sp
+    if a >= b:
+        return None
+    legs = getattr(item, "seats_by_leg", None) or ride_seats.legs_free(item, n)
+    return min(legs[a:b])
+
+
 # Колонки, которые определяют маршрут поездки в «Ближайших»: по ним ответ (подходит ли, расстояние,
 # место посадки) считается один раз на «вид маршрута». Идут в запросе сразу после id/driver_id/only_trusted.
 _NEAR_SHAPE = (Ride.from_lat, Ride.from_lng, Ride.from_city, Ride.to_lat, Ride.to_lng, Ride.to_city,
@@ -921,7 +1004,7 @@ def rides_near(
     # Уже уехавшие (выезд раньше чем RIDE_PAST_GRACE_HOURS назад) — как в общей ленте `/rides`: ночная
     # уборка закрывает их не сразу, а бронь на них всё равно получит «поездка уже уехала» (сквозной
     # проход волны 1, 16.10.2026).
-    q = select(Ride).where(Ride.status == RideStatus.active, Ride.seats_left > 0,
+    q = select(Ride).where(Ride.status == RideStatus.active, ride_seats.any_free_sql(),
                            Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS))
     # «Откуда»/«Куда» — место из поиска (`from_city`/`to_city`) и места из шторок (`from_cities`/
     # `to_cities`, «любое из»); заданы оба — поездка должна подойти обоим, как раньше. И по остановкам
@@ -977,7 +1060,9 @@ def rides_near(
     # чтобы спрятанные поездки можно было посчитать без второго запроса.
     light_rows = session.execute(
         q.with_only_columns(Ride.id, Ride.driver_id, Ride.only_trusted, *_NEAR_SHAPE,
-                            Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))).label("driver_ok"))
+                            Ride.driver_id.in_(select(User.id).where(User.verified.is_(True))).label("driver_ok"),
+                            # RS-02 А: снимок мест — фильтр по участку ниже (хвост, индексы формы не сдвигаем)
+                            Ride.leg_free, Ride.seats_left, Ride.seats_free_max, Ride.terms_version)
         .order_by(*boost_then_depart_order())   # Boost первыми, затем по времени выезда ↑
     ).all()
     kept: list = []
@@ -1004,6 +1089,10 @@ def rides_near(
             shape_memo[shape] = verdict
         ok, dist, matched, dropoff = verdict
         if not ok:
+            continue
+        # RS-02 А: место нужно на участке запроса; участок неоднозначен — «хоть на одном» уже в SQL.
+        sp = _marks_span(r, matched, dropoff, entry)
+        if sp is not None and ride_seats.free_on(r, (sp[0], sp[1]), sp[2]) < 1:
             continue
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
@@ -1040,6 +1129,9 @@ def rides_near(
         out["distance_km"] = dist_by_id.get(r.id)
         out["matched_stop"], out["matched_from_start"] = matched_by_id.get(r.id, (None, False))
         out["matched_dropoff_stop"], out["matched_to_end"] = dropoff_by_id.get(r.id, (None, False))
+        # RS-02 А: свободно на участке СВОЕГО запроса (неоднозначен — null, смотри seats_by_leg)
+        out["seats_on_segment"] = _seats_on_segment(
+            r, matched_by_id.get(r.id, (None, False)), dropoff_by_id.get(r.id, (None, False)), entry)
         items.append(out)
     # Связку с клиникой прячем ЗДЕСЬ, а не выше вместе с соседними фильтрами: там в руках
     # ORM-объекты `Ride`, страница потом перечитывается из базы заново — правка на них
@@ -1073,7 +1165,18 @@ def my_driver_rides(
     else:   # "" | "active" — прежнее поведение (не ломаем существующий вызов Boost)
         q = q.where(Ride.status == RideStatus.active).order_by(*boost_then_depart_order())
     rides = session.exec(q).all()
-    return rides_out(rides, session)
+    out = rides_out(rides, session)
+    if rides:
+        # RS-02 А: «занято всего» у своего рейса — одним батчем, не запросом на каждую поездку.
+        booked_rows = session.exec(
+            select(Booking.ride_id, func.sum(Booking.seats))
+            .where(Booking.ride_id.in_([r.id for r in rides]),
+                   Booking.status.in_((BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)))
+            .group_by(Booking.ride_id)
+        ).all()
+        booked = {rid: int(total or 0) for rid, total in booked_rows}
+        out = [r.model_copy(update={"seats_booked": booked.get(r.id, 0)}) for r in out]
+    return out
 
 
 def _ride_owned(session: Session, ride_id: int, user: User) -> Ride:
@@ -1263,7 +1366,7 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
     rows = session.execute(
         select(Ride.id, Ride.driver_id, Ride.only_trusted, Ride.from_city, Ride.to_city, Ride.waypoints,
                Ride.from_lat, Ride.from_lng, Ride.to_lat, Ride.to_lng)
-        .where(Ride.status == RideStatus.active, Ride.seats_left > 0,
+        .where(Ride.status == RideStatus.active, ride_seats.any_free_sql(),
                Ride.depart_at >= utcnow() - timedelta(hours=RIDE_PAST_GRACE_HOURS))   # уехавшие — как в ленте
         .order_by(Ride.depart_at).limit(FEED_MAX * 10)
     ).all()

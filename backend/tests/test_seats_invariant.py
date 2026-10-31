@@ -1,265 +1,73 @@
-"""Число свободных мест обязано сходиться с бронями — после ЛЮБОЙ последовательности действий.
+# -*- coding: utf-8 -*-
+"""RS-02 А: инвариант снимка мест — `leg_free[i] = всего − Σ живых броней на участке i`
+после ЛЮБОЙ цепочки операций (бронь, отмена, неявка, пауза, удаление аккаунта, правка).
 
-Почему это отдельный тест, а не «и так понятно». Счётчик мест меняется в пяти разных местах:
-при бронировании, при отмене пассажиром, при отмене водителем, при правке поездки, при
-авто-создании поездки из заявки. Каждое место писали отдельно, и сходиться они обязаны все
-вместе. Если одно забудет вернуть место, поездка молча теряет вместимость: водитель везёт
-троих, а приложение показывает «мест нет» — и четвёртый попутчик не сядет, хотя место есть.
-Обратная ошибка хуже: мест «остаётся» больше, чем в машине, и на трассе окажется лишний
-человек.
-
-Инвариант один и простой: **свободных мест = всего мест − сумма мест по живым броням**.
-Живые — это ожидающие подтверждения и подтверждённые; отменённые и завершённые место не держат.
-
-Тест гоняет разные последовательности и после каждой сверяет инвариант. Считает он не по
-счётчику, а по самим броням — то есть проверяет счётчик независимым способом.
+Снимок — кэш, правда — живые брони. Этот тест ловит любую дверь, которая меняет брони
+и забывает обновить снимок (или обновляет его не на том участке).
 """
-from __future__ import annotations
+from datetime import timedelta
 
-import pytest
-from concurrent.futures import ThreadPoolExecutor
-from threading import Barrier, Event
-from types import SimpleNamespace
-from sqlmodel import Session, select
+from sqlmodel import Session
 
+from app import ride_seats
+from app.account import delete_user_account
 from app.db import engine
-from app.models import Booking, BookingStatus, Notification, Ride, UserRole
+from app.models import Ride, User, UserRole
+from app.safety_logic import cancel_upcoming_after_suspension
+from app.timeutil import utcnow
 
-from test_api import _ride
-
-_LIVE = (BookingStatus.pending, BookingStatus.confirmed)
+from test_segment_seats import _book, _mkride, _pax
 
 
-def test_parallel_multiseat_cancellation_returns_n_once(client, user_factory, monkeypatch):
-    driver = user_factory("MultiCancelDriver", role=UserRole.driver)
-    passenger = user_factory("MultiCancelPassenger")
-    ride_id = _ride(client, driver, seats=5)
-    bid = _book(client, passenger, ride_id, seats=3)
-    _book(client, user_factory("MultiCancelUnaffectedPassenger"), ride_id, seats=1)
-    start = Barrier(2)
-    reread = Barrier(2)
-    original = Session.exec
-
-    def hold_sqlite_reread(session, statement, *args, **kwargs):
-        result = original(session, statement, *args, **kwargs)
-        if (engine.dialect.name == "sqlite" and getattr(statement, "_for_update_arg", None) is not None
-                and any(d.get("entity") is Booking for d in getattr(statement, "column_descriptions", []))):
-            booking = result.first()
-            if booking and booking.id == bid:
-                reread.wait(timeout=10)
-            return SimpleNamespace(first=lambda: booking)
-        return result
-
-    def cancel(actor):
-        start.wait(timeout=10)
-        return client.post(f"/bookings/{bid}/cancel", headers=actor["auth"], json={"reason": "changed_mind"})
-
-    monkeypatch.setattr(Session, "exec", hold_sqlite_reread)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        futures = [pool.submit(cancel, actor) for actor in (passenger, driver)]
-        replies = [f.result(timeout=20) for f in futures]
-    assert [r.status_code for r in replies] == [200, 200], [r.text for r in replies]
-    assert all(r.json()["status"] == "cancelled" for r in replies)
-    _check(ride_id, "две одновременные отмены трёх мест")
-    # Кто успел первым, тот и отменил: пассажир — «Бронь отменена», водитель по неподтверждённой
-    # брони — это отказ, «Водитель отклонил бронь». Гонка решает, какой заголовок, но уведомление
-    # об отмене обязано быть ровно одно — второй запрос не должен прислать дубль.
+def _check(rid):
     with Session(engine) as session:
-        notes = session.exec(select(Notification.id).where(
-            Notification.ref_kind == "booking", Notification.ref_id == bid,
-            Notification.title_ru.in_(("Бронь отменена", "Водитель отклонил бронь")),
-        )).all()
-        assert len(notes) == 1
+        ride = session.get(Ride, rid)
+        truth = ride_seats.occupancy_snapshot(session, ride)
+        assert ride_seats.legs_free(ride) == truth, (
+            f"снимок {ride_seats.legs_free(ride)} расходится с живыми бронями {truth}")
+        assert ride.seats_left == max(0, min(truth))
+        assert ride.seats_free_max == max(0, max(truth))
 
 
-def test_multiseat_cancellation_against_new_booking_keeps_capacity(client, user_factory, monkeypatch):
-    driver = user_factory("MultiCancelNewDriver", role=UserRole.driver)
-    passenger = user_factory("MultiCancelOldPassenger")
-    newcomer = user_factory("MultiCancelNewPassenger")
-    ride_id = _ride(client, driver, seats=5)
-    bid = _book(client, passenger, ride_id, seats=3)
-    ready, release = Event(), Event()
-    original = Session.exec
+def test_leg_free_matches_live_bookings_after_any_chain(client, user_factory):
+    driver = _pax(user_factory, "Inv driver", role=UserRole.driver)
+    rid = _mkride(driver, seats=3)
+    p1, p2 = _pax(user_factory, "Inv p1"), _pax(user_factory, "Inv p2")
+    p3, p4 = _pax(user_factory, "Inv p3"), _pax(user_factory, "Inv p4")
 
-    def hold_sqlite_cancel(session, statement, *args, **kwargs):
-        result = original(session, statement, *args, **kwargs)
-        if (engine.dialect.name == "sqlite" and getattr(statement, "_for_update_arg", None) is not None
-                and any(d.get("entity") is Booking for d in getattr(statement, "column_descriptions", []))):
-            booking = result.first()
-            if booking and booking.id == bid:
-                ready.set()
-                assert release.wait(timeout=10), "cancel was not released"
-            return SimpleNamespace(first=lambda: booking)
-        return result
-
-    monkeypatch.setattr(Session, "exec", hold_sqlite_cancel)
-    with ThreadPoolExecutor(max_workers=2) as pool:
-        cancelled = pool.submit(client.post, f"/bookings/{bid}/cancel", headers=passenger["auth"], json={})
-        try:
-            if engine.dialect.name == "sqlite":
-                assert ready.wait(timeout=10), "cancel did not reach locked re-read"
-            booked = pool.submit(client.post, "/bookings", headers=newcomer["auth"],
-                                 json={"ride_id": ride_id, "seats": 2})
-            reply = booked.result(timeout=20)
-        finally:
-            release.set()
-        cancel_reply = cancelled.result(timeout=20)
-    assert cancel_reply.status_code == 200, cancel_reply.text
-    assert reply.status_code == 200, reply.text
-    _check(ride_id, "отмена трёх мест против новой брони двух")
-
-
-def _check(ride_id: int, where: str) -> None:
-    """Сверить счётчик мест с реальными бронями."""
-    with Session(engine) as s:
-        ride = s.get(Ride, ride_id)
-        live = list(s.exec(select(Booking).where(
-            Booking.ride_id == ride_id, Booking.status.in_(_LIVE))).all())
-    taken = sum(b.seats for b in live)
-    expected = ride.seats_total - taken
-    assert ride.seats_left == expected, (
-        f"{where}: счётчик мест разошёлся с бронями. Всего {ride.seats_total}, "
-        f"занято по броням {taken}, должно остаться {expected}, а в поездке {ride.seats_left}. "
-        f"Живых броней: {[(b.id, b.status, b.seats) for b in live]}"
-    )
-
-
-def _book(client, pax, ride_id, seats=1):
-    r = client.post("/bookings", headers=pax["auth"], json={"ride_id": ride_id, "seats": seats})
-    assert r.status_code == 200, f"бронь не создалась: {r.status_code} {r.text[:200]}"
-    return r.json()["id"]
-
-
-def test_бронь_и_отмена_пассажиром_сходятся(client, user_factory):
-    driver = user_factory("SeatsA_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=3)
-    _check(ride_id, "сразу после публикации")
-
-    pax = user_factory("SeatsA_Pax")
-    bid = _book(client, pax, ride_id)
-    _check(ride_id, "после брони")
-
-    assert client.post(f"/bookings/{bid}/cancel", headers=pax["auth"],
-                       json={"reason": ""}).status_code == 200
-    _check(ride_id, "после отмены пассажиром")
-
-
-def test_подтверждение_место_не_трогает(client, user_factory):
-    """Место занимается при бронировании; подтверждение — это ответ водителя, а не второе место."""
-    driver = user_factory("SeatsB_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=3)
-    pax = user_factory("SeatsB_Pax")
-    bid = _book(client, pax, ride_id)
-    assert client.post(f"/bookings/{bid}/confirm", headers=driver["auth"]).status_code == 200
-    _check(ride_id, "после подтверждения")
-
-
-def test_отмена_водителем_возвращает_место(client, user_factory):
-    driver = user_factory("SeatsC_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=3)
-    pax = user_factory("SeatsC_Pax")
-    bid = _book(client, pax, ride_id)
-    client.post(f"/bookings/{bid}/confirm", headers=driver["auth"])
-    r = client.post(f"/bookings/{bid}/cancel", headers=driver["auth"], json={"reason": ""})
-    assert r.status_code == 200, f"водитель не смог отменить бронь: {r.status_code} {r.text[:200]}"
-    _check(ride_id, "после отмены водителем")
-
-
-def test_несколько_пассажиров_и_частичные_отмены(client, user_factory):
-    """Самый близкий к жизни случай: трое записались, один передумал, другого отменил водитель."""
-    driver = user_factory("SeatsD_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=4)
-    bookings = []
-    for i in range(3):
-        pax = user_factory(f"SeatsD_Pax{i}")
-        bookings.append((pax, _book(client, pax, ride_id)))
-        _check(ride_id, f"после брони №{i + 1}")
-
-    (pax0, bid0), (pax1, bid1), (pax2, bid2) = bookings
-    client.post(f"/bookings/{bid0}/confirm", headers=driver["auth"])
-    _check(ride_id, "после подтверждения первого")
-
-    assert client.post(f"/bookings/{bid1}/cancel", headers=pax1["auth"],
-                       json={"reason": ""}).status_code == 200
-    _check(ride_id, "после отмены вторым")
-
-    client.post(f"/bookings/{bid2}/confirm", headers=driver["auth"])
-    client.post(f"/bookings/{bid2}/cancel", headers=driver["auth"], json={"reason": ""})
-    _check(ride_id, "после отмены третьего водителем")
-
-
-def test_бронь_на_несколько_мест_считается_целиком(client, user_factory):
-    """«Едем вдвоём» — два места одной бронью. Возвращаться они должны тоже вдвоём."""
-    driver = user_factory("SeatsE_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=4)
-    pax = user_factory("SeatsE_Pax")
-    bid = _book(client, pax, ride_id, seats=2)
-    _check(ride_id, "после брони на два места")
-    assert client.post(f"/bookings/{bid}/cancel", headers=pax["auth"],
-                       json={"reason": ""}).status_code == 200
-    _check(ride_id, "после отмены брони на два места")
-
-
-def test_двойная_отмена_не_возвращает_место_дважды(client, user_factory):
-    """Повторный тап по «Отменить» не должен добавить поездке несуществующее место —
-    иначе на трассе окажется лишний человек."""
-    driver = user_factory("SeatsF_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=3)
-    pax = user_factory("SeatsF_Pax")
-    bid = _book(client, pax, ride_id)
-    client.post(f"/bookings/{bid}/cancel", headers=pax["auth"], json={"reason": ""})
-    client.post(f"/bookings/{bid}/cancel", headers=pax["auth"], json={"reason": ""})
-    _check(ride_id, "после двойной отмены")
-
-
-def test_с_активными_бронями_число_мест_не_меняют(client, user_factory):
-    """Сервер отказывает — и правильно делает: пересчитать счётчик под уже занятые места
-    можно только зная, чьи брони отменить. Отказ честнее, чем тихий пересчёт.
-
-    Проверяем именно отказ, а не «как-нибудь пересчиталось»: молчаливый пересчёт — это ровно
-    тот способ, которым счётчик мест обычно и расходится с реальностью."""
-    driver = user_factory("SeatsG_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=3)
-    pax = user_factory("SeatsG_Pax")
-    _book(client, pax, ride_id)
-    r = client.post(f"/rides/{ride_id}/edit", headers=driver["auth"], json={"seats_total": 4})
-    assert r.status_code == 409, (
-        f"число мест поменялось при живой брони: {r.status_code} {r.text[:200]}"
-    )
-    _check(ride_id, "после отказа в правке мест")
-
-
-def test_без_броней_число_мест_править_можно(client, user_factory):
-    """Обратная сторона: пока никто не записался, водитель волен менять вместимость."""
-    driver = user_factory("SeatsG2_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=3)
-    r = client.post(f"/rides/{ride_id}/edit", headers=driver["auth"], json={"seats_total": 4})
-    assert r.status_code == 200, f"правка без броней не прошла: {r.status_code} {r.text[:200]}"
-    _check(ride_id, "после правки мест без броней")
-
-
-def test_нельзя_забронировать_больше_чем_есть(client, user_factory):
-    """Прямая проверка потолка: сумма броней не должна перевалить за вместимость."""
-    driver = user_factory("SeatsH_Drv", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=2)
-    p1 = user_factory("SeatsH_Pax1")
-    p2 = user_factory("SeatsH_Pax2")
-    _book(client, p1, ride_id, seats=2)
-    over = client.post("/bookings", headers=p2["auth"], json={"ride_id": ride_id, "seats": 1})
-    assert over.status_code != 200, "продали место, которого в машине нет"
-    _check(ride_id, "после попытки взять лишнее место")
-
-
-@pytest.mark.parametrize("seats_total", [1, 2, 8])
-def test_инвариант_держится_на_границах(client, user_factory, seats_total):
-    """Односместная и полная машина — крайние случаи, где ошибка на единицу заметнее всего."""
-    driver = user_factory(f"SeatsI_Drv{seats_total}", role=UserRole.driver)
-    ride_id = _ride(client, driver, seats=seats_total)
-    ids = []
-    for i in range(seats_total):
-        pax = user_factory(f"SeatsI_Pax{seats_total}_{i}")
-        ids.append((pax, _book(client, pax, ride_id)))
-        _check(ride_id, f"машина на {seats_total}: бронь №{i + 1}")
-    for pax, bid in ids:
-        client.post(f"/bookings/{bid}/cancel", headers=pax["auth"], json={"reason": ""})
-        _check(ride_id, f"машина на {seats_total}: отмена")
+    # 1. Брони на разных участках.
+    b1 = _book(client, p1, rid, pickup_stop="Сибай", dropoff_stop="Ургаза")
+    _book(client, p2, rid, pickup_stop="Ургаза", dropoff_stop="Акъяр", seats=2)
+    _check(rid)
+    # 2. Отмена.
+    client.post(f"/bookings/{b1}/cancel", headers=p1["auth"], json={})
+    _check(rid)
+    # 3. Ещё бронь + пауза другого пассажира (выезд в будущем — его бронь снимается).
+    b3 = _book(client, p3, rid, pickup_stop="Сибай", dropoff_stop="Бурибай")
+    with Session(engine) as session:
+        cancel_upcoming_after_suspension(session, p2["id"])
+    _check(rid)
+    # 4. Неявка.
+    client.post(f"/bookings/{b3}/confirm", headers=driver["auth"])
+    with Session(engine) as session:
+        ride = session.get(Ride, rid)
+        ride.depart_at = utcnow() - timedelta(days=1)
+        session.add(ride)
+        session.commit()
+    client.post(f"/bookings/{b3}/no-show", headers=driver["auth"])
+    _check(rid)
+    # 5. Удаление аккаунта с живой бронью (выезд возвращаем в будущее — иначе не забронировать).
+    with Session(engine) as session:
+        ride = session.get(Ride, rid)
+        ride.depart_at = utcnow() + timedelta(days=4)
+        session.add(ride)
+        session.commit()
+    _book(client, p4, rid, pickup_stop="Бурибай", dropoff_stop="Акъяр")
+    with Session(engine) as session:
+        delete_user_account(session, session.get(User, p4["id"]))
+        session.commit()
+    _check(rid)
+    # 6. Правка условий рейса (цена вниз) — версия растёт, снимок остаётся правдой.
+    ok = client.patch(f"/rides/{rid}", headers=driver["auth"], json={"price": 500})
+    assert ok.status_code == 200, ok.text
+    _check(rid)

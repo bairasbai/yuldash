@@ -7,6 +7,7 @@ from datetime import timedelta
 from . import stop_search
 from .geo import snapshot_cached
 from .models import RideStatus
+from .ride_seats import free_on, max_free, span
 from .timeutil import local_date, utcnow
 
 REQUEST_FIELDS = ("from_city", "to_city", "seats", "desired_at", "category", "only_trusted", "women_only",
@@ -24,7 +25,9 @@ def segment(ride, req, entry=None, memo=None):
     Дешёвые проверки выше (статус, дата, места, пожелания) в кэш не идут: они зависят от строки."""
     if (ride.status != RideStatus.active or ride.depart_at is None
             or ride.depart_at < utcnow() - timedelta(hours=2)
-            or ride.seats_left < req.seats or ride.category != req.category):
+            # RS-02 А: сперва дешёвый потолок «хоть на одном участке», точный free_on — после
+            # вычисления участка ниже.
+            or max_free(ride) < req.seats or ride.category != req.category):
         return None
     if req.desired_at is not None and local_date(req.desired_at) != local_date(ride.depart_at):
         return None
@@ -51,8 +54,12 @@ def segment(ride, req, entry=None, memo=None):
         return None
     if not fit.matched_to_end and fit.matched_dropoff_stop is None:
         return None
-    return ("" if fit.matched_from_start else fit.matched_stop,
+    pair = ("" if fit.matched_from_start else fit.matched_stop,
             "" if fit.matched_to_end else fit.matched_dropoff_stop)
+    # Точная проверка мест на участке заявки (RS-02 А): потолок выше — лишь отсев явного лишнего.
+    if free_on(ride, span(ride, pair[0], pair[1], entry)) < req.seats:
+        return None
+    return pair
 
 
 def snapshot(ride, req) -> str:

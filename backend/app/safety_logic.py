@@ -12,6 +12,7 @@ from sqlalchemy import or_
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from . import ride_seats          # RS-02 А: возврат мест на участке снятой брони
 from . import trip_wake
 from .config import settings
 from .errors import herr
@@ -499,6 +500,9 @@ def cancel_upcoming_after_suspension(session: Session, user_id: int) -> int:
         if not ride or ride.status != RideStatus.active or not ride.depart_at or ride.depart_at <= now:
             continue
         _снять_бронь(b)
+        # RS-02 А: пауза пассажира возвращает его место на участке брони — иначе «свободно =
+        # всего − занято» расходилось с правдой живых броней (дыра найдена разбором RS-02).
+        ride_seats.release(session, ride.id, ride_seats.span(ride, b.pickup_stop, b.dropoff_stop), b.seats)
         водителям.append((ride.driver_id, f"{ride.from_city} → {ride.to_city}", b.id))
 
     if not пассажирам and not водителям:

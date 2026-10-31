@@ -6,11 +6,12 @@ from typing import Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import case, update
+from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
+from .. import ride_seats         # RS-02 А: единственная дверь записи свободных мест
 from .. import trip_wake
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
@@ -293,6 +294,10 @@ class BookIn(BaseModel):
     # вписать нельзя: незнакомое — 400. Потолок — как у остановки при публикации.
     pickup_stop: Optional[str] = Field(None, max_length=60)
     dropoff_stop: Optional[str] = Field(None, max_length=120)
+    # RS-02 А: версия условий рейса, которую клиент видел перед бронью. Несовпадение с текущей —
+    # 409 ride_terms_changed без резерва мест. Старый клиент без версии — прежние проверки
+    # по свежему объекту под замком (это не согласие с незнакомыми новыми условиями).
+    expected_terms_version: Optional[int] = None
 
 
 # Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.
@@ -534,10 +539,19 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     if existing:
         return _booking_retry(existing, body, pickup_stop, dropoff_stop)
     guard_delivery_ride(ride.category)
-    # Быстрая понятная проверка «мест нет» — чтобы не гонять человека через остальные шаги.
-    # Настоящая защита ниже: между этой строкой и списанием мест может вклиниться чужая бронь.
-    if ride.seats_left < body.seats:
-        raise herr(400, "Не хватает мест", "Урын етмәй")
+    # Условия, которые человек видел перед бронью (RS-02 А): версия не сошлась — без резерва,
+    # пусть посмотрит новые и подтвердит осознанно. Под тем же замком строки поездки.
+    if body.expected_terms_version is not None and ride.terms_version != body.expected_terms_version:
+        raise herr(409, "Условия поездки изменились — посмотри новые и забронируй ещё раз",
+                   "Сәфәр шарттары үҙгәрҙе — яңыларын ҡара ла тағы бронла", code="ride_terms_changed")
+    # Быстрая понятная проверка «мест нет» — на СВОЁМ участке (RS-02 А): место занято только
+    # между посадкой и высадкой. Настоящая защита ниже: между этой строкой и списанием мест
+    # может вклиниться чужая бронь.
+    free_here = ride_seats.free_on(ride, ride_seats.span(ride, pickup_stop, dropoff_stop))
+    if free_here < body.seats:
+        raise herr(400, f"На твоём участке свободно мест: {max(0, free_here)}",
+                   f"Һинең участкаңда буш урын: {max(0, free_here)}",
+                   code="seats_not_enough", free=max(0, free_here))
     # Переднее место: водитель его предлагает и оно не обещано другому. Это быстрая понятная
     # проверка; настоящий барьер — уникальный индекс броней ниже, при сохранении.
     if body.front_seat:
@@ -593,30 +607,25 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         pickup_stop=pickup_stop,
         dropoff_stop=dropoff_stop,
     )
-    # Место занимаем АТОМАРНО: «мест хватает» и вычитание — одним запросом к базе.
+    # Место занимаем АТОМАРНО на СВОЁМ участке (RS-02 А): «мест хватает» и вычитание — одним
+    # CAS-запросом по проверенной версии условий и прежнему снимку мест.
     #
     # Овербукинг и раньше был закрыт — блокировкой строки поездки в начале функции (см. выше
     # `with_for_update`). Но только на PostgreSQL: SQLite такую блокировку ИГНОРИРУЕТ, а на
-    # ней работают тесты, локальная разработка и демо-база эмулятора. Там `seats_left -=`
-    # оставалось обычной парой «прочитал — записал», между которой помещается чужая бронь,
-    # и число мест уходило в минус (поездка тогда пропадает из поиска `seats_left > 0`).
+    # ней работают тесты, локальная разработка и демо-база эмулятора. Там вычитание
+    # оставалось обычной парой «прочитал — записал», между которой помещается чужая бронь.
     #
-    # Хуже другое: саму защиту не проверял ни один тест — на SQLite `with_for_update()`
-    # пустая операция, поэтому её удаление при рефакторинге не уронило бы ничего.
-    #
-    # Условие внутри `UPDATE` работает на ОБЕИХ базах: вторую бронь отсекает сама база,
-    # ноль изменённых строк → мест уже нет. Блокировку строки оставляем — она сериализует
-    # остальную проверку. Тот же приём у статуса заказа такси (`instant_service.set_status`).
-    reserved = session.execute(
-        update(Ride)
-        .where(Ride.id == ride.id, Ride.seats_left >= body.seats,
-               ~select(Booking.id).where(
-                   Booking.ride_id == body.ride_id, Booking.passenger_id == user.id,
-                   Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
-               ).exists())
-        .values(seats_left=Ride.seats_left - body.seats)
+    # Условие внутри `UPDATE` (версия + прежний снимок + «нет живой брони этого пассажира»)
+    # работает на ОБЕИХ базах: вторую бронь отсекает сама база, ноль изменённых строк →
+    # мест уже нет. Блокировку строки оставляем — она сериализует остальную проверку.
+    reserved = ride_seats.take(
+        session, ride, ride_seats.span(ride, pickup_stop, dropoff_stop), body.seats,
+        extra_where=[~select(Booking.id).where(
+            Booking.ride_id == body.ride_id, Booking.passenger_id == user.id,
+            Booking.status.in_([BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard]),
+        ).exists()],
     )
-    if reserved.rowcount == 0:
+    if not reserved:
         session.rollback()
         # SQLite не держит FOR UPDATE: другой запрос того же пассажира мог уже
         # записать бронь между чтением existing и UPDATE. Проверяем после отката,
@@ -1531,11 +1540,11 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
             if attempts <= 1:
                 raise herr(409, "Бронь уже изменилась — обнови экран", "Бронь үҙгәргән инде — экранды яңырт")
             return _cancel_booking(booking_id, body, user, session, attempts=attempts - 1, background=background)
-        # Арифметика в SQL сохраняет параллельное списание новой брони на SQLite.
-        returned = Ride.seats_left + booking.seats
-        session.execute(update(Ride).where(Ride.id == ride.id).values(
-            seats_left=case((returned > Ride.seats_total, Ride.seats_total), else_=returned),
-        ).execution_options(synchronize_session=False))
+        # Место возвращается только на СВОЁМ участке брони (RS-02 А) — той же CAS, что списание;
+        # статус брони уже сменили выше, поэтому нетронутый снимок пересчитается из живых броней.
+        ride_seats.release(session, ride.id,
+                           ride_seats.span(ride, booking.pickup_stop, booking.dropoff_stop),
+                           booking.seats)
         session.commit()
         session.refresh(booking)
         trip_wake.poke(booking.id)   # канал координат закрывается сразу, а не через сторож (≤ 30 с)
@@ -1751,12 +1760,11 @@ def mark_no_show(booking_id: int, user: User = Depends(current_user), session: S
         if booking.status == BookingStatus.onboard:
             raise _no_show_onboard_refusal(booking)
         return _booking_out(booking)           # параллельная отмена/неявка опередила — места уже возвращены
-    # Вернуть освобождённые места арифметикой в SQL, как в отмене: значение из Python затёрло бы
-    # одновременное списание новой брони.
-    returned = Ride.seats_left + booking.seats
-    session.execute(update(Ride).where(Ride.id == ride.id).values(
-        seats_left=case((returned > Ride.seats_total, Ride.seats_total), else_=returned),
-    ).execution_options(synchronize_session=False))
+    # Вернуть освобождённые места на участке брони (RS-02 А) — той же CAS, что списание;
+    # статус уже сменили выше, нетронутый снимок пересчитается из живых броней.
+    ride_seats.release(session, ride.id,
+                       ride_seats.span(ride, booking.pickup_stop, booking.dropoff_stop),
+                       booking.seats)
     session.commit()
     session.refresh(booking)
     trip_wake.poke(booking.id)   # канал координат закрывается сразу (см. cancel_booking)
@@ -1867,6 +1875,9 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             "passenger_id": b.passenger_id,
             "passenger_name": (passenger.name if passenger else "Пассажир"),
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
+            # RS-02 А: водитель видит, кто сколько мест занял и за сколько (для загрузки по участкам).
+            "seats": b.seats,
+            "price": b.price,
             "route": (f"{ride.from_city} → {ride.to_city}" if ride else ""),
             "from_city": ride.from_city if ride else "",
             "to_city": ride.to_city if ride else "",

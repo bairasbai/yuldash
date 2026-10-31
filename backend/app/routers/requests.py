@@ -36,6 +36,7 @@ from ..timeutil import client_dt_to_utc, local_date, local_day_bounds_utc, utcno
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
 from .. import request_segments
+from .. import ride_seats            # RS-02 А: места по участкам — единая дверь записи
 from ..geo import snapshot_cached
 from ..safety_logic import GENDER_FEMALE, gender_of
 
@@ -594,7 +595,7 @@ def _on_route_scope(session, user, scan: _ScanState | None = None):
     база может не отдавать их Python-у на сверку маршрута. Результат ленты от этого не меняется.
     None — у водителя нет подходящих рейсов (лента «по пути» пуста)."""
     rows = session.exec(
-        select(Ride.category, Ride.depart_at, Ride.seats_left)
+        select(Ride.category, Ride.depart_at, Ride.seats_left, Ride.seats_free_max)
         .where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
                Ride.depart_at >= utcnow() - timedelta(hours=2))
         .limit(_SCAN_MAX + 1)
@@ -606,7 +607,7 @@ def _on_route_scope(session, user, scan: _ScanState | None = None):
     rows = [row for row in rows if row[1] is not None]
     if not rows:
         return None
-    days = sorted({local_date(depart) for _cat, depart, _seats in rows})
+    days = sorted({local_date(depart) for _cat, depart, _min, _max in rows})
     windows = []                                   # подряд идущие дни склеиваем в одно окно
     for day in days:
         start, end = local_day_bounds_utc(day)
@@ -614,8 +615,9 @@ def _on_route_scope(session, user, scan: _ScanState | None = None):
             windows[-1] = (windows[-1][0], end)
         else:
             windows.append((start, end))
-    return ({cat for cat, _depart, _seats in rows}, windows,
-            max(int(seats or 0) for _cat, _depart, seats in rows))
+    # RS-02 А: «хоть на одном участке» — максимум из худшего (весь путь) и лучшего участка.
+    return ({cat for cat, _depart, _min, _max in rows}, windows,
+            max(max(int(mn or 0), int(mx or 0)) for _cat, _depart, mn, mx in rows))
 
 
 def _feed_route_choices(session, user, reqs, passengers, entry, memo=None, scan=None):
@@ -1341,14 +1343,16 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     # создавалась бы по цене, от которой обе стороны уже отошли.
     price = max(0, min(price_on_table(resp), _PRICE_CAP))
     if bound_ride is not None:
-        # Условие внутри UPDATE защищает и SQLite, где FOR UPDATE не работает. Захват заявки
-        # выше и списание мест откатываем вместе при отказе; цену опубликованного рейса не меняем.
-        reserved = session.execute(update(Ride).where(
-            Ride.id == bound_ride.id, Ride.driver_id == resp.driver_id,
-            Ride.status == RideStatus.active, Ride.seats_left >= req.seats,
-            *(getattr(Ride, key) == getattr(bound_ride, key) for key in request_segments.RIDE_FIELDS),
-        ).values(seats_left=Ride.seats_left - req.seats))
-        if reserved.rowcount == 0:
+        # CAS по версии условий + прежние условия внутри UPDATE защищают и SQLite, где FOR UPDATE
+        # не работает (RS-02 А). Место списывается на участке заявки, а не со всего рейса; захват
+        # заявки выше и списание мест откатываем вместе при отказе; цену опубликованного рейса не меняем.
+        reserved = ride_seats.take(
+            session, bound_ride, ride_seats.span(bound_ride, section[0], section[1]), req.seats,
+            extra_where=[Ride.driver_id == resp.driver_id, Ride.status == RideStatus.active,
+                         *(getattr(Ride, key) == getattr(bound_ride, key)
+                           for key in request_segments.RIDE_FIELDS)],
+        )
+        if not reserved:
             session.rollback()
             raise herr(409, "Места или условия рейса только что изменились. Обнови предложения.",
                        "Рейстың урындары йәки шарттары хәҙер генә үҙгәрҙе. Тәҡдимдәрҙе яңырт.")
@@ -1489,7 +1493,7 @@ def match_rides(request_id: int, response: Response, user: User = Depends(curren
         raise herr(403, "Нет доступа к этой заявке", "Был заявкаға рөхсәт юҡ")
     q = select(Ride).where(
         Ride.status == RideStatus.active,
-        Ride.seats_left >= req.seats,
+        ride_seats.any_free_sql(req.seats),   # RS-02 А: предфильтр; точный free_on — в segment()
         Ride.category == req.category,
         Ride.depart_at >= utcnow() - timedelta(hours=2),
     )

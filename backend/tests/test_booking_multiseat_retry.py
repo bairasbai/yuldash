@@ -97,7 +97,8 @@ def test_simultaneous_same_passenger_multiseat_retry_has_one_booking(client, use
     def hold_sqlite_reservation(conn, cursor, statement, parameters, context, executemany):
         # PG сериализует чтение через Ride FOR UPDATE. На SQLite оба запроса уже
         # прочли отсутствие прежней брони, затем одновременно пытаются занять места.
-        if engine.dialect.name == "sqlite" and statement.startswith("UPDATE ride SET seats_left="):
+        # RS-02 А: списание мест — CAS через снимок leg_free (прежний вид был `SET seats_left=`).
+        if engine.dialect.name == "sqlite" and statement.startswith("UPDATE ride SET leg_free="):
             before_update.wait(timeout=10)
 
     def book(seats):

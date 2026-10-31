@@ -16,6 +16,7 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..errors import herr
 from ..models import MedicalPartner, Ride, RideStatus, User
+from ..ride_seats import any_free_sql
 from ..security import current_user
 from ..visibility import FEED_MAX, visible_rides
 from ..services import public_rides_payload, rides_out
@@ -61,7 +62,7 @@ def rides_to_partner(partner_id: int, user: User = Depends(current_user), sessio
     q = select(Ride).where(
         Ride.partner_id == partner_id,
         Ride.status == RideStatus.active,
-        Ride.seats_left > 0,
+        any_free_sql(),          # RS-02 А: место на всём пути или хотя бы на одном участке
         Ride.depart_at >= utcnow() - timedelta(hours=_PAST_GRACE_HOURS),
     ).order_by(Ride.depart_at)
     rides = session.exec(q.limit(FEED_MAX)).all()   # потолок витрины, как в ленте (волна 89)

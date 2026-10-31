@@ -367,6 +367,12 @@ class Ride(SQLModel, table=True):
     # явного числа; старые строки в базе не трогаем.
     seats_total: int = 4
     seats_left: int = 4
+    # RS-02 А: версия условий рейса (маршрут/цены/вместимость/машина — любая их запись поднимает
+    # её на 1) и снимок свободных мест по участкам маршрута. Пишется только через ride_seats.py
+    # (CAS по проверенной версии и прежнему снимку). «» — снимок ещё не заведён (старый рейс).
+    terms_version: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default="0"))
+    leg_free: str = ""
+    seats_free_max: int = 0     # max свободных по участкам; seats_left = min (весь путь — старым клиентам)
     price: int = 0
     category: RideCategory = RideCategory.regular
     comment: str = ""

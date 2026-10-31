@@ -89,6 +89,15 @@ class RideOut(BaseModel):
     matched_dropoff_stop: Optional[str] = None
     matched_to_end: bool = False
     matched_from_start: bool = False
+    # RS-02 А: версия условий рейса (маршрут/цена/места) — клиент присылает её обратно при брони,
+    # и несовпадение даёт 409 вместо брони по устаревшим условиям. Сырой leg_free наружу не идёт:
+    # свободные места по участкам — списком ниже (загрузка без имён, как «осталось N мест»).
+    terms_version: int = 0
+    seats_by_leg: list[int] = []
+    # Свободно на участке СВОЕГО запроса, если он однозначен (иначе null — смотри seats_by_leg).
+    seats_on_segment: Optional[int] = None
+    # Занято мест всего — только в выдаче водителю о его рейсе (/driver/rides).
+    seats_booked: Optional[int] = None
     status: RideStatus
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str
