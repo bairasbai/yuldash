@@ -3,6 +3,9 @@ package com.yuldash.app
 // Доменные UI-модели (Фаза 0 разрезки). Чистые данные без Compose.
 // Тот же пакет com.yuldash.app → импортов не нужно; видимость internal (виден экранам в своих файлах).
 
+/** Цена до одной остановки в целых рублях (RS-02 Б, D7), в порядке маршрута. */
+internal data class StopPrice(val stop: String, val price: Int)
+
 internal data class Ride(
     val id: String,
     val from: String,
@@ -52,6 +55,15 @@ internal data class Ride(
     // собеседника). Пусто — шапка чата берёт водителя брони или роль.
     val chatPeer: String = "",
     val category: String = "regular",
+    // RS-02 А/Б: версия условий рейса (шлём обратно при брони — stale даёт 409), свободные
+    // места по участкам (без имён) и на участке своего запроса, цены до остановок и цена
+    // участка в рублях; seatsBooked — только свои рейсы водителя.
+    val termsVersion: Long = 0,
+    val seatsByLeg: List<Int> = emptyList(),
+    val seatsOnSegment: Int? = null,
+    val seatsBooked: Int? = null,
+    val stopPrices: List<StopPrice> = emptyList(),
+    val segmentPrice: Int? = null,
 )
 
 internal data class PopularRoute(

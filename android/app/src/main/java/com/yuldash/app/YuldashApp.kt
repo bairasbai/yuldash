@@ -1409,7 +1409,10 @@ private fun YuldashAppContent() {
                             appScope.launch {
                                 try {
                                     if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
+                                    val result = ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop,
+                                        // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
+                                        expectedPrice = segmentPriceRub(displayedRide, pickupStop, dropoffStop) ?: displayedRide.price,
+                                        expectedTermsVersion = displayedRide.termsVersion)
                                     if (!isDisplayedBookingCurrent()) return@launch
                                     ApiClient.runIfCurrentSession(displayedSession) {
                                         result.onSuccess { booking ->
@@ -1423,6 +1426,16 @@ private fun YuldashAppContent() {
                                             val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
                                                 ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
                                             Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                            // Условия уехали (цена/места/маршрут): перечитываем поездку — человек
+                                            // подтверждает бронь уже по НОВЫМ условиям отдельным нажатием (RS-02 В).
+                                            if ((e as? ApiException)?.detailCode in setOf("price_changed", "ride_terms_changed")) {
+                                                appScope.launch {
+                                                    ApiClient.getRide(rid).onSuccess { fresh ->
+                                                        val ui = fresh.toUiRide().withRouteHints(displayedRide)
+                                                        if (isDisplayedBookingUnchanged()) vm.navigateLocally { selectedRide = ui }
+                                                    }
+                                                }
+                                            }
                                             // Своя бронь уже есть — открываем её (номер пришёл в отказе).
                                             existingBookingIdOf(e)?.let { id -> vm.navigateLocally { activeBookingId = id; selectedBookingStatus = ""; screen = Screen.Booking } }
                                         }

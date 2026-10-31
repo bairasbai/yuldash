@@ -338,9 +338,10 @@ internal fun BookingScreen(
     val context = LocalContext.current
     var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
     // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
-    // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены поездки.
+    // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены СВОЕГО участка (RS-02 Б).
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
-    var payAmountText by rememberBookingPayAmount(ride, bookingId, selectedSeats)
+    var payAmountText by rememberBookingPayAmount(ride, bookingId, selectedSeats,
+        perSeat = segmentPriceRub(ride, pickupStop, dropoffStop) ?: ride.price)
     // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
     var minorPassenger by remember { mutableStateOf(false) }
     var guardianName by remember { mutableStateOf("") }
@@ -650,7 +651,9 @@ internal fun BookingScreen(
                     )
                 }
             }
-            bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, onSeatsChange)
+            // RS-02 А: сначала участок (от него зависят места и цена), потом число мест.
+            pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
+            bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
             item {
                 BookingMeetingCard(
                     contactUnlocked = contactUnlocked,
@@ -697,7 +700,6 @@ internal fun BookingScreen(
                 )
             }
             frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)   // переднее место; ниже подросток: до брони форма со взрослым, после — пометка
-            pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
             if (bookingId == null) {
                 item {
                     if (!ride.noMinors) {

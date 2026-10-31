@@ -41,6 +41,38 @@ internal fun segmentReady(ride: Ride, pickup: String?, dropoff: String?): Boolea
 internal fun keepValidDropoff(ride: Ride, pickup: String?, dropoff: String?): String? =
     dropoff?.takeIf { it in dropoffStops(ride, pickup) }
 
+/** RS-02 Б: цена участка в целых рублях по формуле сервера (`ride_seats.segment_price`):
+ *  цен остановок нет → полная; иначе cum(высадка) − cum(посадка), где cum(начало)=0,
+ *  cum(конец)=полная цена, остановка — её цена «до неё». null — маршрут не собран (не выдумываем). */
+internal fun segmentPriceRub(ride: Ride, pickup: String?, dropoff: String?): Int? {
+    val stops = pickupStops(ride)
+    if (ride.stopPrices.isEmpty() || ride.stopPrices.size != stops.size) {
+        return ride.price.takeIf { it > 0 }
+    }
+    val route = routePlaces(ride)   // [начало, ...остановки, конец]
+    val a = pickup?.let { route.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+    val b = dropoff?.let { route.indexOf(it) }?.takeIf { it > a } ?: route.lastIndex
+    if (b <= a) return null
+    fun cum(point: Int): Int = when {
+        point <= 0 -> 0
+        point >= route.lastIndex -> ride.price
+        else -> ride.stopPrices[point - 1].price
+    }
+    return cum(b) - cum(a)
+}
+
+/** RS-02 А: свободно на участке — min по его звеньям из `seatsByLeg`; список не сошёлся
+ *  по длине или участок не собран — null (смотреть общий остаток). */
+internal fun seatsOnSpan(ride: Ride, pickup: String?, dropoff: String?): Int? {
+    if (ride.seatsByLeg.isEmpty()) return null
+    val route = routePlaces(ride)
+    if (ride.seatsByLeg.size != route.lastIndex) return null
+    val a = pickup?.let { route.indexOf(it) }?.takeIf { it >= 0 } ?: 0
+    val b = dropoff?.let { route.indexOf(it) }?.takeIf { it > a } ?: route.lastIndex
+    if (b <= a) return null
+    return ride.seatsByLeg.subList(a, b).minOrNull()
+}
+
 /** Only server hints on the same ride survive an unfiltered details fetch. */
 internal fun Ride.withRouteHints(previous: Ride?): Ride = if (previous?.id != id) this else copy(
     matchedStop = matchedStop ?: previous.matchedStop, matchedFromStart = matchedFromStart || previous.matchedFromStart,

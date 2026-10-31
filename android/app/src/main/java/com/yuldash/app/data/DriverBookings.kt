@@ -25,6 +25,9 @@ data class DriverBookingDto(
     val pickupStop: String? = null, val dropoffStop: String? = null,   // null — не указано/закрыто; "" — начало; непусто — остановка
     val rideHasStops: Boolean = false, val fromCity: String = "", val toCity: String = "",
     val rideId: Int = 0,   // своя поездка брони: «Снять поездку» считает, кто из её пассажиров в машине; 0 — старый сервер
+    // RS-02 А: сколько мест занял пассажир и за сколько (кабинет «кто где садится и за сколько»).
+    val seats: Int = 0,
+    val price: Int = 0,
 )
 
 /** Бронь глазами водителя. */
@@ -46,5 +49,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
         rideHasStops = o.optBoolean("ride_has_stops"), fromCity = o.optString("from_city"), toCity = o.optString("to_city"),
         rideId = o.optInt("ride_id"),
+        seats = o.optInt("seats"),
+        price = o.optInt("price"),
     )
 }

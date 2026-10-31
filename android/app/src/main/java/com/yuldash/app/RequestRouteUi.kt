@@ -54,6 +54,11 @@ internal fun MatchedRequestRouteNote(request: RequestFeedDto) {
     if (request.matchedRideId == null) return
     RouteOfferSummary(request.matchedRideFromCity, request.matchedRideToCity, request.matchedRideDepartAt,
         request.matchedPickupStop, request.matchedDropoffStop)
+    // RS-02 Б: цена участка заявки на твоём рейсе — видна до отклика.
+    request.matchedSegmentPrice?.let {
+        Text(appText("Участок заявки: $it ₽ за место", "Заявка участкаһы: бер урын $it ₽"),
+            style = CanonCaption, color = CanonMutedStrong)
+    }
 }
 
 @Composable

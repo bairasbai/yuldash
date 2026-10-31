@@ -920,16 +920,29 @@ object ApiClient {
     }
 
     /** Ориентир цены по маршруту (среднее прошлых поездок). count=0 → данных нет. */
-    suspend fun getPriceHint(fromCity: String, toCity: String): Result<PriceHintDto> {
+    suspend fun getPriceHint(fromCity: String, toCity: String, stops: List<String> = emptyList()): Result<PriceHintDto> {
         val params = buildList {
             fromCity.takeIf { it.isNotBlank() }?.let { add("from_city=" + enc(it)) }
             toCity.takeIf { it.isNotBlank() }?.let { add("to_city=" + enc(it)) }
+            if (stops.isNotEmpty()) add("stops=" + enc(stops.joinToString(",")))
         }
         val path = "/rides/price_hint" + if (params.isEmpty()) "" else "?" + params.joinToString("&")
         return call("GET", path, null, auth = false).map {
             val dist = if (it.has("distance_km") && !it.isNull("distance_km")) it.optDouble("distance_km").toFloat() else null
             val fuel = if (it.has("fuel_estimate_kop") && !it.isNull("fuel_estimate_kop")) it.optInt("fuel_estimate_kop") else null
-            PriceHintDto(it.optInt("avg"), it.optInt("count"), dist, fuel)
+            // RS-02 Б: расстояние до каждой остановки от предыдущей точки (свой справочник сервера).
+            val stopHints = it.optJSONArray("stops")?.let { arr ->
+                (0 until arr.length()).mapNotNull { i ->
+                    arr.optJSONObject(i)?.let { s ->
+                        StopHintDto(
+                            stop = s.optString("stop"),
+                            distanceKm = if (s.isNull("distance_km")) null else s.optDouble("distance_km"),
+                            avg = s.optInt("avg"), count = s.optInt("count"),
+                        )
+                    }
+                }
+            } ?: emptyList()
+            PriceHintDto(it.optInt("avg"), it.optInt("count"), dist, fuel, stopHints)
         }
     }
 
@@ -999,6 +1012,7 @@ object ApiClient {
         waypoints: String = "",     // остановки по пути (названия через " | ")
         noMinors: Boolean = false,  // не беру пассажиров младше 18 без сопровождения взрослого
         backMaxTwo: Boolean = false, frontSeatAvailable: Boolean = true,   // опции мест; потолок мест держит сервер
+        stopPrices: List<Int> = emptyList(),   // RS-02 Б: цена до каждой остановки (рубли, порядок waypoints)
     ): Result<Int> = call(
         "POST", "/rides",
         JSONObject()
@@ -1007,6 +1021,7 @@ object ApiClient {
             .put("depart_at", departAt)
             .put("seats_total", seats)
             .put("price", price)
+            .put("stop_prices", JSONArray(stopPrices))
             .put("category", category)
             .put("comment", comment)
             .put("pets_allowed", petsAllowed)
@@ -1075,7 +1090,8 @@ object ApiClient {
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
+        expectedPrice: Int? = null, expectedTermsVersion: Long? = null,
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion)
         .mapCatching { response ->
             val id = response.getInt("id")
             val status = response.getString("status")
@@ -1091,6 +1107,9 @@ object ApiClient {
         frontSeat: Boolean = false,   // «хочу переднее»: одно на поездку, гонку разводит сервер
         pickupStop: String? = null,   // начало — названием fromCity; null/пусто не подменяем началом
         dropoffStop: String? = null,
+        // RS-02 А/Б: версия условий и цена участка, которые человек видел перед бронью;
+        // несовпадение — 409 ride_terms_changed/price_changed, сервер отвечает с новыми условиями.
+        expectedPrice: Int? = null, expectedTermsVersion: Long? = null,
     ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
@@ -1100,6 +1119,8 @@ object ApiClient {
                 if (frontSeat) put("front_seat", true)
                 if (pickupStop != null) put("pickup_stop", pickupStop)
                 if (dropoffStop != null) put("dropoff_stop", dropoffStop)
+                if (expectedPrice != null) put("expected_price", expectedPrice)
+                if (expectedTermsVersion != null) put("expected_terms_version", expectedTermsVersion)
                 if (minorPassenger) {
                     put("minor_passenger", true)
                     put("minor_guardian_name", guardianName)
@@ -2405,11 +2426,16 @@ object ApiClient {
 
     /** F3: правка своей поездки (null = поле не менять). POST-алиас /edit: HttpURLConnection не умеет PATCH.
      *  С активными бронями сервер разрешит только комментарий и цену ВНИЗ (иначе 409 с понятным текстом). */
-    suspend fun editRide(rideId: Int, price: Int? = null, comment: String? = null, backMaxTwo: Boolean? = null, frontSeatAvailable: Boolean? = null): Result<Unit> {
+    suspend fun editRide(rideId: Int, price: Int? = null, comment: String? = null, backMaxTwo: Boolean? = null, frontSeatAvailable: Boolean? = null,
+                         stopPrices: List<Int>? = null, expectedTermsVersion: Long? = null): Result<Unit> {
         val body = JSONObject()
         price?.let { body.put("price", it) }
         comment?.let { body.put("comment", it) }
         backMaxTwo?.let { body.put("back_max_two", it) }; frontSeatAvailable?.let { body.put("front_seat_available", it) }
+        // RS-02 Б: цены остановок (null — не трогать, пустой список — одна цена) и версия условий,
+        // которую видел водитель (stale → 409 ride_terms_changed).
+        stopPrices?.let { body.put("stop_prices", JSONArray(it)) }
+        expectedTermsVersion?.let { body.put("expected_terms_version", it) }
         return call("POST", "/rides/$rideId/edit", body, auth = true).map { }
     }
 
@@ -6427,6 +6453,15 @@ data class PriceHintDto(
     val count: Int,
     val distanceKm: Float? = null,
     val fuelEstimateKop: Int? = null,
+    val stopHints: List<StopHintDto> = emptyList(),   // RS-02 Б: расстояния/цены по остановкам
+)
+
+/** Подсказка по одной остановке маршрута (RS-02 Б): расстояние от предыдущей точки и цены прошлых поездок до неё. */
+data class StopHintDto(
+    val stop: String,
+    val distanceKm: Double? = null,
+    val avg: Int = 0,
+    val count: Int = 0,
 )
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
@@ -6497,6 +6532,16 @@ internal fun JSONObject.toRideDto() = RideDto(
     parcelSize = optString("parcel_size"),
     status = optString("status", "active"),
     partnerId = if (isNull("partner_id")) null else optInt("partner_id"),
+    termsVersion = optLong("terms_version"),
+    seatsByLeg = optJSONArray("seats_by_leg")?.let { arr -> (0 until arr.length()).map { arr.optInt(it) } } ?: emptyList(),
+    seatsOnSegment = if (isNull("seats_on_segment")) null else optInt("seats_on_segment"),
+    seatsBooked = if (isNull("seats_booked")) null else optInt("seats_booked"),
+    stopPrices = optJSONArray("stop_prices")?.let { arr ->
+        (0 until arr.length()).mapNotNull { i ->
+            arr.optJSONObject(i)?.let { StopPriceDto(stop = it.optString("stop"), price = it.optInt("price")) }
+        }
+    } ?: emptyList(),
+    segmentPrice = if (isNull("segment_price")) null else optInt("segment_price"),
 )
 
 private fun JSONObject.toMedicalPartnerDto() = MedicalPartnerDto(
@@ -6575,7 +6620,18 @@ data class RideDto(
     val parcelSize: String = "",      // посылка: габарит/вес
     val status: String = "active",    // active / done / cancelled (для раздела «Архив»)
     val partnerId: Int? = null,       // F22: клиника-назначение (для category=hospital)
+    // RS-02 А/Б: версия условий, места по участкам и на участке запроса, цены остановок,
+    // цена участка в рублях; seatsBooked — только свои рейсы водителя.
+    val termsVersion: Long = 0,
+    val seatsByLeg: List<Int> = emptyList(),
+    val seatsOnSegment: Int? = null,
+    val seatsBooked: Int? = null,
+    val stopPrices: List<StopPriceDto> = emptyList(),
+    val segmentPrice: Int? = null,
 )
+
+/** Цена до одной остановки в целых рублях (RS-02 Б, D7). */
+data class StopPriceDto(val stop: String, val price: Int)
 
 /** F22: клиника-партнёр (медцентр) — точка назначения поездки «в больницу». Только логистика,
  *  публичные данные организации. Никаких мед.данных пациента. */

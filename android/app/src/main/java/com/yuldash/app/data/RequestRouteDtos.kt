@@ -15,6 +15,7 @@ data class RequestFeedDto(val id: Int, val passengerName: String, val from: Stri
     val passengerVerified: Boolean = false,
     val matchedRideId: Int? = null, val matchedRideFromCity: String = "", val matchedRideToCity: String = "",
     val matchedRideDepartAt: String = "", val matchedPickupStop: String? = null, val matchedDropoffStop: String? = null,
+    val matchedSegmentPrice: Int? = null,   // RS-02 Б: цена участка заявки на своём рейсе (рубли, D7)
 )
 data class ResponseDto(
     val id: Int, val driverId: Int, val driverName: String, val driverRating: Double?,
@@ -68,6 +69,7 @@ internal fun parseRequestFeedDto(o: JSONObject): RequestFeedDto {
         matchedRideDepartAt = o.optString("matched_ride_depart_at"),
         matchedPickupStop = if (o.isNull("matched_pickup_stop")) null else o.optString("matched_pickup_stop"),
         matchedDropoffStop = if (o.isNull("matched_dropoff_stop")) null else o.optString("matched_dropoff_stop"),
+        matchedSegmentPrice = if (o.isNull("matched_segment_price")) null else o.optInt("matched_segment_price"),
     )
 }
 

@@ -1,8 +1,10 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Close
@@ -10,6 +12,7 @@ import androidx.compose.material3.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.SettlementDto
@@ -134,6 +137,127 @@ internal fun CreateRideStopsEditor(values: List<String>, onChange: (List<String>
                     Icon(Icons.Default.Add, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
                     Spacer(Modifier.width(CanonSpace.xs))
                     Text(appText("Добавить остановку", "Туҡталыш өҫтәү"), style = CanonBodyStrong, color = CanonGreen2)
+                }
+            }
+        }
+    }
+}
+
+// ---------- RS-02 Б: цена до каждой остановки ----------
+
+/** «Поделить по расстоянию»: цена всего маршрута → кумулятивные цены до каждой остановки.
+ *  Шаг округления 10 ₽; ломается строгий рост — «предыдущая + 1 ₽»; не помещается
+ *  (маршрут дешевле, чем точек роста) → null (поля пустые, подсказка водителю).
+ *  legKm — км звеньев [начало→стоп1, …, стопN→конец] (длина = остановок+1); неизвестное
+ *  или неположительное звено считаем весом 1, чтобы подсказка не ломала деление. */
+internal fun splitPriceByLegs(total: Int, legKm: List<Double?>): List<Int>? {
+    val stops = legKm.size - 1
+    if (stops < 1 || total <= stops) return null
+    val weights = legKm.map { (it ?: 0.0).takeIf { d -> d > 0.0 } ?: 1.0 }
+    val sumKm = weights.sum()
+    val cum = IntArray(stops)
+    var acc = 0.0
+    for (i in 0 until stops) {
+        acc += weights[i]
+        cum[i] = ((total * acc / sumKm).toInt() / 10) * 10
+    }
+    var prev = 0
+    for (i in 0 until stops) {
+        var v = cum[i]
+        if (v <= prev) v = prev + 1
+        if (v >= total) return null
+        cum[i] = v
+        prev = v
+    }
+    return cum.toList()
+}
+
+/** Суммы участков из кумулятивных цен: [до стоп1, стоп1→стоп2, …, стопN→конец]. */
+internal fun legPriceAmounts(stopPrices: List<Int>, total: Int): List<Int> {
+    val out = ArrayList<Int>(stopPrices.size + 1)
+    var prev = 0
+    for (p in stopPrices) { out.add(p - prev); prev = p }
+    out.add(total - prev)
+    return out
+}
+
+/** Ввод цен остановок из формы → список рублей для сервера; null — правило нарушено
+ *  (не числа, не то число полей, рост не строгий, цена ≥ маршрута). Пустой ввод — одна цена. */
+internal fun stopPricesInputValid(price: Int, stops: Int, values: List<String>): List<Int>? {
+    if (values.isEmpty()) return emptyList()
+    if (values.size != stops) return null
+    val nums = values.map { it.toIntOrNull() ?: return null }
+    var prev = 0
+    for (v in nums) {
+        if (v <= prev || v >= price) return null
+        prev = v
+    }
+    return nums
+}
+
+/** Переключатель «Цена до каждой остановки» + поля, подсказка участков и «Поделить по расстоянию». */
+@Composable
+internal fun StopPricesEditor(
+    from: String,
+    to: String,
+    stops: List<String>,
+    price: Int,
+    enabled: Boolean,
+    onEnabledChange: (Boolean) -> Unit,
+    values: List<String>,
+    onValuesChange: (List<String>) -> Unit,
+    splitBusy: Boolean,
+    splitFailed: Boolean,
+    onSplit: (() -> Unit)? = null,   // null — кнопка «Поделить по расстоянию» скрыта (диалог правки)
+) {
+    if (stops.isEmpty()) return
+    Surface(color = CanonSurface, shape = CanonItemShape, border = BorderStroke(1.dp, CanonBorder)) {
+        Column(Modifier.fillMaxWidth().padding(CanonSpace.md), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f)) {
+                    Text(appText("Цена до каждой остановки", "Һәр туҡталышҡа тиклем хаҡ"), style = CanonBodyStrong, color = CanonText)
+                    Text(appText("Попутчик платит только за свой путь.", "Юлдаш тик үҙ юлы өсөн түләй."), style = CanonCaption, color = CanonMuted)
+                }
+                Switch(checked = enabled, onCheckedChange = onEnabledChange)
+            }
+            AnimatedVisibility(enabled) {
+                Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    stops.forEachIndexed { index, stop ->
+                        OutlinedTextField(
+                            value = values.getOrElse(index) { "" },
+                            onValueChange = { text ->
+                                onValuesChange(
+                                    values.toMutableList().also {
+                                        while (it.size <= index) it.add("")
+                                        it[index] = text.filter(Char::isDigit).take(5)
+                                    },
+                                )
+                            },
+                            label = { Text(appText("до $stop, ₽", "$stop тиклем, ₽")) },
+                            singleLine = true,
+                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                            modifier = Modifier.fillMaxWidth(), shape = CanonFieldShape,
+                        )
+                    }
+                    val cum = values.map { it.toIntOrNull() ?: 0 }
+                    if (cum.size == stops.size && cum.all { it > 0 } && price > 0) {
+                        val legs = legPriceAmounts(cum, price)
+                        val points = listOf(from.ifBlank { appText("Начало", "Башы") }) + stops + to.ifBlank { appText("Конец", "Аҙағы") }
+                        Text(
+                            legs.indices.joinToString(" · ") { i -> "${points[i]} → ${points[i + 1]}: ${legs[i]} ₽" },
+                            style = CanonCaption, color = CanonMuted,
+                        )
+                    }
+                    if (onSplit != null) {
+                        OutlinedButton(onClick = onSplit, enabled = !splitBusy && price > 0,
+                            modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
+                            Text(appText("Поделить по расстоянию", "Алыҫлыҡҡа ҡарап бүлеү"), style = CanonBodyStrong, color = CanonGreen2)
+                        }
+                    }
+                    if (splitFailed) {
+                        Text(appText("Не получилось поделить — впиши цены сам", "Бүлеп булманы — хаҡты үҙең язы"),
+                            style = CanonCaption, color = CanonMuted)
+                    }
                 }
             }
         }

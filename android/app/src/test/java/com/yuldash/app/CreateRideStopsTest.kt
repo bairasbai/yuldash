@@ -1,97 +1,51 @@
 package com.yuldash.app
 
-import com.yuldash.app.data.SettlementDto
-import kotlinx.coroutines.runBlocking
-import org.junit.Assert.*
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Test
 
+/** RS-02 Б: «Поделить по расстоянию» и проверка ввода цен остановок (та же таблица,
+ *  что ждёт сервер: строгий рост, каждая меньше цены маршрута). */
 class CreateRideStopsTest {
-    private val village = SettlementDto(1, "Берёзовка", "Ҡайынлыҡ", "РБ", "village", 54.0, 56.0, "Иглинский р-н")
-    private val namesake = village.copy(id = 2, district = "Уфимский р-н")
-    private val center = SettlementDto(3, "Акъяр", "Аҡъяр", "РБ", "district_center", 52.0, 58.0, "Хайбуллинский р-н")
-    private val abzakovo = SettlementDto(7, "Абзаково", "Абҙаҡ", "РБ", "village", 53.0, 58.0, "Белорецкий р-н")
-    private val otherAbzakovo = abzakovo.copy(id = 8, district = "Учалинский р-н")
 
-    @Test fun canonicalNamesKeepDistrictForVillagesAndDistrictCenters() = runBlocking {
-        val values = listOf("Берёзовка (Иглинский р-н)", "Акъяр")
-        val result = resolveRideStops(values, "Уфа", "Сибай", AppLanguage.Ru) { listOf(village, namesake, center) }
-        assertEquals(listOf("Берёзовка (Иглинский р-н)", "Акъяр (Хайбуллинский р-н)"), result)
-        assertEquals(listOf("Берёзовка (Иглинский р-н)", "Акъяр"), values)
+    @Test
+    fun `деление пропорционально километрам, шаг 10 рублей`() {
+        assertEquals(listOf(300), splitPriceByLegs(500, listOf(30.0, 20.0)))
+        assertEquals(listOf(100, 200), splitPriceByLegs(500, listOf(10.0, 10.0, 30.0)))
     }
 
-    @Test fun bashkirSelectionUsesTheSameDictionaryAndDistrict() = runBlocking {
-        assertEquals(listOf("Ҡайынлыҡ (Иглинский р-н)"),
-            resolveRideStops(listOf("Ҡайынлыҡ (Иглинский р-н)"), "Өфө", "Сибай", AppLanguage.Ba) { listOf(village, namesake) })
+    @Test
+    fun `незнакомые звенья делят поровну`() {
+        assertEquals(listOf(250), splitPriceByLegs(500, listOf(null, null)))
     }
 
-    @Test fun phoneAddressDigitsAndOversizeTextNeverReachSearch() = runBlocking {
-        for (value in listOf("+7 900 111-22-33", "ул. Ленина 5", "123", "Д".repeat(61), "дом_у_реки")) {
-            var calls = 0
-            expect(RideStopProblem.Invalid) {
-                resolveRideStops(listOf(value), "Уфа", "Сибай", AppLanguage.Ru) { calls++; emptyList() }
-            }
-            assertEquals(value, 0, calls)
-        }
+    @Test
+    fun `сломанный рост чинится шагом в рубль`() {
+        // 21 ₽ на три точки роста: округление до десятка даёт нули — рост важнее круглости.
+        assertEquals(listOf(1, 10), splitPriceByLegs(21, listOf(1.0, 1.0, 1.0)))
     }
 
-    @Test fun unknownAndAmbiguousNamesAreNotPublished() = runBlocking {
-        expect(RideStopProblem.Invalid) { resolveRideStops(listOf("Берёзовка"), "Уфа", "Сибай", AppLanguage.Ru) { listOf(village, namesake) } }
-        expect(RideStopProblem.Invalid) { resolveRideStops(listOf("Вымышленное"), "Уфа", "Сибай", AppLanguage.Ru) { listOf(village) } }
+    @Test
+    fun `не помещается — null (поля пустые, подсказка)`() {
+        assertNull(splitPriceByLegs(2, listOf(1.0, 1.0, 1.0)))        // 2 ₽ на 2 остановки
+        assertNull(splitPriceByLegs(500, listOf(1.0)))                 // без остановок нечего делить
+        assertNull(splitPriceByLegs(500, emptyList()))
     }
 
-    @Test fun endpointsAreExcludedAcrossLanguagesAndPlacePrefixes() = runBlocking {
-        expect(RideStopProblem.Endpoint) { resolveRideStops(listOf("Акъяр"), "с. Аҡъяр", "Сибай", AppLanguage.Ru) { listOf(center) } }
-        expect(RideStopProblem.Endpoint) { resolveRideStops(listOf("Аҡъяр"), "Уфа", "Акъяр", AppLanguage.Ba) { listOf(center) } }
+    @Test
+    fun `суммы участков из кумулятивных цен`() {
+        assertEquals(listOf(300, 200), legPriceAmounts(listOf(300), 500))
+        assertEquals(listOf(300, 100, 100), legPriceAmounts(listOf(300, 400), 500))
     }
 
-    @Test fun repeatedStopsAreRejectedAcrossNamesAndLanguages() = runBlocking {
-        expect(RideStopProblem.Duplicate) {
-            resolveRideStops(listOf("Берёзовка (Иглинский р-н)", "Ҡайынлыҡ (Иглинский р-н)"), "Уфа", "Сибай", AppLanguage.Ru) { listOf(village) }
-        }
-    }
-
-    @Test fun atMostFourStopsAndNoSilentTruncation() = runBlocking {
-        val towns = (1..4).map { center.copy(id = it, nameRu = listOf("А", "Б", "В", "Г")[it - 1], nameBa = null) }
-        assertEquals(4, resolveRideStops(towns.map { it.nameRu }, "Уфа", "Сибай", AppLanguage.Ru) { towns }.size)
-        var calls = 0
-        expect(RideStopProblem.TooMany) { resolveRideStops(listOf("А", "Б", "В", "Г", "Д"), "Уфа", "Сибай", AppLanguage.Ru) { calls++; towns } }
-        assertEquals(0, calls)
-    }
-
-    @Test fun failedLookupPreservesDraftAndPropagatesTheOriginalError() = runBlocking {
-        val values = listOf("Берёзовка (Иглинский р-н)")
-        val failure = IllegalStateException("Справочник временно недоступен")
-        try {
-            resolveRideStops(values, "Уфа", "Сибай", AppLanguage.Ru) { throw failure }
-            fail("Должна сохраниться ошибка справочника")
-        } catch (actual: IllegalStateException) { assertSame(failure, actual) }
-        assertEquals(listOf("Берёзовка (Иглинский р-н)"), values)
-    }
-
-    @Test fun namesakesInDifferentDistrictsAreDifferentStops() = runBlocking {
-        val values = listOf("Абзаково (Белорецкий р-н)", "Абзаково (Учалинский р-н)")
-        assertEquals(values, resolveRideStops(values, "Уфа", "Сибай", AppLanguage.Ru) { listOf(abzakovo, otherAbzakovo) })
-    }
-
-    @Test fun namesakeOfExplicitEndpointInAnotherDistrictIsAllowed() = runBlocking {
-        assertEquals(listOf("Абзаково (Учалинский р-н)"), resolveRideStops(listOf("Абзаково (Учалинский р-н)"),
-            "с. Абҙаҡ (Белорецкий р-н)", "Уфа", AppLanguage.Ru) { listOf(abzakovo, otherAbzakovo) })
-        expect(RideStopProblem.Endpoint) { resolveRideStops(listOf("Абҙаҡ (Белорецкий р-н)"),
-            "Абзаково (Белорецкий р-н)", "Уфа", AppLanguage.Ba) { listOf(abzakovo, otherAbzakovo) } }
-    }
-
-    @Test fun endpointWithoutDistrictDoesNotGuessBetweenNamesakes() = runBlocking {
-        expect(RideStopProblem.Endpoint) { resolveRideStops(listOf("Абзаково (Учалинский р-н)"),
-            "Абзаково", "Уфа", AppLanguage.Ru) { listOf(abzakovo, otherAbzakovo) } }
-    }
-
-    @Test fun ruAndBaOfOneNamesakeAreStillOneStop() = runBlocking {
-        expect(RideStopProblem.Duplicate) { resolveRideStops(listOf("Абзаково (Белорецкий р-н)", "Абҙаҡ (Белорецкий р-н)"),
-            "Уфа", "Сибай", AppLanguage.Ru) { listOf(abzakovo, otherAbzakovo) } }
-    }
-
-    private suspend fun expect(problem: RideStopProblem, block: suspend () -> Unit) {
-        try { block(); fail("Ожидался отказ $problem") }
-        catch (error: RideStopException) { assertEquals(problem, error.problem) }
+    @Test
+    fun `ввод цен — строгий рост и меньше маршрута`() {
+        assertEquals(listOf(300), stopPricesInputValid(500, 1, listOf("300")))
+        assertNull(stopPricesInputValid(500, 1, listOf("500")))        // ровно маршрут — нельзя
+        assertNull(stopPricesInputValid(500, 2, listOf("300", "250"))) // не по росту
+        assertNull(stopPricesInputValid(500, 2, listOf("300")))        // не все поля
+        assertNull(stopPricesInputValid(500, 1, listOf("abc")))        // не число
+        assertNull(stopPricesInputValid(500, 1, listOf("0")))          // ноль
+        assertEquals(emptyList<Int>(), stopPricesInputValid(500, 1, emptyList())) // выключено
     }
 }

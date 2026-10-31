@@ -1743,9 +1743,9 @@ internal fun DriverCabinetScreen(
                         .onFailure { Toast.makeText(ctx, serverSaid(it, rideActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
             },
-            onEditRide = { rideId, price, comment, backMaxTwo, frontSeatAvailable ->
+            onEditRide = { rideId, price, comment, backMaxTwo, frontSeatAvailable, stopPrices, termsVersion ->
                 rateScope.launch {
-                    ApiClient.editRide(rideId, price, comment, backMaxTwo, frontSeatAvailable)
+                    ApiClient.editRide(rideId, price, comment, backMaxTwo, frontSeatAvailable, stopPrices, termsVersion)
                         .onSuccess {
                             Toast.makeText(ctx, editSavedMsg, Toast.LENGTH_SHORT).show()
                             ridesReload++
@@ -2900,7 +2900,8 @@ internal fun DriverCabinetContent(
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
     onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
     onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
-    onEditRide: (Int, Int?, String?, Boolean?, Boolean?) -> Unit = { _, _, _, _, _ -> },   // id, цена, текст, «сзади двое», «переднее»; null — не менялось
+    // id, цена, текст, «сзади двое», «переднее», цены остановок (RS-02 Б), версия условий; null — не менялось
+    onEditRide: (Int, Int?, String?, Boolean?, Boolean?, List<Int>?, Long?) -> Unit = { _, _, _, _, _, _, _ -> },
     modifier: Modifier = Modifier,
     debt: com.yuldash.app.data.DriverDebtDto? = null,
     onDeclareDebtPaid: () -> Unit = {},
@@ -2933,8 +2934,9 @@ internal fun DriverCabinetContent(
     onOpenCompletedTrip: (Int) -> Unit = {},
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
+    // RS-02 А: занятое считаем из серверного seatsBooked (правда живых броней), а не «всего − остаток».
     val ridesDone = archive.count { it.status == "done" }
-    val passengersServed = archive.filter { it.status == "done" }.sumOf { (it.seatsTotal - it.seatsLeft).coerceAtLeast(0) }
+    val passengersServed = archive.filter { it.status == "done" }.sumOf { it.seatsBooked ?: (it.seatsTotal - it.seatsLeft).coerceAtLeast(0) }
     // F1: подтверждение отмены — отмена каскадно снимает брони пассажиров, случайный тап недопустим.
     var cancelTarget by remember { mutableStateOf<Ride?>(null) }
     cancelTarget?.let { target ->
@@ -2943,7 +2945,9 @@ internal fun DriverCabinetContent(
             title = { Text(appText("Снять поездку?", "Сәфәрҙе алырғамы?"), fontWeight = FontWeight.Bold) },
             text = {
                 // Сколько людей рассчитывали на машину и кто из них уже в ней (в пути) — RideCancelWarning.kt.
-                RideCancelConfirmText(target.from, target.to, booked = (target.seatsTotal - target.seats).coerceAtLeast(0),
+                // RS-02 А: занятое — из серверного seatsBooked (правда живых броней).
+                RideCancelConfirmText(target.from, target.to,
+                    booked = target.seatsBooked ?: (target.seatsTotal - target.seats).coerceAtLeast(0),
                     onboard = onboardPassengers(target.id.toIntOrNull(), driverBookings))
             },
             confirmButton = {
@@ -3152,6 +3156,8 @@ internal fun DriverCabinetContent(
                         onPrimary = onBoost,
                         onSecondary = onCreateRide
                     )
+                    // RS-02 А: загрузка по участкам — «Сибай → Ургаза: занято 3 из 3».
+                    RideLegsLoad(ride)
                     // F1: управление рейсом — завершить (брони → done, пассажирам «оцените») или снять (с подтверждением).
                     Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         OutlinedButton(
@@ -3217,6 +3223,14 @@ internal fun DriverCabinetContent(
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
                         BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
+                        // RS-02 А: сколько мест и за сколько — видно ДО подтверждения («1 место · 300 ₽»).
+                        if (b.seats > 0) {
+                            Text(
+                                appText("${b.seats} ${pluralRu(b.seats, "место", "места", "мест")} · ${b.price} ₽",
+                                        "${b.seats} урын · ${b.price} ₽"),
+                                color = CanonText, fontSize = 14.sp,
+                            )
+                        }
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },
@@ -3357,6 +3371,10 @@ internal fun DriverCabinetContent(
         var commentText by remember(ride.id) { mutableStateOf("") }
         var backMaxTwo by remember(ride.id) { mutableStateOf(ride.backMaxTwo) }
         var frontSeatAvailable by remember(ride.id) { mutableStateOf(ride.frontSeatAvailable) }
+        // RS-02 Б: цены остановок (включены, если были) — правятся тут же, идут отдельным полем.
+        var stopPricesEnabled by remember(ride.id) { mutableStateOf(ride.stopPrices.isNotEmpty()) }
+        var stopPriceValues by remember(ride.id) { mutableStateOf(ride.stopPrices.map { it.price.toString() }) }
+        var stopPriceError by remember(ride.id) { mutableStateOf(false) }
         AlertDialog(
             onDismissRequest = { editing = null },
             containerColor = CanonSurface,
@@ -3373,6 +3391,24 @@ internal fun DriverCabinetContent(
                         keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
                         modifier = Modifier.fillMaxWidth()
                     )
+                    if (ride.waypoints.isNotEmpty()) {
+                        StopPricesEditor(
+                            from = ride.from, to = ride.to, stops = ride.waypoints,
+                            price = priceText.toIntOrNull() ?: ride.price,
+                            enabled = stopPricesEnabled,
+                            onEnabledChange = { stopPricesEnabled = it; stopPriceError = false },
+                            values = stopPriceValues,
+                            onValuesChange = { stopPriceValues = it; stopPriceError = false },
+                            splitBusy = false, splitFailed = false, onSplit = null,
+                        )
+                        if (stopPriceError) {
+                            Text(
+                                appText("Цены остановок: каждая больше предыдущей и меньше цены маршрута.",
+                                        "Туҡталыш хаҡтары: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй."),
+                                color = CanonRed, fontSize = 12.sp, lineHeight = 17.sp,
+                            )
+                        }
+                    }
                     OutlinedTextField(
                         value = commentText,
                         onValueChange = { if (it.length <= 2000) commentText = it },
@@ -3396,7 +3432,19 @@ internal fun DriverCabinetContent(
                         if (id != null) {
                             val newPrice = priceText.toIntOrNull()?.takeIf { it != ride.price }
                             val newComment = commentText.trim().takeIf { it.isNotEmpty() }
-                            onEditRide(id, newPrice, newComment, backMaxTwo.takeIf { it != ride.backMaxTwo }, frontSeatAvailable.takeIf { it != ride.frontSeatAvailable })
+                            // RS-02 Б: цены остановок — только если реально изменились; пустой список = одна цена.
+                            val basePrice = priceText.toIntOrNull() ?: ride.price
+                            val newStopPrices = if (ride.waypoints.isEmpty()) null else {
+                                if (!stopPricesEnabled) {
+                                    if (ride.stopPrices.isNotEmpty()) emptyList() else null
+                                } else {
+                                    val parsed = stopPricesInputValid(basePrice, ride.waypoints.size, stopPriceValues.filter { it.isNotBlank() })
+                                    if (parsed == null) { stopPriceError = true; return@TextButton }
+                                    if (parsed == ride.stopPrices.map { it.price }) null else parsed
+                                }
+                            }
+                            onEditRide(id, newPrice, newComment, backMaxTwo.takeIf { it != ride.backMaxTwo },
+                                frontSeatAvailable.takeIf { it != ride.frontSeatAvailable }, newStopPrices, ride.termsVersion)
                         }
                         editing = null
                     },

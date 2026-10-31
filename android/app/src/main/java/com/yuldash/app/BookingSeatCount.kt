@@ -14,7 +14,6 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -22,8 +21,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 @Composable
-internal fun rememberBookingPayAmount(ride: Ride, bookingId: Int?, seats: Int): MutableState<String> =
-    remember(ride.id, bookingId, seats) { mutableStateOf(if (ride.price > 0) (ride.price * seats).toString() else "") }
+internal fun rememberBookingPayAmount(ride: Ride, bookingId: Int?, seats: Int, perSeat: Int = ride.price): MutableState<String> =
+    remember(ride.id, bookingId, seats, perSeat) { mutableStateOf(if (perSeat > 0) (perSeat * seats).toString() else "") }
 
 internal fun canBookSeats(available: Int, selected: Int, busy: Boolean): Boolean = !busy && selected in 1..available
 
@@ -33,18 +32,24 @@ internal fun bookSeatsLabel(seats: Int): String =
     if (seats > 1) appText("Забронировать $seats ${pluralRu(seats, "место", "места", "мест")}", "$seats урынды бронләү")
     else appText("Забронировать место", "Урынды бронләү")
 
-internal fun LazyListScope.bookingSeatCountItem(ride: Ride, bookingId: Int?, selected: Int, busy: Boolean, onChange: (Int) -> Unit) {
+internal fun LazyListScope.bookingSeatCountItem(ride: Ride, bookingId: Int?, selected: Int, busy: Boolean,
+                                                pickupStop: String? = null, dropoffStop: String? = null,
+                                                onChange: (Int) -> Unit) {
     if (bookingId == null) {
         item(key = "booking-seat-count") {
-            BookingSeatCount(available = ride.seats, selected = selected, price = ride.price, enabled = !busy, onChange = onChange)
+            // RS-02 А/Б: доступно и цена — на ВЫБРАННОМ участке; нет данных — как раньше, весь рейс.
+            BookingSeatCount(
+                available = seatsOnSpan(ride, pickupStop, dropoffStop) ?: ride.seats,
+                selected = selected,
+                price = segmentPriceRub(ride, pickupStop, dropoffStop) ?: ride.price,
+                enabled = !busy, onChange = onChange,
+            )
         }
     }
 }
 
 @Composable
 internal fun BookingSeatCount(available: Int, selected: Int, price: Int, enabled: Boolean, onChange: (Int) -> Unit) {
-    // Поездку обновили, и свободных мест стало меньше выбранного — уменьшаем число, а не гасим кнопку молча.
-    LaunchedEffect(available, selected, enabled) { if (enabled && available in 1 until selected) onChange(available) }
     AppCard {
         Column(Modifier.fillMaxWidth().padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
             Text(appText("Количество мест", "Урындар һаны"), style = CanonBodyStrong, color = CanonText)
@@ -65,10 +70,27 @@ internal fun BookingSeatCount(available: Int, selected: Int, price: Int, enabled
                         Icon(Icons.Default.Add, appText("Больше мест", "Урындарҙы арттырыу"), tint = if (enabled && selected < available) CanonGreen2 else CanonMuted)
                     }
                 }
-                Text(
-                    appText("Итого: ", "Бөтәһе: ") + kopToRub(price * selected * 100),
-                    style = CanonBodyStrong, color = CanonText,
-                )
+                if (selected > available) {
+                    // Намерение группы не трём молча (RS-02 В): не clamp автоматически — отправка
+                    // заблокирована (canBookSeats), а человек сам решает: уменьшить или сменить поездку.
+                    Text(
+                        appText("Свободных мест осталось $available — уменьшите число или посмотрите другие поездки.",
+                                "Буш урындар $available ҡалды — һанын кәмет йәки башҡа сәфәрҙәрҙе ҡара."),
+                        style = CanonCaption, color = CanonText,
+                    )
+                    androidx.compose.material3.TextButton(onClick = { onChange(available) }) {
+                        Text(
+                            appText("Уменьшить до $available", "$available тиклем кәметеү"),
+                            style = CanonBodyStrong, color = CanonGreen2,
+                        )
+                    }
+                }
+                AnimatedContent(targetState = price * selected, label = "bookingTotal") { total ->
+                    Text(
+                        appText("Итого: ", "Бөтәһе: ") + kopToRub(total * 100),
+                        style = CanonBodyStrong, color = CanonText,
+                    )
+                }
             }
         }
     }
