@@ -14,7 +14,7 @@ from datetime import timedelta
 from sqlmodel import Session
 
 from app.db import engine
-from app.models import Booking, BookingStatus, Ride, RideStatus, UserRole
+from app.models import Booking, BookingStatus, Ride, RideStatus, User, UserRole
 from app.timeutil import utcnow
 
 from test_flows import _publish
@@ -109,6 +109,36 @@ def test_popular_routes_ignore_cancelled_rides(client, user_factory, monkeypatch
     routes = client.get("/popular-routes").json()
 
     assert ("ПопулярОтмена", "ПопулярНикуда") not in [(r["from_city"], r["to_city"]) for r in routes]
+
+
+def test_popular_routes_count_distinct_drivers(monkeypatch):
+    """Один водитель с десятками активных поездок не делает свой маршрут «популярным» (приёмка PR210):
+    маршрут, где ездят трое разных водителей, выше маршрута одного водителя с 60 поездками.
+
+    Своя чистая база: в общей тестовой топ-6 занят маршрутами сотен тестовых водителей."""
+    from sqlmodel import SQLModel, create_engine
+
+    from app.routers.discovery import popular_routes
+
+    monkeypatch.setattr("app.routers.discovery.cache_get_json", lambda _key: None)
+    monkeypatch.setattr("app.routers.discovery.cache_set_json", lambda *_a, **_k: None)
+    own = create_engine("sqlite://")
+    SQLModel.metadata.create_all(own)
+    when = utcnow() + timedelta(days=1)
+    with Session(own) as s:
+        for driver_id in range(1, 6):
+            s.add(User(id=driver_id, phone=f"+7900000000{driver_id}", role=UserRole.driver))
+        s.commit()
+        for _ in range(60):
+            s.add(Ride(driver_id=1, from_city="Накрутка", to_city="Себе", depart_at=when))
+        for driver_id in (2, 3, 4):
+            s.add(Ride(driver_id=driver_id, from_city="Честный", to_city="Маршрут", depart_at=when))
+        s.add(Ride(driver_id=5, from_city="Снятый", to_city="Маршрут", depart_at=when, status=RideStatus.cancelled))
+        s.commit()
+
+        routes = [(r["from_city"], r["to_city"], r["count"]) for r in popular_routes(session=s)]
+
+    assert routes == [("Честный", "Маршрут", 3), ("Накрутка", "Себе", 1)]
 
 
 def test_landing_counts_happened_trips_and_drivers_who_drove(client, user_factory, monkeypatch):

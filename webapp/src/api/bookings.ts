@@ -194,6 +194,8 @@ export interface MyBooking {
   driver_verified: boolean;
   /** Отменили, когда пассажир был в машине (23.10.2026). Старый сервер — поля нет. */
   cancelled_in_transit?: boolean;
+  /** Водитель отклонил неподтверждённую бронь — «Отклонена», не «Отменена» (приёмка PR210). Старый сервер — поля нет. */
+  declined?: boolean;
 }
 
 export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {

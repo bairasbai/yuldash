@@ -432,7 +432,7 @@ internal fun RidesScreen(
                             "confirmed" -> Triple(appText("Подтверждена", "Раҫланды"), CanonMint, Icons.Default.DirectionsCar)
                             "onboard" -> Triple(appText("В пути", "Юлда"), CanonMint, Icons.Default.DirectionsCar)
                             "done" -> Triple(appText("Завершена", "Тамамланды"), CanonMint, Icons.Default.CheckCircle)
-                            "cancelled" -> Triple(appText("Отменена", "Кире ҡағылды"), CanonDangerBg, Icons.Default.Close)
+                            "cancelled" -> Triple(if (b.declined) appText("Отклонена", "Кире ҡағылған") else appText("Отменена", "Кире алынды"), CanonDangerBg, Icons.Default.Close)   // отказ водителя — не отмена (приёмка PR210)
                             else -> Triple(appText("Ожидает", "Көтә"), CanonWarnBg, Icons.Default.Schedule)
                         }
                         Box(Modifier.appearIn(i)) {
@@ -1899,7 +1899,7 @@ internal fun ChatScreen(
         item {
             InfoCard(
                 title = appText("Номер телефона — на экране поездки", "Телефон номеры — сәфәр экранында"),   // правило, а не состояние брони (приёмка 18.10)
-                text = appText("Открывается обоим после подтверждения брони. Так мы бережём твою безопасность", "Бронь раҫланғас, ике яҡҡа ла асыла. Шулай беҙ һинең хәүефһеҙлегеңде һаҡлайбыҙ"),
+                text = appText("Открывается обоим после подтверждения брони. Если едет пассажир младше 18, водитель сразу видит телефон взрослого, а не его", "Бронь раҫланғас, ике яҡҡа ла асыла. 18-ҙән кесе юлсы барһа, йөрөтөүсе шунда уҡ уның түгел, оло кешенең телефонын күрә"),   // номер подростка водителю не отдаётся, телефон взрослого — с брони (решение 23.10, приёмка PR210)
                 icon = Icons.Default.Shield
             )
         }

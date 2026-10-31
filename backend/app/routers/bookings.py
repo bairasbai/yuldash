@@ -1520,7 +1520,7 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
         # «Отклонил» ставит только сервер: подделанный код от клиента — «другое» (ревью Opus 23.10).
         # Отказ помечаем всегда, даже с причиной: экран брони и пуш говорят одно и то же;
-        # причину водителя сохраняем для текста пуша.
+        # причину водителя сохраняем отдельным полем — для пуша, разборов и статистики.
         _reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
         причина_код = _reason if _reason != "driver_declined" else ("other" if not declined else None)
         changed = session.execute(update(Booking).where(
@@ -1528,6 +1528,7 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         ).values(
             status=BookingStatus.cancelled, cancelled_at=utcnow(), contact_then_cancel=contact_opened,
             cancel_reason="driver_declined" if declined else причина_код,
+            decline_reason=причина_код if declined else None,
             cancelled_by=user.id,
         ).execution_options(synchronize_session=False))
         if changed.rowcount == 0:
@@ -1828,6 +1829,9 @@ def my_bookings(
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),
             "cancelled_in_transit": cancelled_in_transit(b),
+            # Отказ водителя — не «отмена»: «Мои поездки» подписывают его «Отклонена», как экран брони
+            # (`/details` → `declined`, приёмка PR210).
+            "declined": b.cancel_reason == "driver_declined",
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),
             "dropoff_stop": b.dropoff_stop,

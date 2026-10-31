@@ -193,6 +193,10 @@ const ALL_SUITES = [
   { test: "driver-passengers-open-trip-test", src: null, out: null, bundle: false },
   // «Отклонить» бронь — сначала «Отклонить бронь?», как в Android (приёмка 18.10, п.6).
   { test: "driver-decline-confirm-test", src: null, out: null, bundle: false },
+  // …а пассажиру пометка на экране брони — «Отклонена», не «Отменена», как текст «Водитель отклонил бронь» (приёмка PR210).
+  { test: "booking-declined-pill-test", src: null, out: null, bundle: false },
+  // …и «Мои поездки»: /bookings/mine отдаёт `declined`, карточка пишет «Отклонена» (приёмка PR210).
+  { test: "my-trip-declined-test", src: null, out: null, bundle: false },
   // «Оценить водителя» в квитанции попутки — для тех, кто пропустил экран завершения (приёмка 18.10, п.7).
   { test: "receipt-rate-later-test", src: null, out: null, bundle: false },
   // Водитель звонит пассажиру после подтверждения (решение 23.10.2026).

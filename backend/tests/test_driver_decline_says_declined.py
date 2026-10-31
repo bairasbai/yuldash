@@ -86,6 +86,77 @@ def test_decline_with_a_reason_is_still_a_decline_on_both_screens(client, user_f
     assert client.get(f"/bookings/{booking['id']}/details", headers=pax["auth"]).json()["declined"] is True
 
 
+def test_my_bookings_list_says_declined_not_cancelled(client, user_factory):
+    """«Мои поездки» подписывают отказ водителя «Отклонена»: список броней знает об отказе (приёмка PR210).
+    Отмена самим пассажиром и отмена водителем после подтверждения — по-прежнему не отказ."""
+    drv = user_factory("Список Водитель", role=UserRole.driver)
+    pax = user_factory("Список Пассажир")
+    declined = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{declined['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "safety"}).status_code == 200
+    withdrawn = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{withdrawn['id']}/cancel", headers=pax["auth"]).status_code == 200
+    cancelled = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{cancelled['id']}/confirm", headers=drv["auth"]).status_code == 200
+    assert client.post(f"/bookings/{cancelled['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "not_going"}).status_code == 200
+    live = _book(client, pax, _publish(client, drv)["id"])
+
+    mine = {b["id"]: b for b in client.get("/bookings/mine", headers=pax["auth"]).json()}
+
+    assert mine[declined["id"]]["declined"] is True
+    assert mine[withdrawn["id"]]["declined"] is False
+    assert mine[cancelled["id"]]["declined"] is False
+    assert mine[live["id"]]["declined"] is False
+
+
+def test_decline_keeps_the_drivers_reason_for_review(client, user_factory):
+    """Причина отказа не теряется в пуше: она в базе отдельным полем — для разборов и статистики (приёмка PR210)."""
+    drv = user_factory("ПричинаБаза Водитель", role=UserRole.driver)
+    pax = user_factory("ПричинаБаза Пассажир")
+    booking = _book(client, pax, _publish(client, drv)["id"])
+
+    assert client.post(f"/bookings/{booking['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "safety"}).status_code == 200
+
+    with Session(engine) as s:
+        saved = s.get(Booking, booking["id"])
+        assert saved.cancel_reason == "driver_declined"
+        assert saved.decline_reason == "safety"
+
+
+def test_decline_without_a_reason_and_plain_cancels_leave_it_empty(client, user_factory):
+    """Нет причины — NULL; обычная отмена (не отказ) поле не трогает: её причина в `cancel_reason`."""
+    drv = user_factory("ПричинаПусто Водитель", role=UserRole.driver)
+    pax = user_factory("ПричинаПусто Пассажир")
+    declined = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{declined['id']}/cancel", headers=drv["auth"]).status_code == 200
+
+    confirmed = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{confirmed['id']}/confirm", headers=drv["auth"]).status_code == 200
+    assert client.post(f"/bookings/{confirmed['id']}/cancel", headers=drv["auth"],
+                       json={"reason": "safety"}).status_code == 200
+
+    withdrawn = _book(client, pax, _publish(client, drv)["id"])
+    assert client.post(f"/bookings/{withdrawn['id']}/cancel", headers=pax["auth"],
+                       json={"reason": "safety"}).status_code == 200
+
+    with Session(engine) as s:
+        assert s.get(Booking, declined["id"]).decline_reason is None
+        assert s.get(Booking, confirmed["id"]).decline_reason is None
+        assert s.get(Booking, confirmed["id"]).cancel_reason == "safety"
+        assert s.get(Booking, withdrawn["id"]).decline_reason is None
+
+
+def test_decline_reason_column_has_a_migration():
+    """Колонка доедет до прода только ревизией: на SQLite её молча допишет `db.py`, на Postgres — нет."""
+    from pathlib import Path
+
+    text = (Path(__file__).resolve().parents[1] / "alembic" / "versions"
+            / "cc_booking_decline_reason_20261024.py").read_text(encoding="utf-8")
+    assert '"decline_reason"' in text and '"booking"' in text
+
+
 def test_client_cannot_forge_a_decline(client, user_factory):
     """Код «driver_declined» от клиента не принимаем: пассажир, отменивший сам, — не «отклонённый»."""
     drv = user_factory("Подделка Водитель", role=UserRole.driver)
