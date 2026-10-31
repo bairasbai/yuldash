@@ -92,6 +92,13 @@ def test_trip_timeout_retries_the_same_payment(client, user_factory, monkeypatch
 
     first = client.post(path, headers=passenger["auth"], json={"method": "card"})
     assert first.status_code == 503
+    if kind == "booking":
+        assert first.json()["detail"]["code"] == "booking_online_pay_off"
+        repeated = client.post(path, headers=passenger["auth"], json={"method": "card"})
+        assert repeated.status_code == 503 and calls == []
+        with Session(engine) as session:
+            assert session.exec(select(Payment).where(Payment.booking_id == target_id)).all() == []
+        return
     with Session(engine) as session:
         first_payment = session.exec(select(Payment).where(
             Payment.user_id == passenger["id"], Payment.purpose == purpose,

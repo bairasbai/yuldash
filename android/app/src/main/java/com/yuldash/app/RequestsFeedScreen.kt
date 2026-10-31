@@ -33,6 +33,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var feed by remember(session, ownerRole) { mutableStateOf<List<RequestFeedDto>>(emptyList()) }
+    var partial by remember(session, ownerRole) { mutableStateOf(false) }
     var loading by remember(session, ownerRole) { mutableStateOf(true) }
     var error by remember(session, ownerRole) { mutableStateOf(false) }
     var target by remember(session, ownerRole) { mutableStateOf<RequestFeedDto?>(null) }
@@ -56,7 +57,7 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
         loading = true; error = false
         val result = ApiClient.getRequestsFeed(onRoute = selectedFilter == RequestsFeedFilter.AlongTheWay)
         if (!current()) return@LaunchedEffect
-        result.onSuccess { feed = it }.onFailure { error = true }
+        result.onSuccess { feed = it.items; partial = it.partial }.onFailure { error = true }
         if (selectedFilter == RequestsFeedFilter.AlongTheWay && result.getOrNull()?.isEmpty() == true) {
             val rides = ApiClient.getDriverRides().getOrNull()
             if (!current()) return@LaunchedEffect
@@ -126,6 +127,6 @@ internal fun RequestsFeedScreen(onBack: () -> Unit) {
                 target = request; price = request.maxPrice?.takeIf { it > 0 }?.toString().orEmpty(); departureNote = ""; comment = ""; bindToRide = null
             } }, onWithdraw = { if (current()) withdrawTarget = it }, selectedFilter = selectedFilter,
             onFilterChange = { if (!responding) { selectedFilter = it; target = null; hasOwnRides = null } },
-            modifier = Modifier.padding(padding), hasOwnRides = hasOwnRides)
+            modifier = Modifier.padding(padding), hasOwnRides = hasOwnRides, partial = partial)
     }
 }

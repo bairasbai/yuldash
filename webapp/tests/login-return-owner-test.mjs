@@ -6,10 +6,13 @@ import { bundleComponent, checker, langMock, mount } from "./shallow-harness.mjs
 
 const t = checker();
 const h = globalThis.__loginReturn = { generation: "guest", routes: [], state: undefined, deps: null };
+globalThis.document = { addEventListener() {}, removeEventListener() {} };
 const mocks = lang => ({
   "/i18n/lang": langMock(lang),
   "/auth/AuthProvider": `export const useAuth=()=>({login(){}});`,
   "/api/client": `export class ApiError extends Error {} export const apiPost=()=>{}; export const getSessionGeneration=()=>globalThis.__loginReturn.generation;`,
+  "/api/auth": `export const TELEGRAM_BOT='fixture',lastLoginMethods=()=>['telegram'],fetchLoginMethods=async()=>['telegram'];
+    export const tgStart=async()=>({}),tgVerify=async()=>({}),requestSmsCode=async()=>({}),verifySmsCode=async()=>({}),telegramChatUrl=()=>'',telegramStartUrl=()=>'';`,
   "/utils/loginFlow": `export const createLoginFlow=deps=>{globalThis.__loginReturn.deps=deps;return{revive(){},dispose(){},start(){},verify(){},smsRequest(){},smsVerify(){}}};
     export const filterLoginCode=x=>x,nextNeedPhone=c=>c;`,
   "react-router-dom": `export const useLocation=()=>({state:globalThis.__loginReturn.state});export const useNavigate=()=>(...a)=>globalThis.__loginReturn.routes.push(a);`,

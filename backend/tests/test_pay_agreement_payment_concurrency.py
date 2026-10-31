@@ -254,40 +254,9 @@ def _observe(client, driver, passenger, booking_id, provider, locks=None, respon
     return observed
 
 
-def _assert_amount(observed, amount, driver, paid=False, historical_canceled=0):
-    rows = observed["rows"]
-    assert rows["agreement_rub"] == amount and rows["paid"] is paid
-    active = [payment for payment in rows["payments"] if payment["status"] != "canceled"]
-    assert len(active) == 1, "one current logical payment must have one Payment row"
-    assert len(rows["payments"]) == 1 + historical_canceled
-    assert active[0]["amount_kop"] == amount * 100
-    assert active[0]["status"] == ("succeeded" if paid else "pending")
-    assert observed["provider"]["invoices"][active[0]["provider_id"]]["amount_kop"] == amount * 100
-    assert len(observed["provider"]["invoices"]) == 1 + historical_canceled
-    for view in observed["views"].values():
-        assert view == {"receipt": amount, "paid": paid, "agreement": amount}
-    if paid:
-        assert len(rows["ledger"]) == 1 and rows["ledger"][0]["kind"] == "earn"
-        assert rows["ledger"][0]["driver"] == driver["id"]
-        assert rows["ledger"][0]["amount_kop"] == observed["balance_kop"] == amount * 100
-    else:
-        assert rows["ledger"] == [] and observed["balance_kop"] == 0
-
-
-def _settle(client, driver, passenger, booking_id, provider, amount, historical_canceled=0):
-    current = next(row for row in _rows(booking_id)["payments"] if row["status"] == "pending")
-    provider["states"][current["provider_id"]] = "succeeded"
-    hook = _request(client, "settle_webhook", "/payments/yookassa/webhook", body={"object": {"id": current["provider_id"]}})
-    assert hook.status_code == 200 and hook.json() == {"ok": True}, hook.text
-    first = _observe(client, driver, passenger, booking_id, provider, responses=(hook,))
-    _assert_amount(first, amount, driver, paid=True, historical_canceled=historical_canceled)
-    repeated = _request(client, "settled_repeat", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-    assert repeated.status_code == 200 and repeated.json()["status"] == "already_paid", repeated.text
-    assert _rows(booking_id) == first["rows"], "retry must not mutate immutable ledger or Payment"
-
 
 @pytest.mark.parametrize("first", ["edit", "pay"])
-def test_pg_edit_and_pay_both_real_booking_lock_orders(client, user_factory, provider_boundary, first):
+def test_pg_edit_and_locked_pay_serialize_without_invoice(client, user_factory, provider_boundary, first):
     driver, passenger, booking_id = _setup(client, user_factory)
     with SqlLocks() as locks, ThreadPoolExecutor(max_workers=2) as executor:
         first_gate = locks.gate(first)
@@ -295,7 +264,7 @@ def test_pg_edit_and_pay_both_real_booking_lock_orders(client, user_factory, pro
                       "pay": (f"/bookings/{booking_id}/pay", passenger, {"method": "card"})}
         a = executor.submit(_request, client, first, *operations[first])
         try:
-            assert first_gate.entered.wait(_BOUND), "first HTTP did not acquire the real Booking FOR UPDATE"
+            assert first_gate.entered.wait(_BOUND), "first HTTP did not acquire Booking FOR UPDATE"
             second = "pay" if first == "edit" else "edit"
             b = executor.submit(_request, client, second, *operations[second])
             locks.blocked_by(locks.lock_pid(second, 1, b), locks.lock_pid(first, 1, a), b)
@@ -303,122 +272,30 @@ def test_pg_edit_and_pay_both_real_booking_lock_orders(client, user_factory, pro
             first_gate.release.set()
         responses = {first: a.result(timeout=25), second: b.result(timeout=25)}
         observed = _observe(client, driver, passenger, booking_id, provider_boundary, locks, tuple(responses.values()))
-    assert responses["pay"].status_code == 200, responses["pay"].text
-    if first == "edit":
-        assert responses["edit"].status_code == 200, responses["edit"].text
-        amount = 1200
-    else:
-        assert 400 <= responses["edit"].status_code < 500, "issued invoice's effective amount must be frozen"
-        amount = 400
-    _assert_amount(observed, amount, driver)
-    _settle(client, driver, passenger, booking_id, provider_boundary, amount)
+    assert responses["pay"].status_code == 503
+    assert responses["pay"].json()["detail"]["code"] == "booking_online_pay_off"
+    assert responses["edit"].status_code == 200
+    assert observed["rows"] == {"paid": False, "agreement_rub": 1200, "payments": [], "ledger": []}
+    assert observed["balance_kop"] == 0
+    assert observed["provider"] == {"invoices": {}, "create_calls": [], "fetch_calls": []}
 
 
-def test_pg_two_pay_requests_in_committed_row_before_outbound_window(client, user_factory, provider_boundary):
+@pytest.mark.parametrize("methods", [("card", "card"), ("card", "sbp")])
+def test_pg_concurrent_public_payments_never_reach_provider(client, user_factory, provider_boundary, methods):
     driver, passenger, booking_id = _setup(client, user_factory)
-    create_gate = provider_boundary["create_gates"]["first_pay"] = Gate()
     with SqlLocks() as locks, ThreadPoolExecutor(max_workers=2) as executor:
-        a = executor.submit(_request, client, "first_pay", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
+        gate = locks.gate("first_pay")
+        a = executor.submit(_request, client, "first_pay", f"/bookings/{booking_id}/pay", passenger,
+                            {"method": methods[0]})
         try:
-            assert create_gate.entered.wait(_BOUND)
-            durable_gap = _rows(booking_id)
-            print("QA_BOOKING_COMMITTED_GAP " + json.dumps(durable_gap, sort_keys=True))
-            b = executor.submit(_request, client, "second_pay", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-            second = b.result(timeout=25)
+            assert gate.entered.wait(_BOUND)
+            b = executor.submit(_request, client, "second_pay", f"/bookings/{booking_id}/pay", passenger,
+                                {"method": methods[1]})
+            locks.blocked_by(locks.lock_pid("second_pay", 1, b), locks.lock_pid("first_pay", 1, a), b)
         finally:
-            create_gate.release.set()
-        first = a.result(timeout=25)
-        observed = _observe(client, driver, passenger, booking_id, provider_boundary, locks, (first, second))
-    assert first.status_code == second.status_code == 200
-    assert durable_gap["payments"][0]["method"] == "yookassa", "first commit must already identify the pending provider operation"
-    assert first.json()["payment_id"] == second.json()["payment_id"]
-    assert {call["payment_id"] for call in provider_boundary["create_calls"]} == {first.json()["payment_id"]}
-    _assert_amount(observed, 400, driver)
-    _settle(client, driver, passenger, booking_id, provider_boundary, 400)
-
-
-def test_pg_repeat_pending_and_http_webhook_follow_payment_then_booking_without_deadlock(
-        client, user_factory, provider_boundary):
-    driver, passenger, booking_id = _setup(client, user_factory)
-    initial = _request(client, "initial_pay", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-    assert initial.status_code == 200 and initial.json()["status"] == "pending"
-    row = _rows(booking_id)["payments"][0]
-    provider_boundary["states"][row["provider_id"]] = "succeeded"
-    with SqlLocks() as locks, ThreadPoolExecutor(max_workers=2) as executor:
-        repeat_gate = locks.gate("repeat_pay")
-        repeat = executor.submit(_request, client, "repeat_pay", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-        try:
-            assert repeat_gate.entered.wait(_BOUND)
-            hook = executor.submit(_request, client, "webhook", "/payments/yookassa/webhook", None,
-                                   {"object": {"id": row["provider_id"]}})
-            # Webhook has acquired Payment and now actually waits for repeat's Booking.
-            webhook_pid = locks.lock_pid("webhook", 1, hook)
-            locks.blocked_by(webhook_pid, locks.lock_pid("repeat_pay", 1, repeat), hook)
-            assert any(row.get("operation") == "webhook" and row["phase"] == "acquired_payment_lock"
-                       and row["pid"] == webhook_pid for row in locks.observations)
-        finally:
-            repeat_gate.release.set()
-        repeated, hooked = repeat.result(timeout=25), hook.result(timeout=25)
-        observed = _observe(client, driver, passenger, booking_id, provider_boundary, locks, (repeated, hooked))
-    assert repeated.status_code == hooked.status_code == 200
-    assert repeated.json()["status"] in ("succeeded", "already_paid")
-    assert hooked.json() == {"ok": True}
-    _assert_amount(observed, 400, driver, paid=True)
-    before = _rows(booking_id)
-    duplicated_hook = _request(client, "webhook_repeat", "/payments/yookassa/webhook", body={"object": {"id": row["provider_id"]}})
-    assert duplicated_hook.status_code == 200 and _rows(booking_id) == before
-
-
-def test_pg_canceled_sync_then_agreement_edit_relocks_and_uses_fresh_amount(client, user_factory, provider_boundary):
-    driver, passenger, booking_id = _setup(client, user_factory)
-    initial = _request(client, "initial_pay", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-    assert initial.status_code == 200
-    old = _rows(booking_id)["payments"][0]
-    provider_boundary["states"][old["provider_id"]] = "canceled"
-    with SqlLocks() as locks, ThreadPoolExecutor(max_workers=1) as executor:
-        relock_gate = locks.gate("renew", occurrence=2, before=True)
-        renewed = executor.submit(_request, client, "renew", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-        try:
-            assert relock_gate.entered.wait(_BOUND), "canceled path did not reacquire Booking"
-            assert _rows(booking_id)["payments"][0]["status"] == "canceled", "provider cancel must already be committed"
-            edited = _request(client, "edit_after_cancel", f"/bookings/{booking_id}/pay-agreement", driver, {"pay_amount": 1200})
-            assert edited.status_code == 200, edited.text
-        finally:
-            relock_gate.release.set()
-        response = renewed.result(timeout=25)
-        observed = _observe(client, driver, passenger, booking_id, provider_boundary, locks, (edited, response))
-    assert response.status_code == 200 and response.json()["status"] == "pending"
-    assert response.json()["payment_id"] != old["id"]
-    _assert_amount(observed, 1200, driver, historical_canceled=1)
-    _settle(client, driver, passenger, booking_id, provider_boundary, 1200, historical_canceled=1)
-
-
-def test_pg_two_canceled_repeats_keep_only_one_new_pending_invoice(client, user_factory, provider_boundary):
-    driver, passenger, booking_id = _setup(client, user_factory)
-    initial = _request(client, "initial_pay", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-    assert initial.status_code == 200
-    old = _rows(booking_id)["payments"][0]
-    provider_boundary["states"][old["provider_id"]] = "canceled"
-    fetch_a = provider_boundary["fetch_gates"]["renew_a"] = Gate()
-    fetch_b = provider_boundary["fetch_gates"]["renew_b"] = Gate()
-    with SqlLocks() as locks, ThreadPoolExecutor(max_workers=2) as executor:
-        relock_a = locks.gate("renew_a", occurrence=2)
-        a = executor.submit(_request, client, "renew_a", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-        try:
-            assert fetch_a.entered.wait(_BOUND)
-            b = executor.submit(_request, client, "renew_b", f"/bookings/{booking_id}/pay", passenger, {"method": "card"})
-            assert fetch_b.entered.wait(_BOUND), "Booking must be released before the provider fetch"
-            fetch_a.release.set()
-            assert relock_a.entered.wait(_BOUND)
-            fetch_b.release.set()
-            locks.blocked_by(locks.lock_pid("renew_b", 2, b), locks.lock_pid("renew_a", 2, a), b)
-        finally:
-            fetch_a.release.set()
-            fetch_b.release.set()
-            relock_a.release.set()
-        responses = (a.result(timeout=25), b.result(timeout=25))
+            gate.release.set()
+        responses = [a.result(timeout=25), b.result(timeout=25)]
         observed = _observe(client, driver, passenger, booking_id, provider_boundary, locks, responses)
-    assert all(response.status_code == 200 for response in responses)
-    assert responses[0].json()["payment_id"] == responses[1].json()["payment_id"], "two renewals must reuse the one replacement invoice"
-    _assert_amount(observed, 400, driver, historical_canceled=1)
-    _settle(client, driver, passenger, booking_id, provider_boundary, 400, historical_canceled=1)
+    assert all(r.status_code == 503 and r.json()["detail"]["code"] == "booking_online_pay_off" for r in responses)
+    assert observed["rows"] == {"paid": False, "agreement_rub": 400, "payments": [], "ledger": []}
+    assert observed["provider"] == {"invoices": {}, "create_calls": [], "fetch_calls": []}

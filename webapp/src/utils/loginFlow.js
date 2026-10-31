@@ -1,6 +1,6 @@
 export function nextNeedPhone(current, error) {
   if (error === "phoneRequired") return true;
-  if (["badTgCode", "notYet", "expired", "tooMany", "verify", "save"].includes(error)) return false;
+  if (["badTgCode", "notYet", "expired", "tooMany", "verify", "save", "methodDisabled", "botMissing"].includes(error)) return false;
   return current;
 }
 
@@ -43,6 +43,18 @@ export function createLoginFlow(deps) {
     busy = false;
     if (!disposed) deps.onBusy(false);
   };
+  const disabled = (error) => {
+    if (deps.getCode?.(error) !== "login_method_disabled") return false;
+    deps.onError("methodDisabled");
+    deps.onMethodDisabled?.(error);
+    return true;
+  };
+  const allowed = (method) => {
+    if (deps.methodAvailable?.(method) !== false) return true;
+    deps.onError("methodDisabled");
+    deps.onMethodDisabled?.();
+    return false;
+  };
   const saveAndContinue = async (op, pair, method, name = "") => {
     if (!current(op)) return;
     try {
@@ -78,6 +90,8 @@ export function createLoginFlow(deps) {
     revive() { disposed = false; serial++; busy = false; },
     dispose() { disposed = true; serial++; busy = false; },
     async start() {
+      if (busy || disposed) return;
+      if (!allowed("telegram")) return;
       if (!deps.botAvailable()) { deps.onError("botMissing"); return; }
       const op = begin();
       if (!op) return;
@@ -90,8 +104,8 @@ export function createLoginFlow(deps) {
         freshCodeRequired = false;
         deps.onTgStarted(result.request_id);
         deps.openTelegram(deps.telegramStartUrl(result.request_id));
-      } catch {
-        if (current(op)) deps.onError("start");
+      } catch (error) {
+        if (current(op) && !disabled(error)) deps.onError("start");
       } finally { finish(op); }
     },
     openTelegramAgain(needPhone) {
@@ -101,6 +115,7 @@ export function createLoginFlow(deps) {
     },
     async verify(requestId, code, name) {
       if (busy || disposed) return;
+      if (!allowed("telegram")) return;
       if (freshCodeRequired) { deps.onError("save"); return; }
       if (!loginCodeValid(code)) { deps.onError("enterTgCode"); return; }
       const op = begin();
@@ -112,13 +127,17 @@ export function createLoginFlow(deps) {
         await saveAndContinue(op, pair, "telegram", name);
       } catch (error) {
         if (current(op)) {
+          if (disabled(error)) return;
           const status = deps.getStatus(error);
-          deps.onError(({ 400: "badTgCode", 403: "phoneRequired", 409: "notYet", 410: "expired", 429: "tooMany" })[status] || "verify");
+          const code = deps.getCode?.(error) || "";
+          deps.onError(code === "phone_required" || (status === 403 && !code) ? "phoneRequired" :
+            ({ 400: "badTgCode", 409: "notYet", 410: "expired", 429: "tooMany" })[status] || "verify");
         }
       } finally { finish(op); }
     },
     async smsRequest(phone) {
       if (busy || disposed) return;
+      if (!allowed("sms")) return;
       if (!loginPhoneValid(phone)) { deps.onError("enterPhone"); return; }
       const op = begin();
       if (!op) return;
@@ -132,11 +151,12 @@ export function createLoginFlow(deps) {
           deps.onSmsStarted();
         }
       } catch (error) {
-        if (current(op)) deps.onError(deps.getStatus(error) === 429 ? "smsTooMany" : "sendFail");
+        if (current(op) && !disabled(error)) deps.onError(deps.getStatus(error) === 429 ? "smsTooMany" : "sendFail");
       } finally { finish(op); }
     },
     async smsVerify(phone, code, name) {
       if (busy || disposed) return;
+      if (!allowed("sms")) return;
       if (freshCodeRequired) { deps.onError("save"); return; }
       if (!loginCodeValid(code)) { deps.onError("enterSmsCode"); return; }
       const op = begin();
@@ -147,7 +167,7 @@ export function createLoginFlow(deps) {
         const pair = await deps.smsVerify(phone.trim(), code.trim(), name.trim().slice(0, 120));
         await saveAndContinue(op, pair, "sms");
       } catch (error) {
-        if (current(op)) deps.onError(deps.getStatus(error) === 400 ? "badSmsCode" : "verify");
+        if (current(op) && !disabled(error)) deps.onError(deps.getStatus(error) === 400 ? "badSmsCode" : "verify");
       } finally { finish(op); }
     },
   };

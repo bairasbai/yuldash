@@ -1,9 +1,7 @@
 // ================================================================
 //  Авторизация Юлдаша (зеркало backend/app/routers/auth.py).
 //  Основной путь — вход через Telegram-бота (код в чате).
-//  SMS-вход ЗАМОРОЖЕН за флагом VITE_SMS_LOGIN_ENABLED — ровно как в
-//  приложении (BuildConfig.SMS_LOGIN_ENABLED): форма и запросы готовы,
-//  включается одной переменной, когда появится юрлицо для sms.ru.
+//  Доступные способы входа сообщает сервер; последний ответ переживает отсутствие сети.
 // ================================================================
 import {
   ApiError,
@@ -16,6 +14,20 @@ import {
   getSessionGeneration,
   rotateSession,
 } from "./client";
+import { cacheLoginMethods, cachedLoginMethods, normalizeLoginMethods, type LoginMethod } from "../utils/loginMethods";
+
+export function lastLoginMethods(): LoginMethod[] {
+  try { return cachedLoginMethods(localStorage); } catch { return ["telegram"]; }
+}
+
+/** Публичная настройка: токен аккаунта не передаётся. Ошибку показывает экран. */
+export async function fetchLoginMethods(signal?: AbortSignal): Promise<LoginMethod[]> {
+  const response = await apiGet<{ methods: unknown }>("/config/login-methods", { auth: false, signal });
+  const methods = normalizeLoginMethods(response.methods);
+  if (methods === null) throw new ApiError(0, "");
+  try { cacheLoginMethods(localStorage, methods); } catch { /* Блокировка localStorage не мешает входу. */ }
+  return methods;
+}
 
 /** Пользователь из GET /me (User + рейтинг). Поля — по backend User-модели. */
 export interface Me {
@@ -75,10 +87,7 @@ export function tgVerify(
   );
 }
 
-// ---------------------------- Вход по SMS (за флагом) ----------------------------
-/** Включён ли SMS-вход в этой сборке. Пока юрлица нет — выключен, как в приложении. */
-export const SMS_LOGIN_ENABLED =
-  String(import.meta.env.VITE_SMS_LOGIN_ENABLED ?? "").trim() === "1";
+// ---------------------------- Вход по SMS (если разрешён сервером) ----------------------------
 
 /**
  * POST /auth/request-code {phone} — сервер шлёт код в SMS.
@@ -180,7 +189,7 @@ export function deleteAccount(): Promise<{ ok: boolean }> {
   return apiPost<{ ok: boolean }>("/me/delete");
 }
 
-/** Имя бота из окружения (VITE_TELEGRAM_BOT). Пусто → Telegram-вход показывает заглушку. */
+/** Имя бота из окружения (VITE_TELEGRAM_BOT). Пусто → кнопка Telegram скрыта. */
 export const TELEGRAM_BOT = (import.meta.env.VITE_TELEGRAM_BOT ?? "").trim();
 
 export function telegramStartUrl(requestId: string): string {

@@ -1,8 +1,9 @@
 """Заявки пассажира + матчинг заявки с поездками + отклики водителей (см. backend.md §4)."""
 from datetime import datetime, timedelta
+from dataclasses import dataclass
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, or_, text, update
 from sqlmodel import Session, select
@@ -540,7 +541,16 @@ def _detour_km(req, rides: list) -> Optional[int]:
 _SCAN_MAX = FEED_MAX * 10
 
 
-def _ride_chunks(session, query):
+@dataclass
+class _ScanState:
+    partial: bool = False
+
+    def apply(self, response: Response) -> None:
+        if self.partial:
+            response.headers["X-Yuldash-Partial"] = "1"
+
+
+def _ride_chunks(session, query, scan: _ScanState | None = None):
     """Ограниченная память, без OFFSET: следующая порция после (выезд, id); не больше `_SCAN_MAX` строк."""
     after, scanned = None, 0
     while scanned < _SCAN_MAX:
@@ -548,28 +558,35 @@ def _ride_chunks(session, query):
         if after is not None:
             depart, rid = after
             page = page.where(or_(Ride.depart_at > depart, and_(Ride.depart_at == depart, Ride.id > rid)))
-        rows = session.exec(page.order_by(Ride.depart_at, Ride.id).limit(FEED_MAX)).all()
+        rows = session.exec(page.order_by(Ride.depart_at, Ride.id).limit(min(FEED_MAX, _SCAN_MAX - scanned))).all()
         if not rows:
             return
-        yield rows
         scanned += len(rows)
         after = (rows[-1].depart_at, rows[-1].id)
+        if scan is not None and scanned >= _SCAN_MAX:
+            depart, rid = after
+            extra = query.where(or_(Ride.depart_at > depart, and_(Ride.depart_at == depart, Ride.id > rid)))
+            scan.partial |= session.exec(extra.limit(1)).first() is not None
+        yield rows
 
 
-def _request_chunks(session, query):
+def _request_chunks(session, query, scan: _ScanState | None = None):
     """Новые заявки первыми, порциями; не больше `_SCAN_MAX` строк за запрос."""
     before, scanned = None, 0
     while scanned < _SCAN_MAX:
         page = query if before is None else query.where(RideRequest.id < before)
-        rows = session.exec(page.order_by(RideRequest.id.desc()).limit(FEED_MAX)).all()
+        rows = session.exec(page.order_by(RideRequest.id.desc()).limit(min(FEED_MAX, _SCAN_MAX - scanned))).all()
         if not rows:
             return
-        yield rows
         scanned += len(rows)
         before = rows[-1].id
+        if scan is not None and scanned >= _SCAN_MAX:
+            extra = query.where(RideRequest.id < before)
+            scan.partial |= session.exec(extra.limit(1)).first() is not None
+        yield rows
 
 
-def _on_route_scope(session, user):
+def _on_route_scope(session, user, scan: _ScanState | None = None):
     """Необходимые условия, при которых заявка вообще может лечь на рейс этого водителя («по пути»).
 
     `request_segments.segment` отбрасывает рейс, если не совпали категория, день выезда (по местному
@@ -580,8 +597,12 @@ def _on_route_scope(session, user):
         select(Ride.category, Ride.depart_at, Ride.seats_left)
         .where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
                Ride.depart_at >= utcnow() - timedelta(hours=2))
-        .limit(_SCAN_MAX)
+        .limit(_SCAN_MAX + 1)
     ).all()
+    if len(rows) > _SCAN_MAX:
+        if scan is not None:
+            scan.partial = True
+        rows = rows[:_SCAN_MAX]
     rows = [row for row in rows if row[1] is not None]
     if not rows:
         return None
@@ -597,12 +618,12 @@ def _on_route_scope(session, user):
             max(int(seats or 0) for _cat, _depart, seats in rows))
 
 
-def _feed_route_choices(session, user, reqs, passengers, entry, memo=None):
+def _feed_route_choices(session, user, reqs, passengers, entry, memo=None, scan=None):
     """Первая точная поездка по времени/id; крюк остаётся отдельной оценкой по всем рейсам."""
     choices, detours = {}, {}
     query = select(Ride).where(Ride.driver_id == user.id, Ride.status == RideStatus.active,
                                Ride.depart_at >= utcnow() - timedelta(hours=2))
-    for rides in _ride_chunks(session, query):
+    for rides in _ride_chunks(session, query, scan):
         for req in reqs:
             detour = _detour_km(req, rides)
             if detour is not None:
@@ -624,15 +645,18 @@ def _feed_route_choices(session, user, reqs, passengers, entry, memo=None):
 
 
 @router.get("/requests/feed", response_model=List[RequestFeedOut])
-def requests_feed(on_route: bool = False, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def requests_feed(response: Response, on_route: bool = False, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
     """Активные заявки пассажиров — для водителей (откликнуться). Без своих и заблокированных."""
+    scan = _ScanState()
     query = select(RideRequest).where(*live_request_conds(), *_open_category_conds(),
                                       RideRequest.passenger_id != user.id)
     if on_route:
         # «По пути» — только заявки, которые могут лечь на рейс водителя: категория, день, места.
         # Остальные Python-у на сверку маршрута не отдаём (результат ленты тот же, работы меньше).
-        scope = _on_route_scope(session, user)
+        scope = _on_route_scope(session, user, scan)
         if scope is None:
+            scan.apply(response)
             return []
         categories, windows, max_seats = scope
         query = query.where(
@@ -646,7 +670,7 @@ def requests_feed(on_route: bool = False, user: User = Depends(current_user), se
     entry = snapshot_cached()
     memo = {}   # сверка маршрута (рейс, откуда, куда) — одна на запрос, а не на каждую заявку
     out = []
-    for batch in _request_chunks(session, query):
+    for batch in _request_chunks(session, query, scan):
         reqs = [r for r in batch if r.passenger_id not in hidden
                 and (not r.only_trusted or is_insider)
                 and (not r.women_only or gender_of(user) == "female")]
@@ -654,7 +678,7 @@ def requests_feed(on_route: bool = False, user: User = Depends(current_user), se
             continue
         pax = {u.id: u for u in session.exec(select(User).where(
             User.id.in_({r.passenger_id for r in reqs}))).all()}
-        choices, detours = _feed_route_choices(session, user, reqs, pax, entry, memo)
+        choices, detours = _feed_route_choices(session, user, reqs, pax, entry, memo, scan)
         if on_route:
             reqs = [r for r in reqs if r.id in choices]
         if not reqs:
@@ -710,7 +734,9 @@ def requests_feed(on_route: bool = False, user: User = Depends(current_user), se
                 passenger_verified=bool(p and p.verified),
             ))
             if len(out) >= FEED_MAX:
+                scan.apply(response)
                 return out
+    scan.apply(response)
     return out
 
 
@@ -1454,7 +1480,8 @@ def withdraw_response(response_id: int, user: User = Depends(current_user), sess
 
 
 @router.get("/match/rides", response_model=List[RideOut])
-def match_rides(request_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def match_rides(request_id: int, response: Response, user: User = Depends(current_user),
+                session: Session = Depends(get_session)):
     req = session.get(RideRequest, request_id)
     if not req:
         raise herr(404, "Заявка не найдена", "Заявка табылманы")
@@ -1480,8 +1507,8 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
     # своя проверка вместо общей означала, что про блокировку и паузу этот подбор не знал —
     # заблокированный водитель приходил к человеку прямо в ответ на его заявку
     # (аудит 2026-08-08, волна 71).
-    out = []
-    for batch in _ride_chunks(session, q):
+    out, scan = [], _ScanState()
+    for batch in _ride_chunks(session, q, scan):
         sections, rides = {}, []
         drivers = {d.id: d for d in session.exec(select(User).where(
             User.id.in_({r.driver_id for r in batch}))).all()}
@@ -1505,5 +1532,7 @@ def match_rides(request_id: int, user: User = Depends(current_user), session: Se
         }) for r in rides_out(rides, session)]
         out.extend(visible_rides(public_rides_payload(page), user, session))
         if len(out) >= FEED_MAX:
+            scan.apply(response)
             return out[:FEED_MAX]
+    scan.apply(response)
     return out

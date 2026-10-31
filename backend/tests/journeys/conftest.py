@@ -222,12 +222,13 @@ class Kit:
 
 
 @pytest.fixture
-def api(client):
+def api(client, request):
     """HTTP-клиент пути: живой сервер по сети или тот же ASGI-стек в процессе."""
     if LIVE_URL:
         with httpx.Client(base_url=LIVE_URL, timeout=30) as c:
             yield c
     else:
+        request.getfixturevalue("telegram_login_ready")
         yield client
 
 

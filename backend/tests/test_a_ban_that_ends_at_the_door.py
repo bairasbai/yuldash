@@ -15,6 +15,7 @@
 """
 from __future__ import annotations
 
+import pytest
 from sqlmodel import Session, select
 
 from app.db import engine
@@ -228,3 +229,7 @@ def test_last_device_is_remembered_on_login(client, user_factory):
     with Session(engine) as s:
         u = s.get(User, вход["user"]["id"])
     assert u.last_device_id == "dev-memory"
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

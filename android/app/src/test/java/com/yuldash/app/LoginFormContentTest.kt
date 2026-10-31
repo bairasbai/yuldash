@@ -23,8 +23,7 @@ import org.robolectric.annotation.GraphicsMode
  * loading), переключение шага телефон↔код. Это то, что раньше жило внутри монолита и не тестировалось.
  *
  * Заголовок класса — как в AdminReviewsContentTest. autoAdvance=false только там, где крутится спиннер.
- * В тестовом BuildConfig SMS_LOGIN_ENABLED=false и TELEGRAM_BOT = дефолт из build.gradle.kts, поэтому
- * поле кода в UI берём из Telegram-потока (tgMode=true) — SMS-блок в этой сборке скрыт флагом.
+ * По умолчанию список содержит Telegram; отдельные тесты задают SMS и полностью выключенный вход.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
@@ -49,6 +48,10 @@ class LoginFormContentTest {
         onTelegramStart: () -> Unit = {},
         onTgVerify: () -> Unit = {},
         onSmsPrimary: () -> Unit = {},
+        methods: List<String> = listOf("telegram"),
+        onMethodsRetry: () -> Unit = {},
+        botName: String = "test_bot",
+        methodsLoading: Boolean = false,
     ) {
         composeRule.setContent {
             LoginFormContent(
@@ -72,8 +75,55 @@ class LoginFormContentTest {
                 onToggleSmsForm = {},
                 onChangePhone = {},
                 onSmsPrimary = onSmsPrimary,
+                methods = methods,
+                onMethodsRetry = onMethodsRetry,
+                telegramBotName = botName,
+                methodsLoading = methodsLoading,
             )
         }
+    }
+
+    @Test fun telegramOnlyDoesNotShowPhoneLogin() {
+        form(methods = listOf("telegram"))
+        composeRule.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertExists()
+        composeRule.onNodeWithText("Войти по номеру телефона").assertDoesNotExist()
+    }
+
+    @Test fun enabledSmsAppearsAlongsideTelegram() {
+        form(methods = listOf("sms", "telegram"))
+        composeRule.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertExists()
+        composeRule.onNodeWithText("Войти по номеру телефона").assertExists()
+    }
+
+    @Test fun disabledLoginOffersRetryInsteadOfDeadButtons() {
+        var retried = false
+        form(methods = emptyList(), onMethodsRetry = { retried = true })
+        composeRule.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertDoesNotExist()
+        composeRule.onNodeWithText("Войти по номеру телефона").assertDoesNotExist()
+        composeRule.onNodeWithText("Вход временно недоступен. Попробуй чуть позже.").assertExists()
+        composeRule.onNodeWithText("Повторить").performClick()
+        assertTrue(retried)
+    }
+
+    @Test fun unconfiguredBotHasNoTelegramButton() {
+        form(methods = listOf("telegram"), botName = "")
+        composeRule.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertDoesNotExist()
+        composeRule.onNodeWithText("Повторить").assertExists()
+    }
+
+    @Test fun loadingDoesNotExposeUnconfirmedLoginButtons() {
+        composeRule.mainClock.autoAdvance = false
+        form(methods = listOf("sms", "telegram"), methodsLoading = true)
+        composeRule.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertDoesNotExist()
+        composeRule.onNodeWithText("Войти по номеру телефона").assertDoesNotExist()
+    }
+
+    @Test fun disabledMethodShowsServerRefusalWithoutPhoneInstruction() {
+        val refusal = com.yuldash.app.data.ApiException(403,
+            "Этот способ входа сейчас выключен. Выбери другой на экране входа.", "login_method_disabled")
+        form(error = loginRequestErrorText(refusal, "Ошибка"), needPhone = loginNeedsPhone(refusal))
+        composeRule.onNodeWithText(refusal.message!!).assertExists()
+        composeRule.onNodeWithText("Открыть Telegram и поделиться номером").assertDoesNotExist()
     }
 
     // ─────────────────── ПЛОХОЙ СЦЕНАРИЙ: невалидный телефон/код (чистые хелперы валидации) ───────────────────

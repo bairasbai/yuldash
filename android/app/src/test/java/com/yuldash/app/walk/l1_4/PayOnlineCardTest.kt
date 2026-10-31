@@ -79,6 +79,7 @@ class PayOnlineCardTest {
         // иначе один тест "портит" следующий.
         OnlinePayGate.asked = false
         OnlinePayGate.unavailable = false
+        OnlinePayGate.enabled = false
     }
 
     @After fun cleanup() {
@@ -86,6 +87,7 @@ class PayOnlineCardTest {
         ApiClient.testTimeoutMs = null
         OnlinePayGate.asked = false
         OnlinePayGate.unavailable = false
+        OnlinePayGate.enabled = false
         if (::server.isInitialized) server.shutdown()
     }
 
@@ -98,11 +100,52 @@ class PayOnlineCardTest {
         }
     }
 
+
+    /** Карточка появляется после ответа сервера «оплата включена» — ждём сам узел, а не кадры. */
+    private fun awaitSubmit() {
+        compose.waitUntil(5_000) {
+            compose.onAllNodesWithTag("pay_online_submit").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test fun unavailableHealthCheckDoesNotShowAnActionablePayment() {
+        startServerGateOpen()
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest) = MockResponse().setResponseCode(503).setBody("{}")
+        }
+        var payments = 0
+        render(25_000) { payments++; Result.success(PayTripResultDto("paid", it, null, null)) }
+        compose.waitUntil(5_000) { OnlinePayGate.unavailable }
+        compose.onNodeWithTag("pay_online_submit").assertDoesNotExist()
+        assertEquals(0, payments)
+    }
+
+    @Test fun paymentStaysHiddenUntilTheServerExplicitlyAllowsIt() {
+        startServerGateOpen()
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        server.dispatcher = object : Dispatcher() {
+            override fun dispatch(request: RecordedRequest): MockResponse {
+                started.countDown()
+                release.await(5, java.util.concurrent.TimeUnit.SECONDS)
+                return MockResponse().setBody("""{"payments":"on"}""")
+            }
+        }
+        try {
+            render(25_000) { Result.success(PayTripResultDto("paid", it, null, null)) }
+            compose.waitUntil(3_000) { started.count == 0L }
+            compose.onNodeWithTag("pay_online_submit").assertDoesNotExist()
+            release.countDown()
+            compose.waitUntil(5_000) { OnlinePayGate.enabled }
+            compose.onNodeWithTag("pay_online_submit").assertExists()
+        } finally { release.countDown() }
+    }
+
     @Test
     fun headerAndButton_showExactlySameAmount() {
         startServerGateOpen()
         render(amountKop = 18_850) { Result.success(PayTripResultDto("paid", it, null, null)) }
-        compose.waitForIdle()
+        awaitSubmit()
 
         // 18 850 копеек = 188,50 ₽ — ОБЕ надписи обязаны содержать именно эту строку,
         // не "188 ₽" (кнопка) рядом со "188,50 ₽" (чек).
@@ -124,6 +167,7 @@ class PayOnlineCardTest {
             }
         }
 
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
 
@@ -143,12 +187,14 @@ class PayOnlineCardTest {
             Result.failure(ApiException(400, "Банк отклонил операцию", ""))
         }
 
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitUntil(5_000) { attempts >= 1 }
         compose.waitForIdle()
 
         // Карточка осталась — это не "оплата выключена", а разовый отказ.
         compose.onNodeWithTag("pay_online_submit").assertExists()
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitUntil(5_000) { attempts >= 2 }
         compose.waitForIdle()
@@ -166,6 +212,7 @@ class PayOnlineCardTest {
             Result.success(PayTripResultDto("paid", method, null, null))
         }
 
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         // Ждём, пока pay() реально стартует (не гадаем числом кадров) — он сам зависнет на gate.
         compose.waitUntil(2_000) { callCount == 1 }
@@ -173,7 +220,8 @@ class PayOnlineCardTest {
         compose.onNodeWithTag("pay_online_submit").assertIsNotEnabled()
         // Вторая защита — внутри startPay() (`if (busy) return`), не только видимое выключение:
         // пробуем нажать ещё раз, несмотря на disabled.
-        runCatching { compose.onNodeWithTag("pay_online_submit").performClick() }
+        runCatching { awaitSubmit()
+        compose.onNodeWithTag("pay_online_submit").performClick() }
 
         gate.complete(Unit)
         compose.waitForIdle()
@@ -189,6 +237,7 @@ class PayOnlineCardTest {
             Result.success(PayTripResultDto("pending", it, 77, "https://example.invalid/confirm"))
         }
 
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
 
@@ -203,6 +252,7 @@ class PayOnlineCardTest {
             Result.success(PayTripResultDto("already_paid", it, null, null))
         }
 
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
 
@@ -216,6 +266,7 @@ class PayOnlineCardTest {
         render(amountKop = 100_00) {
             Result.success(PayTripResultDto("pending", it, 77, "https://example.invalid/confirm"))
         }
+        awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
         compose.waitForIdle()
         compose.onNodeWithText("Ждём подтверждения оплаты").assertIsDisplayed()

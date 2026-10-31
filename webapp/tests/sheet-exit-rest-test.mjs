@@ -231,7 +231,7 @@ const Respond = await load(
     "screens/RequestsFeedScreen.tsx",
     [
       [/\/api\/client$/, `export class ApiError extends Error { constructor(m) { super(m); } } export const getSessionGeneration=()=>"test-owner";`],
-      [/\/api\/requests$/, `export const fetchRequestsFeed = () => (globalThis.__restExit.feed ? Promise.resolve(globalThis.__restExit.feed) : new Promise(() => {})); export const respondToRequest = (...a) => globalThis.__restExit.api("respond", ...a);`],
+      [/\/api\/requests$/, `export const fetchRequestsFeed = () => (globalThis.__restExit.feed ? Promise.resolve({items:globalThis.__restExit.feed,partial:false}) : new Promise(() => {})); export const respondToRequest = (...a) => globalThis.__restExit.api("respond", ...a);`],
       [/\/analytics$/, `export const track = (n) => globalThis.__restExit.calls.push(["track", n]);`],
       [/^react-router-dom$/, `export const useNavigate = () => () => {};`],
       [/\/useScrollMemory$/, `export const useScrollMemory = () => {};`],

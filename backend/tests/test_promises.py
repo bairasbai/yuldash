@@ -293,6 +293,11 @@ def test_обещание_попутка_без_комиссии(client, user_fa
 
     assert client.post(f"/bookings/{bid}/pay", headers=pax["auth"],
                        json={"method": "cash"}).status_code == 200
+    # RS-01: отметка наличных не открывает повторную оплату попутки через банк.
+    for method in ("card", "sbp"):
+        blocked = client.post(f"/bookings/{bid}/pay", headers=pax["auth"], json={"method": method})
+        assert blocked.status_code == 503, blocked.text
+        assert blocked.json()["detail"]["code"] == "booking_online_pay_off"
 
     with Session(engine) as s:
         debts = s.exec(_sel(CommissionDebt).where(CommissionDebt.driver_id == drv["id"])).all()

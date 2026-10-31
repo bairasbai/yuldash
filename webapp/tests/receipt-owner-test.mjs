@@ -115,7 +115,7 @@ for (const lang of ["ru", "ba"]) {
   await t.test(`${lang}: completed child payment after owner change does not redirect, remember or reload`, async () => {
     reset(); const s = open(Screen); await s.settle(); const props = findLeaf(s, "PayTripCard").props;
     const held = deferred(); h.pay = () => held.promise; window.location.href = "";
-    const pay = open(Pay, props); pay.render(); button(pay.tree, lang === "ru" ? "Картой" : "Карта менән").props.onClick();
+    const pay = open(Pay, props); pay.render(); button(pay.tree, lang === "ru" ? "Наличными" : "Наличный менән").props.onClick();
     h.generation = "B"; s.render(); await s.settle(); const before = h.calls.length;
     held.resolve({ confirmation_url: "https://example.invalid/fixture", payment_id: "synthetic" }); await pay.settle(); await s.settle();
     assert.equal(h.calls.length, before); assert.equal(window.location.href, ""); assert.equal(h.remembered.length, 0); pay.unmount(); s.unmount();

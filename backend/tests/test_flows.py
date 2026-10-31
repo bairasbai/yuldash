@@ -4,6 +4,7 @@
 (формы ответов, права доступа, бизнес-правила), чтобы рефакторинги их не сломали.
 Лимитер в тестах выключен (conftest).
 """
+import pytest
 import base64
 from datetime import timedelta
 
@@ -729,7 +730,7 @@ def test_tg_rejects_foreign_contact(client):
     })
     # чужой номер не сохранён → реального номера нет → 403 phone_required
     resp = client.post("/auth/tg/verify", json={"request_id": req, "code": code})
-    assert resp.status_code == 403 and resp.json()["detail"] == "phone_required"
+    assert resp.status_code == 403 and resp.json()["detail"]["code"] == "phone_required"
 
 
 def test_tg_phone_required_then_share_unlocks(client):
@@ -938,3 +939,7 @@ def _подтвердить_женщину(user_id: int) -> None:
         p.gender_verified = True
         s.add(p)
         s.commit()
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

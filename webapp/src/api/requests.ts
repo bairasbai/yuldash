@@ -139,8 +139,22 @@ export function cancelRequest(id: number): Promise<RideRequestRow> {
   return apiPost<RideRequestRow>(`/requests/${id}/cancel`);
 }
 
-export function fetchRequestsFeed(signal?: AbortSignal, onRoute = false): Promise<RequestFeedItem[]> {
-  return apiGet<RequestFeedItem[]>(`/requests/feed${onRoute ? "?on_route=true" : ""}`, { signal });
+export interface PartialFeed<T> {
+  items: T[];
+  partial: boolean;
+}
+
+async function fetchPartialFeed<T>(path: string, signal?: AbortSignal): Promise<PartialFeed<T>> {
+  let partial = false;
+  const items = await apiGet<T[]>(path, {
+    signal,
+    onResponse: (response) => { partial = response.headers.get("X-Yuldash-Partial") === "1"; },
+  });
+  return { items, partial };
+}
+
+export function fetchRequestsFeed(signal?: AbortSignal, onRoute = false): Promise<PartialFeed<RequestFeedItem>> {
+  return fetchPartialFeed<RequestFeedItem>(`/requests/feed${onRoute ? "?on_route=true" : ""}`, signal);
 }
 
 export function respondToRequest(
@@ -200,8 +214,8 @@ export function withdrawResponse(responseId: number, signal?: AbortSignal): Prom
 export function fetchMatchRides(
   requestId: number,
   signal?: AbortSignal
-): Promise<Ride[]> {
-  return apiGet<Ride[]>(`/match/rides?request_id=${requestId}`, { signal });
+): Promise<PartialFeed<Ride>> {
+  return fetchPartialFeed<Ride>(`/match/rides?request_id=${requestId}`, signal);
 }
 
 /** Тело правки заявки (RequestEditIn) — все поля опциональны, меняется только присланное. */

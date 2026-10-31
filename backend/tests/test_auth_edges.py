@@ -1,3 +1,4 @@
+import pytest
 from datetime import timedelta
 
 from sqlmodel import Session, select
@@ -414,8 +415,8 @@ def test_account_refresh_profile_and_push_edges(client, user_factory):
     second = user_factory("PushSecond")
 
     assert client.post("/auth/refresh", json={"refresh_token": "   "}).status_code == 400
-    assert client.post("/auth/vk-callback").status_code == 501
-    assert client.post("/auth/whatsapp-callback").status_code == 501
+    assert client.post("/auth/vk-callback").status_code == 403
+    assert client.post("/auth/whatsapp-callback").status_code == 403
     assert client.post("/push/register", headers=first["auth"], json={"token": "   "}).status_code == 400
 
     device = {"X-Device-Id": "shared-edge-device"}
@@ -536,3 +537,7 @@ def test_delete_account_wipes_all_data(client, user_factory):
 
     # Старый токен больше не работает — юзера нет.
     assert client.get("/me", headers=me["auth"]).status_code == 401
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

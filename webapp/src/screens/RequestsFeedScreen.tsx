@@ -19,6 +19,7 @@ import { IconArrow, IconRequest, IconCheck } from "../components/Icons";
 import { formatWhen, pluralRu } from "../utils/format";
 import { useScrollMemory } from "../utils/useScrollMemory";
 import { track } from "../analytics";
+import PartialFeedNotice from "../components/PartialFeedNotice";
 
 const PREF_LABEL: Record<string, [string, string]> = {
   women: ["Только женщины", "Тик ҡатын-ҡыҙ"],
@@ -43,6 +44,7 @@ export default function RequestsFeedScreen() {
   // Позиция в ленте заявок переживает переход к заявке и обратно.
   useScrollMemory("requests", status === "ready");
   const [items, setItems] = useState<RequestFeedItem[]>([]);
+  const [partial, setPartial] = useState(false);
   /** Сколько заявок показано сейчас — растёт по кнопке «Показать ещё». */
   const [shown, setShown] = useState(PAGE);
   const [respondTo, setRespondTo] = useState<RequestFeedItem | null>(null);
@@ -56,11 +58,12 @@ export default function RequestsFeedScreen() {
     const ac = new AbortController(); loading.current = ac;
     const signal = ac.signal;
     setStatus("loading");
-    setItems([]); setShown(PAGE); setRespondTo(null);
+    setItems([]); setPartial(false); setShown(PAGE); setRespondTo(null);
     fetchRequestsFeed(signal, onRoute)
       .then((list) => {
         if (!mounted.current || signal.aborted || generation !== getSessionGeneration()) return;
-        setItems(list);
+        setItems(list.items);
+        setPartial(list.partial);
         setStatus("ready");
       })
       .catch((e) => {
@@ -190,6 +193,8 @@ export default function RequestsFeedScreen() {
             )}
           </div>
         ))}
+
+      {status === "ready" && partial && <PartialFeedNotice />}
 
       {respondTo && (
         <RespondSheet

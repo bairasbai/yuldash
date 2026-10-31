@@ -409,3 +409,7 @@ def test_stale_start_cannot_reopen_used_telegram_code(client, monkeypatch):
         assert row.status == "used"
     assert _refresh_count(user_id) == 1
     assert client.post(path, json={**body, "code": "975310"}).status_code == 409
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

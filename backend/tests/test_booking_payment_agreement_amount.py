@@ -1,10 +1,7 @@
-"""Payment must match the participant-visible agreement/receipt, not another price.
+"""RS-01: цены и квитанция сохраняются, публичная онлайн-оплата брони всегда закрыта.
 
-Actual publication -> booking -> agreement -> confirmation/completion -> receipt -> pay.
-Only the outbound _start_yookassa boundary is substituted: the endpoint, persisted
-Payment, activation, booking settlement and driver ledger remain real. No real money
-or provider request. Initial evidence uses the existing per-process SQLite fixture;
-these sequential cases do not establish PostgreSQL locking/concurrency correctness.
+Реальные HTTP публикации/брони/договорённости/завершения и повторов. Провайдер поддельный,
+ни один вызов не должен до него доходить; Payment и начисления не появляются.
 """
 from datetime import timedelta, timezone
 import json
@@ -14,7 +11,7 @@ from sqlmodel import Session, select
 
 from app.config import settings
 from app.db import engine
-from app.models import Booking, BookingStatus, LedgerEntry, LedgerKind, Payment, UserRole
+from app.models import Booking, BookingStatus, LedgerEntry, Payment, UserRole
 from app.routers import wallet
 from app.timeutil import utcnow
 
@@ -123,48 +120,22 @@ def _rows(booking_id):
 
 
 def _pay_and_check(client, driver, passenger, booking_id, amount, method, captured_provider):
+    """RS-01: условия и квитанция остаются, списание и начисление запрещены."""
     _receipt(client, passenger, booking_id, amount, False)
     _receipt(client, driver, booking_id, amount, False)
-    assert _rows(booking_id) == {"paid": False, "payments": [], "ledger": []}
-    payment = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"], json={"method": method})
-    assert payment.status_code == 200, payment.text
-    assert payment.json()["status"] == "succeeded"
-    payment_id = payment.json()["payment_id"]
-    actual = _rows(booking_id)
-    balance = client.get("/wallet/balance", headers=driver["auth"])
-    assert balance.status_code == 200, balance.text
-    passenger_receipt = _receipt(client, passenger, booking_id, amount, True)
-    driver_receipt = _receipt(client, driver, booking_id, amount, True)
-    repeated = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"], json={"method": method})
-    assert repeated.status_code == 200, repeated.text
-    assert repeated.json()["status"] == "already_paid"
-    assert _rows(booking_id) == actual, "repeat must not append payments or earnings"
-    observed = {
-        "expected_amount_kop": amount * 100, "provider": captured_provider,
-        "financial_rows": actual, "driver_balance_kop": balance.json()["balance_kop"],
-        "passenger_receipt_rub": passenger_receipt["amount"],
-        "driver_receipt_rub": driver_receipt["amount"], "repeat": repeated.json()["status"],
-    }
-    print("QA_BOOKING_AGREEMENT " + json.dumps(observed, ensure_ascii=False, sort_keys=True))
-    # These independent observations are retained before any amount assertion fails.
-    # Both actual card/sbp requests must reach this boundary once. Booking invoices
-    # now persist yookassa before the first commit to make that gap retryable too.
-    assert captured_provider == [{
-        "payment_id": payment_id, "booking_id": booking_id, "user_id": passenger["id"],
-        "purpose": "booking", "amount_kop": amount * 100, "stored_method": "yookassa",
-    }], "outbound charge must match the agreed amount shown to both participants"
-    assert actual == {
-        "paid": True,
-        "payments": [{"id": payment_id, "payer": passenger["id"], "purpose": "booking",
-                      "amount_kop": amount * 100, "status": "succeeded", "method": "yookassa"}],
-        "ledger": [{"driver": driver["id"], "kind": LedgerKind.earn.value, "amount_kop": amount * 100}],
-    }
-    assert balance.json()["balance_kop"] == amount * 100
+    before = _rows(booking_id)
+    for _ in range(2):
+        response = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"], json={"method": method})
+        assert response.status_code == 503, response.text
+        assert response.json()["detail"]["code"] == "booking_online_pay_off"
+    assert captured_provider == []
+    assert _rows(booking_id) == before == {"paid": False, "payments": [], "ledger": []}
+    assert client.get("/wallet/balance", headers=driver["auth"]).json()["balance_kop"] == 0
 
 
 @pytest.mark.parametrize("method", ["card", "sbp"])
 @pytest.mark.parametrize("agreed_rub", [400, 1200])
-def test_actual_agreement_receipt_charge_and_earnings_use_one_amount(
+def test_agreement_and_receipt_remain_unpaid_when_online_locked(
         client, user_factory, captured_provider, method, agreed_rub):
     """Both a lower/higher agreement must match the CTA/receipt and actual debit."""
     driver, passenger, booking_id = _create(client, user_factory)
@@ -208,7 +179,7 @@ def test_unfinished_or_cancelled_booking_never_creates_payment(
             session.commit()
     before = _rows(booking_id)
     response = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"], json={"method": "card"})
-    assert response.status_code == 409, response.text
+    assert response.status_code == 503, response.text
     assert captured_provider == []
     assert _rows(booking_id) == before == {"paid": False, "payments": [], "ledger": []}
 
@@ -234,7 +205,7 @@ def test_explicit_zero_agreement_cannot_charge_the_original_positive_price(clien
     response = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"], json={"method": "card"})
     print("QA_BOOKING_ZERO " + json.dumps({"http": response.status_code, "provider": captured_provider,
                                          "financial_rows": _rows(booking_id)}, sort_keys=True))
-    assert response.status_code == 409, "a zero-price agreement must not create a positive provider charge"
+    assert response.status_code == 503, "online booking payment is always locked"
     assert captured_provider == []
     assert _rows(booking_id) == {"paid": False, "payments": [], "ledger": []}
 

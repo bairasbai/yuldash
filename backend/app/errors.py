@@ -8,6 +8,9 @@
 from fastapi import HTTPException
 
 
-def herr(status: int, ru: str, ba: str) -> HTTPException:
-    """Ошибка с двуязычным detail={ru, ba}. Клиент берёт нужный язык (иначе — ru)."""
-    return HTTPException(status_code=status, detail={"ru": ru, "ba": ba})
+def herr(status: int, ru: str, ba: str, *, code: str | None = None, **extra) -> HTTPException:
+    """Двуязычная ошибка; необязательный стабильный code предназначен для логики клиентов."""
+    detail = {**extra, "ru": ru, "ba": ba}
+    if code is not None:
+        detail["code"] = code
+    return HTTPException(status_code=status, detail=detail)

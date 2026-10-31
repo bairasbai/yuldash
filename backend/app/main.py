@@ -128,6 +128,7 @@ def create_app() -> FastAPI:
         allow_origins=settings.cors_origin_list,
         allow_methods=["GET", "POST", "DELETE", "OPTIONS"],   # DELETE — админ-разбан устройства
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+        expose_headers=["X-Yuldash-Partial"],
     )
     app.add_middleware(RateLimitMiddleware)
     # Самый внешний слой: отсечь непомерный запрос ДО того, как тело попадёт в память

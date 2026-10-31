@@ -20,6 +20,7 @@ from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate
 from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
+from ..login_methods import refuse_disabled
 from ..logs import admin_action, log
 from ..observability import scrub_exc
 from ..models import (
@@ -33,7 +34,7 @@ from ..security import (
 )
 from ..services import (
     find_user_by_phone, guard_own_media_url, send_sms, set_driver_docs_verdict,
-    set_user_gender, sms_channel_live, tell_driver_docs_verdict, user_rating,
+    set_user_gender, tell_driver_docs_verdict, user_rating,
 )
 from ..safety_logic import GENDERS
 from ..trust_service import record_login_consents
@@ -380,6 +381,7 @@ def _request_code(body: PhoneIn, session: Session, x_device_id: str):
     # verify примет ТОЛЬКО фикс-код из env. Ответ обычный (dev_code не утекает).
     if _review_login_active(body.phone):
         return {"sent": True}
+    refuse_disabled("sms")
     _lock_otp_phone(session, body.phone)
     # Срочная правка P2 (ревью Б-1): суточный бюджет раньше проверялся только в verify — номер
     # мог ловить 429 на угадывании, но НОВЫЕ коды ему продолжали бы сыпаться сколько угодно.
@@ -478,17 +480,8 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
         # НЕ вызываем _maybe_promote_admin: ревьюер — всегда обычный пассажир без прав,
         # даже если этот номер случайно совпал со списком админов.
         return _complete_login(session, user, x_device_id, promote_admin=False, review_session=True)
+    refuse_disabled("sms")
     _lock_otp_phone(session, body.phone)
-    # Б-1 (независимое ревью leaf-2.1, блокер), вторая половина защиты. `request_code` теперь
-    # не коммитит код без успешной отправки, но это не единственная дверь к живому `OtpCode`:
-    # строка могла остаться от версии до правки, от сбойного прогона фоновой задачи или просто
-    # от момента, когда канал был жив при выдаче и замёрз к моменту ввода. Раз SMS физически
-    # не может дойти — отказываем по SMS-коду прямо здесь, тем же текстом, что видит
-    # `request_code` при сбое (`services.send_sms`). Проверочный вход стора (ветка выше) уже
-    # обработан и сюда не попадает — у него свой канал (Telegram не нужен вовсе).
-    if settings.is_prod and not sms_channel_live():
-        raise herr(503, "Вход по SMS временно не работает. Зайди через мессенджер 💚",
-                   "SMS аша инеү ваҡытлыса эшләмәй. Мессенджер аша кер 💚")
     _guard_otp_daily_budget(session, body.phone)
     live_otps = session.exec(
         select(OtpCode).where(OtpCode.phone == body.phone, OtpCode.expires_at > utcnow())
@@ -581,6 +574,7 @@ class TgStartOut(BaseModel):
 
 @router.post("/auth/tg/start", response_model=TgStartOut)
 def tg_start(session: Session = Depends(get_session)):
+    refuse_disabled("telegram")
     req = uuid.uuid4().hex
     session.add(TgAuth(
         request_id=req, status="waiting",
@@ -884,6 +878,7 @@ class TgVerifyIn(BaseModel):
 @router.post("/auth/tg/verify")
 def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
               x_device_id: str = Header(default="", alias="X-Device-Id")):
+    refuse_disabled("telegram")
     try:
         return _verify_telegram_login(body, session, x_device_id)
     except Exception:
@@ -990,7 +985,9 @@ def _verify_telegram_login(body: TgVerifyIn, session: Session, x_device_id: str)
     # не завершаем: код НЕ помечаем used (status='sent') → юзер делится номером в боте и
     # повторяет ввод того же кода. Клиент по 403 phone_required показывает экран-подсказку.
     if is_placeholder_phone(user.phone):
-        raise HTTPException(403, "phone_required")
+        raise herr(403, "Для безопасности нужен номер телефона. Поделись им в Telegram и введи код ещё раз.",
+                   "Хәүефһеҙлек өсөн телефон номеры кәрәк. Уны Telegram-да ебәр ҙә кодты яңынан индер.",
+                   code="phone_required")
     return _complete_login(session, user, x_device_id, released_user_id=released_user_id)
 
 
@@ -1026,14 +1023,12 @@ def refresh(body: RefreshIn, session: Session = Depends(get_session),
 #   WA  — WhatsApp Business API с подтверждением номера.
 @router.post("/auth/vk-callback")
 def vk_callback():
-    raise herr(501, "Вход через VK пока не подключён. Войди по номеру телефона.",
-           "VK аша инеү әлегә тоташтырылмаған. Телефон номеры буйынса ин.")
+    refuse_disabled("vk", retired=True)
 
 
 @router.post("/auth/whatsapp-callback")
 def whatsapp_callback():
-    raise herr(501, "Вход через WhatsApp пока не подключён. Войди по номеру телефона.",
-           "WhatsApp аша инеү әлегә тоташтырылмаған. Телефон номеры буйынса ин.")
+    refuse_disabled("whatsapp", retired=True)
 
 
 @router.get("/me")

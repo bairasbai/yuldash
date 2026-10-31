@@ -5,7 +5,7 @@ const t = checker();
 const h = globalThis.__requestRoute = { generation: "a", sent: [], feed: [], routes: [], done: [], closed: 0 };
 const item = { id: 22, passenger_name: "Тест", from_city: "Ургаза", to_city: "Бурибай", seats: 1, prefs: [], responded: false,
   matched_ride_id: 7, matched_ride_from_city: "Сибай", matched_ride_to_city: "Акъяр", matched_ride_depart_at: "2030-01-02T10:00:00Z", matched_pickup_stop: "Ургаза", matched_dropoff_stop: "Бурибай", detour_km: 0 };
-const apiMock = `export const fetchRequestsFeed=(signal,onRoute)=>{globalThis.__requestRoute.feed.push({signal,onRoute});return globalThis.__requestRoute.fetch?.()??Promise.resolve(globalThis.__requestRoute.items??[])};
+const apiMock = `export const fetchRequestsFeed=(signal,onRoute)=>{globalThis.__requestRoute.feed.push({signal,onRoute});return Promise.resolve(globalThis.__requestRoute.fetch?.()??globalThis.__requestRoute.items??[]).then(items=>({items,partial:false}))};
   export const respondToRequest=(...args)=>{globalThis.__requestRoute.sent.push(args);return globalThis.__requestRoute.send?.()??Promise.resolve({id:82})};`;
 const clientMock = `export class ApiError extends Error {constructor(status,message='fixture'){super(message);this.status=status;}} globalThis.__requestRoute.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__requestRoute.generation;`;
 const mocks = lang => ({ "/i18n/lang": langMock(lang), "/api/requests": apiMock, "/api/client": clientMock,
@@ -191,7 +191,7 @@ for (const lang of ["ru", "ba"]) {
     h.responses = [response]; h.generation = "a"; h.routes = []; let resolve; h.accept = () => new Promise(r => { resolve = r; });
     const Responses = await bundleComponent("src/screens/RequestResponsesScreen.tsx", { mocks: { ...mocks(lang), "/api/requests": `
       export const fetchRequestResponses=(id,signal)=>{globalThis.__requestRoute.responsesSignal=signal;return Promise.resolve(globalThis.__requestRoute.responses)};
-      export const fetchMatchRides=()=>Promise.resolve([]),parseBargainHistory=()=>[];
+      export const fetchMatchRides=()=>Promise.resolve({items:[],partial:false}),parseBargainHistory=()=>[];
       export const acceptResponse=(id,signal)=>{globalThis.__requestRoute.acceptSignal=signal;return globalThis.__requestRoute.accept()};
       export const counterOffer=()=>{},declineResponse=()=>{};` } });
     const s = mount(Responses); await s.settle();
@@ -202,7 +202,7 @@ for (const lang of ["ru", "ba"]) {
   });
   const responsesApi = `
     export const fetchRequestResponses=()=>{globalThis.__requestRoute.responseLoads=(globalThis.__requestRoute.responseLoads??0)+1;return Promise.resolve(globalThis.__requestRoute.responses)};
-    export const fetchMatchRides=()=>Promise.resolve([]),parseBargainHistory=raw=>globalThis.__requestRoute.parseHistory(raw);
+    export const fetchMatchRides=()=>Promise.resolve({items:[],partial:false}),parseBargainHistory=raw=>globalThis.__requestRoute.parseHistory(raw);
     export const acceptResponse=()=>{globalThis.__requestRoute.responseActions.push('accept');return globalThis.__requestRoute.acceptResult?.()??Promise.resolve({booking_id:88})};
     export const counterOffer=()=>{globalThis.__requestRoute.responseActions.push('counter');return globalThis.__requestRoute.counter()};
     export const declineResponse=()=>{globalThis.__requestRoute.responseActions.push('decline');return Promise.resolve({ok:true})};`;

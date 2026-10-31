@@ -54,8 +54,8 @@ import kotlinx.coroutines.launch
 
 /**
  * «Оплатить онлайн» — оплата ЗАВЕРШЁННОЙ поездки картой/СБП через ЮKassa (за флагом провайдера).
- * Переиспользуемая карточка: бронь → pay = { m, owner -> ApiClient.payBooking(id, m, owner) },
- * быстрый заказ → pay = { m, owner -> ApiClient.payInstantOrder(id, m, owner) }.
+ * Карточка быстрого заказа → pay = { m, owner -> ApiClient.payInstantOrder(id, m, owner) }.
+ * В попутке онлайн-оплата не предлагается (RS-01, RS-08).
  *
  * ЧЕСТНОСТЬ: сервер — источник правды. Провайдер выключен (mock в проде) → сервер отвечает 503,
  * мы запоминаем это на сессию ([OnlinePayGate]) и карточка исчезает везде — никаких кнопок-обманок.
@@ -65,9 +65,12 @@ import kotlinx.coroutines.launch
 internal object OnlinePayGate {
     private var generation by mutableStateOf<Long?>(null)
     fun ensureOwner(owner: Long) {
-        if (generation != owner) { generation = owner; asked = false; unavailable = false }
+        if (generation != owner) { generation = owner; asked = false; unavailable = false; enabled = false }
     }
     fun unavailableFor(owner: Long): Boolean = generation == owner && unavailable
+    fun enabledFor(owner: Long): Boolean = generation == owner && enabled && !unavailable
+    /** Только успешный ответ сервера разрешает показать карточку. */
+    var enabled by mutableStateOf(false)
     /** true после первого 503 от /pay для текущего владельца входа. */
     var unavailable by mutableStateOf(false)
     /** Спрашивали ли уже сервер, включена ли онлайн-оплата (один раз на сессию). */
@@ -119,13 +122,19 @@ private fun PayOnlineOwnedCard(
         var ask = false
         commit {
             OnlinePayGate.ensureOwner(generation)
-            if (!OnlinePayGate.asked) { OnlinePayGate.asked = true; ask = true }
+            // Ушли с экрана до ответа — это ещё не результат проверки; на новом открытии спрашиваем снова.
+            if (!OnlinePayGate.asked || !OnlinePayGate.enabledFor(generation) && !OnlinePayGate.unavailableFor(generation)) {
+                OnlinePayGate.asked = true; ask = true
+            }
         }
-        if (ask) ApiClient.paymentsOnlineEnabled(expectedGeneration = generation).onSuccess { enabled ->
-            commit { OnlinePayGate.unavailable = OnlinePayGate.unavailable || !enabled }
-        }
+        if (ask) ApiClient.paymentsOnlineEnabled(expectedGeneration = generation)
+            .onSuccess { enabled -> commit {
+                OnlinePayGate.enabled = enabled
+                OnlinePayGate.unavailable = OnlinePayGate.unavailable || !enabled
+            } }
+            .onFailure { commit { OnlinePayGate.unavailable = true } }
     }
-    if (OnlinePayGate.unavailableFor(generation)) return
+    if (!OnlinePayGate.enabledFor(generation)) return
 
     var stage by remember { mutableStateOf(PayOnlineStage.Idle) }
     var method by remember { mutableStateOf("card") }   // card | sbp
@@ -133,8 +142,8 @@ private fun PayOnlineOwnedCard(
     var paymentId by remember { mutableStateOf<Int?>(null) }
 
     val soonMsg = appText(
-        "Онлайн-оплата скоро появится. Пока рассчитайтесь, как договорились.",
-        "Онлайн түләү оҙаҡламай буласаҡ. Әлегә һөйләшкәнсә иҫәпләшегеҙ.",
+        "Онлайн-оплата сейчас недоступна. Рассчитайся, как договорились.",
+        "Әлегә онлайн түләп булмай. Килешкәнсә иҫәпләш.",
     )
     val errMsg = appText("Не получилось оплатить. Проверь сеть и повтори.", "Түләп булманы. Селтәрҙе тикшереп ҡабатла.")
     val notYetMsg = appText(

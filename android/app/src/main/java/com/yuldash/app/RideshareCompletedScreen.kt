@@ -82,7 +82,6 @@ import com.yuldash.app.data.TipInfoDto
 import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
-import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 
 /**
@@ -358,17 +357,6 @@ private fun RideshareCompletedSession(
         },
         onSupport = { if (isCurrent()) onSupport() },
         problemReport = if (reportTo > 0) { { PassengerAfterTripReport(bookingId, reportTo, counterpartyName) } } else null,
-        showOnlinePay = !isDriver && !paid,
-        onlinePay = {
-            PayOnlineCard(
-                amountKop = amount?.times(100),
-                targetKey = "booking:$bookingId",
-                pay = { method, owner ->
-                    if (!isCurrent()) throw CancellationException("Completed screen disposed")
-                    ApiClient.payBooking(bookingId, method, expectedGeneration = owner)
-                },
-            )
-        },
     )
 }
 

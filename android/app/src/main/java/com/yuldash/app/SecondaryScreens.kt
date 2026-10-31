@@ -980,7 +980,7 @@ internal fun PaymentInfoScreen(onBack: () -> Unit, onOpenPricing: () -> Unit = {
                 }
             }
             item {
-                Text(appText("Скоро: оплата картой прямо в приложении.", "Тиҙҙән: ҡушымтала карта менән түләү."), color = CanonMuted, fontSize = 14.sp, modifier = Modifier.padding(horizontal = 4.dp))
+                Text(appText("Оплата — как договоришься с водителем: наличными или переводом.", "Түләү — йөрөтөүсе менән килешкәнсә: ҡулаҡса йәки күсереү менән."), color = CanonMuted, style = CanonCaption, modifier = Modifier.padding(horizontal = CanonSpace.xs))
             }
         }
     }

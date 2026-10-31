@@ -40,6 +40,24 @@ class RidesFeedContentTest {
         prefs: List<String> = emptyList(),
     ) = RequestFeedDto(id = id, passengerName = passengerName, from = from, to = to, seats = seats, comment = comment, responded = responded, passengerAvatar = "", prefs = prefs)
 
+    @Test fun partialEmptyFeedDoesNotPromiseCompleteSearch() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                RequestsFeedContent(false, false, emptyList(), {}, {}, partial = true)
+            }
+        }
+        composeRule.onNodeWithText("Показаны не все — уточни село или дату").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun completeFeedHasNoPartialWarning() {
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                RequestsFeedContent(false, false, emptyList(), {}, {}, partial = false)
+            }
+        }
+        composeRule.onNodeWithText("Показаны не все — уточни село или дату").assertDoesNotExist()
+    }
+
     @Test
     fun loading_showsSpinnerNotList() {
         composeRule.mainClock.autoAdvance = false   // бесконечный спиннер

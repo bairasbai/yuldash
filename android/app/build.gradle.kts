@@ -105,22 +105,8 @@ val telegramBot: String = providers.gradleProperty("yuldashTelegramBot").orNull
         if (f.exists()) f.inputStream().use { load(it) }
     }.getProperty("YULDASH_TELEGRAM_BOT", "yuldash_sms_bot")
 
-// OAuth-вход: VK app_id. Реальное значение — в local.properties (НЕ в git):
-//   YULDASH_VK_APP_ID=51234567
-// Пусто → кнопка показывает «скоро», ломаный поток не открываем.
-
-val vkAppId: String = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("YULDASH_VK_APP_ID", "")
-
-// SMS-вход ЗАМОРОЖЕН (нет юр.лица/ИП для договора с sms.ru). Код входа цел — оживляется флагом.
-// Оживить: YULDASH_SMS_LOGIN=true в local.properties + на сервере SMS_PROVIDER=smsru с ключом.
-// По умолчанию выключен → основной вход через мессенджеры.
-val smsLoginEnabled: Boolean = Properties().apply {
-    val f = rootProject.file("local.properties")
-    if (f.exists()) f.inputStream().use { load(it) }
-}.getProperty("YULDASH_SMS_LOGIN", "false").trim().lowercase() == "true"
+// RS-01: мёртвые флаги VK_APP_ID/SMS_LOGIN_ENABLED убраны. Доступные способы входа
+// сообщает сервер (GET /config/login-methods), сборка этим больше не управляет.
 
 // Sentry DSN (сбор ошибок приложения) — из local.properties (НЕ в git):
 //   YULDASH_SENTRY_DSN=https://<key>@o0.ingest.sentry.io/0
@@ -199,9 +185,7 @@ android {
         buildConfigField("String", "YANDEX_MAPKIT_KEY", "\"$mapkitKey\"")
         buildConfigField("String", "YULDASH_SUPPORT_PHONE", "\"$supportPhone\"")
         buildConfigField("String", "TELEGRAM_BOT", "\"$telegramBot\"")
-        buildConfigField("String", "VK_APP_ID", "\"$vkAppId\"")
         buildConfigField("String", "YULDASH_WEB_BASE_URL", "\"$webBaseUrl\"")
-        buildConfigField("boolean", "SMS_LOGIN_ENABLED", "$smsLoginEnabled")
         buildConfigField("String", "SENTRY_DSN", "\"$sentryDsn\"")
     }
 

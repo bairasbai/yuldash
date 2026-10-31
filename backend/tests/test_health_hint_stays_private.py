@@ -13,6 +13,7 @@
 иначе это не починка, а поломка функции.
 """
 from datetime import timedelta
+import uuid
 
 import pytest
 from sqlmodel import Session, select
@@ -37,15 +38,22 @@ def clinic():
 
 @pytest.fixture
 def hospital_ride(client, user_factory, clinic):
-    """Опубликованная поездка «в больницу» + её водитель."""
+    """Опубликованная поездка «в больницу» + её водитель.
+
+    Города уникальны на прогон: лента `/rides` отдаёт не более 200 поездок, и в общей
+    сессионной базе после тысяч тестов свежая поездка может не попасть в первую страницу.
+    Запросы ниже идут с `from_city`/`to_city` этой пары — толпа соседних тестов не влияет.
+    """
     drv = user_factory("Больница: водитель", role=UserRole.driver)
+    tag = uuid.uuid4().hex[:8]
     r = client.post("/rides", headers=drv["auth"], json={
-        "from_city": "Баймак", "to_city": "Уфа",
+        "from_city": f"БольницаОт{tag}", "to_city": f"БольницаДо{tag}",
         "depart_at": (utcnow() + timedelta(hours=10)).replace(microsecond=0).isoformat(),
         "seats_total": 3, "price": 800,
         "category": "hospital", "partner_id": clinic})
     assert r.status_code == 200, r.text
-    return {"id": r.json()["id"], "partner_id": clinic, "driver": drv}
+    return {"id": r.json()["id"], "partner_id": clinic, "driver": drv,
+            "from_city": f"БольницаОт{tag}", "to_city": f"БольницаДо{tag}"}
 
 
 def _hits(payload, partner_id):
@@ -55,8 +63,9 @@ def _hits(payload, partner_id):
 
 # ----------------------------- аноним не видит связку -----------------------------
 def test_лента_не_выдаёт_анониму_поездку_в_клинику(client, hospital_ride):
-    r = client.get("/rides")
+    r = client.get(f"/rides?from_city={hospital_ride['from_city']}&to_city={hospital_ride['to_city']}")
     assert r.status_code == 200
+    assert any(x["id"] == hospital_ride["id"] for x in r.json()), "свежая поездка не попала в выборку — тест слеп"
     assert not _hits(r.json(), hospital_ride["partner_id"]), "связка с клиникой ушла анониму"
 
 
@@ -87,13 +96,15 @@ def test_фильтром_по_больнице_анониму_выборку_н
     """
     drv = user_factory("Фильтр: обычный водитель", role=UserRole.driver)
     ordinary = client.post("/rides", headers=drv["auth"], json={
-        "from_city": "Баймак", "to_city": "Сибай",
+        "from_city": hospital_ride["from_city"], "to_city": hospital_ride["to_city"],
         "depart_at": (utcnow() + timedelta(hours=11)).replace(microsecond=0).isoformat(),
         "seats_total": 3, "price": 300})
     assert ordinary.status_code == 200, ordinary.text
     ordinary_id = ordinary.json()["id"]
 
-    r = client.get("/rides?category=hospital")
+    # Анониму фильтр «hospital» намеренно не применяется (см. rides.py) — но города работают
+    # всегда, поэтому выборка держит ровно две поездки этого теста и не зависит от толпы соседей.
+    r = client.get(f"/rides?category=hospital&from_city={hospital_ride['from_city']}&to_city={hospital_ride['to_city']}")
     assert r.status_code == 200
     items = r.json()
     assert not _hits(items, hospital_ride["partner_id"])
@@ -132,14 +143,15 @@ def test_вошедший_видит_поездку_в_клинику_целик
     """Вторая половина обещания: барьер — вход, а не запрет функции."""
     me = user_factory("Больница: пассажир")
     pid = hospital_ride["partner_id"]
+    cities = f"from_city={hospital_ride['from_city']}&to_city={hospital_ride['to_city']}"
 
-    feed = client.get("/rides", headers=me["auth"])
+    feed = client.get(f"/rides?{cities}", headers=me["auth"])
     assert _hits(feed.json(), pid), "вошедший перестал видеть связку — функция сломана"
 
     near = client.get("/rides/near?lat=52.591&lng=58.317&radius_km=50", headers=me["auth"])
     assert _hits(near.json(), pid)
 
-    filtered = client.get("/rides?category=hospital", headers=me["auth"])
+    filtered = client.get(f"/rides?category=hospital&{cities}", headers=me["auth"])
     assert _hits(filtered.json(), pid), "фильтр «в больницу» перестал работать для своих"
 
     at_clinic = client.get(f"/medical-partners/{pid}/rides", headers=me["auth"])
@@ -147,19 +159,21 @@ def test_вошедший_видит_поездку_в_клинику_целик
 
 
 def test_водитель_видит_свою_поездку_целиком(client, hospital_ride):
-    r = client.get("/rides", headers=hospital_ride["driver"]["auth"])
+    r = client.get(f"/rides?from_city={hospital_ride['from_city']}&to_city={hospital_ride['to_city']}",
+                   headers=hospital_ride["driver"]["auth"])
     assert _hits(r.json(), hospital_ride["partner_id"])
 
 
 def test_обычные_поездки_не_задеты(client, user_factory):
     """Чистка касается только больничных: у остальных категория и поля на месте."""
     drv = user_factory("Обычная: водитель", role=UserRole.driver)
+    tag = uuid.uuid4().hex[:8]
     r = client.post("/rides", headers=drv["auth"], json={
-        "from_city": "Баймак", "to_city": "Сибай",
+        "from_city": f"ОбычнаяОт{tag}", "to_city": f"ОбычнаяДо{tag}",
         "depart_at": (utcnow() + timedelta(hours=9)).replace(microsecond=0).isoformat(),
         "seats_total": 3, "price": 300, "category": "parcel"})
     assert r.status_code == 200, r.text
     rid = r.json()["id"]
-    feed = client.get("/rides").json()
+    feed = client.get(f"/rides?from_city=ОбычнаяОт{tag}&to_city=ОбычнаяДо{tag}").json()
     mine = [x for x in feed if x["id"] == rid]
     assert mine and mine[0]["category"] == "parcel", mine

@@ -99,6 +99,13 @@ def test_retry_after_provider_canceled_creates_a_new_payment_and_key(
     calls: list[tuple[str, str]] = []
     monkeypatch.setattr("app.routers.payments.create_payment", _provider_creator(calls))
     first = client.post(path, headers=payer["auth"], json=payload)
+    if kind == "booking":
+        assert first.status_code == 503, first.text
+        assert first.json()["detail"]["code"] == "booking_online_pay_off"
+        repeated = client.post(path, headers=payer["auth"], json=payload)
+        assert repeated.status_code == 503
+        assert _payment_rows(payer["id"], purpose) == [] and calls == []
+        return
     assert first.status_code == 200, first.text
     first_id = first.json()["payment_id"]
 

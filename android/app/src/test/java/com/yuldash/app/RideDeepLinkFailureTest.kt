@@ -117,7 +117,8 @@ class RideDeepLinkFailureTest {
 
     @Test fun temporaryFailureOffersRetryAndOpensTheSameRideAfterRecovery() {
         showFailure(503)
-        compose.onNodeWithText("Повторить").assertIsDisplayed()
+        // По тегу, не по тексту: с RS-01 экран входа без сети тоже имеет свою кнопку «Повторить».
+        compose.onNodeWithTag("rideLinkRetry").assertIsDisplayed()
         responseCode.set(200)
         compose.onNodeWithTag("rideLinkRetry").assertIsDisplayed().performClick()
         try {

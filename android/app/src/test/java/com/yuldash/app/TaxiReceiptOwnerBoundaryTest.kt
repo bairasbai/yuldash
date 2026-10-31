@@ -68,7 +68,7 @@ class TaxiReceiptOwnerBoundaryTest {
         driverName = "Водитель $id", driverVerified = true, counterpartyId = 22, counterpartyName = "Участник $id")
     @Before fun setup() {
         ApiClient.resetForTest(); ApiClient.init(app); ApiClient.saveToken(tokenA)
-        OnlinePayGate.asked = true; OnlinePayGate.unavailable = true
+        OnlinePayGate.asked = true; OnlinePayGate.unavailable = true; OnlinePayGate.enabled = false
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(q: RecordedRequest): MockResponse {
@@ -86,7 +86,7 @@ class TaxiReceiptOwnerBoundaryTest {
                         p.endsWith("/cash-received") -> { paid = true; json("""{"status":"paid"}""") }
                         p.endsWith("/lost-item") -> json("""{"chat_open_until":"2026-10-12T10:00:00Z"}""")
                         p == "/incidents" -> json("""{"id":501,"respondent_id":22,"type":"rude","status":"open"}""")
-                        p == "/health" -> json("""{"payments":"${if (online) "yookassa" else "mock"}""" + "}")
+                        p == "/health" -> json("""{"payments":"${if (online) "yookassa" else "mock"}"}""")
                         else -> json("{}")
                     }
                 }
@@ -140,7 +140,7 @@ class TaxiReceiptOwnerBoundaryTest {
     @After fun cleanup() {
         release.countDown(); compose.runOnUiThread { mounted.value = false }; pump(300)
         owner.viewModelStore.clear(); NavSignals.openTaxiReceipt.value = 0
-        OnlinePayGate.asked = false; OnlinePayGate.unavailable = false
+        OnlinePayGate.asked = false; OnlinePayGate.unavailable = false; OnlinePayGate.enabled = false
         ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown()
     }
     @Test fun currentRemoteReceiptSharesMatchingDocument() {
@@ -218,7 +218,7 @@ class TaxiReceiptOwnerBoundaryTest {
         assertEquals(0, count("/rate")); assertNull(Shadows.shadowOf(app).nextStartedActivity)
     }
     @Test fun receiptBackRetiresNestedOnlinePaymentBeforeFrame() {
-        online = true; OnlinePayGate.asked = false; OnlinePayGate.unavailable = false
+        online = true; OnlinePayGate.asked = false; OnlinePayGate.unavailable = false; OnlinePayGate.enabled = false
         mount(); val pay = text("Оплатить 250 ₽"); val b = back()
         compose.runOnIdle { dispatch(b); dispatch(pay) }; pump(1000)
         assertEquals(1, backs); assertEquals(0, count("/pay"))

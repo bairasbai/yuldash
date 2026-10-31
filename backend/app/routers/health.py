@@ -17,10 +17,18 @@ from sqlalchemy import text
 from ..config import settings
 from ..db import engine
 from ..features import features_state
+from ..login_methods import available_methods
 
 router = APIRouter(tags=["health"])
 
 API_VERSION = "0.1.0"
+
+
+@router.get("/config/login-methods")
+def config_login_methods(response: Response):
+    """Публичный список доступных способов, без ключей и сведений об аккаунте."""
+    response.headers["Cache-Control"] = "public, max-age=30"
+    return {"methods": available_methods()}
 
 
 def _check_db() -> bool:

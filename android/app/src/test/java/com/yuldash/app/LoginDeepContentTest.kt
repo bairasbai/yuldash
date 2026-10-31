@@ -30,7 +30,7 @@ import org.robolectric.annotation.GraphicsMode
  *
  * Не дублирует LoginFormContentTest (хелперы, disabled-кнопки, needPhone-баннер, шаг телефон↔код)
  * и LoginScreenContentTest (hero/divider/langToggle/footer). Заголовок и раннер — как в LoginFormContentTest.
- * В тестовом BuildConfig SMS_LOGIN_ENABLED=false, TELEGRAM_BOT = дефолт → доступный UI ввода кода = Telegram-поток
+ * По умолчанию форма получает только Telegram; SMS проверяется с явным списком способов входа.
  * (tgMode=true), SMS-блок скрыт флагом. autoAdvance трогаем только там, где крутится спиннер (loading).
  */
 @RunWith(RobolectricTestRunner::class)
@@ -98,14 +98,14 @@ class LoginDeepContentTest {
         // что двумя строками ниже уже «Входя, ты подтверждаешь», а башкирский рядом с самого
         // начала на «ты» («ҡуллан»). Сторож тона это пропускал: он знал список глаголов, а не
         // правило (исправлено 2026-08-13, ToneSourceGuardTest).
-        composeRule.onNodeWithText("Заходи через Telegram — быстро и безопасно").assertIsDisplayed()
+        composeRule.onNodeWithText("Выбери удобный способ входа").assertIsDisplayed()
     }
 
     @Test
     fun header_bashkir_showsTitleAndSubtitle() {
         form(tgMode = false, language = AppLanguage.Ba)
         composeRule.onNodeWithText("Юлдашҡа инеү").assertIsDisplayed()
-        composeRule.onNodeWithText("Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан").assertIsDisplayed()
+        composeRule.onNodeWithText("Үҙеңә уңайлы инеү ысулын һайла").assertIsDisplayed()
     }
 
     // ─────────────────── Шаг ввода кода: поля имени и кода (плейсхолдеры, оба языка) ───────────────────

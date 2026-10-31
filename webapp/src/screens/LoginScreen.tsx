@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
@@ -11,7 +11,8 @@ import {
   telegramStartUrl,
   requestSmsCode,
   verifySmsCode,
-  SMS_LOGIN_ENABLED,
+  fetchLoginMethods,
+  lastLoginMethods,
 } from "../api/auth";
 import { IconBlock, IconLock, IconPhone, IconProfile, IconShield, IconTelegram, IconWarn } from "../components/Icons";
 import { track } from "../analytics";
@@ -23,7 +24,7 @@ type Step = "choose" | "code";
 /**
  * Вход по коду через Telegram-бота (зеркало android/LoginScreen.kt).
  * Поток: /auth/tg/start → открыть t.me/<bot>?start=<id> → бот пришлёт код →
- * ввод кода → /auth/tg/verify → токены. SMS-вход отключён (нет юрлица) — спокойная заглушка.
+ * ввод кода → /auth/tg/verify → токены. Доступные способы входа сообщает сервер.
  */
 export default function LoginScreen() {
   const { appText, lang, setLang } = useLang();
@@ -41,7 +42,13 @@ export default function LoginScreen() {
   const [needPhone, setNeedPhone] = useState(false);
   const [error, setError] = useState<LoginError | null>(null);
   const [smsOpen, setSmsOpen] = useState(false);
-  // SMS-форма (заморожена флагом VITE_SMS_LOGIN_ENABLED — как в приложении).
+  const [methods, setMethods] = useState(lastLoginMethods);
+  const methodsRef = useRef(methods);
+  const [methodsLoading, setMethodsLoading] = useState(true);
+  const [methodsError, setMethodsError] = useState(false);
+  const [disabledMessage, setDisabledMessage] = useState("");
+  const methodsRequest = useRef<AbortController | null>(null);
+  // SMS-форма появляется только после разрешения сервера.
   const [phone, setPhone] = useState("");
   const [smsStep, setSmsStep] = useState<"phone" | "code">("phone");
   const [smsCode, setSmsCode] = useState("");
@@ -51,6 +58,27 @@ export default function LoginScreen() {
   const live = useRef({ login, navigate, from, returnState });
   live.current = { login, navigate, from, returnState };
   const flow = useRef<ReturnType<typeof createLoginFlow> | null>(null);
+  const refreshMethods = useCallback(async () => {
+    methodsRequest.current?.abort();
+    const controller = new AbortController();
+    methodsRequest.current = controller;
+    setMethodsLoading(true);
+    setMethodsError(false);
+    try {
+      const next = await fetchLoginMethods(controller.signal);
+      if (controller.signal.aborted) return;
+      const removed = methodsRef.current.some((method) => !next.includes(method));
+      methodsRef.current = next;
+      setMethods(next);
+      if (removed) flow.current?.invalidate();
+      if (!next.includes("telegram")) { setStep("choose"); setNeedPhone(false); setCode(""); }
+      if (!next.includes("sms")) { setSmsOpen(false); setSmsCode(""); }
+    } catch {
+      if (!controller.signal.aborted) setMethodsError(true);
+    } finally {
+      if (!controller.signal.aborted) setMethodsLoading(false);
+    }
+  }, []);
   if (!flow.current) {
     const deps: LoginFlowDeps = {
       getGeneration: getSessionGeneration,
@@ -59,6 +87,13 @@ export default function LoginScreen() {
       login: (access, refresh, user) => live.current.login(access, refresh, user),
       updateName: (updatedName) => apiPost("/me/update", { name: updatedName }),
       getStatus: (e) => e instanceof ApiError ? e.status : 0,
+      getCode: (e) => e instanceof ApiError ? e.code : "",
+      methodAvailable: (method) => methodsRef.current.includes(method),
+      onMethodDisabled: (e) => {
+        setDisabledMessage(e instanceof ApiError ? e.message : "");
+        setStep("choose"); setSmsOpen(false); setNeedPhone(false); setCode(""); setSmsCode("");
+        void refreshMethods();
+      },
       telegramStartUrl, telegramChatUrl,
       openTelegram: (url) => window.open(url, "_blank", "noopener,noreferrer"),
       track,
@@ -76,15 +111,22 @@ export default function LoginScreen() {
   }
   useEffect(() => {
     flow.current?.revive();
-    return () => flow.current?.dispose();
-  }, []);
+    void refreshMethods();
+    const onVisible = () => { if (document.visibilityState === "visible") void refreshMethods(); };
+    document.addEventListener("visibilitychange", onVisible);
+    return () => { flow.current?.dispose(); methodsRequest.current?.abort(); document.removeEventListener("visibilitychange", onVisible); };
+  }, [refreshMethods]);
+  const telegramAvailable = methods.includes("telegram") && TELEGRAM_BOT.length > 0;
+  const smsAvailable = methods.includes("sms");
+  const noMethods = !telegramAvailable && !smsAvailable;
   const onStart = () => flow.current?.start();
   const onVerify = () => flow.current?.verify(requestId, code, name);
   const smsRequest = () => flow.current?.smsRequest(phone);
   const smsVerify = () => flow.current?.smsVerify(phone, smsCode, smsName);
   const errorText = (kind: LoginError | null) => {
     switch (kind) {
-      case "botMissing": return appText("Вход через Telegram скоро", "Telegram аша инеү тиҙҙән");
+      case "botMissing": return appText("Вход временно недоступен. Попробуй чуть позже.", "Инеү ваҡытлыса мөмкин түгел. Бер аҙҙан ҡабатлап ҡара.");
+      case "methodDisabled": return disabledMessage || appText("Этот способ входа сейчас выключен. Выбери другой на экране входа.", "Был инеү ысулы хәҙер һүндерелгән. Инеү экранында икенсеһен һайла.");
       case "start": return appText("Не получилось связаться с сервером. Проверь интернет и повтори.", "Сервер менән бәйләнеш булманы. Интернетты тикшер ҙә ҡабатла.");
       case "enterTgCode": return appText("Введи код из Telegram", "Telegram кодын индер");
       case "badTgCode": return appText("Неверный код. Проверь и введи снова.", "Код дөрөҫ түгел. Тикшереп, ҡабат индер.");
@@ -144,14 +186,14 @@ export default function LoginScreen() {
             <span className="login-feature__tile" aria-hidden><IconBlock size={24} /></span>
             <span className="login-feature__text">
               <strong>{appText("Никакого спама", "Спам юҡ")}</strong>
-              <small>{appText("Не звоним и не шлём SMS", "Шылтыратмайбыҙ, SMS ебәрмәйбеҙ")}</small>
+              <small>{appText("Не звоним и не шлём рекламу", "Шылтыратмайбыҙ һәм реклама ебәрмәйбеҙ")}</small>
             </span>
           </div>
           <div className="login-feature">
             <span className="login-feature__tile" aria-hidden><IconShield size={24} /></span>
             <span className="login-feature__text">
               <strong>{appText("Данные под защитой", "Мәғлүмәт һаҡлауҙа")}</strong>
-              <small>{appText("Шифруем и не передаём третьим", "Шифрлайбыҙ, өсөнсө яҡҡа бирмәйбеҙ")}</small>
+              <small>{appText("Номер скрыт, пока поездка не подтверждена", "Сәфәр раҫланғанға тиклем номер йәшерелә")}</small>
             </span>
           </div>
         </div>
@@ -161,12 +203,19 @@ export default function LoginScreen() {
         <h2 className="login-card__title">{appText("Войти в Юлдаш", "Юлдашҡа инеү")}</h2>
         {step === "choose" ? (
           <>
-            <p className="login-card__lead">{appText("Заходи через Telegram — быстро и безопасно", "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан")}</p>
+            {methodsLoading && <div className="skeleton-card" role="status" aria-label={appText("Загружаем способы входа", "Инеү ысулдарын йөкләйбеҙ")}><div className="skeleton login-tg" aria-hidden /></div>}
+            {!methodsLoading && noMethods && (
+              <div className="login-error" role="status">
+                <span>{appText("Вход временно недоступен. Попробуй чуть позже.", "Инеү ваҡытлыса мөмкин түгел. Бер аҙҙан ҡабатлап ҡара.")}</span>
+                <button type="button" className="btn-soft" onClick={() => void refreshMethods()}>{appText("Повторить", "Ҡабатлау")}</button>
+              </div>
+            )}
+            {methodsError && <div className="login-error" role="alert"><span>{appText("Не получилось обновить способы входа. Проверь интернет и повтори.", "Инеү ысулдарын яңыртып булманы. Интернетты тикшер ҙә ҡабатла.")}</span><button type="button" className="btn-soft" onClick={() => void refreshMethods()}>{appText("Повторить", "Ҡабатлау")}</button></div>}
 
-            <button type="button" className="login-tg" onClick={onStart} disabled={loading}>
+            {!methodsLoading && telegramAvailable && <button type="button" className="login-tg" onClick={onStart} disabled={loading}>
               <IconTelegram size={28} />
               {appText("Войти через Telegram", "Telegram аша инеү")}
-            </button>
+            </button>}
             {loading && <p className="login-hint">{appText("Открываем Telegram…", "Telegram'ды асабыҙ…")}</p>}
 
             {/* Ошибка входа: что случилось + что делать + «Повторить». Вход — единственная дверь,
@@ -183,19 +232,19 @@ export default function LoginScreen() {
                     "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ."
                   )}
                 </small>
-                <button type="button" className="btn-soft" onClick={onStart} disabled={loading}>
+                <button type="button" className="btn-soft" onClick={error === "methodDisabled" || noMethods ? () => void refreshMethods() : onStart} disabled={loading || methodsLoading}>
                   {appText("Повторить", "Ҡабатлау")}
                 </button>
               </div>
             )}
 
-            {SMS_LOGIN_ENABLED && (
+            {!methodsLoading && smsAvailable && (
               <>
-                <div className="login-divider" aria-hidden>
+                {telegramAvailable && <div className="login-divider" aria-hidden>
                   <span />
                   <em>{appText("или", "йәки")}</em>
                   <span />
-                </div>
+                </div>}
                 <button type="button" className="btn-soft login-phone" onClick={() => { flow.current?.invalidate(); setSmsOpen((v) => !v); setSmsError(null); }}>
                   <IconPhone size={24} /> {appText("Войти по номеру телефона", "Телефон номеры аша инеү")}
                 </button>

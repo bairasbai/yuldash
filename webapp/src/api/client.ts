@@ -150,7 +150,8 @@ export function rotateSession(access: string, refresh: string, generation: strin
 export class ApiError extends Error {
   constructor(
     public status: number,
-    message: string
+    message: string,
+    public code = ""
   ) {
     super(message);
     this.name = "ApiError";
@@ -326,9 +327,9 @@ function errorMessage(status: number, detail: unknown): string {
 
 async function request<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; _retried?: boolean; _generation?: string } = {}
+  init: RequestInit & { auth?: boolean; _retried?: boolean; _generation?: string; onResponse?: (response: Response) => void } = {}
 ): Promise<T> {
-  const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), ...rest } = init;
+  const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), onResponse, ...rest } = init;
   const checkSession = () => {
     if (auth && _generation !== getSessionGeneration()) {
       throw new ApiError(409, genericByStatus(409, isBashkir()));
@@ -381,27 +382,30 @@ async function request<T>(
     // от nginx, который экраны показали бы человеку как объяснение. Берём общую
     // фразу по коду и меняем её только если сервер прислал понятное тело.
     let detail = genericByStatus(res.status, isBashkir());
+    let code = "";
     try {
       const body = await res.json();
       detail = errorMessage(res.status, body?.detail);
+      if (typeof body?.detail?.code === "string") code = body.detail.code;
     } catch {
       /* тело не JSON (упал прокси, отдал HTML) — остаётся человеческая фраза */
     }
     checkSession();
-    throw new ApiError(res.status, detail);
+    throw new ApiError(res.status, detail, code);
   }
 
   if (res.status === 204) return undefined as T;
   const body = await res.json();
   checkSession();
+  onResponse?.(res);
   return body as T;
 }
 
 export function apiGet<T>(
   path: string,
-  opts?: { auth?: boolean; signal?: AbortSignal }
+  opts?: { auth?: boolean; signal?: AbortSignal; onResponse?: (response: Response) => void }
 ): Promise<T> {
-  return request<T>(path, { method: "GET", auth: opts?.auth, signal: opts?.signal });
+  return request<T>(path, { method: "GET", auth: opts?.auth, signal: opts?.signal, onResponse: opts?.onResponse });
 }
 
 export function apiPost<T>(

@@ -166,3 +166,7 @@ def test_changing_refresh_scope_marker_cannot_change_authorization_or_storage(cl
         result = client.post("/auth/refresh", json={"refresh_token": raw, "rotation_id": NONCE})
         assert result.status_code == 200
         assert client.get("/me", headers=_headers(result.json())).json()["role"] == "passenger"
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

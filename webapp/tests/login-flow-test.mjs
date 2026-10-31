@@ -20,6 +20,7 @@ function fixture(overrides = {}) {
     login: (access, refresh) => { events.logins.push([access, refresh]); generation = `session-${events.logins.length}`; },
     updateName: async () => {},
     getStatus: (e) => e?.status || 0,
+    getCode: (e) => e?.code || "",
     telegramStartUrl: (id) => `https://t.me/test?start=${id}`,
     telegramChatUrl: () => "https://t.me/test",
     openTelegram: (url) => events.opened.push(url),

@@ -1,6 +1,7 @@
 """Лист 2.1 (независимое ревью): Б-4 (перебор фикс-кода стора) и Б-5 (код бота в группе)."""
 from __future__ import annotations
 
+import pytest
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -109,3 +110,7 @@ def test_start_command_in_a_private_chat_still_works(client):
     with Session(engine) as s:
         row = s.exec(select(TgAuth).where(TgAuth.request_id == request_id)).one()
         assert row.status == "sent" and row.code, "личный чат перестал получать код после правки Б-5"
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

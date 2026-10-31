@@ -193,7 +193,7 @@ def test_активный_аккаунт_с_другим_telegram_номер_н�
     r = _войти_через_telegram(client, phone, "700000112", "device-stranger")
 
     assert r.status_code == 403, r.text
-    assert r.json()["detail"] == "phone_required"
+    assert r.json()["detail"]["code"] == "phone_required"
     прежняя = _аккаунт(uid)
     assert прежняя.phone == phone and прежняя.telegram_id == "700000111"
 
@@ -330,3 +330,7 @@ def test_гонка_sms_не_отдаёт_откреплённый_аккаун�
         f"вошли в {r.json()['user']['id']}, а номер сейчас у {победитель_id} "
         f"(прежняя хозяйка — {uid})"
     )
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

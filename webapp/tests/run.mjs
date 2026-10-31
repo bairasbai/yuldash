@@ -36,6 +36,7 @@ const ALL_SUITES = [
   { test: "receipt-owner-test", src: null, out: null, bundle: false },
   { test: "receipt-lost-item-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
+  { test: "honest-promises-test", src: null, out: null, bundle: false },
   { test: "onboarding-flow-test", src: null, out: null, bundle: false },
   { test: "intro-motion-test", src: null, out: null, bundle: false },
   { test: "intro-behavior-test", src: null, out: null, bundle: false },

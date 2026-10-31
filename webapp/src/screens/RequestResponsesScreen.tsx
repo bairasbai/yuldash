@@ -29,6 +29,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { IconStar, IconCheck, IconClock, IconPencil, IconBolt } from "../components/Icons";
 import { priceLabel } from "../utils/format";
 import { track } from "../analytics";
+import PartialFeedNotice from "../components/PartialFeedNotice";
 
 export default function RequestResponsesScreen() {
   const { appText, lang } = useLang();
@@ -51,6 +52,7 @@ export default function RequestResponsesScreen() {
   const [error, setError] = useState<string | null>(null);
   // Мэтчинг: null = блок скрыт (эндпоинта ещё нет / нет доступа), [] = «пока нет совпадений».
   const [matches, setMatches] = useState<Ride[] | null>(null);
+  const [matchesPartial, setMatchesPartial] = useState(false);
   const [openedRide, setOpenedRide] = useState<Ride | null>(null);
   // Торг: у какого отклика открыт ввод своей цены и что набрано.
   const [counterFor, setCounterFor] = useState<number | null>(null);
@@ -59,7 +61,7 @@ export default function RequestResponsesScreen() {
 
   useEffect(() => {
     mounted.current = true;
-    setItems([]); setMatches(null); setOpenedRide(null); setCounterFor(null); setCounterPrice(""); setError(null); setAccepting(null); setBargaining(false);
+    setItems([]); setMatches(null); setMatchesPartial(false); setOpenedRide(null); setCounterFor(null); setCounterPrice(""); setError(null); setAccepting(null); setBargaining(false);
     return () => { mounted.current = false; loading.current?.abort(); acting.current?.abort(); actionBusy.current = false; };
   }, [ownerKey]);
 
@@ -99,10 +101,11 @@ export default function RequestResponsesScreen() {
     fetchMatchRides(requestId, ac.signal)
       .then((rides) => {
         if (!current() || ac.signal.aborted) return;
-        setMatches(rides);
-        if (rides.length > 0) track("match_shown", { count: rides.length });
+        setMatches(rides.items);
+        setMatchesPartial(rides.partial);
+        if (rides.items.length > 0) track("match_shown", { count: rides.items.length });
       })
-      .catch(() => { if (current() && !ac.signal.aborted) setMatches(null); });
+      .catch(() => { if (current() && !ac.signal.aborted) { setMatches(null); setMatchesPartial(false); } });
     return () => ac.abort();
   }, [requestId, generation]);
 
@@ -378,6 +381,7 @@ export default function RequestResponsesScreen() {
               ))}
             </div>
           )}
+          {matchesPartial && <PartialFeedNotice />}
         </>
       )}
 

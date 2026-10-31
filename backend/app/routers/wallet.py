@@ -254,6 +254,11 @@ def _booking_amount_kop(booking: Booking) -> int:
     return amount_kop
 
 
+def booking_cashless_allowed(session: Session, booking: Booking) -> bool:
+    """Банковский проект попутки не принят: настройки не снимают этот запрет."""
+    return False
+
+
 @router.post("/bookings/{booking_id}/pay")
 def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user),
                 session: Session = Depends(get_session)):
@@ -263,6 +268,14 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
         raise herr(404, "Бронь не найдена", "Бронь табылманы")
     if booking.passenger_id != user.id:                   # анти-IDOR
         raise herr(403, "Это не твоя бронь", "Был һинең броның түгел")
+    if body.method in {"card", "sbp"} and not booking_cashless_allowed(session, booking):
+        # До paid-replay, записи Payment и любого обращения к платёжному провайдеру.
+        raise herr(
+            503,
+            "Оплата поездки — как договорились с водителем: наличными или переводом.",
+            "Сәфәр өсөн йөрөтөүсе менән килешкәнсә түләйбеҙ: ҡулаҡса йәки күсереү менән.",
+            code="booking_online_pay_off",
+        )
     if booking.status != BookingStatus.done:
         raise herr(409, "Оплатить можно только завершённую поездку", "Тик тамамланған сәфәр өсөн түләп була")
     if booking.paid:

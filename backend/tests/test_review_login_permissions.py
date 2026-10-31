@@ -185,3 +185,7 @@ def test_review_role_promotion_race_rechecks_locked_user_before_issuing_token(cl
     assert response.status_code == 400, response.text
     assert _snapshot(user_id) == expected
     assert emitted == []
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

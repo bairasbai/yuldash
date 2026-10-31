@@ -182,3 +182,7 @@ def test_non_ascii_configured_review_code_does_not_raise_500(client, monkeypatch
     with Session(engine) as session:
         assert session.get(model, row_id).attempts == 0
         assert not session.exec(select(RefreshToken).where(RefreshToken.user_id == user_id)).all()
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

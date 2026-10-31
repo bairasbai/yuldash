@@ -35,7 +35,7 @@ class RideshareCompletedGuardTest {
         assertTrue(screen.contains("ApiClient.rateBooking"))
         assertTrue(screen.contains("ApiClient.sayBookingThanks"))
         assertTrue(screen.contains("ApiClient.bookingLostItem"))
-        assertTrue(screen.contains("PayOnlineCard("))
+        assertFalse(screen.contains("PayOnlineCard("))
         assertTrue(screen.contains("onOpenReceipt"))
         assertTrue(screen.contains("Как договорились"))
         assertTrue(screen.contains("if (paid) appText(\"Оплата подтверждена\""))

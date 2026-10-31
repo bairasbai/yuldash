@@ -5,9 +5,8 @@
 //  в руки, платформа их не держит и вернуть не может. Так у нас между своими,
 //  и говорить об этом надо прямо.
 //
-//  Карта и СБП — через банк. Если онлайн-оплата в городе ещё не включена,
-//  сервер отвечает 503, и мы просто прячем эти кнопки: лучше два честных
-//  способа, чем третий, который не сработает.
+//  У попутки нет банковских кнопок. Карта и СБП остаются только у заказа
+//  такси: при ответе 503 они скрываются с понятным объяснением.
 //
 //  Оплачено — карточки нет вовсе.
 // ================================================================
@@ -42,7 +41,7 @@ export default function PayTripCard({
   const [busy, setBusy] = useState<PayMethodKey | null>(null);
   const [done, setDone] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // 503 → онлайн-оплаты в городе пока нет. Прячем карту и СБП, наличные остаются.
+  // У попутки банковских кнопок нет; 503 скрывает их в квитанции такси.
   const [onlineOff, setOnlineOff] = useState(false);
 
   if (done) {
@@ -55,6 +54,7 @@ export default function PayTripCard({
 
   async function pay(method: PayMethodKey) {
     if (busy || canAct?.() === false) return;
+    if (kind === "booking" && method !== "cash") return;
     setBusy(method);
     setError(null);
     try {
@@ -75,8 +75,8 @@ export default function PayTripCard({
         setOnlineOff(true);
         setError(
           appText(
-            "Оплата картой в твоём городе ещё не включена. Отдай наличными или переведи водителю.",
-            "Ҡалаңда карта менән түләү әле тоташтырылмаған. Наличный бир йәки йөрөтөүсегә күсер."
+            "Оплата картой сейчас недоступна. Отдай наличными или переведи водителю.",
+            "Карта менән түләү хәҙер мөмкин түгел. Наличный бир йәки йөрөтөүсегә күсер."
           )
         );
       } else {
@@ -115,7 +115,7 @@ export default function PayTripCard({
         )}
       </p>
 
-      {!onlineOff && (
+      {kind === "order" && !onlineOff && (
         <div className="field-row" style={{ marginTop: 10 }}>
           <button
             type="button"

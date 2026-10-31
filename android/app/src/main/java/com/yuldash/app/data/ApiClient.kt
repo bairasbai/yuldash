@@ -685,6 +685,14 @@ object ApiClient {
         }
     }
 
+    /** Публичные доступные способы входа; токен не нужен даже при протухшем прежнем входе. */
+    suspend fun loginMethods(): Result<List<String>> =
+        // mapCatching, не map: битый успешный ответ — это сбой, а не падение приложения.
+        call("GET", "/config/login-methods", null, auth = false).mapCatching { obj ->
+            val methods = obj.getJSONArray("methods")
+            (0 until methods.length()).mapNotNull { methods.opt(it) as? String }
+        }
+
     // ---------- Авторизация по SMS-коду ----------
 
     /** Запросить код на телефон. Пока SMS — мок: код пишется в лог сервера. */
@@ -1406,12 +1414,12 @@ object ApiClient {
         }
 
     // ---------- Заявки ↔ водители: лента, отклики, принятие ----------
-    suspend fun getRequestsFeed(onRoute: Boolean = false): Result<List<RequestFeedDto>> =
+    suspend fun getRequestsFeed(onRoute: Boolean = false): Result<ScannedFeed<RequestFeedDto>> =
         call("GET", "/requests/feed" + if (onRoute) "?on_route=true" else "", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
+            ScannedFeed((0 until arr.length()).map { i ->
                 parseRequestFeedDto(arr.getJSONObject(i))
-            }
+            }, partial = obj.optBoolean("_partial", false))
         }
 
     suspend fun respondToRequest(requestId: Int, price: Int, comment: String, rideId: Int? = null): Result<Unit> =
@@ -1444,10 +1452,11 @@ object ApiClient {
 
     /** F: авто-подбор попуток под заявку пассажира (GET /match/rides?request_id=). Только владелец заявки.
      *  Возврат — публичная витрина поездок (без ПДн до брони), совпадающих по маршруту/местам/категории. */
-    suspend fun matchRides(requestId: Int): Result<List<RideDto>> =
+    suspend fun matchRides(requestId: Int): Result<ScannedFeed<RideDto>> =
         call("GET", "/match/rides?request_id=$requestId", null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }
+            ScannedFeed((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() },
+                partial = obj.optBoolean("_partial", false))
         }
 
     suspend fun getRequestResponses(requestId: Int): Result<List<ResponseDto>> =
@@ -3628,7 +3637,9 @@ object ApiClient {
                 return@withContext if (code in 200..299) {
                     val obj = when {
                         text.isBlank() -> JSONObject()
-                        text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text))
+                        text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text)).apply {
+                            if (conn?.getHeaderField("X-Yuldash-Partial") == "1") put("_partial", true)
+                        }
                         else -> JSONObject(text)
                     }
                     testTrace?.invoke("ВЫШЛИ из вызова $method $path успешно (код $code)")

@@ -98,6 +98,28 @@ def client():
         yield c
 
 
+@pytest.fixture
+def telegram_login_ready(client, monkeypatch):
+    """Явно настроенный синтетический Telegram для тестов входа, без внешних отправок.
+
+    RS-01 закрывает вход без бота/секрета и в dev. Тесты самого gate этой fixture
+    не пользуются; проверки остальных этапов входа задают рабочую тестовую конфигурацию.
+    """
+    import httpx
+    from app.config import settings
+
+    monkeypatch.setattr(settings, "telegram_bot_token", "synthetic-telegram-bot")
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "synthetic-telegram-webhook")
+    monkeypatch.setitem(client.headers, "X-Telegram-Bot-Api-Secret-Token", "synthetic-telegram-webhook")
+
+    def synthetic_post(url, **kwargs):
+        if not str(url).startswith("https://api.telegram.org/"):
+            raise AssertionError("Unexpected external HTTP in Telegram login fixture")
+        return httpx.Response(200, json={"ok": True, "result": {}})
+
+    monkeypatch.setattr(httpx, "post", synthetic_post)
+
+
 _uid_counter = {"n": 0}   # глобальный — уникальные юзеры через ВСЕ тесты (одна сессионная БД)
 
 

@@ -2,7 +2,7 @@ export function loginPhoneValid(phone: string): boolean;
 export function nextNeedPhone(current: boolean, error: LoginError | null): boolean;
 export function loginCodeValid(code: string): boolean;
 export function filterLoginCode(value: string): string;
-export type LoginError = "botMissing" | "start" | "enterTgCode" | "badTgCode" | "phoneRequired" | "notYet" | "expired" | "tooMany" | "verify" | "save" | "enterPhone" | "sendFail" | "smsTooMany" | "enterSmsCode" | "badSmsCode";
+export type LoginError = "botMissing" | "methodDisabled" | "start" | "enterTgCode" | "badTgCode" | "phoneRequired" | "notYet" | "expired" | "tooMany" | "verify" | "save" | "enterPhone" | "sendFail" | "smsTooMany" | "enterSmsCode" | "badSmsCode";
 export interface LoginFlowDeps {
   getGeneration(): string;
   botAvailable(): boolean;
@@ -13,6 +13,9 @@ export interface LoginFlowDeps {
   login(access: string, refresh: string, user: any): void | string | Promise<void | string>;
   updateName(name: string): Promise<unknown>;
   getStatus(error: unknown): number;
+  getCode?(error: unknown): string;
+  methodAvailable?(method: "sms" | "telegram"): boolean;
+  onMethodDisabled?(error?: unknown): void;
   telegramStartUrl(id: string): string;
   telegramChatUrl(): string;
   openTelegram(url: string): void;

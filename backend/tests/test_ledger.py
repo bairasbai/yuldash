@@ -297,22 +297,17 @@ def test_wallet_ledger_only_own(client, user_factory):
 
 # ============================ Оплата брони плановой поездки ============================
 def test_pay_done_booking_cashless(client, user_factory):
-    """Оплата завершённой брони начисляет водителю ВСЮ сумму поездки: попутка бесплатна.
-
-    До волны 154 тут списывалось 8% — общая ставка попадала в бронь потому, что своей у попутки
-    не было. Наличными водитель получал всю сумму, картой — на 8% меньше, и нигде об этом не
-    говорилось. Александр решил: попутка 0% (она приводит людей), зарабатываем на такси."""
+    """RS-01: завершение попутки не открывает карту и не создаёт фантомных начислений."""
     drv = user_factory("BookDrv", role=UserRole.driver)
     pax = user_factory("BookPax")
     bid = _make_done_booking(drv["id"], pax["id"], price_rub=300)
     r = client.post(f"/bookings/{bid}/pay", headers=pax["auth"], json={"method": "card"})
-    assert r.status_code == 200 and r.json()["status"] == "succeeded"
-    # 300 ₽ = 30000 коп; комиссия попутки 0% → баланс 30000 (столько же, сколько наличными).
-    assert _bal(drv["id"]) == 30000
+    assert r.status_code == 503 and r.json()["detail"]["code"] == "booking_online_pay_off"
+    assert _bal(drv["id"]) == 0
     with Session(engine) as s:
-        assert s.get(Booking, bid).paid is True
-        row = s.exec(select(LedgerEntry).where(LedgerEntry.booking_id == bid, LedgerEntry.kind == LedgerKind.earn)).first()
-        assert row.amount_kop == 30000
+        assert s.get(Booking, bid).paid is False
+        assert s.exec(select(Payment).where(Payment.booking_id == bid)).all() == []
+        assert s.exec(select(LedgerEntry).where(LedgerEntry.booking_id == bid)).all() == []
 
 
 def test_pay_booking_only_when_done(client, user_factory):
@@ -329,4 +324,5 @@ def test_pay_booking_only_when_done(client, user_factory):
         s.commit()
         s.refresh(b)
         bid = b.id
-    assert client.post(f"/bookings/{bid}/pay", headers=pax["auth"], json={"method": "card"}).status_code == 409
+    assert client.post(f"/bookings/{bid}/pay", headers=pax["auth"], json={"method": "card"}).status_code == 503
+    assert client.post(f"/bookings/{bid}/pay", headers=pax["auth"], json={"method": "cash"}).status_code == 409

@@ -7,6 +7,9 @@ import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
 import android.widget.Toast
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.activity.compose.BackHandler
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
@@ -313,16 +316,16 @@ internal fun loginRequestErrorText(e: Throwable, fallback: String): String =
 // по тегу (проверить disabled/двойной тап). На вид/поведение не влияют.
 internal const val TAG_LOGIN_TELEGRAM_BTN = "login_telegram_btn"   // экран выбора: «Войти через Telegram»
 internal const val TAG_LOGIN_TG_VERIFY_BTN = "login_tg_verify_btn" // шаг Telegram-кода: «Войти»
-internal const val TAG_LOGIN_SMS_PRIMARY_BTN = "login_sms_primary_btn" // SMS-форма (заморожена): «Получить код»/«Войти»
+internal const val TAG_LOGIN_SMS_PRIMARY_BTN = "login_sms_primary_btn" // SMS-форма: «Получить код»/«Войти»
 
 // ─────────────────────────── Типографика и сетка экрана входа ───────────────────────────
 // РОВНО ЧЕТЫРЕ размера текста, у каждого своя роль. Пятого не заводим: экран входа — первое
 // касание, разнобой кеглей читается как «самоделка». Аудитория — сёла, много пожилых, поэтому
 // нижняя ступень 14sp (а не 12sp), а основной текст крупнее обычного.
 private val LoginDisplay = 52.sp    // 1 · витрина  — только слово «Юлдаш» на геро, один раз на экране
-private val LoginTitle = 24.sp      // 2 · заголовок — «Войти в Юлдаш», слоган на геро, введённый код
-private val LoginBody = 16.sp       // 3 · основной — кнопки, поля, подписи фич, ошибки, подсказки
-private val LoginCaption = 14.sp    // 4 · сноска   — согласие, вторичные ссылки, «или», описания фич
+internal val LoginTitle = 24.sp      // 2 · заголовок — «Войти в Юлдаш», слоган на геро, введённый код
+internal val LoginBody = 16.sp       // 3 · основной — кнопки, поля, подписи фич, ошибки, подсказки
+internal val LoginCaption = 14.sp    // 4 · сноска   — согласие, вторичные ссылки, «или», описания фич
 
 // Ритм экрана — кратно 4dp. Боковое поле одно и то же у геро и у формы: текст на фото и текст
 // в карточке стоят на одной вертикали, поэтому «шов» между ними не читается.
@@ -406,13 +409,21 @@ private fun LoginFormCard(
     var code by rememberSaveable { mutableStateOf("") }
     var loading by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
-    var showPhone by rememberSaveable { mutableStateOf(false) }   // SMS-форма (заморожена) раскрывается по тапу
+    var showPhone by rememberSaveable { mutableStateOf(false) }
     var tgMode by rememberSaveable { mutableStateOf(false) }      // true — ждём ввод кода из Telegram
     var tgRequestId by rememberSaveable { mutableStateOf("") }
     var nameInput by rememberSaveable { mutableStateOf("") }       // имя при регистрации (необязательно)
     var needPhone by rememberSaveable { mutableStateOf(false) }   // сервер требует номер (403 phone_required)
     var freshCodeRequired by rememberSaveable { mutableStateOf(false) }
     val context = LocalContext.current
+    val errMethodsRefresh = appTextFor(currentLanguage, "Не получилось обновить способы входа. Проверь интернет и повтори.",
+        "Инеү ысулдарын яңыртып булманы. Интернетты тикшер ҙә ҡабатла.")
+    val methodsState = rememberLoginMethodsState(
+        onTelegramRemoved = { tgMode = false; needPhone = false },
+        onSmsRemoved = { showPhone = false; step = 0 },
+        // Одна ошибка — один баннер: отдельный баннер способов давал вторую кнопку «Повторить».
+        onFetchFailed = { if (error == null) error = errMethodsRefresh },
+    )
 
     // Строки ошибок считаем здесь (в @Composable-контексте с currentLanguage) — колбэки получают готовый текст.
     val errEnterTgCode = appTextFor(currentLanguage, "Введи код из Telegram", "Telegram кодын индер")
@@ -426,13 +437,22 @@ private fun LoginFormCard(
     // Этот сбой почти всегда = нет связи (запрос к серверу вообще не ушёл). Говорим об этом прямо,
     // а не «не удалось» — человеку в селе полезнее подсказка «проверь интернет», чем код ошибки.
     val errTgStart = appTextFor(currentLanguage, "Не получилось связаться с сервером. Проверь интернет и повтори.", "Сервер менән бәйләнеш булманы. Интернетты тикшер ҙә ҡабатла.")
-    val tgSoon = appTextFor(currentLanguage, "Вход через Telegram скоро", "Telegram аша инеү тиҙҙән")
     val errEnterPhone = appTextFor(currentLanguage, "Введи номер телефона", "Телефон номерын индер")
     val errSendFail = appTextFor(currentLanguage, "Не получилось отправить код. Проверь интернет и повтори.", "Код ебәреп булманы. Интернетты тикшер ҙә ҡабатла.")
     val errEnterCode = appTextFor(currentLanguage, "Введи код из SMS", "SMS кодын индер")
     val errBadCode = appTextFor(currentLanguage, "Неверный код", "Код дөрөҫ түгел")
     val errVerify = appTextFor(currentLanguage, "Не удалось проверить код. Попробуй ещё раз.", "Кодты тикшереп булманы. Тағы бер тапҡыр ҡара.")
     val errSaveLogin = appTextFor(currentLanguage, "Не удалось сохранить вход на телефоне. Получи новый код и попробуй ещё раз.", "Телефонда инеүҙе һаҡлап булманы. Яңы код ал да тағы инеп ҡара.")
+
+    fun disabledMethod(e: Throwable): Boolean {
+        if (!loginMethodDisabled(e)) return false
+        needPhone = false
+        error = serverSaid(e, errVerify)
+        tgMode = false
+        showPhone = false
+        methodsState.retry()
+        return true
+    }
 
     fun openTelegram(url: String) {
         runCatching {
@@ -451,13 +471,15 @@ private fun LoginFormCard(
         needPhone = needPhone,
         tgMode = tgMode,
         showPhone = showPhone,
+        methods = methodsState.methods,
+        methodsLoading = methodsState.loading,
+        onMethodsRetry = methodsState.retry,
         onPhoneChange = { phone = it; error = null },
         onCodeChange = { code = sanitizeLoginCodeInput(it); error = null },
         onNameChange = { nameInput = it.take(120) },
         // Главный вход через Telegram (экран выбора). Гард двойного тапа: `if (loading) return`.
         onTelegramStart = {
-            if (!loading) {
-                if (TelegramLoginBot.name.isBlank()) { error = tgSoon } else {
+            if (!loading && "telegram" in methodsState.methods && TelegramLoginBot.name.isNotBlank()) {
                     loading = true; error = null
                     scope.launch {
                         ApiClient.tgStart()
@@ -469,9 +491,8 @@ private fun LoginFormCard(
                                 tgMode = true
                                 openTelegram("https://t.me/${TelegramLoginBot.name}?start=$req")
                             }
-                            .onFailure { loading = false; error = errTgStart }
+                            .onFailure { loading = false; if (!disabledMethod(it)) error = errTgStart }
                     }
-                }
             }
         },
         // Кнопка «Войти» на шаге ввода Telegram-кода. Гард двойного тапа + пустого кода — как раньше.
@@ -493,8 +514,11 @@ private fun LoginFormCard(
                                     needPhone = false
                                     freshCodeRequired = true
                                     error = errSaveLogin
+                                } else if (disabledMethod(e)) {
+                                    // Список обновится; этот отказ не означает запрос номера.
+                                } else if (loginNeedsPhone(e)) {
+                                    needPhone = true; error = errPhoneRequired
                                 } else when ((e as? ApiException)?.status) {
-                                    403 -> { needPhone = true; error = errPhoneRequired }   // нужен номер
                                     409 -> { needPhone = false; error = errCodeNotYet }    // код ещё идёт от Telegram под нагрузкой
                                     410 -> { needPhone = false; error = errExpiredCode }   // код истёк
                                     429 -> { needPhone = false; error = errTooManyCode }   // много попыток
@@ -523,7 +547,7 @@ private fun LoginFormCard(
                             code = ""
                             openTelegram("https://t.me/${TelegramLoginBot.name}?start=$req")
                         }
-                        .onFailure { loading = false; error = errTgStart }
+                        .onFailure { loading = false; if (!disabledMethod(it)) error = errTgStart }
                 }
             }
         },
@@ -532,7 +556,7 @@ private fun LoginFormCard(
         onChangePhone = { step = 0; code = ""; error = null },
         // SMS-кнопка «Получить код» / «Войти». Гарды двойного тапа и пустых полей — как в прежнем onClick.
         onSmsPrimary = {
-            if (!loading) {
+            if (!loading && "sms" in methodsState.methods) {
                 error = null
                 if (step == 0) {
                     if (!isLoginPhoneValid(phone)) { error = errEnterPhone } else {
@@ -540,7 +564,7 @@ private fun LoginFormCard(
                         scope.launch {
                             ApiClient.requestCode(phone.trim())
                                 .onSuccess { loading = false; step = 1 }
-                                .onFailure { loading = false; error = loginRequestErrorText(it, errSendFail) }
+                                .onFailure { loading = false; if (!disabledMethod(it)) error = loginRequestErrorText(it, errSendFail) }
                         }
                     }
                 } else {
@@ -551,7 +575,7 @@ private fun LoginFormCard(
                                 .onSuccess { loading = false; onContinue() }
                                 .onFailure { e ->
                                     loading = false
-                                    error = when {
+                                    if (!disabledMethod(e)) error = when {
                                         e is SessionPersistenceException -> errSaveLogin
                                         e is ApiException && e.status == 400 -> errBadCode
                                         else -> errVerify
@@ -567,7 +591,7 @@ private fun LoginFormCard(
 }
 
 /**
- * Чистый рендер формы входа: телефон/код/имя, оба потока (Telegram и замороженный SMS), все ошибки.
+ * Чистый рендер формы входа: телефон/код/имя, доступные способы и все ошибки.
  * Стейт и сеть — параметрами и колбэками (без ApiClient/scope/эффектов) → тестируется на JVM (Robolectric).
  * Кнопки входа disabled при `loading` (гард двойного тапа) и при невалидном поле (см. isLoginPhoneValid/isLoginCodeValid).
  */
@@ -594,7 +618,14 @@ internal fun LoginFormContent(
     onChangePhone: () -> Unit,
     onSmsPrimary: () -> Unit,
     modifier: Modifier = Modifier,
+    methods: List<String> = LoginMethods.fallback,
+    methodsLoading: Boolean = false,
+    onMethodsRetry: () -> Unit = {},
+    telegramBotName: String = TelegramLoginBot.name,
 ) {
+    val telegramAvailable = "telegram" in methods && telegramBotName.isNotBlank()
+    val smsAvailable = "sms" in methods
+    val anyMethod = telegramAvailable || smsAvailable
     Card(
         modifier = modifier,
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -623,15 +654,21 @@ internal fun LoginFormContent(
                     // «Используйте» было единственным «вы» на первом экране приложения — при том,
                     // что двумя строками ниже уже «Входя, ты подтверждаешь», а башкирский рядом
                     // с самого начала на «ты» («ҡуллан»).
-                    "Заходи через Telegram — быстро и безопасно",
-                    "Тиҙ һәм хәүефһеҙ инеү өсөн Telegram ҡуллан"
+                    "Выбери удобный способ входа",
+                    "Үҙеңә уңайлы инеү ысулын һайла"
                 ),
                 color = CanonMuted,
                 fontSize = LoginBody,
                 lineHeight = 23.sp,
                 textAlign = TextAlign.Center
             )
-            if (tgMode) {
+            if (methodsLoading) {
+                SkeletonCard(lines = 2)
+            } else if (!anyMethod) {
+                Text(appTextFor(currentLanguage, "Вход временно недоступен. Попробуй чуть позже.",
+                    "Әлегә инеп булмай. Бер аҙҙан ҡабатлап ҡара."), style = CanonBody, color = CanonMuted)
+                AppButton(text = appTextFor(currentLanguage, "Повторить", "Ҡабатлау"), onClick = onMethodsRetry)
+            } else if (tgMode && telegramAvailable) {
                 // --- Ввод 6-значного кода, который бот прислал в Telegram ---
                 val errPhoneRequired = appTextFor(currentLanguage, "Для безопасности нужен номер. В Telegram нажми «📱 Поделиться номером», потом вернись и нажми «Войти».", "Хәүефһеҙлек өсөн номер кәрәк. Telegram'да «📱 Номер менән бүлешергә» баҫ, аҙаҡ кире ҡайтып «Инеү» баҫ.")
                 Text(
@@ -710,14 +747,13 @@ internal fun LoginFormContent(
                 }
             } else {
             // Подпись про «6-значный код» убрана — бейдж на геро уже это говорит (без дубля).
-            // Telegram — рабочий вход (бот шлёт 6-значный код). VK/WhatsApp — «скоро».
             // Отклик на нажатие: кнопка чуть «проседает» (0.97) и возвращается — как в iOS.
             val tgPress = remember { MutableInteractionSource() }
             val tgPressed by tgPress.collectIsPressedAsState()
             val tgScale by animateFloatAsState(
                 if (tgPressed) 0.97f else 1f, tween(CanonMotion.QUICK, easing = EaseOutExpo), label = "tgPress",
             )
-            Button(
+            if (telegramAvailable) Button(
                 onClick = onTelegramStart,
                 enabled = !loading,   // гард двойного тапа
                 interactionSource = tgPress,
@@ -747,7 +783,7 @@ internal fun LoginFormContent(
                 }
             }
             LoginLoadingHint(
-                visible = loading,
+                visible = loading && telegramAvailable && !showPhone,
                 text = appTextFor(currentLanguage, "Открываем Telegram…", "Telegram'ды асабыҙ…"),
             )
             // РАНЬШЕ ОШИБКИ ЗДЕСЬ НЕ БЫЛО ВИДНО: `error` на экране выбора не рисовался нигде (его показывал
@@ -756,12 +792,10 @@ internal fun LoginFormContent(
             LoginErrorBanner(
                 currentLanguage = currentLanguage,
                 // при развёрнутой SMS-форме ту же ошибку показывает она сама — не дублируем
-                text = if (BuildConfig.SMS_LOGIN_ENABLED && showPhone) null else error,
+                text = if (smsAvailable && showPhone) null else error,
                 onRetry = onTelegramStart,
             )
-            // VK и WhatsApp убраны: VK требует ИНН (бизнес), WhatsApp — WhatsApp Business API. Оба недоступны физлицу.
-            // SMS-вход ЗАМОРОЖЕН (нет юр.лица для sms.ru). Форма цела — видна только при SMS_LOGIN_ENABLED.
-            if (BuildConfig.SMS_LOGIN_ENABLED) {
+            if (smsAvailable) {
                 LoginSmsSection(
                     currentLanguage = currentLanguage,
                     step = step,
@@ -777,72 +811,15 @@ internal fun LoginFormContent(
                     onToggleSmsForm = onToggleSmsForm,
                     onChangePhone = onChangePhone,
                     onSmsPrimary = onSmsPrimary,
+                    showDivider = telegramAvailable,
                 )
-            }   // конец if (BuildConfig.SMS_LOGIN_ENABLED) — SMS-вход заморожен
+            }
             Spacer(Modifier.height(8.dp))
             LoginConsent(
                 currentLanguage = currentLanguage,
                 modifier = Modifier.fillMaxWidth()
             )
             }   // конец else (tgMode == false) — экран выбора входа
-        }
-    }
-}
-
-/**
- * Ошибка входа: что случилось + что делать + кнопка «Повторить». Один вид для обоих потоков.
- *
- * Почему так: вход — единственная дверь в приложение, и «упало молча» здесь дороже всего. Отдельной
- * строкой даём объяснение для двух самых частых случаев у нас — нет интернета и код от бота ещё не дошёл.
- *
- * Анимация живая: баннера при входе в композицию нет (`text == null`), он появляется в момент ошибки.
- * Текст держим в [shownText] — иначе на выходе баннер схлопывался бы пустым.
- * `internal` — чтобы покрыть на JVM (Robolectric) без сети и ApiClient.
- */
-@Composable
-internal fun LoginErrorBanner(
-    currentLanguage: AppLanguage,
-    text: String?,
-    onRetry: (() -> Unit)? = null,
-    modifier: Modifier = Modifier,
-) {
-    var shownText by remember { mutableStateOf(text.orEmpty()) }
-    LaunchedEffect(text) { if (text != null) shownText = text }
-    AnimatedVisibility(
-        visible = text != null,
-        enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL, easing = EaseOutExpo)),
-        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
-        modifier = modifier,
-    ) {
-        Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
-            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Icon(
-                        Icons.Default.Info,
-                        contentDescription = appTextFor(currentLanguage, "Ошибка", "Хата"),
-                        tint = CanonRed,
-                        modifier = Modifier.size(24.dp),
-                    )
-                    Text(shownText, color = CanonRed, fontSize = LoginBody, lineHeight = 23.sp)
-                }
-                Text(
-                    text = appTextFor(
-                        currentLanguage,
-                        "Нет интернета или код ещё не пришёл? Проверь связь и нажми «Повторить».",
-                        "Интернет юҡмы, әллә код килеп еткәне юҡмы? Бәйләнеште тикшер ҙә «Ҡабатла» баҫ.",
-                    ),
-                    color = CanonMuted, fontSize = LoginCaption, lineHeight = 20.sp,
-                )
-                if (onRetry != null) {
-                    AppButton(
-                        text = appTextFor(currentLanguage, "Повторить", "Ҡабатлау"),
-                        onClick = onRetry,
-                        style = AppButtonStyle.Secondary,
-                        icon = Icons.Default.Refresh,
-                        height = 48.dp,
-                    )
-                }
-            }
         }
     }
 }
@@ -860,7 +837,7 @@ private fun LoginLoadingHint(visible: Boolean, text: String) {
 }
 
 /**
- * Замороженная SMS-форма входа (видна только при [BuildConfig.SMS_LOGIN_ENABLED]). Чистый рендер на
+ * SMS-форма входа видна, когда этот способ разрешён сервером. Чистый рендер на
  * колбэках — вынесен из [LoginFormContent] в `ColumnScope`-extension, чтобы элементы раскладывались
  * в тот же родительский Column (тот же `spacedBy(16.dp)`, вёрстка 1:1). `internal` → тестируется на
  * JVM (Robolectric) НАПРЯМУЮ, минуя build-флаг, который в unit-сборке всегда false. Логика 1:1 с прежним
@@ -883,8 +860,9 @@ internal fun ColumnScope.LoginSmsSection(
     onToggleSmsForm: () -> Unit,
     onChangePhone: () -> Unit,
     onSmsPrimary: () -> Unit,
+    showDivider: Boolean = true,
 ) {
-    LoginDivider(currentLanguage)
+    if (showDivider) LoginDivider(currentLanguage)
     OutlinedButton(
         onClick = onToggleSmsForm,
         modifier = Modifier.fillMaxWidth().heightIn(min = 64.dp),
@@ -1150,12 +1128,12 @@ internal fun LoginHeroFeatures(currentLanguage: AppLanguage) {
         LoginHeroFeature(
             icon = Icons.Default.Block,
             title = appTextFor(currentLanguage, "Никакого спама", "Спам юҡ"),
-            body = appTextFor(currentLanguage, "Не звоним и не шлём SMS", "Шылтыратмайбыҙ, SMS ебәрмәйбеҙ")
+            body = appTextFor(currentLanguage, "Не звоним и не шлём рекламу", "Шылтыратмайбыҙ, реклама ебәрмәйбеҙ")
         )
         LoginHeroFeature(
             icon = Icons.Default.Shield,
             title = appTextFor(currentLanguage, "Данные под защитой", "Мәғлүмәт һаҡлауҙа"),
-            body = appTextFor(currentLanguage, "Шифруем и не передаём третьим", "Шифрлайбыҙ, өсөнсө яҡҡа бирмәйбеҙ")
+            body = appTextFor(currentLanguage, "Номер скрыт, пока поездка не подтверждена", "Сәфәр раҫланғансы номер күренмәй")
         )
     }
 }

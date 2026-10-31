@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import com.yuldash.app.ui.theme.YuldashTheme
+import com.yuldash.app.data.ApiClient
 import org.junit.After
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -41,7 +42,10 @@ class SelectedControlsAccessibilityTest {
     private var previousTheme: Boolean? = null
 
     @Before fun setup() { previousTheme = ThemePrefs.darkOverride; TelegramLoginBot.testName = "yuldash_test_bot" }
-    @After fun cleanup() { ThemePrefs.darkOverride = previousTheme; TelegramLoginBot.testName = null }
+    @After fun cleanup() {
+        ThemePrefs.darkOverride = previousTheme; TelegramLoginBot.testName = null
+        ApiClient.testBaseUrl = null; ApiClient.testTimeoutMs = null
+    }
 
     @Test fun selectedLanguageTextHasReadableDarkContrast() {
         ThemePrefs.darkOverride = true
@@ -64,6 +68,10 @@ class SelectedControlsAccessibilityTest {
 
     @Test fun telegramLoginTextHasReadableDarkContrast() {
         ThemePrefs.darkOverride = true
+        // Способы входа спрашиваются у сервера (RS-01); неслушающий loopback даёт быстрый отказ,
+        // и экран показывает запасной список с Telegram вместо долгого ожидания сети.
+        ApiClient.testBaseUrl = "http://127.0.0.1:9"
+        ApiClient.testTimeoutMs = 300
         var background = Color.Unspecified
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -72,6 +80,9 @@ class SelectedControlsAccessibilityTest {
                     LoginScreen(AppLanguage.Ru, {}, {})
                 }
             }
+        }
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithTag(TAG_LOGIN_TELEGRAM_BTN).fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).performScrollTo()
         assertReadable("Войти через Telegram", background)

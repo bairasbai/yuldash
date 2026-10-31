@@ -39,7 +39,8 @@ def test_request_code_does_not_leave_a_live_code_when_the_channel_is_frozen(clie
     phone = "+79995550001"
     _freeze_prod_sms(monkeypatch)
     r = client.post("/auth/request-code", json={"phone": phone})
-    assert r.status_code == 503, r.text
+    assert r.status_code == 403, r.text
+    assert r.json()["detail"]["code"] == "login_method_disabled"
     detail = r.json()["detail"]
     assert detail.get("ru") and detail.get("ba"), f"отказ не на двух языках: {detail}"
     with Session(engine) as s:
@@ -61,7 +62,7 @@ def test_verify_refuses_an_sms_code_while_the_channel_is_frozen_even_if_one_exis
         s.commit()
     _freeze_prod_sms(monkeypatch)
     r = client.post("/auth/verify", json={"phone": phone, "code": "135790"})
-    assert r.status_code == 503, (
+    assert r.status_code == 403, (
         f"код приняли при замороженном SMS-канале: {r.status_code} {r.text}"
     )
     detail = r.json()["detail"]
@@ -139,7 +140,12 @@ def test_failed_sends_still_count_toward_the_per_minute_issuance_throttle(client
     в throttle «≤3 кода в минуту» (строка целиком откатывалась) — запрос кода можно было
     слать сколько угодно раз подряд, не встречая throttle вовсе."""
     phone = "+79995550007"
-    _freeze_prod_sms(monkeypatch)
+    # RS-01: выключенный канал не пробуют отправлять. Здесь именно сбой ВКЛЮЧЁННОГО
+    # канала: он должен по-прежнему расходовать бюджет попыток, но не оставлять живой код.
+    def unavailable(*args, **kwargs):
+        from fastapi import HTTPException
+        raise HTTPException(503, "synthetic provider unavailable")
+    monkeypatch.setattr(auth, "send_sms", unavailable)
     for _ in range(3):
         r = client.post("/auth/request-code", json={"phone": phone})
         assert r.status_code == 503, r.text
@@ -216,7 +222,10 @@ def test_failed_send_leaves_only_a_dead_record_for_throttle_accounting(client, m
     ослепнуть — остаётся ОТДЕЛЬНАЯ, заведомо мёртвая запись (пустой код, уже истёкшая), а не
     часть исходной (живой) строки."""
     phone = "+79995550013"
-    _freeze_prod_sms(monkeypatch)
+    def unavailable(*args, **kwargs):
+        from fastapi import HTTPException
+        raise HTTPException(503, "synthetic provider unavailable")
+    monkeypatch.setattr(auth, "send_sms", unavailable)
     r = client.post("/auth/request-code", json={"phone": phone})
     assert r.status_code == 503, r.text
     with Session(engine) as s:

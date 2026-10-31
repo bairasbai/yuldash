@@ -40,11 +40,11 @@ class PayOnlineOwnerBoundaryTest {
     private val invocations=CopyOnWriteArrayList<Long>()
     private val started=CountDownLatch(1);private val release=CountDownLatch(1);private val returned=CountDownLatch(1)
     private var pending=false;private var wrongStatusId=false;private var reject=false;private var held=false
-    private var receiptScreen=false;private var heldHealth=false;private var refreshOnce=false
+    private var receiptScreen=false;private var refreshOnce=false
     private val renewed="header.eyJzdWIiOiIxMSJ9.renewed"
     @Before fun setup() {
         ApiClient.resetForTest();ApiClient.init(ApplicationProvider.getApplicationContext<Context>());ApiClient.saveToken(tokenA)
-        OnlinePayGate.asked=false;OnlinePayGate.unavailable=false
+        OnlinePayGate.asked=false;OnlinePayGate.unavailable=false;OnlinePayGate.enabled=false
         server=MockWebServer().apply {
             dispatcher=object:Dispatcher() {
                 override fun dispatch(request:RecordedRequest):MockResponse {
@@ -52,10 +52,7 @@ class PayOnlineOwnerBoundaryTest {
                     return when {
                         path=="/auth/verify" -> json("""{"access_token":"$tokenA","refresh_token":"local-refresh-1"}""")
                         path=="/auth/refresh" -> json("""{"access_token":"$renewed","refresh_token":"local-refresh-2"}""")
-                        path=="/health" -> {
-                            if(heldHealth) {started.countDown();assertTrue(release.await(35,TimeUnit.SECONDS));returned.countDown()}
-                            json("""{"payments":"yookassa"}""")
-                        }
+                        path=="/health" -> json("""{"payments":"yookassa"}""")
                         path.endsWith("/pay") -> {
                             if(held) {started.countDown();assertTrue(release.await(35,TimeUnit.SECONDS));returned.countDown()}
                             if(refreshOnce && request.getHeader("Authorization")=="Bearer $tokenA") json("""{"detail":"expired"}""",401)
@@ -92,7 +89,7 @@ class PayOnlineOwnerBoundaryTest {
     private fun waiting():()->Boolean {pending=true;val pay=start();compose.runOnIdle {dispatch(pay)};return retained("Проверить оплату")}
     @After fun cleanup() {
         release.countDown();compose.runOnIdle {mounted.value=false};pump(300)
-        OnlinePayGate.asked=false;OnlinePayGate.unavailable=false;ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()
+        OnlinePayGate.asked=false;OnlinePayGate.unavailable=false;OnlinePayGate.enabled=false;ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()
     }
     @Test fun currentOwnerPaysOnceAndSeesPaid() {
         val pay=start();compose.runOnIdle {dispatch(pay)};await {compose.onAllNodesWithText("Оплачено — спасибо!").fetchSemanticsNodes().isNotEmpty()}
@@ -148,9 +145,12 @@ class PayOnlineOwnerBoundaryTest {
         compose.runOnIdle {dispatch(check)};pump(1500);assertFalse(records.any {it.second=="/payments/31/status"})
     }
     @Test fun lateEnabledHealthCannotUndoCurrentOwnerPay503() {
-        heldHealth=true;reject=true;val pay=start();await {started.count==0L}
-        compose.runOnIdle {dispatch(pay)};await {OnlinePayGate.unavailable}
-        release.countDown();assertTrue(returned.await(8,TimeUnit.SECONDS));pump(2000)
+        // RS-01: карточка видна только ПОСЛЕ ответа health «оплата включена», поэтому клик раньше
+        // ответа невозможен. Оставшийся риск — позднее «включено» после зафиксированного 503:
+        // гейт не должен воскрешать карточку текущего владельца.
+        reject=true;val pay=start();compose.runOnIdle {dispatch(pay)};await {OnlinePayGate.unavailable}
+        compose.runOnIdle {OnlinePayGate.enabled=true}
+        pump(1000)
         assertTrue(OnlinePayGate.unavailable);compose.onAllNodesWithText("Оплатить 250 ₽").assertCountEquals(0)
     }
     @Test fun real401RefreshKeepsMountedOwnerAndCompletesPayment() {

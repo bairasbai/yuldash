@@ -216,6 +216,7 @@ class SessionKeysGuardTest {
             "yuldash_theme",     // тёмная тема — внешний вид устройства
             "yuldash_settings",  // звуки, уведомления, язык фоновых сервисов — настройки телефона
             "yuldash_secure",    // шифрованный ящик сессии: ключи те же, что у основного
+            "login_methods",     // публичный список способов входа от сервера — не личные данные, переживает выход
         )
         val unknown = (found - known).sorted()
         assertTrue(

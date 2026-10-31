@@ -10,6 +10,7 @@ import ScreenHeader from "../components/ScreenHeader";
 import { ErrorState, LoadingList } from "../components/States";
 import { useSheetExit } from "../components/useSheetExit";
 import { formatWhen, pluralRu } from "../utils/format";
+import PartialFeedNotice from "../components/PartialFeedNotice";
 
 type ViewState = "loading" | "error" | "ready";
 
@@ -25,13 +26,17 @@ function MatchingRidesSection({ requestId }: { requestId: number }) {
   const { appText } = useLang();
   const [state, setState] = useState<ViewState>("loading");
   const [rides, setRides] = useState<Ride[]>([]);
+  const [partial, setPartial] = useState(false);
   const [openedRide, setOpenedRide] = useState<Ride | null>(null);
 
   const load = useCallback((signal?: AbortSignal) => {
     setState("loading");
+    setPartial(false);
     fetchMatchRides(requestId, signal)
       .then((rows) => {
-        setRides(rows);
+        if (signal?.aborted) return;
+        setRides(rows.items);
+        setPartial(rows.partial);
         setState("ready");
       })
       .catch((error) => {
@@ -85,6 +90,7 @@ function MatchingRidesSection({ requestId }: { requestId: number }) {
           ))}
         </div>
       )}
+      {state === "ready" && partial && <PartialFeedNotice />}
       {openedRide && <RideSheet ride={openedRide} onClose={() => setOpenedRide(null)} />}
     </section>
   );

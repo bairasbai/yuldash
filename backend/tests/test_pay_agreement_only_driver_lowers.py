@@ -51,11 +51,10 @@ def test_пассажир_после_поездки_не_ставит_1_рубл
     assert _amount(client, driver, booking_id) == 1000
     paid = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"],
                        json={"method": "card"})
-    assert paid.status_code == 200, paid.text
-    assert [c["amount_kop"] for c in captured_provider] == [100_000], (
-        "с карты списали не цену поездки"
-    )
-    assert _rows(booking_id)["ledger"][0]["amount_kop"] == 100_000
+    assert paid.status_code == 503, paid.text
+    assert paid.json()["detail"]["code"] == "booking_online_pay_off"
+    assert captured_provider == []
+    assert _rows(booking_id) == {"paid": False, "payments": [], "ledger": []}
 
 
 def test_пассажир_не_снижает_и_до_поездки(client, user_factory):
@@ -188,7 +187,6 @@ def test_снижение_цены_поездки_доходит_до_оплат
     _complete(client, driver, booking_id)
     paid = client.post(f"/bookings/{booking_id}/pay", headers=passenger["auth"],
                        json={"method": "card"})
-    assert paid.status_code == 200, paid.text
-    assert [c["amount_kop"] for c in captured_provider] == [70_000], (
-        "водитель снизил цену, а с карты списали прежнюю"
-    )
+    assert paid.status_code == 503, paid.text
+    assert paid.json()["detail"]["code"] == "booking_online_pay_off"
+    assert captured_provider == [], "публичная онлайн-оплата попутки закрыта даже после снижения цены"

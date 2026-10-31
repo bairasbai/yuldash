@@ -190,7 +190,7 @@ class BookingActiveTripContentDeepTest {
             }
         }
         composeRule.onNodeWithText("Код посадки").assertIsDisplayed()
-        composeRule.onNodeWithText("Назови водителю — сверят. Это та самая машина.").assertIsDisplayed()
+        composeRule.onNodeWithText("Назови код водителю и сверь номер машины.").assertIsDisplayed()
         composeRule.onNodeWithText("7421").assertIsDisplayed()
     }
 

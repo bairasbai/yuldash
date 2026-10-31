@@ -758,3 +758,7 @@ def test_presence_teleport_not_published(client, user_factory, fake_redis):
     admin = user_factory("Admin", role=UserRole.admin)
     pulse = client.get("/admin/taxi/pulse", headers=admin["auth"]).json()
     assert pulse["gps_suspects_today"] >= 1
+
+
+# RS-01: остальные проверки входа требуют настроенного синтетического бота.
+pytestmark = pytest.mark.usefixtures("telegram_login_ready")

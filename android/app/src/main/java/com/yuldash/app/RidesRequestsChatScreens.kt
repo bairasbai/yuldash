@@ -1538,13 +1538,14 @@ private fun EditRequestDialog(
 @Composable
 private fun MatchingRidesSection(requestId: Int, onOpenRide: (com.yuldash.app.data.RideDto) -> Unit) {
     var rides by remember(requestId) { mutableStateOf<List<com.yuldash.app.data.RideDto>?>(null) }
+    var partial by remember(requestId) { mutableStateOf(false) }
     var error by remember(requestId) { mutableStateOf(false) }
     var reload by remember(requestId) { mutableStateOf(0) }
     LaunchedEffect(requestId, reload) {
         error = false
         rides = null
         ApiClient.matchRides(requestId)
-            .onSuccess { rides = it }
+            .onSuccess { rides = it.items; partial = it.partial }
             .onFailure { error = true }
     }
     val list = rides
@@ -1577,6 +1578,7 @@ private fun MatchingRidesSection(requestId: Int, onOpenRide: (com.yuldash.app.da
                 }
             }
         }
+        PartialFeedHint(visible = list != null && !error && partial)
     }
 }
 
@@ -1705,8 +1707,6 @@ private fun FullRideCard(
         }
     }
 }
-
-
 
 @Composable
 internal fun ChatScreen(
@@ -2046,7 +2046,6 @@ private fun ChatFeedBubble(
     }
 }
 
-
 /** Плашка под сообщением по метке сервера. Три вида, и КОМУ показывать — тоже три разных ответа.
  *
  *  warn    — фишинг. Показываем ПОЛУЧАТЕЛЮ: предупреждаем того, у кого пытаются увести деньги.
@@ -2094,7 +2093,6 @@ internal fun ChatFlagPlate(flag: String, mine: Boolean, modifier: Modifier = Mod
     }
 }
 
-
 /** B8-9: бейдж официальности «Юлдаш ✓» — только по серверному флагу from_admin
  *  (мошенник не может прикинуться поддержкой: флаг ставит сервер по роли отправителя). */
 @Composable
@@ -2108,7 +2106,6 @@ internal fun YuldashOfficialBadge(modifier: Modifier = Modifier) {
         Text("Юлдаш ✓", color = CanonGreen2, fontSize = 12.sp, fontWeight = FontWeight.Bold)
     }
 }
-
 
 /** B8-6: тонкий баннер-дисклеймер безопасности при первом открытии чата. «Понятно» —
  *  больше не показываем (метка в prefs). Появляется/уходит мягко (AnimatedVisibility). */
@@ -2162,6 +2159,7 @@ internal fun RequestsFeedContent(
     onFilterChange: (RequestsFeedFilter) -> Unit = {},
     modifier: Modifier = Modifier,
     hasOwnRides: Boolean? = null,
+    partial: Boolean = false,
 ) {
     val visibleFeed = when (selectedFilter) {
         RequestsFeedFilter.All -> feed
@@ -2203,6 +2201,7 @@ internal fun RequestsFeedContent(
                 )
             }
         }
+        item(key = "partial") { PartialFeedHint(visible = !loading && !error && partial) }
     }
 }
 
