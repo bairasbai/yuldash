@@ -71,7 +71,7 @@ import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
 import { loadInTransitCancel, rememberInTransitCancel } from "../utils/inTransitCancel";
 import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
-import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+import { formatWhen, priceLabel, payMethodLabel, pluralRu } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { enqueue } from "../utils/outbox";
 import { useBookingRefusal } from "../utils/useBookingRefusal";
@@ -1207,7 +1207,7 @@ export default function ActiveTripScreen() {
                 type="button"
                 className={"rate-star" + (n <= myStars ? " is-on" : "")}
                 onClick={() => pickStars(n)}
-                aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
+                aria-label={appText(`${n} ${pluralRu(n, "звезда", "звезды", "звёзд")}`, `${n} йондоҙ`)}
               >
                 <IconStar size={34} />
               </button>

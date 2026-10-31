@@ -117,7 +117,8 @@ export default function TripChatScreen() {
     details == null
       ? ""
       : details.role === "driver"
-        ? appText("Пассажир", "Юлсы")
+        // Имя пассажира — как в шапке чата приложения (приёмка попутки 24.10.2026: сайт писал «Пассажир»).
+        ? details.passenger_name?.trim() || appText("Пассажир", "Юлсы")
         : details.driver_name || appText("Водитель", "Йөрөтөүсе");
   const route = details ? `${details.from_city} → ${details.to_city}` : "";
 
