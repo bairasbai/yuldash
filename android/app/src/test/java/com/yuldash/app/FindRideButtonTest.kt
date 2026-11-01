@@ -25,7 +25,9 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.net.URLDecoder
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 
 /**
  * «Найти попутку» на главной ведёт к ленте попуток, а не на вкладку «Поездки».
@@ -44,6 +46,7 @@ class FindRideButtonTest {
     @get:Rule val compose = createComposeRule()
     private val requests = CopyOnWriteArrayList<String>()
     private lateinit var server: MockWebServer
+    @Volatile private var popularResponseGate: CountDownLatch? = null
 
     @Before fun setup() {
         ApiClient.resetForTest()
@@ -52,6 +55,12 @@ class FindRideButtonTest {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add(URLDecoder.decode("${request.method} ${request.path}", "UTF-8"))
+                    if (request.path == "/popular-routes") {
+                        val gate = popularResponseGate
+                        if (gate != null && !gate.await(60, TimeUnit.SECONDS)) {
+                            return MockResponse().setResponseCode(504).setBody("{}")
+                        }
+                    }
                     // Карточка «Популярно» — только из настоящих маршрутов сервера (демо-маршрутов нет с 23.10).
                     val body = if (request.path.orEmpty().startsWith("/rides/near")) """{"items":[],"count":0}"""
                     else if (request.path == "/popular-routes") """{"items":[{"from_city":"Баймаҡ","to_city":"Сибай","count":5}]}"""
@@ -66,6 +75,7 @@ class FindRideButtonTest {
     }
 
     @After fun cleanup() {
+        popularResponseGate?.countDown()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
@@ -85,6 +95,16 @@ class FindRideButtonTest {
         }
     }
 
+    private fun waitForPopularRoute() {
+        // /rides/near и /popular-routes загружаются независимо. Первый запрос ленты ещё
+        // не означает, что карусель показала маршрут и её LaunchedEffect обновил выбор.
+        waitFor("показана карточка популярного маршрута") {
+            compose.onAllNodesWithText("Баймаҡ → Сибай").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.waitForIdle()
+        compose.onNodeWithText("Баймаҡ → Сибай").assertIsDisplayed()
+    }
+
     @Test fun findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt() {
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -99,6 +119,7 @@ class FindRideButtonTest {
         assertTrue("до нажатия лента не сужена: ${nearRequests()}", nearRequests().none { "from_city=" in it })
         compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
 
+        waitForPopularRoute()
         compose.onNodeWithText("Найти попутку").performClick()
 
         waitFor("лента по маршруту") { nearRequests().any { "from_city=Баймаҡ" in it && "to_city=Сибай" in it } }
@@ -132,6 +153,7 @@ class FindRideButtonTest {
         }
         compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
 
+        waitForPopularRoute()
         compose.onNodeWithText("Найти попутку").performClick()
         waitFor("выбранный популярный маршрут") {
             nearRequests().any { "from_city=Баймаҡ" in it && "to_city=Сибай" in it }
@@ -144,6 +166,56 @@ class FindRideButtonTest {
             nearRequests().drop(beforeReset).any { "from_city=" !in it && "to_city=" !in it }
         }
         compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
+    }
+
+    // Обычное высокое окно оставляет шапку закреплённой: здесь проверяем порядок ответов,
+    // а не удаление шапки из композиции при прокрутке компактного экрана.
+    @Test @Config(qualifiers = "w411dp-h891dp")
+    fun delayedPopularRouteSeparatesEarlyUnfilteredSearchFromReadyRouteSearch() {
+        val releasePopular = CountDownLatch(1)
+        popularResponseGate = releasePopular
+        // Только этот сценарий сам удерживает HTTP-ответ до проверки раннего клика.
+        // Это не проверка сетевого тайм-аута: UI-ожидания остаются прежними, 15 секунд.
+        ApiClient.testTimeoutMs = 60_000
+        val activeTrip = Ride(
+            id = "101", from = "Уфа", to = "Белорецк", time = "18:00",
+            driver = "Тестовый водитель", car = "Авто", price = 0, seats = 1,
+            rating = 5.0, verified = true, boosted = false,
+        )
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                MapScreen(
+                    rides = emptyList(), activeTrip = activeTrip, ads = emptyList(), adStats = emptyMap(),
+                    onBookRide = {}, onShareRide = {}, onAdImpression = {}, onAdClick = {}, onSos = {},
+                    onDriver = {}, onBoost = {}, onClinicRides = {},
+                )
+            }
+        }
+        waitFor("активная поездка загрузилась, популярный маршрут ещё удерживается сервером") {
+            requests.any { it == "GET /popular-routes" } &&
+                nearRequests().any { "from_city=Уфа" in it && "to_city=Белорецк" in it }
+        }
+        compose.onAllNodesWithText("Баймаҡ → Сибай").assertCountEquals(0)
+
+        val beforeEarlyClick = nearRequests().size
+        compose.onNodeWithText("Найти попутку").performClick()
+        waitFor("клик до появления маршрута открывает всю ленту") {
+            nearRequests().drop(beforeEarlyClick).any { "from_city=" !in it && "to_city=" !in it }
+        }
+        println("CONTROLLED_EARLY_CLICK=${nearRequests().drop(beforeEarlyClick)}")
+
+        releasePopular.countDown()
+        waitForPopularRoute()
+        assertTrue("поздняя карточка не меняет уже выполненный поиск: ${nearRequests()}",
+            nearRequests().none { "from_city=Баймаҡ" in it || "to_city=Сибай" in it })
+
+        val beforeReadyClick = nearRequests().size
+        compose.onNodeWithText("Найти попутку").performClick()
+        waitFor("клик после появления маршрута сужает ленту") {
+            nearRequests().drop(beforeReadyClick).any { "from_city=Баймаҡ" in it && "to_city=Сибай" in it }
+        }
+        println("CONTROLLED_READY_CLICK=${nearRequests().drop(beforeReadyClick)}")
+        compose.onNodeWithText("Все маршруты").assertIsDisplayed()
     }
 
 }
