@@ -24,6 +24,8 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** PATH-01: real protected action, login form and HTTP; no injected successful login. */
 @RunWith(RobolectricTestRunner::class)
@@ -39,11 +41,13 @@ class ProtectedActionLoginJourneyTest {
     private lateinit var server: MockWebServer
     private lateinit var vm: YuldashViewModel
     private var rejectFirstCode = false
+    private var loginMethodsGate: CountDownLatch? = null
 
     @Before fun setup() {
         val context: Context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE).edit().clear()
             .putBoolean("onboarding_completed", true).commit()
+        context.getSharedPreferences("login_methods", Context.MODE_PRIVATE).edit().clear().commit()
         ApiClient.resetForTest()
         TelegramLoginBot.testName = "yuldash_test_bot"
         server = MockWebServer().apply {
@@ -52,6 +56,10 @@ class ProtectedActionLoginJourneyTest {
                     val path = request.path?.substringBefore('?')
                     requests.add("${request.method} $path" to request.getHeader("Authorization"))
                     return when (path) {
+                        "/config/login-methods" -> {
+                            loginMethodsGate?.let { assertTrue("release login methods response", it.await(30, TimeUnit.SECONDS)) }
+                            json("""{"methods":["telegram"]}""")
+                        }
                         "/auth/tg/start" -> json("""{"request_id":"synthetic-request"}""")
                         "/auth/tg/verify" -> {
                             verificationBodies.add(request.body.readUtf8())
@@ -80,6 +88,7 @@ class ProtectedActionLoginJourneyTest {
     }
 
     @After fun cleanup() {
+        loginMethodsGate?.countDown()
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
         owner.viewModelStore.clear()
@@ -87,10 +96,12 @@ class ProtectedActionLoginJourneyTest {
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         TelegramLoginBot.testName = null
+        val context: Context = ApplicationProvider.getApplicationContext()
+        context.getSharedPreferences("login_methods", Context.MODE_PRIVATE).edit().clear().commit()
         server.shutdown()
     }
 
-    private fun mountAndRequestPlaces() {
+    private fun mountAndRequestPlaces(beforeLoginReady: (() -> Unit)? = null) {
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
                 YuldashTheme {
@@ -105,6 +116,12 @@ class ProtectedActionLoginJourneyTest {
         compose.waitUntil(15_000) { settle(); vm.screen.value == Screen.Login }
         assertFalse(ApiClient.isLoggedIn())
         assertFalse(requests.any { it.first == "GET /places/saved" })
+        beforeLoginReady?.invoke()
+        compose.waitUntil(15_000) {
+            settle(); compose.onAllNodesWithTag(TAG_LOGIN_TELEGRAM_BTN).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.waitForIdle()
+        compose.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertIsEnabled()
         compose.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).performScrollTo().performClick()
         awaitText("Код из Telegram")
         compose.onNodeWithText("Код из Telegram").performTextInput("123456")
@@ -112,6 +129,23 @@ class ProtectedActionLoginJourneyTest {
 
     @Test fun protectedDestinationSurvivesRealTelegramLogin() {
         mountAndRequestPlaces()
+        compose.onNodeWithTag(TAG_LOGIN_TG_VERIFY_BTN).performScrollTo().performClick()
+        assertResumedPlaces(1)
+    }
+
+    @Test fun protectedDestinationWaitsForDelayedMethodsWithEmptyCache() {
+        val context: Context = ApplicationProvider.getApplicationContext()
+        LoginMethods.save(context, emptyList())
+        val release = CountDownLatch(1)
+        loginMethodsGate = release
+        // Только новый сценарий сам удерживает HTTP-ответ. Это не проверка сетевого
+        // тайм-аута: прежние ожидания UI остаются 15 секунд, teardown всегда снимает gate.
+        ApiClient.testTimeoutMs = 30_000
+        mountAndRequestPlaces {
+            compose.waitUntil(15_000) { settle(); requests.any { it.first == "GET /config/login-methods" } }
+            compose.onAllNodesWithTag(TAG_LOGIN_TELEGRAM_BTN).assertCountEquals(0)
+            release.countDown()
+        }
         compose.onNodeWithTag(TAG_LOGIN_TG_VERIFY_BTN).performScrollTo().performClick()
         assertResumedPlaces(1)
     }
@@ -152,6 +186,7 @@ class ProtectedActionLoginJourneyTest {
             assertEquals("123456", JSONObject(it).getString("code"))
         }
         assertEquals(1, requests.count { it.first == "POST /auth/tg/start" })
+        assertTrue("login methods must come from the test server", requests.any { it.first == "GET /config/login-methods" })
     }
 
     private fun settle() {

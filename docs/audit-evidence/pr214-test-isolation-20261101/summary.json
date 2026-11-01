@@ -1,0 +1,36 @@
+{
+  "base214": "3d8a62ca390aa680d882c08c4f9b74e20bf92db8",
+  "base213": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+  "pr215": "29b05c0163498c35acd1007fea47f05f7092047c",
+  "main": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+  "branch": "codex/pr214-test-isolation-20261101",
+  "original_full_ride_test_sha256": "9560a69acb2c7d3c042fd57d1df512fa31cd7f9d4e656fe9ebdf09f981fb1a38",
+  "original_protected_action_test_sha256": "7336cd7a5667b198b7d6ecab69ba02dae01878a4c530eca69331c78fbebd16dd",
+  "checks": {
+    "original_clean_postgres": "PASS",
+    "original_crowded_postgres": "expected FAIL: new free ride is on next page, first page has 200 entries",
+    "fixed_targeted_postgres": "22 passed, exit 0",
+    "seat_filter_mutation": "2 expected failures, exit 1; separate temporary copy, production files unchanged",
+    "pwa_node22": "138 suites PASS, build PASS on unmodified PR214",
+    "pwa_login_methods": "38 PASS on unmodified PR214",
+    "pwa_login_publication": "23 PASS on unmodified PR214",
+    "pr215_config_node22": "3 PASS on unmodified PR215",
+    "pr215_findride_patch_applicability": "git apply --check PASS; NOT applied",
+    "full_postgres_cov85": "RUNNING",
+    "android": "NOT_EXECUTED: Gradle wrapper bootstrap failed before compilation; UnknownHostException services.gradle.org"
+  },
+  "environment": {
+    "node": "v22.23.4",
+    "python": "3.12.14",
+    "postgres": "16",
+    "java": "21.0.12.1",
+    "android_sdk": "not found in accessible standard paths",
+    "protected_sdk_probe": {
+      "action": "stat /root/Android/Sdk",
+      "status": "DENIED",
+      "reason": "PermissionError: [Errno 13] Permission denied",
+      "retried": false
+    }
+  },
+  "scope": "Only new test isolation/readiness fixes. Original product P2 fixes belong to PR214. No production code, original RS01A, main, courier plan, remote branches, PRs or comments changed. No push."
+}
