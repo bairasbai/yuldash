@@ -73,6 +73,10 @@ internal fun seatsOnSpan(ride: Ride, pickup: String?, dropoff: String?): Int? {
     return ride.seatsByLeg.subList(a, b).minOrNull()
 }
 
+/** D7: цены попутки хранятся в целых рублях — один проверяемый адаптер до общего
+ *  форматтера копеек (такси/курьер не трогаем, их суммы уже в копейках). */
+internal fun rideshareRubToKop(rub: Int): Int = rub * 100
+
 /** RS-02 Б: цена на карточке ленты — участка («200 ₽ за место»), а при ценах остановок
  *  без однозначного участка — честное «Цена зависит от участка» вместо полной суммы. */
 @androidx.compose.runtime.Composable

@@ -456,7 +456,10 @@ internal fun BookingScreen(
     BookingPendingRefresh(bookingId, bookingPending, details?.status, detailsSession) { detailsReload++ }
     val bookingCancelled = bookingId != null && normalizedBookingStatus == "cancelled"
     var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
-    val canCreateBooking = bookingId == null && displayRide.seats > 0
+    // RS-02 А: решение о брони — по СВОЕМУ участку, а не по всему пути (трое до Ургазы
+    // не закрывают Булату Ургаза→Акъяр: seats_left=0, а на его звене места есть).
+    val segmentSeats = seatsOnSpan(displayRide, pickupStop, dropoffStop) ?: displayRide.seats
+    val canCreateBooking = bookingId == null && segmentSeats > 0
     val primaryLabel = when {
         bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")
         bookingId == null -> bookSeatsLabel(selectedSeats)
@@ -465,7 +468,7 @@ internal fun BookingScreen(
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = if (bookingId == null) canCreateBooking && canBookSeats(ride.seats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)
+    val primaryEnabled = if (bookingId == null) canCreateBooking && canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)
         else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip)
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
@@ -520,7 +523,7 @@ internal fun BookingScreen(
                 primaryIcon = primaryIcon,
                 onMessage = onMessage,
                 onPrimary = {
-                    if (bookingBusy || (bookingId == null && (selectedSeats !in 1..ride.seats || rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop)))) return@BookingDecisionBar
+                    if (bookingBusy || (bookingId == null && (selectedSeats !in 1..segmentSeats || rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop)))) return@BookingDecisionBar
                     when {
                         bookingPending -> showCancelConfirmation = true
                         bookingCancelled -> onFindAnotherRide()

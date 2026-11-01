@@ -136,7 +136,7 @@ export default function CreateRideScreen() {
   useDraftSync(
     RIDE_DRAFT,
     { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup,
-      receiverName, parcelSize, waypoints, backMaxTwo, frontSeatAvailable },
+      receiverName, parcelSize, waypoints, backMaxTwo, frontSeatAvailable, stopPricesOn, stopPriceValues },
     (d) => {
       if (d.from) setFrom(d.from);
       if (d.to) setTo(d.to);
@@ -154,6 +154,9 @@ export default function CreateRideScreen() {
       if (d.pickup) setPickup(d.pickup);
       if (typeof d.backMaxTwo === "boolean") setBackMaxTwo(d.backMaxTwo);
       if (typeof d.frontSeatAvailable === "boolean") setFrontSeatAvailable(d.frontSeatAvailable);
+      // RS-02 Б: вписанные цены остановок тоже переживают выгрузку вкладки.
+      if (typeof d.stopPricesOn === "boolean") setStopPricesOn(d.stopPricesOn);
+      if (Array.isArray(d.stopPriceValues)) setStopPriceValues(d.stopPriceValues.map(String));
     }
   );
   const [done, setDone] = useState(false);
