@@ -115,9 +115,14 @@ class PayOnlineCardTest {
         }
         var payments = 0
         render(25_000) { payments++; Result.success(PayTripResultDto("paid", it, null, null)) }
-        compose.waitUntil(5_000) { OnlinePayGate.unavailable }
+        compose.waitUntil(5_000) {
+            OnlinePayGate.unavailable || compose.onAllNodesWithTag("pay_online_retry").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("pay_online_submit").assertDoesNotExist()
         assertEquals(0, payments)
+        // A 503 from the availability read is retryable; only a confirmed off/pay denial is sticky.
+        compose.onNodeWithTag("pay_online_retry").assertExists()
+        org.junit.Assert.assertFalse(OnlinePayGate.unavailable)
     }
 
     @Test fun paymentStaysHiddenUntilTheServerExplicitlyAllowsIt() {
