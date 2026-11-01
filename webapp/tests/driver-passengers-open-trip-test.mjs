@@ -29,7 +29,7 @@ async function open(lang, rows = ROWS) {
   const DriverPassengers = await bundleComponent("src/components/DriverPassengers.tsx", {
     mocks: {
       "/i18n/lang": langMock(lang),
-      "/api/bookings": `export const fetchDriverBookings=async()=>globalThis.__dpRows;export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
+      "/api/bookings": `export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=async()=>globalThis.__dpRows;export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
       "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`,
     },
   });
@@ -176,7 +176,7 @@ await t.test("только завершённые — раздела «Едут 
 // Два настоящих компонента остаются смонтированы. Стенд переключает их hook-контексты
 // и передаёт новые props, как React: повторного входа в кабинет/пересоздания child нет.
 const CABINET_BOOKINGS = `import { ApiError } from "../api/client";
-  export const fetchDriverBookings=async(signal)=>{globalThis.__cabReads++;return globalThis.__cabRows.map(r=>({...r}));};
+  export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=async(signal)=>{globalThis.__cabReads++;return globalThis.__cabRows.map(r=>({...r}));};
   const change=(action,id,status)=>{globalThis.__cabWrites.push([action,id]);if(globalThis.__cabFail===action)throw new ApiError(500,"Сервер устал");
     const booking=globalThis.__cabRows.find(r=>r.booking_id===id);
     if(action==="reject"&&booking)globalThis.__cabRides=globalThis.__cabRides.map(r=>r.id===booking.ride_id?{...r,seats_left:Math.min(r.seats_total,r.seats_left+(booking.seats??1))}:r);
@@ -358,7 +358,7 @@ await t.test("перечитывание отменяет прошлый зап�
   globalThis.__cabPendingLoads = [];
   const Passengers = await bundleComponent("src/components/DriverPassengers.tsx", { mocks: {
     "/i18n/lang": langMock("ru"), "/api/client": CABINET_CLIENT,
-    "/api/bookings": `export const fetchDriverBookings=signal=>new Promise(resolve=>globalThis.__cabPendingLoads.push({signal,resolve}));
+    "/api/bookings": `export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=signal=>new Promise(resolve=>globalThis.__cabPendingLoads.push({signal,resolve}));
       export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
   } });
   const h = mount(Passengers, { onOpenTrip() {}, reloadKey: 0 }); h.render();

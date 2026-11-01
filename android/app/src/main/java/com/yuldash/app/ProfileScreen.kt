@@ -1605,6 +1605,13 @@ internal fun DriverCabinetScreen(
             onRetryRides = { ridesReload++ },
             driverBookings = driverBookings,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
+            // RS-03 Б: ответ на предложение места → CAS на сервере → перечитать кабинет.
+            onAnswerMeeting = { bid, pid, ver, accept ->
+                rateScope.launch {
+                    ApiClient.answerMeetingPoint(bid, pid, ver, accept)
+                    bookingsReload++
+                }
+            },
             debt = debt,
             debtPaying = debtPaying,
             onDeclareDebtPaid = onDeclarePaid@{
@@ -2898,6 +2905,8 @@ internal fun DriverCabinetContent(
     onRetryArchive: () -> Unit = {},
     onConfirmBooking: (Int) -> Unit = {},   // F2: подтвердить бронь (id) — пассажиру откроются телефон/точка
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
+    // RS-03 Б: ответ водителя на предложение места (bookingId, proposalId, версия, принять?).
+    onAnswerMeeting: (Int, String, Int, Boolean) -> Unit = { _, _, _, _ -> },
     onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
     onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
     // id, цена, текст, «сзади двое», «переднее», цены остановок (RS-02 Б), версия условий; null — не менялось
@@ -3223,6 +3232,7 @@ internal fun DriverCabinetContent(
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
                         BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
+                        PassengerMeetingPoint(b)   // RS-03 А: «место указано» — водитель знает до подтверждения
                         if (b.seats > 0) {
                             Text(   // RS-02 А: сколько мест и за сколько — видно ДО подтверждения («1 место · 300 ₽»).
                                 appText("${b.seats} ${pluralRu(b.seats, "место", "места", "мест")} · ${b.price} ₽",
@@ -3260,6 +3270,17 @@ internal fun DriverCabinetContent(
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
+                        // RS-03 Б: пассажир предлагает другое место — ответ водителя (CAS по версии,
+                        // затем кабинет перечитывается уже с настоящим состоянием).
+                        var proposalAnswering by remember(b.bookingId) { mutableStateOf(false) }
+                        DriverMeetingProposal(b, busy = proposalAnswering, onAnswer = { accept ->
+                            val prop = b.meetingProposal
+                            if (prop != null && !proposalAnswering) {
+                                proposalAnswering = true
+                                onAnswerMeeting(b.bookingId, prop.proposalId, b.meetingVersion, accept)
+                                proposalAnswering = false
+                            }
+                        })
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // Посадку отмечает водитель: «Сел» рядом с «Не пришёл» (срок от сервера; на поездке с остановками сначала «Подъезжаю»), «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
                         DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt)

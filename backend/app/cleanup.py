@@ -14,7 +14,7 @@ import sys
 import time
 from datetime import timedelta
 
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from .config import settings
 from .db import engine
@@ -890,6 +890,58 @@ def _clean_stale_presence() -> None:
         print(f"  presence: пропуск ({type(e).__name__}: {e})")
 
 
+def scrub_meeting_points(now=None) -> int:
+    """RS-03 А: стирает точные точки встречи/высадки у броней — личные данные живут недолго.
+
+    Кого трогаем (обнуляем meet_*/alight_*/meet_proposal; счётчики версий — не личные данные):
+    • отменённая без подтверждения (confirmed_at IS NULL) — в ближайшую ночь;
+    • done/cancelled — когда ride.depart_at старше `meeting_point_keep_days` (D9: от выезда —
+      бронь, завершённая позже выезда, всё равно чистится от даты выезда), через JOIN ride.
+    Кого НЕ трогаем: открытый SOS по брони, живой разбор (Incident не resolved/closed),
+    жалоба new/reviewing — точка нужна разбору.
+    Пачками по 2000 (короткие транзакции). Сухой прогон — только счёт. Возврат — число строк."""
+    now = now or utcnow()
+    cut = now - timedelta(days=settings.meeting_point_keep_days)
+    # Открытые дела по брони: SOS открыт, инцидент не закрыт, жалоба в разборе.
+    blocked_sql = (
+        "EXISTS (SELECT 1 FROM sosevent s WHERE s.booking_id = booking.id AND s.status = 'open') "
+        "OR EXISTS (SELECT 1 FROM incident i WHERE i.booking_id = booking.id "
+        "           AND i.status NOT IN ('resolved', 'closed')) "
+        "OR EXISTS (SELECT 1 FROM report rp WHERE rp.booking_id = booking.id "
+        "           AND rp.status IN ('new', 'reviewing'))"
+    )
+    has_point = ("meet_lat IS NOT NULL OR meet_note != '' OR meet_landmark_id IS NOT NULL "
+                 "OR alight_lat IS NOT NULL OR alight_note != '' OR alight_landmark_id IS NOT NULL "
+                 "OR meet_proposal != ''")
+    where = (
+        f"({has_point}) AND NOT ({blocked_sql}) AND ("
+        "(status = 'cancelled' AND confirmed_at IS NULL) "
+        "OR (status IN ('done', 'cancelled') AND EXISTS ("
+        "  SELECT 1 FROM ride r WHERE r.id = booking.ride_id AND r.depart_at < :cut)))"
+    )
+    if DRY:
+        with engine.begin() as conn:
+            return int(conn.execute(text(f"SELECT count(*) FROM booking WHERE {where}"),
+                                    {"cut": cut}).scalar() or 0)
+    total = 0
+    wipe = text(
+        "UPDATE booking SET meet_lat=NULL, meet_lng=NULL, alight_lat=NULL, alight_lng=NULL, "
+        "meet_note='', alight_note='', meet_landmark_id=NULL, alight_landmark_id=NULL, "
+        "meet_proposal='' WHERE id IN :ids"
+    ).bindparams(bindparam("ids", expanding=True))
+    while True:
+        with engine.begin() as conn:
+            ids = [r[0] for r in conn.execute(
+                text(f"SELECT id FROM booking WHERE {where} LIMIT 2000"), {"cut": cut}).all()]
+            if not ids:
+                break
+            conn.execute(wipe, {"ids": ids})
+            total += len(ids)
+            if len(ids) < 2000:
+                break
+    return total
+
+
 def main():
     now = utcnow()
     mode = "СУХОЙ ПРОГОН (ничего не удаляется)" if DRY else "РЕАЛЬНАЯ чистка"
@@ -914,6 +966,13 @@ def main():
     _clean_media()
     _clean_carphoto()
     _clean_stale_presence()
+    # RS-03 А: точные точки встречи/высадки — личные данные со сроком (30 дней от выезда,
+    # отменённая без подтверждения — в эту же ночь). В сухом прогоне — только счёт.
+    try:
+        n = scrub_meeting_points(now)
+        print(f"  точки встречи броней: {'стёрлось бы' if DRY else 'стёрто'} {n}")
+    except Exception as ex:  # noqa: BLE001 — не роняем всю чистку
+        print(f"  точки встречи броней: ОШИБКА {type(ex).__name__}: {ex}")
     # Прошедшие поездки: не удаляем, а закрываем — иначе висят active вечно (см. выше).
     if DRY:
         print("  прошедшие поездки: в сухом прогоне не трогаем")

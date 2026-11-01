@@ -32,7 +32,8 @@ const mocks = {
     export const fetchBookingDetails=(id,signal)=>h().details(id,signal);
     export const fetchTripState=async()=>({role:h().role,status:"confirmed",driver_phase:"departed"});
     export const fetchBoardingCode=async()=>({code:"1234"});
-    export const rateBooking=async()=>({}),ratingTags=()=>[],setPayAgreement=async()=>({});`,
+    export const rateBooking=async()=>({}),ratingTags=()=>[],setPayAgreement=async()=>({});
+    export const proposeMeetingPoint=async()=>({}),withdrawMeetingPoint=async()=>({}),answerMeetingPoint=async()=>({});`,
   medical: `export const fetchMedicalPartners=async()=>[{id:8,name:"Клиника",city:"Уфа"}];export const fetchClinicRides=async()=>({items:[globalThis.__ownBookingsHarness.ride,{...globalThis.__ownBookingsHarness.ride,id:43,front_seat_taken:false}]});`,
   // RS-02 В: RideSheet обновляет условия после 409 через fetchRide — на этом стенде её нет.
   rides: `export const fetchRide=async()=>{throw new Error("no ride refresh in this harness")};`,
@@ -43,6 +44,8 @@ const mocks = {
   states: `export const LoadingList="loading",ErrorState="retry";`,
   header: `export const SubHeader="header";`,
   map: `export default "map";`,
+  // RS-03 А: справочник ориентиров сёл — сеть в наборе не ходит (MeetingPointPicker ловит и пустой список).
+  geo: `export const fetchPickupPoints=async()=>[]; export const fetchDistricts=async()=>[]; export const fetchPopularRoutes=async()=>[]; export const fetchSettlements=async()=>[];`,
   status: `export const StatusPill="status";`,
   partner: `export const PartnerAdSlot="ad";`,
   pass: `export const loadTripPass=()=>null,loadOfflineTripPass=()=>null,saveTripPass=()=>false,saveVerifiedTripPass=()=>{},dropTripPass=()=>{},clearTripPassBoardingCode=()=>{},tripPassStage=()=>'confirmed';`,
@@ -68,10 +71,10 @@ const mocks = {
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
 const suffixes = {
-  "/api/client":"client", "/api/bookings":"bookings", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
+  "/api/client":"client", "/api/bookings":"bookings", "/api/geo":"geo", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
   "/features":"features", "/ComingSoon":"soon",
   "/analytics":"analytics", "/cabinetUi":"cabinet", "/Icons":"icons", "/components/States":"states",
-  "/ConsentsScreen":"header", "/components/YandexMap":"map", "/components/StatusPill":"status",
+  "/ConsentsScreen":"header", "/YandexMap":"map", "/components/StatusPill":"status",
   "/components/PartnerAd":"partner", "/utils/tripPass":"pass", "/utils/offlineTripPass":"pass", "/api/driver":"driver", "/api/chat":"chat",
   "/api/safety":"safety", "/utils/winterCheck.js":"winter", "/utils/useVisibleInterval":"interval",
   "/components/WeatherWarningCard":"weather", "/components/RoadsideHelp":"roadside",

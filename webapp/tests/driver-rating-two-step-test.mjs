@@ -26,7 +26,7 @@ async function open(lang, rows = [{ ...fresh }, { ...rated }]) {
       // ApiError — из той же заглушки клиента, что видит экран: класс из сборки другого языка
       // экран не узнал бы (instanceof), и вместо текста сервера показал бы запасную фразу.
       "/api/bookings": `import { ApiError } from "../api/client";
-        export const fetchDriverBookings=async()=>{globalThis.__loads=(globalThis.__loads??0)+1;return globalThis.__dpRows.map(r=>({...r}));};
+        export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=async()=>{globalThis.__loads=(globalThis.__loads??0)+1;return globalThis.__dpRows.map(r=>({...r}));};
         export const markNoShow=async()=>({});
         export const markArriving=async()=>({});
         export const rateBooking=async(id,n)=>{globalThis.__rated.push([id,n]);if(globalThis.__rateHold)await globalThis.__rateHold;

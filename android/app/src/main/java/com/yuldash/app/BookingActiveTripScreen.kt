@@ -272,6 +272,7 @@ import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.MeetingPointInput
 import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
@@ -313,6 +314,9 @@ internal fun BookingScreen(
     pickupStop: String? = ride?.let(::initialPickupStop), onPickupStopChange: (String) -> Unit = {},
     dropoffStop: String? = ride?.let(::initialDropoffStop), onDropoffStopChange: (String) -> Unit = {},
     selectedSeats: Int = 1, onSeatsChange: (Int) -> Unit = {}, bookingBusy: Boolean = false,
+    // RS-03 А: точное место встречи/высадки по желанию (состояние — наверху, экран рисует).
+    meetPickup: MeetingPointInput? = null, onMeetPickupChange: (MeetingPointInput) -> Unit = {},
+    meetDropoff: MeetingPointInput? = null, onMeetDropoffChange: (MeetingPointInput) -> Unit = {},
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -368,7 +372,9 @@ internal fun BookingScreen(
                 if (loaded.status.isNotBlank()) statusChanged(loaded.status)
                 // F11: как только бронь подтверждена (телефон/встреча открыты) — сохраняем офлайн-паспорт.
                 // Так экран активной поездки поднимет данные без сети на трассе без связи.
-                if (loaded.contactUnlocked && loaded.status in CONTACT_STATUSES) {
+                // Только ПАССАЖИРУ (RS-03 А): паспорт с кодом посадки — его документ, на устройстве
+                // водителя он чужой файл (план RS-03, Android п.1).
+                if (loaded.contactUnlocked && loaded.role == "passenger" && loaded.status in CONTACT_STATUSES) {
                     offlineSaveBusy = true
                     offlineSaveFailed = !saveTripPass(context, loaded, session)
                     offlineSaveBusy = false
@@ -376,6 +382,40 @@ internal fun BookingScreen(
             }
             .onFailure { detailsError = true }
         detailsLoading = false
+    }
+    // RS-03 Б: смена/предложение места и отзыв — команды из карточки, CAS по версии деталей.
+    // Условия уехали (409 stale) — просто перечитываем детали: человек подтверждает уже новые.
+    val meetingScope = rememberCoroutineScope()
+    var meetingBusy by remember(bookingId) { mutableStateOf(false) }
+    val meetingFailText = appText("Не получилось изменить место. Повторить?", "Урынды үҙгәртеп булманы. Ҡабатлайынмы?")
+    val onProposeMeeting: (String, MeetingPointInput) -> Unit = { kind, point ->
+        val bid = bookingId; val ver = details?.meetingVersion ?: 0; val session = detailsSession
+        if (bid != null && !meetingBusy && session == ApiClient.queueSessionGeneration()) {
+            meetingBusy = true
+            meetingScope.launch {
+                ApiClient.proposeMeetingPoint(bid, kind, point, ver)
+                    .onSuccess { if (session == ApiClient.queueSessionGeneration()) detailsReload++ }
+                    .onFailure { e ->
+                        if (session == ApiClient.queueSessionGeneration()) {
+                            Toast.makeText(context, (e as? ApiException)?.message ?: meetingFailText, Toast.LENGTH_LONG).show()
+                            if ((e as? ApiException)?.detailCode == "meeting_point_stale") detailsReload++
+                        }
+                    }
+                meetingBusy = false
+            }
+        }
+    }
+    val onWithdrawMeeting: () -> Unit = {
+        val bid = bookingId; val prop = details?.meetingProposal; val ver = details?.meetingVersion ?: 0; val session = detailsSession
+        if (bid != null && prop != null && !meetingBusy && session == ApiClient.queueSessionGeneration()) {
+            meetingBusy = true
+            meetingScope.launch {
+                ApiClient.withdrawMeetingPoint(bid, prop.proposalId, ver)
+                    .onSuccess { if (session == ApiClient.queueSessionGeneration()) detailsReload++ }
+                    .onFailure { if (session == ApiClient.queueSessionGeneration()) detailsReload++ }
+                meetingBusy = false
+            }
+        }
     }
     LaunchedEffect(bookingId, offlineSaveRetry) {
         if (offlineSaveRetry == 0) return@LaunchedEffect
@@ -657,14 +697,30 @@ internal fun BookingScreen(
             // RS-02 А: сначала участок (от него зависят места и цена), потом число мест.
             pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
             bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
+            // RS-03 А: точное место по желанию — только при создании брони (смена потом — RS-03 Б).
+            if (ride != null && bookingId == null) {
+                item {
+                    BookingMeetingPoints(displayRide, pickupStop, dropoffStop,
+                        meetPickup, onMeetPickupChange, meetDropoff, onMeetDropoffChange,
+                        enabled = !bookingBusy)
+                }
+            }
             item {
+                // RS-03 А: своя точка встречи важнее общего пина поездки (её пассажир и ставил).
                 BookingMeetingCard(
                     contactUnlocked = contactUnlocked,
                     bookingExists = bookingId != null,
-                    exactPickup = exactPickup,
-                    pickupLat = pickupLat,
-                    pickupLng = pickupLng,
+                    exactPickup = ownMeetingLabel(details) ?: exactPickup,
+                    pickupLat = details?.meetLat ?: pickupLat,
+                    pickupLng = details?.meetLng ?: pickupLng,
                 )
+            }
+            // RS-03 Б: смена/предложение места и отзыв — у живой брони пассажира.
+            if (details != null && bookingId != null) {
+                item {
+                    BookingMeetingActions(details!!, displayRide, busy = bookingBusy,
+                        onPropose = onProposeMeeting, onWithdraw = onWithdrawMeeting)
+                }
             }
             item {
                 // Кнопка звонка появляется не сразу. Без объяснения это читается как поломка,

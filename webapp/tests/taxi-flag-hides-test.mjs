@@ -85,7 +85,7 @@ const DRIVER = {
     export const setDriverOnline=async()=>({});export const setDriverGender=async()=>({});export const setTipsSbp=async()=>({});
     export const fetchRideTips=async()=>({});export const createSchedule=async()=>({});export const deleteSchedule=async()=>({});
     export const cancelRide=async()=>({});export const completeRide=async()=>({});`,
-  "/api/bookings": `export const fetchDriverBookings=async()=>[];export const cancelBooking=async()=>({});export const confirmBooking=async()=>({});`,
+  "/api/bookings": `export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=async()=>[];export const cancelBooking=async()=>({});export const confirmBooking=async()=>({});`,
   "/auth/AuthProvider": `export const useAuth=()=>({user:{id:1,rating:4.8}});`,
 };
 for (const taxi of [false, true]) {

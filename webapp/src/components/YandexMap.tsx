@@ -52,6 +52,8 @@ interface YandexMapProps {
   zones?: { lat: number; lng: number; weight: number }[];
   /** Счётчик «вернуться к себе»: изменился — камера едет на `me`/`from`. */
   recenterTick?: number;
+  /** RS-03 А: режим «пин в центре» — карта целится центром, точка уходит по moveend. */
+  onCenterChange?: (p: GeoPoint) => void;
 }
 
 // ---- Одноразовая загрузка скрипта Яндекс.Карт ----
@@ -119,6 +121,7 @@ export default function YandexMap({
   className,
   zones,
   recenterTick = 0,
+  onCenterChange,
 }: YandexMapProps) {
   const { appText } = useLang();
   const boxRef = useRef<HTMLDivElement | null>(null);
@@ -147,6 +150,13 @@ export default function YandexMap({
           { suppressMapOpenBlock: true, yandexMapDisablePoiInteractivity: true }
         );
         setStatus("ready");
+        // RS-03 А: «пин в центре» — после каждого движения отдаём центр карты наружу.
+        if (onCenterChange && mapRef.current) {
+          mapRef.current.events.add("boundschange", () => {
+            const c = mapRef.current?.getCenter?.();
+            if (c) onCenterChange({ lat: c[0], lng: c[1] });
+          });
+        }
       })
       .catch(() => {
         if (!cancelled) setStatus("error");
@@ -315,6 +325,9 @@ export default function YandexMap({
         <div className="map-box__loading" role="status" aria-live="polite">
           <div className="spinner" aria-hidden />
         </div>
+      )}
+      {onCenterChange && status === "ready" && (
+        <div className="map-box__center-pin" aria-hidden>📍</div>
       )}
     </div>
   );

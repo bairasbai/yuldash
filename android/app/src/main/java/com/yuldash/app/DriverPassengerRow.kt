@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
@@ -57,6 +58,105 @@ internal fun PassengerRow(b: DriverBookingDto) {
             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(CanonSpace.xs))
             Text(passengerRatingText(rating), style = CanonBodyStrong, color = CanonText)
+        }
+    }
+    PassengerMeetingPoint(b)
+}
+
+/** RS-03 Б: предложение смены места от пассажира — карточка у водителя.
+ *  «На карте» — предлагаемая точка; «Согласиться» применяет её, «Оставить прежнее» — отклоняет. */
+@Composable
+internal fun DriverMeetingProposal(
+    b: DriverBookingDto,
+    busy: Boolean = false,
+    onAnswer: (accept: Boolean) -> Unit,
+) {
+    val proposal = b.meetingProposal ?: return
+    if (b.status != "confirmed" && b.status != "onboard") return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    Column(Modifier.fillMaxWidth().padding(top = CanonSpace.xs), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+        Text(
+            if (proposal.kind == "dropoff") appText("Пассажир просит высадить в другом месте", "Пассажир башҡа урында төшөрөүҙе һорай")
+            else appText("Пассажир просит встретиться в другом месте", "Пассажир башҡа урында осрашыуҙы һорай"),
+            style = CanonCaption, color = CanonText, fontWeight = FontWeight.Bold,
+        )
+        if (proposal.note.isNotBlank()) Text(proposal.note, style = CanonCaption, color = CanonMuted)
+        if (proposal.lat != null && proposal.lng != null) {
+            val label = appText("Новое место", "Яңы урын")
+            Text(
+                appText("На карте →", "Картала →"),
+                style = CanonCaption, color = CanonGreen2, fontWeight = FontWeight.Bold,
+                modifier = Modifier.heightIn(min = 48.dp).clickable(
+                    onClickLabel = appText("Показать предлагаемое место на карте", "Тәҡдим ителгән урынды картала күрһәтеү"),
+                ) {
+                    val uri = android.net.Uri.parse(
+                        "geo:${proposal.lat},${proposal.lng}?q=${proposal.lat},${proposal.lng}(" + android.net.Uri.encode(label) + ")")
+                    runCatching {
+                        context.startActivity(android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_VIEW, uri), null))
+                    }
+                },
+            )
+        }
+        Row(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Button(
+                onClick = { onAnswer(true) }, enabled = !busy,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                shape = RoundedCornerShape(14.dp),
+                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+            ) { Text(appText("Согласиться", "Ризалашыу"), fontWeight = FontWeight.Bold) }
+            OutlinedButton(
+                onClick = { onAnswer(false) }, enabled = !busy,
+                modifier = Modifier.weight(1f).heightIn(min = 48.dp),
+                shape = RoundedCornerShape(14.dp),
+            ) { Text(appText("Оставить прежнее", "Иҫкене ҡалдырыу"), color = CanonMuted) }
+        }
+    }
+}
+
+/** RS-03 А: точное место встречи/высадки пассажира для водителя.
+ *  До подтверждения — только факт «место указано» (чужая геоточка закрыта); при confirmed/onboard —
+ *  ориентир/пояснение и «Маршрут» в навигатор; после поездки — «место было указано». */
+@Composable
+internal fun PassengerMeetingPoint(b: DriverBookingDto) {
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val isBa = LocalAppLanguage.current == AppLanguage.Ba
+    val open = b.status == "confirmed" || b.status == "onboard"
+    Column(Modifier.fillMaxWidth().padding(top = CanonSpace.xs), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+        if (!open && b.meetingPointSet) {
+            Text(
+                if (b.status == "done" || b.status == "cancelled")
+                    appText("Место было указано", "Урын күрһәтелгәйне")
+                else appText("Место указано — откроется после подтверждения", "Урын күрһәтелгән — раҫлағандан һуң асыла"),
+                style = CanonCaption, color = CanonMuted,
+            )
+        }
+        if (open) {
+            val lmMeet = if (isBa) b.meetLandmarkBa.ifBlank { b.meetLandmarkRu } else b.meetLandmarkRu
+            val meetText = listOf(lmMeet, b.meetNote).filter { it.isNotBlank() }.joinToString(" · ")
+            if (meetText.isNotBlank()) Text(meetText, style = CanonCaption, color = CanonText)
+            if (b.meetLat != null && b.meetLng != null) {
+                val label = appText("Место встречи", "Осрашыу урыны")
+                Text(
+                    appText("Маршрут к точке →", "Нөктәгә маршрут →"),
+                    style = CanonCaption, color = CanonGreen2, fontWeight = FontWeight.Bold,
+                    modifier = Modifier.heightIn(min = 48.dp).clickable(
+                        onClickLabel = appText("Маршрут к месту встречи", "Осрашыу урынына маршрут"),
+                    ) {
+                        val uri = android.net.Uri.parse(
+                            "geo:${b.meetLat},${b.meetLng}?q=${b.meetLat},${b.meetLng}(" + android.net.Uri.encode(label) + ")")
+                        runCatching {
+                            context.startActivity(android.content.Intent.createChooser(
+                                android.content.Intent(android.content.Intent.ACTION_VIEW, uri), null))
+                        }
+                    },
+                )
+            }
+            val lmAlight = if (isBa) b.alightLandmarkBa.ifBlank { b.alightLandmarkRu } else b.alightLandmarkRu
+            val alightText = listOf(lmAlight, b.alightNote).filter { it.isNotBlank() }.joinToString(" · ")
+            if (alightText.isNotBlank()) {
+                Text(appText("Высадить: ", "Төшөрөргә: ") + alightText, style = CanonCaption, color = CanonText)
+            }
         }
     }
 }

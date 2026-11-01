@@ -42,6 +42,20 @@ export interface CreateBookingInput {
   expected_price?: number;
   /** RS-02 А: версия условий рейса, которую видел клиент; stale → 409 ride_terms_changed. */
   expected_terms_version?: number;
+  /** RS-03 А: точное место встречи по желанию (точка на карте/курируемый ориентир + пояснение). */
+  meeting?: MeetingPointInput;
+  /** RS-03 А: точное место высадки по желанию. */
+  alighting?: MeetingPointInput;
+}
+
+/** RS-03 А: точка встречи/высадки. lat/lng — булавка на карте; landmark_id — курируемый ориентир;
+ *  note — пояснение ≤120; clear — снять ранее указанное. Пустой объект сервер читает как «нет». */
+export interface MeetingPointInput {
+  lat?: number;
+  lng?: number;
+  note?: string;
+  landmark_id?: number;
+  clear?: boolean;
 }
 
 /** Полная строка брони (ответ POST /bookings). */
@@ -117,6 +131,33 @@ export interface BookingDetails {
    * (по ним родные и полиция ищут машину), телефона водителя нет. Старый сервер — поля нет.
    */
   cancelled_in_transit?: boolean;
+  /**
+   * RS-03 А: точное место встречи/высадки брони. Пассажир видит своё; водитель — только при
+   * confirmed/onboard (и теряет сразу после done/cancelled, даже в окне связи). Иначе null/"".
+   * Имена с meet_/alight_: pickup_* здесь — пин сбора РЕЙСА, не пассажира.
+   */
+  meet_lat?: number | null;
+  meet_lng?: number | null;
+  meet_note?: string;
+  meet_landmark_ru?: string;
+  meet_landmark_ba?: string;
+  alight_lat?: number | null;
+  alight_lng?: number | null;
+  alight_note?: string;
+  alight_landmark_ru?: string;
+  alight_landmark_ba?: string;
+  /** Версия точек/предложения — команды смены места шлют её как base_version (RS-03 Б). */
+  meeting_version?: number;
+  /** Активное предложение смены места (публичные поля, без автора). */
+  meeting_proposal?: MeetingProposal | null;
+}
+
+/** RS-03 Б: предложение смены места, публичный вид. */
+export interface MeetingProposal {
+  proposal_id: string;
+  kind: "pickup" | "dropoff";
+  created_at: string;
+  point: { lat?: number | null; lng?: number | null; note?: string; landmark_id?: number | null; clear?: boolean };
 }
 
 /** Live-состояние поездки (поллинг на активном экране). */
@@ -374,6 +415,27 @@ export interface DriverBookingRow {
   arriving_opens_at?: string | null;
   /** Сколько секунд до `arriving_opens_at` от этого ответа (0 — уже можно). */
   arriving_wait_sec?: number;
+  /**
+   * RS-03 А: точное место встречи/высадки пассажира. Открыто водителю при confirmed/onboard
+   * (для «Маршрута»); при pending — только meeting_point_set; после закрытия — ничего.
+   */
+  meet_lat?: number | null;
+  meet_lng?: number | null;
+  meet_note?: string;
+  meet_landmark_ru?: string;
+  meet_landmark_ba?: string;
+  alight_lat?: number | null;
+  alight_lng?: number | null;
+  alight_note?: string;
+  alight_landmark_ru?: string;
+  alight_landmark_ba?: string;
+  /** Пассажир указал точное место (до подтверждения виден только этот факт). */
+  meeting_point_set?: boolean;
+  /** Есть активное предложение смены места (RS-03 Б). */
+  meeting_proposal_pending?: boolean;
+  /** Активное предложение места (водителю при confirmed/onboard) + версия для CAS. */
+  meeting_proposal?: MeetingProposal | null;
+  meeting_version?: number;
 }
 
 /** Брони на поездки текущего водителя — чтобы оценить пассажиров после поездки. */
@@ -382,6 +444,37 @@ export type DriverBooking = DriverBookingRow;
 
 export function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
   return apiGet<DriverBookingRow[]>("/driver/bookings", { signal });
+}
+
+// ---------- RS-03 Б: смена точного места (CAS по версии; 409 meeting_point_stale — перечитать) ----------
+
+/** Пассажир: изменить/предложить место. pending — сразу; confirmed/onboard — предложение водителю. */
+export function proposeMeetingPoint(
+  bookingId: number, kind: "pickup" | "dropoff", point: MeetingPointInput | null,
+  baseVersion: number, proposalId?: string,
+): Promise<BookingRow & { already?: boolean }> {
+  return apiPost(`/bookings/${bookingId}/meeting-point`, {
+    kind, point: point ?? { clear: true }, base_version: baseVersion,
+    ...(proposalId ? { proposal_id: proposalId } : {}),
+  });
+}
+
+/** Водитель: ответ на предложение места (true — применить, false — прежнее остаётся). */
+export function answerMeetingPoint(
+  bookingId: number, proposalId: string, baseVersion: number, accept: boolean,
+): Promise<BookingRow & { already?: boolean }> {
+  return apiPost(`/bookings/${bookingId}/meeting-point/answer`, {
+    proposal_id: proposalId, base_version: baseVersion, accept,
+  });
+}
+
+/** Пассажир: отозвать своё предложение места. */
+export function withdrawMeetingPoint(
+  bookingId: number, proposalId: string, baseVersion: number,
+): Promise<BookingRow & { already?: boolean }> {
+  return apiPost(`/bookings/${bookingId}/meeting-point/withdraw`, {
+    proposal_id: proposalId, base_version: baseVersion,
+  });
 }
 
 /**

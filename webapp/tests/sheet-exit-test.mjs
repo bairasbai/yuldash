@@ -28,7 +28,7 @@ const Sheet = (
     [/\/api\/bookings$/, `export const createBooking = (body) => (globalThis.__rideExit.calls.push(body), globalThis.__rideExit.booking(body));`],
     [/\/analytics$/, `export const track = () => {};`],
     [/\/utils\/format$/, `export const formatWhen = () => "завтра, 10:00"; export const priceLabel = () => "500 ₽"; export const pluralRu = (n, one) => one;`],
-    [/\/Icons$/, `export const IconArrow = "Icon", IconCheck = "Icon";`],
+    [/\/Icons$/, `export const IconArrow = "Icon", IconCheck = "Icon", IconPin = "Icon";`],
     [/\/BrandIcons$/, `export const YuStar = "Icon", YuWomenOnly = "Icon", YuLuggage = "Icon", YuChildSeat = "Icon";`],
     [/\/SeatOptions$/, `export const FrontSeatChoice = "FrontSeatChoice", SeatBadges = "SeatBadges";`],
   ])
@@ -218,7 +218,7 @@ const Card = (
     [/\/i18n\/lang$/, LANG],
     [/\/adminUi$/, `export const SmallAvatar = "SmallAvatar";`],
     [/\/InviteDriverCallout$/, `export default "InviteDriverCallout";`],
-    [/\/Icons$/, `export const IconBolt = "Icon", IconBox = "Icon", IconCar = "Icon", IconClock = "Icon", IconHospital = "Icon", IconIdCard = "Icon", IconShield = "Icon", IconStar = "Icon";`],
+    [/\/Icons$/, `export const IconBolt = "Icon", IconBox = "Icon", IconCar = "Icon", IconClock = "Icon", IconHospital = "Icon", IconIdCard = "Icon", IconPin = "Icon", IconShield = "Icon", IconStar = "Icon";`],
     [/\/BrandIcons$/, `export const YuRoute = "Icon", YuWomenOnly = "Icon";`],
     [/\/utils\/format$/, `export const pluralRu = (n, one) => one;`],
     [/\/utils\/serverTime$/, `export const serverDate = () => new Date("2030-01-01T08:00:00");`],

@@ -27,6 +27,7 @@ import { useCallback, useEffect, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
+  answerMeetingPoint,
   fetchDriverBookings,
   markArriving,
   markNoShow,
@@ -41,6 +42,99 @@ import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
 import { BookingSegmentNote } from "./PickupStopChoice";
+
+/** RS-03 Б: предложение смены места от пассажира — ответ водителя.
+ *  «Согласиться» применяет точку, «Оставить прежнее» — отклоняет; после ответа кабинет
+ *  перечитывается уже с настоящим состоянием (CAS по версии на сервере). */
+function DriverProposalAnswer({ b, onDone }: { b: DriverBookingRow; onDone: () => void }) {
+  const { appText } = useLang();
+  const [busy, setBusy] = useState(false);
+  const proposal = b.meeting_proposal;
+  if (!proposal || (b.status !== CONFIRMED && b.status !== ONBOARD)) return null;
+  const answer = async (accept: boolean) => {
+    if (busy) return;
+    setBusy(true);
+    try {
+      await answerMeetingPoint(b.booking_id, proposal.proposal_id, b.meeting_version ?? 0, accept);
+    } catch {
+      /* CAS/сеть: перечитываем и показываем настоящее состояние, а не выдуманное. */
+    } finally {
+      setBusy(false);
+      onDone();
+    }
+  };
+  return (
+    <div className="list-row__sub" style={{ display: "grid", gap: 8 }}>
+      <b>
+        {proposal.kind === "dropoff"
+          ? appText("Пассажир просит высадить в другом месте", "Пассажир башҡа урында төшөрөүҙе һорай")
+          : appText("Пассажир просит встретиться в другом месте", "Пассажир башҡа урында осрашыуҙы һорай")}
+      </b>
+      {proposal.point?.note ? <div className="muted">{proposal.point.note}</div> : null}
+      {proposal.point?.lat != null && proposal.point?.lng != null && (
+        <a
+          href={`https://yandex.ru/maps/?rtext=~${proposal.point.lat},${proposal.point.lng}&rtt=auto`}
+          target="_blank" rel="noopener noreferrer"
+          style={{ minHeight: 48, display: "inline-flex", alignItems: "center" }}
+        >
+          {appText("На карте →", "Картала →")}
+        </a>
+      )}
+      <div style={{ display: "flex", gap: 8 }}>
+        <button type="button" className="btn-primary" style={{ minHeight: 48, flex: 1 }} disabled={busy}
+          onClick={() => void answer(true)}>
+          {appText("Согласиться", "Ризалашыу")}
+        </button>
+        <button type="button" className="btn-ghost" style={{ minHeight: 48, flex: 1 }} disabled={busy}
+          onClick={() => void answer(false)}>
+          {appText("Оставить прежнее", "Иҫкене ҡалдырыу")}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** RS-03 А: точное место встречи/высадки пассажира для водителя.
+ *  До подтверждения — только факт «место указано»; при confirmed/onboard — ориентир/пояснение
+ *  и «Маршрут» (Яндекс.Карты); после поездки — «место было указано». */
+function MeetingPointNote({ b }: { b: DriverBookingRow }) {
+  const { appText, lang } = useLang();
+  const open = b.status === CONFIRMED || b.status === ONBOARD;
+  if (!open) {
+    if (!b.meeting_point_set) return null;
+    return (
+      <div className="list-row__sub muted">
+        {b.status === DONE || String(b.status) === "cancelled"
+          ? appText("Место было указано", "Урын күрһәтелгәйне")
+          : appText("Место указано — откроется после подтверждения", "Урын күрһәтелгән — раҫлағандан һуң асыла")}
+      </div>
+    );
+  }
+  const isBa = lang === "ba";
+  const meetParts = [
+    isBa ? (b.meet_landmark_ba || b.meet_landmark_ru || "") : (b.meet_landmark_ru || ""),
+    b.meet_note || "",
+  ].filter(Boolean);
+  const alightParts = [
+    isBa ? (b.alight_landmark_ba || b.alight_landmark_ru || "") : (b.alight_landmark_ru || ""),
+    b.alight_note || "",
+  ].filter(Boolean);
+  return (
+    <div className="list-row__sub">
+      {meetParts.length > 0 && <div>{meetParts.join(" · ")}</div>}
+      {b.meet_lat != null && b.meet_lng != null && (
+        <a
+          href={`https://yandex.ru/maps/?rtext=~${b.meet_lat},${b.meet_lng}&rtt=auto`}
+          target="_blank" rel="noopener noreferrer"
+          style={{ minHeight: 48, display: "inline-flex", alignItems: "center" }}
+        >
+          {appText("Маршрут к точке →", "Нөктәгә маршрут →")}
+        </a>
+      )}
+      {alightParts.length > 0 && <div>{appText("Высадить: ", "Төшөрөргә: ")}{alightParts.join(" · ")}</div>}
+    </div>
+  );
+}
 
 /** Подтверждённая бронь — по ней можно отметить посадку («Сел») или неявку. */
 const CONFIRMED = "confirmed";
@@ -199,6 +293,8 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
         </div>
       )}
       <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
+      <MeetingPointNote b={b} />
+      <DriverProposalAnswer b={b} onDone={reload} />
     </div>
   );
 

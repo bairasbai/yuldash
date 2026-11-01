@@ -255,6 +255,8 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.MeetingPointInput
+import com.yuldash.app.data.MeetingPointInputSaver
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
@@ -1335,6 +1337,9 @@ private fun YuldashAppContent() {
                 var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
                 var pickupStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialPickupStop)) }
                 var dropoffStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialDropoffStop)) }
+                // RS-03 А: точное место встречи/высадки по желанию; сбрасывается со сменой поездки.
+                var meetPickup by rememberSaveable(displayedRide?.id, displayedSession, stateSaver = MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
+                var meetDropoff by rememberSaveable(displayedRide?.id, displayedSession, stateSaver = MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
                 BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
@@ -1384,6 +1389,8 @@ private fun YuldashAppContent() {
                 bookingBusy = bookingInFlight,
                 pickupStop = pickupStop, onPickupStopChange = { pickupStop = it; dropoffStop = displayedRide?.let { ride -> keepValidDropoff(ride, it, dropoffStop) } },
                 dropoffStop = dropoffStop, onDropoffStopChange = { dropoffStop = it },
+                meetPickup = meetPickup, onMeetPickupChange = { meetPickup = it },
+                meetDropoff = meetDropoff, onMeetDropoffChange = { meetDropoff = it },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                     if (!isDisplayedBookingUnchanged()) return@BookingScreen
                     if (!ApiClient.isLoggedIn()) {
@@ -1412,7 +1419,9 @@ private fun YuldashAppContent() {
                                     val result = ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop,
                                         // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
                                         expectedPrice = segmentPriceRub(displayedRide, pickupStop, dropoffStop) ?: displayedRide.price,
-                                        expectedTermsVersion = displayedRide.termsVersion)
+                                        expectedTermsVersion = displayedRide.termsVersion,
+                                        // RS-03 А: точки встречи/высадки по желанию.
+                                        meeting = meetPickup, alighting = meetDropoff)
                                     if (!isDisplayedBookingCurrent()) return@launch
                                     ApiClient.runIfCurrentSession(displayedSession) {
                                         result.onSuccess { booking ->

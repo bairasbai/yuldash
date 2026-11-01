@@ -25,7 +25,7 @@ from ..logs import admin_action, log
 from ..observability import scrub_exc
 from ..models import (
     Ad, Booking, DeviceToken, DriverProfile, InstantOrder, Message, Notification, OtpCode,
-    Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
+    PickupPoint, Rating, RequestResponse, Ride, SosEvent, TgAuth, User, UserRole,
     WebPushSubscription,
 )
 from ..security import (
@@ -1086,6 +1086,14 @@ def _location_summary(session: Session, user_id: int) -> dict[str, int | bool]:
         route_points += int(real_point(order.from_lat, order.from_lng))
         route_points += int(real_point(order.to_lat, order.to_lng))
 
+    # RS-03 А: свои точные точки встречи/высадки у броней — тоже точки поездок этого человека.
+    my_meet_points = int(session.exec(
+        select(func.count()).select_from(Booking).where(
+            Booking.passenger_id == user_id,
+            or_(Booking.meet_lat.is_not(None), Booking.alight_lat.is_not(None)),
+        )
+    ).one())
+
     sos_filter = (SosEvent.user_id == user_id, SosEvent.note.contains(_SOS_MAP_MARKER))
     sos_locations = int(session.exec(
         select(func.count()).select_from(SosEvent).where(*sos_filter)
@@ -1096,9 +1104,9 @@ def _location_summary(session: Session, user_id: int) -> dict[str, int | bool]:
         )
     ).one())
     return {
-        "location_stored": bool(route_points or sos_locations),
+        "location_stored": bool(route_points or sos_locations or my_meet_points),
         "live_location_history_stored": False,
-        "route_location_points": route_points,
+        "route_location_points": route_points + my_meet_points,
         "sos_location_events": sos_locations,
         "open_sos_location_events": open_sos_locations,
     }
@@ -1142,6 +1150,9 @@ def my_data(user: User = Depends(current_user), session: Session = Depends(get_s
         "driver_docs_removable": bool(dp and docs and not dp.online and dp.docs_status != "pending"),
         **_location_summary(session, uid),
         "route_location_points_days": cleanup.TRIP_DAYS,
+        # RS-03 А: свои точки встречи стираются через столько дней после выезда (а отменённая
+        # без подтверждения — в ближайшую ночь) — срок из конфига, не из клиента.
+        "meeting_points_days": settings.meeting_point_keep_days,
         "sos_location_days_from_signal": cleanup.SOS_DAYS,
         "card_stored": False,
     }
@@ -1232,7 +1243,33 @@ def export_my_data(
                 place += "  " + L("высадка", "төшөү") + ": " + b.dropoff_stop
             elif b.dropoff_stop == "":
                 place += "  " + L("высадка: конец маршрута", "төшөү: юлдың аҙағы")
-            out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽{place}")
+            # RS-03 А: своё точное место встречи/высадки — тоже мои данные: пояснение, ориентир
+            # и свои координаты. Чужих точек в файле нет — это брони самого человека.
+            meet_txt = ""
+            if b.meet_note or b.meet_landmark_id is not None or b.meet_lat is not None:
+                bits = []
+                if b.meet_landmark_id is not None:
+                    lm = session.get(PickupPoint, b.meet_landmark_id)
+                    if lm is not None:
+                        bits.append(pick_lang(lang, lm.title_ru, lm.title_ba))
+                if b.meet_note:
+                    bits.append(b.meet_note)
+                if b.meet_lat is not None and b.meet_lng is not None:
+                    bits.append(f"{b.meet_lat:.5f},{b.meet_lng:.5f}")
+                meet_txt = "  " + L("место встречи", "осрашыу урыны") + ": " + ", ".join(bits)
+            alight_txt = ""
+            if b.alight_note or b.alight_landmark_id is not None or b.alight_lat is not None:
+                bits = []
+                if b.alight_landmark_id is not None:
+                    lm = session.get(PickupPoint, b.alight_landmark_id)
+                    if lm is not None:
+                        bits.append(pick_lang(lang, lm.title_ru, lm.title_ba))
+                if b.alight_note:
+                    bits.append(b.alight_note)
+                if b.alight_lat is not None and b.alight_lng is not None:
+                    bits.append(f"{b.alight_lat:.5f},{b.alight_lng:.5f}")
+                alight_txt = "  " + L("место высадки", "төшөү урыны") + ": " + ", ".join(bits)
+            out.append(f"{when}  {route}  {b.seats} " + L("мест", "урын") + f"  {int(b.price or 0)} ₽{place}{meet_txt}{alight_txt}")
         out.append("")
 
     msgs = session.exec(

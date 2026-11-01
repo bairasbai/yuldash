@@ -1080,7 +1080,8 @@ object ApiClient {
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
         expectedPrice: Int? = null, expectedTermsVersion: Long? = null,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion)
+        meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
+    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting)
         .mapCatching { response ->
             val id = response.getInt("id")
             val status = response.getString("status")
@@ -1099,6 +1100,8 @@ object ApiClient {
         // RS-02 А/Б: версия условий и цена участка, которые человек видел перед бронью;
         // несовпадение — 409 ride_terms_changed/price_changed, сервер отвечает с новыми условиями.
         expectedPrice: Int? = null, expectedTermsVersion: Long? = null,
+        // RS-03 А: точки встречи/высадки (по желанию). Не прислали — как раньше.
+        meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
     ): Result<JSONObject> = call(
         "POST", "/bookings",
         JSONObject().put("ride_id", rideId).put("seats", seats)
@@ -1110,6 +1113,8 @@ object ApiClient {
                 if (dropoffStop != null) put("dropoff_stop", dropoffStop)
                 if (expectedPrice != null) put("expected_price", expectedPrice)
                 if (expectedTermsVersion != null) put("expected_terms_version", expectedTermsVersion)
+                if (meeting != null && !meeting.isEmpty) put("meeting", meeting.toJson())
+                if (alighting != null && !alighting.isEmpty) put("alighting", alighting.toJson())
                 if (minorPassenger) {
                     put("minor_passenger", true)
                     put("minor_guardian_name", guardianName)
@@ -1128,6 +1133,43 @@ object ApiClient {
             .put("pay_amount", payAmount ?: JSONObject.NULL),
         auth = true,
     ).map { }
+
+    // ---------- RS-03 Б: смена точного места (CAS по версии; 409 meeting_point_stale — перечитать) ----------
+
+    /** Пассажир: изменить/предложить место. pending — применится сразу; confirmed/onboard —
+     * предложение водителю. clear=true — снять свою точку. proposalId — idempotent повтор своего. */
+    suspend fun proposeMeetingPoint(
+        bookingId: Int, kind: String, point: MeetingPointInput, baseVersion: Int, proposalId: String? = null,
+    ): Result<JSONObject> = call(
+        "POST", "/bookings/$bookingId/meeting-point",
+        JSONObject()
+            .put("kind", kind)
+            .put("point", if (point.clear) JSONObject().put("clear", true) else point.toJson())
+            .put("base_version", baseVersion)
+            .apply { if (proposalId != null) put("proposal_id", proposalId) },
+        auth = true,
+    )
+
+    /** Водитель: ответ на предложение места. accept=true — применить точку; false — прежняя остаётся. */
+    suspend fun answerMeetingPoint(
+        bookingId: Int, proposalId: String, baseVersion: Int, accept: Boolean,
+    ): Result<JSONObject> = call(
+        "POST", "/bookings/$bookingId/meeting-point/answer",
+        JSONObject()
+            .put("proposal_id", proposalId)
+            .put("base_version", baseVersion)
+            .put("accept", accept),
+        auth = true,
+    )
+
+    /** Пассажир: отозвать своё предложение. */
+    suspend fun withdrawMeetingPoint(
+        bookingId: Int, proposalId: String, baseVersion: Int,
+    ): Result<JSONObject> = call(
+        "POST", "/bookings/$bookingId/meeting-point/withdraw",
+        JSONObject().put("proposal_id", proposalId).put("base_version", baseVersion),
+        auth = true,
+    )
 
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =

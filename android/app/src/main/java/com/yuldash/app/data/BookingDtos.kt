@@ -61,6 +61,19 @@ data class BookingDetailsDto(
     val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
     // Отменили, когда пассажир был в машине (23.10.2026): машина и госномер остаются, телефона нет.
     val cancelledInTransit: Boolean = false,
+    // RS-03 А: точное место встречи/высадки. Пассажир видит своё; водитель — при confirmed/onboard;
+    // иначе null/"" — «место указано» без координат. Старый сервер полей не шлёт — дефолты.
+    val meetLat: Double? = null, val meetLng: Double? = null, val meetNote: String = "",
+    val meetLandmarkRu: String = "", val meetLandmarkBa: String = "",
+    val alightLat: Double? = null, val alightLng: Double? = null, val alightNote: String = "",
+    val alightLandmarkRu: String = "", val alightLandmarkBa: String = "",
+    val meetingVersion: Int = 0, val meetingProposal: MeetingProposalDto? = null,
+)
+
+/** RS-03 Б: активное предложение смены места (публичные поля — без автора). */
+data class MeetingProposalDto(
+    val proposalId: String, val kind: String, val createdAt: String,
+    val lat: Double?, val lng: Double?, val note: String, val landmarkId: Int?, val clear: Boolean,
 )
 
 
@@ -122,5 +135,30 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
         cancelledInTransit = o.optBoolean("cancelled_in_transit", false),
+        meetLat = if (o.isNull("meet_lat")) null else o.optDouble("meet_lat"),
+        meetLng = if (o.isNull("meet_lng")) null else o.optDouble("meet_lng"),
+        meetNote = o.optString("meet_note"),
+        meetLandmarkRu = o.optString("meet_landmark_ru"), meetLandmarkBa = o.optString("meet_landmark_ba"),
+        alightLat = if (o.isNull("alight_lat")) null else o.optDouble("alight_lat"),
+        alightLng = if (o.isNull("alight_lng")) null else o.optDouble("alight_lng"),
+        alightNote = o.optString("alight_note"),
+        alightLandmarkRu = o.optString("alight_landmark_ru"), alightLandmarkBa = o.optString("alight_landmark_ba"),
+        meetingVersion = o.optInt("meeting_version", 0),
+        meetingProposal = parseMeetingProposal(o.optJSONObject("meeting_proposal")),
+    )
+}
+
+fun parseMeetingProposal(o: JSONObject?): MeetingProposalDto? {
+    if (o == null) return null
+    val point = o.optJSONObject("point")
+    val id = o.optString("proposal_id")
+    if (id.isBlank()) return null
+    return MeetingProposalDto(
+        proposalId = id, kind = o.optString("kind"), createdAt = o.optString("created_at"),
+        lat = if (point == null || point.isNull("lat")) null else point.optDouble("lat"),
+        lng = if (point == null || point.isNull("lng")) null else point.optDouble("lng"),
+        note = point?.optString("note") ?: "",
+        landmarkId = if (point == null || point.isNull("landmark_id")) null else point.optInt("landmark_id"),
+        clear = point?.optBoolean("clear") ?: false,
     )
 }

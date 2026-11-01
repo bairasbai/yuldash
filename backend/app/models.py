@@ -595,6 +595,27 @@ class Booking(SQLModel, table=True):
     pickup_stop: Optional[str] = None
     # NULL — старый клиент не указал высадку; "" — конец; иначе опубликованная остановка.
     dropoff_stop: Optional[str] = None
+    # Точное место встречи/высадки (RS-03 А). Пассажир по желанию ставит точку на карте или
+    # выбирает курируемый ориентир (landmark, только is_seed) и пишет пояснение («синие ворота
+    # напротив школы»). Водителю открываются только при confirmed/onboard; до подтверждения он
+    # видит лишь «место указано», после done/cancelled — «место было указано» (политика —
+    # meeting_points.booking_public_dto). Координаты никогда в лог/ошибку/пуш/аналитику.
+    # Зачистка — cleanup.scrub_meeting_points: через 30 дней от выезда, отменённая без
+    # подтверждения — в ближайшую ночь; удаление аккаунта стирает с бронью.
+    meet_lat: Optional[float] = None
+    meet_lng: Optional[float] = None
+    alight_lat: Optional[float] = None
+    alight_lng: Optional[float] = None
+    meet_note: str = ""                # пояснение к месту встречи (≤120, модерация open text)
+    alight_note: str = ""              # пояснение к высадке
+    meet_landmark_id: Optional[int] = None    # ориентир из PickupPoint (только is_seed), без FK
+    alight_landmark_id: Optional[int] = None
+    meet_version: int = 0              # версия точек/предложения; каждая запись — CAS по ней
+    # Активное предложение смены места (RS-03 Б): канонический JSON
+    # {proposal_id UUID, kind, point={lat,lng,note,landmark_id,clear}, created_at, author_id}.
+    # Пусто — предложения нет. Публично — только безопасные поля (без author_id).
+    meet_proposal: str = ""
+    meet_changes: int = 0              # прямые смены + новые предложения; потолок config.meeting_point_max_changes
     # Когда поездку закрыл человек: «Завершить» водителя, «Завершил» пассажира, «Завершить рейс».
     # От неё (и от выезда, и от «Сел») считается окно «Сообщить о проблеме» пассажира после поездки
     # (`bookings.problem_report_left`). Ночная уборка не ставит: автозакрытие — не завершение.

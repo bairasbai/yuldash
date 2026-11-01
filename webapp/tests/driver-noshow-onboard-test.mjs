@@ -17,7 +17,7 @@ const modules = {
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props,key)=>({type,props:props??{},key}); export const jsxs=jsx;`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>{if(!ba||!ba.trim())throw new Error('одноязычная строка: '+ru);return ru},t:k=>k});`,
   client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError;`,
-  bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve();`,
+  bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve(); export const answerMeetingPoint=async()=>({});`,
   states: `export const LoadingList='loading';`,
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
   card: `export default 'FileIncidentCard';`,

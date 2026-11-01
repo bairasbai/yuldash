@@ -28,6 +28,15 @@ data class DriverBookingDto(
     // RS-02 А: сколько мест занял пассажир и за сколько (кабинет «кто где садится и за сколько»).
     val seats: Int = 0,
     val price: Int = 0,
+    // RS-03 А: точное место встречи/высадки пассажира. Открыто при confirmed/onboard; иначе
+    // null/"" + meetingPointSet «указано — откроется после подтверждения». Старый сервер — дефолты.
+    val meetLat: Double? = null, val meetLng: Double? = null, val meetNote: String = "",
+    val meetLandmarkRu: String = "", val meetLandmarkBa: String = "",
+    val alightLat: Double? = null, val alightLng: Double? = null, val alightNote: String = "",
+    val alightLandmarkRu: String = "", val alightLandmarkBa: String = "",
+    val meetingPointSet: Boolean = false, val meetingProposalPending: Boolean = false,
+    // RS-03 Б: активное предложение смены места (водителю при confirmed/onboard) + версия для CAS.
+    val meetingProposal: MeetingProposalDto? = null, val meetingVersion: Int = 0,
 )
 
 /** Бронь глазами водителя. */
@@ -51,5 +60,17 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         rideId = o.optInt("ride_id"),
         seats = o.optInt("seats"),
         price = o.optInt("price"),
+        meetLat = if (o.isNull("meet_lat")) null else o.optDouble("meet_lat"),
+        meetLng = if (o.isNull("meet_lng")) null else o.optDouble("meet_lng"),
+        meetNote = o.optString("meet_note"),
+        meetLandmarkRu = o.optString("meet_landmark_ru"), meetLandmarkBa = o.optString("meet_landmark_ba"),
+        alightLat = if (o.isNull("alight_lat")) null else o.optDouble("alight_lat"),
+        alightLng = if (o.isNull("alight_lng")) null else o.optDouble("alight_lng"),
+        alightNote = o.optString("alight_note"),
+        alightLandmarkRu = o.optString("alight_landmark_ru"), alightLandmarkBa = o.optString("alight_landmark_ba"),
+        meetingPointSet = o.optBoolean("meeting_point_set"),
+        meetingProposalPending = o.optBoolean("meeting_proposal_pending"),
+        meetingProposal = parseMeetingProposal(o.optJSONObject("meeting_proposal")),
+        meetingVersion = o.optInt("meeting_version", 0),
     )
 }

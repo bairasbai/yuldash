@@ -211,3 +211,82 @@ def test_every_evidence_field_is_known_to_the_cleaner():
         "чистка не знает про поля со снимками: " + ", ".join(missing) +
         ". Внеси их в _referenced_media_keys, иначе ретеншен удалит живые доказательства."
     )
+
+
+# ── RS-03 А: зачистка точных точек встречи/высадки ──
+
+def _ride_with_booking(s, *, status, depart_days_ago, confirmed=True):
+    """Бронь с точкой встречи на рейсе с выездом N дней назад (отрицательное — в будущем)."""
+    _ride_with_booking.seq = getattr(_ride_with_booking, "seq", 0) + 1
+    u = User(name="MP Clean", phone=f"+7992{_ride_with_booking.seq % 10**7:07d}",
+             role="passenger")
+    s.add(u)
+    s.commit()
+    s.refresh(u)
+    ride = Ride(driver_id=u.id, from_city="Сибай", to_city="Акъяр",
+                depart_at=_old(depart_days_ago) if depart_days_ago >= 0
+                else utcnow() + timedelta(days=-depart_days_ago),
+                status=RideStatus.active)
+    s.add(ride)
+    s.commit()
+    s.refresh(ride)
+    b = Booking(ride_id=ride.id, passenger_id=u.id, status=status,
+                confirmed_at=utcnow() if confirmed else None,
+                meet_lat=52.7, meet_lng=58.6, meet_note="у школы", meet_proposal="")
+    s.add(b)
+    s.commit()
+    s.refresh(b)
+    return b.id
+
+
+def _point_gone(bid: int) -> bool:
+    with Session(engine) as s:
+        b = s.get(Booking, bid)
+        return (b.meet_lat is None and b.meet_note == "" and b.meet_landmark_id is None
+                and b.meet_proposal == "")
+
+
+def test_scrub_meeting_points_cancelled_without_confirm_goes_tonight(client):
+    """Отменённая без подтверждения — точка стирается в ближайшую ночь (без ожидания 30 дней)."""
+    with Session(engine) as s:
+        bid = _ride_with_booking(s, status=BookingStatus.cancelled, depart_days_ago=-5, confirmed=False)
+    assert cleanup.scrub_meeting_points() >= 1
+    assert _point_gone(bid)
+
+
+def test_scrub_meeting_points_done_after_30_days_from_depart_not_earlier(client):
+    """Завершённая — через 30 дней от ВЫЕЗДА, даже если бронь закрылась позже (D9)."""
+    with Session(engine) as s:
+        fresh = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=10, confirmed=True)
+        old = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=40, confirmed=True)
+    n = cleanup.scrub_meeting_points()
+    assert n >= 1
+    assert not _point_gone(fresh), "свежая (10 дней от выезда) — точка на месте"
+    assert _point_gone(old)
+
+
+def test_scrub_meeting_points_keeps_open_sos_and_incident(client):
+    """Открытый SOS / живой разбор / жалоба в разборе — точка нужна, не стираем."""
+    from app.models import Incident, Report, SosEvent
+    with Session(engine) as s:
+        keep_sos = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=60, confirmed=True)
+        s.add(SosEvent(user_id=1, booking_id=keep_sos, category="other", status="open"))
+        keep_inc = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=60, confirmed=True)
+        s.add(Incident(booking_id=keep_inc, type="harassment", reporter_role="passenger",
+                       description="", status="open"))
+        keep_rep = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=60, confirmed=True)
+        s.add(Report(reporter_id=1, booking_id=keep_rep, category="other", status="new"))
+        free = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=60, confirmed=True)
+        s.commit()
+    cleanup.scrub_meeting_points()
+    assert not _point_gone(keep_sos) and not _point_gone(keep_inc) and not _point_gone(keep_rep)
+    assert _point_gone(free)
+
+
+def test_scrub_meeting_points_dry_run_changes_nothing(client, monkeypatch):
+    monkeypatch.setattr(cleanup, "DRY", True)
+    with Session(engine) as s:
+        bid = _ride_with_booking(s, status=BookingStatus.done, depart_days_ago=60, confirmed=True)
+    n = cleanup.scrub_meeting_points()
+    assert n >= 1, "сухой прогон считает"
+    assert not _point_gone(bid), "но ничего не стирает"

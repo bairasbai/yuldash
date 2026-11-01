@@ -26,6 +26,9 @@ const modules = {
   soon: `export default ()=>null;`,
   analytics: `export const track=()=>{};`,
   states: `export const LoadingList='loading'; export const ErrorState='retry';`,
+  // RS-03 А: карта и справочник ориентиров — вне сети, пикер работает и без них.
+  ymap: `export default 'ymap';`,
+  geo: `export const fetchPickupPoints=async()=>[]; export const fetchDistricts=async()=>[]; export const fetchPopularRoutes=async()=>[]; export const fetchSettlements=async()=>[];`,
   header: `export default 'header';`,
 };
 async function component(path) {
@@ -33,7 +36,7 @@ async function component(path) {
     plugins:[{name:"local-ui",setup(b){
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;
-        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/rides')?'rides':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('/components/ScreenHeader')?'header':null;
+        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null;
         return key?{path:key,namespace:'mock'}:null;
       });
       b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:modules[args.path],loader:'js'}));

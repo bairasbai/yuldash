@@ -13,7 +13,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
-import { createBooking } from "../api/bookings";
+import { createBooking, type MeetingPointInput } from "../api/bookings";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
 import { fetchRide } from "../api/rides";
@@ -24,6 +24,7 @@ import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
 import { initialSegment, keepDropoffAfterPickup, segmentReady, rideMatchState, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
+import { MeetingPointPicker } from "./MeetingPointPicker";
 
 export default function RideSheet({
   ride,
@@ -70,6 +71,9 @@ export default function RideSheet({
   const [seats, setSeats] = useState(1);
   const [pickupStop, setPickupStop] = useState<string | null>(() => initialSegment(ride).pickup);
   const [dropoffStop, setDropoffStop] = useState<string | null>(() => initialSegment(ride).dropoff);
+  // RS-03 А: точное место встречи/высадки по желанию — сервер проверяет радиус от места.
+  const [meetPickup, setMeetPickup] = useState<MeetingPointInput | null>(null);
+  const [meetDropoff, setMeetDropoff] = useState<MeetingPointInput | null>(null);
   const selectionOwner = useRef(`${ownerGeneration}:${ride.id}`);
   const mounted = useRef(true);
   const bookingAbort = useRef<AbortController | null>(null);
@@ -148,6 +152,9 @@ export default function RideSheet({
         ...(frontSeat ? { front_seat: true } : {}),
         pickup_stop: pickupStop!,
         dropoff_stop: dropoffStop!,
+        // RS-03 А: точки встречи/высадки по желанию; clear не шлём вовсе при создании.
+        ...(meetPickup && !meetPickup.clear ? { meeting: meetPickup } : {}),
+        ...(meetDropoff && !meetDropoff.clear ? { alighting: meetDropoff } : {}),
         // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
         expected_price: perSeat,
         expected_terms_version: eff.terms_version,
@@ -234,6 +241,15 @@ export default function RideSheet({
           : <>
             <PickupStopChoice ride={ride} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setDropoffStop(current => keepDropoffAfterPickup(ride, place, current)); setError(null); }} />
             <DropoffStopChoice ride={ride} pickup={pickupStop} picked={dropoffStop} disabled={busy} onPick={place => { setDropoffStop(place); setError(null); }} />
+            {/* RS-03 А: точное место по желанию — водитель увидит после подтверждения. */}
+            <MeetingPointPicker
+              city={pickupStop || ride.from_city}
+              title={appText("Где тебя забрать?", "Һине ҡайҙан алырға?")}
+              value={meetPickup} disabled={busy} onChange={setMeetPickup} />
+            <MeetingPointPicker
+              city={dropoffStop || ride.to_city}
+              title={appText("Где тебя высадить?", "Һине ҡайҙа төшөрөргә?")}
+              value={meetDropoff} disabled={busy} onChange={setMeetDropoff} />
             <p className="sheet__note">{appText("Водитель увидит, где тебя забрать и высадить.", "Йөрөтөүсе һине ҡайҙан алырға һәм ҡайҙа төшөрөргә икәнен күрер.")}</p>
           </>}
 

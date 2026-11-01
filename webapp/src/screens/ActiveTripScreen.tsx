@@ -27,6 +27,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
+import { MeetingActions } from "../components/MeetingActions";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
   CANCEL_REASONS,
@@ -940,6 +941,9 @@ export default function ActiveTripScreen() {
           </div>
         )}
       </div>
+
+      {/* RS-03 А/Б: своё точное место встречи — пассажир меняет/предлагает и отзывает. */}
+      <MeetingActions details={details} onChanged={() => void syncBookingDetails()} />
 
       {/* Чат по поездке — отдельная страница, как в мессенджерах (строка ввода внизу экрана) */}
       <TripChatCard

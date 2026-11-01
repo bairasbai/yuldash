@@ -2078,6 +2078,16 @@ button.list-row:active {
   width: 100%;
   height: 100%;
 }
+/* RS-03 А: «пин в центре» — неподвижная метка, карта целится центром под ней. */
+.map-box__center-pin {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  transform: translate(-50%, -100%);
+  font-size: var(--font-display);   /* булавка читается как крупный знак, не текст */
+  pointer-events: none;
+  filter: drop-shadow(0 2px 4px rgb(0 0 0 / 0.35));
+}
 .map-box__loading {
   position: absolute;
   inset: 0;
