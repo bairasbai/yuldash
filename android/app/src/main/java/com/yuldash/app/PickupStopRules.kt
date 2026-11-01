@@ -73,6 +73,12 @@ internal fun seatsOnSpan(ride: Ride, pickup: String?, dropoff: String?): Int? {
     return ride.seatsByLeg.subList(a, b).minOrNull()
 }
 
+/** RS-02 А: вместимость для ворот брони — по ВЫБРАННОМУ участку, без данных — весь путь.
+ *  Единая точка правила: и экран брони, и навигационные ворота считают одинаково, иначе занятый
+ *  чужой кусок пути (seats=0) молча глушит кнопку при свободном своём звене (эмулятор 01.11.2026). */
+internal fun bookableSeats(ride: Ride, pickup: String?, dropoff: String?): Int =
+    seatsOnSpan(ride, pickup, dropoff) ?: ride.seats
+
 /** D7: цены попутки хранятся в целых рублях — один проверяемый адаптер до общего
  *  форматтера копеек (такси/курьер не трогаем, их суммы уже в копейках). */
 internal fun rideshareRubToKop(rub: Int): Int = rub * 100

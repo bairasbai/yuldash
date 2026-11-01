@@ -458,7 +458,7 @@ internal fun BookingScreen(
     var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
     // RS-02 А: решение о брони — по СВОЕМУ участку, а не по всему пути (трое до Ургазы
     // не закрывают Булату Ургаза→Акъяр: seats_left=0, а на его звене места есть).
-    val segmentSeats = seatsOnSpan(displayRide, pickupStop, dropoffStop) ?: displayRide.seats
+    val segmentSeats = bookableSeats(displayRide, pickupStop, dropoffStop)
     val canCreateBooking = bookingId == null && segmentSeats > 0
     val primaryLabel = when {
         bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")

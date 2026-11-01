@@ -1404,7 +1404,7 @@ private fun YuldashAppContent() {
                         val rid = bookingRideIdOrNotify(displayedRide, context, language)
                         // Блокируем повторное нажатие до ответа на медленной сети.
                         // Сервер отдельно проверяет явный повтор после потерянного ответа.
-                        if (rid != null && !bookingInFlight && displayedRide != null && selectedSeats in 1..displayedRide.seats && segmentReady(displayedRide, pickupStop, dropoffStop)) {
+                        if (rid != null && !bookingInFlight && displayedRide != null && selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) && segmentReady(displayedRide, pickupStop, dropoffStop)) {
                             bookingInFlight = true
                             appScope.launch {
                                 try {
