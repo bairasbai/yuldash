@@ -16,8 +16,19 @@
     "pwa_login_publication": "23 PASS on unmodified PR214",
     "pr215_config_node22": "3 PASS on unmodified PR215",
     "pr215_findride_patch_applicability": "git apply --check PASS; NOT applied",
-    "full_postgres_cov85": "RUNNING",
-    "android": "NOT_EXECUTED: Gradle wrapper bootstrap failed before compilation; UnknownHostException services.gradle.org"
+    "full_postgres_cov85": {
+      "status": "PASS",
+      "exit_code": 0,
+      "passed": 6615,
+      "skipped": 13,
+      "warnings": 83,
+      "coverage_percent": 93.15,
+      "duration_seconds": 1402.07,
+      "pid": 3878,
+      "session_id": 57401
+    },
+    "android": "NOT_EXECUTED: Gradle wrapper bootstrap failed before compilation; UnknownHostException services.gradle.org",
+    "backend_lint": "PASS: ruff check app/ --select F; changed backend test checked with F rules too"
   },
   "environment": {
     "node": "v22.23.4",
@@ -32,5 +43,74 @@
       "retried": false
     }
   },
-  "scope": "Only new test isolation/readiness fixes. Original product P2 fixes belong to PR214. No production code, original RS01A, main, courier plan, remote branches, PRs or comments changed. No push."
+  "scope": "Only new test isolation/readiness fixes and evidence. Original product P2 fixes belong to PR214. No production code, original RS01A, main, courier plan, PRs or comments changed. Android remains BLOCKED; not a full acceptance.",
+  "code_snapshot": "c91be099cdc437216cded628f68b731866ab8812",
+  "normalization": {
+    "seat-filter-mutation.log": {
+      "rule": "strip trailing spaces/tabs only, preserving line breaks and all other bytes",
+      "raw_sha256": "a37a74230b2551950aecdd3b150173ae784048246e012ce742aa1c7b7e545b95",
+      "normalized_sha256": "a3b1c00d0e5c4bf2a8b35f44f7fcaac7fdd1275e8689af6c87d7e8a1f1518e15",
+      "original_source": "c91be099cdc437216cded628f68b731866ab8812:docs/audit-evidence/pr214-test-isolation-20261101/seat-filter-mutation.log"
+    }
+  },
+  "commands": {
+    "backend_full": {
+      "cwd": "backend",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/",
+        "-q",
+        "--maxfail=25",
+        "--cov=app",
+        "--cov-report=term-missing",
+        "--cov-fail-under=85"
+      ],
+      "environment": "DATABASE_URL selected a fresh dedicated loopback PostgreSQL 16 database audit214_fullfix"
+    },
+    "backend_targeted": {
+      "cwd": "backend",
+      "argv": [
+        "python",
+        "-m",
+        "pytest",
+        "tests/test_full_ride_is_not_in_the_feed.py",
+        "tests/test_online_payment_availability_errors.py",
+        "tests/test_booking_online_pay_locked.py",
+        "-q",
+        "--maxfail=5"
+      ],
+      "environment": "fresh loopback PostgreSQL 16 database audit214_targetfix"
+    },
+    "pwa": [
+      "npm run check --prefix webapp",
+      "npm run build --prefix webapp",
+      "node webapp/tests/login-method-refresh-test.mjs",
+      "node webapp/tests/login-publication-cancel-test.mjs"
+    ],
+    "e2e_config": "npm run check --prefix tools/rideshare_e2e (PR215 checkout)",
+    "android_attempt": {
+      "cwd": "android",
+      "argv": [
+        "./gradlew",
+        ":app:assembleDebug",
+        ":app:compileDebugAndroidTestKotlin",
+        "--no-daemon"
+      ],
+      "environment": "GRADLE_USER_HOME=/tmp/yuldash-audit-gradle",
+      "exit_code": 1,
+      "result": "BLOCKED during wrapper bootstrap before Android compilation"
+    }
+  },
+  "publication": {
+    "snapshot": "before publication",
+    "user_approved_publication_with_known_android_blocker": true,
+    "target_branch": "codex/pr214-test-isolation-20261101",
+    "remote_sha_verification": "reported after actual push; not inferred from local commit"
+  },
+  "files": {
+    "android/app/src/test/java/com/yuldash/app/ProtectedActionLoginJourneyTest.kt": "3897accadff95214e876c300aff4ea46c2a8f2510967021091ee321cb15ac8ee",
+    "backend/tests/test_full_ride_is_not_in_the_feed.py": "24bbdce3052000244463b6b7d9775cbeb844c75ef1ff14600f9a48043381bcdc"
+  }
 }
