@@ -149,7 +149,8 @@ def _start_yookassa(session: Session, payment: Payment, description: str, phone:
             idempotence_key=f"yuldash-payment-{payment.id}",
         )
     except Exception:  # noqa: BLE001 — исход неизвестен: строку/ключ сохраняем для безопасного повтора
-        raise herr(503, "Оплата временно недоступна. Попробуй ещё раз.", "Түләү ваҡытлыса эшләмәй. Тағы ҡабатла.")
+        raise herr(503, "Оплата временно недоступна. Попробуй ещё раз.", "Түләү ваҡытлыса эшләмәй. Тағы ҡабатла.",
+                   code="payment_provider_unavailable")
 
 
 def _mark_succeeded(payment: Payment) -> None:

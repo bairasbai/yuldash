@@ -168,7 +168,7 @@ class PayOnlineCardTest {
         val amountKop = androidx.compose.runtime.mutableStateOf<Int?>(100_00)
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "")) })
+                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "online_payment_disabled")) })
             }
         }
 
