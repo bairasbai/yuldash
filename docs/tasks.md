@@ -8,10 +8,10 @@ D7 (целые рубли попутки) разрешён 24.10 и зафикс
 1. [x] А: `ride_seats.py` (span/legs_free/free_on/max_free/occupancy_snapshot/recompute/take/release/any_free_sql),
    `Ride.terms_version/leg_free/seats_free_max`, миграция `cc_ride_segment_seats_20261031` (up→down→up, старые данные).
 2. [x] А: переподключить book/отмену/неявку/паузу/удаление аккаунта/заявки/выдачи/`RideOut` + `rides:active:v3`.
-3. [x] А: тесты `test_segment_seats.py` (11), `test_seats_invariant.py`, race (SQLite), регрессии вместимости.
+3. [x] А: тесты `test_segment_seats.py` (12), `test_seats_invariant.py`, race (SQLite), регрессии вместимости.
    PostgreSQL-гонки — отдельным прогоном при свободном временном PostgreSQL (правило индекса N7/полная проверка).
 4. [x] Б: `stop_prices` (вход list[int], хранение JSON-список, выход list[StopPriceOut]), `segment_price`,
-   `expected_price`/`expected_terms_version`, правка с бронями только вниз, миграция `cd_ride_stop_prices_20261031`, тесты `test_segment_price.py` (10).
+   `expected_price`/`expected_terms_version`, правка с бронями только вниз, миграция `cd_ride_stop_prices_20261031`, тесты `test_segment_price.py` (9).
 5. [x] В: Android (поля Ride, шторка участка, «Итого» AnimatedContent, публикация с ценами остановок, кабинет, лента) + тесты (SegmentPriceTest, BookingSeatCountTest, CreateRideStopsTest).
 6. [x] Г: PWA (те же шаги) + `npm run check`/`build` зелёные; `segment-price-test.mjs` (6 проверок) в run.mjs.
 7. [x] Полные прогоны (pytest 6537, assembleDebug+unit+GuardTest), журналы, независимая приёмка №1 — доводка
