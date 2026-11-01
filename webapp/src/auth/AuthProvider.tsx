@@ -36,7 +36,9 @@ interface AuthCtx {
   user: Me | null;
   isAuthed: boolean;
   /** Записать сессию после успешного входа (токены уже в localStorage). */
-  login: (access: string, refresh: string, user: Me) => void | string | Promise<void | string>;
+  login: (access: string, refresh: string, user: Me, isCurrentOperation?: () => boolean) => void | string | Promise<void | string>;
+  /** Меняется сразу при намерении выйти, до сетевых ожиданий и записи новой сессии. */
+  getLoginEpoch: () => number;
   /** Выйти: гасим сервер (best-effort) и чистим локально. */
   logout: () => Promise<void>;
   /** Перечитать профиль (после правок). */
@@ -78,6 +80,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<Me | null>(null);
   // Чтобы обработчик 401 не тянул stale-замыкания.
   const mounted = useRef(true);
+  // Намерение меняется сразу: выход/новый вход отменяет публикацию, ещё ожидающую Web Lock.
+  const sessionIntent = useRef(0);
+  const logoutEpoch = useRef(0);
+  const getLoginEpoch = useCallback(() => logoutEpoch.current, []);
   const retrySessionRef = useRef<() => void>(() => {});
   const retrySession = useCallback(() => retrySessionRef.current(), []);
 
@@ -167,10 +173,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [applyGuest]);
 
-  const login = useCallback((access: string, refresh: string, me: Me) => {
+  const login = useCallback((access: string, refresh: string, me: Me, isCurrentOperation: () => boolean = () => true) => {
+    const intent = ++sessionIntent.current;
     const generation = getSessionGeneration(), epoch = sessionEpoch();
     return sessionMutation(permit => {
-      if (epoch !== sessionEpoch() || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
+      if (intent !== sessionIntent.current || epoch !== sessionEpoch() || generation !== getSessionGeneration() ||
+          storageFenced() || !isCurrentOperation()) throw new Error("Session operation superseded");
       try {
         setSession(access, refresh, permit);
         syncPersonalSession(getSessionGeneration());
@@ -181,6 +189,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const logout = useCallback(async () => {
+    sessionIntent.current++;
+    logoutEpoch.current++;
     const generation = getSessionGeneration();
     if (storageFenced()) { setUser(null); setStatus("guest"); return; }
     // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
@@ -221,11 +231,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       user,
       isAuthed: status === "authed",
       login,
+      getLoginEpoch,
       logout,
       refresh,
       retrySession,
     }),
-    [status, user, login, logout, refresh, retrySession]
+    [status, user, login, getLoginEpoch, logout, refresh, retrySession]
   );
 
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;

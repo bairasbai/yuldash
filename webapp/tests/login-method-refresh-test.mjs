@@ -30,7 +30,7 @@ const mocks = lang => ({
     export const requestSmsCode=()=>{h.smsCalls++;return h.smsRequest?h.smsRequest.promise:Promise.resolve({});};
     export const verifySmsCode=()=>{h.verifyCalls++;return h.verify.promise;};
     export const telegramChatUrl=()=>'',telegramStartUrl=()=>'';`,
-  "/auth/AuthProvider": `export const useAuth=()=>({login:(access,refresh)=>{const h=globalThis.__loginMethodRefresh;h.logins.push([access,refresh]);return h.generation='session-'+h.logins.length;}});`,
+  "/auth/AuthProvider": `export const useAuth=()=>({getLoginEpoch:()=>0,login:(access,refresh)=>{const h=globalThis.__loginMethodRefresh;h.logins.push([access,refresh]);return h.generation='session-'+h.logins.length;}});`,
   "react-router-dom": `export const useNavigate=()=>()=>{globalThis.__loginMethodRefresh.routes++;},useLocation=()=>({});`,
   "/analytics": "export const track=()=>{};",
 });
