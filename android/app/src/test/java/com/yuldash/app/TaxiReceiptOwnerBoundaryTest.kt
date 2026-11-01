@@ -86,7 +86,7 @@ class TaxiReceiptOwnerBoundaryTest {
                         p.endsWith("/cash-received") -> { paid = true; json("""{"status":"paid"}""") }
                         p.endsWith("/lost-item") -> json("""{"chat_open_until":"2026-10-12T10:00:00Z"}""")
                         p == "/incidents" -> json("""{"id":501,"respondent_id":22,"type":"rude","status":"open"}""")
-                        p == "/health" -> json("""{"payments":"${if (online) "yookassa" else "mock"}"}""")
+                        p == "/health" -> json("""{"payments":"${if (online) "yookassa" else "off"}"}""")
                         else -> json("{}")
                     }
                 }

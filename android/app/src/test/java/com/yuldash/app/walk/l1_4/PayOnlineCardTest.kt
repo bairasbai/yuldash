@@ -60,7 +60,7 @@ class PayOnlineCardTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse = when {
-                    request.path == "/health" -> MockResponse().setResponseCode(200).setBody("{\"payments\":\"on\"}")
+                    request.path == "/health" -> MockResponse().setResponseCode(200).setBody("{\"payments\":\"yookassa\"}")
                     request.path?.contains("/status") == true -> MockResponse().setResponseCode(200).setBody(statusBody)
                     else -> MockResponse().setResponseCode(404).setBody("{}")
                 }
@@ -133,7 +133,7 @@ class PayOnlineCardTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 started.countDown()
                 release.await(5, java.util.concurrent.TimeUnit.SECONDS)
-                return MockResponse().setBody("""{"payments":"on"}""")
+                return MockResponse().setBody("""{"payments":"yookassa"}""")
             }
         }
         try {
