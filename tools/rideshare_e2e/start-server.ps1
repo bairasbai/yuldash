@@ -1,13 +1,19 @@
 param(
-  [string]$DbPath = "$env:TEMP\claude\C--Users-Bayra-Yuldash--claude-worktrees-yuldash-tili-project-0e3eaf\c21faf18-50fb-48f8-8abb-0af213908b73\scratchpad\rsacc-20261024\stand\stand.db",
+  [string]$DbPath = "",
   [string]$Label = "server",
   [int]$Port = 8010
 )
 # Local rideshare acceptance stand: this checkout's backend, temporary SQLite, mock SMS,
 # empty Telegram/FCM/Sentry keys. Records PID/start/cmd/cwd/port for cleanup.
 $ErrorActionPreference = 'Stop'
-$repo = (Resolve-Path "$PSScriptRoot\..\..").Path
-$evid = Join-Path $repo 'test-results\release'
+$paths = & node (Join-Path $PSScriptRoot 'lib\paths.mjs')
+if ($LASTEXITCODE -ne 0) { throw 'Could not resolve stand paths' }
+$paths = $paths | ConvertFrom-Json
+$repo = $paths.repo
+$evid = $paths.evidence
+if (-not $DbPath) { $DbPath = Join-Path $paths.scratch 'stand\stand.db' }
+[IO.Directory]::CreateDirectory((Split-Path -Parent ([IO.Path]::GetFullPath($DbPath)))) | Out-Null
+[IO.Directory]::CreateDirectory((Join-Path $evid 'logs')) | Out-Null
 $backend = Join-Path $repo 'backend'
 $log = Join-Path $evid "logs\$Label.log"
 $errLog = Join-Path $evid "logs\$Label.err.log"

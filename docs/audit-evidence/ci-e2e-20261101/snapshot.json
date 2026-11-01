@@ -1,0 +1,61 @@
+{
+  "base_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+  "code_sha": "1e5fbfe4cb6c41420d5da0036980ba3fa37817b6",
+  "branch": "audit/e2e-portable-20261101",
+  "changed_source_sha256": {
+    "android/app/src/test/java/com/yuldash/app/FindRideButtonTest.kt": "b431d5f20d7f9daeb2a87cd6ba563c5ea5ee74fbe5cb1deab8b8750ee5047491",
+    "tools/rideshare_e2e/.gitignore": "09bcee970c9fa614a43d8b65756f8a77466c7c6cb6c8956a0519e7bf6fe6d441",
+    "tools/rideshare_e2e/README.md": "9ddb06dc18b3325f16f719bf81207b6be92ed5f91fd83073705982f1153c1f42",
+    "tools/rideshare_e2e/fresh-stand.ps1": "fcaeb11b1b0e1293cc823c464c5a0872442875ae2ba110a3f424fdf6135580ec",
+    "tools/rideshare_e2e/lib/common.mjs": "566accdbbe149a299b905d9e1e07c9dd9fb648ec355bde20627d338df753b1c2",
+    "tools/rideshare_e2e/lib/paths.mjs": "7a6c323ec10db31a788aa35dcc7bf26566f142160e28b0d7e4532af988a0dc1e",
+    "tools/rideshare_e2e/lib/pwa.mjs": "e40e072af5ba521e741752b62be9f701bd2b096e82894ee62b3a1c6cda9ebdc0",
+    "tools/rideshare_e2e/package-lock.json": "2d327678d31332217feac63320b1405d831192560ec3cbe9e31bc3ccc80a909b",
+    "tools/rideshare_e2e/package.json": "6e626c23fe12caa272ba9435d376ebfa080cb457dde34b34febfb335a30a1c77",
+    "tools/rideshare_e2e/start-server.ps1": "05ffe8f3cb246a2803d4e6340c9d2ce33dddb08b67c6d797a51d2118eafc8abd",
+    "tools/rideshare_e2e/tests/browser-smoke.mjs": "1386ab9b3c5812eaae80125b68a035d7c4ea62c088cbf3723d7ee41edda3e463",
+    "tools/rideshare_e2e/tests/config.test.mjs": "2f9cc37a46617fcbfa85b7bcbe20c62641459bafe50d23159aadcc699875fba1"
+  },
+  "evidence_sha256": {
+    "main-findride-baseline.xml": "c4fb4d4a663884da378da31688a33b597a76158913214fb4da1d2cda33635614",
+    "main-findride-green.xml": "285fa64f4ea4fdd4cca6d19c62ccc90b48581d6f549d70c38d94ca93e4a9a9a0",
+    "android-main-final-check.log": "60dad74600767d6c5ffad810206be4e7daed69eb37b6c8df81fea7eb16ef2214",
+    "ci-findride-original.txt": "37fea622bba0bda80837238e9e1d9f3299c7cdf19cb8454dbb191b4decf732c8",
+    "e2e-clean-verification.log": "05799d37b3afb1731c3c918bf6fb7e476547c05d4100c8dc59b258c49d259ef1",
+    "github-state.json": "84fa777b2f9a888774284d3b0abb419b6357321910eb6326ac995b98288f608d",
+    "raw-evidence.zip": "3d1665286080955a81949f2a72e96efb539e6db9e0ed07244d4e15c89638fb74",
+    "evidence-normalization.json": "494a23ffa49b9f8314848ca3243b9dde5bb562ab1e51612d0bb53650cff3a727"
+  },
+  "review": [
+    {
+      "agent": "/root/tooling_review",
+      "model": "gpt-6.1-sol",
+      "scope": "11 E2E tooling files only",
+      "verdict": "accepted",
+      "blocking_findings": []
+    },
+    {
+      "agent": "/root/ci_final_review",
+      "model": "gpt-6.1-sol",
+      "scope": "FindRideButtonTest synchronization and controlled response order",
+      "verdict": "accepted",
+      "blocking_findings": []
+    }
+  ],
+  "remote_publication": false,
+  "limits": [
+    "No complete remote CI rerun confirmed",
+    "No PowerShell execution",
+    "Default browser CDN download failed; same-version official Google Storage fallback used",
+    "No emulator or full application E2E"
+  ],
+  "original_evidence_sha256": {
+    "main-findride-baseline.xml": "c4fb4d4a663884da378da31688a33b597a76158913214fb4da1d2cda33635614",
+    "main-findride-green.xml": "285fa64f4ea4fdd4cca6d19c62ccc90b48581d6f549d70c38d94ca93e4a9a9a0",
+    "android-main-final-check.log": "8552f0c857b7d1ae4b158ec626f0864115e6e1680e353f40821cd1b04f54a71c",
+    "ci-findride-original.txt": "fed9768770868521568f9bf6d43c58e2c6495fa6a5c813da3886843f4e5ace13",
+    "e2e-clean-verification.log": "cba8bb4a0357606d6a90f057b3f88cba4128efce9bf2aad81bb6ac9dd6ae7920",
+    "github-state.json": "84fa777b2f9a888774284d3b0abb419b6357321910eb6326ac995b98288f608d"
+  },
+  "readable_evidence_normalized": true
+}

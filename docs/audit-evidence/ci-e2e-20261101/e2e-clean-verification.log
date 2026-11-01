@@ -1,0 +1,29 @@
+COMMAND ["npm", "ci", "--ignore-scripts", "--no-audit", "--no-fund"]
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+added 2 packages in 313ms
+EXIT 0
+COMMAND ["npm", "run", "check"]
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+> yuldash-rideshare-e2e@1.0.0 check
+> node --test tests/config.test.mjs
+
+✔ driver imports outside the checkout and keeps profiles in the configured scratch directory (277.084155ms)
+✔ default scratch path is portable and independent of the current working directory (84.170984ms)
+✔ an explicit browser path is honoured without a machine-specific fallback (389.266035ms)
+ℹ tests 3
+ℹ suites 0
+ℹ pass 3
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 812.686581
+EXIT 0
+COMMAND ["/tmp/yuldash-clean-za9ld3u2/chrome-for-testing/chrome-linux64/chrome", "--version"]
+Google Chrome for Testing 156.0.8078.4
+EXIT 0
+COMMAND ["node", "/tmp/yuldash-clean-za9ld3u2/checkout/tools/rideshare_e2e/tests/browser-smoke.mjs"]
+PASS: Chromium launch, page interaction, profile persistence/isolation and fresh reset (synthetic data only)
+EXIT 0

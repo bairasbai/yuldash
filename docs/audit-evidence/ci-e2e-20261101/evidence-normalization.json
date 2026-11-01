@@ -1,0 +1,38 @@
+{
+  "format": 1,
+  "archive": "raw-evidence.zip",
+  "normalization": "UTF-8; CRLF/CR to LF; remove trailing spaces/tabs from lines; one LF at EOF. Raw bytes are retained in the ZIP.",
+  "archive_sha256": "3d1665286080955a81949f2a72e96efb539e6db9e0ed07244d4e15c89638fb74",
+  "files": [
+    {
+      "path": "android-main-final-check.log",
+      "raw_sha256": "8552f0c857b7d1ae4b158ec626f0864115e6e1680e353f40821cd1b04f54a71c",
+      "readable_sha256": "60dad74600767d6c5ffad810206be4e7daed69eb37b6c8df81fea7eb16ef2214",
+      "bytes_changed": true
+    },
+    {
+      "path": "ci-findride-original.txt",
+      "raw_sha256": "fed9768770868521568f9bf6d43c58e2c6495fa6a5c813da3886843f4e5ace13",
+      "readable_sha256": "37fea622bba0bda80837238e9e1d9f3299c7cdf19cb8454dbb191b4decf732c8",
+      "bytes_changed": true
+    },
+    {
+      "path": "e2e-clean-verification.log",
+      "raw_sha256": "cba8bb4a0357606d6a90f057b3f88cba4128efce9bf2aad81bb6ac9dd6ae7920",
+      "readable_sha256": "05799d37b3afb1731c3c918bf6fb7e476547c05d4100c8dc59b258c49d259ef1",
+      "bytes_changed": true
+    },
+    {
+      "path": "main-findride-baseline.xml",
+      "raw_sha256": "c4fb4d4a663884da378da31688a33b597a76158913214fb4da1d2cda33635614",
+      "readable_sha256": "c4fb4d4a663884da378da31688a33b597a76158913214fb4da1d2cda33635614",
+      "bytes_changed": false
+    },
+    {
+      "path": "main-findride-green.xml",
+      "raw_sha256": "285fa64f4ea4fdd4cca6d19c62ccc90b48581d6f549d70c38d94ca93e4a9a9a0",
+      "readable_sha256": "285fa64f4ea4fdd4cca6d19c62ccc90b48581d6f549d70c38d94ca93e4a9a9a0",
+      "bytes_changed": false
+    }
+  ]
+}

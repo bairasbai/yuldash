@@ -1,20 +1,23 @@
 // PWA driver over real Chromium (Playwright). Profiles persist in the scratchpad (not evidence).
-import { createRequire } from "node:module";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { SCRATCH, EVID, log, sleep } from "./common.mjs";
-export { log };
+import { chromium } from "playwright";
+import { mkdirSync, rmSync } from "node:fs";
+import { join, resolve } from "node:path";
+import { REPO, EVID, log, sleep } from "./common.mjs";
+import { PROFILE_ROOT } from "./paths.mjs";
+export { log, PROFILE_ROOT };
 
-const require = createRequire(import.meta.url);
-const { chromium } = require("C:/Users/Bayra/AppData/Local/npm-cache/_npx/381cec31605a419a/node_modules/playwright");
-export const CHROMIUM = "C:/Users/Bayra/AppData/Local/ms-playwright/chromium-1181/chrome-win/chrome.exe";
+// Prefer the browser paired with the pinned Playwright package (respects PLAYWRIGHT_BROWSERS_PATH).
+export const CHROMIUM = process.env.RSACC_CHROMIUM_PATH
+  ? resolve(REPO, process.env.RSACC_CHROMIUM_PATH)
+  : chromium.executablePath();
 export const PWA = "http://127.0.0.1:4173";
-export const PROFILE_ROOT = "C:/Users/Bayra/AppData/Local/Temp/rsacc24/pw";
 
 export async function openProfile(name, { width = 390, height = 844, dark = false, fresh = false, headless = true, fontScale = 1 } = {}) {
-  // Short root: Chromium IndexedDB paths overflow MAX_PATH under the long scratchpad path.
+  if (typeof name !== "string" || !name || name === "." || name === ".." || /[\\/]/.test(name)) {
+    throw new Error("Profile name must be a single directory name");
+  }
   const dir = join(PROFILE_ROOT, name);
-  if (fresh) { try { (await import("node:fs")).rmSync(dir, { recursive: true, force: true }); } catch {} }
+  if (fresh) rmSync(dir, { recursive: true, force: true });
   mkdirSync(dir, { recursive: true });
   const ctx = await chromium.launchPersistentContext(dir, {
     executablePath: CHROMIUM, headless, viewport: { width, height }, deviceScaleFactor: 2,

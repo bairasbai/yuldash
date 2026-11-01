@@ -1,15 +1,10 @@
 // Shared stand helpers: paths, step log, API, read-only SQLite, Telegram-bot login imitation.
 import { appendFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
-import { join, resolve, dirname } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join, dirname } from "node:path";
 import { DatabaseSync } from "node:sqlite";
+import { REPO, EVID, SCRATCH } from "./paths.mjs";
+export { REPO, EVID, SCRATCH };
 
-const here = dirname(fileURLToPath(import.meta.url));
-// tools/rideshare_e2e/lib → repo root; evidence stays in the git-ignored test-results/release.
-export const REPO = resolve(here, "..", "..", "..");
-export const EVID = join(REPO, "test-results", "release");
-// Local, machine-specific stand data (synthetic DB) — never evidence, never git.
-export const SCRATCH = process.env.RSACC_SCRATCH || "C:/Users/Bayra/AppData/Local/Temp/claude/C--Users-Bayra-Yuldash--claude-worktrees-yuldash-tili-project-0e3eaf/c21faf18-50fb-48f8-8abb-0af213908b73/scratchpad/rsacc-20261024";
 const CUR = join(EVID, "current-db.txt");
 export const DB_PATH = process.env.STAND_DB || (existsSync(CUR) ? readFileSync(CUR, "utf8").trim() : join(SCRATCH, "stand", "stand.db"));
 export const API = "http://127.0.0.1:8010"; // harness/bot talk to the API directly, clients go via the wire proxy :8000
