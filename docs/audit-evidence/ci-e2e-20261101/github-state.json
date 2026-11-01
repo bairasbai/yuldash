@@ -1,0 +1,36 @@
+{
+  "checked_utc": "2026-11-01 05:42:39 UTC",
+  "repo": "bairasbai/yuldash",
+  "pr": 213,
+  "head_sha": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+  "workflows": {
+    "total_count": 0,
+    "items": []
+  },
+  "checks": {
+    "total_count": 0,
+    "items": []
+  },
+  "statuses": {
+    "total_count": 0,
+    "state": "pending",
+    "items": []
+  },
+  "pr_info": {
+    "state": "open",
+    "merged": false,
+    "mergeable": false,
+    "base_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+    "head_sha": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+    "head": "codex/rs-01-honest-promises-20261024",
+    "base": "main"
+  },
+  "main_ci": {
+    "id": 41198117093,
+    "head_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+    "status": "completed",
+    "conclusion": "failure",
+    "run_attempt": 1,
+    "updated_at": "2026-10-31T12:08:54Z"
+  }
+}

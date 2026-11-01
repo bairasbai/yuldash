@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.FindRideButtonTest" tests="3" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:42:15.528Z" hostname="f8d2a3cbaeb8" time="9.456">
+  <properties/>
+  <testcase name="delayedPopularRouteSeparatesEarlyUnfilteredSearchFromReadyRouteSearch" classname="com.yuldash.app.FindRideButtonTest" time="8.621"/>
+  <testcase name="findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt" classname="com.yuldash.app.FindRideButtonTest" time="0.429"/>
+  <testcase name="allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip" classname="com.yuldash.app.FindRideButtonTest" time="0.405"/>
+  <system-out><![CDATA[CONTROLLED_EARLY_CLICK=[GET /rides/near?verified_only=true&limit=5]
+CONTROLLED_READY_CLICK=[GET /rides/near?from_city=Баймаҡ&to_city=Сибай&verified_only=true&limit=5]
+]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>
