@@ -28,7 +28,17 @@
       "session_id": 57401
     },
     "android": "NOT_EXECUTED: Gradle wrapper bootstrap failed before compilation; UnknownHostException services.gradle.org",
-    "backend_lint": "PASS: ruff check app/ --select F; changed backend test checked with F rules too"
+    "backend_lint": "PASS: ruff check app/ --select F; changed backend test checked with F rules too",
+    "secret_scan": {
+      "scanner": "detect-secrets 1.5.0",
+      "input_snapshot_commit": "0034aa76e139e093dc96cc28491e58156071fa58",
+      "exit_code": 0,
+      "files_scanned": 12,
+      "findings": 13,
+      "reviewed_false_positives": 13,
+      "real_secrets_found": false,
+      "details": "secret-scan.json and secret-review.json; no rules or assertions disabled"
+    }
   },
   "environment": {
     "node": "v22.23.4",
