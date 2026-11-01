@@ -1,0 +1,140 @@
+{
+  "scope": "Only files changed by this audit relative to PR #213; no whole-project audit or coverage claim",
+  "base_sha": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+  "code_sha": "3cfbe977f742681a4bb82492347b3b6bb30449d8",
+  "files": [
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt",
+      "sha256_lf": "ad39f5c69bbb81ff17f9267f066821f3c7d70a52ffa9fa30bb6c18b556559b75",
+      "lines": 390,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
+      "sha256_lf": "e04fc5c8ef181c7c944b0a01e0ede433bb7750e3671e8a8e10fb1c14c1ac1646",
+      "lines": 7839,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PayOnlineAvailabilityRecoveryTest.kt",
+      "sha256_lf": "652c6a7cabcd42b1c9db5041adfa381b930649e4dfae490406b85cfa50aa4c79",
+      "lines": 528,
+      "inventory_entry_present": false,
+      "inventory_hash_matches_current": null
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/PayOnlineOwnerBoundaryTest.kt",
+      "sha256_lf": "c79b162cc23251affa2adf973c9b23d33486a09315c8d5afdea83c5a20ba90ff",
+      "lines": 174,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/TaxiReceiptOwnerBoundaryTest.kt",
+      "sha256_lf": "a9c02f346acaf71fdd8173fd6924fcb657b2814a443517a81388f4b7957a048e",
+      "lines": 289,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/PaymentsAvailabilityApiTest.kt",
+      "sha256_lf": "e1211314407d1c4afa1c41917fd94015a2c72998ecd15d80db23aeb185405a64",
+      "lines": 85,
+      "inventory_entry_present": false,
+      "inventory_hash_matches_current": null
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/walk/l1_4/PayOnlineCardTest.kt",
+      "sha256_lf": "cd73ce7f16ae3f2e8e13b2c59d418ef7ed6ba7b4fb82917ff9d4cf19336a48c8",
+      "lines": 286,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "backend/app/routers/payments.py",
+      "sha256_lf": "c992ebd5be7844e1e6b3bc13fa4a8db66e6f8106fe81929348601d9f36ca3888",
+      "lines": 970,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "backend/app/routers/wallet.py",
+      "sha256_lf": "9ee2dd1e26d13532c1dbcec439c6d79698af597cae2ea52d3f68a5159a4d23e7",
+      "lines": 464,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "backend/tests/test_online_payment_availability_errors.py",
+      "sha256_lf": "1f775ceff543dae4b8122d37a3a7dc259524301b4936872e99e097883ad5076e",
+      "lines": 86,
+      "inventory_entry_present": false,
+      "inventory_hash_matches_current": null
+    },
+    {
+      "path": "webapp/src/auth/AuthProvider.tsx",
+      "sha256_lf": "93830f136c9c56399ff47822c3a726296cfcb5e3a5ede32c1ed8c4caa898223f",
+      "lines": 249,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "webapp/src/screens/LoginScreen.tsx",
+      "sha256_lf": "d9a6643c0c79744b66c8123280d001e0e81253787b1ee4d566ae6f09f6d2ba6f",
+      "lines": 403,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.d.ts",
+      "sha256_lf": "ea394cf4addc6d9a6037fe01c4a4b6031b1738bb5db6320562a6409ea114c01c",
+      "lines": 41,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.js",
+      "sha256_lf": "048d35d1649fb09713d6a69af570e6acc831896075b0cf95276caddd5c7e1120",
+      "lines": 181,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "webapp/tests/honest-promises-test.mjs",
+      "sha256_lf": "6fa4fa79b66ab9c966c111c0ef92385b7b3ad4172a32354fe4f3edfe61cf7d76",
+      "lines": 205,
+      "inventory_entry_present": false,
+      "inventory_hash_matches_current": null
+    },
+    {
+      "path": "webapp/tests/login-method-refresh-test.mjs",
+      "sha256_lf": "7bc235ab9a95ef068f45b0afe4420a0a947c1c9f30cec7308da4a66bbb19720b",
+      "lines": 160,
+      "inventory_entry_present": false,
+      "inventory_hash_matches_current": null
+    },
+    {
+      "path": "webapp/tests/login-publication-cancel-test.mjs",
+      "sha256_lf": "0d711585440b1dd91a21e85afcbae16b5e4512128f777f89b0396f37345732f7",
+      "lines": 280,
+      "inventory_entry_present": false,
+      "inventory_hash_matches_current": null
+    },
+    {
+      "path": "webapp/tests/login-return-owner-test.mjs",
+      "sha256_lf": "26d7ebeb555370f34b8f1bdd7c1453b339ca27682abb0739eea5d6d69a3d06e7",
+      "lines": 44,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    },
+    {
+      "path": "webapp/tests/run.mjs",
+      "sha256_lf": "58d71a80298195e42635625dbe12f242bf09cb83751e9e1005a5ccbd9f073188",
+      "lines": 318,
+      "inventory_entry_present": true,
+      "inventory_hash_matches_current": false
+    }
+  ]
+}

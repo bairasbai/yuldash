@@ -1,0 +1,140 @@
+
+> yuldash-webapp@0.1.0 build
+> tsc && vite build
+
+vite v5.4.21 building for production...
+transforming...
+✓ 351 modules transformed.
+rendering chunks...
+computing gzip size...
+dist/index.html                                       1.63 kB │ gzip:   1.00 kB
+dist/assets/index-CHj1paij.css                      379.73 kB │ gzip:  47.33 kB
+dist/assets/PrivacyScreen-Blbn9_pP.js                 0.15 kB │ gzip:   0.14 kB
+dist/assets/RulesScreen-C4uQrxqR.js                   0.15 kB │ gzip:   0.14 kB
+dist/assets/medical-Bffn1i76.js                       0.21 kB │ gzip:   0.16 kB
+dist/assets/boost-Cehg9Ogg.js                         0.26 kB │ gzip:   0.20 kB
+dist/assets/PartialFeedNotice-4ZPEZ_We.js             0.26 kB │ gzip:   0.31 kB
+dist/assets/carphoto-Bi8nmADf.js                      0.39 kB │ gzip:   0.26 kB
+dist/assets/wallet-C6spKz1h.js                        0.55 kB │ gzip:   0.29 kB
+dist/assets/CourierHistoryScreen-Bjygi5Wd.js          0.59 kB │ gzip:   0.42 kB
+dist/assets/AdminPretripScreen-Cxupl7Jj.js            0.62 kB │ gzip:   0.57 kB
+dist/assets/FiltersScreen-DQPQH6is.js                 0.83 kB │ gzip:   0.66 kB
+dist/assets/coupons-Cv9uO0Dw.js                       1.05 kB │ gzip:   0.45 kB
+dist/assets/courier-6nFqcwnH.js                       1.35 kB │ gzip:   0.57 kB
+dist/assets/RideDetailScreen-BMLjV71F.js              1.37 kB │ gzip:   0.87 kB
+dist/assets/AdminPriceComplaintsScreen-B_uzJ3OS.js    1.44 kB │ gzip:   1.14 kB
+dist/assets/ResponseRouteNote-Cdn_AYAe.js             1.79 kB │ gzip:   1.16 kB
+dist/assets/BenefitHistoryScreen-CHCQ_X_X.js          1.79 kB │ gzip:   0.95 kB
+dist/assets/parcels-Cixli1Uo.js                       1.85 kB │ gzip:   0.80 kB
+dist/assets/PriorityCard-PZiMDNvO.js                  1.97 kB │ gzip:   1.30 kB
+dist/assets/AdminDebtsScreen-D1Vn5xwc.js              2.03 kB │ gzip:   1.44 kB
+dist/assets/MyTripCard-tLzzSiy6.js                    2.08 kB │ gzip:   1.00 kB
+dist/assets/PayTripCard-BAYLq3uh.js                   2.36 kB │ gzip:   1.40 kB
+dist/assets/moneyUi-Bx5tligw.js                       2.39 kB │ gzip:   0.86 kB
+dist/assets/BlocklistScreen-C2Gv4Hsq.js               2.44 kB │ gzip:   1.46 kB
+dist/assets/SimpleModeScreen-DP2Rw9r9.js              2.48 kB │ gzip:   1.40 kB
+dist/assets/DriverEarningsScreen-B4ajdb6V.js          2.62 kB │ gzip:   1.71 kB
+dist/assets/AdminTextFlagsScreen-DIgCVYBD.js          2.88 kB │ gzip:   1.80 kB
+dist/assets/CourierEarningsScreen-Bee-ZTX9.js         2.89 kB │ gzip:   1.89 kB
+dist/assets/RepeatTripScreen-Vsuf63dx.js              2.89 kB │ gzip:   1.57 kB
+dist/assets/CallbackHelpScreen-UeIMHoQT.js            2.99 kB │ gzip:   1.70 kB
+dist/assets/ClinicRidesScreen-D4Xb-iyY.js             3.22 kB │ gzip:   1.58 kB
+dist/assets/AppReviewScreen-ClEdDbaI.js               3.32 kB │ gzip:   1.98 kB
+dist/assets/AdminResponsesScreen-CJw_gQb9.js          3.34 kB │ gzip:   1.81 kB
+dist/assets/FamilyOrderScreen-DjN0OrN_.js             3.46 kB │ gzip:   1.75 kB
+dist/assets/PayDoneScreen-D3brUnoK.js                 3.59 kB │ gzip:   1.80 kB
+dist/assets/SafetyScreen-DQD0PJzW.js                  3.83 kB │ gzip:   1.94 kB
+dist/assets/MyTaxiTripsScreen-C9m0I0-n.js             3.83 kB │ gzip:   1.85 kB
+dist/assets/RouteWatchesScreen-gQfJlWMs.js            3.90 kB │ gzip:   1.86 kB
+dist/assets/AdminRequestScreen-DstNcLuT.js            3.90 kB │ gzip:   1.77 kB
+dist/assets/SupportTicketScreen-CMJDhLPI.js           3.92 kB │ gzip:   1.94 kB
+dist/assets/SupportYuldashScreen-BbonaW-m.js          3.98 kB │ gzip:   2.16 kB
+dist/assets/SupportTicketsScreen-c3YvhTi1.js          4.14 kB │ gzip:   2.09 kB
+dist/assets/MyRidesScreen-C9QEIOAY.js                 4.15 kB │ gzip:   2.22 kB
+dist/assets/TrustScreen-BHH6Hznd.js                   4.19 kB │ gzip:   2.06 kB
+dist/assets/PaymentInfoScreen-BGJeEl3m.js             4.35 kB │ gzip:   2.32 kB
+dist/assets/AdminModerationScreen-IzoNKhJS.js         4.37 kB │ gzip:   2.40 kB
+dist/assets/AdminSupportScreen-Q6PmdBz7.js            4.38 kB │ gzip:   2.29 kB
+dist/assets/ParcelChatScreen-CbCmbX3D.js              4.44 kB │ gzip:   2.47 kB
+dist/assets/TrustedContactsScreen-yidB7N_O.js         4.46 kB │ gzip:   2.34 kB
+dist/assets/AdminDriversScreen-ifnAVxl0.js            4.55 kB │ gzip:   2.47 kB
+dist/assets/PaymentMethodsScreen-DU2sBr02.js          4.56 kB │ gzip:   2.39 kB
+dist/assets/PricingInfoScreen-CDb8g0Dg.js             4.56 kB │ gzip:   2.50 kB
+dist/assets/NotificationsScreen-C-jVcMaN.js           4.57 kB │ gzip:   2.12 kB
+dist/assets/PromoCodeScreen-BGS0Uw8i.js               4.69 kB │ gzip:   2.47 kB
+dist/assets/MyStatsScreen-DZMMWJlT.js                 4.75 kB │ gzip:   2.38 kB
+dist/assets/EditProfileScreen-CyQG0O7Q.js             4.77 kB │ gzip:   2.50 kB
+dist/assets/AdminWaitlistScreen-D2Trus9y.js           4.84 kB │ gzip:   2.56 kB
+dist/assets/HelpScreen-i00P1w-n.js                    5.04 kB │ gzip:   3.21 kB
+dist/assets/AdminCarPhotoScreen-BfMefsIW.js           5.09 kB │ gzip:   2.58 kB
+dist/assets/DriverTaxiRidesScreen-ByO3WqKx.js         5.14 kB │ gzip:   2.54 kB
+dist/assets/DriverProfileScreen-ZVh-KXmW.js           5.19 kB │ gzip:   2.46 kB
+dist/assets/AdminReviewsScreen-BpzKA0E2.js            5.25 kB │ gzip:   2.47 kB
+dist/assets/AdminCourierScreen-CVWEebr7.js            5.27 kB │ gzip:   2.71 kB
+dist/assets/AdminCabinetScreen-CC3imHHN.js            5.28 kB │ gzip:   2.92 kB
+dist/assets/AdminReportsScreen-03ZHBTve.js            5.29 kB │ gzip:   2.84 kB
+dist/assets/AdEditorScreen-CszaVJKg.js                5.34 kB │ gzip:   2.55 kB
+dist/assets/PretripCheckScreen-BTN53UlI.js            5.34 kB │ gzip:   3.13 kB
+dist/assets/PassengerCabinetScreen-DNcAhcDX.js        5.35 kB │ gzip:   2.86 kB
+dist/assets/IncomeCalculatorScreen-CTKQb2QB.js        5.46 kB │ gzip:   2.55 kB
+dist/assets/EditRequestScreen-DQvVTibP.js             5.51 kB │ gzip:   2.54 kB
+dist/assets/AdminSosScreen-C-H8K8i4.js                5.52 kB │ gzip:   2.76 kB
+dist/assets/workbox-window.prod.es5-BqEJf4Xk.js       5.71 kB │ gzip:   2.34 kB
+dist/assets/ReportScreen-CDY3ovPJ.js                  5.80 kB │ gzip:   2.96 kB
+dist/assets/admin-BRTpnKjC.js                         5.84 kB │ gzip:   1.66 kB
+dist/assets/VoiceRequestScreen-B6nGi48T.js            6.10 kB │ gzip:   2.76 kB
+dist/assets/AdminPartnersScreen-B3zlll7d.js           6.31 kB │ gzip:   3.07 kB
+dist/assets/VerifyDriverScreen-CN_AU7Bd.js            6.33 kB │ gzip:   3.06 kB
+dist/assets/AdminTaxiPulseScreen-HLyBk7is.js          6.38 kB │ gzip:   3.00 kB
+dist/assets/FairnessCenterScreen-gn6CcMKv.js          6.42 kB │ gzip:   3.02 kB
+dist/assets/SavedPlacesScreen-C6TZy0s0.js             6.50 kB │ gzip:   2.92 kB
+dist/assets/ScheduledOrdersScreen-B4nSNCi_.js         6.57 kB │ gzip:   3.35 kB
+dist/assets/BoostScreen-BLKLjnKt.js                   6.86 kB │ gzip:   3.03 kB
+dist/assets/MyRequestsScreen-DpU7ooLV.js              6.91 kB │ gzip:   2.95 kB
+dist/assets/TaxiClassesScreen-CoQv81e9.js             7.06 kB │ gzip:   3.64 kB
+dist/assets/DriverResponsesScreen-DG1a84aQ.js         7.10 kB │ gzip:   3.08 kB
+dist/assets/AdminPaymentRequestsScreen-DZYp7xqx.js    7.25 kB │ gzip:   3.21 kB
+dist/assets/InvitesScreen-O6-JLkzF.js                 7.49 kB │ gzip:   3.46 kB
+dist/assets/RequestResponsesScreen-MpOABgX7.js        7.52 kB │ gzip:   3.39 kB
+dist/assets/AdminPromoScreen-BpZh6c4m.js              7.92 kB │ gzip:   3.20 kB
+dist/assets/AdminParcelsScreen-DjjvJMe3.js            8.04 kB │ gzip:   3.78 kB
+dist/assets/AdsCabinetScreen-PIS3uQxu.js              8.42 kB │ gzip:   3.70 kB
+dist/assets/WalletScreen-Cfyzmp4C.js                  8.52 kB │ gzip:   3.96 kB
+dist/assets/MyDataScreen-DpFezbj-.js                  8.57 kB │ gzip:   4.18 kB
+dist/assets/IncidentDetailScreen-CjEzY7u-.js          8.76 kB │ gzip:   3.52 kB
+dist/assets/TaxiDocumentsScreen-Chigst3A.js           9.32 kB │ gzip:   4.77 kB
+dist/assets/RequestsFeedScreen-CpBaMbn7.js            9.64 kB │ gzip:   4.28 kB
+dist/assets/TripReceiptScreen-DcV5UiwZ.js            10.70 kB │ gzip:   4.65 kB
+dist/assets/AdminIncidentsScreen-DMf1ntJh.js         10.91 kB │ gzip:   5.24 kB
+dist/assets/AdminTaxiScreen-BquSKwUp.js              10.97 kB │ gzip:   4.61 kB
+dist/assets/SettingsScreen-C96IA17c.js               11.18 kB │ gzip:   5.08 kB
+dist/assets/CarPhotoScreen-CBtO4Xhe.js               11.26 kB │ gzip:   5.45 kB
+dist/assets/AdminAdsScreen-8GEbSNaP.js               11.58 kB │ gzip:   4.46 kB
+dist/assets/CourierOnboardingScreen-DKfD3PFR.js      11.73 kB │ gzip:   5.49 kB
+dist/assets/CouponsScreen-BD45wcLt.js                12.25 kB │ gzip:   4.68 kB
+dist/assets/TaxiReceiptScreen-CZuntRks.js            13.18 kB │ gzip:   5.82 kB
+dist/assets/parcelForm-D5TOzXYN.js                   14.07 kB │ gzip:   5.82 kB
+dist/assets/parcelUi-BiJJD-kt.js                     14.12 kB │ gzip:   5.80 kB
+dist/assets/CreateRideScreen-CEzzEae_.js             14.56 kB │ gzip:   6.14 kB
+dist/assets/TaxiOnboardingScreen-loWco8Nu.js         14.73 kB │ gzip:   5.75 kB
+dist/assets/TripChatScreen-BHg5AH7m.js               16.16 kB │ gzip:   6.11 kB
+dist/assets/legal-BB8NLwST.js                        17.74 kB │ gzip:   8.91 kB
+dist/assets/PartnerCabinetScreen-1svSF1Ie.js         22.49 kB │ gzip:   7.57 kB
+dist/assets/ParcelsScreen-DDgMPdkx.js                29.10 kB │ gzip:  11.87 kB
+dist/assets/DriverCabinetScreen-DbhtXUA4.js          34.42 kB │ gzip:  13.29 kB
+dist/assets/CourierScreen-CC_KXIku.js                36.55 kB │ gzip:  13.59 kB
+dist/assets/index-BgyTBgHV.js                       680.76 kB │ gzip: 230.14 kB
+✓ built in 2.94s
+
+PWA v0.20.5
+mode      generateSW
+precache  121 entries (2632.89 KiB)
+files generated
+  dist/sw.js
+  dist/workbox-2fbc6a65.js
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm.
+
+(!) Some chunks are larger than 500 kB after minification. Consider:
+- Using dynamic import() to code-split the application
+- Use build.rollupOptions.output.manualChunks to improve chunking: https://rollupjs.org/configuration-options/#output-manualchunks
+- Adjust chunk size limit for this warning via build.chunkSizeWarningLimit.

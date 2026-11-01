@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.walk.l1_4.PayOnlineCardTest" tests="9" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:52:50.719Z" hostname="f8d2a3cbaeb8" time="0.797">
+  <properties/>
+  <testcase name="doubleTap_whileFirstRequestInFlight_doesNotSendASecondPayment" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.119"/>
+  <testcase name="headerAndButton_showExactlySameAmount" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.074"/>
+  <testcase name="successAlreadyPaid_goesStraightToPaid_withoutWaitingStage" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.088"/>
+  <testcase name="otherFailure_doesNotHideCard_canRetry" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.076"/>
+  <testcase name="serverSays503_hidesCardForTheRestOfTheSession" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.068"/>
+  <testcase name="paymentStaysHiddenUntilTheServerExplicitlyAllowsIt" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.087"/>
+  <testcase name="checkPayment_succeeded_movesFromWaitingToPaid" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.146"/>
+  <testcase name="successWithConfirmationUrl_goesToWaiting_notStraightToPaid" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.079"/>
+  <testcase name="unavailableHealthCheckDoesNotShowAnActionablePayment" classname="com.yuldash.app.walk.l1_4.PayOnlineCardTest" time="0.059"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

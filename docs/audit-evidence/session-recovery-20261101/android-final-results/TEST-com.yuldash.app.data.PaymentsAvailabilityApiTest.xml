@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.data.PaymentsAvailabilityApiTest" tests="8" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:52:49.798Z" hostname="f8d2a3cbaeb8" time="0.83">
+  <properties/>
+  <testcase name="onlyDocumentedEnabledProvidersAllowPayment" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.233"/>
+  <testcase name="nonStringPaymentsIsUnknown" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.179"/>
+  <testcase name="explicitOffIsAConfirmedDenial" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.04"/>
+  <testcase name="malformedJsonDoesNotEnablePayment" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.043"/>
+  <testcase name="unknownProviderIsNotPermissionToPay" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.216"/>
+  <testcase name="missingPaymentsIsUnknownInsteadOfPermanentDenial" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.039"/>
+  <testcase name="nullPaymentsIsUnknown" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.035"/>
+  <testcase name="unavailableHealthEndpointIsUnknown" classname="com.yuldash.app.data.PaymentsAvailabilityApiTest" time="0.045"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

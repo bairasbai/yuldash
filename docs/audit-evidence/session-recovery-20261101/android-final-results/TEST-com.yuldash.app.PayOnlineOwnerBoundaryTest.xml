@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.PayOnlineOwnerBoundaryTest" tests="16" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:52:02.331Z" hostname="f8d2a3cbaeb8" time="6.117">
+  <properties/>
+  <testcase name="retainedCheckCannotReadPreviousPaymentAsNextOwner" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.469"/>
+  <testcase name="receiptTargetChangeResetsOldPaymentAndRetiresCheck" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.578"/>
+  <testcase name="currentOwnerPaysOnceAndSeesPaid" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.235"/>
+  <testcase name="retainedWaitingCheckCannotRunAfterChoosingAnotherMethod" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.446"/>
+  <testcase name="matchingPaymentIdConfirmsPaid" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.285"/>
+  <testcase name="retainedPayCannotInvokeUnderNextAccountBeforeFrame" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.345"/>
+  <testcase name="retainedWaitingResetCannotReopenPaidOrStartAnotherPayment" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.454"/>
+  <testcase name="retainedIdlePayCannotStartSecondPaymentWhileWaiting" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.381"/>
+  <testcase name="duplicatePayWhileHeldSendsOnlyOneRequest" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.275"/>
+  <testcase name="disposedCardCannotInvokePayOnRemountedCard" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.334"/>
+  <testcase name="retainedPayCannotInvokeAfterLogoutBeforeFrame" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.357"/>
+  <testcase name="real401RefreshKeepsMountedOwnerAndCompletesPayment" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.376"/>
+  <testcase name="wrongPaymentIdCannotConfirmPaid" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.456"/>
+  <testcase name="previousOwnerUnavailableGateDoesNotHideNewOwner" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.4"/>
+  <testcase name="lateEnabledHealthCannotUndoCurrentOwnerPay503" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.292"/>
+  <testcase name="heldOldPayCannotDisableFreshOwnerCard" classname="com.yuldash.app.PayOnlineOwnerBoundaryTest" time="0.433"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

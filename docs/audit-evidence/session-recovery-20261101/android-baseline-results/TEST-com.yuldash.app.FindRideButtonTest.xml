@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.FindRideButtonTest" tests="2" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:31:58.400Z" hostname="f8d2a3cbaeb8" time="8.864">
+  <properties/>
+  <testcase name="findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt" classname="com.yuldash.app.FindRideButtonTest" time="8.481"/>
+  <testcase name="allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip" classname="com.yuldash.app.FindRideButtonTest" time="0.383"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

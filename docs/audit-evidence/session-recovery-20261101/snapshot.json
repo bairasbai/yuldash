@@ -1,0 +1,127 @@
+{
+  "base_sha": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+  "code_sha": "3cfbe977f742681a4bb82492347b3b6bb30449d8",
+  "branch": "audit/pr213-session-recovery-20261101",
+  "source_sha256": {
+    "android/app/src/main/java/com/yuldash/app/PayOnlineCard.kt": "ad39f5c69bbb81ff17f9267f066821f3c7d70a52ffa9fa30bb6c18b556559b75",
+    "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt": "e04fc5c8ef181c7c944b0a01e0ede433bb7750e3671e8a8e10fb1c14c1ac1646",
+    "android/app/src/test/java/com/yuldash/app/PayOnlineAvailabilityRecoveryTest.kt": "652c6a7cabcd42b1c9db5041adfa381b930649e4dfae490406b85cfa50aa4c79",
+    "android/app/src/test/java/com/yuldash/app/PayOnlineOwnerBoundaryTest.kt": "c79b162cc23251affa2adf973c9b23d33486a09315c8d5afdea83c5a20ba90ff",
+    "android/app/src/test/java/com/yuldash/app/TaxiReceiptOwnerBoundaryTest.kt": "a9c02f346acaf71fdd8173fd6924fcb657b2814a443517a81388f4b7957a048e",
+    "android/app/src/test/java/com/yuldash/app/data/PaymentsAvailabilityApiTest.kt": "e1211314407d1c4afa1c41917fd94015a2c72998ecd15d80db23aeb185405a64",
+    "android/app/src/test/java/com/yuldash/app/walk/l1_4/PayOnlineCardTest.kt": "cd73ce7f16ae3f2e8e13b2c59d418ef7ed6ba7b4fb82917ff9d4cf19336a48c8",
+    "backend/app/routers/payments.py": "c992ebd5be7844e1e6b3bc13fa4a8db66e6f8106fe81929348601d9f36ca3888",
+    "backend/app/routers/wallet.py": "9ee2dd1e26d13532c1dbcec439c6d79698af597cae2ea52d3f68a5159a4d23e7",
+    "backend/tests/test_online_payment_availability_errors.py": "1f775ceff543dae4b8122d37a3a7dc259524301b4936872e99e097883ad5076e",
+    "webapp/src/auth/AuthProvider.tsx": "93830f136c9c56399ff47822c3a726296cfcb5e3a5ede32c1ed8c4caa898223f",
+    "webapp/src/screens/LoginScreen.tsx": "d9a6643c0c79744b66c8123280d001e0e81253787b1ee4d566ae6f09f6d2ba6f",
+    "webapp/src/utils/loginFlow.d.ts": "ea394cf4addc6d9a6037fe01c4a4b6031b1738bb5db6320562a6409ea114c01c",
+    "webapp/src/utils/loginFlow.js": "048d35d1649fb09713d6a69af570e6acc831896075b0cf95276caddd5c7e1120",
+    "webapp/tests/honest-promises-test.mjs": "6fa4fa79b66ab9c966c111c0ef92385b7b3ad4172a32354fe4f3edfe61cf7d76",
+    "webapp/tests/login-method-refresh-test.mjs": "7bc235ab9a95ef068f45b0afe4420a0a947c1c9f30cec7308da4a66bbb19720b",
+    "webapp/tests/login-publication-cancel-test.mjs": "0d711585440b1dd91a21e85afcbae16b5e4512128f777f89b0396f37345732f7",
+    "webapp/tests/login-return-owner-test.mjs": "26d7ebeb555370f34b8f1bdd7c1453b339ca27682abb0739eea5d6d69a3d06e7",
+    "webapp/tests/run.mjs": "58d71a80298195e42635625dbe12f242bf09cb83751e9e1005a5ccbd9f073188"
+  },
+  "checks": {
+    "pwa": {
+      "source_commit": "99922aa6a3977e5bddefe11b67c659798bb728b3",
+      "unchanged_since_check": true,
+      "suites": 138,
+      "check_exit": 0,
+      "build_exit": 0,
+      "method_refresh_cases": 38,
+      "publication_cancel_cases": 23
+    },
+    "android": {
+      "tests": 253,
+      "nonempty_classes": 45,
+      "failures": 0,
+      "errors": 0,
+      "skipped": 0,
+      "assembleDebug": 0,
+      "compileDebugAndroidTestKotlin": 0,
+      "unsigned_assembleRelease_R8": 0
+    },
+    "backend": {
+      "passed": 6533,
+      "skipped": 94,
+      "failed": 0,
+      "warnings": 740,
+      "coverage_percent": 93.25,
+      "coverage_required_percent": 85,
+      "exit_code": 0,
+      "ruff_exit": 0,
+      "targeted_provider_cases": 24
+    }
+  },
+  "independent_reviews": [
+    {
+      "agent": "/root/web_review_v2",
+      "model": "gpt-6.1-sol",
+      "scope": "PWA authentication and token publication",
+      "verdict": "accepted",
+      "blocking_findings": []
+    },
+    {
+      "agent": "/root/payment_final_review",
+      "model": "gpt-6.1-sol",
+      "scope": "Android payment availability/recovery and two backend error codes",
+      "verdict": "accepted after final logs/XML",
+      "blocking_findings": []
+    }
+  ],
+  "limits": [
+    "No emulator RU/BA and light/dark matrix",
+    "No PostgreSQL-specific concurrency execution",
+    "No real payment/SMS/Telegram provider",
+    "No full Android suite or remote CI rerun confirmed",
+    "No PR-wide merge readiness"
+  ],
+  "publication": {
+    "pushed": false,
+    "merged": false,
+    "deployed": false
+  },
+  "evidence_sha256": {
+    "README.md": "5857512eb3a048bbf93e6a5944d3103e9e048398ca854f9b671205947813d4e2",
+    "android-baseline-results/TEST-com.yuldash.app.FindRideButtonTest.xml": "c00fb36c729ba17f252e2a0ec6d8a5bd5b060a2c4ae56be7a85bc37fe2fec6ee",
+    "android-baseline-results/TEST-com.yuldash.app.PayOnlineAvailabilityRecoveryTest.xml": "4f45af316f5f90756d8bdb0ba624769e7c5d7ecfcd3f908a4c341b49f358250d",
+    "android-baseline-results/TEST-com.yuldash.app.walk.l1_4.PayOnlineCardTest.xml": "3a3db528e30f09ca8ca5d1f3f17f57f19b53b14f3831b06c75337b6eece943b4",
+    "android-final-check.log": "8bd539cb69edd8481d354d9b1946856a9d734a7c9374b10336c355e966d1422e",
+    "android-final-results/TEST-com.yuldash.app.PayOnlineAvailabilityRecoveryTest.xml": "dc23c6bca7605982ae76be8509d1f11f3bbca7b6f80b5e2afec74cf3ed5faff3",
+    "android-final-results/TEST-com.yuldash.app.PayOnlineOwnerBoundaryTest.xml": "e69df2d84a251aa2490bb9664f48792c0cf86a23a6a1d887eabb2141e8ab677f",
+    "android-final-results/TEST-com.yuldash.app.TaxiReceiptOwnerBoundaryTest.xml": "3d3e0381976727886fed3b075f558aebf5c16f3318abd5ade07d490dc9a8ff8f",
+    "android-final-results/TEST-com.yuldash.app.data.PaymentsAvailabilityApiTest.xml": "98e1dc4624b42ef36b95da013699bbaa719b345f51dd8db4b7085f3ec255d7d4",
+    "android-final-results/TEST-com.yuldash.app.walk.l1_4.PayOnlineCardTest.xml": "3719b9ab7e5e95c3f9142a0526dd6099ecc973cd2782d4a836b5cdc6984bdb8a",
+    "android-final-results/summary.json": "ab73912791f970bce072c502f2d5abc26083195a42b449f4d0bd05a2efa547bd",
+    "android-health-red.log": "f504242bcdd8fd07b00b9c66d61ebf1b9d5adfa01b4a052ebfe1e8c905c88807",
+    "android-provider-parser-candidate.log": "a8053781146e931d90a96244d778e8bc7c0721ad84a9cc4206b1643fdde6254a",
+    "android-provider-parser-red.log": "8ffaa6506c818638feed7ecf802206c9b8fe7c754bb201da5b92713c8d2e0c09",
+    "android-provider503-red-results/TEST-com.yuldash.app.PayOnlineAvailabilityRecoveryTest.xml": "385a461dc79ef661853fdff2d06c529ccf0b7a5c09363b835b54bd12409963d8",
+    "android-provider503-red-results/TEST-com.yuldash.app.data.PaymentsAvailabilityApiTest.xml": "0a16a9f3ccf8cc4aa201dd3c4a29e5ba8c5f59aa67dc07a042af36ec3778fb3f",
+    "android-retained-submit-red.xml": "4bf5248328cf0a9046b1c34161505f4dcd0ee7ec48596218b42a3cc2df24fced",
+    "backend-auth-boundaries.log": "c9def584c79c840867f2bdf98818a0ecf8e51edc5ca1c1ac3a01e4791ccf9912",
+    "backend-final-full.log": "6d3a83ce859947831d1a786586d9a84256bcad7271a3065b6593447f1224d18a",
+    "backend-final-result.json": "450f718f9f7abaa2651abd16e53dc7bee5bd2d4b779bf3c492bb5d8aa5dc0f50",
+    "backend-final-ruff.log": "5d5bf512ad3eae0ff05c492b447c36b82494e308a240d28f0fedfbf1c2327f5a",
+    "backend-payment-boundaries.log": "0e4039a55e49f42de3a3859f19900a6ba694a6a65df059ddbd40dde254dadd8e",
+    "backend-provider-final.log": "4a9b50a3d7adb2982785ff1d03f51485e7a5a4fe4067e0303c3e7cb53e227ec3",
+    "backend-provider-red.log": "54691b3ec8596339cd0d75d34422d0efd0d52aafc6ea0ed525962cc43490186d",
+    "environment.json": "3c8a088607725a41ba6c62b99ddd5f34698ec4de348354f27e9fbf8a4f2d8c43",
+    "evidence-normalization.json": "8c11baea99336e30ad1b9923203a4ae5e3346e74acacf5833c782e0e641696fb",
+    "github-final-state.json": "67cf7d804b610fe3f8747f676c4ecfa9ad7d512652466bbf743a741012458a0e",
+    "github-state.json": "84fa777b2f9a888774284d3b0abb419b6357321910eb6326ac995b98288f608d",
+    "pwa-final-build.log": "dbb89416ec3677c34228a200e5e353b1319e5957bc963c1a277f762a801f4142",
+    "pwa-final-check.log": "ba1de4be0a7ec9bfa7368c2e4890f2be2d60140bff3c4ddaeedd8c3b29eedfc7",
+    "pwa-logout-intent-red.log": "353e065e40a50f67cb275fa47950976f0b1ebd44384aa9bb61bf705e51677d1e",
+    "pwa-method-final.log": "ba548f03517d5ff1a9a55fa921eb260be1a889ab0efbf26f34c9d7332290ab59",
+    "pwa-method-red.log": "e6ac5e9a1979e19b3301b2e38b18fe6b83400ccd4187b4564252d61e6458094e",
+    "pwa-publication-final.log": "6d98e14cdf754bc5ea2ba524e345cd31d6e67c99571f920cadf431a12d5489c5",
+    "pwa-publication-red.log": "a40e5466e6d94f5baf9e15d6ef9d3d941b903adc023b440a4b865e3bd41f348d",
+    "raw-evidence.zip": "e8e265b01967d4eb814d066a8dc5c62f3b99f5f5042fc3befae84ff7ad2ed920",
+    "scoped-inventory.json": "44fa7fd501d2e1642742ffc60239c1186fa6cd2007933de69b8b3fb19e503042",
+    "secret-scan-source-review.json": "c034cb5ba857d77abbb2685e66ce4094009b7debd6dc3b9f789509aaad53bb0f",
+    "secret-scan-source.json": "7d74dea134f21ac3147df3f71f5f429fdc63d7d5351d9ae6f1061a2964cadcab"
+  }
+}

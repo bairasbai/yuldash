@@ -1,0 +1,22 @@
+{
+  "checked_utc": "2026-11-01 06:09:52 UTC",
+  "pr": 213,
+  "pr_head": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+  "main_head": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+  "mergeable": false,
+  "main_ci": {
+    "run": 41198117093,
+    "attempt": 1,
+    "conclusion": "failure"
+  },
+  "workflow_runs": {
+    "count": 0
+  },
+  "check_runs": {
+    "count": 0
+  },
+  "commit_statuses": {
+    "count": 0,
+    "state": "pending"
+  }
+}
