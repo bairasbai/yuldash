@@ -67,10 +67,10 @@ export default function LoginScreen() {
     try {
       const next = await fetchLoginMethods(controller.signal);
       if (controller.signal.aborted) return;
-      const removed = methodsRef.current.some((method) => !next.includes(method));
+      const removed = methodsRef.current.filter((method) => !next.includes(method));
       methodsRef.current = next;
       setMethods(next);
-      if (removed) flow.current?.invalidate();
+      for (const method of removed) flow.current?.invalidate(method);
       if (!next.includes("telegram")) { setStep("choose"); setNeedPhone(false); setCode(""); }
       if (!next.includes("sms")) { setSmsOpen(false); setSmsCode(""); }
     } catch {

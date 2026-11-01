@@ -28,7 +28,7 @@ export interface LoginFlowDeps {
 }
 export function createLoginFlow(deps: LoginFlowDeps): {
   readonly busy: boolean;
-  invalidate(): void;
+  invalidate(method?: LoginMethod): void;
   revive(): void;
   dispose(): void;
   start(): Promise<void> | void;
@@ -37,3 +37,4 @@ export function createLoginFlow(deps: LoginFlowDeps): {
   smsRequest(phone: string): Promise<void>;
   smsVerify(phone: string, code: string, name: string): Promise<void>;
 };
+import type { LoginMethod } from "./loginMethods";
