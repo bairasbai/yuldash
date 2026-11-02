@@ -61,6 +61,12 @@ def _hits(payload, partner_id):
     return [x for x in items if x.get("partner_id") == partner_id]
 
 
+def _near_params(ride):
+    # Тот же уникальный маршрут, что в /rides: после тысяч тестов первая страница не вся база.
+    return {"lat": 52.591, "lng": 58.317, "radius_km": 50,
+            "from_city": ride["from_city"], "to_city": ride["to_city"]}
+
+
 # ----------------------------- аноним не видит связку -----------------------------
 def test_лента_не_выдаёт_анониму_поездку_в_клинику(client, hospital_ride):
     r = client.get(f"/rides?from_city={hospital_ride['from_city']}&to_city={hospital_ride['to_city']}")
@@ -75,8 +81,9 @@ def test_рядом_не_выдаёт_анониму_поездку_в_клин�
     Именно здесь первая версия правки не сработала: фильтр применили к объектам из базы,
     а страница потом перечитывалась заново, и правка терялась.
     """
-    r = client.get("/rides/near?lat=52.591&lng=58.317&radius_km=50")
+    r = client.get("/rides/near", params=_near_params(hospital_ride))
     assert r.status_code == 200
+    assert any(x["id"] == hospital_ride["id"] for x in r.json()["items"]), "поездка не попала в выборку — тест слеп"
     assert not _hits(r.json(), hospital_ride["partner_id"])
 
 
@@ -148,7 +155,8 @@ def test_вошедший_видит_поездку_в_клинику_целик
     feed = client.get(f"/rides?{cities}", headers=me["auth"])
     assert _hits(feed.json(), pid), "вошедший перестал видеть связку — функция сломана"
 
-    near = client.get("/rides/near?lat=52.591&lng=58.317&radius_km=50", headers=me["auth"])
+    near = client.get("/rides/near", params=_near_params(hospital_ride), headers=me["auth"])
+    assert near.status_code == 200, near.text
     assert _hits(near.json(), pid)
 
     filtered = client.get(f"/rides?category=hospital&{cities}", headers=me["auth"])

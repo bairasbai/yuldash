@@ -24,7 +24,7 @@ from ..security import authenticate_ws
 from ..ws_guard import watch_ws_access
 from ..logs import log
 from ..services import MAP_FEED_KEY, haversine_km, manager
-from ..visibility import LIVE_GEO_LEAD_HOURS, trip_is_live
+from ..visibility import LIVE_GEO_LEAD_HOURS, pre_boarding_until, trip_is_live
 
 router = APIRouter(tags=["location"])
 
@@ -51,6 +51,7 @@ CAR_FEED_SEC = 5.0
 # Канал водителя ЭТОЙ брони жив, если её точка свежее этого: тогда пассажир и так получает её
 # пересылкой, второй поток не нужен.
 OWN_CHANNEL_FRESH_SEC = 15.0
+_UNDO_RECEIPT_UNSEEN = object()
 
 
 @router.websocket("/ws/map")
@@ -207,6 +208,18 @@ def driver_point_for_booking(session: Session, booking, ride, now=None):
       «в пути» (`_пишем_без_пересылки` — её близкие машину не теряют); его блокировка до посадки
       сильнее её ответной.
 
+    Машина у всех пассажиров рейса (24.10.2026, задача «машину видит только ОДИН пассажир»). Если
+    водитель открыл поездку брони, чьё окно закрыто (Зарина в Бурибае), его точка лежит только в
+    ключе рейса (`livepos.ride_driver_set`), и Айгуль с открытым окном не видела машину ни в
+    приложении, ни у близких, ни в SOS. Теперь ключ рейса — последний запас, по тем же правилам
+    брони B: своя точка B → самая свежая по другим броням рейса → ключ рейса, даже если он свежее
+    (второе устройство водителя дома пишет в тот же ключ рейса — точки броней надёжнее).
+
+    Не севший пассажир (проверка безопасности, находка 1): точки через ДРУГИЕ брони и ключ рейса
+    подтверждённой брони — только до `visibility.pre_boarding_until` (срок «Не пришёл» + 15 минут, как
+    у остановок). Иначе Бота, которая не вышла, часами видела бы, у каких домов машина высаживает
+    других. Своя точка брони (её канал) — как раньше.
+
     Ничего не пишет и никому сам не отправляет."""
     if booking is None or ride is None:
         return None
@@ -217,15 +230,24 @@ def driver_point_for_booking(session: Session, booking, ride, now=None):
     if _заблокированы(session, booking.passenger_id, ride.driver_id) and \
             not _пишем_без_пересылки(session, booking, ride, ride.driver_id):
         return None
-    точки = livepos.driver_points_for_ride(session, ride, now)
+    точки = livepos.driver_points_for_ride(session, ride, now, with_ride_point=True)
     своя = next((p for p in точки if p.get("booking_id") == booking.id), None)
-    return своя or (точки[0] if точки else None)
+    if своя is not None:
+        return своя
+    до = pre_boarding_until(booking, ride)
+    if до is not None:
+        from ..timeutil import utcnow   # лениво: тесты двигают `app.timeutil.utcnow`
+        if (now or utcnow()) >= до:
+            return None
+    броней = next((p for p in точки if p.get("booking_id") is not None), None)
+    return броней or next((p for p in точки if p.get("booking_id") is None), None)
 
 
 def _рейс_идёт(depart_at, now=None) -> bool:
     """Рейс идёт по обычному правилу точки — с depart − LIVE_GEO_LEAD_HOURS (как у брони в начале
     маршрута). «Выехал» раньше этого срока не принимается (P2-Г), поэтому отдельно его не спрашиваем.
-    Только для внутренней точки водителя по рейсу (`livepos.ride_driver_set`, A1)."""
+    Только для точки водителя по рейсу (`livepos.ride_driver_set`, A1): её читают проверка «Подъезжаю»
+    и — с 24.10.2026 — `driver_point_for_booking` по правилам брони."""
     from ..timeutil import utcnow   # лениво, как в `_закрыть_в`: тесты двигают `app.timeutil.utcnow`
     return depart_at is not None and (now or utcnow()) >= depart_at - timedelta(hours=LIVE_GEO_LEAD_HOURS)
 
@@ -285,8 +307,10 @@ class _Пора:
     Отмена, неявка и снятие поездки тоже толкают канал (приёмка PR155): по толчку уже начавшаяся
     поездка перечитывает статус брони, и если сделки больше нет — `кончилась`, канал закрывается
     сразу, а не через сторож (до 30 с точка водителя ещё уходила пассажиру отменённой брони).
-    Начавшаяся поездка «назад в не начавшуюся» не откатывается, как и раньше, — кроме брони на
-    остановке, которую «Отменить» после «Сел» вернул в «подтверждена» до её окна (S3).
+    Принятое пассажиром исправление посадки закрывает именно старую эпоху соединения с
+    «Boarding corrected». Новый канал снова проверяет окно confirmed-брони; просьба и отказ
+    пассажира посадку не меняют и канал не закрывают. Старый переход без квитанции на остановке
+    по-прежнему возвращает канал в ожидание своего окна (S3).
 
     Блокировка закрывает канал — кроме канала водителя, когда блокировка случилась «в пути»
     (`_пишем_без_пересылки`): тот переходит в `только_запись` и остаётся в нём до конца
@@ -294,9 +318,12 @@ class _Пора:
     закрывает и его, с «Trip ended».
     """
 
-    def __init__(self, booking_id: int, я: "int | None" = None) -> None:
+    def __init__(self, booking_id: int, я: "int | None" = None, *, initial_onboard_at=None,
+                 initial_undo_id=_UNDO_RECEIPT_UNSEEN) -> None:
         self._id = booking_id
         self._я = я              # кто на этом конце канала; без него блокировка закрывает канал всегда
+        self._посадка = initial_onboard_at  # исходная посадка именно этого соединения, не receipt другого цикла
+        self._исправление = initial_undo_id  # receipt на момент авторизации, чтобы не пропустить короткую onboard-эпоху
         self._да = False
         self.кончилась = False   # толчок показал: сделки нет или блокировка — канал закрыть
         self.причина = "Trip ended"   # с какой причиной закрыть: блокировка — как у сторожа
@@ -321,6 +348,27 @@ class _Пора:
         with Session(engine) as s:
             b = s.get(Booking, self._id)
             r = s.get(Ride, b.ride_id) if b else None
+            if b is not None:
+                receipt = b.boarding_undo_request_id if b.status == BookingStatus.confirmed and b.boarding_undo_answer is True else None
+                if self._исправление is _UNDO_RECEIPT_UNSEEN:
+                    self._исправление = receipt
+                if b.status == BookingStatus.onboard and b.onboard_at is not None:
+                    if self._посадка is not None and self._посадка != b.onboard_at:
+                        # Между кадрами могли успеть согласиться на исправление и снова посадить.
+                        # Новая посадка уже очистила receipt, но старому каналу менять эпоху нельзя.
+                        self.кончилась = True
+                        self.причина = "Boarding corrected"
+                        return False
+                    self._посадка = b.onboard_at
+                elif (receipt and (receipt != self._исправление or (self._посадка is not None
+                      and receipt.startswith(self._посадка.isoformat(timespec="microseconds") + "~")))):
+                    # Пассажир подтвердил исправление этой посадки на другом устройстве. Старый
+                    # драйверский carrier мог быть onboard без TTL: нужен свежий выбор/срок, а не
+                    # бессрочная отправка по ставшей confirmed брони. Закрываем только этот канал;
+                    # отдельная причина разрешает клиенту перевыбор БЕЗ записи брони в terminal/closed.
+                    self.кончилась = True
+                    self.причина = "Boarding corrected"
+                    return False
             if b is not None and r is not None and _заблокированы(s, b.passenger_id, r.driver_id):
                 if _пишем_без_пересылки(s, b, r, self._я):
                     # Заблокировали «в пути»: точку машины пишем дальше для ссылки близким и SOS,
@@ -397,7 +445,9 @@ async def trip_location(websocket: WebSocket, booking_id: int):
             await websocket.close(code=1008, reason=reason)
             return
         driver_id = ride.driver_id
-        ride_id, depart_at = ride.id, ride.depart_at   # для внутренней точки водителя по рейсу (A1)
+        ride_id, depart_at = ride.id, ride.depart_at   # для точки водителя по рейсу (A1; наружу — с 24.10)
+        initial_onboard_at = booking.onboard_at if booking.status == BookingStatus.onboard else None
+        initial_undo_id = booking.boarding_undo_request_id if booking.status == BookingStatus.confirmed and booking.boarding_undo_answer is True else None
 
     role = "driver" if user_id == driver_id else "passenger"
     # Два ключа-НАПРАВЛЕНИЯ, чтобы НЕ возвращать отправителю его же позицию (эхо → стрелка попутчика
@@ -405,7 +455,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
     # -bid*2 = inbox водителя (туда шлёт пассажир), -bid*2-1 = inbox пассажира (туда шлёт водитель).
     recv_key = (-booking_id * 2) if role == "driver" else (-booking_id * 2 - 1)
     send_key = (-booking_id * 2 - 1) if role == "driver" else (-booking_id * 2)
-    пора = _Пора(booking_id, user_id)   # поездка началась? (`trip_is_live`) — пока нет, точки не пересылаем
+    пора = _Пора(booking_id, user_id, initial_onboard_at=initial_onboard_at, initial_undo_id=initial_undo_id)
 
     def _ещё_можно(s2: Session) -> bool:
         b = s2.get(Booking, booking_id)
@@ -474,8 +524,10 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                         await websocket.close(code=1008, reason=пора.причина)
                         break
                     # Окно ЭТОЙ брони закрыто (пассажирка дальше по маршруту), а рейс уже идёт:
-                    # точку водителя кладём только во внутренний ключ рейса — для проверки его же
-                    # «Подъезжаю» по другим броням (A1). Никому не пересылаем, в кэш брони не пишем.
+                    # точку водителя кладём только в ключ рейса. Его читают проверка «Подъезжаю» по
+                    # другим броням (A1) и — с 24.10.2026 — `driver_point_for_booking`, только по
+                    # правилам ДРУГОЙ брони (её окно, блокировки, срок до посадки). Пассажирке этой
+                    # брони по каналу не пересылаем, в кэш этой брони не пишем.
                     if role == "driver" and _рейс_идёт(depart_at) and guard.ok(float(lat), float(lng)):
                         ride_driver_set(ride_id, lat, lng, payload.get("bearing"))
                     continue
@@ -492,7 +544,7 @@ async def trip_location(websocket: WebSocket, booking_id: int):
                     # публичный /t/{token}/state.json читает её. В БД/лог координаты НЕ пишем.
                     livepos_set("booking", booking_id, lat, lng, payload.get("bearing"))
                     if _рейс_идёт(depart_at):
-                        ride_driver_set(ride_id, lat, lng, payload.get("bearing"))   # проверка «Подъезжаю» (A1)
+                        ride_driver_set(ride_id, lat, lng, payload.get("bearing"))   # «Подъезжаю» (A1) и другие брони рейса
                 if пора.только_запись:
                     continue   # записали для ссылки близким и SOS — по каналу никому из двоих не пересылаем
                 await manager.broadcast(send_key, {   # в inbox ДРУГОГО участника (не себе)
