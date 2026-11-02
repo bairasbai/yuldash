@@ -26,6 +26,9 @@ from app.db import engine
 from app.models import Booking, BookingStatus, Notification, Ride, TripShare, UserRole
 from app.routers.bookings import NO_SHOW_WAIT
 from app.timeutil import utcnow
+from boarding_helpers import confirm_boarding_undo
+
+_passengers = {}
 
 
 def _trip(client, user_factory, tag, *, depart_in=timedelta(minutes=10), confirm=True):
@@ -40,6 +43,7 @@ def _trip(client, user_factory, tag, *, depart_in=timedelta(minutes=10), confirm
     bid = b.json()["id"]
     if confirm:
         assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    _passengers[bid] = pax
     return drv, pax, ride, bid
 
 
@@ -48,7 +52,7 @@ def _board(client, who, bid):
 
 
 def _undo(client, who, bid):
-    return client.post(f"/bookings/{bid}/boarded/undo", headers=who["auth"])
+    return confirm_boarding_undo(client, who, _passengers[bid], bid)
 
 
 def _booking(bid) -> Booking:
@@ -154,7 +158,9 @@ def test_undo_within_five_minutes_returns_booking_to_confirmed(client, user_fact
     _age_mark(bid, 4)
     r = _undo(client, drv, bid)
     assert r.status_code == 200, r.text
-    assert r.json() == {"ok": True, "status": "confirmed", "boarding_undo_sec": 0}
+    assert r.json()["ok"] and r.json()["status"] == "confirmed" and r.json()["boarding_undo_sec"] == 0
+    assert r.json()["boarding_undo_pending"] is False
+    assert r.json()["boarding_undo_confirmed_id"]
     b = _booking(bid)
     assert b.status == BookingStatus.confirmed and b.onboard_at is None
     # Пассажиру снимают тревогу тем же каналом, что сообщили о посадке.
@@ -224,7 +230,8 @@ def test_onboard_blocks_passenger_cancel_and_driver_no_show(client, user_factory
     assert no_show.status_code == 409 and no_show.json()["detail"]["code"] == "passenger_onboard", no_show.text
     # В отказе — путь вперёд: «Отменить» в первые минуты или разбор; и сколько минут осталось —
     # карточка водителя показывает «Отменить» с верным отсчётом, а не сразу разбор.
-    assert "Отменить" in no_show.json()["detail"]["ru"]
+    assert "Исправить посадку" in no_show.json()["detail"]["ru"]
+    assert "подтвердит пассажир" in no_show.json()["detail"]["ru"]
     assert 0 < no_show.json()["detail"]["boarding_undo_sec"] <= 300
     with Session(engine) as s:
         assert s.get(Booking, bid).status == BookingStatus.onboard
@@ -252,7 +259,7 @@ def test_mark_and_undo_poke_the_live_channel(client, user_factory, monkeypatch):
     assert _board(client, drv, bid).status_code == 200
     assert pokes == [bid], "повторный тап толкать не должен — ничего не сменилось"
     assert _undo(client, drv, bid).status_code == 200
-    assert pokes == [bid, bid], "«Отменить» не толкнул канал координат"
+    assert pokes == [bid, bid, bid], "просьба/подтверждение не толкнули канал координат"
 
 
 def test_mark_tells_the_passenger_and_the_family(client, user_factory, monkeypatch):

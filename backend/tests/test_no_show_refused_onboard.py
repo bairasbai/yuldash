@@ -52,7 +52,8 @@ def test_no_show_refused_for_onboard_booking(client, user_factory):
     assert r.status_code == 409, r.text
     detail = r.json()["detail"]
     # Понятный отказ на двух языках: что случилось и что делать («Отменить» или сообщить о проблеме).
-    assert "в машине" in detail["ru"] and "Отменить" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
+    assert "в машине" in detail["ru"] and "Исправить посадку" in detail["ru"] and "сообщи о проблеме" in detail["ru"]
+    assert "подтвердит пассажир" in detail["ru"]
     assert detail["ba"].strip() and detail["ba"] != detail["ru"]
     # Машинная причина: клиент по ней сразу меняет «Не пришёл» на «Сообщить о проблеме».
     assert detail["code"] == "passenger_onboard"

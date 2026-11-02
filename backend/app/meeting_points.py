@@ -200,6 +200,7 @@ def booking_public_dto(session, booking: Booking, ride: Ride, viewer_id: int) ->
     confirmed/onboard полностью; при pending и после закрытия (done/cancelled) — только
     булевы «место указано»/«есть предложение». Посторонний сюда не доходит (403 раньше)."""
     out = {name: getattr(booking, name) for name in _BOOKING_BASE_FIELDS}
+    out["declined"] = booking.cancel_reason == "driver_declined"
     status = booking.status.value if hasattr(booking.status, "value") else str(booking.status)
     is_passenger = booking.passenger_id == viewer_id
     is_driver = ride.driver_id == viewer_id
@@ -384,6 +385,7 @@ class BookingPublicOut(BaseModel):
     done_at: Optional[datetime] = None
     cancelled_at: Optional[datetime] = None
     cancel_reason: Optional[str] = None
+    declined: bool = False
     no_show: bool = False
     cancelled_by: Optional[int] = None
     lost_item_until: Optional[datetime] = None

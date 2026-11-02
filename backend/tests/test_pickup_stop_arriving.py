@@ -25,6 +25,8 @@ from datetime import timedelta
 
 import fakeredis
 import pytest
+
+from boarding_helpers import confirm_boarding_undo
 from sqlmodel import Session, select
 
 import app.routers.bookings as bookings_mod
@@ -529,7 +531,7 @@ def test_undo_boarded_rolls_the_open_channel_back_for_a_stop_booking(client, use
     r = client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "boarded"})
     assert r.status_code == 200, r.text
     assert её_канал.наступила() is True and его_канал.наступила() is True, "«Сел» открыл канал (ожидаемо)"
-    u = client.post(f"/bookings/{bid}/boarded/undo", headers=drv["auth"])
+    u = confirm_boarding_undo(client, drv, zarina, bid)
     assert u.status_code == 200, u.text
     with Session(engine) as s:
         bk = s.get(Booking, bid)
@@ -547,7 +549,7 @@ def test_undo_boarded_keeps_the_channel_of_a_start_booking(client, user_factory,
     канал = location._Пора(bid, aigul["id"])
     assert канал.наступила() is True
     assert client.post(f"/bookings/{bid}/driver-status", headers=drv["auth"], json={"status": "boarded"}).status_code == 200
-    assert client.post(f"/bookings/{bid}/boarded/undo", headers=drv["auth"]).status_code == 200
+    assert confirm_boarding_undo(client, drv, aigul, bid).status_code == 200
     assert канал.наступила() is True and канал.кончилась is False
 
 

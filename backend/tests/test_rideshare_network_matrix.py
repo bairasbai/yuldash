@@ -12,6 +12,8 @@ from threading import Barrier, Event
 
 import httpx
 import pytest
+
+from boarding_helpers import confirm_boarding_undo
 from sqlmodel import Session, select
 
 from app.config import settings
@@ -460,7 +462,7 @@ def test_late_queued_passenger_status_cannot_reopen_family_after_cancel_or_witho
     elif state == "undone":
         # Водитель исправляет ошибочную посадку настоящим HTTP в разрешённые5минут.
         monkeypatch.setattr(booking_routes, "utcnow", utcnow)
-        _ok(client.post(f"/bookings/{w.booking['id']}/boarded/undo", headers=w.driver["auth"]))
+        _ok(confirm_boarding_undo(client, w.driver, w.passenger, w.booking["id"]))
     else:
         actor = w.driver if state == "cancelled-driver" else w.passenger
         _ok(client.post(f"/bookings/{w.booking['id']}/cancel", headers=actor["auth"], json={"reason": "changed_mind"}))
