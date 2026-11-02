@@ -56,7 +56,7 @@ class PayOnlineOwnerBoundaryTest {
                         path.endsWith("/pay") -> {
                             if(held) {started.countDown();assertTrue(release.await(35,TimeUnit.SECONDS));returned.countDown()}
                             if(refreshOnce && request.getHeader("Authorization")=="Bearer $tokenA") json("""{"detail":"expired"}""",401)
-                            else if(reject) json("""{"detail":"Контрольный отказ оплаты"}""",503)
+                            else if(reject) json("""{"detail":{"ru":"Контрольный отказ оплаты","code":"online_payment_disabled"}}""",503)
                             else json("""{"status":"${if(pending) "pending" else "paid"}","method":"card","payment_id":31}""")
                         }
                         path=="/payments/31/status" -> json("""{"payment_id":${if(wrongStatusId) 32 else 31},"status":"succeeded","purpose":"trip"}""")

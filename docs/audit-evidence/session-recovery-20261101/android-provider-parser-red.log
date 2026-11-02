@@ -1,0 +1,1233 @@
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Drobolectric.offline=true -Drobolectric.dependency.dir=/workspace/scratch/727f6a2e912d/audit-tooling/robolectric-sdk
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.13/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build
+Warning: SDK processing. This version only understands SDK XML versions up to 3 but an SDK XML file of version 4 was encountered. This can happen if you use versions of Android Studio and the command-line tools that were released at different times.
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac UP-TO-DATE
+> Task :app:bundleDebugClassesToRuntimeJar UP-TO-DATE
+> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:javaPreCompileDebugUnitTest UP-TO-DATE
+> Task :app:mergeDebugShaders UP-TO-DATE
+> Task :app:compileDebugShaders NO-SOURCE
+> Task :app:generateDebugAssets UP-TO-DATE
+> Task :app:mergeDebugAssets UP-TO-DATE
+> Task :app:packageDebugUnitTestForUnitTest UP-TO-DATE
+> Task :app:processDebugUnitTestManifest UP-TO-DATE
+> Task :app:generateDebugUnitTestConfig UP-TO-DATE
+> Task :app:processDebugJavaRes UP-TO-DATE
+
+> Task :app:compileDebugUnitTestKotlin
+w: file:///workspace/scratch/727f6a2e912d/yuldash-audit/android/app/src/test/java/com/yuldash/app/TaxiReceiptOwnerBoundaryTest.kt:74:39 The corresponding parameter in the supertype 'Dispatcher' is named 'request'. This may cause problems when calling this function with named arguments.
+w: file:///workspace/scratch/727f6a2e912d/yuldash-audit/android/app/src/test/java/com/yuldash/app/TaxiReceiptOwnerBoundaryTest.kt:150:28 'fun <T : Parcelable!> getParcelableExtra(p0: String!): T?' is deprecated. Deprecated in Java.
+
+> Task :app:compileDebugUnitTestJavaWithJavac NO-SOURCE
+> Task :app:processDebugUnitTestJavaRes UP-TO-DATE
+
+> Task :app:testDebugUnitTest
+Picked up JAVA_TOOL_OPTIONS: -Djavax.net.ssl.trustStore=/etc/ssl/certs/java/cacerts -Drobolectric.offline=true -Drobolectric.dependency.dir=/workspace/scratch/727f6a2e912d/audit-tooling/robolectric-sdk
+▶ com.yuldash.app.AccessibilityDeep2ContentTest
+✓ com.yuldash.app.AccessibilityDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccessibilityDeep3ContentTest
+✓ com.yuldash.app.AccessibilityDeep3ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccessibilityDeep4ContentTest
+✓ com.yuldash.app.AccessibilityDeep4ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccessibilityDeepContentTest
+✓ com.yuldash.app.AccessibilityDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccessibilityFormsContentTest
+✓ com.yuldash.app.AccessibilityFormsContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccessibilityScreensContentTest
+✓ com.yuldash.app.AccessibilityScreensContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccountDeletionBoundaryTest
+✓ com.yuldash.app.AccountDeletionBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccountDeletionReceiptTest
+✓ com.yuldash.app.AccountDeletionReceiptTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccountDraftIsolationTest
+✓ com.yuldash.app.AccountDraftIsolationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AccountDraftRestorationTest
+✓ com.yuldash.app.AccountDraftRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripBarBoundaryTest
+✓ com.yuldash.app.ActiveTripBarBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripBoardingCodeLoadTest
+✓ com.yuldash.app.ActiveTripBoardingCodeLoadTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripBoardingCodeRetryBoundaryTest
+✓ com.yuldash.app.ActiveTripBoardingCodeRetryBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripBoardingCodeSaveTest
+✓ com.yuldash.app.ActiveTripBoardingCodeSaveTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripChatActionsBoundaryTest
+✓ com.yuldash.app.ActiveTripChatActionsBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripChatTerminalHttpTest
+✓ com.yuldash.app.ActiveTripChatTerminalHttpTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripChatUiBoundaryTest
+✓ com.yuldash.app.ActiveTripChatUiBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripDeletionTest
+✓ com.yuldash.app.ActiveTripDeletionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripLateTerminalTest
+✓ com.yuldash.app.ActiveTripLateTerminalTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripOfflineHonestyTest
+✓ com.yuldash.app.ActiveTripOfflineHonestyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripPassengerContactsTest
+✓ com.yuldash.app.ActiveTripPassengerContactsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripPassengerStatusFailureTest
+✓ com.yuldash.app.ActiveTripPassengerStatusFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripPollingSessionTest
+✓ com.yuldash.app.ActiveTripPollingSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripRealtimeSessionTest
+✓ com.yuldash.app.ActiveTripRealtimeSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripSessionChainTest
+✓ com.yuldash.app.ActiveTripSessionChainTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripSharingBoundaryTest
+✓ com.yuldash.app.ActiveTripSharingBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ActiveTripSharingLoadTest
+✓ com.yuldash.app.ActiveTripSharingLoadTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AdminAdsContentTest
+✓ com.yuldash.app.AdminAdsContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AdminDebtAlreadyTest
+✓ com.yuldash.app.AdminDebtAlreadyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AdminReviewsContentTest
+✓ com.yuldash.app.AdminReviewsContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AdminReviewsIntegrationTest
+✓ com.yuldash.app.AdminReviewsIntegrationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AdminScreensIntegrationTest
+✓ com.yuldash.app.AdminScreensIntegrationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AdminTextFlagsContentTest
+✓ com.yuldash.app.AdminTextFlagsContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ApiClientStateTest
+✓ com.yuldash.app.ApiClientStateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ApiParsingTest
+✓ com.yuldash.app.ApiParsingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AppReviewContentTest
+✓ com.yuldash.app.AppReviewContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AppReviewFormContentTest
+✓ com.yuldash.app.AppReviewFormContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AppStartScreenTest
+✓ com.yuldash.app.AppStartScreenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AuditBe29MyDataLocationTest
+✓ com.yuldash.app.AuditBe29MyDataLocationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AuditDelta01OnboardControlsTest
+✓ com.yuldash.app.AuditDelta01OnboardControlsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AuditDelta02RestorationTest
+✓ com.yuldash.app.AuditDelta02RestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AuditDelta06BookingStatusTest
+✓ com.yuldash.app.AuditDelta06BookingStatusTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AuditDelta07DriverFinishTest
+✓ com.yuldash.app.AuditDelta07DriverFinishTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.AuditDelta08ScheduledPayloadTest
+✓ com.yuldash.app.AuditDelta08ScheduledPayloadTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BackgroundBadgesDoNotCollideTest
+✓ com.yuldash.app.BackgroundBadgesDoNotCollideTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BackgroundPollingTest
+✓ com.yuldash.app.BackgroundPollingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BilingualSourceGuardTest
+✓ com.yuldash.app.BilingualSourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BoardingCodeRulesTest
+✓ com.yuldash.app.BoardingCodeRulesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BoardingCodeVisibilityTest
+✓ com.yuldash.app.BoardingCodeVisibilityTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingActiveTripContentDeepTest
+✓ com.yuldash.app.BookingActiveTripContentDeepTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingActiveTripContentTest
+✓ com.yuldash.app.BookingActiveTripContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingActiveTripDeep2ContentTest
+✓ com.yuldash.app.BookingActiveTripDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingActiveTripDeep3ContentTest
+✓ com.yuldash.app.BookingActiveTripDeep3ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingCompletionDestinationTest
+✓ com.yuldash.app.BookingCompletionDestinationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingConfirmationJourneyTest
+✓ com.yuldash.app.BookingConfirmationJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingDecisionBarNarrowTest
+✓ com.yuldash.app.BookingDecisionBarNarrowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingDeclinedScreenTest
+✓ com.yuldash.app.BookingDeclinedScreenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingHistoryCleanupTest
+✓ com.yuldash.app.BookingHistoryCleanupTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingLinkDestinationTest
+✓ com.yuldash.app.BookingLinkDestinationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingLinkLoginTest
+✓ com.yuldash.app.BookingLinkLoginTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingNotificationFlowTest
+✓ com.yuldash.app.BookingNotificationFlowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingNotificationRestorationTest
+✓ com.yuldash.app.BookingNotificationRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingOfflinePaymentJourneyTest
+✓ com.yuldash.app.BookingOfflinePaymentJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingOfflineSaveTest
+✓ com.yuldash.app.BookingOfflineSaveTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingPendingRefreshTest
+✓ com.yuldash.app.BookingPendingRefreshTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingRouteMapNoKeyTest
+✓ com.yuldash.app.BookingRouteMapNoKeyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingSeatCountTest
+✓ com.yuldash.app.BookingSeatCountTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BookingTerminalPassTest
+✓ com.yuldash.app.BookingTerminalPassTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.BoostCarryTextTest
+✓ com.yuldash.app.BoostCarryTextTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CallbackRequestJourneyTest
+✓ com.yuldash.app.CallbackRequestJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CancelledInTransitTest
+✓ com.yuldash.app.CancelledInTransitTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CanonScaleTest
+✓ com.yuldash.app.CanonScaleTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CanonSourceGuardTest
+✓ com.yuldash.app.CanonSourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ChatContentTest
+✓ com.yuldash.app.ChatContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ColorSourceGuardTest
+✓ com.yuldash.app.ColorSourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CompletedNavigationRestorationTest
+✓ com.yuldash.app.CompletedNavigationRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ContrastGuardTest
+✓ com.yuldash.app.ContrastGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ConversationEmptyPreviewTest
+✓ com.yuldash.app.ConversationEmptyPreviewTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CoreLogicTest
+✓ com.yuldash.app.CoreLogicTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CourierLocationTerminalTest
+✓ com.yuldash.app.CourierLocationTerminalTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CourierReturnTrackingTest
+✓ com.yuldash.app.CourierReturnTrackingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideContentTest
+✓ com.yuldash.app.CreateRideContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideDeep2ContentTest
+✓ com.yuldash.app.CreateRideDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideDeepContentTest
+✓ com.yuldash.app.CreateRideDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideFormContentTest
+✓ com.yuldash.app.CreateRideFormContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRidePublishJourneyTest
+✓ com.yuldash.app.CreateRidePublishJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideStopsHintTest
+✓ com.yuldash.app.CreateRideStopsHintTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideStopsJourneyTest
+✓ com.yuldash.app.CreateRideStopsJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.CreateRideStopsTest
+✓ com.yuldash.app.CreateRideStopsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.DemoRidesNeverBookableTest
+✓ com.yuldash.app.DemoRidesNeverBookableTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.DirectionGlyphGuardTest
+✓ com.yuldash.app.DirectionGlyphGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.DomainContractTest
+✓ com.yuldash.app.DomainContractTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.DomainModelsTest
+✓ com.yuldash.app.DomainModelsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.DriverBoardingControlsTest
+✓ com.yuldash.app.DriverBoardingControlsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.DriverCabinetWave1Test
+✓ com.yuldash.app.DriverCabinetWave1Test 0s, тестов 0, упало 0
+▶ com.yuldash.app.DriverDeclineBookingTest
+✓ com.yuldash.app.DriverDeclineBookingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.EmptyStateLeadsGuardTest
+✓ com.yuldash.app.EmptyStateLeadsGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ErrorTextsTellWhatToDoTest
+✓ com.yuldash.app.ErrorTextsTellWhatToDoTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ExitAnimationGuardTest
+✓ com.yuldash.app.ExitAnimationGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ExpiredSessionBackHistoryTest
+✓ com.yuldash.app.ExpiredSessionBackHistoryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureBenefitOwnerBoundaryTest
+✓ com.yuldash.app.FeatureBenefitOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureDisabledCouponsTest
+✓ com.yuldash.app.FeatureDisabledCouponsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureDisabledDeliveryTest
+✓ com.yuldash.app.FeatureDisabledDeliveryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureFlagsLifecycleTest
+✓ com.yuldash.app.FeatureFlagsLifecycleTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureFlagsRefreshTest
+✓ com.yuldash.app.FeatureFlagsRefreshTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureFlagsTest
+✓ com.yuldash.app.FeatureFlagsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureGateTest
+✓ com.yuldash.app.FeatureGateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureGateWiringGuardTest
+✓ com.yuldash.app.FeatureGateWiringGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FeatureParcelRideGateTest
+✓ com.yuldash.app.FeatureParcelRideGateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FileSizeRatchetTest
+✓ com.yuldash.app.FileSizeRatchetTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FindRideButtonTest
+✓ com.yuldash.app.FindRideButtonTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ForceUpdateAccessibilityTest
+✓ com.yuldash.app.ForceUpdateAccessibilityTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FormSurvivesKillGuardTest
+✓ com.yuldash.app.FormSurvivesKillGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.FreshNotificationRestorationTest
+✓ com.yuldash.app.FreshNotificationRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.GeneralLinkLoginTest
+✓ com.yuldash.app.GeneralLinkLoginTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HelpersEdgeTest
+✓ com.yuldash.app.HelpersEdgeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HistoryReceiptActionLayoutTest
+✓ com.yuldash.app.HistoryReceiptActionLayoutTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HistoryReceiptNavigationTest
+✓ com.yuldash.app.HistoryReceiptNavigationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HomeBookingNavigationTest
+✓ com.yuldash.app.HomeBookingNavigationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HomeDestinationBoundaryTest
+✓ com.yuldash.app.HomeDestinationBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HomeReturnTabRestorationTest
+✓ com.yuldash.app.HomeReturnTabRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HomeShellBoundaryTest
+✓ com.yuldash.app.HomeShellBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HomeTabBoundaryTest
+✓ com.yuldash.app.HomeTabBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.HonestPromisesGuardTest
+✓ com.yuldash.app.HonestPromisesGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ImageWeightTest
+✓ com.yuldash.app.ImageWeightTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.IncidentAppealStatusTest
+✓ com.yuldash.app.IncidentAppealStatusTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantContactsLoadBoundaryTest
+✓ com.yuldash.app.InstantContactsLoadBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantOrderOwnerBoundaryTest
+✓ com.yuldash.app.InstantOrderOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantOrderShareCallerTest
+✓ com.yuldash.app.InstantOrderShareCallerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantOrderShareInitialLoadTest
+✓ com.yuldash.app.InstantOrderShareInitialLoadTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantOrderShareOperationsTest
+✓ com.yuldash.app.InstantOrderShareOperationsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantShareLateResponseTest
+✓ com.yuldash.app.InstantShareLateResponseTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantShareOwnerBoundaryTest
+✓ com.yuldash.app.InstantShareOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantSharePublicationBoundaryTest
+✓ com.yuldash.app.InstantSharePublicationBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantShareQueuedBoundaryTest
+✓ com.yuldash.app.InstantShareQueuedBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.InstantShareReconciliationTest
+✓ com.yuldash.app.InstantShareReconciliationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.IntroScreenContentTest
+✓ com.yuldash.app.IntroScreenContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.IntroScreenDeepContentTest
+✓ com.yuldash.app.IntroScreenDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.KeyboardResizeModeTest
+✓ com.yuldash.app.KeyboardResizeModeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LegacyNavigationStateTest
+✓ com.yuldash.app.LegacyNavigationStateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LegacyNotificationIntentTest
+✓ com.yuldash.app.LegacyNotificationIntentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LegacyNotificationPrivacyFlowTest
+✓ com.yuldash.app.LegacyNotificationPrivacyFlowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LegacySavedStateCompatibilityTest
+✓ com.yuldash.app.LegacySavedStateCompatibilityTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LinePromiseIsHonestTest
+✓ com.yuldash.app.LinePromiseIsHonestTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoadingButtonAccessibilityTest
+✓ com.yuldash.app.LoadingButtonAccessibilityTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LocationServicesTest
+✓ com.yuldash.app.LocationServicesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginContactsBootstrapTest
+✓ com.yuldash.app.LoginContactsBootstrapTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginDeep2ContentTest
+✓ com.yuldash.app.LoginDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginDeepContentTest
+✓ com.yuldash.app.LoginDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginFailureRecoveryTest
+✓ com.yuldash.app.LoginFailureRecoveryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginFormContentTest
+✓ com.yuldash.app.LoginFormContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginMethodsTest
+✓ com.yuldash.app.LoginMethodsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LoginScreenContentTest
+✓ com.yuldash.app.LoginScreenContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.LogoutLeavesNothingTest
+✓ com.yuldash.app.LogoutLeavesNothingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MainActivityContentTest
+✓ com.yuldash.app.MainActivityContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MainActivityLaunchRestorationTest
+✓ com.yuldash.app.MainActivityLaunchRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapCarsGroupingTest
+✓ com.yuldash.app.MapCarsGroupingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapGeoTest
+✓ com.yuldash.app.MapGeoTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapKitGateGuardTest
+✓ com.yuldash.app.MapKitGateGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapKitNoKeyScreensTest
+✓ com.yuldash.app.MapKitNoKeyScreensTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapLogicTest
+✓ com.yuldash.app.MapLogicTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapPinsTest
+✓ com.yuldash.app.MapPinsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MapScreenContentTest
+✓ com.yuldash.app.MapScreenContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MobilityUiStateTest
+✓ com.yuldash.app.MobilityUiStateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ModalStatusBarPolicyTest
+✓ com.yuldash.app.ModalStatusBarPolicyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MoneyFormatTest
+✓ com.yuldash.app.MoneyFormatTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MoneySourceGuardTest
+✓ com.yuldash.app.MoneySourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MyDataExportSessionTest
+✓ com.yuldash.app.MyDataExportSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.MyDataFontScaleLayoutTest
+✓ com.yuldash.app.MyDataFontScaleLayoutTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NavSignalLoginTest
+✓ com.yuldash.app.NavSignalLoginTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NearbyConditionsServerSideTest
+✓ com.yuldash.app.NearbyConditionsServerSideTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NearbyFiltersPanelTest
+✓ com.yuldash.app.NearbyFiltersPanelTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NearbyVerifiedOnlyMapTest
+✓ com.yuldash.app.NearbyVerifiedOnlyMapTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NearbyVerifiedOnlyTest
+✓ com.yuldash.app.NearbyVerifiedOnlyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NoShowOnboardTest
+✓ com.yuldash.app.NoShowOnboardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NotifTypesGuardTest
+✓ com.yuldash.app.NotifTypesGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.NotificationDeliveryIdentityTest
+✓ com.yuldash.app.NotificationDeliveryIdentityTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.OfflineHonestyTest
+✓ com.yuldash.app.OfflineHonestyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.OutboxAutoFlushTest
+✓ com.yuldash.app.OutboxAutoFlushTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.OutboxStaleStatusTest
+✓ com.yuldash.app.OutboxStaleStatusTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ParcelCreationDeliveryJourneyTest
+✓ com.yuldash.app.ParcelCreationDeliveryJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ParcelPushColdStartTest
+✓ com.yuldash.app.ParcelPushColdStartTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerProblemReportTest
+✓ com.yuldash.app.PassengerProblemReportTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerRatingTextTest
+✓ com.yuldash.app.PassengerRatingTextTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerRequestNetworkBoundaryTest
+✓ com.yuldash.app.PassengerRequestNetworkBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerRequestPremiumGuardTest
+✓ com.yuldash.app.PassengerRequestPremiumGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerRequestSubmitOwnerBoundaryTest
+✓ com.yuldash.app.PassengerRequestSubmitOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerRequestsPremiumGuardTest
+✓ com.yuldash.app.PassengerRequestsPremiumGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerSegmentContentTest
+✓ com.yuldash.app.PassengerSegmentContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PassengerSegmentTest
+✓ com.yuldash.app.PassengerSegmentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PayOnlineAvailabilityRecoveryTest
+  ⏱ 8s PayOnlineAvailabilityRecoveryTest.unknownHealthFlagNeverEnablesPaymentAndCanBeRetried
+
+PayOnlineAvailabilityRecoveryTest > unknownHealthFlagNeverEnablesPaymentAndCanBeRetried FAILED
+    java.lang.AssertionError: Failed: assertDoesNotExist.
+    Reason: Did not expect any node but found '1' node that satisfies: (TestTag = 'pay_online_submit')
+    Node found:
+    Node #31 at (l=16.0, t=172.0, r=395.0, b=226.0)px, Tag: 'pay_online_submit'
+    Focused = 'false'
+    Role = 'Button'
+    Shape = 'RoundedCornerShape(topStart = CornerSize(size = 14.0.dp), topEnd = CornerSize(size = 14.0.dp), bottomEnd = CornerSize(size = 14.0.dp), bottomStart = CornerSize(size = 14.0.dp))'
+    Text = '[Оплатить 250 ₽]'
+    Actions = [ClearTextSubstitution, GetTextLayoutResult, OnClick, RequestFocus, SetTextSubstitution, ShowTextSubstitution]
+    MergeDescendants = 'true'
+    Has 7 siblings
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertDoesNotExist(SemanticsNodeInteraction.kt:101)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.assertNoPayment(PayOnlineAvailabilityRecoveryTest.kt:173)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.assertNoPayment$default(PayOnlineAvailabilityRecoveryTest.kt:172)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.unknownHealthFlagNeverEnablesPaymentAndCanBeRetried(PayOnlineAvailabilityRecoveryTest.kt:443)
+
+PayOnlineAvailabilityRecoveryTest > legacy503IsUnknownAndExplicitOffOnRetryStillBlocksPayment FAILED
+    java.lang.AssertionError: Failed: assertExists.
+    Reason: Expected exactly '1' node but could not find any node that satisfies: (TestTag = 'pay_online_retry')
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow(SemanticsNodeInteraction.kt:178)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow$default(SemanticsNodeInteraction.kt:150)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists(SemanticsNodeInteraction.kt:125)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists$default(SemanticsNodeInteraction.kt:124)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedRetry(PayOnlineAvailabilityRecoveryTest.kt:185)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.legacy503IsUnknownAndExplicitOffOnRetryStillBlocksPayment(PayOnlineAvailabilityRecoveryTest.kt:407)
+
+PayOnlineAvailabilityRecoveryTest > retainedOldAndNewSubmitAfterRecoveryShareOnePaymentInFlight FAILED
+    java.lang.AssertionError: Failed: assertExists.
+    Reason: Expected exactly '1' node but could not find any node that satisfies: (TestTag = 'pay_online_retry')
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow(SemanticsNodeInteraction.kt:178)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow$default(SemanticsNodeInteraction.kt:150)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists(SemanticsNodeInteraction.kt:125)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists$default(SemanticsNodeInteraction.kt:124)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedRetry(PayOnlineAvailabilityRecoveryTest.kt:185)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedOldAndNewSubmitAfterRecoveryShareOnePaymentInFlight(PayOnlineAvailabilityRecoveryTest.kt:496)
+
+PayOnlineAvailabilityRecoveryTest > healthStartedBeforeProviderFailureCannotReenablePaymentLater FAILED
+    java.lang.AssertionError: Failed: assertExists.
+    Reason: Expected exactly '1' node but could not find any node that satisfies: (TestTag = 'pay_online_retry')
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow(SemanticsNodeInteraction.kt:178)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow$default(SemanticsNodeInteraction.kt:150)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists(SemanticsNodeInteraction.kt:125)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists$default(SemanticsNodeInteraction.kt:124)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedRetry(PayOnlineAvailabilityRecoveryTest.kt:185)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.healthStartedBeforeProviderFailureCannotReenablePaymentLater(PayOnlineAvailabilityRecoveryTest.kt:466)
+
+PayOnlineAvailabilityRecoveryTest > missingHealthFlagOffersRecoveryInsteadOfPermanentDenial FAILED
+    java.lang.AssertionError: Failed: assertExists.
+    Reason: Expected exactly '1' node but could not find any node that satisfies: (TestTag = 'pay_online_retry')
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow(SemanticsNodeInteraction.kt:178)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow$default(SemanticsNodeInteraction.kt:150)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists(SemanticsNodeInteraction.kt:125)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists$default(SemanticsNodeInteraction.kt:124)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedRetry(PayOnlineAvailabilityRecoveryTest.kt:185)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedRetry$default(PayOnlineAvailabilityRecoveryTest.kt:183)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.missingHealthFlagOffersRecoveryInsteadOfPermanentDenial(PayOnlineAvailabilityRecoveryTest.kt:432)
+
+PayOnlineAvailabilityRecoveryTest > provider503RequiresExplicitHealthRetryBeforeAnotherPayment FAILED
+    java.lang.AssertionError: Failed: assertExists.
+    Reason: Expected exactly '1' node but could not find any node that satisfies: (TestTag = 'pay_online_retry')
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow(SemanticsNodeInteraction.kt:178)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.fetchOneOrThrow$default(SemanticsNodeInteraction.kt:150)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists(SemanticsNodeInteraction.kt:125)
+        at androidx.compose.ui.test.SemanticsNodeInteraction.assertExists$default(SemanticsNodeInteraction.kt:124)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedRetry(PayOnlineAvailabilityRecoveryTest.kt:185)
+        at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.provider503RequiresExplicitHealthRetryBeforeAnotherPayment(PayOnlineAvailabilityRecoveryTest.kt:380)
+✓ com.yuldash.app.PayOnlineAvailabilityRecoveryTest 12s, тестов 20, упало 6
+▶ com.yuldash.app.PayOnlineOwnerBoundaryTest
+✓ com.yuldash.app.PayOnlineOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PaymentAndMappingTest
+✓ com.yuldash.app.PaymentAndMappingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PendingNotificationFlowTest
+✓ com.yuldash.app.PendingNotificationFlowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PendingNotificationRestorationTest
+✓ com.yuldash.app.PendingNotificationRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PendingNotificationStateTest
+✓ com.yuldash.app.PendingNotificationStateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PermissionRefusalIsAnsweredTest
+✓ com.yuldash.app.PermissionRefusalIsAnsweredTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PhotosAreCompressedBeforeSendingTest
+✓ com.yuldash.app.PhotosAreCompressedBeforeSendingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PickupStopTest
+✓ com.yuldash.app.PickupStopTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PollingSourceGuardTest
+✓ com.yuldash.app.PollingSourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PoputkaCarryingJourneyTest
+✓ com.yuldash.app.PoputkaCarryingJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PrivateDestinationFlowTest
+✓ com.yuldash.app.PrivateDestinationFlowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PrivateDestinationRestorationTest
+✓ com.yuldash.app.PrivateDestinationRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PrivateNotificationOwnerTest
+✓ com.yuldash.app.PrivateNotificationOwnerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProfileDeep2ContentTest
+✓ com.yuldash.app.ProfileDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProfileDeep3ContentTest
+✓ com.yuldash.app.ProfileDeep3ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProfileDeep4ContentTest
+✓ com.yuldash.app.ProfileDeep4ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProfileDeepContentTest
+✓ com.yuldash.app.ProfileDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProfileMoreContentTest
+✓ com.yuldash.app.ProfileMoreContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProfileScreenContentTest
+✓ com.yuldash.app.ProfileScreenContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ProtectedActionLoginJourneyTest
+✓ com.yuldash.app.ProtectedActionLoginJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PublicRideActivityOwnershipTest
+✓ com.yuldash.app.PublicRideActivityOwnershipTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PublicRideNavigationBoundaryTest
+✓ com.yuldash.app.PublicRideNavigationBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PublicRideSavedTaskTest
+✓ com.yuldash.app.PublicRideSavedTaskTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PushLogoutPrivacyTest
+✓ com.yuldash.app.PushLogoutPrivacyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PushRecipientTest
+✓ com.yuldash.app.PushRecipientTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.PushRoutingChainTest
+✓ com.yuldash.app.PushRoutingChainTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ReachableApiGuardTest
+✓ com.yuldash.app.ReachableApiGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ReceiptDriverNameLayoutTest
+✓ com.yuldash.app.ReceiptDriverNameLayoutTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ReceiptOwnerBoundaryTest
+✓ com.yuldash.app.ReceiptOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ReduceMotionTest
+✓ com.yuldash.app.ReduceMotionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RemainingPrivateFlowTest
+✓ com.yuldash.app.RemainingPrivateFlowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RemainingPrivateOwnerTest
+✓ com.yuldash.app.RemainingPrivateOwnerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RemainingPrivateRestorationTest
+✓ com.yuldash.app.RemainingPrivateRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RequestCategoriesGateTest
+✓ com.yuldash.app.RequestCategoriesGateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RequestResponsesGuardTest
+✓ com.yuldash.app.RequestResponsesGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RequestRouteSessionTest
+✓ com.yuldash.app.RequestRouteSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RequestWatchInboxTest
+✓ com.yuldash.app.RequestWatchInboxTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RequestWithdrawResponseTest
+✓ com.yuldash.app.RequestWithdrawResponseTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ReviewedSpacingGuardTest
+✓ com.yuldash.app.ReviewedSpacingGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideCancelOnboardWarningTest
+✓ com.yuldash.app.RideCancelOnboardWarningTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideDeepLinkFailureTest
+✓ com.yuldash.app.RideDeepLinkFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideDeparturePickerTest
+✓ com.yuldash.app.RideDeparturePickerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RidesDeepContentTest
+✓ com.yuldash.app.RidesDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RidesFeedContentTest
+✓ com.yuldash.app.RidesFeedContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RidesRequestsChatContentTest
+✓ com.yuldash.app.RidesRequestsChatContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RidesRequestsChatDeep2ContentTest
+✓ com.yuldash.app.RidesRequestsChatDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RidesRequestsChatDeep3ContentTest
+✓ com.yuldash.app.RidesRequestsChatDeep3ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareActiveTripGuardTest
+✓ com.yuldash.app.RideshareActiveTripGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareBookingGuardTest
+✓ com.yuldash.app.RideshareBookingGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareCompletedBoundaryTest
+✓ com.yuldash.app.RideshareCompletedBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareCompletedGuardTest
+✓ com.yuldash.app.RideshareCompletedGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareCompletedLoadTest
+✓ com.yuldash.app.RideshareCompletedLoadTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareCompletedRestorationTest
+✓ com.yuldash.app.RideshareCompletedRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareDriverExecutionJourneyTest
+✓ com.yuldash.app.RideshareDriverExecutionJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareRatingReopenTest
+✓ com.yuldash.app.RideshareRatingReopenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RideshareSmallFixesTest
+✓ com.yuldash.app.RideshareSmallFixesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RoadsideHelpOwnerBoundaryTest
+✓ com.yuldash.app.RoadsideHelpOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RoadsideTruthfulNoticeTest
+✓ com.yuldash.app.RoadsideTruthfulNoticeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RoadsideUnknownReplyTest
+✓ com.yuldash.app.RoadsideUnknownReplyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RobolectricSmokeTest
+✓ com.yuldash.app.RobolectricSmokeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RoleCabinetIntegrationTest
+✓ com.yuldash.app.RoleCabinetIntegrationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.RouteWatchNetworkBoundaryTest
+✓ com.yuldash.app.RouteWatchNetworkBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SafetyEverywhereGuardTest
+✓ com.yuldash.app.SafetyEverywhereGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ScrubMirrorsServerTest
+✓ com.yuldash.app.ScrubMirrorsServerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SeatOptionsTest
+✓ com.yuldash.app.SeatOptionsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecondaryDeep2ContentTest
+✓ com.yuldash.app.SecondaryDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecondaryDeep3ContentTest
+✓ com.yuldash.app.SecondaryDeep3ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecondaryDeep4ContentTest
+✓ com.yuldash.app.SecondaryDeep4ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecondaryDeepContentTest
+✓ com.yuldash.app.SecondaryDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecondaryScreensContentTest
+✓ com.yuldash.app.SecondaryScreensContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecureImageRequestTest
+✓ com.yuldash.app.SecureImageRequestTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecureStoreFallbackGuardTest
+✓ com.yuldash.app.SecureStoreFallbackGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SecureWindowGuardTest
+✓ com.yuldash.app.SecureWindowGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SelectedControlsAccessibilityTest
+✓ com.yuldash.app.SelectedControlsAccessibilityTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SensitiveClipboardGuardTest
+✓ com.yuldash.app.SensitiveClipboardGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SentryScrubTest
+✓ com.yuldash.app.SentryScrubTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ServerWordsGuardTest
+✓ com.yuldash.app.ServerWordsGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SessionKeysGuardTest
+✓ com.yuldash.app.SessionKeysGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SettlementHintTest
+✓ com.yuldash.app.SettlementHintTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SmallLogicTest
+✓ com.yuldash.app.SmallLogicTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SocketContractTest
+✓ com.yuldash.app.SocketContractTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosExpiredLoginReturnTest
+✓ com.yuldash.app.SosExpiredLoginReturnTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosLocationFreshnessTest
+✓ com.yuldash.app.SosLocationFreshnessTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosLoginReturnTest
+✓ com.yuldash.app.SosLoginReturnTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosNavigationContextTest
+✓ com.yuldash.app.SosNavigationContextTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosNoSmsPromiseGuardTest
+✓ com.yuldash.app.SosNoSmsPromiseGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosSubmitOwnerBoundaryTest
+✓ com.yuldash.app.SosSubmitOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosVerifyContentTest
+✓ com.yuldash.app.SosVerifyContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosVerifyDeep2ContentTest
+✓ com.yuldash.app.SosVerifyDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SosVerifyDeepContentTest
+✓ com.yuldash.app.SosVerifyDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SpacingRatchetGuardTest
+✓ com.yuldash.app.SpacingRatchetGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.StaleDataGuardTest
+✓ com.yuldash.app.StaleDataGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.StatusBarProtectionTest
+✓ com.yuldash.app.StatusBarProtectionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SupportBoostContentTest
+✓ com.yuldash.app.SupportBoostContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SupportBoostDeep2ContentTest
+✓ com.yuldash.app.SupportBoostDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SupportBoostDeep3ContentTest
+✓ com.yuldash.app.SupportBoostDeep3ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SupportBoostDeep4ContentTest
+✓ com.yuldash.app.SupportBoostDeep4ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SupportBoostDeepContentTest
+✓ com.yuldash.app.SupportBoostDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SystemBarSourceGuardTest
+✓ com.yuldash.app.SystemBarSourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.SystemBarsLifecycleTest
+✓ com.yuldash.app.SystemBarsLifecycleTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDisabledRestoreFailureTest
+✓ com.yuldash.app.TaxiDisabledRestoreFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDocumentsLoadTest
+✓ com.yuldash.app.TaxiDocumentsLoadTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDocumentsRaceTest
+✓ com.yuldash.app.TaxiDocumentsRaceTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDriverCancelledGuardTest
+✓ com.yuldash.app.TaxiDriverCancelledGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDriverCompletedGuardTest
+✓ com.yuldash.app.TaxiDriverCompletedGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDriverJourneyTest
+✓ com.yuldash.app.TaxiDriverJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDriverTerminalTrackingTest
+✓ com.yuldash.app.TaxiDriverTerminalTrackingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiDriverWaitingGuardTest
+✓ com.yuldash.app.TaxiDriverWaitingGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiIncomingOfferGuardTest
+✓ com.yuldash.app.TaxiIncomingOfferGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiLineServiceTest
+✓ com.yuldash.app.TaxiLineServiceTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiLocationHeadingTest
+✓ com.yuldash.app.TaxiLocationHeadingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiNavigationOwnershipTest
+✓ com.yuldash.app.TaxiNavigationOwnershipTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiOrderActionBoundaryTest
+✓ com.yuldash.app.TaxiOrderActionBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiOrderBridgeRestorationTest
+✓ com.yuldash.app.TaxiOrderBridgeRestorationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiPassengerJourneyTest
+✓ com.yuldash.app.TaxiPassengerJourneyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiPostTripGuardTest
+✓ com.yuldash.app.TaxiPostTripGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiReceiptNavigationTest
+✓ com.yuldash.app.TaxiReceiptNavigationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiReceiptOwnerBoundaryTest
+✓ com.yuldash.app.TaxiReceiptOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiTripActionBoundaryTest
+✓ com.yuldash.app.TaxiTripActionBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiTripAdaptiveGuardTest
+✓ com.yuldash.app.TaxiTripAdaptiveGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiTripCompletionOwnerTest
+✓ com.yuldash.app.TaxiTripCompletionOwnerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TaxiTripShareCallerTest
+✓ com.yuldash.app.TaxiTripShareCallerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TelegramBotBuildConfigTest
+✓ com.yuldash.app.TelegramBotBuildConfigTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ThemeChoicePersistenceTest
+✓ com.yuldash.app.ThemeChoicePersistenceTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ThemeTest
+✓ com.yuldash.app.ThemeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ToneSourceGuardTest
+✓ com.yuldash.app.ToneSourceGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TouchTargetGuardTest
+✓ com.yuldash.app.TouchTargetGuardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TouchTargetsFitAFingerTest
+✓ com.yuldash.app.TouchTargetsFitAFingerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripChatAcknowledgementTest
+✓ com.yuldash.app.TripChatAcknowledgementTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripChatBottomComposerTest
+✓ com.yuldash.app.TripChatBottomComposerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripChatMutationNetworkBoundaryTest
+✓ com.yuldash.app.TripChatMutationNetworkBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripChatNavigationTest
+✓ com.yuldash.app.TripChatNavigationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripChatQueuedReconnectTest
+✓ com.yuldash.app.TripChatQueuedReconnectTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripChatRefusedSocketResyncTest
+✓ com.yuldash.app.TripChatRefusedSocketResyncTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripLocationHeartbeatTest
+✓ com.yuldash.app.TripLocationHeartbeatTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripLocationPacerTest
+✓ com.yuldash.app.TripLocationPacerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripLocationTerminalTest
+✓ com.yuldash.app.TripLocationTerminalTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripPassTest
+✓ com.yuldash.app.TripPassTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripReceiptRateLaterTest
+✓ com.yuldash.app.TripReceiptRateLaterTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripReceiptRatingTest
+✓ com.yuldash.app.TripReceiptRatingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TripRouteLabelTest
+✓ com.yuldash.app.TripRouteLabelTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactDeleteTest
+✓ com.yuldash.app.TrustedContactDeleteTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactsBootstrapTest
+✓ com.yuldash.app.TrustedContactsBootstrapTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactsCacheReentryTest
+✓ com.yuldash.app.TrustedContactsCacheReentryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactsLateAddTest
+✓ com.yuldash.app.TrustedContactsLateAddTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactsLateCommitTest
+✓ com.yuldash.app.TrustedContactsLateCommitTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactsLifetimeTest
+✓ com.yuldash.app.TrustedContactsLifetimeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.TrustedContactsReconciliationTest
+✓ com.yuldash.app.TrustedContactsReconciliationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.UiKitButtonTest
+✓ com.yuldash.app.UiKitButtonTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.UiKitStateContainerTest
+✓ com.yuldash.app.UiKitStateContainerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.UiKitStatesTest
+✓ com.yuldash.app.UiKitStatesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.ViewModelDeepTest
+✓ com.yuldash.app.ViewModelDeepTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.VoiceDoesNotStayOnThePhoneTest
+✓ com.yuldash.app.VoiceDoesNotStayOnThePhoneTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.VoiceRecorderLifecycleTest
+✓ com.yuldash.app.VoiceRecorderLifecycleTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.VoiceRecordingDisposalUiTest
+✓ com.yuldash.app.VoiceRecordingDisposalUiTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.WeatherWarningCardTest
+✓ com.yuldash.app.WeatherWarningCardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.WinterOwnerBoundaryTest
+✓ com.yuldash.app.WinterOwnerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.YuldashAppContentTest
+✓ com.yuldash.app.YuldashAppContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.YuldashAppDeep2ContentTest
+✓ com.yuldash.app.YuldashAppDeep2ContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.YuldashAppDeepContentTest
+✓ com.yuldash.app.YuldashAppDeepContentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.YuldashViewModelTest
+✓ com.yuldash.app.YuldashViewModelTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientAccountTest
+✓ com.yuldash.app.data.ApiClientAccountTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientActionsTest
+✓ com.yuldash.app.data.ApiClientActionsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientAdsTest
+✓ com.yuldash.app.data.ApiClientAdsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientAuthStorageIntegrationTest
+✓ com.yuldash.app.data.ApiClientAuthStorageIntegrationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientAuthTest
+✓ com.yuldash.app.data.ApiClientAuthTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientBookingsTest
+✓ com.yuldash.app.data.ApiClientBookingsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientCacheCancellationTest
+✓ com.yuldash.app.data.ApiClientCacheCancellationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientCacheInvalidationTest
+✓ com.yuldash.app.data.ApiClientCacheInvalidationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientCacheOrderingTest
+✓ com.yuldash.app.data.ApiClientCacheOrderingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientCachedTest
+✓ com.yuldash.app.data.ApiClientCachedTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientCarPhotoTest
+✓ com.yuldash.app.data.ApiClientCarPhotoTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsAdditionEventsTest
+✓ com.yuldash.app.data.ApiClientContactsAdditionEventsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsCancellationTest
+✓ com.yuldash.app.data.ApiClientContactsCancellationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsDeletionEventsTest
+✓ com.yuldash.app.data.ApiClientContactsDeletionEventsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsMutationCacheTest
+✓ com.yuldash.app.data.ApiClientContactsMutationCacheTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsMutationOwnerTest
+✓ com.yuldash.app.data.ApiClientContactsMutationOwnerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsMutationReceiptTest
+✓ com.yuldash.app.data.ApiClientContactsMutationReceiptTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsPublicationTest
+✓ com.yuldash.app.data.ApiClientContactsPublicationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsSchemaTest
+✓ com.yuldash.app.data.ApiClientContactsSchemaTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientContactsTransportTest
+✓ com.yuldash.app.data.ApiClientContactsTransportTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientCriticalBadPathTest
+✓ com.yuldash.app.data.ApiClientCriticalBadPathTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientDeadSessionTest
+✓ com.yuldash.app.data.ApiClientDeadSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientEndpointContractTest
+✓ com.yuldash.app.data.ApiClientEndpointContractTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientHardPathsTest
+✓ com.yuldash.app.data.ApiClientHardPathsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientLateLoginSessionTest
+✓ com.yuldash.app.data.ApiClientLateLoginSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientLateMutationSessionTest
+✓ com.yuldash.app.data.ApiClientLateMutationSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientLateProfileCommitTest
+✓ com.yuldash.app.data.ApiClientLateProfileCommitTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientMoreTest
+✓ com.yuldash.app.data.ApiClientMoreTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientNetworkTest
+✓ com.yuldash.app.data.ApiClientNetworkTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientRefreshOutageTest
+✓ com.yuldash.app.data.ApiClientRefreshOutageTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientRefreshReplayTest
+✓ com.yuldash.app.data.ApiClientRefreshReplayTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientRefreshSessionBoundaryTest
+✓ com.yuldash.app.data.ApiClientRefreshSessionBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientRetrySafetyTest
+✓ com.yuldash.app.data.ApiClientRetrySafetyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientRidesTest
+✓ com.yuldash.app.data.ApiClientRidesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientRideshareTransportBoundaryTest
+✓ com.yuldash.app.data.ApiClientRideshareTransportBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientSosRetryIntentTest
+✓ com.yuldash.app.data.ApiClientSosRetryIntentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientStaleAccountResponseTest
+✓ com.yuldash.app.data.ApiClientStaleAccountResponseTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiClientTaxiCourierTest
+✓ com.yuldash.app.data.ApiClientTaxiCourierTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ApiParsingTest
+✓ com.yuldash.app.data.ApiParsingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.AuthLogoutMarkerFailureTest
+✓ com.yuldash.app.data.AuthLogoutMarkerFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.AuthResetPersonalDataTest
+✓ com.yuldash.app.data.AuthResetPersonalDataTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.AuthStorageCorruptionTest
+✓ com.yuldash.app.data.AuthStorageCorruptionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.AuthStorePolicyTest
+✓ com.yuldash.app.data.AuthStorePolicyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.BoardingApiTest
+✓ com.yuldash.app.data.BoardingApiTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.BoardingCodePersistenceTest
+✓ com.yuldash.app.data.BoardingCodePersistenceTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.BookingCreationResponseTest
+✓ com.yuldash.app.data.BookingCreationResponseTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.BookingPickupRequestTest
+✓ com.yuldash.app.data.BookingPickupRequestTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ChatRetryLiveBackendTest
+✓ com.yuldash.app.data.ChatRetryLiveBackendTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ChatSocketHandshakeRefreshTest
+✓ com.yuldash.app.data.ChatSocketHandshakeRefreshTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.ChatSocketSessionBoundaryTest
+✓ com.yuldash.app.data.ChatSocketSessionBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.GeocoderAndNetworkTest
+✓ com.yuldash.app.data.GeocoderAndNetworkTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.InstantLocationSocketLifecycleTest
+✓ com.yuldash.app.data.InstantLocationSocketLifecycleTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.LegacyOfflineOwnerTest
+✓ com.yuldash.app.data.LegacyOfflineOwnerTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.LocationSocketLifecycleTest
+✓ com.yuldash.app.data.LocationSocketLifecycleTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.LoginAfterOfflineResetFailureTest
+✓ com.yuldash.app.data.LoginAfterOfflineResetFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.LoginAndPartialApiTest
+✓ com.yuldash.app.data.LoginAndPartialApiTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OfflineDurableWriteTest
+✓ com.yuldash.app.data.OfflineDurableWriteTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OfflineMigrationCleanupTest
+✓ com.yuldash.app.data.OfflineMigrationCleanupTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OfflineMigrationWriteTest
+✓ com.yuldash.app.data.OfflineMigrationWriteTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OfflineResetMarkerDiskTest
+✓ com.yuldash.app.data.OfflineResetMarkerDiskTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OfflineStoreRecoveryTest
+✓ com.yuldash.app.data.OfflineStoreRecoveryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OfflineWriteRollbackFailureTest
+✓ com.yuldash.app.data.OfflineWriteRollbackFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxCallerBoundaryTest
+✓ com.yuldash.app.data.OutboxCallerBoundaryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxConcurrencyTest
+✓ com.yuldash.app.data.OutboxConcurrencyTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxCorruptStorageTest
+✓ com.yuldash.app.data.OutboxCorruptStorageTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxHttpFailureTest
+✓ com.yuldash.app.data.OutboxHttpFailureTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxMessageRetryTest
+✓ com.yuldash.app.data.OutboxMessageRetryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxTest
+✓ com.yuldash.app.data.OutboxTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.OutboxWaitingSessionTest
+✓ com.yuldash.app.data.OutboxWaitingSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.PaymentsAvailabilityApiTest
+
+PaymentsAvailabilityApiTest > nonStringPaymentsIsUnknown FAILED
+    java.lang.AssertionError: wrong payment flag type: 1
+        at org.junit.Assert.fail(Assert.java:89)
+        at org.junit.Assert.assertTrue(Assert.java:42)
+        at com.yuldash.app.data.PaymentsAvailabilityApiTest.nonStringPaymentsIsUnknown(PaymentsAvailabilityApiTest.kt:74)
+
+PaymentsAvailabilityApiTest > unknownProviderIsNotPermissionToPay FAILED
+    java.lang.AssertionError: unrecognized payment flag: future_provider
+        at org.junit.Assert.fail(Assert.java:89)
+        at org.junit.Assert.assertTrue(Assert.java:42)
+        at com.yuldash.app.data.PaymentsAvailabilityApiTest.unknownProviderIsNotPermissionToPay(PaymentsAvailabilityApiTest.kt:68)
+
+PaymentsAvailabilityApiTest > missingPaymentsIsUnknownInsteadOfPermanentDenial FAILED
+    java.lang.AssertionError
+        at org.junit.Assert.fail(Assert.java:87)
+        at org.junit.Assert.assertTrue(Assert.java:42)
+        at org.junit.Assert.assertTrue(Assert.java:53)
+        at com.yuldash.app.data.PaymentsAvailabilityApiTest.missingPaymentsIsUnknownInsteadOfPermanentDenial(PaymentsAvailabilityApiTest.kt:59)
+
+PaymentsAvailabilityApiTest > nullPaymentsIsUnknown FAILED
+    java.lang.AssertionError
+        at org.junit.Assert.fail(Assert.java:87)
+        at org.junit.Assert.assertTrue(Assert.java:42)
+        at org.junit.Assert.assertTrue(Assert.java:53)
+        at com.yuldash.app.data.PaymentsAvailabilityApiTest.nullPaymentsIsUnknown(PaymentsAvailabilityApiTest.kt:63)
+✓ com.yuldash.app.data.PaymentsAvailabilityApiTest 2s, тестов 8, упало 4
+▶ com.yuldash.app.data.PersonalDataExportCleanupTest
+✓ com.yuldash.app.data.PersonalDataExportCleanupTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.PushNotificationTest
+✓ com.yuldash.app.data.PushNotificationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.SegmentRequestApiTest
+✓ com.yuldash.app.data.SegmentRequestApiTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.SosRetryIntentTest
+✓ com.yuldash.app.data.SosRetryIntentTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.TripPassDeletionFailuresTest
+✓ com.yuldash.app.data.TripPassDeletionFailuresTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.TripPassDeletionTest
+✓ com.yuldash.app.data.TripPassDeletionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.TripPassPaymentPersistenceTest
+✓ com.yuldash.app.data.TripPassPaymentPersistenceTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.TripPassRemovalSessionTest
+✓ com.yuldash.app.data.TripPassRemovalSessionTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.TripPassSaveRetryTest
+✓ com.yuldash.app.data.TripPassSaveRetryTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.TripReceiptContractTest
+✓ com.yuldash.app.data.TripReceiptContractTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.data.WebSocketClientsTest
+✓ com.yuldash.app.data.WebSocketClientsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.CourierEarningsScreenTest
+✓ com.yuldash.app.walk.l1_4.CourierEarningsScreenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.DriverEarningsScreenTest
+✓ com.yuldash.app.walk.l1_4.DriverEarningsScreenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest
+✓ com.yuldash.app.walk.l1_4.IncomeCalculatorScreenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.PayOnlineCardTest
+✓ com.yuldash.app.walk.l1_4.PayOnlineCardTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest
+✓ com.yuldash.app.walk.l1_4.PaymentMethodsScreenTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.PriceSpeechTest
+✓ com.yuldash.app.walk.l1_4.PriceSpeechTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.WalletMoneyFormatTest
+✓ com.yuldash.app.walk.l1_4.WalletMoneyFormatTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.WalletPayoutFlowTest
+✓ com.yuldash.app.walk.l1_4.WalletPayoutFlowTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_4.WalletScreenStatesTest
+✓ com.yuldash.app.walk.l1_4.WalletScreenStatesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_5.CouponLastAcceptedDayTest
+✓ com.yuldash.app.walk.l1_5.CouponLastAcceptedDayTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_5.CouponsScreenWalkTest
+✓ com.yuldash.app.walk.l1_5.CouponsScreenWalkTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_5.PromoCodeInputNormalizationTest
+✓ com.yuldash.app.walk.l1_5.PromoCodeInputNormalizationTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_5.PromoCodeScreenWalkTest
+✓ com.yuldash.app.walk.l1_5.PromoCodeScreenWalkTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_5.ShortDateUfaTimezoneTest
+✓ com.yuldash.app.walk.l1_5.ShortDateUfaTimezoneTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l1_5.UfaIsoDateTest
+✓ com.yuldash.app.walk.l1_5.UfaIsoDateTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_2.LoginScreenPureHelpersTest
+✓ com.yuldash.app.walk.l2_2.LoginScreenPureHelpersTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_2.SecureImageRequestSchemeTest
+✓ com.yuldash.app.walk.l2_2.SecureImageRequestSchemeTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_2.SensitiveClipboardBehaviorTest
+✓ com.yuldash.app.walk.l2_2.SensitiveClipboardBehaviorTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_3.MyDataScreenStatesTest
+✓ com.yuldash.app.walk.l2_3.MyDataScreenStatesTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_3.NoPersonalDataLoggingTest
+✓ com.yuldash.app.walk.l2_3.NoPersonalDataLoggingTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_3.OfflineMigrationGuardsTest
+✓ com.yuldash.app.walk.l2_3.OfflineMigrationGuardsTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest
+✓ com.yuldash.app.walk.l2_3.OfflineStoreResetFinishOrderTest 0s, тестов 0, упало 0
+▶ com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest
+✓ com.yuldash.app.walk.l2_3.OfflineWritesRollbackTest 0s, тестов 0, упало 0
+
+28 tests completed, 10 failed
+
+> Task :app:testDebugUnitTest FAILED
+w: Detected multiple Kotlin daemon sessions at
+
+FAILURE: Build failed with an exception.
+
+* What went wrong:
+Execution failed for task ':app:testDebugUnitTest'.
+> There were failing tests. See the report at: file:///workspace/scratch/727f6a2e912d/yuldash-audit/android/app/build/reports/tests/testDebugUnitTest/index.html
+
+* Try:
+> Run with --scan to get full insights.
+
+* Exception is:
+org.gradle.api.tasks.TaskExecutionException: Execution failed for task ':app:testDebugUnitTest'.
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.lambda$executeIfValid$1(ExecuteActionsTaskExecuter.java:130)
+	at org.gradle.internal.Try$Failure.ifSuccessfulOrElse(Try.java:293)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:128)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:40)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
+Caused by: org.gradle.api.internal.exceptions.MarkedVerificationException: There were failing tests. See the report at: file:///workspace/scratch/727f6a2e912d/yuldash-audit/android/app/build/reports/tests/testDebugUnitTest/index.html
+	at org.gradle.api.tasks.testing.AbstractTestTask.handleTestFailures(AbstractTestTask.java:714)
+	at org.gradle.api.tasks.testing.AbstractTestTask.handleCollectedResults(AbstractTestTask.java:545)
+	at org.gradle.api.tasks.testing.AbstractTestTask.executeTests(AbstractTestTask.java:540)
+	at org.gradle.api.tasks.testing.Test.executeTests(Test.java:719)
+	at com.android.build.gradle.tasks.factory.AndroidUnitTest.executeTests(AndroidUnitTest.java:172)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at org.gradle.internal.reflect.JavaMethod.invoke(JavaMethod.java:125)
+	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.doExecute(StandardTaskAction.java:58)
+	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:51)
+	at org.gradle.api.internal.project.taskfactory.StandardTaskAction.execute(StandardTaskAction.java:29)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$3.run(TaskExecution.java:244)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:30)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$1.execute(DefaultBuildOperationRunner.java:27)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.run(DefaultBuildOperationRunner.java:48)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeAction(TaskExecution.java:229)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeActions(TaskExecution.java:212)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.executeWithPreviousOutputFiles(TaskExecution.java:195)
+	at org.gradle.api.internal.tasks.execution.TaskExecution.execute(TaskExecution.java:162)
+	at org.gradle.internal.execution.steps.ExecuteStep.executeInternal(ExecuteStep.java:105)
+	at org.gradle.internal.execution.steps.ExecuteStep.access$000(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:59)
+	at org.gradle.internal.execution.steps.ExecuteStep$1.call(ExecuteStep.java:56)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:56)
+	at org.gradle.internal.execution.steps.ExecuteStep.execute(ExecuteStep.java:44)
+	at org.gradle.internal.execution.steps.CancelExecutionStep.execute(CancelExecutionStep.java:42)
+	at org.gradle.internal.execution.steps.TimeoutStep.executeWithoutTimeout(TimeoutStep.java:75)
+	at org.gradle.internal.execution.steps.TimeoutStep.execute(TimeoutStep.java:55)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:50)
+	at org.gradle.internal.execution.steps.PreCreateOutputParentsStep.execute(PreCreateOutputParentsStep.java:28)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:67)
+	at org.gradle.internal.execution.steps.RemovePreviousOutputsStep.execute(RemovePreviousOutputsStep.java:37)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:61)
+	at org.gradle.internal.execution.steps.BroadcastChangingOutputsStep.execute(BroadcastChangingOutputsStep.java:26)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:69)
+	at org.gradle.internal.execution.steps.CaptureOutputsAfterExecutionStep.execute(CaptureOutputsAfterExecutionStep.java:46)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:40)
+	at org.gradle.internal.execution.steps.ResolveInputChangesStep.execute(ResolveInputChangesStep.java:29)
+	at org.gradle.internal.execution.steps.BuildCacheStep.executeWithoutCache(BuildCacheStep.java:189)
+	at org.gradle.internal.execution.steps.BuildCacheStep.lambda$execute$1(BuildCacheStep.java:75)
+	at org.gradle.internal.Either$Right.fold(Either.java:175)
+	at org.gradle.internal.execution.caching.CachingState.fold(CachingState.java:62)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:73)
+	at org.gradle.internal.execution.steps.BuildCacheStep.execute(BuildCacheStep.java:48)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:46)
+	at org.gradle.internal.execution.steps.StoreExecutionStateStep.execute(StoreExecutionStateStep.java:35)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.executeBecause(SkipUpToDateStep.java:75)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.lambda$execute$2(SkipUpToDateStep.java:53)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:53)
+	at org.gradle.internal.execution.steps.SkipUpToDateStep.execute(SkipUpToDateStep.java:35)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:37)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsFinishedStep.execute(MarkSnapshottingInputsFinishedStep.java:27)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:49)
+	at org.gradle.internal.execution.steps.ResolveIncrementalCachingStateStep.executeDelegate(ResolveIncrementalCachingStateStep.java:27)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:71)
+	at org.gradle.internal.execution.steps.AbstractResolveCachingStateStep.execute(AbstractResolveCachingStateStep.java:39)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:65)
+	at org.gradle.internal.execution.steps.ResolveChangesStep.execute(ResolveChangesStep.java:36)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:107)
+	at org.gradle.internal.execution.steps.ValidateStep.execute(ValidateStep.java:56)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:64)
+	at org.gradle.internal.execution.steps.AbstractCaptureStateBeforeExecutionStep.execute(AbstractCaptureStateBeforeExecutionStep.java:43)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.executeWithNonEmptySources(AbstractSkipEmptyWorkStep.java:125)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:61)
+	at org.gradle.internal.execution.steps.AbstractSkipEmptyWorkStep.execute(AbstractSkipEmptyWorkStep.java:36)
+	at org.gradle.internal.execution.steps.legacy.MarkSnapshottingInputsStartedStep.execute(MarkSnapshottingInputsStartedStep.java:38)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:36)
+	at org.gradle.internal.execution.steps.LoadPreviousExecutionStateStep.execute(LoadPreviousExecutionStateStep.java:23)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:75)
+	at org.gradle.internal.execution.steps.HandleStaleOutputsStep.execute(HandleStaleOutputsStep.java:41)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.lambda$execute$0(AssignMutableWorkspaceStep.java:35)
+	at org.gradle.api.internal.tasks.execution.TaskExecution$4.withWorkspace(TaskExecution.java:289)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:31)
+	at org.gradle.internal.execution.steps.AssignMutableWorkspaceStep.execute(AssignMutableWorkspaceStep.java:22)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:40)
+	at org.gradle.internal.execution.steps.ChoosePipelineStep.execute(ChoosePipelineStep.java:23)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.lambda$execute$2(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:67)
+	at org.gradle.internal.execution.steps.ExecuteWorkBuildOperationFiringStep.execute(ExecuteWorkBuildOperationFiringStep.java:39)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:46)
+	at org.gradle.internal.execution.steps.IdentityCacheStep.execute(IdentityCacheStep.java:34)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:48)
+	at org.gradle.internal.execution.steps.IdentifyStep.execute(IdentifyStep.java:35)
+	at org.gradle.internal.execution.impl.DefaultExecutionEngine$1.execute(DefaultExecutionEngine.java:61)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.executeIfValid(ExecuteActionsTaskExecuter.java:127)
+	at org.gradle.api.internal.tasks.execution.ExecuteActionsTaskExecuter.execute(ExecuteActionsTaskExecuter.java:116)
+	at org.gradle.api.internal.tasks.execution.ProblemsTaskPathTrackingTaskExecuter.execute(ProblemsTaskPathTrackingTaskExecuter.java:40)
+	at org.gradle.api.internal.tasks.execution.FinalizePropertiesTaskExecuter.execute(FinalizePropertiesTaskExecuter.java:46)
+	at org.gradle.api.internal.tasks.execution.ResolveTaskExecutionModeExecuter.execute(ResolveTaskExecutionModeExecuter.java:51)
+	at org.gradle.api.internal.tasks.execution.SkipTaskWithNoActionsExecuter.execute(SkipTaskWithNoActionsExecuter.java:57)
+	at org.gradle.api.internal.tasks.execution.SkipOnlyIfTaskExecuter.execute(SkipOnlyIfTaskExecuter.java:74)
+	at org.gradle.api.internal.tasks.execution.CatchExceptionTaskExecuter.execute(CatchExceptionTaskExecuter.java:36)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.executeTask(EventFiringTaskExecuter.java:77)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:55)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter$1.call(EventFiringTaskExecuter.java:52)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:210)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$CallableBuildOperationWorker.execute(DefaultBuildOperationRunner.java:205)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:67)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner$2.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:167)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.execute(DefaultBuildOperationRunner.java:60)
+	at org.gradle.internal.operations.DefaultBuildOperationRunner.call(DefaultBuildOperationRunner.java:54)
+	at org.gradle.api.internal.tasks.execution.EventFiringTaskExecuter.execute(EventFiringTaskExecuter.java:52)
+	at org.gradle.execution.plan.LocalTaskNodeExecutor.execute(LocalTaskNodeExecutor.java:42)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:331)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$InvokeNodeExecutorsAction.execute(DefaultTaskExecutionGraph.java:318)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.lambda$execute$0(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.internal.operations.CurrentBuildOperationRef.with(CurrentBuildOperationRef.java:85)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:314)
+	at org.gradle.execution.taskgraph.DefaultTaskExecutionGraph$BuildOperationAwareExecutionAction.execute(DefaultTaskExecutionGraph.java:303)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.execute(DefaultPlanExecutor.java:459)
+	at org.gradle.execution.plan.DefaultPlanExecutor$ExecutorWorker.run(DefaultPlanExecutor.java:376)
+	at org.gradle.internal.concurrent.ExecutorPolicy$CatchAndRecordFailures.onExecute(ExecutorPolicy.java:64)
+	at org.gradle.internal.concurrent.AbstractManagedExecutor$1.run(AbstractManagedExecutor.java:48)
+
+
+BUILD FAILED in 39s
+31 actionable tasks: 2 executed, 29 up-to-date

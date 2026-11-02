@@ -12,17 +12,20 @@ export const filterLoginCode = (value) => value.replace(/\D/g, "").slice(0, 6);
 export function createLoginFlow(deps) {
   let serial = 0;
   let busy = false;
+  let activeMethod = null;
   let disposed = false;
   let freshCodeRequired = false;
   const generation = () => {
     try { return deps.getGeneration(); } catch { return null; }
   };
-  const begin = () => {
+  const begin = (method) => {
     if (busy || disposed) return null;
     const startedGeneration = generation();
     if (startedGeneration === null) { deps.onError("save"); return null; }
+    const loginEpoch = deps.getLoginEpoch?.();
     busy = true;
-    return { id: ++serial, generation: startedGeneration };
+    activeMethod = method;
+    return { id: ++serial, generation: startedGeneration, loginEpoch };
   };
   const current = (op) => {
     const now = generation();
@@ -30,17 +33,21 @@ export function createLoginFlow(deps) {
       freshCodeRequired = true;
       deps.onError("save");
     }
-    return !disposed && now !== null && op.id === serial && op.generation === now;
+    return !disposed && now !== null && op.id === serial && op.generation === now &&
+      op.loginEpoch === deps.getLoginEpoch?.();
   };
   const finish = (op) => {
     if (op.id === serial) {
       busy = false;
+      activeMethod = null;
       if (!disposed) deps.onBusy(false);
     }
   };
-  const invalidate = () => {
+  const invalidate = (method) => {
+    if (method !== undefined && method !== activeMethod) return;
     serial++;
     busy = false;
+    activeMethod = null;
     if (!disposed) deps.onBusy(false);
   };
   const disabled = (error) => {
@@ -58,7 +65,7 @@ export function createLoginFlow(deps) {
   const saveAndContinue = async (op, pair, method, name = "") => {
     if (!current(op)) return;
     try {
-      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user);
+      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user, () => current(op));
       const syncGeneration = publication && typeof publication.then === "function" ? null : generation();
       const committed = await publication;
       const publishedGeneration = typeof committed === "string" ? committed : syncGeneration;
@@ -87,13 +94,13 @@ export function createLoginFlow(deps) {
   return {
     get busy() { return busy; },
     invalidate,
-    revive() { disposed = false; serial++; busy = false; },
-    dispose() { disposed = true; serial++; busy = false; },
+    revive() { disposed = false; serial++; busy = false; activeMethod = null; },
+    dispose() { disposed = true; serial++; busy = false; activeMethod = null; },
     async start() {
       if (busy || disposed) return;
       if (!allowed("telegram")) return;
       if (!deps.botAvailable()) { deps.onError("botMissing"); return; }
-      const op = begin();
+      const op = begin("telegram");
       if (!op) return;
       deps.onBusy(true);
       deps.onError(null);
@@ -118,7 +125,7 @@ export function createLoginFlow(deps) {
       if (!allowed("telegram")) return;
       if (freshCodeRequired) { deps.onError("save"); return; }
       if (!loginCodeValid(code)) { deps.onError("enterTgCode"); return; }
-      const op = begin();
+      const op = begin("telegram");
       if (!op) return;
       deps.onBusy(true);
       deps.onError(null);
@@ -139,7 +146,7 @@ export function createLoginFlow(deps) {
       if (busy || disposed) return;
       if (!allowed("sms")) return;
       if (!loginPhoneValid(phone)) { deps.onError("enterPhone"); return; }
-      const op = begin();
+      const op = begin("sms");
       if (!op) return;
       deps.onBusy(true);
       deps.onError(null);
@@ -159,7 +166,7 @@ export function createLoginFlow(deps) {
       if (!allowed("sms")) return;
       if (freshCodeRequired) { deps.onError("save"); return; }
       if (!loginCodeValid(code)) { deps.onError("enterSmsCode"); return; }
-      const op = begin();
+      const op = begin("sms");
       if (!op) return;
       deps.onBusy(true);
       deps.onError(null);

@@ -1,0 +1,29 @@
+{
+  "python": "3.12.14",
+  "system": "Linux",
+  "node": "v24.22.1",
+  "java": "Temurin 21.0.13+9",
+  "gradle": "8.13 (unchanged project wrapper)",
+  "android_compile_sdk": 36,
+  "robolectric_test_sdk": 34,
+  "packages": {
+    "pytest": "9.2.0",
+    "pytest-cov": "7.1.0",
+    "coverage": "7.17.0",
+    "pytest-timeout": "2.4.0",
+    "fastapi": "0.162.0",
+    "starlette": "1.10.0",
+    "httpx": "0.28.1",
+    "sqlmodel": "0.0.44",
+    "SQLAlchemy": "2.0.55",
+    "sentry-sdk": "2.73.0",
+    "ruff": "0.17.3",
+    "detect-secrets": "1.5.0"
+  },
+  "database": "temporary SQLite created by backend/tests/conftest.py",
+  "real_services_used": false,
+  "emulator_available": false,
+  "kvm_available": false,
+  "tls_verification": "enabled; Java uses system CA trust store",
+  "robolectric_dependencies": "official Maven Central JARs, SHA-512 verified, offline dependency directory used for JVM DNS limitation"
+}

@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
@@ -64,16 +65,31 @@ import kotlinx.coroutines.launch
  */
 internal object OnlinePayGate {
     private var generation by mutableStateOf<Long?>(null)
+    private var availabilityRevision = 0L
     fun ensureOwner(owner: Long) {
-        if (generation != owner) { generation = owner; asked = false; unavailable = false; enabled = false }
+        if (generation != owner) {
+            generation = owner; availabilityRevision++
+            asked = false; unavailable = false; enabled = false
+        }
     }
     fun unavailableFor(owner: Long): Boolean = generation == owner && unavailable
     fun enabledFor(owner: Long): Boolean = generation == owner && enabled && !unavailable
+    fun revisionFor(owner: Long): Long? = if (generation == owner) availabilityRevision else null
+    fun isCurrentCheck(owner: Long, revision: Long?): Boolean =
+        generation == owner && revision == availabilityRevision
+    /** Вызывается под session commit: старый health не снимает неизвестность после сбоя платежа. */
+    fun requireRecheck(owner: Long) {
+        if (generation == owner) {
+            availabilityRevision++
+            enabled = false
+            asked = false
+        }
+    }
     /** Только успешный ответ сервера разрешает показать карточку. */
     var enabled by mutableStateOf(false)
-    /** true после первого 503 от /pay для текущего владельца входа. */
+    /** Подтверждённый off или online_payment_disabled для текущего владельца входа. */
     var unavailable by mutableStateOf(false)
-    /** Спрашивали ли уже сервер, включена ли онлайн-оплата (один раз на сессию). */
+    /** Проверка начата; ошибка чтения не считается подтверждённым запретом сервера. */
     var asked by mutableStateOf(false)
 }
 
@@ -118,28 +134,85 @@ private fun PayOnlineOwnedCard(
     fun commit(action: () -> Unit) {
         ApiClient.runIfCurrentSession(generation) { if (isCurrent()) action() }
     }
-    LaunchedEffect(generation) {
-        var ask = false
-        commit {
-            OnlinePayGate.ensureOwner(generation)
-            // Ушли с экрана до ответа — это ещё не результат проверки; на новом открытии спрашиваем снова.
-            if (!OnlinePayGate.asked || !OnlinePayGate.enabledFor(generation) && !OnlinePayGate.unavailableFor(generation)) {
-                OnlinePayGate.asked = true; ask = true
-            }
-        }
-        if (ask) ApiClient.paymentsOnlineEnabled(expectedGeneration = generation)
-            .onSuccess { enabled -> commit {
-                OnlinePayGate.enabled = enabled
-                OnlinePayGate.unavailable = OnlinePayGate.unavailable || !enabled
-            } }
-            .onFailure { commit { OnlinePayGate.unavailable = true } }
-    }
-    if (!OnlinePayGate.enabledFor(generation)) return
-
+    var checkingAvailability by remember { mutableStateOf(false) }
+    var availabilityError by remember { mutableStateOf(false) }
+    var availabilityAttempt by remember { mutableIntStateOf(0) }
+    // Проверка доступности временно скрывает UI, но не создаёт второе состояние платежа:
+    // сохранённые и новые обработчики должны видеть один busy/stage до конца этого owner/target.
     var stage by remember { mutableStateOf(PayOnlineStage.Idle) }
     var method by remember { mutableStateOf("card") }   // card | sbp
     var busy by remember { mutableStateOf(false) }
     var paymentId by remember { mutableStateOf<Int?>(null) }
+
+    LaunchedEffect(generation, availabilityAttempt) {
+        var ask = false
+        var checkRevision: Long? = null
+        commit {
+            OnlinePayGate.ensureOwner(generation)
+            // Ушли с экрана до ответа — это ещё не результат проверки; на новом открытии спрашиваем снова.
+            if (!OnlinePayGate.unavailableFor(generation) &&
+                (!OnlinePayGate.asked || !OnlinePayGate.enabledFor(generation))) {
+                OnlinePayGate.asked = true
+                checkingAvailability = true
+                availabilityError = false
+                checkRevision = OnlinePayGate.revisionFor(generation)
+                ask = true
+            }
+        }
+        if (ask) ApiClient.paymentsOnlineEnabled(expectedGeneration = generation)
+            .onSuccess { enabled -> commit {
+                checkingAvailability = false
+                if (OnlinePayGate.isCurrentCheck(generation, checkRevision)) {
+                    OnlinePayGate.enabled = enabled
+                    OnlinePayGate.unavailable = OnlinePayGate.unavailable || !enabled
+                } else {
+                    availabilityError = !OnlinePayGate.enabledFor(generation) && !OnlinePayGate.unavailableFor(generation)
+                }
+            } }
+            .onFailure { commit {
+                // Сеть/HTTP-ошибка ничего не говорит о разрешении оплаты. Повторяем только
+                // по действию человека или на новом открытии, не по самой смене состояния.
+                checkingAvailability = false
+                availabilityError = true
+                if (OnlinePayGate.isCurrentCheck(generation, checkRevision)) OnlinePayGate.asked = false
+            } }
+    }
+    if (!OnlinePayGate.enabledFor(generation)) {
+        if (!OnlinePayGate.unavailableFor(generation)) {
+            when {
+                checkingAvailability -> AppLoading(
+                    label = appText("Проверяем возможность онлайн-оплаты…", "Онлайн түләү мөмкинлеген тикшерәбеҙ…"),
+                    modifier = modifier,
+                )
+                availabilityError -> AppCard(modifier = modifier) {
+                    Column(
+                        Modifier.fillMaxWidth().padding(CanonSpace.lg),
+                        verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
+                    ) {
+                        Text(
+                            appText("Не получилось проверить онлайн-оплату.", "Онлайн түләүҙе тикшереп булманы."),
+                            color = CanonMutedStrong, style = CanonBody,
+                        )
+                        AppButton(
+                            text = appText("Повторить проверку", "Яңынан тикшереү"),
+                            style = AppButtonStyle.Secondary,
+                            modifier = Modifier.testTag("pay_online_retry"),
+                            onClick = { commit {
+                                if (availabilityError && !checkingAvailability &&
+                                    !OnlinePayGate.enabledFor(generation) && !OnlinePayGate.unavailableFor(generation)) {
+                                    // Защищаем и сохранённый обработчик двойного нажатия до нового кадра.
+                                    checkingAvailability = true
+                                    availabilityError = false
+                                    availabilityAttempt++
+                                }
+                            } },
+                        )
+                    }
+                }
+            }
+        }
+        return
+    }
 
     val soonMsg = appText(
         "Онлайн-оплата сейчас недоступна. Рассчитайся, как договорились.",
@@ -152,7 +225,7 @@ private fun PayOnlineOwnedCard(
     )
 
     fun startPay() {
-        if (!isCurrent() || stage != PayOnlineStage.Idle || busy || OnlinePayGate.unavailableFor(generation)) return
+        if (!isCurrent() || stage != PayOnlineStage.Idle || busy || !OnlinePayGate.enabledFor(generation)) return
         busy = true
         scope.launch {
             if (!isCurrent()) return@launch
@@ -171,10 +244,17 @@ private fun PayOnlineOwnedCard(
                 } }
                 .onFailure { e -> commit {
                     busy = false
-                    if (e is ApiException && e.status == 503) {
+                    if (e is ApiException && e.status == 503 && e.detailCode == "online_payment_disabled") {
                         // Сервер честно сказал «ещё нельзя» → прячем карточку на всю сессию.
                         OnlinePayGate.unavailable = true
                         Toast.makeText(context, soonMsg, Toast.LENGTH_LONG).show()
+                    } else if (e is ApiException && e.status == 503) {
+                        // Провайдер мог принять платёж и потерять ответ. Не повторяем POST:
+                        // сначала явная проверка доступности, затем отдельное действие человека.
+                        OnlinePayGate.requireRecheck(generation)
+                        checkingAvailability = false
+                        availabilityError = true
+                        Toast.makeText(context, serverSaid(e, errMsg), Toast.LENGTH_LONG).show()
                     } else {
                         val msg = if (e is ApiException) (e.message ?: errMsg) else errMsg
                         Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
@@ -184,7 +264,7 @@ private fun PayOnlineOwnedCard(
     }
 
     fun checkPayment() {
-        if (!isCurrent() || stage != PayOnlineStage.Waiting || busy || OnlinePayGate.unavailableFor(generation)) return
+        if (!isCurrent() || stage != PayOnlineStage.Waiting || busy || !OnlinePayGate.enabledFor(generation)) return
         val pid = paymentId ?: run { stage = PayOnlineStage.Idle; return }
         busy = true
         scope.launch {

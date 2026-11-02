@@ -1,0 +1,193 @@
+FFFF                                                                     [100%]
+=================================== FAILURES ===================================
+_ test_disabled_online_payment_has_explicit_code_and_creates_nothing[mock-prod] _
+
+client = <starlette.testclient.TestClient object at 0x7f8706f36f60>
+user_factory = <function user_factory.<locals>.make at 0x7f8706e2f420>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8707074050>
+provider = 'mock', env = 'prod'
+
+    @pytest.mark.parametrize("provider, env", [("mock", "prod"), ("sbp_manual", "prod"), ("unknown", "dev")])
+    def test_disabled_online_payment_has_explicit_code_and_creates_nothing(
+        client, user_factory, monkeypatch, provider, env,
+    ):
+        driver = user_factory("DisabledProviderDriver", role=UserRole.driver)
+        passenger = user_factory("DisabledProviderPassenger")
+        order_id = _make_done_order(driver["id"], passenger["id"])
+        monkeypatch.setattr(settings, "payments_provider", provider)
+        monkeypatch.setattr(settings, "env", env)
+
+        def forbidden(*args, **kwargs):
+            pytest.fail("a disabled provider must not be called")
+
+        monkeypatch.setattr(payment_routes, "create_payment", forbidden)
+        response = client.post(f"/instant/orders/{order_id}/pay", headers=passenger["auth"], json={"method": "card"})
+        assert response.status_code == 503
+        with Session(engine) as session:
+            assert session.get(InstantOrder, order_id).paid is False
+            assert session.exec(select(Payment).where(Payment.order_id == order_id)).all() == []
+>       assert response.json()["detail"]["code"] == "online_payment_disabled"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'code'
+
+tests/test_online_payment_availability_errors.py:33: KeyError
+---------------------------- Captured stdout setup -----------------------------
+[launch] ВНИМАНИЕ: REVIEW_PHONE/REVIEW_CODE пусты — ревьюер Google Play / RuStore не сможет войти, сборку отклонят
+[launch] ВНИМАНИЕ: MIN_APP_VERSION_CODE=0 — принудительное обновление выключено, ломающий релиз будет некому раскатить
+[launch] ВНИМАНИЕ: Комиссия с водителей включена (такси 15.0%), а сайт и оферта обещают «0 ₽ комиссия сервиса» — либо обновите тексты (web/components/lang.tsx, StructuredData.tsx, legal-content.ts), либо поставьте процент в 0. Список мест — docs/tasks.md, раздел проверки сайта
+[launch] справочник НП: добавлено сёл — 6506
+----------------------------- Captured stderr call -----------------------------
+2026-11-01 06:44:05,321 INFO yuldash: [REQ] POST /instant/orders/1/pay -> 503 191ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/1/pay -> 503 191ms
+_ test_disabled_online_payment_has_explicit_code_and_creates_nothing[sbp_manual-prod] _
+
+client = <starlette.testclient.TestClient object at 0x7f8706f36f60>
+user_factory = <function user_factory.<locals>.make at 0x7f87062f9e40>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8704fe2990>
+provider = 'sbp_manual', env = 'prod'
+
+    @pytest.mark.parametrize("provider, env", [("mock", "prod"), ("sbp_manual", "prod"), ("unknown", "dev")])
+    def test_disabled_online_payment_has_explicit_code_and_creates_nothing(
+        client, user_factory, monkeypatch, provider, env,
+    ):
+        driver = user_factory("DisabledProviderDriver", role=UserRole.driver)
+        passenger = user_factory("DisabledProviderPassenger")
+        order_id = _make_done_order(driver["id"], passenger["id"])
+        monkeypatch.setattr(settings, "payments_provider", provider)
+        monkeypatch.setattr(settings, "env", env)
+
+        def forbidden(*args, **kwargs):
+            pytest.fail("a disabled provider must not be called")
+
+        monkeypatch.setattr(payment_routes, "create_payment", forbidden)
+        response = client.post(f"/instant/orders/{order_id}/pay", headers=passenger["auth"], json={"method": "card"})
+        assert response.status_code == 503
+        with Session(engine) as session:
+            assert session.get(InstantOrder, order_id).paid is False
+            assert session.exec(select(Payment).where(Payment.order_id == order_id)).all() == []
+>       assert response.json()["detail"]["code"] == "online_payment_disabled"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'code'
+
+tests/test_online_payment_availability_errors.py:33: KeyError
+----------------------------- Captured stderr call -----------------------------
+2026-11-01 06:44:05,370 INFO yuldash: [REQ] POST /instant/orders/2/pay -> 503 4ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/2/pay -> 503 4ms
+_ test_disabled_online_payment_has_explicit_code_and_creates_nothing[unknown-dev] _
+
+client = <starlette.testclient.TestClient object at 0x7f8706f36f60>
+user_factory = <function user_factory.<locals>.make at 0x7f8704e03d80>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8704fe3530>
+provider = 'unknown', env = 'dev'
+
+    @pytest.mark.parametrize("provider, env", [("mock", "prod"), ("sbp_manual", "prod"), ("unknown", "dev")])
+    def test_disabled_online_payment_has_explicit_code_and_creates_nothing(
+        client, user_factory, monkeypatch, provider, env,
+    ):
+        driver = user_factory("DisabledProviderDriver", role=UserRole.driver)
+        passenger = user_factory("DisabledProviderPassenger")
+        order_id = _make_done_order(driver["id"], passenger["id"])
+        monkeypatch.setattr(settings, "payments_provider", provider)
+        monkeypatch.setattr(settings, "env", env)
+
+        def forbidden(*args, **kwargs):
+            pytest.fail("a disabled provider must not be called")
+
+        monkeypatch.setattr(payment_routes, "create_payment", forbidden)
+        response = client.post(f"/instant/orders/{order_id}/pay", headers=passenger["auth"], json={"method": "card"})
+        assert response.status_code == 503
+        with Session(engine) as session:
+            assert session.get(InstantOrder, order_id).paid is False
+            assert session.exec(select(Payment).where(Payment.order_id == order_id)).all() == []
+>       assert response.json()["detail"]["code"] == "online_payment_disabled"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'code'
+
+tests/test_online_payment_availability_errors.py:33: KeyError
+----------------------------- Captured stderr call -----------------------------
+2026-11-01 06:44:05,390 INFO yuldash: [REQ] POST /instant/orders/3/pay -> 503 4ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/3/pay -> 503 4ms
+_ test_lost_provider_reply_reuses_payment_key_and_fake_invoice_on_explicit_retry _
+
+client = <starlette.testclient.TestClient object at 0x7f8706f36f60>
+user_factory = <function user_factory.<locals>.make at 0x7f870632b6a0>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f8704e19250>
+
+    def test_lost_provider_reply_reuses_payment_key_and_fake_invoice_on_explicit_retry(
+        client, user_factory, monkeypatch,
+    ):
+        driver = user_factory("LostProviderReplyDriver", role=UserRole.driver)
+        passenger = user_factory("LostProviderReplyPassenger")
+        order_id = _make_done_order(driver["id"], passenger["id"], price_rub=245)
+        monkeypatch.setattr(settings, "payments_provider", "yookassa")
+        calls = []
+        invoices = {}
+
+        def provider(amount_kop, description, metadata, customer_phone="", idempotence_key=""):
+            calls.append(idempotence_key)
+            invoice = invoices.setdefault(idempotence_key, {
+                "provider_id": f"fake-invoice-{len(invoices) + 1}",
+                "status": "pending", "confirmation_url": "https://provider.invalid/pay", "mock": False,
+            })
+            if len(calls) == 1:
+                raise TimeoutError("fake provider accepted the request but its reply was lost")
+            return invoice
+
+        def fetch(provider_id):
+            invoice = next(value for value in invoices.values() if value["provider_id"] == provider_id)
+            return {"status": invoice["status"], "confirmation_url": invoice["confirmation_url"]}
+
+        monkeypatch.setattr(payment_routes, "create_payment", provider)
+        monkeypatch.setattr(payment_routes, "fetch_payment", fetch)
+        path = f"/instant/orders/{order_id}/pay"
+        first = client.post(path, headers=passenger["auth"], json={"method": "card"})
+        assert first.status_code == 503
+        with Session(engine) as session:
+            payment = session.exec(select(Payment).where(Payment.order_id == order_id)).one()
+            payment_id = payment.id
+            assert payment.status == "pending"
+            assert payment.provider_id == ""
+            assert payment.amount_kop == 24_500
+            assert session.get(InstantOrder, order_id).paid is False
+
+        second = client.post(path, headers=passenger["auth"], json={"method": "card"})
+        third = client.post(path, headers=passenger["auth"], json={"method": "card"})
+        assert second.status_code == third.status_code == 200
+        assert second.json()["payment_id"] == third.json()["payment_id"] == payment_id
+        assert second.json()["status"] == third.json()["status"] == "pending"
+        assert calls == [f"yuldash-payment-{payment_id}"] * 2
+        assert len(invoices) == 1, "same idempotence key must reuse the fake provider invoice"
+        with Session(engine) as session:
+            rows = session.exec(select(Payment).where(Payment.order_id == order_id)).all()
+            assert len(rows) == 1
+            assert rows[0].id == payment_id
+            assert rows[0].provider_id == "fake-invoice-1"
+            assert session.get(InstantOrder, order_id).paid is False
+>       assert first.json()["detail"]["code"] == "payment_provider_unavailable"
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E       KeyError: 'code'
+
+tests/test_online_payment_availability_errors.py:86: KeyError
+----------------------------- Captured stderr call -----------------------------
+2026-11-01 06:44:05,414 INFO yuldash: [REQ] POST /instant/orders/4/pay -> 503 10ms
+2026-11-01 06:44:05,424 INFO yuldash: [REQ] POST /instant/orders/4/pay -> 200 7ms
+2026-11-01 06:44:05,432 INFO yuldash: [REQ] POST /instant/orders/4/pay -> 200 5ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/4/pay -> 503 10ms
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/4/pay -> 200 7ms
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/4/pay -> 200 5ms
+=============================== warnings summary ===============================
+../../yuldash-audit-venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /workspace/scratch/727f6a2e912d/yuldash-audit-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_online_payment_availability_errors.py::test_disabled_online_payment_has_explicit_code_and_creates_nothing[mock-prod]
+FAILED tests/test_online_payment_availability_errors.py::test_disabled_online_payment_has_explicit_code_and_creates_nothing[sbp_manual-prod]
+FAILED tests/test_online_payment_availability_errors.py::test_disabled_online_payment_has_explicit_code_and_creates_nothing[unknown-dev]
+FAILED tests/test_online_payment_availability_errors.py::test_lost_provider_reply_reuses_payment_key_and_fake_invoice_on_explicit_retry
+4 failed, 1 warning in 1.73s

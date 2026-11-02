@@ -1,0 +1,72 @@
+✗ ru: telegram verify: other method removed
+    Expected values to be strictly equal:
+
+    0 !== 1
+
+✓ ru: telegram verify: own method removed
+✓ ru: telegram verify: all methods removed
+✓ ru: telegram verify: only order changed
+✗ ru: telegram request: other method removed
+    Expected values to be strictly equal:
+
+    false !== true
+
+✓ ru: telegram request: own method removed
+✓ ru: telegram: late verify after logged-out cannot publish
+✓ ru: telegram: late verify after account-B cannot publish
+✗ ru: sms verify: other method removed
+    Expected values to be strictly equal:
+
+    0 !== 1
+
+✓ ru: sms verify: own method removed
+✓ ru: sms verify: all methods removed
+✓ ru: sms verify: only order changed
+✗ ru: sms request: other method removed
+    Expected values to be strictly equal:
+
+    false !== true
+
+✓ ru: sms request: own method removed
+✓ ru: sms: late verify after logged-out cannot publish
+✓ ru: sms: late verify after account-B cannot publish
+✓ ru: late verify after unmount cannot publish
+✓ ru: old success cannot finish a newer login
+✓ ru: old failure cannot finish a newer login
+✗ ba: telegram verify: other method removed
+    Expected values to be strictly equal:
+
+    0 !== 1
+
+✓ ba: telegram verify: own method removed
+✓ ba: telegram verify: all methods removed
+✓ ba: telegram verify: only order changed
+✗ ba: telegram request: other method removed
+    Expected values to be strictly equal:
+
+    false !== true
+
+✓ ba: telegram request: own method removed
+✓ ba: telegram: late verify after logged-out cannot publish
+✓ ba: telegram: late verify after account-B cannot publish
+✗ ba: sms verify: other method removed
+    Expected values to be strictly equal:
+
+    0 !== 1
+
+✓ ba: sms verify: own method removed
+✓ ba: sms verify: all methods removed
+✓ ba: sms verify: only order changed
+✗ ba: sms request: other method removed
+    Expected values to be strictly equal:
+
+    false !== true
+
+✓ ba: sms request: own method removed
+✓ ba: sms: late verify after logged-out cannot publish
+✓ ba: sms: late verify after account-B cannot publish
+✓ ba: late verify after unmount cannot publish
+✓ ba: old success cannot finish a newer login
+✓ ba: old failure cannot finish a newer login
+
+ПРОВАЛЕНО: 8

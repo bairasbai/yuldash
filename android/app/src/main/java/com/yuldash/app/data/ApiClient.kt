@@ -2774,7 +2774,13 @@ object ApiClient {
      */
     suspend fun paymentsOnlineEnabled(expectedGeneration: Long? = null): Result<Boolean> =
         call("GET", "/health", null, auth = false, expectedGeneration = expectedGeneration)
-            .map { it.optString("payments", "off") != "off" }
+            .mapCatching {
+                when (it.opt("payments")) {
+                    "yookassa", "sbp_manual" -> true
+                    "off" -> false
+                    else -> error("Invalid payments availability response")
+                }
+            }
 
     /**
      * Водитель подтверждает, что видел новый способ расчёта.

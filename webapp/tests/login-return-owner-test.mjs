@@ -9,7 +9,7 @@ const h = globalThis.__loginReturn = { generation: "guest", routes: [], state: u
 globalThis.document = { addEventListener() {}, removeEventListener() {} };
 const mocks = lang => ({
   "/i18n/lang": langMock(lang),
-  "/auth/AuthProvider": `export const useAuth=()=>({login(){}});`,
+  "/auth/AuthProvider": `export const useAuth=()=>({login(){},getLoginEpoch:()=>0});`,
   "/api/client": `export class ApiError extends Error {} export const apiPost=()=>{}; export const getSessionGeneration=()=>globalThis.__loginReturn.generation;`,
   "/api/auth": `export const TELEGRAM_BOT='fixture',lastLoginMethods=()=>['telegram'],fetchLoginMethods=async()=>['telegram'];
     export const tgStart=async()=>({}),tgVerify=async()=>({}),requestSmsCode=async()=>({}),verifySmsCode=async()=>({}),telegramChatUrl=()=>'',telegramStartUrl=()=>'';`,

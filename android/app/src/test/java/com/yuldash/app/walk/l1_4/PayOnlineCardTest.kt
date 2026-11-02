@@ -60,7 +60,7 @@ class PayOnlineCardTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse = when {
-                    request.path == "/health" -> MockResponse().setResponseCode(200).setBody("{\"payments\":\"on\"}")
+                    request.path == "/health" -> MockResponse().setResponseCode(200).setBody("{\"payments\":\"yookassa\"}")
                     request.path?.contains("/status") == true -> MockResponse().setResponseCode(200).setBody(statusBody)
                     else -> MockResponse().setResponseCode(404).setBody("{}")
                 }
@@ -115,9 +115,14 @@ class PayOnlineCardTest {
         }
         var payments = 0
         render(25_000) { payments++; Result.success(PayTripResultDto("paid", it, null, null)) }
-        compose.waitUntil(5_000) { OnlinePayGate.unavailable }
+        compose.waitUntil(5_000) {
+            OnlinePayGate.unavailable || compose.onAllNodesWithTag("pay_online_retry").fetchSemanticsNodes().isNotEmpty()
+        }
         compose.onNodeWithTag("pay_online_submit").assertDoesNotExist()
         assertEquals(0, payments)
+        // A 503 from the availability read is retryable; only a confirmed off/pay denial is sticky.
+        compose.onNodeWithTag("pay_online_retry").assertExists()
+        org.junit.Assert.assertFalse(OnlinePayGate.unavailable)
     }
 
     @Test fun paymentStaysHiddenUntilTheServerExplicitlyAllowsIt() {
@@ -128,7 +133,7 @@ class PayOnlineCardTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 started.countDown()
                 release.await(5, java.util.concurrent.TimeUnit.SECONDS)
-                return MockResponse().setBody("""{"payments":"on"}""")
+                return MockResponse().setBody("""{"payments":"yookassa"}""")
             }
         }
         try {
@@ -163,7 +168,7 @@ class PayOnlineCardTest {
         val amountKop = androidx.compose.runtime.mutableStateOf<Int?>(100_00)
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "")) })
+                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "online_payment_disabled")) })
             }
         }
 

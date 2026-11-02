@@ -28,7 +28,7 @@ type Step = "choose" | "code";
  */
 export default function LoginScreen() {
   const { appText, lang, setLang } = useLang();
-  const { login } = useAuth();
+  const { login, getLoginEpoch } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/map";
@@ -55,8 +55,8 @@ export default function LoginScreen() {
   const [smsName, setSmsName] = useState("");
   const [smsError, setSmsError] = useState<LoginError | null>(null);
 
-  const live = useRef({ login, navigate, from, returnState });
-  live.current = { login, navigate, from, returnState };
+  const live = useRef({ login, getLoginEpoch, navigate, from, returnState });
+  live.current = { login, getLoginEpoch, navigate, from, returnState };
   const flow = useRef<ReturnType<typeof createLoginFlow> | null>(null);
   const refreshMethods = useCallback(async () => {
     methodsRequest.current?.abort();
@@ -67,10 +67,10 @@ export default function LoginScreen() {
     try {
       const next = await fetchLoginMethods(controller.signal);
       if (controller.signal.aborted) return;
-      const removed = methodsRef.current.some((method) => !next.includes(method));
+      const removed = methodsRef.current.filter((method) => !next.includes(method));
       methodsRef.current = next;
       setMethods(next);
-      if (removed) flow.current?.invalidate();
+      for (const method of removed) flow.current?.invalidate(method);
       if (!next.includes("telegram")) { setStep("choose"); setNeedPhone(false); setCode(""); }
       if (!next.includes("sms")) { setSmsOpen(false); setSmsCode(""); }
     } catch {
@@ -82,9 +82,10 @@ export default function LoginScreen() {
   if (!flow.current) {
     const deps: LoginFlowDeps = {
       getGeneration: getSessionGeneration,
+      getLoginEpoch: () => live.current.getLoginEpoch(),
       botAvailable: () => TELEGRAM_BOT.length > 0,
       tgStart, tgVerify, smsRequest: requestSmsCode, smsVerify: verifySmsCode,
-      login: (access, refresh, user) => live.current.login(access, refresh, user),
+      login: (access, refresh, user, isCurrentOperation) => live.current.login(access, refresh, user, isCurrentOperation),
       updateName: (updatedName) => apiPost("/me/update", { name: updatedName }),
       getStatus: (e) => e instanceof ApiError ? e.status : 0,
       getCode: (e) => e instanceof ApiError ? e.code : "",

@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" tests="60" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:52:24.827Z" hostname="f8d2a3cbaeb8" time="23.534">
+  <properties/>
+  <testcase name="incidentQueuedBeforeBackCannotSendAfterRetirement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="1.278"/>
+  <testcase name="backRetiresActionsBeforeParentFrame" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.263"/>
+  <testcase name="failedCurrentRatingCanRetry" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.28"/>
+  <testcase name="oldReceiptRetryCannotReadAsNextOwner" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.293"/>
+  <testcase name="lateTipCannotUndoSuccessfulThanks" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.397"/>
+  <testcase name="ordinaryLostFailureAllowsCurrentRetry" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.292"/>
+  <testcase name="ordinaryReportFailureAllowsReopeningAndCurrentRetry" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.621"/>
+  <testcase name="preloadedCashCannotReplayAfterServerAcknowledgement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.487"/>
+  <testcase name="actualRootScreenChangeBeforeFrameRetiresReceiptActions" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="1.127"/>
+  <testcase name="staleExpectedGenerationRejectsAllNinePrivateApiEntries" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="2.106"/>
+  <testcase name="mismatchingRemoteReceiptCannotExposeOtherOrder" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.329"/>
+  <testcase name="backKeepsReceiptDrawnWhileScreenLeaves" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.292"/>
+  <testcase name="oldIncidentCannotUseNextOwnerBeforeFrame" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.537"/>
+  <testcase name="oldCashCannotUseNextAccount" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.278"/>
+  <testcase name="currentThanksSucceedsOnce" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.254"/>
+  <testcase name="nextAccountRetiresPrivateDocument" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.25"/>
+  <testcase name="heldLostCannotNavigateAfterBack" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.345"/>
+  <testcase name="parentSwitchHidesOpenDialogButKeepsReceipt" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.26"/>
+  <testcase name="duplicateHeldRatingSendsOnce" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.384"/>
+  <testcase name="ordinaryCashFailureAllowsCurrentRetry" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.328"/>
+  <testcase name="cashQueuedBeforeBackCannotSendAfterRetirement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.347"/>
+  <testcase name="replacedTargetRetiresRating" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.342"/>
+  <testcase name="mismatchingInitialReceiptCannotExposeOtherOrder" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.169"/>
+  <testcase name="duplicateHeldThanksSendsOnce" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.424"/>
+  <testcase name="oldBackCannotNavigateNextOwner" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.315"/>
+  <testcase name="duplicateHeldIncidentSendsOnce" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.642"/>
+  <testcase name="disposedReceiptRetiresLostAction" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.304"/>
+  <testcase name="cancelledIncidentCannotReplayIntoReopenedDialog" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.751"/>
+  <testcase name="oldStarCannotUseNextAccount" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.295"/>
+  <testcase name="currentRemoteReceiptSharesMatchingDocument" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.198"/>
+  <testcase name="currentIncidentHasReceiptPayload" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.35"/>
+  <testcase name="currentReportHasReceiptPayload" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.218"/>
+  <testcase name="ordinaryThanksFailureAllowsCurrentRetry" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.235"/>
+  <testcase name="oldStarCannotUseGuest" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.263"/>
+  <testcase name="oldShareCannotRouteForNextOwnerBeforeFrame" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.264"/>
+  <testcase name="zeroOrderShowsErrorAndAllowsBackWithoutHttp" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.247"/>
+  <testcase name="parentSwitchKeepsReceiptDrawnWhileScreenLeaves" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.218"/>
+  <testcase name="replacedTargetRetiresShareText" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.306"/>
+  <testcase name="retainedReportSendRejectsOtherWithoutRequiredDescription" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.368"/>
+  <testcase name="oldReportCannotUseNextOwnerBeforeFrame" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.337"/>
+  <testcase name="ordinaryIncidentFailureAllowsCurrentRetry" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.46"/>
+  <testcase name="heldCashCannotReloadReplacementOrder" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.463"/>
+  <testcase name="receiptErrorCanRetryCurrentOwner" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.203"/>
+  <testcase name="oldThanksCannotUseNextAccount" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.261"/>
+  <testcase name="currentCashReloadsPaidReceipt" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.246"/>
+  <testcase name="thanksQueuedBeforeBackCannotSendAfterRetirement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.322"/>
+  <testcase name="ratingQueuedBeforeBackCannotSendAfterRetirement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.32"/>
+  <testcase name="lostQueuedBeforeBackCannotSendAfterRetirement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.315"/>
+  <testcase name="reportQueuedBeforeBackCannotSendAfterRetirement" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.409"/>
+  <testcase name="actualRootReplacementSignalRetiresOldReceiptActions" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.408"/>
+  <testcase name="currentRatingHasPayloadAndSavedState" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.168"/>
+  <testcase name="currentLostItemOpensMatchingChatAndReuseDoesNotPostAgain" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.173"/>
+  <testcase name="heldLostCannotOpenReplacementChat" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.423"/>
+  <testcase name="cancelledReportSendCannotReplayIntoReopenedDialog" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.573"/>
+  <testcase name="heldRatingCannotMarkReplacementSaved" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.413"/>
+  <testcase name="oldLostCannotUseNextOwner" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.271"/>
+  <testcase name="negativeOrderShowsErrorAndAllowsBackWithoutHttp" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.25"/>
+  <testcase name="receiptBackRetiresNestedOnlinePaymentBeforeFrame" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.266"/>
+  <testcase name="parentRetirementBeforeFrameBlocksRetainedRatingAndShare" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.272"/>
+  <testcase name="oldChoiceCloseCannotCloseReopenedChoice" classname="com.yuldash.app.TaxiReceiptOwnerBoundaryTest" time="0.305"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[]]></system-err>
+</testsuite>

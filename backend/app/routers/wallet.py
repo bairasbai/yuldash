@@ -82,7 +82,8 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     # клиент по 503 прячет карту (OnlinePayGate), остаётся нал / перевод «на доверии».
     # Неизвестный провайдер — то же «скоро» и вне прода: иначе строка платежа зависала бы pending.
     if payments_closed() or (settings.is_prod and settings.payments_provider != "yookassa"):
-        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
+        raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ",
+                   code="online_payment_disabled")
     # Дедуп pending: уже есть висящий платёж на этот заказ/бронь → возвращаем его, НЕ создаём второй
     # (иначе два тапа «Оплатить» / ретрай при задержке вебхука = два реальных списания). Образец — debt.py.
     dq = select(Payment).where(

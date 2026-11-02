@@ -1,0 +1,1422 @@
+{
+  "command": "python -m pytest tests/ -q --maxfail=25 --cov=app --cov-report=term-missing --cov-fail-under=85",
+  "exit_code": 0,
+  "passed": 6533,
+  "skipped": 94,
+  "failed": 0,
+  "warnings": 740,
+  "total_cases": 6627,
+  "coverage_percent": 93.25,
+  "coverage_required_percent": 85,
+  "seconds": 1165.8,
+  "database": "isolated SQLite",
+  "skip_categories": {
+    "postgresql_required": 91,
+    "optional_signing_file_absent": 2,
+    "documented_intermediate_status_exception": 1
+  },
+  "skip_mapping": "Progress symbols aligned with collected case order; both counts equal 6627. Skip markers and all runtime branches inspected. Collection did not execute tests.",
+  "warning_messages": [
+    {
+      "category": "DeprecationWarning",
+      "message": "Message.token is deprecated. Use Message.fid instead."
+    },
+    {
+      "category": "DeprecationWarning",
+      "message": "The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes"
+    },
+    {
+      "category": "DeprecationWarning",
+      "message": "The send_default_pii option is deprecated. Use data_collection instead. See https://docs.sentry.io/platforms/python/data-management/data-collected/"
+    },
+    {
+      "category": "DeprecationWarning",
+      "message": "Use 'content=<...>' to upload raw bytes/text content."
+    },
+    {
+      "category": "DeprecationWarning",
+      "message": "datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC)."
+    },
+    {
+      "category": "SAWarning",
+      "message": "fully NULL primary key identity cannot load any object.  This condition may raise an error in a future release."
+    },
+    {
+      "category": "StarletteDeprecationWarning",
+      "message": "Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead."
+    }
+  ],
+  "skipped_cases": [
+    {
+      "nodeid": "tests/test_api.py::test_overbooking_concurrent",
+      "file": "tests/test_api.py",
+      "line": 387,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Гонка брони (FOR UPDATE) проверяется только на Postgres — SQLite игнорирует row-lock. Запуск: DATABASE_URL=postgresql://... pytest -k overbooking_concurrent"
+        }
+      ],
+      "reasons": [
+        "Гонка брони (FOR UPDATE) проверяется только на Postgres — SQLite игнорирует row-lock. Запуск: DATABASE_URL=postgresql://... pytest -k overbooking_concurrent"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_booking_done_network_retry.py::test_concurrent_preloaded_done_requests_commit_one_transition_and_notification",
+      "file": "tests/test_booking_done_network_retry.py",
+      "line": 145,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL concurrent writers required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL concurrent writers required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_booking_done_network_retry.py::test_done_that_read_before_cancel_cannot_restore_cancelled_booking",
+      "file": "tests/test_booking_done_network_retry.py",
+      "line": 171,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL stale-reader race required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL stale-reader race required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_build_pipeline_is_locked_down.py::test_ключ_подписи_под_защитой_gitignore[android/yuldash.jks]",
+      "file": "tests/test_build_pipeline_is_locked_down.py",
+      "line": 88,
+      "skip_marks": [],
+      "reasons": [
+        "Optional signing file is absent in this clean checkout; test skips without reading a key."
+      ],
+      "category": "optional_signing_file_absent"
+    },
+    {
+      "nodeid": "tests/test_build_pipeline_is_locked_down.py::test_ключ_подписи_под_защитой_gitignore[android/keystore.properties]",
+      "file": "tests/test_build_pipeline_is_locked_down.py",
+      "line": 88,
+      "skip_marks": [],
+      "reasons": [
+        "Optional signing file is absent in this clean checkout; test skips without reading a key."
+      ],
+      "category": "optional_signing_file_absent"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[0]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[1]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[2]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[3]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[4]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[5]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[6]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_сел_в_одну_секунду[7]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 108,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_отменить_бронь_в_пути_разом[0]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 134,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_отменить_бронь_в_пути_разом[1]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 134,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_отменить_бронь_в_пути_разом[2]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 134,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_и_отменить_бронь_в_пути_разом[3]",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 134,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_медленный_шлюз_смс_не_переставляет_сообщения_маме",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 152,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_двойное_доехал_при_медленном_шлюзе_одно_смс",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 179,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_cancel_in_transit_race_pg.py::test_снять_поездку_пока_отзывают_ссылку_сестры",
+      "file": "tests/test_cancel_in_transit_race_pg.py",
+      "line": 215,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "гонка на замках — только PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "гонка на замках — только PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_chat_postgres_concurrency.py::test_concurrent_retries_commit_one_message[same-payload]",
+      "file": "tests/test_chat_postgres_concurrency.py",
+      "line": 18,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_chat_postgres_concurrency.py::test_concurrent_retries_commit_one_message[different-payload]",
+      "file": "tests/test_chat_postgres_concurrency.py",
+      "line": 18,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_chat_postgres_concurrency.py::test_ws_persistence_races_rest_retry[same-payload]",
+      "file": "tests/test_chat_postgres_concurrency.py",
+      "line": 77,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_chat_postgres_concurrency.py::test_ws_persistence_races_rest_retry[different-payload]",
+      "file": "tests/test_chat_postgres_concurrency.py",
+      "line": 77,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_manual_payment_terminal_concurrency.py::test_pg_manual_confirmation_and_rejection_both_first_payment_lock_orders[confirm-boost]",
+      "file": "tests/test_manual_payment_terminal_concurrency.py",
+      "line": 249,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_manual_payment_terminal_concurrency.py::test_pg_manual_confirmation_and_rejection_both_first_payment_lock_orders[confirm-legacy_booking]",
+      "file": "tests/test_manual_payment_terminal_concurrency.py",
+      "line": 249,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_manual_payment_terminal_concurrency.py::test_pg_manual_confirmation_and_rejection_both_first_payment_lock_orders[reject-boost]",
+      "file": "tests/test_manual_payment_terminal_concurrency.py",
+      "line": 249,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_manual_payment_terminal_concurrency.py::test_pg_manual_confirmation_and_rejection_both_first_payment_lock_orders[reject-legacy_booking]",
+      "file": "tests/test_manual_payment_terminal_concurrency.py",
+      "line": 249,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_manual_payment_terminal_concurrency.py::test_pg_manual_booking_confirmation_has_no_committed_paid_pending_rejection_window",
+      "file": "tests/test_manual_payment_terminal_concurrency.py",
+      "line": 280,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_ops_scrub_relative_phones.py::test_waits_for_a_busy_row_at_most_five_seconds",
+      "file": "tests/test_ops_scrub_relative_phones.py",
+      "line": 414,
+      "skip_marks": [],
+      "reasons": [
+        "блокировки строк и lock_timeout есть только в PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_pay_agreement_payment_concurrency.py::test_pg_edit_and_locked_pay_serialize_without_invoice[edit]",
+      "file": "tests/test_pay_agreement_payment_concurrency.py",
+      "line": 258,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_pay_agreement_payment_concurrency.py::test_pg_edit_and_locked_pay_serialize_without_invoice[pay]",
+      "file": "tests/test_pay_agreement_payment_concurrency.py",
+      "line": 258,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_pay_agreement_payment_concurrency.py::test_pg_concurrent_public_payments_never_reach_provider[methods0]",
+      "file": "tests/test_pay_agreement_payment_concurrency.py",
+      "line": 283,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_pay_agreement_payment_concurrency.py::test_pg_concurrent_public_payments_never_reach_provider[methods1]",
+      "file": "tests/test_pay_agreement_payment_concurrency.py",
+      "line": 283,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_payment_postgres_concurrency.py::test_poll_webhook_and_activation_credit_ride_once",
+      "file": "tests/test_payment_postgres_concurrency.py",
+      "line": 69,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_payment_postgres_concurrency.py::test_stale_concurrent_activation_extends_boost_only_once",
+      "file": "tests/test_payment_postgres_concurrency.py",
+      "line": 83,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_payment_postgres_concurrency.py::test_stale_opposite_provider_result_keeps_terminal_outcome[succeeded]",
+      "file": "tests/test_payment_postgres_concurrency.py",
+      "line": 100,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_payment_postgres_concurrency.py::test_stale_opposite_provider_result_keeps_terminal_outcome[canceled]",
+      "file": "tests/test_payment_postgres_concurrency.py",
+      "line": 100,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_payment_postgres_concurrency.py::test_concurrent_courier_confirmation_pays_exact_snapshot",
+      "file": "tests/test_payment_postgres_concurrency.py",
+      "line": 125,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_postgres_courier_notification.py::test_wallet_guard_allows_notification_foreign_key[courier]",
+      "file": "tests/test_postgres_courier_notification.py",
+      "line": 33,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Requires PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Requires PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_postgres_courier_notification.py::test_wallet_guard_allows_notification_foreign_key[taxi]",
+      "file": "tests/test_postgres_courier_notification.py",
+      "line": 33,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Requires PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Requires PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_postgres_courier_notification.py::test_courier_notification_survives_wallet_guard[0]",
+      "file": "tests/test_postgres_courier_notification.py",
+      "line": 58,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Requires PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Requires PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_postgres_courier_notification.py::test_courier_notification_survives_wallet_guard[1000]",
+      "file": "tests/test_postgres_courier_notification.py",
+      "line": 58,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Requires PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Requires PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_postgres_concurrency.py::test_two_connections_rotate_once_even_if_first_issuer_fails[False]",
+      "file": "tests/test_refresh_postgres_concurrency.py",
+      "line": 14,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_postgres_concurrency.py::test_two_connections_rotate_once_even_if_first_issuer_fails[True]",
+      "file": "tests/test_refresh_postgres_concurrency.py",
+      "line": 14,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_recovery_migration_on_postgres_preserves_legacy_row",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 28,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_initial_issuance_and_logout_obey_the_same_lock_order[login]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 47,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_initial_issuance_and_logout_obey_the_same_lock_order[logout]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 47,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_parallel_recovery_intents_have_one_child[True]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 95,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_parallel_recovery_intents_have_one_child[False]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 95,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_logout_serializes_with_refresh_in_both_orders[refresh-rotate]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 140,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_logout_serializes_with_refresh_in_both_orders[refresh-recover]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 140,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_logout_serializes_with_refresh_in_both_orders[logout-rotate]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 140,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_refresh_replay_postgres.py::test_logout_serializes_with_refresh_in_both_orders[logout-recover]",
+      "file": "tests/test_refresh_replay_postgres.py",
+      "line": 140,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_rideshare_network_matrix.py::test_concurrent_preloaded_lost_item_calls_open_chat_once",
+      "file": "tests/test_rideshare_network_matrix.py",
+      "line": 345,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL concurrent writers required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL concurrent writers required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_rideshare_network_matrix.py::test_preloaded_passenger_family_status_cannot_publish_after_driver_cancel_commits[arrived]",
+      "file": "tests/test_rideshare_network_matrix.py",
+      "line": 475,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL stale-reader race required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL stale-reader race required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_rideshare_network_matrix.py::test_preloaded_passenger_family_status_cannot_publish_after_driver_cancel_commits[done]",
+      "file": "tests/test_rideshare_network_matrix.py",
+      "line": 475,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL stale-reader race required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL stale-reader race required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_roadside_network_retry.py::test_concurrent_same_owner_key_body_commits_one_event_and_original_fanout",
+      "file": "tests/test_roadside_network_retry.py",
+      "line": 190,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL unique-key writers required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL unique-key writers required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_role_transport_cross_mode.py::test_one_driver_cannot_accept_two_different_offers",
+      "file": "tests/test_role_transport_cross_mode.py",
+      "line": 45,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Нужны независимые PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Нужны независимые PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_role_transport_cross_mode.py::test_two_couriers_cannot_take_the_same_delivery",
+      "file": "tests/test_role_transport_cross_mode.py",
+      "line": 89,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Нужны независимые PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Нужны независимые PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_role_transport_order_race.py::test_two_devices_create_only_one_active_order[ordinary]",
+      "file": "tests/test_role_transport_order_race.py",
+      "line": 16,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Нужны реальные PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Нужны реальные PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_role_transport_order_race.py::test_two_devices_create_only_one_active_order[moderated]",
+      "file": "tests/test_role_transport_order_race.py",
+      "line": 16,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Нужны реальные PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "Нужны реальные PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_seat_options.py::test_front_seat_race_has_one_winner",
+      "file": "tests/test_seat_options.py",
+      "line": 302,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Гонка двух нажатий проверяется на Postgres (FOR UPDATE + индекс). Запуск: DATABASE_URL=postgresql://... pytest tests/test_seat_options.py"
+        }
+      ],
+      "reasons": [
+        "Гонка двух нажатий проверяется на Postgres (FOR UPDATE + индекс). Запуск: DATABASE_URL=postgresql://... pytest tests/test_seat_options.py"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_sos_network_retry.py::test_concurrent_same_owner_key_body_commits_one_event_and_original_fanout",
+      "file": "tests/test_sos_network_retry.py",
+      "line": 244,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Real PostgreSQL unique-key writers required"
+        }
+      ],
+      "reasons": [
+        "Real PostgreSQL unique-key writers required"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/test_status_labels_android.py::test_приложение_знает_состояние[\\u0442\\u0430\\u043a\\u0441\\u0438-\\u0437\\u0430\\u043a\\u0430\\u0437:searching]",
+      "file": "tests/test_status_labels_android.py",
+      "line": 70,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "Android-исходников рядом нет — сверять не с чем"
+        }
+      ],
+      "reasons": [
+        "такси-заказ:searching — приложению не нужно (см. _NOT_FOR_APP); отдельная подпись не требуется, клиент использует phase."
+      ],
+      "category": "documented_intermediate_status_exception",
+      "skip_mark_note": "The requires_android skipif marker is false here because Android sources exist; actual skip is the explicit runtime _NOT_FOR_APP branch."
+    },
+    {
+      "nodeid": "tests/walk/l1_1/test_l1_1_refund_migration.py::test_r1_upgrade_to_head_creates_the_index_on_a_prod_like_schema",
+      "file": "tests/walk/l1_1/test_l1_1_refund_migration.py",
+      "line": 168,
+      "skip_marks": [],
+      "reasons": [
+        "Изолированный PostgreSQL для миграционных тестов недоступен; fixture fresh_db, pytest.skip на строке 79."
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_1/test_l1_1_refund_migration.py::test_r2_downgrade_removes_the_index",
+      "file": "tests/walk/l1_1/test_l1_1_refund_migration.py",
+      "line": 182,
+      "skip_marks": [],
+      "reasons": [
+        "Изолированный PostgreSQL для миграционных тестов недоступен; fixture fresh_db, pytest.skip на строке 79."
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_1/test_l1_1_refund_migration.py::test_r3_existing_duplicate_stops_the_upgrade_without_touching_money",
+      "file": "tests/walk/l1_1/test_l1_1_refund_migration.py",
+      "line": 197,
+      "skip_marks": [],
+      "reasons": [
+        "Изолированный PostgreSQL для миграционных тестов недоступен; fixture fresh_db, pytest.skip на строке 79."
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_1/test_l1_1_refund_migration.py::test_r4_upgrade_without_duplicates_is_idempotent_when_called_twice",
+      "file": "tests/walk/l1_1/test_l1_1_refund_migration.py",
+      "line": 233,
+      "skip_marks": [],
+      "reasons": [
+        "Изолированный PostgreSQL для миграционных тестов недоступен; fixture fresh_db, pytest.skip на строке 79."
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_1/test_l1_1_refund_migration.py::test_r5_invalid_index_from_an_interrupted_deploy_is_rebuilt",
+      "file": "tests/walk/l1_1/test_l1_1_refund_migration.py",
+      "line": 246,
+      "skip_marks": [],
+      "reasons": [
+        "Изолированный PostgreSQL для миграционных тестов недоступен; fixture fresh_db, pytest.skip на строке 79."
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_1/test_l1_1_wallet_lock_two_debts.py::test_r1_lock_prevents_overdraw_when_two_debts_fit_a_stale_balance",
+      "file": "tests/walk/l1_1/test_l1_1_wallet_lock_two_debts.py",
+      "line": 70,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "FOR UPDATE — пустышка на SQLite; гонка нескольких долгов доказательна только на PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "FOR UPDATE — пустышка на SQLite; гонка нескольких долгов доказательна только на PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2_wallet_race_pg.py::test_pg_two_concurrent_pay_requests_before_either_insert_share_one_invoice",
+      "file": "tests/walk/l1_2/test_l1_2_wallet_race_pg.py",
+      "line": 160,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot_pg.py::test_pg_webhook_atomically_excludes_a_debt_the_admin_is_forgiving_right_now",
+      "file": "tests/walk/l1_2/test_l1_2b_taxi_debt_snapshot_pg.py",
+      "line": 39,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2c_reverse_race_pg.py::test_pg_admin_write_waits_for_the_card_and_then_does_not_overwrite_it[forgive]",
+      "file": "tests/walk/l1_2/test_l1_2c_reverse_race_pg.py",
+      "line": 43,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2c_reverse_race_pg.py::test_pg_admin_write_waits_for_the_card_and_then_does_not_overwrite_it[confirm]",
+      "file": "tests/walk/l1_2/test_l1_2c_reverse_race_pg.py",
+      "line": 43,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2c_reverse_race_pg.py::test_pg_admin_write_waits_for_the_card_and_then_does_not_overwrite_it[reject]",
+      "file": "tests/walk/l1_2/test_l1_2c_reverse_race_pg.py",
+      "line": 43,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2d_reverse_race_pg.py::test_pg_declare_waits_for_the_card_and_does_not_reopen_the_debt",
+      "file": "tests/walk/l1_2/test_l1_2d_reverse_race_pg.py",
+      "line": 97,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2d_reverse_race_pg.py::test_pg_unpaid_report_waits_for_the_card_and_refunds_instead_of_writing_off",
+      "file": "tests/walk/l1_2/test_l1_2d_reverse_race_pg.py",
+      "line": 119,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_2/test_l1_2d_reverse_race_pg.py::test_pg_legacy_card_bill_waits_for_forgive_and_refunds_it",
+      "file": "tests/walk/l1_2/test_l1_2d_reverse_race_pg.py",
+      "line": 140,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL row locks"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL row locks"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_coupons_money.py::test_concurrent_redeem_only_one_wins",
+      "file": "tests/walk/l1_3/test_l1_3_coupons_money.py",
+      "line": 105,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_coupons_money.py::test_concurrent_activation_respects_per_user_limit",
+      "file": "tests/walk/l1_3/test_l1_3_coupons_money.py",
+      "line": 239,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_coupons_money.py::test_concurrent_coupon_creation_respects_fifty_limit",
+      "file": "tests/walk/l1_3/test_l1_3_coupons_money.py",
+      "line": 379,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_promo_money.py::test_concurrent_apply_respects_total_limit",
+      "file": "tests/walk/l1_3/test_l1_3_promo_money.py",
+      "line": 70,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_promo_money.py::test_hmac_migration_converts_legacy_keys_and_is_idempotent",
+      "file": "tests/walk/l1_3/test_l1_3_promo_money.py",
+      "line": 278,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_promo_money.py::test_legacy_plaintext_claim_still_blocks_reapply_before_and_after_migration",
+      "file": "tests/walk/l1_3/test_l1_3_promo_money.py",
+      "line": 322,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_promo_money.py::test_hmac_migration_refuses_weak_secret_when_rows_need_conversion",
+      "file": "tests/walk/l1_3/test_l1_3_promo_money.py",
+      "line": 387,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_promo_ride_money.py::test_concurrent_consume_only_one_order_gets_discount",
+      "file": "tests/walk/l1_3/test_l1_3_promo_ride_money.py",
+      "line": 183,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_referral_money.py::test_concurrent_grants_respect_lifetime_cap",
+      "file": "tests/walk/l1_3/test_l1_3_referral_money.py",
+      "line": 59,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l1_3/test_l1_3_referral_money.py::test_concurrent_driver_bonuses_respect_monthly_cap",
+      "file": "tests/walk/l1_3/test_l1_3_referral_money.py",
+      "line": 100,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py::test_гонка_два_одновременных_sos_пишут_два_независимых_события",
+      "file": "tests/walk/l3_1/test_l3_1_n4_sos_duplicate_handle.py",
+      "line": 201,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "настоящая параллельная гонка проверяется только на PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "настоящая параллельная гонка проверяется только на PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l3_1/test_l3_1_n8_resolve_idempotent.py::test_гонка_два_одновременных_resolve_дают_один_возврат_комиссии",
+      "file": "tests/walk/l3_1/test_l3_1_n8_resolve_idempotent.py",
+      "line": 98,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "настоящая гонка двух транзакций проверяется только на PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "настоящая гонка двух транзакций проверяется только на PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l3_2/test_l3_2_invite_redeem_race_postgres.py::test_two_newcomers_cannot_both_redeem_the_same_single_use_code",
+      "file": "tests/walk/l3_2/test_l3_2_invite_redeem_race_postgres.py",
+      "line": 38,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l3_2/test_l3_2_rating_race_postgres.py::test_two_simultaneous_tabs_do_not_double_the_rating",
+      "file": "tests/walk/l3_2/test_l3_2_rating_race_postgres.py",
+      "line": 66,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "requires isolated PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "requires isolated PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    },
+    {
+      "nodeid": "tests/walk/l3_3/test_l3_3_resolve_incident_race.py::test_гонка_два_одновременных_resolve_дают_одно_предупреждение",
+      "file": "tests/walk/l3_3/test_l3_3_resolve_incident_race.py",
+      "line": 62,
+      "skip_marks": [
+        {
+          "mark": "skipif",
+          "reason": "настоящая гонка двух транзакций проверяется только на PostgreSQL"
+        }
+      ],
+      "reasons": [
+        "настоящая гонка двух транзакций проверяется только на PostgreSQL"
+      ],
+      "category": "postgresql_required"
+    }
+  ]
+}

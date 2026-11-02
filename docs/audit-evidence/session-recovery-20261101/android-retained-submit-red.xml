@@ -1,0 +1,85 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" tests="20" skipped="0" failures="1" errors="0" timestamp="2026-11-01T05:48:53.687Z" hostname="f8d2a3cbaeb8" time="12.614">
+  <properties/>
+  <testcase name="unknownHealthFlagNeverEnablesPaymentAndCanBeRetried" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="7.857"/>
+  <testcase name="networkFailureCanBeRetriedAfterConnectivityReturns" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.704"/>
+  <testcase name="closingDuringAvailabilityRequestDoesNotPoisonNextMount" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.201"/>
+  <testcase name="duplicatePayAfterRecoveryStillSendsOnlyOnePayment" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.325"/>
+  <testcase name="retainedRetryCannotRunAfterLogoutBeforeNextFrame" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.13"/>
+  <testcase name="legacy503IsUnknownAndExplicitOffOnRetryStillBlocksPayment" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.305"/>
+  <testcase name="receiptReopensAndRechecksAfterFailedAvailabilityRequest" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.632"/>
+  <testcase name="explicitPaymentDisabledCodeStaysBlockedAcrossReopen" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.166"/>
+  <testcase name="retainedOldAndNewSubmitAfterRecoveryShareOnePaymentInFlight" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.315">
+    <failure message="java.lang.AssertionError: one initial failed payment and one recovery attempt expected:&lt;2&gt; but was:&lt;3&gt;" type="java.lang.AssertionError">java.lang.AssertionError: one initial failed payment and one recovery attempt expected:&lt;2&gt; but was:&lt;3&gt;
+	at org.junit.Assert.fail(Assert.java:89)
+	at org.junit.Assert.failNotEquals(Assert.java:835)
+	at org.junit.Assert.assertEquals(Assert.java:120)
+	at com.yuldash.app.PayOnlineAvailabilityRecoveryTest.retainedOldAndNewSubmitAfterRecoveryShareOnePaymentInFlight(PayOnlineAvailabilityRecoveryTest.kt:504)
+	at java.base/jdk.internal.reflect.DirectMethodHandleAccessor.invoke(DirectMethodHandleAccessor.java:103)
+	at java.base/java.lang.reflect.Method.invoke(Method.java:580)
+	at org.junit.runners.model.FrameworkMethod$1.runReflectiveCall(FrameworkMethod.java:59)
+	at org.junit.internal.runners.model.ReflectiveCallable.run(ReflectiveCallable.java:12)
+	at org.junit.runners.model.FrameworkMethod.invokeExplosively(FrameworkMethod.java:56)
+	at org.junit.internal.runners.statements.InvokeMethod.evaluate(InvokeMethod.java:17)
+	at org.junit.internal.runners.statements.RunBefores.evaluate(RunBefores.java:26)
+	at org.junit.internal.runners.statements.RunAfters.evaluate(RunAfters.java:27)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$testWithDisposal$1.evaluate(AndroidComposeTestRule.android.kt:418)
+	at org.junit.rules.ExternalResource$1.evaluate(ExternalResource.java:54)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invokeSuspend(AndroidComposeTestRule.android.kt:438)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1$evaluate$1.invoke(AndroidComposeTestRule.android.kt)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invokeSuspend(ComposeUiTest.android.kt:682)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invoke(ComposeUiTest.android.kt)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1$1$1$1.invoke(ComposeUiTest.android.kt)
+	at androidx.compose.ui.test.IdlingStrategy.withStrategy$suspendImpl(IdlingStrategy.android.kt:55)
+	at androidx.compose.ui.test.IdlingStrategy.withStrategy(IdlingStrategy.android.kt)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invokeSuspend(ComposeUiTest.android.kt:679)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invoke(ComposeUiTest.android.kt)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment$runTest$1$1.invoke(ComposeUiTest.android.kt)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt$runTest$2$1$1.invokeSuspend(TestBuilders.kt:318)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:101)
+	at kotlinx.coroutines.test.TestDispatcher.processEvent$kotlinx_coroutines_test(TestDispatcher.kt:24)
+	at kotlinx.coroutines.test.TestCoroutineScheduler.tryRunNextTaskUnless$kotlinx_coroutines_test(TestCoroutineScheduler.kt:99)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt$runTest$2$1$workRunner$1.invokeSuspend(TestBuilders.kt:327)
+	at kotlin.coroutines.jvm.internal.BaseContinuationImpl.resumeWith(ContinuationImpl.kt:34)
+	at kotlinx.coroutines.DispatchedTask.run(DispatchedTask.kt:101)
+	at kotlinx.coroutines.EventLoopImplBase.processNextEvent(EventLoop.common.kt:263)
+	at kotlinx.coroutines.BlockingCoroutine.joinBlocking(Builders.kt:95)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking(Builders.kt:69)
+	at kotlinx.coroutines.BuildersKt.runBlocking(Unknown Source)
+	at kotlinx.coroutines.BuildersKt__BuildersKt.runBlocking$default(Builders.kt:47)
+	at kotlinx.coroutines.BuildersKt.runBlocking$default(Unknown Source)
+	at kotlinx.coroutines.test.TestBuildersJvmKt.createTestResult(TestBuildersJvm.kt:10)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:310)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source)
+	at kotlinx.coroutines.test.TestBuildersKt__TestBuildersKt.runTest-8Mi8wO0(TestBuilders.kt:168)
+	at kotlinx.coroutines.test.TestBuildersKt.runTest-8Mi8wO0(Unknown Source)
+	at androidx.compose.ui.test.AndroidComposeUiTestEnvironment.runTest(ComposeUiTest.android.kt:658)
+	at androidx.compose.ui.test.junit4.AndroidComposeTestRule$apply$1.evaluate(AndroidComposeTestRule.android.kt:438)
+	at org.junit.runners.ParentRunner$3.evaluate(ParentRunner.java:306)
+	at org.robolectric.RobolectricTestRunner$HelperTestRunner$1.evaluate(RobolectricTestRunner.java:502)
+	at org.robolectric.internal.SandboxTestRunner$2.lambda$evaluate$2(SandboxTestRunner.java:285)
+	at org.robolectric.internal.bytecode.Sandbox.lambda$runOnMainThread$0(Sandbox.java:104)
+	at java.base/java.util.concurrent.FutureTask.run(FutureTask.java:317)
+	at java.base/java.util.concurrent.ThreadPoolExecutor.runWorker(ThreadPoolExecutor.java:1144)
+	at java.base/java.util.concurrent.ThreadPoolExecutor$Worker.run(ThreadPoolExecutor.java:642)
+	at java.base/java.lang.Thread.run(Thread.java:1583)
+</failure>
+  </testcase>
+  <testcase name="explicitServerDenialStaysBlockedWhenCardReopens" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.128"/>
+  <testcase name="retainedRetryCannotRunUnderAnotherAccountBeforeNextFrame" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.115"/>
+  <testcase name="healthStartedBeforeProviderFailureCannotReenablePaymentLater" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.3"/>
+  <testcase name="lateAvailabilityReplyFromAccountACannotDisableAccountB" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.139"/>
+  <testcase name="retainedRetryCannotRunAfterCardDisposal" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.115"/>
+  <testcase name="duplicateRetryStartsOneCheckAndDoesNotEnablePaymentWhilePending" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.185"/>
+  <testcase name="lateTemporaryPaymentFailureFromACannotChangeAccountB" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.176"/>
+  <testcase name="unchangedFailureDoesNotPollOnRecompositionOrElapsedTime" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.112"/>
+  <testcase name="health503OffersRetryWithoutTreatingItAsProviderDenial" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.193"/>
+  <testcase name="missingHealthFlagOffersRecoveryInsteadOfPermanentDenial" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.184"/>
+  <testcase name="provider503RequiresExplicitHealthRetryBeforeAnotherPayment" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.329"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[Nov 01, 2026 6:49:02 AM okhttp3.mockwebserver.MockWebServer$SocketHandler handle
+WARNING: MockWebServer[37875] connection from /127.0.0.1 didn't make a request
+]]></system-err>
+</testsuite>

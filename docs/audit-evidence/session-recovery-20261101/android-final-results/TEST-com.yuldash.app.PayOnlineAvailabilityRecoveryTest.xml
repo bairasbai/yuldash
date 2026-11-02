@@ -1,0 +1,28 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<testsuite name="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" tests="20" skipped="0" failures="0" errors="0" timestamp="2026-11-01T05:51:37.377Z" hostname="f8d2a3cbaeb8" time="16.678">
+  <properties/>
+  <testcase name="unknownHealthFlagNeverEnablesPaymentAndCanBeRetried" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="11.558"/>
+  <testcase name="networkFailureCanBeRetriedAfterConnectivityReturns" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.729"/>
+  <testcase name="closingDuringAvailabilityRequestDoesNotPoisonNextMount" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.198"/>
+  <testcase name="duplicatePayAfterRecoveryStillSendsOnlyOnePayment" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.312"/>
+  <testcase name="retainedRetryCannotRunAfterLogoutBeforeNextFrame" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.141"/>
+  <testcase name="legacy503IsUnknownAndExplicitOffOnRetryStillBlocksPayment" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.386"/>
+  <testcase name="receiptReopensAndRechecksAfterFailedAvailabilityRequest" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.75"/>
+  <testcase name="explicitPaymentDisabledCodeStaysBlockedAcrossReopen" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.213"/>
+  <testcase name="retainedOldAndNewSubmitAfterRecoveryShareOnePaymentInFlight" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.315"/>
+  <testcase name="explicitServerDenialStaysBlockedWhenCardReopens" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.142"/>
+  <testcase name="retainedRetryCannotRunUnderAnotherAccountBeforeNextFrame" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.135"/>
+  <testcase name="healthStartedBeforeProviderFailureCannotReenablePaymentLater" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.286"/>
+  <testcase name="lateAvailabilityReplyFromAccountACannotDisableAccountB" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.137"/>
+  <testcase name="retainedRetryCannotRunAfterCardDisposal" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.118"/>
+  <testcase name="duplicateRetryStartsOneCheckAndDoesNotEnablePaymentWhilePending" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.194"/>
+  <testcase name="lateTemporaryPaymentFailureFromACannotChangeAccountB" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.265"/>
+  <testcase name="unchangedFailureDoesNotPollOnRecompositionOrElapsedTime" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.109"/>
+  <testcase name="health503OffersRetryWithoutTreatingItAsProviderDenial" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.184"/>
+  <testcase name="missingHealthFlagOffersRecoveryInsteadOfPermanentDenial" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.171"/>
+  <testcase name="provider503RequiresExplicitHealthRetryBeforeAnotherPayment" classname="com.yuldash.app.PayOnlineAvailabilityRecoveryTest" time="0.332"/>
+  <system-out><![CDATA[]]></system-out>
+  <system-err><![CDATA[Nov 01, 2026 6:51:49 AM okhttp3.mockwebserver.MockWebServer$SocketHandler handle
+WARNING: MockWebServer[59703] connection from /127.0.0.1 didn't make a request
+]]></system-err>
+</testsuite>

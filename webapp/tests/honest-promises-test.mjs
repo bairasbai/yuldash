@@ -35,7 +35,7 @@ export const tgStart=async()=>({request_id:'synthetic'}),tgVerify=async()=>{cons
 export const requestSmsCode=async()=>({sent:true}),verifySmsCode=async()=>({}),telegramChatUrl=()=>'',telegramStartUrl=()=>'';`;
 const loginMocks = lang => ({
   "/i18n/lang": langMock(lang), "/api/client": clientMock, "/api/auth": authMock,
-  "/auth/AuthProvider": "export const useAuth=()=>({login(){}});",
+  "/auth/AuthProvider": "export const useAuth=()=>({login(){},getLoginEpoch:()=>0});",
   "react-router-dom": "export const useNavigate=()=>()=>{},useLocation=()=>({});",
 });
 function reset() { Object.assign(h, { methods: ["telegram"], cached: ["telegram"], loads: 0, offline: false, held: null, disabled: false, message: "" }); }

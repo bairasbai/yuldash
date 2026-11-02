@@ -1,0 +1,457 @@
+{
+  "tests": 253,
+  "failures": 0,
+  "skipped": 0,
+  "suites": [
+    {
+      "name": "com.yuldash.app.PayOnlineAvailabilityRecoveryTest",
+      "tests": "20",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:51:37.377Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "16.678"
+    },
+    {
+      "name": "com.yuldash.app.BilingualSourceGuardTest",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:51:54.570Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "3.104"
+    },
+    {
+      "name": "com.yuldash.app.CanonSourceGuardTest",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:51:57.953Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "1.097"
+    },
+    {
+      "name": "com.yuldash.app.ColorSourceGuardTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:51:59.060Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.951"
+    },
+    {
+      "name": "com.yuldash.app.ContrastGuardTest",
+      "tests": "6",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.028Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.084"
+    },
+    {
+      "name": "com.yuldash.app.DirectionGlyphGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.214Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.005"
+    },
+    {
+      "name": "com.yuldash.app.EmptyStateLeadsGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.274Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.121"
+    },
+    {
+      "name": "com.yuldash.app.ExitAnimationGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.404Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.115"
+    },
+    {
+      "name": "com.yuldash.app.FeatureGateWiringGuardTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.571Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.015"
+    },
+    {
+      "name": "com.yuldash.app.FormSurvivesKillGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.611Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.053"
+    },
+    {
+      "name": "com.yuldash.app.HonestPromisesGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:00.822Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.079"
+    },
+    {
+      "name": "com.yuldash.app.MapKitGateGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:01.388Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.368"
+    },
+    {
+      "name": "com.yuldash.app.MoneySourceGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:01.798Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.276"
+    },
+    {
+      "name": "com.yuldash.app.NotifTypesGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:02.155Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.068"
+    },
+    {
+      "name": "com.yuldash.app.PassengerRequestPremiumGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:02.285Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.003"
+    },
+    {
+      "name": "com.yuldash.app.PassengerRequestsPremiumGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:02.297Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.005"
+    },
+    {
+      "name": "com.yuldash.app.PayOnlineOwnerBoundaryTest",
+      "tests": "16",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:02.331Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "6.117"
+    },
+    {
+      "name": "com.yuldash.app.PollingSourceGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:08.486Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.031"
+    },
+    {
+      "name": "com.yuldash.app.ReachableApiGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:08.691Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "10.116"
+    },
+    {
+      "name": "com.yuldash.app.RequestResponsesGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:18.888Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.002"
+    },
+    {
+      "name": "com.yuldash.app.ReviewedSpacingGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:18.905Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.004"
+    },
+    {
+      "name": "com.yuldash.app.RideshareActiveTripGuardTest",
+      "tests": "7",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:19.011Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.007"
+    },
+    {
+      "name": "com.yuldash.app.RideshareBookingGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:19.019Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.002"
+    },
+    {
+      "name": "com.yuldash.app.RideshareCompletedGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:19.039Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.003"
+    },
+    {
+      "name": "com.yuldash.app.SafetyEverywhereGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:19.120Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.011"
+    },
+    {
+      "name": "com.yuldash.app.SecureStoreFallbackGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:19.221Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "3.026"
+    },
+    {
+      "name": "com.yuldash.app.SecureWindowGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:22.249Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.059"
+    },
+    {
+      "name": "com.yuldash.app.SensitiveClipboardGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:22.316Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.023"
+    },
+    {
+      "name": "com.yuldash.app.ServerWordsGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:22.343Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.056"
+    },
+    {
+      "name": "com.yuldash.app.SessionKeysGuardTest",
+      "tests": "10",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:22.402Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "1.467"
+    },
+    {
+      "name": "com.yuldash.app.SosNoSmsPromiseGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:23.909Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.023"
+    },
+    {
+      "name": "com.yuldash.app.SpacingRatchetGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:23.982Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.494"
+    },
+    {
+      "name": "com.yuldash.app.StaleDataGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.478Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.022"
+    },
+    {
+      "name": "com.yuldash.app.SystemBarSourceGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.554Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.152"
+    },
+    {
+      "name": "com.yuldash.app.TaxiDriverCancelledGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.729Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.002"
+    },
+    {
+      "name": "com.yuldash.app.TaxiDriverCompletedGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.732Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.002"
+    },
+    {
+      "name": "com.yuldash.app.TaxiDriverWaitingGuardTest",
+      "tests": "3",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.743Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.007"
+    },
+    {
+      "name": "com.yuldash.app.TaxiIncomingOfferGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.751Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.004"
+    },
+    {
+      "name": "com.yuldash.app.TaxiPostTripGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.800Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.002"
+    },
+    {
+      "name": "com.yuldash.app.TaxiReceiptOwnerBoundaryTest",
+      "tests": "60",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:24.827Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "23.534"
+    },
+    {
+      "name": "com.yuldash.app.TaxiTripAdaptiveGuardTest",
+      "tests": "4",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:48.389Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.007"
+    },
+    {
+      "name": "com.yuldash.app.ToneSourceGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:48.432Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.38"
+    },
+    {
+      "name": "com.yuldash.app.TouchTargetGuardTest",
+      "tests": "2",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:48.815Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.114"
+    },
+    {
+      "name": "com.yuldash.app.data.PaymentsAvailabilityApiTest",
+      "tests": "8",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:49.798Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.83"
+    },
+    {
+      "name": "com.yuldash.app.walk.l1_4.PayOnlineCardTest",
+      "tests": "9",
+      "skipped": "0",
+      "failures": "0",
+      "errors": "0",
+      "timestamp": "2026-11-01T05:52:50.719Z",
+      "hostname": "f8d2a3cbaeb8",
+      "time": "0.797"
+    }
+  ]
+}

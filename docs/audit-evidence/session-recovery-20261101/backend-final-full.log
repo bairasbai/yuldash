@@ -1,0 +1,325 @@
+........................................................................ [  1%]
+........................................................................ [  2%]
+........................................................................ [  3%]
+........................................................................ [  4%]
+................................................................s....... [  5%]
+........................................................................ [  6%]
+........................................................................ [  7%]
+........................................................................ [  8%]
+........................................................................ [  9%]
+................................................ss...................... [ 10%]
+..................................................................ss.... [ 11%]
+.........................................................sssssssssssssss [ 13%]
+........................................................................ [ 14%]
+............................ssss........................................ [ 15%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 18%]
+........................................................................ [ 19%]
+........................................................................ [ 20%]
+........................................................................ [ 21%]
+........................................................................ [ 22%]
+........................................................................ [ 23%]
+........................................................................ [ 24%]
+........................................................................ [ 26%]
+........................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 29%]
+........................................................................ [ 30%]
+........................................................................ [ 31%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 34%]
+.....sssss.............................................................. [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 39%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 42%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 45%]
+........................................................................ [ 46%]
+........................................................................ [ 47%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 51%]
+.....s.................................................................. [ 52%]
+........................................................................ [ 53%]
+........................................................................ [ 54%]
+.............................................................ssss....... [ 55%]
+............sssss....................................................... [ 56%]
+........................................................................ [ 57%]
+........................................................................ [ 58%]
+........................................................................ [ 59%]
+.......................ssss............................................. [ 60%]
+........................................................................ [ 61%]
+........................................................................ [ 63%]
+........................................................................ [ 64%]
+........................................................................ [ 65%]
+...........................................ss........................... [ 66%]
+sssssssss............................................................... [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 69%]
+........................................................................ [ 70%]
+........................................................................ [ 71%]
+...................s...........ss......................s.............ss. [ 72%]
+ss...................................................................... [ 73%]
+......................................................................s. [ 74%]
+........................................................................ [ 76%]
+........................................................................ [ 77%]
+..............s......................................................... [ 78%]
+.......................................s................................ [ 79%]
+........................................................................ [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 82%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 85%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 90%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................................ [ 93%]
+........................................................................ [ 94%]
+........................................................................ [ 95%]
+....................................................sssss.........s..... [ 96%]
+...............s..................s...................sss.............ss [ 97%]
+ss...s.....s......s.......sss.....s.........ss.......................... [ 98%]
+....................................s.......s......ss..........s........ [ 99%]
+...                                                                      [100%]
+=============================== warnings summary ===============================
+../../yuldash-audit-venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /workspace/scratch/727f6a2e912d/yuldash-audit-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_boarding_is_recorded.py: 7 warnings
+tests/test_cleanup.py: 204 warnings
+tests/test_cleanup_bound_offer.py: 8 warnings
+tests/test_close_past_rides.py: 56 warnings
+tests/test_money_holes_audit.py: 44 warnings
+tests/test_nothing_hangs_forever.py: 124 warnings
+tests/test_parcel_chat.py: 57 warnings
+tests/test_promises.py: 24 warnings
+tests/test_refresh_replay.py: 6 warnings
+tests/test_release_hardening.py: 114 warnings
+tests/test_returning_parcel_is_not_forever.py: 12 warnings
+tests/test_the_car_shows_itself.py: 1 warning
+  /workspace/scratch/727f6a2e912d/yuldash-audit-venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:964: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+tests/test_coupons.py: 10 warnings
+tests/test_wave_launch_switches.py: 2 warnings
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_coupons.py:17: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() + timedelta(days=30)).replace(microsecond=0).isoformat()
+
+tests/test_coupons.py::test_activate_expired_coupon
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_coupons.py:13: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_coupons_journey.py::test_journey_positive_full
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+tests/test_coupons_journey.py::test_journey_gates_and_idor
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_coupons_journey.py:18: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() + timedelta(days=30)).replace(microsecond=0).isoformat()
+
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_coupons_journey.py:14: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_events.py::test_broken_payload_does_not_crash
+  /workspace/scratch/727f6a2e912d/yuldash-audit-venv/lib/python3.12/site-packages/httpx/_models.py:408: DeprecationWarning: Use 'content=<...>' to upload raw bytes/text content.
+    headers, stream = encode_request(
+
+tests/test_livepos_observability.py::test_кривой_ключ_не_роняет_сервер
+  /workspace/scratch/727f6a2e912d/yuldash-audit-venv/lib/python3.12/site-packages/sentry_sdk/client.py:546: DeprecationWarning: The send_default_pii option is deprecated. Use data_collection instead. See https://docs.sentry.io/platforms/python/data-management/data-collected/
+    super(_Client, self).__init__(options=get_options(*args, **kwargs))
+
+tests/test_local_provider_contracts.py: 6 warnings
+tests/test_push_recipient_contract.py: 12 warnings
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/app/services.py:489: DeprecationWarning: Message.token is deprecated. Use Message.fid instead.
+    messages.append(messaging.Message(token=t, data=payload_data,
+
+tests/test_promo.py::test_owner_stats_applied_and_active
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_promo.py:42: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    done_at=datetime.utcnow(),
+
+tests/test_promo.py::test_expired_code
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_promo.py:21: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_promo_taxi.py::test_expired_code_gives_no_discount
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_promo_taxi.py:44: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_storefront_remoderation.py: 24 warnings
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_storefront_remoderation.py:17: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() + timedelta(days=30)).replace(microsecond=0).isoformat()
+
+tests/test_the_commission_you_already_paid.py::test_уже_оплаченную_комиссию_за_поездку_возвращают
+tests/test_the_commission_you_already_paid.py::test_ещё_не_оплаченную_комиссию_просто_снимают
+tests/test_the_commission_you_already_paid.py::test_уже_оплаченную_комиссию_за_доставку_возвращают
+tests/test_the_commission_you_already_paid.py::test_неоплаченную_комиссию_за_доставку_просто_снимают
+tests/test_the_commission_you_already_paid.py::test_повторный_разбор_не_платит_дважды
+tests/test_the_commission_you_already_paid.py::test_по_незаподтверждённому_переводу_не_возвращаем
+tests/test_the_commission_you_already_paid.py::test_нулевую_комиссию_в_кошелёк_не_кладём
+tests/test_the_commission_you_already_paid.py::test_текст_говорит_вернули_а_не_списали
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/app/routers/safety.py:1210: SAWarning: fully NULL primary key identity cannot load any object.  This condition may raise an error in a future release.
+    tgt = session.get(User, r.target_user_id)
+
+tests/test_trust_badges.py::test_member_since_is_registration_month
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/test_trust_badges.py:105: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    assert since == datetime.utcnow().strftime("%Y-%m")   # только что зарегистрирован → текущий месяц
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_redeem_rejects_expired_coupon
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:200: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    coupon.valid_until = datetime.utcnow() - timedelta(hours=1)
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_expired_unbounded_reservation_frees_the_limit_slot
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:440: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_expired_reservation_cannot_be_redeemed
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:464: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_slot_count_in_db_matches_reservation_rule_row_by_row
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:492: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow().replace(microsecond=0)
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_activate_idempotency_returns_active_code_not_stale_expired_one
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:554: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_my_coupons_reports_expired_status_for_stale_reservation
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:594: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    red.reserved_at = datetime.utcnow() - timedelta(days=coupons_router.RESERVATION_TTL_DAYS + 1)
+
+tests/walk/l1_3/test_l1_3_coupons_money.py::test_many_old_redemptions_change_query_cost_not_behavior
+  /workspace/scratch/727f6a2e912d/yuldash-audit/backend/tests/walk/l1_3/test_l1_3_coupons_money.py:638: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    now = datetime.utcnow()
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+================================ tests coverage ================================
+_______________ coverage: platform linux, python 3.12.14-final-0 _______________
+
+Name                             Stmts   Miss  Cover   Missing
+--------------------------------------------------------------
+app/account.py                     273      4  98.5%   81, 210, 628-629
+app/ads_expire.py                   20      0 100.0%
+app/antifraud.py                   260     32  87.7%   107, 132, 173, 177, 222, 228-229, 237-238, 244-245, 269-270, 383, 437-443, 454, 459-463, 490-491, 503-504, 535-536
+app/automatch.py                    72      2  97.2%   94, 150
+app/bodyguard.py                    25      2  92.0%   61-62
+app/cancel_reason_text.py            4      0 100.0%
+app/car_class.py                   205      8  96.1%   131, 346, 348, 368, 370, 391, 393, 396
+app/carphoto.py                    418     42  90.0%   162, 198, 275, 307-310, 373, 383-384, 467-468, 480-481, 487, 490-491, 527-528, 538-539, 550, 553, 603-604, 688, 699-700, 721-722, 785, 816-818, 838-839, 916-918, 921, 926-927
+app/class_rollout.py                75      3  96.0%   45, 93, 124
+app/cleanup.py                     294     30  89.8%   356-358, 367-368, 531, 535-536, 751, 762-763, 880-882, 889-890, 901-902, 912-913, 924-925, 929-930, 934-935, 939-940, 944-945
+app/collusion.py                    63      0 100.0%
+app/compensation.py                  7      0 100.0%
+app/config.py                      438     10  97.7%   1032, 1095, 1097, 1100, 1108, 1110, 1119, 1122, 1127, 1148
+app/db.py                           56      6  89.3%   70, 76, 81-82, 93-94
+app/debt.py                        500     30  94.0%   57-58, 64, 91, 94, 153-156, 179, 321, 586, 620-624, 822, 877, 880, 892, 896, 901, 931, 986, 999, 1077, 1134, 1167, 1317, 1372, 1387, 1406
+app/declare_remind.py               62      7  88.7%   55, 80, 87, 104-105, 133-134
+app/digest.py                       79      5  93.7%   111-114, 143
+app/doc_check.py                   186     35  81.2%   61-62, 102, 105, 107, 139, 145-146, 218, 255, 291, 324-349, 405-411
+app/driver_check.py                122      5  95.9%   151-154, 210
+app/errors.py                        6      0 100.0%
+app/features.py                     21      0 100.0%
+app/fgis.py                         62     14  77.4%   68-77, 85, 102, 109, 119
+app/flood.py                        20      0 100.0%
+app/funnel.py                       74      0 100.0%
+app/geo.py                         397     32  91.9%   176, 201-202, 241-242, 263-266, 276, 299, 400-401, 455, 469, 568-569, 578, 591, 615, 618, 642, 678, 696, 741-742, 767-771, 791
+app/imagemeta.py                   204     27  86.8%   98-99, 125, 131, 151-152, 179, 184-185, 193, 230-231, 237-238, 245-246, 249-250, 263-265, 303-306, 339-340
+app/incident_escalate.py            29      1  96.6%   58
+app/instant_service.py            1544    132  91.5%   104-105, 129-130, 137-138, 149-150, 206-207, 270-271, 341-342, 347-348, 415, 417, 506, 543, 632, 636-637, 695-696, 701-702, 733-734, 739-740, 743, 760, 763, 766-767, 774-775, 800, 857-858, 864, 928, 1113, 1116, 1136-1143, 1164, 1194-1195, 1231, 1246, 1253, 1311, 1330-1331, 1339, 1552, 1566-1569, 1571, 1661-1667, 1669, 1726, 1734, 1762, 1773, 1824, 1969, 2088-2089, 2169-2171, 2192, 2211, 2214, 2236, 2310, 2519-2520, 2558, 2568, 2589, 2593, 2599, 2648, 2717, 2732, 2761, 2836, 2843-2844, 2857-2858, 2867-2868, 2881, 3014, 3056-3057, 3063-3064, 3155, 3163-3164, 3211, 3251-3255, 3273, 3342, 3345, 3352-3353, 3468, 3533, 3543-3544, 3592, 3720, 3766
+app/ledger.py                      174      6  96.6%   241-242, 324, 400, 454, 460
+app/livepos.py                      81      5  93.8%   77, 127, 144-145, 147
+app/login_methods.py                10      0 100.0%
+app/logs.py                         29      0 100.0%
+app/main.py                         93     12  87.1%   70-72, 83-85, 105-106, 109-110, 146, 166
+app/middleware.py                  165     13  92.1%   114, 141, 149-152, 191, 197, 199, 202, 218-219, 276
+app/models.py                     1049      0 100.0%
+app/observability.py               134      9  93.3%   220, 253, 331-332, 378-382
+app/payments.py                     56      0 100.0%
+app/pretrip.py                      58      0 100.0%
+app/price_freeze.py                 76      6  92.1%   76-78, 148, 151-152
+app/pricing.py                     164     13  92.1%   60-61, 110, 155-157, 179, 239-240, 253-255, 282
+app/priority.py                    119      6  95.0%   117, 121, 225, 246, 278-279
+app/promo_ride.py                  147     12  91.8%   51, 80, 89, 106, 122, 132, 231, 237, 249-250, 275, 331
+app/quality.py                     168      3  98.2%   224, 401, 502
+app/rate_reminder.py                96      6  93.8%   81, 95, 117, 139, 203-204
+app/rating_service.py               71      4  94.4%   46, 115-118, 122
+app/relative_phone_comment.py       39      1  97.4%   75
+app/request_segments.py             39      3  92.3%   36, 39, 53
+app/ride_stops.py                  197      6  97.0%   164, 185, 260, 263, 276, 315
+app/routers/__init__.py              2      0 100.0%
+app/routers/ads.py                 435     19  95.6%   122, 147, 227, 380, 415, 495-496, 513, 515, 524, 546-547, 574, 577, 609-610, 711, 742, 836
+app/routers/antifraud.py            91      3  96.7%   65, 70, 159
+app/routers/auth.py                779     79  89.9%   138-140, 145, 319, 518, 528, 552, 712, 723-727, 747-749, 753-756, 778, 793, 806-812, 816, 818, 829-830, 959, 975-978, 1230, 1232, 1234, 1255-1258, 1358, 1422-1426, 1473, 1478, 1487-1493, 1500-1512, 1525-1535, 1545
+app/routers/bookings.py            800     30  96.2%   129, 143, 158, 213, 216, 259, 638, 1009-1010, 1067-1069, 1084, 1298-1300, 1362-1364, 1439, 1531-1533, 1733, 1737, 1752, 1783, 1947-1949
+app/routers/carphoto.py            109     10  90.8%   44, 52, 60, 63, 67, 135, 151, 153, 204, 206
+app/routers/chat.py                528     42  92.0%   122-123, 147, 213, 268-269, 306-307, 372-373, 411-416, 419, 424, 427-428, 473, 479, 482, 537-538, 578-583, 586, 591, 594-595, 644, 647, 713, 755, 905, 910, 941
+app/routers/coupons.py             580     32  94.5%   247, 263, 307, 376, 384-385, 427, 679-680, 729, 733, 773-774, 833-836, 851, 854, 911-912, 980, 1073-1074, 1133, 1157, 1256, 1265-1267, 1285, 1324, 1347-1348
+app/routers/courier.py             877    107  87.8%   75, 252, 270-271, 273-288, 328-329, 410, 445, 455, 873-877, 907-908, 932-955, 961, 989-990, 1004-1021, 1057, 1070, 1089-1098, 1117, 1156-1157, 1159-1160, 1162-1163, 1209, 1211, 1214, 1281, 1286, 1288, 1290, 1293, 1296, 1309, 1426-1427, 1462, 1465, 1507, 1509, 1516, 1549, 1606, 1646, 1655, 1870, 1953, 1955, 1965-1966, 1976-1977, 2002-2003
+app/routers/debt.py                151      6  96.0%   76, 87, 100-101, 269, 308
+app/routers/discovery.py           163      8  95.1%   108, 111-112, 135, 187, 205-206, 240
+app/routers/driver_schedule.py      91      2  97.8%   37, 91
+app/routers/drivers.py             301      5  98.3%   96, 99-100, 203, 205
+app/routers/events.py               77      5  93.5%   81, 85, 97, 133-134
+app/routers/family.py              438     24  94.5%   50, 98-99, 164, 233, 274, 279, 351-352, 381, 392, 446, 508, 537, 695, 724, 728, 741-743, 762-763, 784-785
+app/routers/health.py               63      3  95.2%   51, 64-65
+app/routers/incidents.py           362     20  94.5%   137, 222, 224, 305, 371, 375, 406, 408, 415, 435, 437, 439, 465, 486, 529, 531, 541, 591, 598, 600
+app/routers/instant.py             705     57  91.9%   93, 97, 101-102, 346, 524, 548, 652, 688, 699, 702, 727-729, 740-745, 754, 776, 861-862, 951, 980, 1025, 1030, 1047-1048, 1106, 1138, 1164, 1166, 1173, 1193, 1207, 1240, 1275, 1279, 1396, 1405, 1416-1417, 1480, 1514, 1517-1521, 1534, 1538, 1558, 1562, 1582-1583
+app/routers/location.py            453     65  85.7%   177, 212, 214, 263, 271-272, 458-467, 527, 530-532, 544-545, 547, 556-557, 575-576, 627-638, 657-666, 669, 676, 680, 714-715, 759-760, 769-778, 780
+app/routers/medical.py              41      6  85.4%   60, 111-115
+app/routers/notifications.py        56      0 100.0%
+app/routers/parcels.py             771     54  93.0%   158, 223, 401, 577, 825-826, 899-900, 930, 932, 934, 985-992, 1079-1080, 1126, 1136, 1175, 1255-1256, 1271, 1284, 1368-1369, 1400, 1441-1442, 1460-1465, 1516-1517, 1549, 1581-1582, 1600, 1619-1620, 1707-1708, 1771, 1871-1872, 1882, 1906, 1908, 1927-1928, 1936-1937, 1957, 1966, 1996
+app/routers/payments.py            445     13  97.1%   82-84, 100-101, 183, 428, 590, 594, 842, 889, 939-940
+app/routers/pickup.py               18      0 100.0%
+app/routers/places.py              115      2  98.3%   117, 176
+app/routers/promo.py               232     24  89.7%   133, 170-176, 206, 336-338, 364, 458, 461, 499-500, 509, 524, 526, 528, 530, 532, 534, 537
+app/routers/referral.py            117      5  95.7%   149, 162, 171, 210, 238
+app/routers/requests.py            830     39  95.3%   52, 255, 358, 380, 419-420, 437, 448, 603-605, 614, 632, 639, 641, 692, 694, 696, 699, 751, 765, 767, 770, 809, 943, 947, 1073-1074, 1148, 1227, 1267, 1269, 1276, 1298, 1305, 1413, 1419, 1454, 1520
+app/routers/reviews.py             132      4  97.0%   65, 134, 197, 199
+app/routers/rides.py               649      7  98.9%   76, 388, 392, 461, 811, 1083, 1207
+app/routers/route_watch.py          65      2  96.9%   61, 83
+app/routers/safety.py              830     31  96.3%   122, 375-379, 462, 589, 723, 731, 740, 745, 747, 752, 757, 777, 818, 850, 1192, 1248, 1411, 1515-1519, 1543, 1634, 1782, 1806, 1834
+app/routers/seasonal.py             81      7  91.4%   47-50, 81, 188, 195
+app/routers/settlements.py          18      0 100.0%
+app/routers/share.py               171      8  95.3%   144, 161, 231, 257, 650, 653-654, 692
+app/routers/stats.py                75      9  88.0%   79-83, 96-98, 123
+app/routers/support.py             215     16  92.6%   156-157, 322, 354, 374, 379, 400-409
+app/routers/sybil.py                13      0 100.0%
+app/routers/taxi.py                453     40  91.2%   55, 57, 218, 252, 349, 412, 418, 420, 427, 429, 534, 546-556, 606, 633-634, 637, 696, 701, 703, 705, 735-736, 788-789, 793-794, 796, 799-800, 808
+app/routers/trust.py                92      5  94.6%   62, 89, 129-131
+app/routers/waitlist.py            118      9  92.4%   68-78
+app/routers/wallet.py              217     25  88.5%   50, 117, 126, 142, 148-158, 166, 168, 170, 199, 215, 221, 254, 292, 295, 345-346, 395
+app/routers/weather.py              45      0 100.0%
+app/safety_logic.py                364     21  94.2%   82, 138, 185-187, 197-198, 280, 323, 389, 391, 500, 575, 600-601, 639-640, 667, 754, 878, 890
+app/schemas.py                      78      0 100.0%
+app/security.py                    192     12  93.8%   92, 135, 188, 289-290, 311, 338-339, 365-366, 442-443
+app/services.py                    991    137  86.2%   81, 121, 126, 142, 200, 209-210, 238, 313, 336, 440, 486, 502-503, 562-564, 570, 598-606, 611-613, 632, 853-854, 934-936, 975, 995-997, 1015, 1027-1028, 1101-1102, 1121, 1160-1170, 1175, 1263-1265, 1272-1285, 1358, 1466, 1505, 1679, 1750-1751, 1754, 2015-2016, 2034, 2089-2121, 2129-2139, 2146-2151, 2153-2157
+app/sos_escalate.py                 60      9  85.0%   64, 98-101, 108-109, 141-144
+app/stop_search.py                  94      0 100.0%
+app/storage.py                     173     35  79.8%   66, 78, 90, 128-129, 133-134, 151-152, 170, 172, 223-224, 247-248, 252-259, 264-274, 292
+app/taxi.py                        151      2  98.7%   77, 191
+app/taxi_worker.py                 212     28  86.8%   81-82, 111, 131-132, 144-147, 191-202, 226, 243-246, 280-281, 324, 335, 374-375, 442-443
+app/timeutil.py                     39      2  94.9%   86, 114
+app/trip_wake.py                    35      3  91.4%   50-52
+app/trust_service.py                73      6  91.8%   54-60, 93, 169
+app/visibility.py                  144      5  96.5%   224, 242, 318, 347, 370
+app/waiting_on_us.py               109     13  88.1%   110-111, 152, 157, 170, 191, 200, 212-213, 242-243, 247-248
+app/weather_warn.py                146      9  93.8%   103-104, 110-111, 129, 193, 244, 248, 271
+app/winter_escalate.py              80      4  95.0%   99, 228, 236, 243
+app/workday.py                     262      9  96.6%   98-103, 190, 274, 385
+app/ws_guard.py                     38      6  84.2%   73-74, 80-81, 84-85
+--------------------------------------------------------------
+TOTAL                            24526   1656  93.2%
+Required test coverage of 85% reached. Total coverage: 93.25%
+6533 passed, 94 skipped, 740 warnings in 1165.80s (0:19:25)
