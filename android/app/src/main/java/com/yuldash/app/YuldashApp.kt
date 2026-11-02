@@ -255,8 +255,6 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
-import com.yuldash.app.data.MeetingPointInput
-import com.yuldash.app.data.MeetingPointInputSaver
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.GeoHit
 import com.yuldash.app.data.ConversationDto
@@ -362,12 +360,7 @@ private fun YuldashAppContent() {
     // Live-позиция: foreground-сервис стримит мой GPS попутчику ТОЛЬКО в активной поездке и ТОЛЬКО при
     // выданном гео-разрешении (приватность). Поездка кончилась / нет разрешения → глушим стрим.
     // Роль в брони (водитель / пассажир) — сервису: пульс стоянки шлёт только водитель.
-    LaunchedEffect(activeBookingId, activeTrip, vm.language.value, vm.activeDriverBookingId.value) {
-        val bid = activeBookingId
-        val hasLoc = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if (bid != null && activeTrip != null && hasLoc) TripLocationService.start(context, bid, vm.language.value, isDriver = vm.isDriverOf(bid))
-        else TripLocationService.stop(context)
-    }
+    TripLocationPermissionEffect(activeBookingId, activeTrip, vm.language.value, vm.activeDriverBookingId.value, navigationSession)
     val voiceMessages = vm.voiceMessages
     // Экран после сплэша вычисляем один раз; сплэш показывается первым ~1.6с.
     val splashTarget = remember {
@@ -1335,11 +1328,7 @@ private fun YuldashAppContent() {
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
                 var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
-                var pickupStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialPickupStop)) }
-                var dropoffStop by rememberSaveable(displayedRide?.id, displayedSession) { mutableStateOf(displayedRide?.let(::initialDropoffStop)) }
-                // RS-03 А: точное место встречи/высадки по желанию; сбрасывается со сменой поездки.
-                var meetPickup by rememberSaveable(displayedRide?.id, displayedSession, stateSaver = MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
-                var meetDropoff by rememberSaveable(displayedRide?.id, displayedSession, stateSaver = MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
+                val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession)
                 BookingScreen(
                 // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
                 // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
@@ -1387,11 +1376,15 @@ private fun YuldashAppContent() {
                 frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
                 selectedSeats = selectedSeats, onSeatsChange = { if (!bookingInFlight) selectedSeats = it },
                 bookingBusy = bookingInFlight,
-                pickupStop = pickupStop, onPickupStopChange = { pickupStop = it; dropoffStop = displayedRide?.let { ride -> keepValidDropoff(ride, it, dropoffStop) } },
-                dropoffStop = dropoffStop, onDropoffStopChange = { dropoffStop = it },
-                meetPickup = meetPickup, onMeetPickupChange = { meetPickup = it },
-                meetDropoff = meetDropoff, onMeetDropoffChange = { meetDropoff = it },
+                pickupStop = meetingDraft.pickup, onPickupStopChange = meetingDraft::selectPickup,
+                dropoffStop = meetingDraft.dropoff, onDropoffStopChange = meetingDraft::selectDropoff,
+                meetPickup = meetingDraft.meeting, onMeetPickupChange = { meetingDraft.meeting = it },
+                meetDropoff = meetingDraft.alighting, onMeetDropoffChange = { meetingDraft.alighting = it },
                 onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
+                    val pickupStop = meetingDraft.pickup
+                    val dropoffStop = meetingDraft.dropoff
+                    val meetPickup = meetingDraft.meeting
+                    val meetDropoff = meetingDraft.alighting
                     if (!isDisplayedBookingUnchanged()) return@BookingScreen
                     if (!ApiClient.isLoggedIn()) {
                         ApiClient.runIfUnchangedSession(displayedSession) {

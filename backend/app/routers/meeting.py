@@ -97,6 +97,13 @@ def propose(body: ProposeIn, booking_id: int,
     if status in (BookingStatus.done, BookingStatus.cancelled):
         raise herr(409, "Поездка закрыта — место уже не меняется",
                    "Сәфәр ябыҡ — урын инде үҙгәртелмәй", code="meeting_point_closed")
+    if status == BookingStatus.onboard and body.kind == "pickup":
+        raise herr(409, "Ты уже в машине — место посадки не меняется",
+                   "Һин инде машиналаһың — ултырыу урыны үҙгәртелмәй", code="meeting_point_onboard")
+    stop_name = (booking.pickup_stop or "") if body.kind == "pickup" else (booking.dropoff_stop or "")
+    point = meeting_points.validate_meeting(session, ride, body.kind, body.point,
+                                            stop_name=stop_name, user_id=user.id,
+                                            booking_id=booking.id, skip_moderation=True)
     # Повтор своего же предложения: тот же id и то же содержимое — без побочек.
     if status in LIVE and booking.meet_proposal:
         try:
@@ -109,6 +116,11 @@ def propose(body: ProposeIn, booking_id: int,
                 return _dto(session, booking_id, ride, user.id, already=True)
             raise herr(409, "Место только что изменилось — посмотри ещё раз",
                        "Урын хәҙер генә үҙгәрҙе — тағы ҡара", code="meeting_point_stale")
+    if status == BookingStatus.pending:
+        prefix = "meet_" if body.kind == "pickup" else "alight_"
+        stored = tuple(getattr(booking, prefix + field) for field in ("lat", "lng", "note", "landmark_id"))
+        if meeting_points.same_point(stored, point):
+            return _dto(session, booking_id, ride, user.id, already=True)
     if booking.meet_changes >= settings.meeting_point_max_changes and not (body.point and body.point.clear):
         raise herr(409, "Место уже меняли много раз — договорись в чате",
                    "Урын күп тапҡыр үҙгәртелде инде — чатта килеш", code="meeting_point_changes_limit")
@@ -137,7 +149,7 @@ def propose(body: ProposeIn, booking_id: int,
     result = session.execute(
         update(Booking).where(Booking.id == booking.id,
                               Booking.meet_version == body.base_version,
-                              Booking.status.in_(LIVE),
+                              Booking.status.in_((BookingStatus.confirmed,) if body.kind == "pickup" else LIVE),
                               Booking.meet_proposal == booking.meet_proposal)
         .values(meet_proposal=json.dumps(proposal, ensure_ascii=False, sort_keys=True),
                 meet_version=booking.meet_version + 1,

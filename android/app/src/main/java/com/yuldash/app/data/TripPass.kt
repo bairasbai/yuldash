@@ -48,6 +48,10 @@ data class TripPass(
     val payMethod: String? = null,
     val payAmount: Int? = null,
     val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
+    // RS-03 А: своя точная точка встречи — в паспорт пассажира (показать и офлайн); уезжает
+    // вместе с паспортом при done/cancelled. Старые снимки — дефолты.
+    val meetLat: Double? = null, val meetLng: Double? = null, val meetNote: String = "",
+    val meetLandmarkRu: String = "", val meetLandmarkBa: String = "",
 ) {
     val effectivePayAmount: Int get() = payAmount ?: price
 
@@ -73,6 +77,11 @@ data class TripPass(
         put("pickup_stop", pickupStop ?: JSONObject.NULL)
         put("dropoff_stop", dropoffStop ?: JSONObject.NULL)
         put("ride_has_stops", rideHasStops)
+        if (meetLat != null) put("meet_lat", meetLat)
+        if (meetLng != null) put("meet_lng", meetLng)
+        put("meet_note", meetNote)
+        put("meet_landmark_ru", meetLandmarkRu)
+        put("meet_landmark_ba", meetLandmarkBa)
     }
 
     companion object {
@@ -98,6 +107,11 @@ data class TripPass(
             pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
             dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
             rideHasStops = o.optBoolean("ride_has_stops"),
+            meetLat = if (o.isNull("meet_lat")) null else o.optDouble("meet_lat"),
+            meetLng = if (o.isNull("meet_lng")) null else o.optDouble("meet_lng"),
+            meetNote = o.optString("meet_note"),
+            meetLandmarkRu = o.optString("meet_landmark_ru"),
+            meetLandmarkBa = o.optString("meet_landmark_ba"),
         )
     }
 }

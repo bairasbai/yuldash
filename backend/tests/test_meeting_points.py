@@ -176,3 +176,55 @@ def test_no_meeting_payload_behaves_as_before(client, user_factory):
     assert body["pickup_lat"] is None and body["pickup_note"] == "" and body["pickup_source"] == ""
     assert body["meeting_point_set"] is False and body["meeting_version"] == 0
     assert "meet_lat" not in body and "alight_lat" not in body, "сырые поля не утекают в ответ"
+
+
+def test_remote_seed_landmark_is_rejected_before_reserving_seats(client, user_factory):
+    drv = user_factory("MP Remote Driver", role=UserRole.driver)
+    pax = user_factory("MP Remote Pax")
+    ride = _publish(client, drv, "remote-seed")
+    with Session(engine) as session:
+        point = PickupPoint(city="Сибай", title_ru="дальний ориентир", title_ba="алыҫ билге",
+                            lat=SIBAY[0] + 1, lng=SIBAY[1] + 1, is_seed=True)
+        session.add(point)
+        session.commit()
+        pid = point.id
+    response = _book(client, pax, ride["id"], meeting={"landmark_id": pid})
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "meeting_point_far"
+    with Session(engine) as session:
+        assert session.get(Ride, ride["id"]).seats_left == 3
+
+
+def test_race_retry_compares_validated_points(client, user_factory):
+    from app import meeting_points
+    from app.routers.bookings import BookIn, _retry_after_booking_race
+    drv = user_factory("MP Retry Driver", role=UserRole.driver)
+    pax = user_factory("MP Retry Pax")
+    ride = _publish(client, drv, "race-retry")
+    lat, lng = _urgaza(ride["id"])
+    raw = {"ride_id": ride["id"], "seats": 1, "pickup_stop": "Ургаза",
+           "meeting": {"lat": lat, "lng": lng}}
+    created = client.post("/bookings", headers=pax["auth"], json=raw)
+    assert created.status_code == 200, created.text
+    with Session(engine) as session:
+        from app.models import User
+        booking = session.get(Booking, created.json()["id"])
+        row = session.get(Ride, ride["id"])
+        body = BookIn(**raw)
+        point = meeting_points.validate_meeting(session, row, "pickup", body.meeting,
+                                                stop_name="Ургаза", skip_moderation=True)
+        retry = _retry_after_booking_race(session, row, session.get(User, booking.passenger_id),
+                                         body, "Ургаза", snapshot_cached(), point, None)
+        assert retry.id == booking.id
+
+
+@pytest.mark.parametrize("lat,lng", [(91, 58.664), (-91, 58.664), (52.716, 418.664), (52.716, -181)])
+def test_out_of_range_coordinates_do_not_reserve_seats(client, user_factory, lat, lng):
+    drv = user_factory("MP Bounds Driver", role=UserRole.driver)
+    pax = user_factory("MP Bounds Pax")
+    ride = _publish(client, drv, "bounds")
+    response = _book(client, pax, ride["id"], meeting={"lat": lat, "lng": lng})
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "meeting_point_bad"
+    with Session(engine) as session:
+        assert session.get(Ride, ride["id"]).seats_left == 3

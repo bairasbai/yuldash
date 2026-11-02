@@ -553,6 +553,14 @@ export default function DriverCabinetScreen() {
                   </p>
                   {/* Просьба о переднем месте — до решения: водитель знает, кого куда посадит. */}
                   <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
+                  {/* RS-03 А: точное место есть — до подтверждения виден только этот факт. */}
+                  {b.meeting_point_set && (
+                    <p className="act-card__text" style={{ margin: "0 0 10px" }}>
+                      <span className="badge badge--mint">
+                        {appText("Место указано — откроется после подтверждения", "Урын күрһәтелгән — раҫлағандан һуң асыла")}
+                      </span>
+                    </p>
+                  )}
                   {b.front_seat && (
                     <p className="act-card__text" style={{ margin: "0 0 10px" }}>
                       <span className="badge badge--mint">

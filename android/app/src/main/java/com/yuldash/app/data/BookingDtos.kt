@@ -68,6 +68,7 @@ data class BookingDetailsDto(
     val alightLat: Double? = null, val alightLng: Double? = null, val alightNote: String = "",
     val alightLandmarkRu: String = "", val alightLandmarkBa: String = "",
     val meetingVersion: Int = 0, val meetingProposal: MeetingProposalDto? = null,
+    val meetLandmarkId: Int? = null, val alightLandmarkId: Int? = null,
 )
 
 /** RS-03 Б: активное предложение смены места (публичные поля — без автора). */
@@ -139,10 +140,12 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         meetLng = if (o.isNull("meet_lng")) null else o.optDouble("meet_lng"),
         meetNote = o.optString("meet_note"),
         meetLandmarkRu = o.optString("meet_landmark_ru"), meetLandmarkBa = o.optString("meet_landmark_ba"),
+        meetLandmarkId = if (o.isNull("meet_landmark_id")) null else o.optInt("meet_landmark_id"),
         alightLat = if (o.isNull("alight_lat")) null else o.optDouble("alight_lat"),
         alightLng = if (o.isNull("alight_lng")) null else o.optDouble("alight_lng"),
         alightNote = o.optString("alight_note"),
         alightLandmarkRu = o.optString("alight_landmark_ru"), alightLandmarkBa = o.optString("alight_landmark_ba"),
+        alightLandmarkId = if (o.isNull("alight_landmark_id")) null else o.optInt("alight_landmark_id"),
         meetingVersion = o.optInt("meeting_version", 0),
         meetingProposal = parseMeetingProposal(o.optJSONObject("meeting_proposal")),
     )

@@ -23,7 +23,7 @@
 //  BlaBlaCar): срок приходит от сервера (`no_show_at`), экран — DriverNoShow.tsx. На поездке с
 //  остановками — только после «Подъезжаю» по этой брони: она тут же, на месте «Не вышел».
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
 import {
@@ -46,32 +46,44 @@ import { BookingSegmentNote } from "./PickupStopChoice";
 /** RS-03 Б: предложение смены места от пассажира — ответ водителя.
  *  «Согласиться» применяет точку, «Оставить прежнее» — отклоняет; после ответа кабинет
  *  перечитывается уже с настоящим состоянием (CAS по версии на сервере). */
-function DriverProposalAnswer({ b, onDone }: { b: DriverBookingRow; onDone: () => void }) {
+export function DriverProposalAnswer({ b, onDone }: { b: DriverBookingRow; onDone: () => void }) {
   const { appText } = useLang();
   const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const sending = useRef(false);
+  const lastChoice = useRef(true);
   const proposal = b.meeting_proposal;
+  useEffect(() => { setError(null); }, [proposal?.proposal_id]);
   if (!proposal || (b.status !== CONFIRMED && b.status !== ONBOARD)) return null;
   const answer = async (accept: boolean) => {
-    if (busy) return;
-    setBusy(true);
+    if (sending.current) return;
+    sending.current = true; lastChoice.current = accept;
+    setBusy(true); setError(null);
     try {
       await answerMeetingPoint(b.booking_id, proposal.proposal_id, b.meeting_version ?? 0, accept);
-    } catch {
-      /* CAS/сеть: перечитываем и показываем настоящее состояние, а не выдуманное. */
-    } finally {
-      setBusy(false);
       onDone();
+    } catch (e) {
+      setError(e instanceof ApiError ? e.message : appText("Не получилось отправить ответ. Повтори попытку.", "Яуапты ебәреп булманы. Ҡабатлап ҡара."));
+      if (e instanceof ApiError && e.code === "meeting_point_stale") onDone();
+    } finally {
+      sending.current = false;
+      setBusy(false);
     }
   };
   return (
     <div className="list-row__sub" style={{ display: "grid", gap: 8 }}>
       <b>
-        {proposal.kind === "dropoff"
+        {proposal.point?.clear
+          ? proposal.kind === "dropoff" ? appText("Пассажир просит убрать точное место высадки", "Пассажир төшөүҙең теүәл урынын алып ташлауҙы һорай") : appText("Пассажир просит убрать точное место посадки", "Пассажир ултырыуҙың теүәл урынын алып ташлауҙы һорай")
+          : proposal.kind === "dropoff"
           ? appText("Пассажир просит высадить в другом месте", "Пассажир башҡа урында төшөрөүҙе һорай")
           : appText("Пассажир просит встретиться в другом месте", "Пассажир башҡа урында осрашыуҙы һорай")}
       </b>
-      {proposal.point?.note ? <div className="muted">{proposal.point.note}</div> : null}
-      {proposal.point?.lat != null && proposal.point?.lng != null && (
+      {proposal.point?.clear && <p className="muted">{proposal.kind === "dropoff"
+        ? appText("Точную точку и пояснение уберём. Место высадки по маршруту останется прежним; детали можно уточнить в чате.", "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса төшөү урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин.")
+        : appText("Точную точку и пояснение уберём. Место посадки по маршруту останется прежним; детали можно уточнить в чате.", "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса ултырыу урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин.")}</p>}
+      {!proposal.point?.clear && proposal.point?.note ? <div className="muted">{proposal.point.note}</div> : null}
+      {!proposal.point?.clear && proposal.point?.lat != null && proposal.point?.lng != null && (
         <a
           href={`https://yandex.ru/maps/?rtext=~${proposal.point.lat},${proposal.point.lng}&rtt=auto`}
           target="_blank" rel="noopener noreferrer"
@@ -80,6 +92,13 @@ function DriverProposalAnswer({ b, onDone }: { b: DriverBookingRow; onDone: () =
           {appText("На карте →", "Картала →")}
         </a>
       )}
+      {busy && <p role="status">{appText("Отправляем…", "Ебәрәбеҙ…")}</p>}
+      {error && <div role="alert">
+        <p>{error}</p>
+        <button type="button" className="btn-ghost" style={{ minHeight: 48 }} disabled={busy} onClick={() => void answer(lastChoice.current)}>
+          {appText("Повторить", "Ҡабатлау")}
+        </button>
+      </div>}
       <div style={{ display: "flex", gap: 8 }}>
         <button type="button" className="btn-primary" style={{ minHeight: 48, flex: 1 }} disabled={busy}
           onClick={() => void answer(true)}>
@@ -132,6 +151,13 @@ function MeetingPointNote({ b }: { b: DriverBookingRow }) {
         </a>
       )}
       {alightParts.length > 0 && <div>{appText("Высадить: ", "Төшөрөргә: ")}{alightParts.join(" · ")}</div>}
+      {b.alight_lat != null && b.alight_lng != null && (
+        <a href={`https://yandex.ru/maps/?rtext=~${b.alight_lat},${b.alight_lng}&rtt=auto`}
+          target="_blank" rel="noopener noreferrer"
+          style={{ minHeight: 48, display: "inline-flex", alignItems: "center" }}>
+          {appText("Маршрут к месту высадки →", "Төшөү урынына маршрут →")}
+        </a>
+      )}
     </div>
   );
 }

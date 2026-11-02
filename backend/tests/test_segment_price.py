@@ -78,7 +78,8 @@ def test_publish_get_contract(client, user_factory):
     assert card.status_code == 200, card.text
     assert card.json()["stop_prices"] == [{"stop": "Ургаза", "price": 300}]
     assert card.json()["segment_price"] == 500   # участок не выбран — полная цена
-    feed = client.get("/rides", params={"from_city": "Ургаза", "to_city": "Акъяр"})
+    feed = client.get("/rides", params={"from_city": "Ургаза", "to_city": "Акъяр", "date": "2030-01-01"})
+    assert feed.status_code == 200, feed.text
     hits = [x for x in feed.json() if x["id"] == rid]
     assert hits and hits[0]["stop_prices"] == [{"stop": "Ургаза", "price": 300}]
     assert hits[0]["segment_price"] == 200       # участок запроса Ургаза→Акъяр

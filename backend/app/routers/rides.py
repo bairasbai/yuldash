@@ -24,6 +24,7 @@ from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
                       RideStatus, User, UserRole)
 from .. import workday as workday_mod
+from .. import meeting_points
 from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
 from ..ride_stops import parse_stops, split_raw
 from ..safety_logic import (ensure_active, guard_women_only_publish)
@@ -1287,7 +1288,7 @@ def _live_bookings(session: Session, ride_id: int) -> list:
     return session.exec(select(Booking).where(
         Booking.ride_id == ride_id,
         Booking.status.notin_((BookingStatus.cancelled, BookingStatus.done)),  # type: ignore[attr-defined]
-    )).all()
+    ).with_for_update().execution_options(populate_existing=True)).all()
 
 
 @router.post("/rides/{ride_id}/cancel", response_model=RideOut)
@@ -1318,6 +1319,8 @@ def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(
     if stash_boost_credit(user, ride, now):
         session.add(user)
     for b in affected:
+        for field, value in meeting_points.clear_proposal_on_transition(b).items():
+            setattr(b, field, value)
         b.status = BookingStatus.cancelled
         # КТО отменил — обязательно. Без этой пометки «Надёжность» водителя не знала о его
         # сорванных рейсах вовсе: формула считает поздние отмены по `cancelled_by`, а здесь
@@ -1389,6 +1392,8 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     dropped: list[Booking] = []      # брони, которые водитель так и не подтвердил
     now = utcnow()
     for b in affected:
+        for field, value in meeting_points.clear_proposal_on_transition(b).items():
+            setattr(b, field, value)
         if b.status == BookingStatus.pending:
             # Человек забронировал, ждал ответа — а рейс уехал без него. Раньше такая бронь
             # гасилась МОЛЧА: ни причины, ни времени, ни уведомления. Пассажир продолжал ждать

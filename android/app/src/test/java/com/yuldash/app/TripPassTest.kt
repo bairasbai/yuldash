@@ -118,4 +118,19 @@ class TripPassTest {
         assertNull(back.pickupLng)
         assertEquals("у автовокзала", back.pickup)
     }
+    @Test
+    fun `своя точка переживает запись и офлайн контакты выбирают ее на обоих языках`() {
+        val saved = pass().copy(meetLat = 52.7, meetLng = 58.6, meetNote = "ворота",
+            meetLandmarkRu = "у школы", meetLandmarkBa = "мәктәп янында")
+        val back = TripPass.fromJson(saved.toJson())
+        assertEquals(saved, back)
+        val contacts = back.contacts()
+        assertEquals("у школы · ворота", contacts.pickup)
+        assertEquals("мәктәп янында · ворота", contacts.pickupBa)
+        assertEquals(52.7, contacts.pickupLat!!, 0.00001)
+        assertEquals(58.6, contacts.pickupLng!!, 0.00001)
+        assertEquals(pass().pickup, pass().contacts().pickup)
+        assertNull(TripPass.fromJson(JSONObject("""{"booking_id":7}""")).meetLat)
+    }
+
 }

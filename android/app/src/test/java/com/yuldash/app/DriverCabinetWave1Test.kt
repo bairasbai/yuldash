@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.SemanticsActions
@@ -7,6 +8,7 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasScrollToNodeAction
 import androidx.compose.ui.test.hasText
@@ -346,4 +348,56 @@ class DriverCabinetWave1Test {
         composeRule.onNodeWithText("Тиҙ заказ").assertDoesNotExist()
         composeRule.onNodeWithText("Хәҙер машина саҡырыу — хаҡ алдан күренә").assertDoesNotExist()
     }
+    @Test fun clearMeetingProposalExplainsRemovalForPickupAndDropoffInBothLanguages() {
+        val language = mutableStateOf(AppLanguage.Ru)
+        val row = mutableStateOf(booking())
+        var answer: Boolean? = null
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides language.value) { DriverMeetingProposal(row.value, onAnswer = { answer = it }) }
+        }
+        for (lang in listOf(AppLanguage.Ru, AppLanguage.Ba)) for (kind in listOf("pickup", "dropoff")) {
+            composeRule.runOnIdle {
+                language.value = lang
+                row.value = booking().copy(meetingProposal = com.yuldash.app.data.parseMeetingProposal(org.json.JSONObject("""{
+                    "proposal_id":"clear-$kind","kind":"$kind","point":{"clear":true,"lat":52.7,"lng":58.6,"note":"Старое пояснение"}
+                }""")))
+            }
+            val title = if (kind == "pickup") { if (lang == AppLanguage.Ru) "Пассажир просит убрать точное место посадки" else "Пассажир ултырыуҙың теүәл урынын алып ташлауҙы һорай" }
+                        else { if (lang == AppLanguage.Ru) "Пассажир просит убрать точное место высадки" else "Пассажир төшөүҙең теүәл урынын алып ташлауҙы һорай" }
+            val explanation = if (kind == "pickup") { if (lang == AppLanguage.Ru) "Точную точку и пояснение уберём. Место посадки по маршруту останется прежним; детали можно уточнить в чате." else "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса ултырыу урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин." }
+                              else { if (lang == AppLanguage.Ru) "Точную точку и пояснение уберём. Место высадки по маршруту останется прежним; детали можно уточнить в чате." else "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса төшөү урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин." }
+            composeRule.onNodeWithText(title).assertIsDisplayed()
+            composeRule.onNodeWithText(explanation).assertIsDisplayed()
+            composeRule.onNodeWithText("Старое пояснение").assertDoesNotExist()
+            composeRule.onNodeWithText(if (lang == AppLanguage.Ru) "На карте →" else "Картала →").assertDoesNotExist()
+            composeRule.onNodeWithText(if (lang == AppLanguage.Ru) "Согласиться" else "Ризалашыу").assertIsEnabled().performClick()
+            assertEquals(true, answer)
+            composeRule.onNodeWithText(if (lang == AppLanguage.Ru) "Оставить прежнее" else "Иҫкене ҡалдырыу").assertIsEnabled().performClick()
+            assertEquals(false, answer)
+        }
+    }
+
+    @Test fun ordinaryMeetingProposalKeepsItsTitleNoteAndMapInBothLanguages() {
+        val language = mutableStateOf(AppLanguage.Ru)
+        val row = mutableStateOf(booking())
+        composeRule.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides language.value) { DriverMeetingProposal(row.value, onAnswer = {}) }
+        }
+        for (lang in listOf(AppLanguage.Ru, AppLanguage.Ba)) for (kind in listOf("pickup", "dropoff")) {
+            composeRule.runOnIdle {
+                language.value = lang
+                row.value = booking().copy(meetingProposal = com.yuldash.app.data.parseMeetingProposal(org.json.JSONObject("""{
+                    "proposal_id":"normal-$kind","kind":"$kind","point":{"clear":false,"lat":52.7,"lng":58.6,"note":"Новое пояснение"}
+                }""")))
+            }
+            val title = if (kind == "pickup") { if (lang == AppLanguage.Ru) "Пассажир просит встретиться в другом месте" else "Пассажир башҡа урында осрашыуҙы һорай" }
+                        else { if (lang == AppLanguage.Ru) "Пассажир просит высадить в другом месте" else "Пассажир башҡа урында төшөрөүҙе һорай" }
+            composeRule.onNodeWithText(title).assertIsDisplayed()
+            composeRule.onNodeWithText("Новое пояснение").assertIsDisplayed()
+            composeRule.onNodeWithText(if (lang == AppLanguage.Ru) "На карте →" else "Картала →").assertIsDisplayed()
+            composeRule.onNodeWithText(if (lang == AppLanguage.Ru) "Точную точку и пояснение уберём. Место посадки по маршруту останется прежним; детали можно уточнить в чате." else "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса ултырыу урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин.").assertDoesNotExist()
+            composeRule.onNodeWithText(if (lang == AppLanguage.Ru) "Точную точку и пояснение уберём. Место высадки по маршруту останется прежним; детали можно уточнить в чате." else "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса төшөү урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин.").assertDoesNotExist()
+        }
+    }
+
 }

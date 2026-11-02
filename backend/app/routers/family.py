@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
 
-from .. import trip_wake
+from .. import meeting_points, trip_wake
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
@@ -498,7 +498,8 @@ def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(cu
         # перепишутся в «завершена» — и наоборот, завершённую не откатит запоздавшая отмена.
         moved = session.execute(update(Booking).where(
             Booking.id == booking.id, Booking.status == BookingStatus.onboard,
-        ).values(status=BookingStatus.done, done_at=utcnow())).rowcount
+        ).values(status=BookingStatus.done, done_at=utcnow(),
+                 **meeting_points.clear_proposal_on_transition(booking))).rowcount
         session.commit()
         session.refresh(booking)
         if not moved:

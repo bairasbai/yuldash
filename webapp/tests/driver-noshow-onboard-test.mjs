@@ -11,9 +11,9 @@ import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const h = (globalThis.__drvPax = { states: [], si: 0, effects: [], fetches: 0, noShows: [], arrivings: [] });
+const h = (globalThis.__drvPax = { states: [], si: 0, refs: [], ri: 0, effects: [], fetches: 0, noShows: [], arrivings: [] });
 const modules = {
-  react: `const h=globalThis.__drvPax; export function useState(v){const i=h.si++; if(!(i in h.states))h.states[i]=typeof v==='function'?v():v; return [h.states[i],x=>h.states[i]=typeof x==='function'?x(h.states[i]):x]}; export const useEffect=fn=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
+  react: `const h=globalThis.__drvPax; export function useState(v){const i=h.si++; if(!(i in h.states))h.states[i]=typeof v==='function'?v():v; return [h.states[i],x=>h.states[i]=typeof x==='function'?x(h.states[i]):x]}; export function useRef(v){const i=h.ri++;return h.refs[i]??=( {current:v} )}; export const useEffect=fn=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props,key)=>({type,props:props??{},key}); export const jsxs=jsx;`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>{if(!ba||!ba.trim())throw new Error('одноязычная строка: '+ru);return ru},t:k=>k});`,
   client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError;`,
@@ -55,7 +55,7 @@ const DriverPassengers = (await import("data:text/javascript;base64," +
   Buffer.from(result.outputFiles[0].text).toString("base64"))).default;
 const ApiError = h.ApiError;
 
-const render = () => { h.si = 0; h.effects = []; return DriverPassengers({ onOpenTrip: () => {} }); };
+const render = () => { h.si = 0; h.ri = 0; h.effects = []; return DriverPassengers({ onOpenTrip: () => {} }); };
 const all = (n) => (!n || typeof n !== "object") ? [] : [n, ...[n.props?.children].flat(Infinity).flatMap(all)];
 const text = (n) => (n == null || n === false) ? "" : typeof n !== "object" ? String(n)
   : [n.props?.children].flat(Infinity).map(text).join("");

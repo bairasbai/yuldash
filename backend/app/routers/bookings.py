@@ -435,11 +435,13 @@ class BookingDetailsOut(BaseModel):
     meet_lat: Optional[float] = None
     meet_lng: Optional[float] = None
     meet_note: str = ""
+    meet_landmark_id: Optional[int] = None
     meet_landmark_ru: str = ""
     meet_landmark_ba: str = ""
     alight_lat: Optional[float] = None
     alight_lng: Optional[float] = None
     alight_note: str = ""
+    alight_landmark_id: Optional[int] = None
     alight_landmark_ru: str = ""
     alight_landmark_ba: str = ""
     meeting_version: int = 0
@@ -492,12 +494,12 @@ def _active_booking(session, ride_id, passenger_id):
     )).first()
 
 
-def _retry_after_booking_race(session, ride, user, body, pickup_stop, entry):
+def _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, meet=None, alight=None):
     existing = _active_booking(session, body.ride_id, user.id)
     if existing:
         effective_pickup = existing.pickup_stop if body.pickup_stop is None else pickup_stop
         dropoff_stop = _resolve_dropoff_stop(ride, body.dropoff_stop, effective_pickup, entry)
-        return _booking_retry(existing, body, pickup_stop, dropoff_stop)
+        return _booking_retry(existing, body, pickup_stop, dropoff_stop, meet, alight)
     return None
 
 
@@ -591,6 +593,14 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, entry)
         effective_pickup = existing.pickup_stop if existing and body.pickup_stop is None else pickup_stop
         dropoff_stop = _resolve_dropoff_stop(ride, body.dropoff_stop, effective_pickup, entry)
+        # Радиус/ориентир перепроверяем по СВЕЖЕМУ рейсу (после перезахвата): модерацию не гоняем
+        # дважды за одну попытку (skip_moderation) — текст тот же.
+        meet = meeting_points.validate_meeting(session, ride, "pickup", body.meeting,
+                                               stop_name=effective_pickup or "", user_id=user.id,
+                                               entry=entry, skip_moderation=True)
+        alight = meeting_points.validate_meeting(session, ride, "dropoff", body.alighting,
+                                                 stop_name=dropoff_stop or "", user_id=user.id,
+                                                 entry=entry, skip_moderation=True)
     if existing:
         return meeting_points.booking_public_dto(
             session, _booking_retry(existing, body, pickup_stop, dropoff_stop, meet, alight), ride, user.id)
@@ -625,9 +635,9 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         if _front_seat_is_taken(session, ride.id):
             # Между existing-read и этой проверкой SQLite мог записать нашу же
             # бронь. Собственный повтор не превращаем в отказ «переднее занято».
-            retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry)
+            retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, meet, alight)
             if retry is not None:
-                return retry
+                return meeting_points.booking_public_dto(session, retry, ride, user.id)
             raise herr(409, *FRONT_SEAT_TAKEN)
     # Несовершеннолетний пассажир: взрослый обязателен и назван поимённо. Это не бюрократия —
     # без имени и телефона взрослого никто не отвечает за ребёнка в дороге, а водитель узнаёт
@@ -706,9 +716,9 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         # записать бронь между чтением existing и UPDATE. Проверяем после отката,
         # не создавая вторую бронь и уведомление. Условие UPDATE проверяется под
         # блокировкой записи самой БД, вместе с проверкой оставшихся мест.
-        retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry)
+        retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, meet, alight)
         if retry is not None:
-            return retry
+            return meeting_points.booking_public_dto(session, retry, ride, user.id)
         attempts_left -= 1
         if attempts_left <= 0:
             raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
@@ -1160,6 +1170,7 @@ def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(cu
     if body.status == "boarded":
         return _mark_boarded(session, booking, ride)
     if body.status == "done":
+        booking, ride = _lock_meeting_transition(session, booking, ride)
         # Потерянный ответ можно повторить, но повтор не создаёт новое уведомление.
         # pending→done остаётся легитимным: водитель завершает поездку напрямую.
         if booking.status == BookingStatus.done:
@@ -1388,6 +1399,15 @@ def _boarding_out(booking: Booking) -> dict:
     return {"ok": True, "status": status, "boarding_undo_sec": boarding_undo_left(booking)}
 
 
+def _lock_meeting_transition(session: Session, booking: Booking, ride: Ride) -> tuple[Booking, Ride]:
+    """Свежие строки до снятия предложения; общий порядок замков Ride → Booking."""
+    ride = session.exec(select(Ride).where(Ride.id == ride.id).with_for_update()
+                        .execution_options(populate_existing=True)).first()
+    booking = session.exec(select(Booking).where(Booking.id == booking.id).with_for_update()
+                           .execution_options(populate_existing=True)).first()
+    return booking, ride
+
+
 def _mark_boarded(session: Session, booking: Booking, ride: Ride) -> dict:
     """Водитель отметил «Сел»: подтверждённая бронь → «в пути» (onboard).
 
@@ -1400,6 +1420,7 @@ def _mark_boarded(session: Session, booking: Booking, ride: Ride) -> dict:
     Правила: только водитель этой поездки (проверено выше), только подтверждённая бронь, не раньше
     DONE_EARLY_GRACE до выезда — та же планка, что была у «Я сел». Повтор — тот же ответ без побочек.
     """
+    booking, ride = _lock_meeting_transition(session, booking, ride)
     if booking.status == BookingStatus.onboard:
         return _boarding_out(booking)              # повторный тап / повтор после потерянного ответа
     if booking.status != BookingStatus.confirmed:

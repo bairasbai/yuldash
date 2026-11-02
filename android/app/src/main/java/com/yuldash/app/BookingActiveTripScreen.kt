@@ -383,40 +383,6 @@ internal fun BookingScreen(
             .onFailure { detailsError = true }
         detailsLoading = false
     }
-    // RS-03 Б: смена/предложение места и отзыв — команды из карточки, CAS по версии деталей.
-    // Условия уехали (409 stale) — просто перечитываем детали: человек подтверждает уже новые.
-    val meetingScope = rememberCoroutineScope()
-    var meetingBusy by remember(bookingId) { mutableStateOf(false) }
-    val meetingFailText = appText("Не получилось изменить место. Повторить?", "Урынды үҙгәртеп булманы. Ҡабатлайынмы?")
-    val onProposeMeeting: (String, MeetingPointInput) -> Unit = { kind, point ->
-        val bid = bookingId; val ver = details?.meetingVersion ?: 0; val session = detailsSession
-        if (bid != null && !meetingBusy && session == ApiClient.queueSessionGeneration()) {
-            meetingBusy = true
-            meetingScope.launch {
-                ApiClient.proposeMeetingPoint(bid, kind, point, ver)
-                    .onSuccess { if (session == ApiClient.queueSessionGeneration()) detailsReload++ }
-                    .onFailure { e ->
-                        if (session == ApiClient.queueSessionGeneration()) {
-                            Toast.makeText(context, (e as? ApiException)?.message ?: meetingFailText, Toast.LENGTH_LONG).show()
-                            if ((e as? ApiException)?.detailCode == "meeting_point_stale") detailsReload++
-                        }
-                    }
-                meetingBusy = false
-            }
-        }
-    }
-    val onWithdrawMeeting: () -> Unit = {
-        val bid = bookingId; val prop = details?.meetingProposal; val ver = details?.meetingVersion ?: 0; val session = detailsSession
-        if (bid != null && prop != null && !meetingBusy && session == ApiClient.queueSessionGeneration()) {
-            meetingBusy = true
-            meetingScope.launch {
-                ApiClient.withdrawMeetingPoint(bid, prop.proposalId, ver)
-                    .onSuccess { if (session == ApiClient.queueSessionGeneration()) detailsReload++ }
-                    .onFailure { if (session == ApiClient.queueSessionGeneration()) detailsReload++ }
-                meetingBusy = false
-            }
-        }
-    }
     LaunchedEffect(bookingId, offlineSaveRetry) {
         if (offlineSaveRetry == 0) return@LaunchedEffect
         val loaded = details?.takeIf { it.contactUnlocked && it.status in setOf("confirmed", "onboard") }
@@ -707,19 +673,18 @@ internal fun BookingScreen(
             }
             item {
                 // RS-03 А: своя точка встречи важнее общего пина поездки (её пассажир и ставил).
-                BookingMeetingCard(
+                if (!hasOwnPickup(details)) BookingMeetingCard(
                     contactUnlocked = contactUnlocked,
                     bookingExists = bookingId != null,
-                    exactPickup = ownMeetingLabel(details) ?: exactPickup,
-                    pickupLat = details?.meetLat ?: pickupLat,
-                    pickupLng = details?.meetLng ?: pickupLng,
+                    exactPickup = exactPickup,
+                    pickupLat = pickupLat,
+                    pickupLng = pickupLng,
                 )
             }
             // RS-03 Б: смена/предложение места и отзыв — у живой брони пассажира.
             if (details != null && bookingId != null) {
                 item {
-                    BookingMeetingActions(details!!, displayRide, busy = bookingBusy,
-                        onPropose = onProposeMeeting, onWithdraw = onWithdrawMeeting)
+                    PassengerMeetingPoints(details) { detailsReload++ }
                 }
             }
             item {
@@ -1938,7 +1903,11 @@ private fun ActiveTripContent(
             // Пассажир до посадки: номер водителя и точка встречи. Без сети они в паспорте ниже.
             pickupDetails?.takeIf { it.role in setOf("passenger", "driver") && it.status in setOf("pending", "confirmed", "onboard") }?.let { d -> item(key = "trip-pickup-stop") { BookingSegmentNote(d.pickupStop, d.dropoffStop, d.rideHasStops, d.fromCity, d.toCity) } }
             tripContacts?.takeIf { !boardingDone(status, bookingStatus) && !(offline && tripPass != null) }?.let { c ->
-                item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1)) }
+                item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1), showMeeting = !hasOwnPickup(pickupDetails)) }
+            }
+            item(key = "trip-meeting-points") {
+                val meetingDetails = pickupDetails?.let { d -> if (bookingStatus.isNotBlank()) d.copy(status = bookingStatus) else d }
+                PassengerMeetingPoints(meetingDetails) { voiceScope.launch { loadTripDetails() } }
             }
             // F11: офлайн-режим — сервер недоступен, но паспорт поездки сохранён локально.
             if (offline && tripPass != null) {
@@ -3151,7 +3120,21 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
                 }
             }
             BookingSegmentNote(pass.pickupStop, pass.dropoffStop, pass.rideHasStops, pass.fromCity, pass.toCity)
-            if (pass.pickup.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), pass.pickup)
+            val meeting = pass.contacts()
+            val meetingLabel = (if (LocalAppLanguage.current == AppLanguage.Ba) meeting.pickupBa else meeting.pickup)
+                .ifBlank { if (meeting.exactMeeting) appText("Точка на карте", "Карталағы нөктә") else "" }
+            if (meetingLabel.isNotBlank()) TripPassRow(Icons.Default.LocationOn, appText("Точка сбора", "Йыйылыу урыны"), meetingLabel)
+            val meetingLat = meeting.pickupLat
+            val meetingLng = meeting.pickupLng
+            if (meetingLat != null && meetingLng != null) {
+                val label = appText("Место встречи", "Осрашыу урыны")
+                AppButton(text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
+                    style = AppButtonStyle.Secondary, icon = Icons.Default.Map,
+                    onClick = {
+                        val uri = Uri.parse("geo:$meetingLat,$meetingLng?q=$meetingLat,$meetingLng(" + Uri.encode(label) + ")")
+                        runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, uri), null)) }
+                    })
+            }
             if (pass.boardingCode.isNotBlank()) TripPassRow(Icons.Default.Pin, appText("Код посадки", "Ултырыу коды"), pass.boardingCode)
             if (pass.payAmount != null || pass.price > 0 || pass.payMethod != null) {
                 val method = pass.payMethod?.takeIf { it in payMethodKeys }?.let { payMethodLabel(it) }

@@ -214,8 +214,14 @@ class BookingConfirmationJourneyTest {
         assertEquals("пассажир сам посадку не отмечает", listOf("arrived", "done"), tripStatuses.toList())
         compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasTestTag("rideshareStar5"))
         compose.onNodeWithTag("rideshareStar5").performClick()
-        compose.onNodeWithTag("rideshareRatingSubmit").performClick()
-        waitForText("Готово")
+        // Выбор звезды и включение кнопки — разные кадры; не отправляем на ещё выключенную кнопку.
+        compose.waitUntil(15000) {
+            settle()
+            compose.onAllNodesWithTag("rideshareRatingSubmit").fetchSemanticsNodes()
+                .singleOrNull()?.config?.contains(SemanticsProperties.Disabled) == false
+        }
+        compose.onNodeWithTag("rideshareRatingSubmit").assertIsEnabled().performClick()
+        waitForSavedRating()
         assertEquals(1, ratingBodies.size)
         assertEquals(5, JSONObject(ratingBodies.single()).getInt("stars"))
         assertTrue(requests.any { it.first == "GET /trips/42/receipt" })
@@ -370,6 +376,18 @@ class BookingConfirmationJourneyTest {
         compose.mainClock.advanceTimeBy(100)
         Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100))
         Snapshot.sendApplyNotifications()
+    }
+    private fun waitForSavedRating() {
+        try {
+            compose.waitUntil(15000) {
+                settle()
+                ratingBodies.size == 1 && compose.onAllNodesWithText("Готово").fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (failure: Exception) {
+            val tree = compose.onRoot(useUnmergedTree = true).printToString()
+            throw AssertionError("Оценка не подтверждена: POST=${ratingBodies.size}, bodies=$ratingBodies, " +
+                "stage=${stage.value}, screen=${vm.screen.value}, requests=$requests\n$tree", failure)
+        }
     }
     private fun waitForText(text: String) {
         compose.waitUntil(15000) {

@@ -72,6 +72,8 @@ class LoginFailureRecoveryTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                    "/config/login-methods" -> response(200, """{"methods":["telegram"]}""")
+                        .setBodyDelay(100, java.util.concurrent.TimeUnit.MILLISECONDS)
                     "/auth/tg/start" -> response(200, """{"request_id":"request-${starts.incrementAndGet()}"}""")
                     "/auth/tg/verify" -> {
                         val body = JSONObject(request.body.readUtf8())
@@ -119,7 +121,12 @@ class LoginFailureRecoveryTest {
                 LoginScreen(AppLanguage.Ru, {}, { continuations.incrementAndGet() })
             }
         }
-        compose.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).performScrollTo().performClick()
+        // Способы входа приходят по сети: проверка восстановления кода начинается после их загрузки.
+        compose.waitUntil(20_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithTag(TAG_LOGIN_TELEGRAM_BTN).fetchSemanticsNodes().size == 1
+        }
+        compose.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).performScrollTo().assertIsEnabled().performClick()
         waitForText("Код из Telegram")
         compose.onNodeWithText("Код из Telegram").performTextInput("123456")
         compose.onNodeWithTag(TAG_LOGIN_TG_VERIFY_BTN).performScrollTo().performClick()

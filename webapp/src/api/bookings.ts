@@ -141,11 +141,13 @@ export interface BookingDetails {
   meet_note?: string;
   meet_landmark_ru?: string;
   meet_landmark_ba?: string;
+  meet_landmark_id?: number | null;
   alight_lat?: number | null;
   alight_lng?: number | null;
   alight_note?: string;
   alight_landmark_ru?: string;
   alight_landmark_ba?: string;
+  alight_landmark_id?: number | null;
   /** Версия точек/предложения — команды смены места шлют её как base_version (RS-03 Б). */
   meeting_version?: number;
   /** Активное предложение смены места (публичные поля, без автора). */

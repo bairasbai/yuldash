@@ -1092,78 +1092,65 @@ internal fun FuelHintBlock(km: Int, fuelRub: Int, perPerson: Int, seats: Int) {
 internal fun PickupSuggestionChips(
     city: String,
     selectedId: Int?,
+    enabled: Boolean = true,
     onSelect: (PickupPointDto) -> Unit,
 ) {
     val isBa = LocalAppLanguage.current == AppLanguage.Ba
-    var points by remember { mutableStateOf<List<PickupPointDto>>(emptyList()) }
-    var failed by remember { mutableStateOf(false) }
-    var retryKey by remember { mutableIntStateOf(0) }
-    // Дебаунс: город печатают по буквам — не дёргаем сервер на каждый символ.
-    LaunchedEffect(city, retryKey) {
-        val c = city.trim()
-        if (c.isBlank()) { points = emptyList(); failed = false; return@LaunchedEffect }
-        delay(350)
+    val c = city.trim()
+    var retryKey by remember(c) { mutableIntStateOf(0) }
+    // Ключ города меняет состояние в той же композиции: старые чипы не ждут нового ответа.
+    var points by remember(c, retryKey) { mutableStateOf<List<PickupPointDto>>(emptyList()) }
+    var failed by remember(c, retryKey) { mutableStateOf(false) }
+    var loading by remember(c, retryKey) { mutableStateOf(c.isNotBlank()) }
+    LaunchedEffect(c, retryKey) {
+        if (c.isBlank()) return@LaunchedEffect
+        delay(350) // дебаунс ввода города; не длительность анимации
         ApiClient.getPickupPoints(c)
-            .onSuccess { points = it; failed = false }
-            .onFailure { points = emptyList(); failed = true }
+            .onSuccess { points = it }
+            .onFailure { failed = true }
+        loading = false
+    }
+    if (loading) Text(appText("Загружаем ориентиры…", "Билгеле урындарҙы тейәйбеҙ…"), style = CanonCaption, color = CanonMuted)
+    if (!loading && !failed && c.isNotBlank() && points.isEmpty()) {
+        Text(appText("Ориентиров пока нет — поставь точку на карте", "Билгеле урындар әлегә юҡ — картаға нөктә ҡуй"),
+            style = CanonCaption, color = CanonMuted)
     }
     AnimatedVisibility(
         visible = failed,
-        enter = fadeIn() + expandVertically(),
-        exit = fadeOut() + shrinkVertically(),
+        enter = fadeIn(tween(CanonMotion.QUICK)) + expandVertically(tween(CanonMotion.QUICK)),
+        exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.QUICK)),
     ) {
-        Row(
-            Modifier.fillMaxWidth().heightIn(min = 48.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Text(
-                appText("Точки сбора не загрузились", "Осрашыу нөктәләре йөкләнмәне"),
-                color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
-                modifier = Modifier.weight(1f),
-            )
-            TextButton(onClick = { retryKey++ }) {
-                Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2, fontSize = 14.sp)
+        Row(Modifier.fillMaxWidth().heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically) {
+            Text(appText("Точки сбора не загрузились", "Осрашыу нөктәләре йөкләнмәне"),
+                color = CanonMuted, style = CanonCaption, modifier = Modifier.weight(1f))
+            TextButton(onClick = { retryKey++ }, enabled = enabled, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2, style = CanonCaption)
             }
         }
     }
-    AnimatedVisibility(visible = points.isNotEmpty()) {
-        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text(
-                appText("Частые точки сбора рядом", "Яҡындағы йыш осрашыу нөктәләре"),
-                fontSize = 14.sp, fontWeight = FontWeight.Medium, color = CanonMuted
-            )
-            LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+    AnimatedVisibility(visible = points.isNotEmpty(),
+        enter = fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
+        Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Text(appText("Частые точки сбора рядом", "Яҡындағы йыш осрашыу нөктәләре"),
+                style = CanonCaption, fontWeight = FontWeight.Medium, color = CanonMuted)
+            LazyRow(horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
                 items(points, key = { it.id }) { p ->
                     val selected = p.id == selectedId
                     val title = if (isBa && p.titleBa.isNotBlank()) p.titleBa else p.titleRu
                     Surface(
                         color = if (selected) CanonMint else CanonSurface,
-                        shape = RoundedCornerShape(14.dp),
-                        modifier = Modifier
-                            .heightIn(min = 40.dp)
-                            .border(
-                                BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder),
-                                RoundedCornerShape(14.dp)
-                            )
-                            .clickable { onSelect(p) }
+                        shape = CanonFieldShape,
+                        modifier = Modifier.heightIn(min = 48.dp)
+                            .border(BorderStroke(1.dp, if (selected) CanonGreen2 else CanonBorder), CanonFieldShape)
+                            .clickable(enabled = enabled) { onSelect(p) }
                     ) {
-                        Row(
-                            Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                        Row(Modifier.padding(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp)
-                        ) {
-                            Icon(
-                                if (selected) Icons.Default.CheckCircle else Icons.Default.LocationOn,
-                                contentDescription = null,
-                                tint = if (selected) CanonGreen2 else CanonMuted,
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Text(
-                                title,
-                                fontSize = 14.sp,
-                                maxLines = 1,
-                                color = if (selected) CanonGreen2 else CanonText
-                            )
+                            horizontalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                            Icon(if (selected) Icons.Default.CheckCircle else Icons.Default.LocationOn,
+                                contentDescription = null, tint = if (selected) CanonGreen2 else CanonMuted,
+                                modifier = Modifier.size(CanonSpace.lg))
+                            Text(title, style = CanonCaption, color = if (selected) CanonGreen2 else CanonText)
                         }
                     }
                 }

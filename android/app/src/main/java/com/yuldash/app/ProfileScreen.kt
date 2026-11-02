@@ -1396,6 +1396,9 @@ internal fun DriverCabinetScreen(
     var ridesLoading by remember { mutableStateOf(true) }   // первая загрузка → скелетон вместо ложного «пусто»
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
+    val meetingSession = ApiClient.queueSessionGeneration()
+    val meetingAnswers = remember(meetingSession) { DriverMeetingAnswerState { meetingSession == ApiClient.queueSessionGeneration() } }
+    val meetingAnswerFailed = appText("Не получилось отправить ответ. Повтори попытку.", "Яуапты ебәреп булманы. Ҡабатлап ҡара.")
     var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
@@ -1605,12 +1608,10 @@ internal fun DriverCabinetScreen(
             onRetryRides = { ridesReload++ },
             driverBookings = driverBookings,
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
-            // RS-03 Б: ответ на предложение места → CAS на сервере → перечитать кабинет.
+            meetingAnswers = meetingAnswers,
             onAnswerMeeting = { bid, pid, ver, accept ->
-                rateScope.launch {
-                    ApiClient.answerMeetingPoint(bid, pid, ver, accept)
-                    bookingsReload++
-                }
+                meetingAnswers.answer(rateScope, bid, pid, accept, meetingAnswerFailed,
+                    request = { ApiClient.answerMeetingPoint(bid, pid, ver, accept) }, onRefresh = { bookingsReload++ })
             },
             debt = debt,
             debtPaying = debtPaying,
@@ -2907,6 +2908,7 @@ internal fun DriverCabinetContent(
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
     // RS-03 Б: ответ водителя на предложение места (bookingId, proposalId, версия, принять?).
     onAnswerMeeting: (Int, String, Int, Boolean) -> Unit = { _, _, _, _ -> },
+    meetingAnswers: DriverMeetingAnswerState? = null,
     onCancelRide: (Int) -> Unit = {},     // F1: снять поездку (id) — сервер уведомит пассажиров
     onCompleteRide: (Int) -> Unit = {},   // F1: завершить рейс (id)
     // id, цена, текст, «сзади двое», «переднее», цены остановок (RS-02 Б), версия условий; null — не менялось
@@ -3270,17 +3272,7 @@ internal fun DriverCabinetContent(
                 Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonItemShape, elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)) {
                     Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         PassengerRow(b)
-                        // RS-03 Б: пассажир предлагает другое место — ответ водителя (CAS по версии,
-                        // затем кабинет перечитывается уже с настоящим состоянием).
-                        var proposalAnswering by remember(b.bookingId) { mutableStateOf(false) }
-                        DriverMeetingProposal(b, busy = proposalAnswering, onAnswer = { accept ->
-                            val prop = b.meetingProposal
-                            if (prop != null && !proposalAnswering) {
-                                proposalAnswering = true
-                                onAnswerMeeting(b.bookingId, prop.proposalId, b.meetingVersion, accept)
-                                proposalAnswering = false
-                            }
-                        })
+                        DriverMeetingAnswerRow(b, meetingAnswers, onAnswerMeeting)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // Посадку отмечает водитель: «Сел» рядом с «Не пришёл» (срок от сервера; на поездке с остановками сначала «Подъезжаю»), «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
                         DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt)

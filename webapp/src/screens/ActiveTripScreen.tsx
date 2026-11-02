@@ -934,12 +934,33 @@ export default function ActiveTripScreen() {
           </a>
         )}
 
-        {st !== "cancelled" && details.contact_unlocked && details.pickup && (
+        {details.role === "driver" && st !== "cancelled" && details.contact_unlocked && details.pickup && (
           <div className="info-row">
             <span className="info-row__k">{appText("Точка", "Нөктә")}</span>
             <span className="info-row__v">{details.pickup}</span>
           </div>
         )}
+        {details.role === "passenger" && st !== "cancelled" && (["pickup", "dropoff"] as const).map((kind) => {
+          const pickup = kind === "pickup";
+          const lat = pickup ? details.meet_lat : details.alight_lat;
+          const lng = pickup ? details.meet_lng : details.alight_lng;
+          const ru = pickup ? details.meet_landmark_ru : details.alight_landmark_ru;
+          const ba = pickup ? details.meet_landmark_ba : details.alight_landmark_ba;
+          const note = pickup ? details.meet_note : details.alight_note;
+          const ownLabel = [lang === "ba" ? (ba || ru) : ru, note].filter(Boolean).join(" · ");
+          const hasOwn = lat != null || Boolean(ownLabel);
+          const label = ownLabel || (lat != null ? appText("Точка на карте", "Карталағы нөктә") : pickup && details.contact_unlocked ? details.pickup : "");
+          if (!hasOwn && !label) return null;
+          return <div className="info-row" key={kind}>
+            <span className="info-row__k">{pickup ? appText("Место посадки", "Ултырыу урыны") : appText("Место высадки", "Төшөү урыны")}</span>
+            <span className="info-row__v">
+              {label}
+              {lat != null && lng != null && <a href={`https://yandex.ru/maps/?rtext=~${lat},${lng}&rtt=auto`} target="_blank" rel="noopener noreferrer"
+                style={{ minHeight: 48, display: "flex", alignItems: "center" }}>{appText("На карте →", "Картала →")}</a>}
+            </span>
+          </div>;
+        })}
+
       </div>
 
       {/* RS-03 А/Б: своё точное место встречи — пассажир меняет/предлагает и отзывает. */}

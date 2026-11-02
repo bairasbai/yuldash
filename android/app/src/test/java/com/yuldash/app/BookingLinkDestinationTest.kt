@@ -146,9 +146,14 @@ class BookingLinkDestinationTest {
         assertTrue("ссылка водителю на идущую поездку — роль водителя", vm.isDriverOf(44))
         assertFalse(vm.isDriverOf(null))
         assertTrue(
-            "YuldashApp не передаёт роль сервису живого гео",
-            src("YuldashApp.kt").contains("TripLocationService.start(context, bid, vm.language.value, isDriver = vm.isDriverOf(bid))"),
+            "YuldashApp не передаёт владельцу гео текущую бронь, поездку, язык, роль и вход",
+            src("YuldashApp.kt").contains("TripLocationPermissionEffect(activeBookingId, activeTrip, vm.language.value, vm.activeDriverBookingId.value, navigationSession)"),
         )
+        val locationOwner = src("TripLocationPermissionEffect.kt")
+        assertTrue("пульс только у водителя именно этой брони",
+            locationOwner.contains("start(bookingId, language, driverBookingId == bookingId)"))
+        assertTrue("владелец не теряет роль при запуске настоящего сервиса",
+            locationOwner.contains("TripLocationService.start(context, id, lang, driver)"))
     }
 
     @Test

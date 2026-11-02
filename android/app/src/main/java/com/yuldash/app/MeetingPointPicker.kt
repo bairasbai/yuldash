@@ -1,6 +1,5 @@
 package com.yuldash.app
 
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,10 +12,7 @@ import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.LocationOn
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -27,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.yuldash.app.data.MeetingPointInput
+import kotlinx.coroutines.launch
 
 /** RS-03 А: «Уточнить место (по желанию)» — точка на карте или ориентир + короткое пояснение.
  *  Ничего не обязательно: не указал — как раньше (место = остановка/начало/конец). */
@@ -62,85 +59,110 @@ internal fun MeetingPointRow(
     }
 }
 
-/** Шторка выбора точки: ориентиры села (курируемые), «На карте» (пин в центре), пояснение. */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun MeetingPointSheet(
-    city: String,
-    title: String,
-    initial: MeetingPointInput?,
-    onDone: (MeetingPointInput) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var lat by remember { mutableStateOf(initial?.lat) }
-    var lng by remember { mutableStateOf(initial?.lng) }
-    var landmarkId by remember { mutableStateOf(initial?.landmarkId) }
-    var landmarkTitle by remember { mutableStateOf(initial?.landmarkTitle ?: "") }
-    var note by remember { mutableStateOf(initial?.note ?: "") }
-    var showMap by remember { mutableStateOf(false) }
-    val isBa = LocalAppLanguageSafe()
+private fun LocalAppLanguageSafe(): Boolean = LocalAppLanguage.current == AppLanguage.Ba
 
-    if (showMap) {
-        PickupPickerOverlay(
-            initial = lat?.let { la -> lng?.let { lg -> com.yandex.mapkit.geometry.Point(la, lg) } },
-            onConfirm = { la, lg -> lat = la; lng = lg; landmarkId = null; landmarkTitle = ""; showMap = false },
-            onDismiss = { showMap = false },
-            hint = title,
-        )
-        return
+internal fun hasOwnPickup(d: com.yuldash.app.data.BookingDetailsDto?): Boolean = d?.role == "passenger" &&
+    (d.meetLat != null || d.meetNote.isNotBlank() || d.meetLandmarkRu.isNotBlank() || d.meetLandmarkBa.isNotBlank())
+
+/** Свои данные из ответа сервера доступны пассажиру независимо от открытия чужих контактов. */
+@Composable
+internal fun OwnMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?) {
+    val d = details?.takeIf { it.role == "passenger" } ?: return
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        OwnMeetingPoint(d, pickup = true)
+        OwnMeetingPoint(d, pickup = false)
     }
-    AppModalBottomSheet(onDismissRequest = onDismiss) {
-        Column(
-            Modifier.fillMaxWidth().padding(CanonSpace.lg),
-            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
-        ) {
-            Text(title, style = CanonTitle, color = CanonText)
-            Text(
-                appText("Выбери ориентир или поставь точку на карте", "Билгеле урын һайла йәки картаға нөктә ҡуй"),
-                style = CanonCaption, color = CanonMuted,
-            )
-            PickupSuggestionChips(city = city, selectedId = landmarkId) { p ->
-                landmarkId = p.id; landmarkTitle = if (isBa) p.titleBa.ifBlank { p.titleRu } else p.titleRu
-                lat = null; lng = null   // координаты возьмутся у ориентира на сервере
+}
+
+@Composable
+private fun OwnMeetingPoint(d: com.yuldash.app.data.BookingDetailsDto, pickup: Boolean) {
+    val ru = if (pickup) d.meetLandmarkRu else d.alightLandmarkRu
+    val ba = if (pickup) d.meetLandmarkBa else d.alightLandmarkBa
+    val note = if (pickup) d.meetNote else d.alightNote
+    val text = listOf(if (LocalAppLanguageSafe()) ba.ifBlank { ru } else ru, note)
+        .filter { it.isNotBlank() }.joinToString(" · ")
+    val lat = if (pickup) d.meetLat else d.alightLat
+    val lng = if (pickup) d.meetLng else d.alightLng
+    if (text.isBlank() && (lat == null || lng == null)) return
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val title = if (pickup) appText("Место посадки", "Ултырыу урыны") else appText("Место высадки", "Төшөү урыны")
+    AppCard {
+        Column(Modifier.fillMaxWidth().padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            Text(title, style = CanonBodyStrong, color = CanonText)
+            Text(text.ifBlank { appText("Точка на карте", "Карталағы нөктә") }, style = CanonBody, color = CanonText)
+            if (lat != null && lng != null) {
+                AppButton(
+                    text = if (pickup) appText("Маршрут к месту посадки", "Ултырыу урынына маршрут")
+                           else appText("Маршрут к месту высадки", "Төшөү урынына маршрут"),
+                    style = AppButtonStyle.Secondary, icon = Icons.Default.Map,
+                    onClick = {
+                        val uri = android.net.Uri.parse("geo:$lat,$lng?q=$lat,$lng(" + android.net.Uri.encode(title) + ")")
+                        runCatching { context.startActivity(android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_VIEW, uri), null)) }
+                    },
+                )
             }
-            AppButton(
-                text = appText("На карте", "Картала"), onClick = { showMap = true },
-                style = AppButtonStyle.Secondary, icon = Icons.Default.Map,
-            )
-            OutlinedTextField(
-                value = note, onValueChange = { note = it.take(120) },
-                label = { Text(appText("Пояснение: ворота, подъезд, что рядом", "Аңлатма: ҡапҡа, инеү урыны, янында нимә")) },
-                modifier = Modifier.fillMaxWidth(), shape = CanonFieldShape, maxLines = 2,
-            )
-            AnimatedVisibility(visible = lat != null || landmarkId != null || note.isNotBlank()) {
-                TextButton(
-                    onClick = { onDone(MeetingPointInput(clear = true)) },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) { Text(appText("Убрать место", "Урынды алып ташлау"), color = CanonMuted) }
-            }
-            AppButton(
-                text = appText("Готово", "Әҙер"),
-                onClick = {
-                    onDone(MeetingPointInput(lat = lat, lng = lng, note = note.trim(),
-                                             landmarkId = landmarkId, landmarkTitle = landmarkTitle))
-                },
-            )
         }
     }
 }
 
+/** Один блок своих точек и команд в деталях брони и в основной поездке. */
 @Composable
-private fun LocalAppLanguageSafe(): Boolean = LocalAppLanguage.current == AppLanguage.Ba
-
-/** RS-03 А: подпись своей точки встречи на экране поездки — ориентир или пояснение, что ставил
- *  пассажир. null — точки нет, показываем общий пин поездки. */
-@Composable
-internal fun ownMeetingLabel(d: com.yuldash.app.data.BookingDetailsDto?): String? {
-    if (d == null) return null
-    val lm = if (LocalAppLanguageSafe()) d.meetLandmarkBa.ifBlank { d.meetLandmarkRu } else d.meetLandmarkRu
-    return listOf(lm, d.meetNote).filter { it.isNotBlank() }.joinToString(" · ").ifBlank { null }
+internal fun PassengerMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?, onChanged: () -> Unit) {
+    val d = details?.takeIf { it.role == "passenger" } ?: return
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val session = remember(d.bookingId) { com.yuldash.app.data.ApiClient.queueSessionGeneration() }
+    var busy by remember(d.bookingId) { mutableStateOf(false) }
+    var error by remember(d.bookingId) { mutableStateOf<String?>(null) }
+    val failed = appText("Не получилось изменить место. Повторить?", "Урынды үҙгәртеп булманы. Ҡабатлайынмы?")
+    fun submit(onSaved: () -> Unit = {}, request: suspend () -> Result<*>) {
+        if (busy || session != com.yuldash.app.data.ApiClient.queueSessionGeneration()) return
+        busy = true; error = null
+        scope.launch {
+            try {
+                val result = request()
+                if (session != com.yuldash.app.data.ApiClient.queueSessionGeneration()) return@launch
+                result.onSuccess { onSaved(); onChanged() }.onFailure { e ->
+                    error = (e as? com.yuldash.app.data.ApiException)?.message ?: failed
+                    if ((e as? com.yuldash.app.data.ApiException)?.detailCode == "meeting_point_stale") onChanged()
+                }
+            } finally { busy = false }
+        }
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+        OwnMeetingPoints(d)
+        BookingMeetingActions(d, busy = busy, error = error,
+            onPropose = { kind, point, onSaved -> submit(onSaved) {
+                com.yuldash.app.data.ApiClient.proposeMeetingPoint(d.bookingId, kind, point, d.meetingVersion)
+            } },
+            onWithdraw = { d.meetingProposal?.let { proposal -> submit {
+                com.yuldash.app.data.ApiClient.withdrawMeetingPoint(d.bookingId, proposal.proposalId, d.meetingVersion)
+            } } })
+        error?.let { Text(it, style = CanonCaption, color = CanonText) }
+    }
 }
 
+internal fun meetingAfterStopChange(previous: String?, next: String?, point: MeetingPointInput?): MeetingPointInput? =
+    point.takeIf { previous == next }
+
+internal fun meetingPointDraft(d: com.yuldash.app.data.BookingDetailsDto, kind: String, isBa: Boolean = false): MeetingPointInput {
+    val pickup = kind == "pickup"
+    val ru = if (pickup) d.meetLandmarkRu else d.alightLandmarkRu
+    val ba = if (pickup) d.meetLandmarkBa else d.alightLandmarkBa
+    return MeetingPointInput(
+        lat = if (pickup) d.meetLat else d.alightLat, lng = if (pickup) d.meetLng else d.alightLng,
+        landmarkId = if (pickup) d.meetLandmarkId else d.alightLandmarkId,
+        note = if (pickup) d.meetNote else d.alightNote,
+        landmarkTitle = if (isBa) ba.ifBlank { ru } else ru,
+    )
+}
+
+internal fun meetingEditableKinds(status: String): List<String> = when (status) {
+    "pending", "confirmed" -> listOf("pickup", "dropoff")
+    "onboard" -> listOf("dropoff")
+    else -> emptyList()
+}
 
 /** RS-03 Б: блок «место» на экране поездки пассажира.
  *  Есть предложение — «ждём ответа» + «Отозвать»; pending — «Изменить место» (сразу);
@@ -148,9 +170,9 @@ internal fun ownMeetingLabel(d: com.yuldash.app.data.BookingDetailsDto?): String
 @Composable
 internal fun BookingMeetingActions(
     details: com.yuldash.app.data.BookingDetailsDto,
-    ride: Ride,
     busy: Boolean = false,
-    onPropose: (kind: String, point: MeetingPointInput) -> Unit,
+    error: String? = null,
+    onPropose: (kind: String, point: MeetingPointInput, onSaved: () -> Unit) -> Unit,
     onWithdraw: () -> Unit,
 ) {
     if (details.role != "passenger") return
@@ -169,35 +191,34 @@ internal fun BookingMeetingActions(
                 )
             } else {
                 var editing by remember { mutableStateOf<String?>(null) }
-                val isPickup = status != "onboard"   // в машине меняется только высадка
-                AppButton(
-                    text = if (status == "pending") appText("Изменить место", "Урынды үҙгәртеү")
-                          else appText("Предложить другое место", "Башҡа урын тәҡдим итеү"),
-                    onClick = { editing = if (isPickup) "pickup" else "dropoff" }, enabled = !busy,
-                    style = AppButtonStyle.Secondary, icon = Icons.Default.Edit,
-                )
+                meetingEditableKinds(status).forEach { kind ->
+                    AppButton(
+                        text = if (kind == "pickup") appText("Изменить место посадки", "Ултырыу урынын үҙгәртеү")
+                               else appText("Изменить место высадки", "Төшөү урынын үҙгәртеү"),
+                        onClick = { editing = kind }, enabled = !busy,
+                        style = AppButtonStyle.Secondary, icon = Icons.Default.Edit,
+                    )
+                }
                 if (status == "confirmed" || status == "onboard") {
                     Text(
                         appText("Пока водитель не ответил — действует прежнее место.", "Йөрөтөүсе яуап биргәнсе — иҫке урын ҡала."),
                         style = CanonCaption, color = CanonMuted,
                     )
                 }
-                when (editing) {
+                when (editing?.takeIf { it in meetingEditableKinds(status) }) {
                     "pickup" -> MeetingPointSheet(
-                        city = details.pickupStop?.takeIf { it.isNotBlank() } ?: ride.from,
+                        city = details.pickupStop?.takeIf { it.isNotBlank() } ?: details.fromCity,
                         title = appText("Где тебя забрать?", "Һине ҡайҙан алырға?"),
-                        initial = MeetingPointInput(lat = details.meetLat, lng = details.meetLng,
-                            note = details.meetNote, landmarkTitle = details.meetLandmarkRu),
-                        onDone = { onPropose("pickup", it); editing = null },
-                        onDismiss = { editing = null },
+                        initial = meetingPointDraft(details, "pickup", LocalAppLanguageSafe()),
+                        onDone = { onPropose("pickup", it) { editing = null } },
+                        onDismiss = { editing = null }, busy = busy, error = error,
                     )
                     "dropoff" -> MeetingPointSheet(
-                        city = details.dropoffStop?.takeIf { it.isNotBlank() } ?: ride.to,
+                        city = details.dropoffStop?.takeIf { it.isNotBlank() } ?: details.toCity,
                         title = appText("Где тебя высадить?", "Һине ҡайҙа төшөрөргә?"),
-                        initial = MeetingPointInput(lat = details.alightLat, lng = details.alightLng,
-                            note = details.alightNote, landmarkTitle = details.alightLandmarkRu),
-                        onDone = { onPropose("dropoff", it); editing = null },
-                        onDismiss = { editing = null },
+                        initial = meetingPointDraft(details, "dropoff", LocalAppLanguageSafe()),
+                        onDone = { onPropose("dropoff", it) { editing = null } },
+                        onDismiss = { editing = null }, busy = busy, error = error,
                     )
                 }
             }
@@ -255,4 +276,37 @@ internal fun BookingMeetingPoints(
             onDismiss = { editing = null },
         )
     }
+}
+
+/** Черновик участка и его точек меняется согласованно; владелец экрана не дублирует правила сброса. */
+internal class BookingMeetingDraft(
+    private val ride: Ride?,
+    pickupState: androidx.compose.runtime.MutableState<String?>,
+    dropoffState: androidx.compose.runtime.MutableState<String?>,
+    meetingState: androidx.compose.runtime.MutableState<MeetingPointInput?>,
+    alightingState: androidx.compose.runtime.MutableState<MeetingPointInput?>,
+) {
+    var pickup by pickupState
+    var dropoff by dropoffState
+    var meeting by meetingState
+    var alighting by alightingState
+    fun selectPickup(next: String?) {
+        val nextDropoff = ride?.let { keepValidDropoff(it, next, dropoff) }
+        meeting = meetingAfterStopChange(pickup, next, meeting)
+        alighting = meetingAfterStopChange(dropoff, nextDropoff, alighting)
+        pickup = next; dropoff = nextDropoff
+    }
+    fun selectDropoff(next: String?) {
+        alighting = meetingAfterStopChange(dropoff, next, alighting)
+        dropoff = next
+    }
+}
+
+@Composable
+internal fun rememberBookingMeetingDraft(ride: Ride?, session: Long): BookingMeetingDraft {
+    val pickup = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session) { mutableStateOf(ride?.let(::initialPickupStop)) }
+    val dropoff = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session) { mutableStateOf(ride?.let(::initialDropoffStop)) }
+    val meeting = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session, stateSaver = com.yuldash.app.data.MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
+    val alighting = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session, stateSaver = com.yuldash.app.data.MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
+    return remember(ride, session, pickup, dropoff, meeting, alighting) { BookingMeetingDraft(ride, pickup, dropoff, meeting, alighting) }
 }

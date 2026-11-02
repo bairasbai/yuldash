@@ -71,6 +71,14 @@ class ActiveTripPassengerContactsTest {
     @Volatile private var holdFirstRole = false
     private val phone = "+7 900 111-22-33"
     private val pickup = "У ТЦ «Мега», главный вход"
+    private var alightingNote = ""
+    @Volatile private var pickupPointsFailure = false
+    @Volatile private var pickupPointsEmpty = false
+    @Volatile private var holdSecondCity = false
+    @Volatile private var holdFirstCity = false
+    private val releaseFirstCity = CountDownLatch(1)
+    private val secondCityHeld = CountDownLatch(1)
+    private val releaseSecondCity = CountDownLatch(1)
     private val passengerPhone = "+7 900 555-66-77"
 
     @Before fun setup() {
@@ -83,6 +91,18 @@ class ActiveTripPassengerContactsTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add("${request.method} ${request.path}")
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
+                    if (request.path?.startsWith("/pickup-points?") == true) {
+                        val city = request.requestUrl?.queryParameter("city").orEmpty()
+                        if (city == "Уфа" && holdFirstCity && !releaseFirstCity.await(30, TimeUnit.SECONDS))
+                            return MockResponse().setResponseCode(503)
+                        if (city == "Сибай" && holdSecondCity) {
+                            secondCityHeld.countDown()
+                            if (!releaseSecondCity.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        }
+                        if (pickupPointsFailure) return MockResponse().setResponseCode(503).setBody("{}")
+                        val rows = if (pickupPointsEmpty) "[]" else """[{"id":7,"city":"$city","title_ru":"Ориентир $city","title_ba":"Урын $city"}]"""
+                        return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"items":$rows}""")
+                    }
                     if (request.path == "/bookings/42/role" && roleCalls.incrementAndGet() == 1 && holdFirstRole) {
                         firstRoleHeld.countDown()
                         if (!releaseFirstRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
@@ -135,6 +155,8 @@ class ActiveTripPassengerContactsTest {
         releaseFirstDetails.countDown()
         releaseHistory.countDown()
         releaseFirstRole.countDown()
+        releaseSecondCity.countDown()
+        releaseFirstCity.countDown()
         compose.runOnIdle { mounted.value = false }
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         ApiClient.logout()
@@ -155,7 +177,133 @@ class ActiveTripPassengerContactsTest {
         .put("driver_plate", if (unlocked) "А123ВС 102" else "")
         .put("driver_car_color", if (unlocked) "белая" else "")
         .put("pickup", if (unlocked) pickup else "")
+        .put("alight_note", alightingNote)
         .toString()
+
+    @Test fun activePassengerSeesOwnAlightingSeparateFromPickup() {
+        alightingNote = "У синих ворот после моста"
+        openScreen()
+        compose.waitUntil(15000) {
+            settle()
+            requests.contains("GET /bookings/42/details") && runCatching { scrollTo(alightingNote) }.isSuccess
+        }
+        compose.onNodeWithText(alightingNote).assertIsDisplayed()
+        compose.onNodeWithText("Место высадки").assertIsDisplayed()
+        scrollTo(pickup)
+        compose.onNodeWithText(pickup).assertIsDisplayed()
+    }
+
+    @Test fun ownPointsShowLanguageFallbackAndPinForPassengerIncludingTerminal() {
+        val language = mutableStateOf(AppLanguage.Ru)
+        val point = mutableStateOf(com.yuldash.app.data.parseBookingDetailsDto(JSONObject("""{
+            "booking_id":42,"role":"passenger","status":"confirmed",
+            "alight_lat":52.7,"alight_lng":58.6,
+            "alight_landmark_ru":"у школы","alight_landmark_ba":"мәктәп янында","alight_note":"синие ворота"
+        }""")))
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides language.value) { OwnMeetingPoints(point.value) }
+        }
+        compose.onNodeWithText("у школы · синие ворота").assertIsDisplayed()
+        compose.onNodeWithText("Маршрут к месту высадки").assertIsEnabled().performClick()
+        val chooser = Shadows.shadowOf(context as Application).nextStartedActivity
+        assertEquals(android.content.Intent.ACTION_CHOOSER, chooser.action)
+        @Suppress("DEPRECATION")
+        val map = chooser.getParcelableExtra<android.content.Intent>(android.content.Intent.EXTRA_INTENT)
+        assertTrue(map?.dataString.orEmpty().startsWith("geo:52.7,58.6?q=52.7,58.6("))
+        compose.runOnIdle { language.value = AppLanguage.Ba }
+        compose.onNodeWithText("мәктәп янында · синие ворота").assertIsDisplayed()
+        compose.runOnIdle { point.value = point.value.copy(alightLandmarkBa = "") }
+        compose.onNodeWithText("у школы · синие ворота").assertIsDisplayed()
+        compose.runOnIdle { point.value = point.value.copy(alightLandmarkRu = "", alightNote = "") }
+        compose.onNodeWithText("Карталағы нөктә").assertIsDisplayed()
+        compose.runOnIdle { point.value = point.value.copy(role = "driver") }
+        compose.onNodeWithText("Төшөү урыны").assertDoesNotExist()
+        compose.runOnIdle { point.value = point.value.copy(role = "passenger", status = "done") }
+        compose.onNodeWithText("Төшөү урыны").assertIsDisplayed()
+        compose.runOnIdle { point.value = point.value.copy(status = "cancelled") }
+        compose.onNodeWithText("Төшөү урыны").assertIsDisplayed()
+        compose.runOnIdle { point.value = point.value.copy(status = "confirmed", alightLat = null, alightLng = null) }
+        compose.onNodeWithText("Төшөү урыны").assertDoesNotExist()
+    }
+
+    @Test fun ownPickupDoesNotNeedUnlockedContactsAndOnboardCanEditOnlyDropoff() {
+        val point = mutableStateOf(com.yuldash.app.data.parseBookingDetailsDto(JSONObject("""{
+            "booking_id":42,"role":"passenger","status":"pending","contact_unlocked":false,
+            "meet_note":"Моя посадка","alight_note":"Моя высадка"
+        }""")))
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) { PassengerMeetingPoints(point.value) {} }
+        }
+        compose.onNodeWithText("Моя посадка").assertIsDisplayed()
+        compose.onNodeWithText("Моя высадка").assertIsDisplayed()
+        compose.onNodeWithText("Изменить место посадки").assertIsEnabled()
+        compose.onNodeWithText("Изменить место высадки").assertIsEnabled()
+        compose.runOnIdle { point.value = point.value.copy(status = "onboard") }
+        compose.onNodeWithText("Моя высадка").assertIsDisplayed()
+        compose.onNodeWithText("Изменить место посадки").assertDoesNotExist()
+        compose.onNodeWithText("Изменить место высадки").assertIsEnabled()
+        compose.runOnIdle { point.value = point.value.copy(status = "done") }
+        compose.onNodeWithText("Моя посадка").assertIsDisplayed()
+        compose.onNodeWithText("Моя высадка").assertIsDisplayed()
+        compose.onNodeWithText("Изменить место высадки").assertDoesNotExist()
+    }
+
+    @Test fun meetingEditorKeepsFailedDraftAndClosesOnlyAfterSuccess() {
+        val d = com.yuldash.app.data.parseBookingDetailsDto(JSONObject("""{
+            "booking_id":42,"role":"passenger","status":"onboard","alight_note":"старое",
+            "alight_landmark_id":18,"alight_landmark_ru":"у школы","alight_landmark_ba":"мәктәп янында"
+        }"""))
+        val busy = mutableStateOf(false)
+        val error = mutableStateOf<String?>(null)
+        var sent: com.yuldash.app.data.MeetingPointInput? = null
+        var saved: (() -> Unit)? = null
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                BookingMeetingActions(d, busy = busy.value, error = error.value,
+                    onPropose = { kind, point, onSaved ->
+                        assertEquals("dropoff", kind); sent = point; saved = onSaved; busy.value = true
+                    }, onWithdraw = {})
+            }
+        }
+        compose.onNodeWithText("Изменить место высадки").performClick()
+        compose.onNode(hasSetTextAction()).performTextReplacement("новые ворота")
+        compose.onNodeWithText("Готово").performClick()
+        assertEquals("новые ворота", sent?.note)
+        assertEquals(18, sent?.landmarkId)
+        compose.runOnIdle { busy.value = false; error.value = "Не получилось сохранить" }
+        compose.onNodeWithText("Не получилось сохранить").assertIsDisplayed()
+        compose.onNode(hasSetTextAction()).assertTextContains("новые ворота")
+        compose.runOnIdle { saved?.invoke() }
+        compose.onNode(hasSetTextAction()).assertDoesNotExist()
+    }
+
+    @Test fun landmarkChipsResetCityImmediatelyAndOfferRetryOrMapWhenEmpty() {
+        holdFirstCity = true
+        val city = mutableStateOf("Уфа")
+        compose.setContent {
+            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                PickupSuggestionChips(city.value, selectedId = null) {}
+            }
+        }
+        compose.onNodeWithText("Загружаем ориентиры…").assertExists()
+        releaseFirstCity.countDown()
+        fun awaitText(text: String) = compose.waitUntil(15000) {
+            settle(); compose.mainClock.advanceTimeBy(100)
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        }
+        awaitText("Ориентир Уфа")
+        holdSecondCity = true; pickupPointsFailure = true
+        compose.runOnIdle { city.value = "Сибай" }
+        compose.onNodeWithText("Ориентир Уфа").assertDoesNotExist()
+        compose.onNodeWithText("Загружаем ориентиры…").assertExists()
+        compose.waitUntil(15000) { settle(); compose.mainClock.advanceTimeBy(100); secondCityHeld.count == 0L }
+        releaseSecondCity.countDown()
+        awaitText("Повторить")
+        pickupPointsFailure = false; pickupPointsEmpty = true
+        compose.onNodeWithText("Повторить").performClick()
+        awaitText("Ориентиров пока нет — поставь точку на карте")
+        compose.onNodeWithText("Ориентир Уфа").assertDoesNotExist()
+    }
 
     @Test fun confirmedPassengerSeesPhoneCarPlateAndMeetingPointWithoutBookingScreen() {
         openScreen()

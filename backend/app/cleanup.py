@@ -927,7 +927,7 @@ def scrub_meeting_points(now=None) -> int:
     wipe = text(
         "UPDATE booking SET meet_lat=NULL, meet_lng=NULL, alight_lat=NULL, alight_lng=NULL, "
         "meet_note='', alight_note='', meet_landmark_id=NULL, alight_landmark_id=NULL, "
-        "meet_proposal='' WHERE id IN :ids"
+        f"meet_proposal='' WHERE id IN :ids AND ({where})"
     ).bindparams(bindparam("ids", expanding=True))
     while True:
         with engine.begin() as conn:
@@ -935,8 +935,9 @@ def scrub_meeting_points(now=None) -> int:
                 text(f"SELECT id FROM booking WHERE {where} LIMIT 2000"), {"cut": cut}).all()]
             if not ids:
                 break
-            conn.execute(wipe, {"ids": ids})
-            total += len(ids)
+            # READ COMMITTED: защита/срок могли измениться после SELECT — решает свежий UPDATE.
+            result = conn.execute(wipe, {"ids": ids, "cut": cut})
+            total += result.rowcount
             if len(ids) < 2000:
                 break
     return total

@@ -55,6 +55,8 @@ internal data class TripContacts(
     val pickup: String,
     val pickupLat: Double?,
     val pickupLng: Double?,
+    val pickupBa: String = pickup,
+    val exactMeeting: Boolean = false,
 )
 
 /** Брони, по которым открыты телефон и встреча (сервер решает сам — `contact_unlocked`). */
@@ -73,9 +75,11 @@ internal fun passengerContacts(d: BookingDetailsDto): TripContacts? =
         phone = d.driverPhone,
         car = listOf(d.driverCarColor, d.driverCar).filter { it.isNotBlank() }.joinToString(" "),
         plate = d.driverPlate,
-        pickup = d.pickup,
-        pickupLat = d.pickupLat,
-        pickupLng = d.pickupLng,
+        pickup = meetingContactLabel(d.meetLandmarkRu, d.meetNote, d.pickup, d.meetLat != null),
+        pickupLat = d.meetLat ?: d.pickupLat,
+        pickupLng = d.meetLng ?: d.pickupLng,
+        pickupBa = meetingContactLabel(d.meetLandmarkBa.ifBlank { d.meetLandmarkRu }, d.meetNote, d.pickup, d.meetLat != null),
+        exactMeeting = d.meetLat != null || d.meetNote.isNotBlank() || d.meetLandmarkRu.isNotBlank(),
     )
 
 /** Водитель звонит пассажиру только по живой подтверждённой брони, номер которой сервер открыл. */
@@ -98,8 +102,17 @@ internal suspend fun saveActiveTripBoardingCode(
 }
 
 /** Те же данные из офлайн-паспорта — на трассе без связи. */
-internal fun TripPass.contacts(): TripContacts =
-    TripContacts(driverPhone, driverCar, driverPlate, pickup, pickupLat, pickupLng)
+internal fun meetingContactLabel(landmark: String, note: String, fallback: String, hasPin: Boolean): String =
+    listOf(landmark, note).filter { it.isNotBlank() }.joinToString(" · ")
+        .ifBlank { if (hasPin) "" else fallback }
+
+internal fun TripPass.contacts(): TripContacts = TripContacts(
+    driverPhone, driverCar, driverPlate,
+    meetingContactLabel(meetLandmarkRu, meetNote, pickup, meetLat != null),
+    meetLat ?: pickupLat, meetLng ?: pickupLng,
+    pickupBa = meetingContactLabel(meetLandmarkBa.ifBlank { meetLandmarkRu }, meetNote, pickup, meetLat != null),
+    exactMeeting = meetLat != null || meetNote.isNotBlank() || meetLandmarkRu.isNotBlank(),
+)
 
 /** «белая Lada Vesta · А123ВС 102» — машину у подъезда сверяют по номеру, а не по цвету. */
 internal fun tripCarSummary(contacts: TripContacts?, rideCar: String?): String =
@@ -160,6 +173,9 @@ internal suspend fun saveTripPass(
             payMethod = d.payMethod,
             payAmount = d.payAmount,
             pickupStop = d.pickupStop, dropoffStop = d.dropoffStop, rideHasStops = d.rideHasStops,
+            // RS-03 А: своя точка встречи — в паспорт, чтобы показать и без сети.
+            meetLat = d.meetLat, meetLng = d.meetLng, meetNote = d.meetNote,
+            meetLandmarkRu = d.meetLandmarkRu, meetLandmarkBa = d.meetLandmarkBa,
         ),
         retryMigration = retryMigration,
         expectedGeneration = expectedGeneration,
@@ -171,7 +187,7 @@ internal suspend fun saveTripPass(
  * встречи с кнопкой карты. Машина с номером — в карточке водителя над ней.
  */
 @Composable
-internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier = Modifier) {
+internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier = Modifier, showMeeting: Boolean = true) {
     val context = LocalContext.current
     AppCard(modifier) {
         Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
@@ -186,24 +202,29 @@ internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier =
                     ) { dialDriver(context, contacts.phone) },
                 )
             }
-            ContactRow(
-                icon = Icons.Default.LocationOn,
-                label = appText("Место встречи", "Осрашыу урыны"),
-                value = contacts.pickup.ifBlank { appText("Уточни точку в чате", "Нөктәне чатта асыҡла") },
-            )
-            val lat = contacts.pickupLat
-            val lng = contacts.pickupLng
-            if (lat != null && lng != null) {
-                val meet = appText("Место встречи", "Осрашыу урыны")
-                AppButton(
-                    text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
-                    onClick = {
-                        val uri = Uri.parse("geo:$lat,$lng?q=$lat,$lng(" + Uri.encode(meet) + ")")
-                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+            if (showMeeting) {
+                ContactRow(
+                    icon = Icons.Default.LocationOn,
+                    label = appText("Место встречи", "Осрашыу урыны"),
+                    value = (if (LocalAppLanguage.current == AppLanguage.Ba) contacts.pickupBa else contacts.pickup).ifBlank {
+                        if (contacts.exactMeeting) appText("Точка на карте", "Карталағы нөктә")
+                        else appText("Уточни точку в чате", "Нөктәне чатта асыҡла")
                     },
-                    style = AppButtonStyle.Secondary,
-                    icon = Icons.Default.Map,
                 )
+                val lat = contacts.pickupLat
+                val lng = contacts.pickupLng
+                if (lat != null && lng != null) {
+                    val meet = appText("Место встречи", "Осрашыу урыны")
+                    AppButton(
+                        text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
+                        onClick = {
+                            val uri = Uri.parse("geo:$lat,$lng?q=$lat,$lng(" + Uri.encode(meet) + ")")
+                            runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
+                        },
+                        style = AppButtonStyle.Secondary,
+                        icon = Icons.Default.Map,
+                    )
+                }
             }
         }
     }

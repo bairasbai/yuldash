@@ -76,12 +76,18 @@ internal fun DriverMeetingProposal(
     val context = androidx.compose.ui.platform.LocalContext.current
     Column(Modifier.fillMaxWidth().padding(top = CanonSpace.xs), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
         Text(
-            if (proposal.kind == "dropoff") appText("Пассажир просит высадить в другом месте", "Пассажир башҡа урында төшөрөүҙе һорай")
+            if (proposal.clear && proposal.kind == "dropoff") appText("Пассажир просит убрать точное место высадки", "Пассажир төшөүҙең теүәл урынын алып ташлауҙы һорай")
+            else if (proposal.clear) appText("Пассажир просит убрать точное место посадки", "Пассажир ултырыуҙың теүәл урынын алып ташлауҙы һорай")
+            else if (proposal.kind == "dropoff") appText("Пассажир просит высадить в другом месте", "Пассажир башҡа урында төшөрөүҙе һорай")
             else appText("Пассажир просит встретиться в другом месте", "Пассажир башҡа урында осрашыуҙы һорай"),
             style = CanonCaption, color = CanonText, fontWeight = FontWeight.Bold,
         )
-        if (proposal.note.isNotBlank()) Text(proposal.note, style = CanonCaption, color = CanonMuted)
-        if (proposal.lat != null && proposal.lng != null) {
+        if (proposal.clear) {
+            Text(if (proposal.kind == "dropoff") appText("Точную точку и пояснение уберём. Место высадки по маршруту останется прежним; детали можно уточнить в чате.", "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса төшөү урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин.")
+                 else appText("Точную точку и пояснение уберём. Место посадки по маршруту останется прежним; детали можно уточнить в чате.", "Теүәл нөктәне һәм аңлатманы алып ташлаясаҡбыҙ. Маршрут буйынса ултырыу урыны үҙгәрмәй; ентеклектәрҙе чатта асыҡларға мөмкин."), style = CanonCaption, color = CanonMuted)
+        }
+        if (!proposal.clear && proposal.note.isNotBlank()) Text(proposal.note, style = CanonCaption, color = CanonMuted)
+        if (!proposal.clear && proposal.lat != null && proposal.lng != null) {
             val label = appText("Новое место", "Яңы урын")
             Text(
                 appText("На карте →", "Картала →"),
@@ -102,13 +108,13 @@ internal fun DriverMeetingProposal(
             Button(
                 onClick = { onAnswer(true) }, enabled = !busy,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                shape = RoundedCornerShape(14.dp),
+                shape = CanonFieldShape,
                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
             ) { Text(appText("Согласиться", "Ризалашыу"), fontWeight = FontWeight.Bold) }
             OutlinedButton(
                 onClick = { onAnswer(false) }, enabled = !busy,
                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),
-                shape = RoundedCornerShape(14.dp),
+                shape = CanonFieldShape,
             ) { Text(appText("Оставить прежнее", "Иҫкене ҡалдырыу"), color = CanonMuted) }
         }
     }
@@ -156,6 +162,19 @@ internal fun PassengerMeetingPoint(b: DriverBookingDto) {
             val alightText = listOf(lmAlight, b.alightNote).filter { it.isNotBlank() }.joinToString(" · ")
             if (alightText.isNotBlank()) {
                 Text(appText("Высадить: ", "Төшөрөргә: ") + alightText, style = CanonCaption, color = CanonText)
+            }
+            if (b.alightLat != null && b.alightLng != null) {
+                val label = appText("Место высадки", "Төшөү урыны")
+                Text(
+                    appText("Маршрут к месту высадки →", "Төшөү урынына маршрут →"),
+                    style = CanonCaption, color = CanonGreen2,
+                    modifier = Modifier.heightIn(min = 48.dp).clickable(onClickLabel = label) {
+                        val uri = android.net.Uri.parse(
+                            "geo:${b.alightLat},${b.alightLng}?q=${b.alightLat},${b.alightLng}(" + android.net.Uri.encode(label) + ")")
+                        runCatching { context.startActivity(android.content.Intent.createChooser(
+                            android.content.Intent(android.content.Intent.ACTION_VIEW, uri), null)) }
+                    },
+                )
             }
         }
     }

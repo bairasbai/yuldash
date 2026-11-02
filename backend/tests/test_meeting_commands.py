@@ -198,3 +198,116 @@ def test_cancel_clears_active_proposal(client, user_factory, pushes):
         b = s.get(Booking, bid)
         assert b.meet_proposal == "", "отмена сняла предложение"
         assert b.meet_version == 2, "и подняла версию в своей транзакции"
+
+
+def test_pickup_rechecks_boarding_after_moderation(client, user_factory, monkeypatch):
+    import app.routers.meeting as commands
+    drv, pax, ride, bid, _ = _make(client, user_factory)
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    relock = commands._relock
+
+    def board_before_relock(session, booking_id, ride_id):
+        with Session(engine) as other:
+            booking = other.get(Booking, booking_id)
+            booking.status = "onboard"
+            other.add(booking)
+            other.commit()
+        return relock(session, booking_id, ride_id)
+
+    monkeypatch.setattr(commands, "_relock", board_before_relock)
+    response = _propose(client, pax, bid, base=0, pid="late-pickup")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "meeting_point_onboard"
+    with Session(engine) as session:
+        assert session.get(Booking, bid).meet_proposal == ""
+
+
+def test_transition_lock_refreshes_proposal_before_cleanup(client, user_factory):
+    from app.meeting_points import clear_proposal_on_transition
+    from app.routers.bookings import _lock_meeting_transition
+    drv, pax, ride, bid, _ = _make(client, user_factory)
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    with Session(engine) as stale:
+        booking = stale.get(Booking, bid)
+        row = stale.get(Ride, ride["id"])
+        assert booking.meet_proposal == ""
+        assert _propose(client, pax, bid, base=0, pid="after-read").status_code == 200
+        booking, row = _lock_meeting_transition(stale, booking, row)
+        assert booking.meet_proposal and booking.meet_version == 1
+        assert "meet_proposal" in clear_proposal_on_transition(booking, only_kind="pickup")
+
+
+def test_pending_same_point_replay_preserves_version_and_limit(client, user_factory, pushes):
+    drv, pax, ride, bid, _ = _make(client, user_factory)
+    pushes.clear()
+    first = _propose(client, pax, bid, base=0, note="у школы")
+    assert first.status_code == 200
+    # Потерянный ответ: клиент повторяет исходную версию, а не знает новую.
+    retry = _propose(client, pax, bid, base=0, note="у школы")
+    assert retry.status_code == 200 and retry.json()["already"] is True
+    assert retry.json()["meeting_version"] == 1
+    with Session(engine) as session:
+        booking = session.get(Booking, bid)
+        assert booking.meet_changes == 1
+        booking.meet_changes = 5
+        session.add(booking)
+        session.commit()
+    # Лимит исчерпан, но повтор уже сохранённой точки не является изменением.
+    retry = _propose(client, pax, bid, base=0, note="у школы")
+    assert retry.status_code == 200 and retry.json()["already"] is True
+    assert retry.json()["meeting_version"] == 1
+    with Session(engine) as session:
+        booking = session.get(Booking, bid)
+        assert booking.meet_changes == 5 and booking.meet_version == 1
+    assert pushes == []
+
+
+@pytest.mark.parametrize("lat,lng", [(91, 58.664), (-91, 58.664), (52.716, 418.664), (52.716, -181)])
+def test_propose_out_of_range_preserves_point_and_version(client, user_factory, lat, lng):
+    drv, pax, ride, bid, _ = _make(client, user_factory)
+    response = _propose(client, pax, bid, base=0, lat=lat, lng=lng)
+    assert response.status_code == 400, response.text
+    assert response.json()["detail"]["code"] == "meeting_point_bad"
+    with Session(engine) as session:
+        booking = session.get(Booking, bid)
+        assert booking.meet_version == 0 and booking.meet_changes == 0 and booking.meet_lat is None
+
+
+@pytest.mark.parametrize("action", ["cancel", "complete", "family"])
+def test_all_terminal_paths_clear_proposal_once(client, user_factory, action):
+    drv, pax, ride, bid, _ = _make(client, user_factory)
+    assert client.post(f"/bookings/{bid}/confirm", headers=drv["auth"]).status_code == 200
+    assert _propose(client, pax, bid, base=0, pid="terminal-path").status_code == 200
+    pending_id = None
+    if action != "family":
+        other = user_factory("MC Pending Terminal")
+        pending = client.post("/bookings", headers=other["auth"], json={"ride_id": ride["id"], "seats": 1})
+        assert pending.status_code == 200, pending.text
+        pending_id = pending.json()["id"]
+    with Session(engine) as session:
+        row = session.get(Ride, ride["id"])
+        row.depart_at = utcnow() - timedelta(hours=2)
+        booking = session.get(Booking, bid)
+        if action == "family":
+            booking.status = "onboard"
+            booking.onboard_at = utcnow() - timedelta(minutes=10)
+        seats_before = row.seats_left
+        price_before = booking.price
+        session.add(row)
+        session.add(booking)
+        session.commit()
+    path = f"/bookings/{bid}/trip-status" if action == "family" else f"/rides/{ride['id']}/{action}"
+    auth = pax["auth"] if action == "family" else drv["auth"]
+    kwargs = {"json": {"status": "done"}} if action == "family" else {}
+    for _ in range(2):
+        response = client.post(path, headers=auth, **kwargs)
+        assert response.status_code == 200, response.text
+        with Session(engine) as session:
+            booking = session.get(Booking, bid)
+            assert booking.status == ("cancelled" if action == "cancel" else "done")
+            assert booking.meet_proposal == "" and booking.meet_version == 2
+            assert booking.price == price_before
+            if pending_id is not None:
+                pending = session.get(Booking, pending_id)
+                assert pending.status == "cancelled" and pending.meet_proposal == "" and pending.meet_version == 0
+            assert session.get(Ride, ride["id"]).seats_left == seats_before

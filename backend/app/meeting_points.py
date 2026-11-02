@@ -85,19 +85,21 @@ def _place_kind(city: str, entry) -> str:
 
 def validate_meeting(session, ride: Ride, kind: str,
                      body: Optional[MeetingIn], *, stop_name: str = "", user_id: Optional[int] = None,
-                     booking_id: Optional[int] = None, entry=None) -> Optional[tuple]:
+                     booking_id: Optional[int] = None, entry=None,
+                     skip_moderation: bool = False) -> Optional[tuple]:
     """Проверка точки. Возврат: None (не задано/clear) или (lat, lng, note, landmark_id).
 
     kind: "pickup" | "dropoff"; stop_name — уже разобранная остановка посадки/высадки брони
     ("" — начало/конец маршрута). Ошибки — herr с кодом (RS-01): координаты в тексте не носим.
     Модерация пояснения идёт ДО любых изменений объектов (она коммитит сессию, план §3.3) —
-    вызывающий после неё заново берёт строки под замок и повторяет проверки."""
+    вызывающий после неё заново берёт строки под замок и повторяет проверки; повторная
+    геометрическая проверка после перезахвата — со skip_moderation=True (не считать дважды)."""
     if body is None:
         return None
     entry = entry or ride_stops.snapshot_cached()
     # Пояснение — открытый текст: модерация до всего остального (она коммитит сессию).
     note = (body.note or "").strip()[:120]
-    if note:
+    if note and not skip_moderation:
         moderate_open_text(note, user_id, check_contact=False, place="meeting_note",
                            ref_id=booking_id, session=session)
     if body.clear:
@@ -112,12 +114,19 @@ def validate_meeting(session, ride: Ride, kind: str,
                        code="meeting_landmark_unknown")
     if body.lat is None or body.lng is None:
         if landmark is not None and landmark.lat is not None and landmark.lng is not None:
-            return (landmark.lat, landmark.lng, note, landmark.id)
-        if not note and landmark is None:
+            lat, lng = landmark.lat, landmark.lng
+        else:
+            lat, lng = None, None
+        if lat is None and not note and landmark is None:
             return None
         # Есть пояснение без точки — разрешаем (место словами); радиус не проверяем.
-        return (None, None, note, landmark.id if landmark else None)
-    if not (_finite(body.lat) and _finite(body.lng)) or (body.lat == 0.0 and body.lng == 0.0):
+        if lat is None:
+            return (None, None, note, landmark.id if landmark else None)
+    else:
+        lat, lng = body.lat, body.lng
+    if (not (_finite(lat) and _finite(lng))
+            or not (-90 <= lat <= 90 and -180 <= lng <= 180)
+            or (lat == 0.0 and lng == 0.0)):
         raise herr(400, "Точка на карте не распознана — поставь её ещё раз",
                    "Картаһалағы нөктә уҡылманы — тағы ҡуй", code="meeting_point_bad")
     # Радиус от опоры: точка не может уехать за пределы места посадки/высадки.
@@ -126,20 +135,20 @@ def validate_meeting(session, ride: Ride, kind: str,
         # Опора неизвестна — коридор от прямой маршрута (как у тёзок-остановок).
         ends = ride_stops._route_coords(ride)
         if ends is not None:
-            d = ride_stops._to_segment_km((body.lat, body.lng), ends[0], ends[1])
+            d = ride_stops._to_segment_km((lat, lng), ends[0], ends[1])
             if d > settings.stop_corridor_km:
                 raise herr(400, "Точка далеко от маршрута — выбери место по пути или договорись в чате",
                            "Нөктә юлдан алыҫ — юл буйынса урын һайла йәки чатта һөйләш",
                            code="meeting_point_far")
-        return (body.lat, body.lng, note, landmark.id if landmark else None)
+        return (lat, lng, note, landmark.id if landmark else None)
     limit = settings.meeting_point_village_km if akind == "village" else settings.meeting_point_city_km
-    d = ride_stops.haversine_km(anchor[0], anchor[1], body.lat, body.lng)
+    d = ride_stops.haversine_km(anchor[0], anchor[1], lat, lng)
     if d > limit:
         place = stop_name or (ride.from_city if kind == "pickup" else ride.to_city)
         raise herr(400, f"Точка далеко от «{place}» — выбери место в самом селе или договорись в чате",
                    f"«{place}» эсенән алыҫ нөктә — ауылдың үҙ эсендә урын һайла йәки чатта һөйләш",
                    code="meeting_point_far")
-    return (body.lat, body.lng, note, landmark.id if landmark else None)
+    return (lat, lng, note, landmark.id if landmark else None)
 
 
 def gps_target(ride: Ride, booking: Booking, entry=None) -> Optional[tuple[float, float]]:
@@ -216,15 +225,15 @@ def booking_public_dto(session, booking: Booking, ride: Ride, viewer_id: int) ->
             "meeting_proposal": proposal,
         })
     else:
-        # До подтверждения и после закрытия — только факты «указано/есть предложение».
+        # До подтверждения и после закрытия — только факты «указано/есть предложение» (§3.6:
+        # водителю при pending/terminal — булевы, формы предложения нет даже без координат).
         out.update({
             "pickup_lat": None, "pickup_lng": None, "pickup_note": "",
             "pickup_landmark_ru": "", "pickup_landmark_ba": "", "pickup_source": "",
             "dropoff_lat": None, "dropoff_lng": None, "dropoff_note": "",
             "dropoff_landmark_ru": "", "dropoff_landmark_ba": "", "dropoff_source": "",
             "meeting_version": booking.meet_version if is_driver else 0,
-            "meeting_proposal": ({"proposal_id": proposal["proposal_id"], "kind": proposal["kind"]}
-                                 if (is_driver and proposal) else None),
+            "meeting_proposal": None,
         })
     out["meeting_point_set"] = bool(has_meet or has_alight)
     out["meeting_proposal_pending"] = proposal is not None
@@ -264,21 +273,20 @@ def details_meeting_fields(session, booking: Booking, ride: Ride, viewer_id: int
     if not see:
         return {
             "meet_lat": None, "meet_lng": None, "meet_note": "",
-            "meet_landmark_ru": "", "meet_landmark_ba": "",
+            "meet_landmark_id": None, "meet_landmark_ru": "", "meet_landmark_ba": "",
             "alight_lat": None, "alight_lng": None, "alight_note": "",
-            "alight_landmark_ru": "", "alight_landmark_ba": "",
+            "alight_landmark_id": None, "alight_landmark_ru": "", "alight_landmark_ba": "",
             "meeting_version": booking.meet_version if is_driver else 0,
-            "meeting_proposal": ({"proposal_id": proposal["proposal_id"], "kind": proposal["kind"]}
-                                 if (is_driver and proposal) else None),
+            "meeting_proposal": None,
         }
     names = _landmark_names(session, {booking.meet_landmark_id, booking.alight_landmark_id})
     m_ru, m_ba = names.get(booking.meet_landmark_id, ("", ""))
     a_ru, a_ba = names.get(booking.alight_landmark_id, ("", ""))
     return {
         "meet_lat": booking.meet_lat, "meet_lng": booking.meet_lng, "meet_note": booking.meet_note,
-        "meet_landmark_ru": m_ru, "meet_landmark_ba": m_ba,
+        "meet_landmark_id": booking.meet_landmark_id, "meet_landmark_ru": m_ru, "meet_landmark_ba": m_ba,
         "alight_lat": booking.alight_lat, "alight_lng": booking.alight_lng, "alight_note": booking.alight_note,
-        "alight_landmark_ru": a_ru, "alight_landmark_ba": a_ba,
+        "alight_landmark_id": booking.alight_landmark_id, "alight_landmark_ru": a_ru, "alight_landmark_ba": a_ba,
         "meeting_version": booking.meet_version,
         "meeting_proposal": proposal,
     }
@@ -317,7 +325,9 @@ def new_proposal_id() -> str:
 def clear_proposal_on_transition(booking: Booking, *, only_kind: Optional[str] = None) -> dict:
     """Значения UPDATE при смене статуса брони (RS-03 Б): отмена/неявка/завершение снимают
     активное предложение (+meet_version в той же транзакции); посадка (onboard) снимает
-    только предложение ПОСАДКИ (only_kind="pickup"), высадку сохраняет. Нечего снимать — {}."""
+    только предложение ПОСАДКИ (only_kind="pickup"), высадку сохраняет. Нечего снимать — {}.
+    Версию поднимает SQL-выражение (не прочитанное до замка число): UPDATE условный по статусу,
+    гонка разводится самой базой."""
     if not booking.meet_proposal:
         return {}
     if only_kind is not None:
@@ -328,7 +338,7 @@ def clear_proposal_on_transition(booking: Booking, *, only_kind: Optional[str] =
             kind = None
         if kind != only_kind:
             return {}
-    return {"meet_proposal": "", "meet_version": booking.meet_version + 1}
+    return {"meet_proposal": "", "meet_version": Booking.meet_version + 1}
 
 
 def same_point(stored: tuple, validated: Optional[tuple]) -> bool:
