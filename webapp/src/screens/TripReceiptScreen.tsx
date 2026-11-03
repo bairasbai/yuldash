@@ -17,6 +17,7 @@ import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare, IconSearch } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+import { receiptPdfContent } from "../utils/receiptPdf";
 
 type State =
   | { kind: "loading" }
@@ -41,6 +42,10 @@ export default function TripReceiptScreen() {
   const thanksRequest = useRef<object | null>(null);
   const lostRequest = useRef<object | null>(null);
   const shareTimer = useRef<number | null>(null);
+  const pdfOperation = useRef<object | null>(null);
+  const [pdfState, setPdfState] = useState<{ owner: string; busy: boolean; error: boolean }>({ owner: ownerKey, busy: false, error: false });
+  const pdfBusy = pdfState.owner === ownerKey && pdfState.busy;
+  const pdfError = pdfState.owner === ownerKey && pdfState.error;
   const [ownedState, setOwnedState] = useState<{ owner: string; value: State }>({ owner: ownerKey, value: { kind: "loading" } });
   const state: State = ownedState.owner === ownerKey ? ownedState.value : { kind: "loading" };
   if (ownedState.owner !== ownerKey) readyReceipt.current = null;
@@ -51,6 +56,8 @@ export default function TripReceiptScreen() {
   const load = useCallback(
     () => {
       if (!current()) return;
+      pdfOperation.current = null;
+      setPdfState({ owner: ownerKey, busy: false, error: false });
       receiptRequest.current?.abort(); tipRequest.current?.abort();
       const ac = new AbortController(); receiptRequest.current = ac;
       const signal = ac.signal;
@@ -88,7 +95,7 @@ export default function TripReceiptScreen() {
     mounted.current = true;
     load();
     return () => {
-      mounted.current = false; readyReceipt.current = null;
+      mounted.current = false; readyReceipt.current = null; pdfOperation.current = null;
       receiptRequest.current?.abort(); tipRequest.current?.abort(); thanksRequest.current = null; lostRequest.current = null;
       if (shareTimer.current !== null) window.clearTimeout(shareTimer.current);
     };
@@ -213,6 +220,25 @@ ${priceLabel(r.amount, false)}`
     }
   }
 
+  async function saveReceiptPdf() {
+    if (state.kind !== "ready" || !currentReceipt(state.r) || pdfOperation.current) return;
+    const receipt = state.r;
+    const operation = {};
+    pdfOperation.current = operation;
+    const isCurrent = () => currentReceipt(receipt) && pdfOperation.current === operation;
+    setPdfState({ owner: ownerKey, busy: true, error: false });
+    try {
+      const { downloadTextPdf } = await import("../utils/localPdf");
+      if (!isCurrent()) return;
+      await downloadTextPdf({ ...receiptPdfContent(receipt, ru), filename: "yuldash-trip.pdf", isCurrent });
+    } catch {
+      if (isCurrent()) setPdfState({ owner: ownerKey, busy: false, error: true });
+    } finally {
+      if (isCurrent()) setPdfState(value => ({ ...value, busy: false }));
+      if (pdfOperation.current === operation) pdfOperation.current = null;
+    }
+  }
+
   return (
     <>
       <SubHeader
@@ -318,6 +344,11 @@ ${priceLabel(r.amount, false)}`
               ? appText("Скопировано", "Күсерелде")
               : appText("Поделиться квитанцией", "Квитанция менән бүлешеү")}
           </button>
+
+          <button type="button" className="btn-soft" disabled={pdfBusy} aria-busy={pdfBusy} onClick={() => void saveReceiptPdf()}>
+            <IconReceipt size={18} />{" "}{pdfBusy ? appText("Готовим PDF…", "PDF әҙерләйбеҙ…") : appText("Скачать PDF", "PDF-ты күсереп алырға")}
+          </button>
+          {pdfError && <p role="alert">{appText("Не удалось сохранить PDF. Повтори.", "PDF-ты һаҡлап булманы. Ҡабатла.")}</p>}
 
           {/* Неоплаченная поездка — способ рассчитаться. Оплачено: блока нет. */}
           {passengerReceipt && !state.r.paid && (

@@ -23,6 +23,8 @@ export default defineConfig({
           // один человек, у которого всегда есть сеть. Класть её всем в кеш —
           // это лишние мегабайты мобильного трафика при первом визите.
           "**/assets/Admin*.js",
+          // PDF is optional: fetch its generator only after the person's click.
+          "**/assets/pdfGenerator-*.js",
         ],
         navigateFallback: "/index.html",
         // Подключаем наш обработчик Web Push (push / notificationclick) к
