@@ -1,0 +1,7 @@
+{
+  "schemaVersion": 1,
+  "records": [
+    {"id": "demo-yuldash-1", "project": "yuldash", "text": "Не удаётся повторить поиск маршрута после смены даты."},
+    {"id": "demo-tili-1", "project": "tili", "text": "Удобно скачать список гостей одним файлом."}
+  ]
+}
