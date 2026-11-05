@@ -1364,7 +1364,7 @@ private fun YandexMapCard(
             }
             added += map.mapObjects.addPlacemark().apply {
                 geometry = fromPt
-                setIcon(ImageProvider.fromBitmap(ridePinBitmap("${trip.price} ₽", trip.boosted)))
+                setIcon(ImageProvider.fromBitmap(ridePinBitmap(kopToRub(rideshareRubToKop(trip.price)), trip.boosted)))
                 setIconStyle(IconStyle().setAnchor(PointF(0.5f, 0f)))
                 userData = trip.id
                 addTapListener(tapListener)

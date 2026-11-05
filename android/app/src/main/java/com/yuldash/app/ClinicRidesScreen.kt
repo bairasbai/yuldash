@@ -289,7 +289,7 @@ private fun ClinicRideCard(dto: RideDto, onBook: () -> Unit) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 MetaChip(Icons.Default.Schedule, time)
                 MetaChip(Icons.Default.EventSeat, appText("${ride.seats} мест", "${ride.seats} урын"))
-                MetaChip(Icons.Default.Star, String.format(java.util.Locale.US, "%.1f", ride.rating))
+                MetaChip(Icons.Default.Star, if (ride.rating > 0.0) String.format(java.util.Locale.US, "%.1f", ride.rating) else appText("Нет оценок", "Баһалар юҡ"))
             }
             // Двуязычный дефолт имени водителя (toUiRide больше не кладёт русский литерал). BA-draft: «Йөрөтөүсе».
             val driverFallback = appText("Водитель", "Йөрөтөүсе")

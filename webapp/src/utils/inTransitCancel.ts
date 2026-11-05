@@ -1,46 +1,38 @@
-// ================================================================
-//  Отмена в пути, которую эта вкладка уже видела (приёмка PR207, №3). Зеркало Android
-//  InTransitCancels (CancelledInTransit.kt).
-//
-//  Человек на трассе со слабой связью ушёл на SOS и вернулся — а сервер не отвечает.
-//  Офлайн-паспорт к этому моменту уже удалён (в нём телефон водителя). Без этой записи экран
-//  поездки показывал бы только «Не удалось загрузить» — ни SOS, ни «Застрял на трассе», ни госномера.
-//  Не покрыто (docs/tasks.md): перезагрузка страницы совсем без сети — вход не подтверждается
-//  (RequireAuth), и до экрана поездки дело не доходит.
-//
-//  Храним в sessionStorage только номер брони (в ключе), владельца и машину с госномером —
-//  НИКОГДА телефон. Префикс `yuldash.inTransit.` стирается при выходе и смене входа
-//  (utils/privacy.ts). Хранилище недоступно (приватный режим) — молча без записи.
-// ================================================================
+import { getSessionGeneration } from "../api/client";
 
-const KEY = (bookingId: number) => `yuldash.inTransit.${bookingId}`;
+// Only a non-sensitive fact survives a reload. Vehicle/contact data require live authority.
+const KEY = (bookingId: number) => "yuldash.inTransit." + bookingId;
+export const IN_TRANSIT_MARKER_TTL_MS = 6 * 60 * 60 * 1000;
+interface Marker { owner: number; generation: string; at: number }
+export interface InTransitSnapshot { car: string; plate: string }
+const positiveId = (v: unknown): v is number => typeof v === "number" && Number.isSafeInteger(v) && v > 0;
 
-export interface InTransitSnapshot {
-  car: string;
-  plate: string;
-}
-
-/** Запись этой вкладки для брони — только своего входа. Нет, чужая или битая — null. */
-export function loadInTransitCancel(bookingId: number, owner: number | undefined): InTransitSnapshot | null {
-  if (!bookingId || owner == null) return null;
+function marker(bookingId: number): Marker | null {
+  if (!positiveId(bookingId)) return null;
   try {
     const raw = sessionStorage.getItem(KEY(bookingId));
     if (!raw) return null;
-    const v = JSON.parse(raw) as { owner?: unknown; car?: unknown; plate?: unknown } | null;
-    if (!v || v.owner !== owner) return null;
-    return { car: typeof v.car === "string" ? v.car : "", plate: typeof v.plate === "string" ? v.plate : "" };
-  } catch {
-    return null;
-  }
+    const v = JSON.parse(raw) as Marker | null;
+    const generation = getSessionGeneration();
+    if (!v || !positiveId(v.owner) || !generation || v.generation !== generation ||
+        typeof v.at !== "number" || !Number.isFinite(v.at) || v.at <= 0 ||
+        v.at > Date.now() || Date.now() - v.at > IN_TRANSIT_MARKER_TTL_MS) return null;
+    // Legacy private fields never become an offline vehicle authority.
+    if (Object.keys(v).some(key => !["owner", "generation", "at"].includes(key))) return null;
+    return getSessionGeneration() === generation ? v : null;
+  } catch { return null; }
 }
+export function hasOfflineInTransitCancel(bookingId: number): boolean { return marker(bookingId) !== null; }
 
-/** Запомнить отмену в пути. Пустая машина не стирает уже известную (сервер мог её не прислать). */
-export function rememberInTransitCancel(bookingId: number, owner: number | undefined, car: string, plate: string): void {
-  if (!bookingId || owner == null) return;
-  const old = loadInTransitCancel(bookingId, owner);
+/** Verified live user only; cached vehicle details are deliberately absent. */
+export function loadInTransitCancel(bookingId: number, owner: number | undefined): InTransitSnapshot | null {
+  const v = marker(bookingId);
+  return v && positiveId(owner) && v.owner === owner ? { car: "", plate: "" } : null;
+}
+export function rememberInTransitCancel(bookingId: number, owner: number | undefined, expectedGeneration: string): void {
   try {
-    sessionStorage.setItem(KEY(bookingId), JSON.stringify({ owner, car: car || old?.car || "", plate: plate || old?.plate || "" }));
-  } catch {
-    /* Приватный режим: экран работает и без памяти вкладки. */
-  }
+    const generation = expectedGeneration;
+    if (!positiveId(bookingId) || !positiveId(owner) || !generation || generation !== getSessionGeneration()) return;
+    sessionStorage.setItem(KEY(bookingId), JSON.stringify({ owner, generation, at: Date.now() }));
+  } catch { /* This tab may have no storage; the live screen still works. */ }
 }

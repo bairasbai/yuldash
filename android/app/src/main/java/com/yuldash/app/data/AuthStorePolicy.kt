@@ -5,7 +5,7 @@ import android.content.SharedPreferences
 /** Coordinates the two stores without guessing which account is newer after an interrupted write. */
 internal object AuthStorePolicy {
     const val STATE_KEY = "auth_store_state"
-    data class Selection(val prefs: SharedPreferences, val source: String)
+    data class Selection(val prefs: SharedPreferences, val source: String, val snapshotScopeRejected: Boolean = false)
 
     private fun commit(prefs: SharedPreferences, write: (SharedPreferences.Editor) -> Unit): Boolean =
         runCatching { prefs.edit().let { write(it); it.commit() } }.getOrDefault(false)
@@ -35,9 +35,11 @@ internal object AuthStorePolicy {
 
     fun resolve(plain: SharedPreferences, secure: SharedPreferences?): Selection {
         return try {
-            resolveSource(plain, secure).also { selected ->
+            resolveSource(plain, secure).let { selected ->
                 // Validate the whole identity before ApiClient publishes any part of it.
-                SessionKeys.CLEARED_ON_LOGOUT.forEach { read(selected.prefs, it) }
+                SessionKeys.CLEARED_ON_LOGOUT.filterNot { it == SNAPSHOT_AUTH_SCOPE }.forEach { read(selected.prefs, it) }
+                val rejected = selected.snapshotScopeRejected || runCatching { read(selected.prefs, SNAPSHOT_AUTH_SCOPE) }.isFailure
+                selected.copy(snapshotScopeRejected = rejected)
             }
         } catch (_: InvalidSavedSession) {
             // A damaged account requires sign-in again, not a crash or a permanently null store.
@@ -101,11 +103,15 @@ internal object AuthStorePolicy {
             return Selection(plain, "plain")
         }
         // Read everything before editing either store: malformed values fail closed.
-        val values = SessionKeys.CLEARED_ON_LOGOUT.associateWith { read(plain, it) }
+        var snapshotScopeRejected = false
+        val values = SessionKeys.CLEARED_ON_LOGOUT.associateWith {
+            if (it == SNAPSHOT_AUTH_SCOPE) runCatching { read(plain, it) }.getOrElse { snapshotScopeRejected = true; null }
+            else read(plain, it)
+        }
         requireSaved(commit(secure) { editor -> values.forEach { (key, value) -> editor.putString(key, value) } })
         requireSaved(state(plain, "secure"))
         requireSaved(clear(plain))
-        return Selection(secure, "secure")
+        return Selection(secure, "secure", snapshotScopeRejected)
     }
 
     fun writeSession(plain: SharedPreferences, selected: Selection, write: (SharedPreferences.Editor) -> Unit): Boolean {

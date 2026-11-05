@@ -12,7 +12,10 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.TripPassAuthorityFixture
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -46,9 +49,16 @@ class ActiveTripPassengerContactsTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(false)
     private val requests = CopyOnWriteArrayList<String>()
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     private val retryHeld = CountDownLatch(1)
     private val releaseRetry = CountDownLatch(1)
     private val retryReturned = CountDownLatch(1)
+    private val freshCodeHeld = CountDownLatch(1)
+    private val releaseFreshCode = CountDownLatch(1)
+    private val freshCodeReturned = CountDownLatch(1)
+    private val releaseOrderedDetails = CountDownLatch(1)
+    private val onboardDetailsHeld = CountDownLatch(1)
+    private val releaseOnboardDetails = CountDownLatch(1)
     private val firstDetailsHeld = CountDownLatch(1)
     private val releaseFirstDetails = CountDownLatch(1)
     private val firstDetailsReturned = CountDownLatch(1)
@@ -58,13 +68,28 @@ class ActiveTripPassengerContactsTest {
     private val releaseFirstRole = CountDownLatch(1)
     private val roleCalls = AtomicInteger()
     private val detailsCalls = AtomicInteger()
+    private val codeCalls = AtomicInteger()
     private val detailsStatuses = CopyOnWriteArrayList<String>()
     private lateinit var server: MockWebServer
+    private val passPlain = MemoryDiskPreferences()
+    private val passSecure = MemoryDiskPreferences()
+    @Volatile private var detailsOverride: JSONObject? = null
+    private val onboardEpoch = "2031-02-03T09:00:00.123456Z"
     @Volatile private var role = "passenger"
     @Volatile private var status = "confirmed"
+    @Volatile private var phase = ""
+    @Volatile private var agreementAmount: Int? = null
+    @Volatile private var cancelledInTransit = false
+    private val tripEnds = AtomicInteger()
+    private val acceptedTerminalHint = mutableStateOf<ActiveTripTerminalHint?>(null)
     @Volatile private var unlocked = true
     @Volatile private var codeUnavailable = false
     @Volatile private var holdRetry = false
+    @Volatile private var oldRetryCode = "5678"
+    @Volatile private var holdFreshCode = false
+    @Volatile private var holdOnboardDetails = false
+    @Volatile private var preparingRole = false
+    @Volatile private var orderInitialDetails = false
     @Volatile private var detailsUnavailable = false
     @Volatile private var holdFirstDetails = false
     @Volatile private var holdHistory = false
@@ -72,6 +97,7 @@ class ActiveTripPassengerContactsTest {
     private val phone = "+7 900 111-22-33"
     private val pickup = "У ТЦ «Мега», главный вход"
     private var alightingNote = ""
+    @Volatile private var meetingVersion = 2
     @Volatile private var pickupPointsFailure = false
     @Volatile private var pickupPointsEmpty = false
     @Volatile private var holdSecondCity = false
@@ -83,12 +109,17 @@ class ActiveTripPassengerContactsTest {
 
     @Before fun setup() {
         ApiClient.resetForTest()
-        ApiClient.logout() // Без настоящего входа: живой сокет чата этому экрану не нужен.
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+        TripPassStore.initStores(passPlain, passSecure)
         assertNull(TripPassStore.load(context, 42))
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (preparingRole) {
+                        preparationRequests += "${request.method} ${request.path}"
+                        return if (request.method == "GET" && request.path == "/bookings/42/role")
+                            MockResponse().setHeader("Content-Type", "application/json").setBody(roleJson())
+                        else MockResponse().setResponseCode(503).setBody("{}")
+                    }
                     requests.add("${request.method} ${request.path}")
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
                     if (request.path?.startsWith("/pickup-points?") == true) {
@@ -108,15 +139,25 @@ class ActiveTripPassengerContactsTest {
                         if (!releaseFirstRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                     }
                     if (request.path == "/bookings/42/boarding-code") {
+                        val attempt = codeCalls.incrementAndGet()
                         if (codeUnavailable) return MockResponse().setResponseCode(503).setBody("{}")
-                        if (holdRetry) {
+                        if (holdRetry && attempt == 2) {
                             retryHeld.countDown()
                             if (!releaseRetry.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                             retryReturned.countDown()
+                            return MockResponse().setHeader("Content-Type", "application/json")
+                                .setBody(JSONObject().put("code", oldRetryCode).toString())
+                        }
+                        if (holdFreshCode && attempt >= 3) {
+                            freshCodeHeld.countDown()
+                            if (!releaseFreshCode.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                            freshCodeReturned.countDown()
                         }
                     }
                     if (request.path == "/bookings/42/details") {
                         val index = detailsCalls.incrementAndGet()
+                        if (index == 1 && orderInitialDetails && !releaseOrderedDetails.await(30, TimeUnit.SECONDS))
+                            return MockResponse().setResponseCode(503)
                         // Доказываем порядок: role GET уже начался, только затем details может вернуть 503.
                         if (index == 1 && holdFirstRole && !firstRoleHeld.await(30, TimeUnit.SECONDS))
                             return MockResponse().setResponseCode(503)
@@ -127,6 +168,10 @@ class ActiveTripPassengerContactsTest {
                             return MockResponse().setResponseCode(503).setBody("{}")
                         }
                         if (detailsUnavailable) return MockResponse().setResponseCode(503).setBody("{}")
+                        if (status == "onboard" && holdOnboardDetails) {
+                            onboardDetailsHeld.countDown()
+                            if (!releaseOnboardDetails.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        }
                         detailsStatuses += status
                         return MockResponse().setHeader("Content-Type", "application/json").setBody(details())
                     }
@@ -135,7 +180,13 @@ class ActiveTripPassengerContactsTest {
                         if (!releaseHistory.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                     }
                     val body = when (request.path) {
-                        "/bookings/42/role" -> """{"role":"$role","status":"$status","driver_phase":"waiting"}"""
+                        "/bookings/42/role" -> roleJson()
+                        "/trips/42/receipt" -> JSONObject().put("booking_id", 42).put("ride_id", 17)
+                            .put("role", role).put("from_city", "Город А").put("to_city", "Город Б")
+                            .put("depart_at", "2031-02-03T09:00:00").put("seats", 1).put("amount", agreementAmount ?: 700)
+                            .put("pay_method", "cash").put("paid", false).put("driver_name", "Айдар")
+                            .put("counterparty_name", "Айдар").put("my_stars", 0).put("my_rating_tags", "").toString()
+                        "/bookings/42/tip", "/trips/42/tip" -> """{"already_thanked":false}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":"5678"}"""
                         "/bookings/42/details" -> details()
@@ -146,12 +197,15 @@ class ActiveTripPassengerContactsTest {
             }
             start()
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 45000
     }
 
     @After fun cleanup() {
         releaseRetry.countDown()
+        releaseFreshCode.countDown()
+        releaseOrderedDetails.countDown()
+        releaseOnboardDetails.countDown()
         releaseFirstDetails.countDown()
         releaseHistory.countDown()
         releaseFirstRole.countDown()
@@ -166,11 +220,17 @@ class ActiveTripPassengerContactsTest {
         server.shutdown()
     }
 
+    private fun roleJson(): String = JSONObject().put("role", role).put("status", status).put("driver_phase", phase)
+        .put("cancelled_in_transit", cancelledInTransit).put("problem_report_sec", 3600)
+        .put("onboard_at", if (status == "onboard") onboardEpoch else JSONObject.NULL).toString()
+
     /** Сервер открывает связь только участнику подтверждённой брони — так и в bookings.py. */
-    private fun details(): String = JSONObject()
+    private fun details(): String = detailsOverride?.toString() ?: JSONObject()
         .put("booking_id", 42).put("ride_id", 17).put("role", role).put("status", status)
+        .put("cancelled_in_transit", cancelledInTransit).put("problem_report_sec", 3600)
         .put("contact_unlocked", unlocked).put("from_city", "Город А").put("to_city", "Город Б")
         .put("depart_at", "2031-02-03T09:00:00").put("price", 700).put("seats", 1)
+        .put("pay_method", "cash").put("pay_amount", agreementAmount ?: JSONObject.NULL)
         .put("driver_name", "Айдар").put("driver_car", "Lada Vesta").put("passenger_name", "Гульнара")
         .put("passenger_phone", if (role == "driver" && unlocked) passengerPhone else "")
         .put("driver_phone", if (unlocked) phone else "")
@@ -178,7 +238,19 @@ class ActiveTripPassengerContactsTest {
         .put("driver_car_color", if (unlocked) "белая" else "")
         .put("pickup", if (unlocked) pickup else "")
         .put("alight_note", alightingNote)
+        .put("meeting_version", meetingVersion)
+        .put("onboard_at", if (status == "onboard") onboardEpoch else JSONObject.NULL)
         .toString()
+
+    private fun observed(value: JSONObject): com.yuldash.app.data.BookingDetailsDto = runBlocking {
+        detailsOverride = JSONObject(value.toString()).put("ride_id", 17)
+            .put("onboard_at", if (value.optString("status") == "onboard") onboardEpoch else JSONObject.NULL)
+        ApiClient.getBookingDetails(42).getOrThrow()
+    }
+    private fun publishPoint(value: JSONObject, state: androidx.compose.runtime.MutableState<com.yuldash.app.data.BookingDetailsDto>) {
+        val fresh = observed(value)
+        compose.runOnIdle { state.value = fresh }
+    }
 
     @Test fun activePassengerSeesOwnAlightingSeparateFromPickup() {
         alightingNote = "У синих ворот после моста"
@@ -195,11 +267,12 @@ class ActiveTripPassengerContactsTest {
 
     @Test fun ownPointsShowLanguageFallbackAndPinForPassengerIncludingTerminal() {
         val language = mutableStateOf(AppLanguage.Ru)
-        val point = mutableStateOf(com.yuldash.app.data.parseBookingDetailsDto(JSONObject("""{
+        val pointJson = JSONObject("""{
             "booking_id":42,"role":"passenger","status":"confirmed",
             "alight_lat":52.7,"alight_lng":58.6,
             "alight_landmark_ru":"у школы","alight_landmark_ba":"мәктәп янында","alight_note":"синие ворота"
-        }""")))
+        }""")
+        val point = mutableStateOf(observed(pointJson))
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides language.value) { OwnMeetingPoints(point.value) }
         }
@@ -212,25 +285,27 @@ class ActiveTripPassengerContactsTest {
         assertTrue(map?.dataString.orEmpty().startsWith("geo:52.7,58.6?q=52.7,58.6("))
         compose.runOnIdle { language.value = AppLanguage.Ba }
         compose.onNodeWithText("мәктәп янында · синие ворота").assertIsDisplayed()
-        compose.runOnIdle { point.value = point.value.copy(alightLandmarkBa = "") }
+        publishPoint(pointJson.put("alight_landmark_ba", ""), point)
         compose.onNodeWithText("у школы · синие ворота").assertIsDisplayed()
-        compose.runOnIdle { point.value = point.value.copy(alightLandmarkRu = "", alightNote = "") }
+        publishPoint(pointJson.put("alight_landmark_ru", "").put("alight_note", ""), point)
         compose.onNodeWithText("Карталағы нөктә").assertIsDisplayed()
+        publishPoint(pointJson.put("alight_lat", JSONObject.NULL).put("alight_lng", JSONObject.NULL), point)
+        compose.onNodeWithText("Төшөү урыны").assertDoesNotExist()
+        publishPoint(pointJson.put("alight_lat", 52.7).put("alight_lng", 58.6), point)
         compose.runOnIdle { point.value = point.value.copy(role = "driver") }
         compose.onNodeWithText("Төшөү урыны").assertDoesNotExist()
-        compose.runOnIdle { point.value = point.value.copy(role = "passenger", status = "done") }
+        publishPoint(pointJson.put("role", "passenger").put("status", "done"), point)
         compose.onNodeWithText("Төшөү урыны").assertIsDisplayed()
-        compose.runOnIdle { point.value = point.value.copy(status = "cancelled") }
+        publishPoint(pointJson.put("status", "cancelled"), point)
         compose.onNodeWithText("Төшөү урыны").assertIsDisplayed()
-        compose.runOnIdle { point.value = point.value.copy(status = "confirmed", alightLat = null, alightLng = null) }
-        compose.onNodeWithText("Төшөү урыны").assertDoesNotExist()
     }
 
     @Test fun ownPickupDoesNotNeedUnlockedContactsAndOnboardCanEditOnlyDropoff() {
-        val point = mutableStateOf(com.yuldash.app.data.parseBookingDetailsDto(JSONObject("""{
+        val pointJson = JSONObject("""{
             "booking_id":42,"role":"passenger","status":"pending","contact_unlocked":false,
             "meet_note":"Моя посадка","alight_note":"Моя высадка"
-        }""")))
+        }""")
+        val point = mutableStateOf(observed(pointJson))
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) { PassengerMeetingPoints(point.value) {} }
         }
@@ -238,18 +313,18 @@ class ActiveTripPassengerContactsTest {
         compose.onNodeWithText("Моя высадка").assertIsDisplayed()
         compose.onNodeWithText("Изменить место посадки").assertIsEnabled()
         compose.onNodeWithText("Изменить место высадки").assertIsEnabled()
-        compose.runOnIdle { point.value = point.value.copy(status = "onboard") }
+        publishPoint(pointJson.put("status", "onboard"), point)
         compose.onNodeWithText("Моя высадка").assertIsDisplayed()
         compose.onNodeWithText("Изменить место посадки").assertDoesNotExist()
         compose.onNodeWithText("Изменить место высадки").assertIsEnabled()
-        compose.runOnIdle { point.value = point.value.copy(status = "done") }
+        publishPoint(pointJson.put("status", "done"), point)
         compose.onNodeWithText("Моя посадка").assertIsDisplayed()
         compose.onNodeWithText("Моя высадка").assertIsDisplayed()
         compose.onNodeWithText("Изменить место высадки").assertDoesNotExist()
     }
 
     @Test fun meetingEditorKeepsFailedDraftAndClosesOnlyAfterSuccess() {
-        val d = com.yuldash.app.data.parseBookingDetailsDto(JSONObject("""{
+        val d = observed(JSONObject("""{
             "booking_id":42,"role":"passenger","status":"onboard","alight_note":"старое",
             "alight_landmark_id":18,"alight_landmark_ru":"у школы","alight_landmark_ba":"мәктәп янында"
         }"""))
@@ -410,7 +485,7 @@ class ActiveTripPassengerContactsTest {
             settle()
             retryHeld.count == 0L
         }
-        compose.runOnIdle { ApiClient.saveToken("local-account-B") }
+        compose.runOnIdle { ApiClient.saveToken(TripPassAuthorityFixture.jwt(8)) }
         releaseRetry.countDown()
         assertTrue(retryReturned.await(5, TimeUnit.SECONDS))
         // Ограниченное наблюдение после позднего ответа: новый вход не получает старый паспорт.
@@ -428,20 +503,46 @@ class ActiveTripPassengerContactsTest {
         startWithoutCodeOrPassport()
         codeUnavailable = false
         holdRetry = true
+        oldRetryCode = "1111"
+        holdFreshCode = true
+        holdOnboardDetails = true
         scrollTo("Повторить загрузку кода")
         compose.onNodeWithText("Повторить загрузку кода").performClick()
         compose.waitUntil(15000) { settle(); retryHeld.count == 0L }
         awaitConfirmedRole()
+        alightingNote = "У новых синих ворот"
+        meetingVersion = 3
         status = "onboard"
         pumpPollPeriod()
         compose.waitUntil(15000) {
             settle()
-            detailsStatuses.lastOrNull() == "onboard"
+            onboardDetailsHeld.count == 0L &&
+                compose.onAllNodesWithText("Доехал").fetchSemanticsNodes().isNotEmpty()
         }
+        // ROLE уже сменил эпоху: старый код закрыт до новой DETAILS и своего CODE GET.
+        compose.waitForIdle()
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42)?.takeIf { it.isNotBlank() })
+        releaseOnboardDetails.countDown()
+        compose.waitUntil(15000) { settle(); freshCodeHeld.count == 0L }
+        val latest = requireNotNull(currentTripPrivateDetails(42))
+        assertEquals("onboard", latest.status)
+        assertEquals(onboardEpoch, latest.boardingUndo.onboardAt)
+        assertEquals(alightingNote, latest.alightNote)
+        assertEquals(3, latest.meetingVersion)
         releaseRetry.countDown()
+        assertTrue(retryReturned.await(5, TimeUnit.SECONDS))
+        repeat(20) { settle(); Thread.sleep(10) }
+        compose.waitForIdle()
+        assertEquals("Новый ответ всё ещё удерживается", 1L, releaseFreshCode.count)
+        assertEquals("Новый CODE GET ещё не вернул код", 1L, freshCodeReturned.count)
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42)?.takeIf { it.isNotBlank() })
+        assertNull(TripPassStore.load(context, 42)?.takeIf { it.boardingCode.isNotBlank() })
+        compose.onAllNodesWithText("1111").assertCountEquals(0)
+        releaseFreshCode.countDown()
         awaitCompletePassport()
+        assertSame(latest, currentTripPrivateDetails(42))
         assertEquals(listOf("confirmed", "onboard"), detailsStatuses.toList())
-        assertEquals("Код не запрашивается заново при обновлении деталей", 2,
+        assertEquals("Первая попытка, старый повтор и новый GET для новой DETAILS", 3,
             requests.count { it == "GET /bookings/42/boarding-code" })
         assertEquals(1, requests.count { it == "GET /bookings/42/messages" })
     }
@@ -529,12 +630,27 @@ class ActiveTripPassengerContactsTest {
         pumpPollPeriod()
         awaitCompletePassport()
         assertEquals(listOf("onboard"), detailsStatuses.toList())
+        val roleReadsAtRelease = roleCalls.get()
+        val releasedAt = System.nanoTime()
         releaseFirstDetails.countDown()
         assertTrue(firstDetailsReturned.await(5, TimeUnit.SECONDS))
+        compose.waitForIdle()
+        settle()
+        assertEquals("Без следующего периода ROLE не начинался", roleReadsAtRelease, roleCalls.get())
+        assertEquals("Поздний отказ не запускает повтор после успешной загрузки", 2, detailsCalls.get())
+        compose.onAllNodesWithText("Не удалось загрузить данные поездки").assertCountEquals(0)
+        println("DETAILS_CAUSE source=late-initial-503 elapsedNanos=" + (System.nanoTime() - releasedAt) +
+            " roleReads=" + roleCalls.get() + " detailsReads=" + detailsCalls.get())
+
+        val pollStartedAt = System.nanoTime()
         pumpPollPeriod()
+        compose.waitUntil(15000) { settle(); detailsCalls.get() == 3 && currentTripPrivateDetails(42) != null }
+        assertTrue("Обновление вызвано новым успешным ROLE, а не поздним 503", roleCalls.get() > roleReadsAtRelease)
+        assertEquals(listOf("onboard", "onboard"), detailsStatuses.toList())
+        println("DETAILS_CAUSE source=next-role-poll-200 elapsedNanos=" + (System.nanoTime() - pollStartedAt) +
+            " roleReads=" + roleCalls.get() + " detailsReads=" + detailsCalls.get())
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performScrollToIndex(0)
         compose.onAllNodesWithText("Не удалось загрузить данные поездки").assertCountEquals(0)
-        assertEquals("Поздний отказ не запускает повтор после успешной загрузки", 2, detailsCalls.get())
         assertEquals(phone, TripPassStore.load(context, 42)?.driverPhone)
     }
 
@@ -602,6 +718,7 @@ class ActiveTripPassengerContactsTest {
 
     private fun startWithoutCodeOrPassport() {
         codeUnavailable = true
+        assertNull(TripPassStore.load(context, 42))
         openScreen()
         compose.waitUntil(15000) {
             settle()
@@ -613,20 +730,52 @@ class ActiveTripPassengerContactsTest {
             settle()
             compose.onAllNodesWithText("Повторить загрузку кода").fetchSemanticsNodes().isNotEmpty()
         }
-        assertNull(TripPassStore.load(context, 42))
+        assertNull(TripPassStore.load(context, 42)?.takeIf { it.boardingCode.isNotBlank() })
+        assertNull(TripPassAuthorityFixture.durable(passSecure, 42))
         assertEquals(1, requests.count { it == "GET /bookings/42/boarding-code" })
     }
 
     private fun openScreen() {
+        // Production GuardedActiveTripDestination монтирует этот экран только после LIVE ROLE.
+        // Отдельный HTTP-ledger не подмешивает подготовку в точные счётчики самого экрана.
+        preparingRole = true
+        try { runBlocking { ApiClient.getTripState(42).getOrThrow() } }
+        finally { preparingRole = false }
+        assertEquals(listOf("GET /bookings/42/role"), preparationRequests.toList())
+        assertNull(OfflineTripSnapshots.projection(42))
+        assertNull(OfflineTripSnapshots.privatePass(42))
+        assertNull(TripPassStore.load(context, 42))
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42))
+        assertEquals(0, codeCalls.get())
+        assertEquals(status in setOf("confirmed", "onboard"), OfflineTripSnapshots.allowsLive(42))
+        orderInitialDetails = !holdFirstRole && status in setOf("confirmed", "onboard")
+        val authorityBeforeMount = OfflineTripSnapshots.version.value
         mounted.value = true
         compose.setContent {
             if (mounted.value) {
                 CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                     // Без Ride и без координат маршрута — настоящая MapKit в тесте не поднимается.
                     ActiveTripScreen(ride = null, contacts = emptyList(), bookingId = 42,
-                        onBack = {}, onTripEnd = {}, onSos = {})
+                        onBack = {}, onTripEnd = { tripEnds.incrementAndGet() }, onSos = {}, terminalHint = acceptedTerminalHint.value)
                 }
             }
+        }
+        if (orderInitialDetails) {
+            // ROLE этого mount должен завершиться до DETAILS: одинаковый свежий ROLE не
+            // обязан сохранять write-ticket прежней DETAILS ради тестового порядка ответов.
+            try {
+                val ready = when {
+                    role == "driver" -> "Я выехал"
+                    status == "onboard" -> "Доехал"
+                    else -> "Водитель отметит посадку"
+                }
+                compose.waitUntil(15000) {
+                    settle()
+                    requests.contains("GET /bookings/42/role") &&
+                        OfflineTripSnapshots.version.value > authorityBeforeMount &&
+                        compose.onAllNodesWithText(ready).fetchSemanticsNodes().isNotEmpty()
+                }
+            } finally { releaseOrderedDetails.countDown() }
         }
     }
 
@@ -641,5 +790,192 @@ class ActiveTripPassengerContactsTest {
     private fun scrollTo(text: String) {
         compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
             .performScrollToNode(hasText(text))
+    }
+
+    @Test fun driverPhaseChangeRecoversPrivateDetailsWithoutManualRetry() {
+        openScreen()
+        awaitCompletePassport()
+        val before = detailsCalls.get()
+        phase = "departed"
+        pumpPollPeriod()
+        compose.waitUntil(15000) {
+            settle()
+            detailsCalls.get() > before && currentTripPrivateDetails(42) != null &&
+                OfflineTripSnapshots.currentBoardingCode(42) == "5678"
+        }
+        scrollTo(phone)
+        compose.onNodeWithText(phone).assertIsDisplayed()
+        compose.onAllNodesWithText("Не удалось загрузить данные поездки").assertCountEquals(0)
+        assertTrue(requests.all { it.startsWith("GET ") })
+    }
+
+    @Test fun successfulRolePollRefreshesPaymentAgreementOnTheOpenScreen() {
+        openScreen()
+        awaitCompletePassport()
+        val before = detailsCalls.get()
+        agreementAmount = 400
+        pumpPollPeriod()
+        compose.waitUntil(15000) {
+            settle()
+            detailsCalls.get() > before && currentTripPrivateDetails(42)?.payAmount == 400 &&
+                TripPassStore.load(context, 42)?.let { it.payAmount == 400 && it.boardingCode == "5678" } == true
+        }
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+        val saved = requireNotNull(TripPassStore.load(context, 42))
+        assertEquals("cash", saved.payMethod)
+        assertEquals(phone, saved.driverPhone)
+        assertEquals("А123ВС 102", saved.driverPlate)
+        assertEquals(pickup, saved.pickup)
+        scrollTo("Как договорились платить")
+        compose.onAllNodesWithText("400", substring = true).onFirst().assertExists()
+        assertEquals("cash", currentTripPrivateDetails(42)?.payMethod)
+        assertTrue(requests.all { it.startsWith("GET ") })
+    }
+
+    @Test fun equalDetailsWithNewProofFetchTheirOwnCodeAndKeepCompletePassport() {
+        openScreen()
+        awaitCompletePassport()
+        val before = requireNotNull(OfflineTripSnapshots.projection(42))
+        val codeReads = codeCalls.get()
+        pumpPollPeriod()
+        compose.waitUntil(15000) {
+            settle()
+            OfflineTripSnapshots.projection(42)?.proof?.request?.ticket != before.proof.request.ticket &&
+                codeCalls.get() > codeReads && OfflineTripSnapshots.currentBoardingCode(42) == "5678" &&
+                TripPassStore.load(context, 42)?.boardingCode == "5678"
+        }
+        val after = requireNotNull(OfflineTripSnapshots.projection(42))
+        assertEquals("The visible DETAILS fields are exactly equal", before.details, after.details)
+        assertNotSame(before.details, after.details)
+        assertNotEquals(before.proof.request.ticket, after.proof.request.ticket)
+        assertEquals("A CODE publication must not schedule another CODE", codeReads + 1, codeCalls.get())
+        awaitCompletePassport()
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+    }
+
+    @Test fun heldOldCodeCannotAttachToNewEqualDetailsOrShowADiskFailure() {
+        openScreen()
+        awaitCompletePassport()
+        holdRetry = true
+        oldRetryCode = "1111"
+        holdFreshCode = true
+        pumpPollPeriod()
+        compose.waitUntil(15000) { settle(); retryHeld.count == 0L }
+        val heldDetails = requireNotNull(OfflineTripSnapshots.projection(42))
+
+        // A genuine new screen poll replaces the proof, even though every DTO field is equal.
+        pumpPollPeriod()
+        compose.waitUntil(15000) { settle(); freshCodeHeld.count == 0L }
+        val fresh = requireNotNull(currentTripPrivateDetails(42))
+        assertEquals(heldDetails.details, fresh)
+        val latest = requireNotNull(OfflineTripSnapshots.projection(42))
+        assertNotEquals(heldDetails.proof.request.ticket, latest.proof.request.ticket)
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42)?.takeIf { it.isNotBlank() })
+        assertNull(TripPassStore.load(context, 42)?.takeIf { it.boardingCode.isNotBlank() })
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+
+        releaseRetry.countDown()
+        assertTrue(retryReturned.await(5, TimeUnit.SECONDS))
+        repeat(20) { settle(); Thread.sleep(10) }
+        assertEquals(1L, releaseFreshCode.count)
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42)?.takeIf { it.isNotBlank() })
+        assertNull(TripPassStore.load(context, 42)?.takeIf { it.boardingCode.isNotBlank() })
+        compose.onAllNodesWithText("1111").assertCountEquals(0)
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+
+        releaseFreshCode.countDown()
+        assertTrue(freshCodeReturned.await(5, TimeUnit.SECONDS))
+        awaitCompletePassport()
+        assertEquals("5678", OfflineTripSnapshots.currentBoardingCode(42))
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+    }
+
+    @Test fun refreshedCodeHeldAcrossAccountSwitchCannotSavePreviousPassengerPassport() {
+        openScreen()
+        awaitCompletePassport()
+        holdRetry = true
+        pumpPollPeriod()
+        compose.waitUntil(15000) { settle(); retryHeld.count == 0L }
+        compose.runOnIdle { ApiClient.saveToken(TripPassAuthorityFixture.jwt(8)) }
+        releaseRetry.countDown()
+        assertTrue(retryReturned.await(5, TimeUnit.SECONDS))
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (System.nanoTime() < deadline) { settle(); Thread.sleep(10) }
+        compose.waitForIdle()
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42))
+        assertNull(OfflineTripSnapshots.privatePass(42))
+        assertNull(TripPassStore.load(context, 42))
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+    }
+
+    @Test fun refreshedCodeHeldAcrossTerminalCannotRestoreOrSaveClosedTrip() {
+        openScreen()
+        awaitCompletePassport()
+        holdRetry = true
+        pumpPollPeriod()
+        compose.waitUntil(15000) { settle(); retryHeld.count == 0L }
+        status = "done"
+        runBlocking { ApiClient.getTripState(42).getOrThrow() }
+        val terminal = requireNotNull(OfflineTripSnapshots.terminal(42))
+        compose.runOnIdle {
+            acceptedTerminalHint.value = ActiveTripTerminalHint(42, terminal.status, terminal.role, terminal.inTransit)
+        }
+        releaseRetry.countDown()
+        assertTrue(retryReturned.await(5, TimeUnit.SECONDS))
+        compose.waitUntil(15000) {
+            settle()
+            compose.onAllNodesWithTag("rideshareStar4").fetchSemanticsNodes().isNotEmpty()
+        }
+        val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(2)
+        while (System.nanoTime() < deadline) { settle(); Thread.sleep(10) }
+        compose.waitForIdle()
+        assertFalse(OfflineTripSnapshots.allowsLive(42))
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42))
+        assertNull(OfflineTripSnapshots.privatePass(42))
+        assertNull(TripPassStore.load(context, 42))
+        compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+    }
+
+    @Test fun lateAcceptedInTransitCancellationKeepsMountedPassengerOnHelp() {
+        status = "onboard"
+        openScreen()
+        awaitCompletePassport()
+        val owner = OfflineTripSnapshots.currentOwner()
+        val rolesBeforeTerminal = roleCalls.get()
+        status = "cancelled"
+        cancelledInTransit = true
+        runBlocking { ApiClient.getTripState(42).getOrThrow() }
+        val accepted = requireNotNull(OfflineTripSnapshots.terminal(42))
+        assertEquals(owner, accepted.owner)
+        assertTrue(accepted.inTransit)
+        assertEquals(rolesBeforeTerminal + 1, roleCalls.get())
+        compose.runOnIdle {
+            acceptedTerminalHint.value = ActiveTripTerminalHint(42, accepted.status, accepted.role, accepted.inTransit)
+        }
+        compose.waitUntil(15000) {
+            settle()
+            compose.onAllNodesWithTag("cancelledInTransit").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Поездку отменили в пути").assertIsDisplayed()
+        assertEquals("Help must not depend on a later child ROLE poll", rolesBeforeTerminal + 1, roleCalls.get())
+        assertEquals("Terminal cleanup must keep the passenger on help", 0, tripEnds.get())
+        assertFalse(OfflineTripSnapshots.allowsLive(42))
+        assertNull(OfflineTripSnapshots.currentBoardingCode(42))
+    }
+
+    @Test fun lateAuthenticatedTerminalHintReplacesTheAlreadyMountedActiveScreen() {
+        openScreen()
+        awaitCompletePassport()
+        status = "done"
+        runBlocking { ApiClient.getTripState(42).getOrThrow() }
+        assertEquals("done", OfflineTripSnapshots.terminal(42)?.status)
+        compose.runOnIdle { acceptedTerminalHint.value = ActiveTripTerminalHint(42, "done", "passenger") }
+        compose.waitUntil(15000) {
+            settle()
+            requests.contains("GET /trips/42/receipt") &&
+                compose.onAllNodesWithTag("rideshareStar4").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onAllNodesWithText("Назови код водителю перед посадкой").assertCountEquals(0)
+        assertFalse(OfflineTripSnapshots.allowsLive(42))
     }
 }

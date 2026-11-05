@@ -39,6 +39,7 @@ import {
   ratingTags,
   setPayAgreement,
   type BoardingResult,
+  type BoardingUndoTerms,
   type BookingDetails,
   type BookingStatus,
   type CancelReason,
@@ -51,11 +52,15 @@ import AlertDialog from "../components/AlertDialog";
 import DriverLocationShare from "../components/DriverLocationShare";
 import { driverInTransit } from "../utils/tripLocationShare";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
+import { beginDriverClick, finishDriverClick } from "../utils/driverActions";
+import { driverRideRemains, rideShareTerminal } from "../utils/driverRideShare";
+import { requestRidingFocus, rideShareHandoff } from "../utils/rideShareStore";
 import { track } from "../analytics";
-import { clearTripPassBoardingCode, dropTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
+import { clearTripPassBoardingCode, dropTripPass, restoreConfirmedTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
 import { sosPath } from "../utils/sosLink";
 import { loadOfflineTripPass, saveVerifiedTripPass } from "../utils/offlineTripPass";
 import OfflineTripPass from "../components/OfflineTripPass";
+import { OfflineCancellationHelp } from "../components/OfflineTripFallback";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { LoadingList, ErrorState } from "../components/States";
 import YandexMap, { type GeoPoint } from "../components/YandexMap";
@@ -65,6 +70,8 @@ import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarnin
 import ShareTripCard from "../components/ShareTripCard";
 import DriverBoarding from "../components/DriverBoarding";
 import BoardingWait from "../components/BoardingWait";
+import PassengerBoardingUndo from "../components/PassengerBoardingUndo";
+import { isStaleBoardingAfterUndo, isConfirmedBoardingUndo, sameBoardingTimestamp } from "../utils/boardingUndo";
 import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
@@ -170,6 +177,9 @@ export default function ActiveTripScreen() {
   const [winterAnswerBusy, setWinterAnswerBusy] = useState(false);
   const [winterAnswerNote, setWinterAnswerNote] = useState("");
   const [phaseBusy, setPhaseBusy] = useState(false); // водитель отправляет «выехал/подъезжаю/завершил»
+  const phaseSending = useRef(false);
+  const pendingDriverClick = useRef<ReturnType<typeof beginDriverClick>>(null);
+  useEffect(() => () => { finishDriverClick(pendingDriverClick.current, false); pendingDriverClick.current = null; }, [bookingId]);
   const [phaseNote, setPhaseNote] = useState("");
   // «Выехал» без сети ждал в очереди, а сервер потом отказал: «Нет сети — отправим позже» больше неправда — пишем отказ.
   useBookingRefusal(bookingId, (refusal) => { if (refusal.kind === "driver_status") setPhaseNote(refusal.message); });
@@ -187,6 +197,7 @@ export default function ActiveTripScreen() {
   const [payBusy, setPayBusy] = useState(false);
   const [payNote, setPayNote] = useState("");
   const tripRef = useRef<TripState | null>(null);
+  const boardingSnapshotRef = useRef<(BoardingUndoTerms & { status: BookingStatus }) | null>(null);
   const detailsStatusRef = useRef<BookingStatus | null>(null);
   const detailsSyncBusyRef = useRef(false);
   const lastDetailsAtRef = useRef(Date.now());
@@ -203,6 +214,7 @@ export default function ActiveTripScreen() {
 
   /** `inTransit` — сервер сказал `cancelled_in_transit`: машина и госномер на экране остаются. */
   const applyCancelledState = useCallback((inTransit = false) => {
+    if (tripRef.current?.role === "driver" || rawDetailsRef.current?.role === "driver") rideShareTerminal(bookingId);
     if (inTransit) inTransitRef.current = true;
     const keep = inTransitRef.current;
     detailsStatusRef.current = "cancelled";
@@ -218,12 +230,39 @@ export default function ActiveTripScreen() {
     setDriverLoc(null);
   }, [bookingId, sessionGeneration]);
 
+  /** The server receipt redeems only its original boarding, including a saved offline flag. */
+  const acceptBoardingSnapshot = useCallback((incoming: BoardingUndoTerms & { status: BookingStatus }) => {
+    if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return false;
+    const current = boardingSnapshotRef.current ?? tripRef.current ?? rawDetailsRef.current;
+    const currentStatus = current?.status ?? detailsStatusRef.current;
+    if ((isTerminalBookingStatus(currentStatus) || isTerminalBookingStatus(detailsStatusRef.current)) && incoming.status !== currentStatus) return false;
+    if (isStaleBoardingAfterUndo(current, incoming)) return false;
+    const undo = currentStatus === "onboard" && incoming.status === "confirmed" && isConfirmedBoardingUndo(current, incoming);
+    if (!shouldApplyBookingDetails(currentStatus, incoming.status) && !undo) return false;
+    if (incoming.status === "confirmed" && incoming.boarding_undo_confirmed_id) {
+      const blocked = tripPassStage(bookingId, sessionGeneration) === "onboard";
+      if (!restoreConfirmedTripPass(bookingId, sessionGeneration, current, incoming, getSessionGeneration)) return false;
+      if (undo || blocked) {
+        boardingSeqRef.current += 1;
+        detailsStatusRef.current = "confirmed";
+        if (rawDetailsRef.current) rawDetailsRef.current = { ...rawDetailsRef.current, status: "confirmed", onboard_at: null };
+        setDetails(previous => previous ? { ...previous, status: "confirmed", onboard_at: null } : previous);
+        setCode(null);
+        setPass(loadOfflineTripPass(bookingId));
+      }
+    }
+    if (incoming.status === "onboard" && sameBoardingTimestamp(incoming.onboard_at, incoming.onboard_at) &&
+      !sameBoardingTimestamp(current?.onboard_at, incoming.onboard_at)) boardingSeqRef.current += 1;
+    boardingSnapshotRef.current = incoming;
+    return true;
+  }, [bookingId, sessionGeneration]);
+
   /** Один путь применения details: UI, форма оплаты и офлайн-паспорт не расходятся. */
   const applyBookingDetails = useCallback(
     (d: BookingDetails) => {
       if (currentBookingIdRef.current !== bookingId) return;
       if ((tripRef.current?.status === "cancelled" || detailsStatusRef.current === "cancelled") && d.status !== "cancelled") return;
-      if (!shouldApplyBookingDetails(tripRef.current?.status, d.status)) return;
+      if (!acceptBoardingSnapshot(d)) return;
       detailsStatusRef.current = d.status;
       lastDetailsAtRef.current = Date.now();
       rawDetailsRef.current = d;
@@ -233,8 +272,9 @@ export default function ActiveTripScreen() {
         applyCancelledState(inTransitRef.current);
         return;
       }
-      if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration);
+      if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration, d.onboard_at);
       if (isTerminalBookingStatus(d.status)) {
+        if (d.role === "driver") rideShareTerminal(bookingId);
         dropTripPass(bookingId, sessionGeneration);
         setPass(null);
       } else if (d.contact_unlocked) {
@@ -257,6 +297,7 @@ export default function ActiveTripScreen() {
             dropoffStop: d.dropoff_stop,
             rideHasStops: d.ride_has_stops,
             price: d.pay_amount ?? d.price,
+            payMethod: d.pay_method,
             seats: d.seats,
           };
           saveVerifiedTripPass(snapshot, user?.id, sessionGeneration);
@@ -264,7 +305,7 @@ export default function ActiveTripScreen() {
         });
       }
     },
-    [applyCancelledState, bookingId, user?.id, sessionGeneration]
+    [acceptBoardingSnapshot, applyCancelledState, bookingId, user?.id, sessionGeneration]
   );
 
   // ---- Загрузка деталей ----
@@ -274,40 +315,42 @@ export default function ActiveTripScreen() {
         setStatus("error");
         return;
       }
+      const boardingSeq = boardingSeqRef.current;
       setStatus("loading");
       fetchBookingDetails(bookingId, signal)
         .then((d) => {
+          if (boardingSeq !== boardingSeqRef.current || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
           applyBookingDetails(d);
           setStatus("ready");
         })
         .catch((e) => {
-          if (signal?.aborted || e?.name === "AbortError") return;
+          if (signal?.aborted || e?.name === "AbortError" || boardingSeq !== boardingSeqRef.current || getSessionGeneration() !== sessionGeneration) return;
           setStatus("error");
         });
     },
-    [applyBookingDetails, bookingId]
+    [applyBookingDetails, bookingId, sessionGeneration]
   );
 
   /** Фоновая сверка не переводит весь экран в loading и не скрывает старые данные при ошибке. */
   const syncBookingDetails = useCallback(async () => {
     if (!bookingId || currentBookingIdRef.current !== bookingId || detailsSyncBusyRef.current) return;
+    const boardingSeq = boardingSeqRef.current;
     detailsSyncBusyRef.current = true;
     lastDetailsAtRef.current = Date.now();
     try {
       const fresh = await fetchBookingDetails(bookingId);
-      if (currentBookingIdRef.current !== bookingId) return;
-      if (shouldApplyBookingDetails(tripRef.current?.status, fresh.status)) {
-        applyBookingDetails(fresh);
-      }
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current) return;
+      applyBookingDetails(fresh);
     } catch {
       /* Оставляем последний честный снимок; следующий редкий тик повторит. */
     } finally {
       if (currentBookingIdRef.current === bookingId) detailsSyncBusyRef.current = false;
     }
-  }, [applyBookingDetails, bookingId]);
+  }, [applyBookingDetails, bookingId, sessionGeneration]);
 
   useEffect(() => {
     tripRef.current = null;
+    boardingSnapshotRef.current = null;
     detailsStatusRef.current = null;
     inTransitRef.current = false;
     rawDetailsRef.current = null;
@@ -338,22 +381,23 @@ export default function ActiveTripScreen() {
     const boardingSeq = boardingSeqRef.current;
     return fetchTripState(bookingId)
       .then((fresh) => {
-        if (currentBookingIdRef.current !== bookingId) return;
+        if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
         // Опрос ушёл до «Сел» / «Отменить» водителя — его ответ старше ответа самого действия.
         if (boardingSeq !== boardingSeqRef.current) return;
         const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
         if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
-        if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
+        if (!acceptBoardingSnapshot(fresh)) return;
         if (fresh.cancelled_in_transit === true) inTransitRef.current = true;
         tripRef.current = fresh;
         setTrip(fresh);
         if (fresh.status === "onboard") {
-          clearTripPassBoardingCode(bookingId, sessionGeneration);
+          clearTripPassBoardingCode(bookingId, sessionGeneration, fresh.onboard_at);
           setPass((previous) => previous?.bookingId === bookingId && previous.boardingCode
             ? { ...previous, boardingCode: "" }
             : previous);
         }
         if (isTerminalBookingStatus(fresh.status)) {
+          if (fresh.role === "driver") rideShareTerminal(bookingId);
           dropTripPass(bookingId, sessionGeneration);
           setPass(null);
           setCode(null);
@@ -374,7 +418,7 @@ export default function ActiveTripScreen() {
       .catch(() => {
         /* сеть моргнула — попробуем в следующий тик */
       });
-  }, [applyCancelledState, bookingId, syncBookingDetails, sessionGeneration]);
+  }, [acceptBoardingSnapshot, applyCancelledState, bookingId, syncBookingDetails, sessionGeneration]);
 
   useEffect(() => {
     if (status === "ready") tickTrip();
@@ -390,16 +434,20 @@ export default function ActiveTripScreen() {
    */
   const applyBoarding = useCallback(
     (result?: BoardingResult) => {
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
       if (!result) return tickTrip();
-      boardingSeqRef.current += 1;
       const current = tripRef.current;
       if (!current) return tickTrip();
       if (isTerminalBookingStatus(current.status) || detailsStatusRef.current === "cancelled") return;
-      const next = { ...current, status: result.status, boarding_undo_sec: result.boarding_undo_sec };
+      if (current.status === "onboard" && result.status === "onboard" && !sameBoardingTimestamp(current.onboard_at, result.onboard_at)) return;
+      if (!acceptBoardingSnapshot(result)) return;
+      boardingSeqRef.current += 1;
+      if (result.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration, result.onboard_at);
+      const next = { ...current, ...result };
       tripRef.current = next;
       setTrip(next);
     },
-    [tickTrip]
+    [acceptBoardingSnapshot, tickTrip, bookingId, sessionGeneration]
   );
 
   useEffect(() => {
@@ -435,8 +483,8 @@ export default function ActiveTripScreen() {
   const inTransitPlate = details?.driver_plate ?? "";
   // Вкладка помнит эту отмену (без телефона): вернулся с SOS, а сети нет — помощь на месте.
   useEffect(() => {
-    if (inTransitCancel) rememberInTransitCancel(bookingId, user?.id, inTransitCar, inTransitPlate);
-  }, [inTransitCancel, bookingId, user?.id, inTransitCar, inTransitPlate]);
+    if (inTransitCancel) rememberInTransitCancel(bookingId, user?.id, sessionGeneration);
+  }, [inTransitCancel, bookingId, user?.id, sessionGeneration]);
   const savedInTransit = status === "ready" ? null : loadInTransitCancel(bookingId, user?.id);
 
   // ---- Код нужен пассажиру до посадки, не после неё ----
@@ -446,9 +494,10 @@ export default function ActiveTripScreen() {
       return;
     }
     let alive = true;
+    const boardingSeq = boardingSeqRef.current;
     fetchBoardingCode(bookingId)
       .then((r) => {
-        if (!alive || currentBookingIdRef.current !== bookingId ||
+        if (!alive || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current ||
           tripPassStage(bookingId, sessionGeneration) !== "confirmed" ||
           !shouldApplyBookingDetails(tripRef.current?.status, "confirmed") ||
           !shouldApplyBookingDetails(detailsStatusRef.current, "confirmed")) return;
@@ -549,7 +598,7 @@ export default function ActiveTripScreen() {
     try {
       const amount = payAmount.trim() ? Math.max(0, Math.round(Number(payAmount))) : null;
       const agreement = await setPayAgreement(bookingId, payMethod, amount);
-      if (currentBookingIdRef.current !== bookingId) return;
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
       setPayDraft((current) => acceptPaymentDraft(current, submittedDraft, agreement));
       lastDetailsAtRef.current = Date.now();
       setDetails((current) =>
@@ -559,7 +608,7 @@ export default function ActiveTripScreen() {
       );
       setPass((current) => {
         if (!current) return current;
-        const next = { ...current, price: agreement.pay_amount ?? current.price };
+        const next = { ...current, price: agreement.pay_amount ?? current.price, payMethod: agreement.pay_method };
         saveVerifiedTripPass(next, user?.id, sessionGeneration);
         return next;
       });
@@ -577,24 +626,40 @@ export default function ActiveTripScreen() {
 
   /** Водитель: «выехал / подъезжаю / завершил». Ошибку показываем текстом, экран не ломаем. */
   async function sendPhase(phase: DriverPhase) {
-    if (phaseBusy) return;
+    if (phaseSending.current || phaseBusy) return;
+    phaseSending.current = true;
     const generation = getSessionGeneration();
     const currentSession = () => generation === getSessionGeneration();
+    const click = beginDriverClick(bookingId, details?.ride_id ?? 0, phase === "done");
+    pendingDriverClick.current = click;
     setPhaseBusy(true);
     setPhaseNote("");
     try {
       await setDriverStatus(bookingId, phase);
+      if (pendingDriverClick.current !== click || !currentSession() || currentBookingIdRef.current !== bookingId) return;
+      finishDriverClick(click, true);
+      pendingDriverClick.current = null;
       if (!currentSession()) return;
+      if (phase === "done") rideShareHandoff();
       const fresh = await fetchTripState(bookingId);
       if (!currentSession() || currentBookingIdRef.current !== bookingId) return;
       const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
       if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
-      if (!shouldApplyBookingDetails(previousStatus, fresh.status)) return;
+      if (!acceptBoardingSnapshot(fresh)) return;
       tripRef.current = fresh;
       setTrip(fresh);
+      if (fresh.role === "driver" && isTerminalBookingStatus(fresh.status)) rideShareTerminal(bookingId);
       if (fresh.status === "cancelled") applyCancelledState(fresh.cancelled_in_transit === true);
-      if (phase === "done") setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
+      if (phase === "done") {
+        setPhaseNote(appText("Поездка завершена", "Сәфәр тамамланды"));
+        const remains = await driverRideRemains(bookingId);
+        if (remains === true && currentSession() && currentBookingIdRef.current === bookingId) {
+          requestRidingFocus(); navigate("/driver", { replace: true });
+        }
+      }
     } catch (e) {
+      finishDriverClick(click, false);
+      pendingDriverClick.current = null;
       if (!currentSession()) return;
       if (e instanceof ApiError && e.status === 0) {
         // Трасса без связи: отметка не пропадает — уйдёт сама, когда сеть вернётся.
@@ -613,6 +678,7 @@ export default function ActiveTripScreen() {
         );
       }
     } finally {
+      phaseSending.current = false;
       if (currentSession()) setPhaseBusy(false);
     }
   }
@@ -721,7 +787,7 @@ export default function ActiveTripScreen() {
 
   // Отмена в пути уже была видна этой вкладке: помощь сразу, пока грузимся или без сети.
   const savedInTransitCard = savedInTransit && (
-    <CancelledInTransitCard bookingId={bookingId} car={savedInTransit.car} plate={savedInTransit.plate} driverName="" />
+    <OfflineCancellationHelp bookingId={bookingId} />
   );
   if (status === "loading") {
     return (
@@ -966,6 +1032,8 @@ export default function ActiveTripScreen() {
       {/* RS-03 А/Б: своё точное место встречи — пассажир меняет/предлагает и отзывает. */}
       <MeetingActions details={details} onChanged={() => void syncBookingDetails()} />
 
+      {details.role === "passenger" && trip?.status === "onboard" && <PassengerBoardingUndo key={bookingId} bookingId={bookingId} terms={trip} onChanged={applyBoarding} />}
+
       {/* Чат по поездке — отдельная страница, как в мессенджерах (строка ввода внизу экрана) */}
       <TripChatCard
         bookingId={bookingId}
@@ -987,7 +1055,7 @@ export default function ActiveTripScreen() {
               "Был — килешеү яҙмаһы ғына, аҡса ҡушымта аша үтмәй."
             )}
           </p>
-          <div className="seg">
+          <div className="seg active-trip-pay-methods">
             {(["cash", "sbp", "negotiate"] as const).map((m) => (
               <button
                 key={m}
@@ -1065,8 +1133,9 @@ export default function ActiveTripScreen() {
             {/* «Пассажир сел» → «Пассажир в машине» и «Отменить» в первые 5 минут. */}
             <DriverBoarding
               bookingId={bookingId}
+              rideId={details.ride_id}
               status={st ?? ""}
-              undoSec={trip?.boarding_undo_sec ?? 0}
+              undoSec={trip?.boarding_undo_sec ?? 0} undoPending={trip?.boarding_undo_pending}
               variant="chip"
               onChanged={applyBoarding}
               onError={setPhaseNote}
@@ -1085,7 +1154,7 @@ export default function ActiveTripScreen() {
           </div>
           {phaseNote && <p className="demand__quiet">{phaseNote}</p>}
           {/* Точка для пассажира: до «Выехал» — зачем, в пути — отправка и её состояние. */}
-          <DriverLocationShare bookingId={bookingId} inTransit={driverInTransit(details.role, st, trip?.driver_phase)} />
+          <DriverLocationShare bookingId={bookingId} rideId={details.ride_id} inTransit={driverInTransit(details.role, st, trip?.driver_phase)} />
         </div>
       )}
 

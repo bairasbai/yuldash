@@ -64,6 +64,15 @@ val mapkitKey: String = Properties().apply {
 //     YULDASH_DEBUG_API_BASE_URL=https://yulbash.ru gradlew.bat :app:assembleDebug
 //
 // local.properties при этом не трогается, и никто случайно не закоммитит чужой адрес.
+val nativeQaPinnedApi = when (System.getenv("YULDASH_NATIVE_QA_PINNED_API")) {
+    null, "false" -> false
+    "true" -> true
+    else -> error("YULDASH_NATIVE_QA_PINNED_API must be true, false or unset")
+}
+require(!nativeQaPinnedApi || System.getenv("YULDASH_DEBUG_API_BASE_URL") == "http://127.0.0.1:8000") {
+    "Pinned native QA requires an explicit local API"
+}
+
 val debugApiBaseUrl: String = System.getenv("YULDASH_DEBUG_API_BASE_URL")
     ?: Properties().apply {
         val f = rootProject.file("local.properties")
@@ -289,6 +298,7 @@ android {
     buildTypes {
         debug {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$debugApiBaseUrl\"")
+            buildConfigField("boolean", "YULDASH_NATIVE_QA_PINNED_API", nativeQaPinnedApi.toString())
             enableUnitTestCoverage = true
             // enableAndroidTestCoverage ВЫКЛЮЧЕН намеренно (2026-08-08).
             //
@@ -309,6 +319,7 @@ android {
 
         release {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$releaseApiBaseUrl\"")
+            buildConfigField("boolean", "YULDASH_NATIVE_QA_PINNED_API", "false")
             // R8: ужатие + обфускация. keep-правила для MapKit/Firebase/Tink/OkHttp — в proguard-rules.pro.
             // ⚠️ Релиз arm64-only → на x86_64-эмуляторе не ставится; финальный smoke — на реальном телефоне.
             isMinifyEnabled = true

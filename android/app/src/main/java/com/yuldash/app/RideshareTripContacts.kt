@@ -32,6 +32,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,8 +45,10 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.OfflineTripSnapshots
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import kotlinx.coroutines.isActive
 
 /** Что пассажир знает о водителе после подтверждения: из ответа сервера или своего паспорта. */
 internal data class TripContacts(
@@ -148,38 +151,15 @@ internal suspend fun saveTripPass(
     code: String? = null,
     shouldContinue: () -> Boolean = { true },
 ): Boolean {
-    if (!shouldContinue() || passengerContacts(d) == null || expectedGeneration != ApiClient.queueSessionGeneration()) return false
+    if (!shouldContinue() || passengerContacts(d) == null || expectedGeneration != ApiClient.queueSessionGeneration() ||
+        !OfflineTripSnapshots.privateDetails(d)) return false
     val boardingCode = (code ?: ApiClient.getBoardingCode(d.bookingId).getOrNull())
         ?.takeIf { it.isNotBlank() } ?: return false
-    return withContext(Dispatchers.IO) { if (!shouldContinue()) false else TripPassStore.save(
-        context,
-        TripPass(
-            bookingId = d.bookingId,
-            fromCity = d.fromCity,
-            toCity = d.toCity,
-            departAt = d.departAt,
-            driverName = d.driverName,
-            driverCar = listOf(d.driverCarColor, d.driverCar).filter { it.isNotBlank() }.joinToString(" "),
-            driverPlate = d.driverPlate,
-            driverPhone = d.driverPhone,
-            boardingCode = boardingCode,
-            pickup = d.pickup,
-            pickupLat = d.pickupLat,
-            pickupLng = d.pickupLng,
-            price = d.price,
-            seats = d.seats,
-            paymentNote = "",
-            savedAt = System.currentTimeMillis(),
-            payMethod = d.payMethod,
-            payAmount = d.payAmount,
-            pickupStop = d.pickupStop, dropoffStop = d.dropoffStop, rideHasStops = d.rideHasStops,
-            // RS-03 А: своя точка встречи — в паспорт, чтобы показать и без сети.
-            meetLat = d.meetLat, meetLng = d.meetLng, meetNote = d.meetNote,
-            meetLandmarkRu = d.meetLandmarkRu, meetLandmarkBa = d.meetLandmarkBa,
-        ),
-        retryMigration = retryMigration,
-        expectedGeneration = expectedGeneration,
-    ) }
+    val current = OfflineTripSnapshots.privatePass(d.bookingId)?.takeIf { it.boardingCode == boardingCode } ?: return false
+    return withContext(Dispatchers.IO) {
+        shouldContinue() && OfflineTripSnapshots.matchesPass(current) &&
+            TripPassStore.save(context, current, retryMigration, expectedGeneration)
+    }
 }
 
 /**
@@ -187,9 +167,12 @@ internal suspend fun saveTripPass(
  * встречи с кнопкой карты. Машина с номером — в карточке водителя над ней.
  */
 @Composable
-internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier = Modifier, showMeeting: Boolean = true) {
+internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier = Modifier, showMeeting: Boolean = true, isCurrent: () -> Boolean = { false }) {
     val context = LocalContext.current
-    AppCard(modifier) {
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val latest by androidx.compose.runtime.rememberUpdatedState(contacts)
+    fun current() = scope.isActive && latest === contacts && isCurrent()
+    TripAuthorityContent(::current) { AppCard(modifier) {
         Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
             if (contacts.phone.isNotBlank()) {
                 ContactRow(
@@ -199,7 +182,7 @@ internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier =
                     modifier = Modifier.clip(CanonItemShape).clickable(
                         onClickLabel = appText("Позвонить", "Шылтыратыу"),
                         role = Role.Button,
-                    ) { dialDriver(context, contacts.phone) },
+                    ) { if (current()) dialDriver(context, contacts.phone) },
                 )
             }
             if (showMeeting) {
@@ -218,6 +201,7 @@ internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier =
                     AppButton(
                         text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
                         onClick = {
+                            if (!current()) return@AppButton
                             val uri = Uri.parse("geo:$lat,$lng?q=$lat,$lng(" + Uri.encode(meet) + ")")
                             runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                         },
@@ -227,7 +211,7 @@ internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier =
                 }
             }
         }
-    }
+    } }
 }
 
 @Composable

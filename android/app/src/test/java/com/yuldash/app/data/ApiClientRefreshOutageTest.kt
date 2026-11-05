@@ -3,6 +3,8 @@ package com.yuldash.app.data
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.SocketPolicy
@@ -24,6 +26,10 @@ class ApiClientRefreshOutageTest {
     private lateinit var server: MockWebServer
     private fun json(body: String = "{}", code: Int = 200) = MockResponse().setResponseCode(code).setBody(body)
 
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
+
     @Before fun setup() = runBlocking {
         ApiClient.resetForTest()
         server = MockWebServer().apply { start() }
@@ -31,6 +37,7 @@ class ApiClientRefreshOutageTest {
         ApiClient.testTimeoutMs = 300
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.sessionExpired.value = false
         server.enqueue(json("""{"access_token":"access-old","refresh_token":"refresh-old","name":"Local"}"""))
         ApiClient.verifyCode("+70000000000", "000000", "Local").getOrThrow()

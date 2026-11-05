@@ -30,7 +30,6 @@ class ReachableApiGuardTest {
      */
     private val knownUnreachable = mapOf(
         "createDonation" to "пожертвования не запущены — экран появится вместе с юрлицом",
-        "getBookingRole" to "роль в брони приходит вместе с самой бронью, отдельный запрос не нужен",
         "getMyBookings" to "список броней приходит общим пакетом экрана, отдельный запрос не нужен",
         "getNearbyRides" to "поиск рядом идёт через общий поиск поездок",
         "getPartnerCouponStats" to "статистика купонов партнёра — следующий этап кабинета",

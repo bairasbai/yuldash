@@ -21,6 +21,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import com.yuldash.app.data.TripPassAuthorityFixture
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -33,18 +34,18 @@ class ActiveTripSessionChainTest {
     private val release = CountDownLatch(1)
     private val returned = CountDownLatch(1)
     private val requests = CopyOnWriteArrayList<Pair<String?, String?>>()
+    @Volatile private var preparingRole = false
+    private val preparationRequests = CopyOnWriteArrayList<String>()
+    private val tokenA = TripPassAuthorityFixture.jwt(7)
+    private val tokenB = TripPassAuthorityFixture.jwt(8)
     private var holdPath = ""
     private lateinit var server: MockWebServer
 
     @Before fun setup() {
-        ApiClient.resetForTest()
-        ApiClient.init(context)
-        ApiClient.logout()
-        ApiClient.saveToken("local-account-A")
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    preparationRoleResponse(request)?.let { return it }
                     requests.add(request.path to request.getHeader("Authorization"))
                     if (request.path == holdPath) {
                         held.countDown()
@@ -58,13 +59,19 @@ class ActiveTripSessionChainTest {
                         "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed"}"""
                         else -> return MockResponse().setResponseCode(404)
                     }
-                    return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody(canonicalTripBody(request.path, body))
                 }
             }
             start()
         }
+        ApiClient.resetForTest()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 45000
+        ApiClient.init(context)
+        ApiClient.logout()
+        awaitSnapshotCleanup()
+        ApiClient.saveToken(tokenA)
+        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
     }
 
     @After fun cleanup() {
@@ -86,6 +93,7 @@ class ActiveTripSessionChainTest {
 
     private fun checkChain(path: String) {
         holdPath = path
+        prepareRole()
         mounted.value = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -97,11 +105,10 @@ class ActiveTripSessionChainTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             held.count == 0L
         }
-        assertTrue(requests.contains(path to "Bearer local-account-A"))
-        compose.runOnIdle {
-            ApiClient.logout()
-            ApiClient.saveToken("local-account-B")
-        }
+        assertTrue(requests.contains(path to "Bearer $tokenA"))
+        compose.runOnIdle { ApiClient.logout() }
+        awaitSnapshotCleanup()
+        compose.runOnIdle { ApiClient.saveToken(tokenB) }
         release.countDown()
         assertTrue(returned.await(5, TimeUnit.SECONDS))
         // Bounded observation of the actual UI/IO chain; not a claim about all future callbacks.
@@ -112,9 +119,47 @@ class ActiveTripSessionChainTest {
         }
         compose.waitForIdle()
         val successorRequests = requests.filter {
-            it.second == "Bearer local-account-B" &&
+            it.second == "Bearer $tokenB" &&
                 it.first in setOf("/bookings/42/boarding-code", "/bookings/42/details")
         }
         assertTrue("Old screen continued with B token: $successorRequests", successorRequests.isEmpty())
     }
+    private fun awaitSnapshotCleanup() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun canonicalTripBody(path: String?, body: String): String {
+        val endpoint = path.orEmpty()
+        val details = endpoint.endsWith("/details")
+        val role = endpoint.endsWith("/role")
+        val receipt = endpoint.endsWith("/receipt")
+        if (!details && !role && !receipt) return body
+        val value = org.json.JSONObject(body)
+        if ((details || receipt) && !value.has("ride_id")) value.put("ride_id", 1042)
+        if (details) {
+            if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
+            if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+        }
+        if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
+        if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))
+            value.put("onboard_at", "2031-02-03T09:00:00.123456Z")
+        return value.toString()
+    }
+
+    private fun preparationRoleResponse(request: RecordedRequest): MockResponse? {
+        if (!preparingRole || request.path != "/bookings/42/role") return null
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setBody(canonicalTripBody(request.path, """{"role":"passenger","status":"confirmed","driver_phase":"waiting"}"""))
+    }
+    private fun prepareRole() = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        preparingRole = true
+        try { ApiClient.getTripState(42).getOrThrow() } finally { preparingRole = false }
+        assertEquals(listOf("GET /bookings/42/role"), preparationRequests.drop(start))
+        assertTrue(com.yuldash.app.data.OfflineTripSnapshots.allowsLive(42))
+        assertNull(com.yuldash.app.data.OfflineTripSnapshots.privatePass(42))
+    }
+
 }

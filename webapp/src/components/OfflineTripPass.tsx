@@ -15,7 +15,7 @@
 // ================================================================
 import { useLang } from "../i18n/lang";
 import type { TripPass } from "../utils/tripPass";
-import { formatWhen, priceLabel } from "../utils/format";
+import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { BookingSegmentNote } from "./PickupStopChoice";
 import { IconPhone, IconWarn } from "./Icons";
 
@@ -73,6 +73,12 @@ export default function OfflineTripPass({ pass }: { pass: TripPass }) {
             <span className="info-row__v">{pass.pickup}</span>
           </div>
         )}
+        <div className="info-row">
+          <span className="info-row__k">{appText("Оплата", "Түләү")}</span>
+          <span className="info-row__v">{pass.payMethod && ["cash", "sbp", "negotiate"].includes(pass.payMethod)
+            ? payMethodLabel(pass.payMethod, ru)
+            : appText("Способ оплаты не сохранён", "Түләү ысулы һаҡланмаған")}</span>
+        </div>
         {pass.price > 0 && (
           <div className="info-row">
             <span className="info-row__k">{appText("Цена", "Хаҡ")}</span>

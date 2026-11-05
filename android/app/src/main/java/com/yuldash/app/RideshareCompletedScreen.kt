@@ -84,60 +84,36 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.currentCoroutineContext
 
-/**
- * Отдельный экран после завершения попутки — утверждённый вариант B «Рәхмәт прежде всего».
- *
- * В отличие от активной поездки здесь нет карты, SOS и чата: поездка уже закончилась.
- * Остаются только действия после дороги — оценка, благодарность, чек, потерянная вещь и помощь.
- */
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun RideshareCompletedScreen(
-    bookingId: Int,
-    ride: Ride?,
-    fallbackRole: String,
-    fallbackPayMethod: String,
-    fallbackPayAmount: Int?,
-    onClose: () -> Unit,
-    onOpenReceipt: () -> Unit,
-    onSupport: () -> Unit,
-    loadReceipt: suspend (Int) -> Result<TripReceiptDto> = { ApiClient.getTripReceipt(it) },
-    rateBooking: suspend (Int, Int, String, List<String>) -> Result<Unit> = { id, stars, text, tags ->
-        ApiClient.rateBooking(id, stars, text, tags)
-    },
-    loadThanks: suspend (Int) -> Result<TipInfoDto> = { ApiClient.getBookingTipInfo(it) },
-    sendThanks: suspend (Int) -> Result<Unit> = { ApiClient.sayBookingThanks(it) },
-    openLostItem: suspend (Int) -> Result<Unit> = { ApiClient.bookingLostItem(it).map { Unit } },
-) {
-    val currentSession by ApiClient.sessionChanges.collectAsState()
-    val completedSession = remember(bookingId) { currentSession }
-    val leave by rememberUpdatedState(onClose)
-    if (currentSession != completedSession) {
-        LaunchedEffect(completedSession) { leave() }
-        return
-    }
-    key(bookingId, completedSession) {
-        RideshareCompletedSession(bookingId, ride, fallbackRole, fallbackPayMethod, fallbackPayAmount,
-            onClose, onOpenReceipt, onSupport, loadReceipt, rateBooking, loadThanks, sendThanks,
-            openLostItem, completedSession)
-    }
-}
-
-@Composable
-private fun RideshareCompletedSession(
+internal fun RideshareCompletedSession(
     bookingId: Int, ride: Ride?, fallbackRole: String, fallbackPayMethod: String,
     fallbackPayAmount: Int?, onClose: () -> Unit, onOpenReceipt: () -> Unit, onSupport: () -> Unit,
     loadReceipt: suspend (Int) -> Result<TripReceiptDto>,
     rateBooking: suspend (Int, Int, String, List<String>) -> Result<Unit>,
     loadThanks: suspend (Int) -> Result<TipInfoDto>, sendThanks: suspend (Int) -> Result<Unit>,
     openLostItem: suspend (Int) -> Result<Unit>, completedSession: Long,
+    isCurrentParent: (() -> Boolean)?,
+    isCurrentReceiptParent: (() -> Boolean)?,
 ) {
     val scope = rememberCoroutineScope()
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    val currentReceiptParent by rememberUpdatedState(isCurrentReceiptParent)
     // Done permits these actions; disposal, another booking or another login invalidates them.
-    fun isCurrent() = scope.isActive && completedSession == ApiClient.queueSessionGeneration()
+    val projectionOwner = remember(bookingId, completedSession) { com.yuldash.app.data.OfflineTripSnapshots.currentOwner() }
+    fun isCurrent() = scope.isActive && ApiClient.isCurrentSession(completedSession) && com.yuldash.app.data.OfflineTripSnapshots.currentOwner() == projectionOwner && (currentParent?.invoke() != false)
     BackHandler { if (isCurrent()) onClose() }
     val context = LocalContext.current
-    var receipt by remember(bookingId) { mutableStateOf<TripReceiptDto?>(null) }
+    var rawReceipt by remember(bookingId) { mutableStateOf<TripReceiptDto?>(null) }
+    val authorityRevision by com.yuldash.app.data.OfflineTripSnapshots.version.collectAsState()
+    val receipt = authorityRevision.let { rawReceipt?.takeIf {
+        it.bookingId == bookingId && ride.matchesPrivateBookingRide(bookingId, it.rideId) &&
+            com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(it)
+    } }
+    fun canAct() = isCurrent() && receipt?.let(com.yuldash.app.data.OfflineTripSnapshots::allowsHistory) == true
+    fun canOpenReceipt() = ApiClient.isCurrentSession(completedSession) &&
+        com.yuldash.app.data.OfflineTripSnapshots.currentOwner() == projectionOwner &&
+        (currentReceiptParent?.invoke() ?: (scope.isActive && currentParent?.invoke() != false)) &&
+        receipt?.let(com.yuldash.app.data.OfflineTripSnapshots::allowsHistory) == true
     var receiptLoading by remember(bookingId) { mutableStateOf(true) }
     var receiptError by remember(bookingId) { mutableStateOf<String?>(null) }
     var receiptTick by remember(bookingId) { mutableIntStateOf(0) }
@@ -187,8 +163,9 @@ private fun RideshareCompletedSession(
         if (!isCurrent() || !currentCoroutineContext().isActive || requestTick != receiptTick) return@LaunchedEffect
         result
             .onSuccess { value ->
-                receipt = value
-                receiptError = null
+                if (value.bookingId != bookingId || !ride.matchesPrivateBookingRide(bookingId, value.rideId) ||
+                    !com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(value)) { receiptError = receiptFail; return@onSuccess }
+                rawReceipt = value; receiptError = null
                 if (!ratingTouched) {
                     stars = value.myStars.coerceIn(0, 5)
                     selectedTags = value.myRatingTags.split(',').map(String::trim).filter(String::isNotBlank)
@@ -235,7 +212,7 @@ private fun RideshareCompletedSession(
     val paid = receipt?.paid == true
     val reportTo = afterTripReportTo(receipt, isDriver)   // «Сообщить о проблеме»: окно держит сервер (6 ч, PR174)
 
-    RideshareCompletedContent(
+    TripAuthorityContent({ isCurrent() && (receipt == null || com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(receipt)) }) { RideshareCompletedContent(
         isDriver = isDriver,
         from = from,
         to = to,
@@ -259,6 +236,7 @@ private fun RideshareCompletedSession(
         selectedTags = selectedTags,
         reviewText = reviewText,
         reviewExpanded = reviewExpanded,
+        hasCurrentReceipt = canAct(),
         ratingBusy = ratingBusy,
         ratingSent = ratingSent,
         thanked = thanked,
@@ -266,7 +244,7 @@ private fun RideshareCompletedSession(
         thanksLoading = thanksLoading,
         thanksError = thanksError,
         onRetryThanks = {
-            if (isCurrent() && isPassengerNow() && !thanksLoading && !thanksBusy && thanksError != null) {
+            if (canAct() && isPassengerNow() && !thanksLoading && !thanksBusy && thanksError != null) {
                 thanksLoading = true
                 thanksStatusKnown = false
                 thanksTick++
@@ -276,7 +254,7 @@ private fun RideshareCompletedSession(
         lostBusy = lostBusy,
         actionError = actionError,
         onStar = { value ->
-            if (isCurrent() && !ratingBusy) {
+            if (canAct() && !ratingBusy) {
                 ratingTouched = true
                 stars = value
                 selectedTags = emptyList()
@@ -285,16 +263,16 @@ private fun RideshareCompletedSession(
             }
         },
         onTag = { code ->
-            if (isCurrent() && !ratingBusy) {
+            if (canAct() && !ratingBusy) {
                 ratingTouched = true
                 selectedTags = if (code in selectedTags) selectedTags - code else selectedTags + code
                 ratingSent = false
                 actionError = null
             }
         },
-        onReviewExpanded = { if (isCurrent() && !ratingBusy) reviewExpanded = !reviewExpanded },
+        onReviewExpanded = { if (canAct() && !ratingBusy) reviewExpanded = !reviewExpanded },
         onReviewText = {
-            if (isCurrent() && !ratingBusy) {
+            if (canAct() && !ratingBusy) {
                 reviewText = it.take(500)
                 ratingTouched = true
                 ratingSent = false
@@ -302,16 +280,16 @@ private fun RideshareCompletedSession(
             }
         },
         onSubmit = {
-            if (!isCurrent()) Unit
+            if (!canAct()) Unit
             else if (ratingSent) {
                 onClose()
             } else if (stars > 0 && !ratingBusy) {
                 ratingBusy = true
                 actionError = null
                 scope.launch {
-                    if (!isCurrent()) return@launch
+                    if (!canAct()) return@launch
                     val result = rateBooking(bookingId, stars, reviewText, selectedTags)
-                    if (!isCurrent()) return@launch
+                    if (!canAct()) return@launch
                     result
                         .onSuccess {
                             ratingSent = true
@@ -324,13 +302,13 @@ private fun RideshareCompletedSession(
         },
         onSkip = { if (isCurrent()) onClose() },
         onThanks = {
-            if (isCurrent() && isPassengerNow() && thanksStatusKnown && !thanksLoading && thanksError == null && !thanked && !thanksBusy) {
+            if (canAct() && isPassengerNow() && thanksStatusKnown && !thanksLoading && thanksError == null && !thanked && !thanksBusy) {
                 thanksBusy = true
                 actionError = null
                 scope.launch {
-                    if (!isCurrent() || !isPassengerNow() || !thanksStatusKnown) return@launch
+                    if (!canAct() || !isPassengerNow() || !thanksStatusKnown) return@launch
                     val result = sendThanks(bookingId)
-                    if (!isCurrent() || !isPassengerNow()) return@launch
+                    if (!canAct() || !isPassengerNow()) return@launch
                     result
                         .onSuccess { thanked = true }
                         // Commit/notification or transport may outlive the answer: settle with GET, not POST.
@@ -339,15 +317,15 @@ private fun RideshareCompletedSession(
                 }
             }
         },
-        onReceipt = { if (isCurrent()) onOpenReceipt() },
+        onReceipt = { if (canOpenReceipt()) onOpenReceipt() },
         onLostItem = {
-            if (isCurrent() && !lostOpened && !lostBusy) {
+            if (canAct() && !lostOpened && !lostBusy) {
                 lostBusy = true
                 actionError = null
                 scope.launch {
-                    if (!isCurrent()) return@launch
+                    if (!canAct()) return@launch
                     val result = openLostItem(bookingId)
-                    if (!isCurrent()) return@launch
+                    if (!canAct()) return@launch
                     result
                         .onSuccess { lostOpened = true }
                         .onFailure { actionError = serverSaid(it, lostFail) }
@@ -357,7 +335,7 @@ private fun RideshareCompletedSession(
         },
         onSupport = { if (isCurrent()) onSupport() },
         problemReport = if (reportTo > 0) { { PassengerAfterTripReport(bookingId, reportTo, counterpartyName) } } else null,
-    )
+    ) }
 }
 
 @Composable
@@ -402,6 +380,7 @@ internal fun RideshareCompletedContent(
     thanksError: String? = null,
     onRetryThanks: () -> Unit = {},
     onlinePay: @Composable () -> Unit = {},
+    hasCurrentReceipt: Boolean = true,
     problemReport: (@Composable () -> Unit)? = null,   // «Сообщить о проблеме» пассажиру (RideshareBoarding.kt)
 ) {
     Scaffold(
@@ -411,7 +390,7 @@ internal fun RideshareCompletedContent(
             RideshareCompletedDecisionBar(
                 submitted = ratingSent,
                 loading = ratingBusy,
-                enabled = ratingSent || stars > 0,
+                enabled = hasCurrentReceipt && (ratingSent || stars > 0),
                 onSkip = onSkip,
                 onPrimary = onSubmit,
             )
@@ -442,39 +421,41 @@ internal fun RideshareCompletedContent(
                     car = car,
                 )
             }
-            item {
-                RideshareRatingCard(
-                    isDriver = isDriver,
-                    stars = stars,
-                    selectedTags = selectedTags,
-                    reviewText = reviewText,
-                    reviewExpanded = reviewExpanded,
-                    busy = ratingBusy,
-                    submitted = ratingSent,
-                    onStar = onStar,
-                    onTag = onTag,
-                    onReviewExpanded = onReviewExpanded,
-                    onReviewText = onReviewText,
-                )
-            }
-            item {
-                RideshareCompletedActionGrid(
-                    isDriver = isDriver,
-                    thanked = thanked,
-                    thanksBusy = thanksBusy,
-                    thanksLoading = thanksLoading,
-                    thanksError = thanksError,
-                    onThanks = onThanks,
-                    onReceipt = onReceipt,
-                    onSupport = onSupport,
-                )
-            }
-            item {
-                RideshareLostItemRow(
-                    opened = lostOpened,
-                    busy = lostBusy,
-                    onClick = onLostItem,
-                )
+            if (hasCurrentReceipt) {
+                item {
+                    RideshareRatingCard(
+                        isDriver = isDriver,
+                        stars = stars,
+                        selectedTags = selectedTags,
+                        reviewText = reviewText,
+                        reviewExpanded = reviewExpanded,
+                        busy = ratingBusy,
+                        submitted = ratingSent,
+                        onStar = onStar,
+                        onTag = onTag,
+                        onReviewExpanded = onReviewExpanded,
+                        onReviewText = onReviewText,
+                    )
+                }
+                item {
+                    RideshareCompletedActionGrid(
+                        isDriver = isDriver,
+                        thanked = thanked,
+                        thanksBusy = thanksBusy,
+                        thanksLoading = thanksLoading,
+                        thanksError = thanksError,
+                        onThanks = onThanks,
+                        onReceipt = onReceipt,
+                        onSupport = onSupport,
+                    )
+                }
+                item {
+                    RideshareLostItemRow(
+                        opened = lostOpened,
+                        busy = lostBusy,
+                        onClick = onLostItem,
+                    )
+                }
             }
             if (problemReport != null) item { problemReport() }
             item {
@@ -504,7 +485,7 @@ internal fun RideshareCompletedContent(
             AnimatedVisibilityItem(visible = actionError != null) {
                 CompletedInlineMessage(text = actionError.orEmpty())
             }
-            if (!isDriver) {
+            if (!isDriver || !hasCurrentReceipt) {
                 item {
                     TextButton(
                         onClick = onSupport,

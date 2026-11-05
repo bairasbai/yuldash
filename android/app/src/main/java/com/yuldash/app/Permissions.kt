@@ -87,7 +87,7 @@ internal fun rememberPermissionGate(
     )
     when (step) {
         PermissionStep.Explain -> AlertDialog(
-            onDismissRequest = { step = PermissionStep.Idle },
+            onDismissRequest = { step = PermissionStep.Idle; onDenied() },
             containerColor = CanonSurface,
             title = { Text(title, color = CanonText, fontWeight = FontWeight.Bold) },
             text = { Text(why, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) },

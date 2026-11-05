@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -13,7 +14,10 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.OfflineTripSnapshots
 import okhttp3.mockwebserver.*
+import org.json.JSONObject
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -44,7 +48,6 @@ class ActiveTripPassengerStatusFailureTest {
     @Before fun setup() {
         ApiClient.resetForTest()
         ShadowToast.reset()
-        ApiClient.logout() // No WebSocket; REST still goes to the owned HTTP recorder.
         TripPassStore.initStores(MemoryDiskPreferences(), null)
         Outbox.initStores(MemoryDiskPreferences(), null)
         server = MockWebServer().apply {
@@ -58,10 +61,12 @@ class ActiveTripPassengerStatusFailureTest {
                         )
                     }
                     val body = when (path) {
-                        "/bookings/42/role" -> """{"role":"passenger","status":"$bookingStatus","driver_phase":"departed"}"""
+                        "/bookings/42/role" -> JSONObject().put("role", "passenger").put("status", bookingStatus).put("driver_phase", "departed")
+                            .put("onboard_at", if (bookingStatus == "onboard") "2031-02-03T09:00:00.123456Z" else JSONObject.NULL).toString()
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":"1234"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"$bookingStatus"}"""
+                        "/bookings/42/details" -> JSONObject().put("booking_id", 42).put("ride_id", 17).put("role", "passenger").put("status", bookingStatus)
+                            .put("onboard_at", if (bookingStatus == "onboard") "2031-02-03T09:00:00.123456Z" else JSONObject.NULL).toString()
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
@@ -69,7 +74,7 @@ class ActiveTripPassengerStatusFailureTest {
             }
             start()
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
     }
 
@@ -125,7 +130,34 @@ class ActiveTripPassengerStatusFailureTest {
         posted.forEach { assertEquals("arrived", org.json.JSONObject(it).getString("status")) }
     }
 
-    @Test fun forbiddenArrivalKeepsTheSameRetryAction() = rejectedStatus(403)
+    @Test fun forbiddenArrivalRevokesLiveAndRejectsRetainedRetry() {
+        responseCode = 403
+        open()
+        val retainedArrival = requireNotNull(compose.onNodeWithText("Доехал").fetchSemanticsNode()
+            .config[SemanticsActions.OnClick].action)
+        compose.onNodeWithText("Доехал").performClick()
+        compose.waitUntil(15000) {
+            settle()
+            posted.size == 1 && ShadowToast.getTextOfLatestToast() == "Переход отклонён" &&
+                !OfflineTripSnapshots.allowsLive(42) &&
+                compose.onAllNodesWithText("Доехал").fetchSemanticsNodes().isEmpty()
+        }
+        compose.onAllNodesWithText("Доехал").assertCountEquals(0)
+        compose.onAllNodesWithText("Завершить").assertCountEquals(0)
+        assertNull(currentTripPrivateDetails(42))
+        assertNull(OfflineTripSnapshots.privatePass(42))
+        assertNull(TripPassStore.load(context, 42))
+        assertEquals(0, Outbox.count(context, 42))
+        responseCode = 200
+        compose.runOnIdle { retainedArrival() }
+        repeat(20) { settle(); Thread.sleep(50) }
+        assertFalse(OfflineTripSnapshots.allowsLive(42))
+        assertNull(OfflineTripSnapshots.privatePass(42))
+        assertNull(TripPassStore.load(context, 42))
+        assertEquals("Отозванная кнопка не отправляет второй POST", 1, posted.size)
+        assertEquals("arrived", JSONObject(posted.single()).getString("status"))
+        assertEquals(0, Outbox.count(context, 42))
+    }
     @Test fun conflictingArrivalKeepsTheSameRetryAction() = rejectedStatus(409)
     @Test fun serverOutageKeepsTheSameRetryAction() = rejectedStatus(503)
 

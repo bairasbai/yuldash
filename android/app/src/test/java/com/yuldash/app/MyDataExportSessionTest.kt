@@ -12,7 +12,14 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -60,6 +67,7 @@ class MyDataExportSessionTest {
 
     @Before fun setup() {
         context = ApplicationProvider.getApplicationContext()
+        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
         ApiClient.resetForTest()
         ApiClient.testTrace = { apiTrace.add(it) }
         server = MockWebServer().apply {
@@ -86,6 +94,7 @@ class MyDataExportSessionTest {
         ApiClient.testTimeoutMs = 15_000
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.saveToken("QA-export-account-A")
 
         neutral = File(context.cacheDir, "shared/qa-mydata-neutral.txt").apply {
@@ -97,16 +106,41 @@ class MyDataExportSessionTest {
     }
 
     @After fun cleanup() {
+        if (!::server.isInitialized) { awaitApiBackgroundCompletion(); awaitSnapshotCleanup(); return }
         release.countDown()
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
         ApiClient.logout()
+        awaitApiBackgroundCompletion()
+        awaitSnapshotCleanup()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         ApiClient.testTrace = null
         // Only files created by this probe are removed; product cleanup is asserted beforehand.
         ownedFiles.forEach { it.delete() }
         server.shutdown()
+    }
+
+    private fun awaitApiBackgroundCompletion()=runBlocking {
+        // Observe only the test-owned API coroutine job, never auth/key fields.
+        val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
+        val parent=requireNotNull(scope.coroutineContext[Job])
+        try {
+            withTimeout(10_000) {
+                while(true) {
+                    val children=parent.children.toList()
+                    if(children.isEmpty()) break
+                    children.forEach {it.join()}
+                }
+            }
+        } catch(failure:TimeoutCancellationException) {
+            throw AssertionError("Fixture API jobs still running; local origin/server retained. Abort this isolated run.",failure)
+        }
+    }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) {
+            while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10)
+        }
     }
 
     private fun json(body: String, status: Int = 200) = MockResponse().setResponseCode(status)
@@ -154,6 +188,7 @@ class MyDataExportSessionTest {
         compose.waitUntil(15_000) { settle(); held.count == 0L }
         compose.runOnIdle {
             ApiClient.logout()
+            awaitSnapshotCleanup()
             ApiClient.saveToken("QA-export-account-B")
         }
         release.countDown()
@@ -202,6 +237,7 @@ class MyDataExportSessionTest {
             assertEquals("no shared file was created while the write was paused", before, sharedFiles())
             compose.runOnIdle {
                 ApiClient.logout()
+                awaitSnapshotCleanup()
                 ApiClient.saveToken("QA-export-account-B")
             }
             writerReleased.countDown()

@@ -47,7 +47,7 @@ class TripReceiptContractTest {
         assertNull(receiptPersonalSegment(parseTripReceiptDto(raw(" ","Бурибай"))))
     }
     @Test fun actualApiParsesRawPrivateStopsAndKeepsExistingOwnRatingAndAmount()=runBlocking<Unit> {
-        val body=raw("Ургаза","Бурибай").put("amount",300).put("pay_method","cash").put("my_stars",5).put("driver_verified",true)
+        val body=raw("Ургаза","Бурибай").put("ride_id",7).put("amount",300).put("pay_method","cash").put("my_stars",5).put("driver_verified",true)
         server.enqueue(MockResponse().setBody(body.toString()))
         val dto=ApiClient.getTripReceipt(42,ApiClient.queueSessionGeneration()).getOrThrow()
         assertEquals("Ургаза",dto.pickupStop);assertEquals("Бурибай",dto.dropoffStop)

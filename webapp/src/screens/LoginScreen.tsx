@@ -18,6 +18,7 @@ import { IconBlock, IconLock, IconPhone, IconProfile, IconShield, IconTelegram, 
 import { track } from "../analytics";
 import { createLoginFlow, filterLoginCode, nextNeedPhone, type LoginError, type LoginFlowDeps } from "../utils/loginFlow";
 import { restampRideMatch } from "../utils/pickupStops";
+import { claimGuestBookingDraft, publishGuestBookingDraft, clearPendingGuestBookingDraft } from "../utils/guestBookingDraft";
 
 type Step = "choose" | "code";
 
@@ -33,6 +34,12 @@ export default function LoginScreen() {
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/map";
   const returnState = (location.state as { returnState?: unknown } | null)?.returnState;
+  const guestBookingNonce = (location.state as { guestBookingNonce?: unknown } | null)?.guestBookingNonce;
+  const guestBooking = (location.state as { guestBooking?: unknown } | null)?.guestBooking === true || guestBookingNonce !== undefined;
+  const guestVerifyNonce = useRef<unknown>(undefined);
+  const guestAttempt = useRef(0);
+  const guestRestoreNonce = useRef<string | undefined>(undefined);
+  const guestRouteActive = useRef({ active: false, nonce: guestBookingNonce });
 
   const [step, setStep] = useState<Step>("choose");
   const [requestId, setRequestId] = useState("");
@@ -55,9 +62,20 @@ export default function LoginScreen() {
   const [smsName, setSmsName] = useState("");
   const [smsError, setSmsError] = useState<LoginError | null>(null);
 
-  const live = useRef({ login, navigate, from, returnState });
-  live.current = { login, navigate, from, returnState };
+  const live = useRef({ login, navigate, from, returnState, guestBookingNonce, guestBooking });
+  live.current = { login, navigate, from, returnState, guestBookingNonce, guestBooking };
   const flow = useRef<ReturnType<typeof createLoginFlow> | null>(null);
+  useEffect(() => {
+    guestRouteActive.current = { active: true, nonce: guestBookingNonce };
+    return () => {
+      guestRouteActive.current.active = false;
+      queueMicrotask(() => {
+        if (!guestRouteActive.current.active || guestRouteActive.current.nonce !== guestBookingNonce) {
+          clearPendingGuestBookingDraft(guestBookingNonce);
+        }
+      });
+    };
+  }, [guestBookingNonce]);
   const refreshMethods = useCallback(async () => {
     methodsRequest.current?.abort();
     const controller = new AbortController();
@@ -83,8 +101,32 @@ export default function LoginScreen() {
     const deps: LoginFlowDeps = {
       getGeneration: getSessionGeneration,
       botAvailable: () => TELEGRAM_BOT.length > 0,
-      tgStart, tgVerify, smsRequest: requestSmsCode, smsVerify: verifySmsCode,
-      login: (access, refresh, user) => live.current.login(access, refresh, user),
+      tgStart, smsRequest: requestSmsCode,
+      tgVerify: (...args: Parameters<typeof tgVerify>) => {
+        guestAttempt.current++;
+        guestVerifyNonce.current = live.current.guestBookingNonce;
+        return tgVerify(...args);
+      },
+      smsVerify: (...args: Parameters<typeof verifySmsCode>) => {
+        guestAttempt.current++;
+        guestVerifyNonce.current = live.current.guestBookingNonce;
+        return verifySmsCode(...args);
+      },
+      login: async (access, refresh, user) => {
+        const attempt = guestAttempt.current;
+        const source = getSessionGeneration();
+        const draft = claimGuestBookingDraft(guestVerifyNonce.current, source);
+        guestVerifyNonce.current = undefined;
+        guestRestoreNonce.current = undefined;
+        const publication = await live.current.login(access, refresh, user);
+        const owner = typeof publication === "string" ? publication : getSessionGeneration();
+        if (draft && attempt === guestAttempt.current && flow.current?.busy &&
+            guestRouteActive.current.active && guestRouteActive.current.nonce === draft.nonce &&
+            live.current.guestBookingNonce === draft.nonce && live.current.from === "/rides/" + draft.rideId) {
+          guestRestoreNonce.current = publishGuestBookingDraft(draft, owner);
+        }
+        return owner;
+      },
       updateName: (updatedName) => apiPost("/me/update", { name: updatedName }),
       getStatus: (e) => e instanceof ApiError ? e.status : 0,
       getCode: (e) => e instanceof ApiError ? e.code : "",
@@ -97,7 +139,14 @@ export default function LoginScreen() {
       telegramStartUrl, telegramChatUrl,
       openTelegram: (url) => window.open(url, "_blank", "noopener,noreferrer"),
       track,
-      navigate: () => live.current.navigate(live.current.from, { replace: true, ...(live.current.returnState ? { state: restampRideMatch(live.current.returnState, getSessionGeneration()) } : {}) }),
+      navigate: () => {
+        const nonce = guestRestoreNonce.current;
+        guestRestoreNonce.current = undefined;
+        const state = live.current.guestBooking ? { guestBooking: true }
+          : restampRideMatch(live.current.returnState, getSessionGeneration()) as object | null | undefined;
+        live.current.navigate(live.current.from, { replace: true,
+          ...((state || nonce) ? { state: { ...state, ...(nonce ? { guestBookingNonce: nonce } : {}) } } : {}) });
+      },
       onBusy: setLoading,
       onError: (kind) => {
         setError(kind);

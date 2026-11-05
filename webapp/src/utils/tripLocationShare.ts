@@ -6,14 +6,14 @@
 //  машину, только если водитель ехал с приложением.
 //
 //  Личные данные (AGENTS.md §7, §8):
-//   • Место спрашиваем в нужный момент — когда водитель в пути: нажал «Выехал» / «Подъезжаю»
-//     или открыл экран, когда пассажир уже сел. До этого браузер о месте не спрашивают.
+//   • Публикацию разрешает только живое действие водителя в этой вкладке (rideLocationShare).
+//     Открытие активной поездки и разрешение ОС сами не начинают передачу.
 //   • Кому и когда точку показывать, решает СЕРВЕР (`visibility.trip_is_live`: после «Выехал»
 //     или за час до выезда). Клиент своих правил показа не придумывает — только отправляет.
 //   • Координаты не пишем ни в журнал (console), ни в аналитику — только в канал поездки.
 //   • Без места экран не падает: состояние «закрыт доступ» с подсказкой и «Повторить».
-//   • Браузер шлёт точку, только пока страница открыта (фоновой службы, как в Android, у сайта
-//     нет) — об этом честно говорит подпись на экране.
+//   • Передачу держит поездка или кабинет водителя в этой вкладке; холодное открытие страницы
+//     не восстанавливает разрешение (фоновой службы, как в Android, у сайта нет).
 //
 //  Здесь только логика с подставными зависимостями (геолокация, сокет, часы), без React —
 //  её исполняет набор `tests/driver-location-share-test.mjs`.
@@ -21,6 +21,7 @@
 
 /** Что видит водитель под кнопками статуса. */
 export type ShareState =
+  | "resolving" // отправка приостановлена: проверяем собственные брони и новый канал
   | "asking" // браузер спрашивает доступ / ищет первую точку
   | "sharing" // точка уходит в канал поездки
   | "reconnecting" // точка есть, а связи с сервером нет — переподключаемся
@@ -109,7 +110,19 @@ export interface ShareDeps {
   refreshToken?: (rejected: string) => Promise<boolean>;
   /** Подписка на «сеть вернулась» (`window` «online»); возвращает отписку. */
   subscribeOnline?: (fn: () => void) => () => void;
+  /**
+   * Отправка кончилась насовсем и почему (Д2, отправка на весь рейс — rideLocationShare.ts): «trip» — сервер
+   * закрыл канал брони (завершена, отменена, неявка, блок, не наша), «auth» — входа больше нет или ключ
+   * отозван, «gave-up» — бронь так и не стала активной. Состояние на экране — то же «ended».
+   */
+  onEnd?: (why: ShareEnd) => void;
+  /** Можно ли слать точку прямо сейчас (Д2: срок несущей брони, потолок рейса). false — точку не шлём. */
+  allowSend?: () => boolean;
+  /** Отказ геодоступа отзывает право вкладки; повторная выдача ОС его не восстанавливает. */
+  onPermissionDenied?: () => void;
 }
+
+export type ShareEnd = "trip" | "auth" | "gave-up" | "boarding-corrected";
 
 export interface ShareHandle {
   /** Остановить всё: слежение за местом, сокет, таймеры. Повторный вызов безопасен. */
@@ -192,6 +205,13 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     unsubscribeOnline?.();
   }
 
+  /** Конец с причиной: экран видит «ended», отправка на весь рейс — почему (Д2). */
+  function end(why: ShareEnd) {
+    if (stopped) return;
+    retire("ended");
+    deps.onEnd?.(why);
+  }
+
   const ladder = (n: number) => Math.min(MAX_RECONNECT_MS, 1000 * 2 ** Math.min(n - 1, 5));
 
   /**
@@ -209,7 +229,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     if (!rejected || !deps.refreshToken) return;
     deps.refreshToken(rejected).then(
       (fresh) => {
-        if (!fresh && current() && deps.token() === rejected) retire("ended");
+        if (!fresh && current() && deps.token() === rejected) end("auth");
       },
       () => {
         /* нет сети — обновим на следующем шаге лестницы */
@@ -228,6 +248,8 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       return;
     }
     if (!last || !socket || !authed || socket.readyState !== OPEN) return;
+    // Срок несущей брони вышел или потолок рейса (Д2): точку не шлём — отправка на рейс сама решит, что дальше.
+    if (deps.allowSend && !deps.allowSend()) return;
     const now = deps.now();
     if (!force && now - lastSentAt < SEND_EVERY_MS) {
       if (trail === null) {
@@ -265,12 +287,12 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
       retire();
       return;
     }
-    if (socket) return;
+    if (socket || (deps.allowSend && !deps.allowSend())) return;
     // Нет ключа входа — соединение не открываем вовсе (Android LocationSocket: currentToken() ?: return):
     // без первого кадра {type:"auth"} точка ушла бы на сервер от неизвестно кого.
     const token = deps.token();
     if (!token) {
-      retire("ended");
+      end("auth");
       return;
     }
     if (token === rejectedToken) {
@@ -292,7 +314,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     socket = s;
     s.onopen = () => {
       if (socket !== s) return;
-      if (!current()) {
+      if (!current() || (deps.allowSend && !deps.allowSend())) {
         retire();
         return;
       }
@@ -319,10 +341,14 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
         return;
       }
       const reason = String(ev?.reason ?? "");
+      if (ev?.code === 1008 && reason === "Boarding corrected") {
+        end("boarding-corrected");
+        return;
+      }
       if (ev?.code === 1008 && /not active/i.test(reason)) {
         // Бронь ещё не подтверждена — подождём, но не вечно (Android: ~10 минут).
         if (softAttempt >= MAX_SOFT_RETRIES) {
-          retire("ended");
+          end("gave-up");
           return;
         }
         softAttempt++;
@@ -341,7 +367,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
         // Отказ сервера — конец, как в Android LocationSocket: поездка закончилась («Trip ended»),
         // бронь не наша («Forbidden»), доступ закрыт блокировкой («Access ended»). Повторять
         // бессмысленно: точка больше не уходит, слежение за местом снято.
-        retire("ended");
+        end("trip");
         return;
       }
       attempt++;
@@ -352,7 +378,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
   }
 
   function begin() {
-    if (!current()) return;
+    if (!current() || (deps.allowSend && !deps.allowSend())) return;
     if (!deps.geolocation) {
       setState("unsupported");
       return;
@@ -360,7 +386,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
     setState("asking");
     watchId = deps.geolocation.watchPosition(
       (p) => {
-        if (!current()) {
+        if (!current() || (deps.allowSend && !deps.allowSend())) {
           // Вышли из аккаунта или сменили его — слежение за местом снимаем сразу, а не «молчим».
           retire();
           return;
@@ -387,6 +413,7 @@ export function startDriverLocationShare(deps: ShareDeps): ShareHandle {
           // Доступ закрыт: точку не шлём, соединение не держим. Экран живёт дальше.
           last = null;
           halt("denied");
+          deps.onPermissionDenied?.();
           return;
         }
         // Нет сигнала / не успели — следим дальше; если точки ещё не было, говорим об этом.

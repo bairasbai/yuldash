@@ -153,6 +153,10 @@ class ApiClientContactsMutationOwnerTest {
         }
         assertTrue(contactReplies.isEmpty())
     }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
+
     private fun warmB(): Long {
         ApiClient.saveToken(tokenB); val generationB = ApiClient.queueSessionGeneration()
         assertNotEquals(generationA, generationB); assertEquals(listOf(8), read(8)); assertEquals(listOf(8), cachedIds())
@@ -201,6 +205,7 @@ class ApiClientContactsMutationOwnerTest {
         if (code == 401) {
             assertFalse(ApiClient.isLoggedIn()); assertNull(ApiClient.currentToken())
             assertTrue(ApiClient.sessionExpired.value); assertNotEquals(generationA, ApiClient.queueSessionGeneration())
+            awaitSnapshotCleanup()
         } else {
             assertEquals(tokenA, ApiClient.currentToken()); assertEquals(generationA, ApiClient.queueSessionGeneration())
             assertFalse(ApiClient.sessionExpired.value)

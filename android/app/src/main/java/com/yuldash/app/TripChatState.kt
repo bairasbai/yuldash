@@ -18,7 +18,6 @@ import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.Stable
 import androidx.compose.runtime.State
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yuldash.app.data.ApiClient
@@ -52,6 +51,8 @@ internal class TripChatState(
     /** Только «тот же вход» — для сбоев, которые нужно сохранить в очередь и после закрытия поездки. */
     private val isSessionCurrent: () -> Boolean,
     private val texts: State<TripChatTexts>,
+    /** History owner lifetime, independent of temporary readiness; old callers keep their active guard. */
+    isHistoryParentCurrent: () -> Boolean = isActive,
 ) {
     val myId: Int = ApiClient.myUserId() ?: -1
 
@@ -74,14 +75,18 @@ internal class TripChatState(
     // Был разрыв или неудачная попытка подключиться: историю дотягиваем один раз, когда канал жив (refreshAfterReconnect).
     private var resyncPending = false
     // Состояние первой загрузки истории: спиннер, ошибка (с «Повторить»), пусто.
-    var historyLoading: Boolean by mutableStateOf(bookingId != null)
-    var historyError: Boolean by mutableStateOf(false)
+    private val history = TripChatHistoryPump(bookingId, scope, isActive, isHistoryParentCurrent,
+        currentEpoch = { continuityEpoch.get() },
+        currentIds = { messages.filter { it.id > 0 }.map { it.id }.toSet() },
+        accept = { server, previousIds ->
+            hiddenMessageIds += previousIds - server.map { it.id }.toSet()
+            applyServer(server)
+            seen.baseline(server)
+        })
+    var historyLoading: Boolean by history::loading
+    var historyError: Boolean by history::error
     /** bump → перезагрузить историю (кнопка «Повторить»). */
-    var historyTick: Int by mutableIntStateOf(0)
-    private val historyMutex = Mutex()
-    private var historyVersion = 0L
-    private var historyPending = false
-    private var historyRefreshJob: Job? = null
+    var historyTick: Int by history::tick
     // After an invalidation, an unknown row needs this owner's authoritative history.
     // A delayed message/receipt alone cannot reveal a row hidden by another open login.
     private var authoritativeHistory = false
@@ -116,13 +121,9 @@ internal class TripChatState(
             messages.filter { it.id < 0 && it.id !in acknowledged }
     }
 
-    private fun snapshotChanged() { historyVersion++ }
+    private fun snapshotChanged() { history.invalidate() }
 
-    private fun requestHistoryRefresh() {
-        if (!isActive() || bookingId == null) return
-        historyPending = true
-        if (historyRefreshJob?.isActive != true) historyRefreshJob = scope.launch { drainHistory(bookingId) }
-    }
+    private fun requestHistoryRefresh() = history.requestRefresh()
 
     private fun historyChanged() {
         if (!isActive()) return
@@ -148,33 +149,6 @@ internal class TripChatState(
         scope.launch { if (isActive()) { snapshotChanged(); requestHistoryRefresh() } }
     }
 
-    /** All readers share one pump; a signal/change during IO invalidates that snapshot. */
-    private suspend fun drainHistory(id: Int): Boolean = historyMutex.withLock {
-        if (!isActive()) return@withLock false
-        try {
-            while (historyPending && isActive()) {
-                historyPending = false
-                historyLoading = true
-                historyError = false
-                val version = historyVersion
-                val epoch = continuityEpoch.get()
-                // Never compare with rows that arrive after this request's server snapshot.
-                val previousIds = messages.filter { it.id > 0 }.map { it.id }.toSet()
-                val result = ApiClient.getMessages(id)
-                if (!isActive()) return@withLock false
-                if (version != historyVersion || epoch != continuityEpoch.get()) {
-                    historyPending = true
-                    continue
-                }
-                result.onSuccess { server ->
-                    hiddenMessageIds += previousIds - server.map { it.id }.toSet()
-                    applyServer(server)
-                    seen.baseline(server)
-                }.onFailure { historyError = true }
-            }
-            isActive()
-        } finally { if (isActive()) historyLoading = false }
-    }
 
     // ── Непрочитанные ── метка «прочитано до» этого входа и брони; unread и markSeen — в TripChatWiring.kt.
     internal val seen = TripChatSeenMark("$tripSession:${bookingId ?: 0}")
@@ -284,15 +258,14 @@ internal class TripChatState(
 
     fun canWrite(): Boolean = isActive()
 
+    /** Reactive readiness must not spend an attempt before this owner's request starts. */
+    suspend fun loadInitialHistory(id: Int, expectedTick: Int): Boolean = history.loadInitial(id, expectedTick)
+
     /**
      * Первая загрузка истории (и «Повторить»). Звено цепочки экрана поездки: история → код
      * посадки → детали брони. false — экран уже не тот, цепочку дальше не ведём.
      */
-    suspend fun loadHistory(id: Int): Boolean {
-        if (!isActive()) return false
-        historyPending = true
-        return drainHistory(id)
-    }
+    suspend fun loadHistory(id: Int): Boolean = history.load(id)
 
     /**
      * Сокет подключился — сервер снова на связи. Сперва отправляем то, что ждало в очереди: раньше оно

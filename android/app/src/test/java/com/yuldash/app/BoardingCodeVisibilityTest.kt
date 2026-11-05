@@ -14,6 +14,9 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.OfflineTripSnapshots
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -42,7 +45,7 @@ import java.util.concurrent.CopyOnWriteArrayList
  *    (паспорт создаётся там) — класть код было некуда;
  *  • после «Я сел» карточка «Код посадки / Назови код водителю» оставалась над «В пути».
  * С 17.10.2026 посадку отмечает водитель («Сел»): код уходит по его отметке (статус брони
- * с сервера) и возвращается, если он отменил её, промахнувшись карточкой.
+ * с сервера) и возвращается после подтверждения пассажиром запроса на исправление отметки.
  */
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -56,11 +59,14 @@ class BoardingCodeVisibilityTest {
     private val requests = CopyOnWriteArrayList<String>()
     @Volatile private var role = "passenger"
     @Volatile private var bookingStatus = "confirmed"
+    @Volatile private var undoConfirmedByPassenger = false
+    @Volatile private var currentCode = "5678"
+    private val onboardEpoch = "2031-02-03T09:00:00.123456"
+    private val confirmedUndoId = "$onboardEpoch~visibility-passenger-confirmation"
     private lateinit var server: MockWebServer
 
     @Before fun setup() {
         ApiClient.resetForTest()
-        ApiClient.logout()
         TripPassStore.initStores(plain, secure)
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
@@ -68,21 +74,33 @@ class BoardingCodeVisibilityTest {
                     requests.add("${request.method} ${request.path}")
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
                     return when (request.path) {
-                        "/bookings/42/role" -> json("""{"role":"$role","status":"$bookingStatus","driver_phase":""}""")
+                        "/bookings/42/role" -> json(bookingState())
                         "/bookings/42/messages" -> json("""{"items":[]}""")
-                        "/bookings/42/boarding-code" -> json("""{"code":"5678"}""")
-                        "/bookings/42/details" -> json("""{"booking_id":42,"role":"$role","status":"$bookingStatus","from_city":"Город А","to_city":"Город Б"}""")
+                        "/bookings/42/boarding-code" -> json("""{"code":"$currentCode"}""")
+                        "/bookings/42/details" -> json(bookingState(details = true))
                         else -> MockResponse().setResponseCode(404).setBody("{}")
                     }
                 }
             }
             start()
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
     }
 
     private fun json(body: String) = MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+
+    private fun bookingState(details: Boolean = false): String {
+        val current = bookingStatus
+        val corrected = current == "confirmed" && undoConfirmedByPassenger
+        return JSONObject().put("role", role).put("status", current).put("driver_phase", "")
+            .put("onboard_at", if (current == "onboard") onboardEpoch else JSONObject.NULL)
+            .put("boarding_undo_confirmed_id", if (corrected) confirmedUndoId else JSONObject.NULL)
+            .put("boarding_undo_onboard_at", if (corrected) onboardEpoch else JSONObject.NULL)
+            .apply { if (details) put("booking_id", 42).put("ride_id", 17).put("from_city", "Город А").put("to_city", "Город Б")
+                .put("contact_unlocked", current in setOf("confirmed", "onboard")) }
+            .toString()
+    }
 
     @After fun cleanup() {
         compose.runOnIdle { mounted.value = false }
@@ -104,15 +122,26 @@ class BoardingCodeVisibilityTest {
 
     @Test fun passengerWithoutOfflinePassSeesNoWarning() {
         // Бронь открыта из списка «Поездки»: офлайн-паспорта нет, класть код некуда.
+        assertEquals(null, TripPassStore.load(context, 42))
+        assertFalse(secure.restarted().contains("pass_42"))
         openScreen()
         waitForCodeLoaded()
         settle()
-        assertEquals(null, TripPassStore.load(context, 42))
+        assertEquals("5678", TripPassStore.load(context, 42)?.boardingCode)
+        compose.waitUntil(15000) { settle(); TripPassAuthorityFixture.durable(secure, 42)?.boardingCode == "5678" }
         compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
     }
 
     @Test fun passengerWithOfflinePassStillGetsItsCodeSaved() {
-        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234"))))
+        currentCode = "1234"
+        runBlocking {
+            ApiClient.getBookingDetails(42).getOrThrow()
+            assertEquals("1234", ApiClient.getBoardingCode(42).getOrThrow())
+        }
+        assertTrue(TripPassStore.save(context, requireNotNull(OfflineTripSnapshots.privatePass(42))))
+        assertEquals("1234", TripPassAuthorityFixture.durable(secure, 42)?.boardingCode)
+        currentCode = "5678"
+        OfflineTripSnapshots.forgetDetails(42)
         openScreen()
         waitForCodeLoaded()
         compose.waitUntil(15000) {
@@ -120,6 +149,7 @@ class BoardingCodeVisibilityTest {
             TripPassStore.load(context, 42)?.boardingCode == "5678"
         }
         compose.onAllNodesWithText("Код не сохранён на телефоне").assertCountEquals(0)
+        assertEquals("5678", TripPassAuthorityFixture.durable(secure, 42)?.boardingCode)
     }
 
     @Test fun codeCardIsShownBeforeBoarding() {
@@ -158,7 +188,10 @@ class BoardingCodeVisibilityTest {
         }
         compose.onAllNodesWithText("Код посадки").assertCountEquals(0)
         compose.onAllNodesWithText("Водитель отметит посадку").assertCountEquals(0)
-        bookingStatus = "confirmed"   // промахнулся карточкой и нажал «Отменить» — код снова нужен
+        // Водитель запросил исправление; пассажир подтвердил, что ещё не сел. Сервер вернул
+        // receipt именно исходной посадки: одно нажатие водителя статус не откатывает.
+        undoConfirmedByPassenger = true
+        bookingStatus = "confirmed"
         advance(14_000)
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()

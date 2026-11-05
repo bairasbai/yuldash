@@ -52,6 +52,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.TripStateDto
@@ -101,6 +102,11 @@ internal class CancelledInTransitState(initial: Boolean) {
     /** null — машину ещё не знаем: экран сам дочитает детали брони. */
     var car by mutableStateOf<InTransitCar?>(null)
         private set
+
+    /** Called only after the current owner accepted a terminal server response; never clears a known cancellation. */
+    fun acceptTerminal(status: String, inTransit: Boolean) {
+        if (status == "cancelled" && inTransit) cancelled = true
+    }
 
     fun accept(st: TripStateDto) {
         if (st.status == "cancelled" && st.cancelledInTransit) cancelled = true
@@ -221,6 +227,8 @@ internal fun ActiveTripTerminalCleanup(
     LaunchedEffect(bookingId, terminal, removalRetry) {
         val id = bookingId ?: return@LaunchedEffect
         if (terminal == null || tripSession != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        com.yuldash.app.data.OfflineTripSnapshots.ticket()?.takeIf { it.owner.generation == tripSession }
+            ?.let { com.yuldash.app.data.OfflineTripSnapshots.close(it, id) }
         dropPass()
         removalBusy = true
         try {
@@ -329,7 +337,10 @@ internal fun CancelledInTransitScreen(
         carLoading = true; carFailed = false
         val result = fetchDetails(bookingId)
         if (!isCurrent()) return@LaunchedEffect
-        result.onSuccess { d -> if (d.bookingId == bookingId) state.accept(d) }
+        result.onSuccess { d ->
+            if (d.bookingId == bookingId && OfflineTripSnapshots.currentAcceptedDetails(d)) state.accept(d)
+            else carFailed = true
+        }
             .onFailure { e -> if (e is CancellationException) throw e; carFailed = true }
         carLoading = false
     }

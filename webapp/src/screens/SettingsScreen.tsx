@@ -299,7 +299,7 @@ export default function SettingsScreen() {
         {logoutAsk && (
           <div className="settings-group__body settings-confirm">
             <strong>{appText("Выйти из аккаунта?", "Иҫәптән сығаһыңмы?")}</strong>
-            <span>{appText("Нужно будет снова войти через Telegram.", "Telegram аша яңынан инергә кәрәк буласаҡ.")}</span>
+            <span>{appText("Чтобы вернуться, нужно будет снова войти.", "Кире ҡайтыу өсөн яңынан инергә кәрәк буласаҡ.")}</span>
             <div className="settings-confirm__row">
               <button type="button" className="btn-ghost settings-confirm__danger" onClick={() => void logout()}>
                 {appText("Выйти", "Сығыу")}

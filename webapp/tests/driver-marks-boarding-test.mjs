@@ -4,7 +4,7 @@
 //  Было: пассажир сам жал «Я сел» (на сайте — «Села в машину») — можно было нажать из дома,
 //  чтобы водитель уже не отметил «Не пришёл», а нажатое по ошибке было не вернуть.
 //  Стало:
-//   • водитель: «Сел» у подтверждённого пассажира → «Пассажир в машине» и «Отменить · 4:59»
+//   • водитель: «Сел» у подтверждённого пассажира → «Пассажир в машине» и «Исправить посадку · 4:59»
 //     в первые 5 минут; дальше — то, что передал кабинет (разбор);
 //   • пассажир: «Водитель отметит посадку» и «Сообщить о проблеме» (разбор по брони с водителем).
 //
@@ -29,7 +29,7 @@ async function boarding(lang, props) {
   });
   const h = (globalThis.__dmb = {
     calls: [], changed: [], errors: [],
-    reply: (what) => ({ ok: true, status: what === "mark" ? "onboard" : "confirmed", boarding_undo_sec: what === "mark" ? 300 : 0 }),
+    reply: (what) => what === "mark" ? { ok: true, status: "onboard", boarding_undo_sec: 300 } : { ok: true, status: "onboard", boarding_undo_sec: 0, boarding_undo_pending: true },
   });
   const view = mount(Component, {
     bookingId: 42,
@@ -65,16 +65,17 @@ for (const lang of ["ru", "ba"]) {
     view.unmount();
   });
 
-  await t.test(`${lang}: «в пути» в первые минуты — «Пассажир в машине» и «Отменить · 2:00»`, async () => {
+  await t.test(`${lang}: «в пути» в первые минуты — «Пассажир в машине» и «Исправить посадку · 2:00»`, async () => {
     const { view, h } = await boarding(lang, { status: "onboard", undoSec: 120, children: { type: "div", props: { children: "РАЗБОР" } } });
     assert.ok(text(view.tree).includes(L("Пассажир в машине", "Пассажир машинала")));
-    const undo = button(view.tree, L("Отменить · 2:00", "Кире алырға · 2:00"));
-    assert.ok(undo, "нет «Отменить» с обратным отсчётом: " + text(view.tree));
+    const undo = button(view.tree, L("Исправить посадку · 2:00", "Ултырыуҙы төҙәтергә · 2:00"));
+    assert.ok(undo, "нет «Исправить посадку» с обратным отсчётом: " + text(view.tree));
     assert.ok(!text(view.tree).includes("РАЗБОР"), "пока можно отменить, разбор не нужен");
     await undo.props.onClick();
     await view.settle(3);
     assert.deepEqual(h.calls, [["undo", 42]]);
-    assert.deepEqual(h.changed, [{ ok: true, status: "confirmed", boarding_undo_sec: 0 }]);
+    assert.deepEqual(h.changed, [{ ok: true, status: "onboard", boarding_undo_sec: 0, boarding_undo_pending: true }]);
+    assert.ok(text(view.tree).includes(L("Ждём подтверждения пассажира", "Пассажирҙың раҫлауын көтәбеҙ")));
     view.unmount();
   });
 
@@ -90,7 +91,7 @@ for (const lang of ["ru", "ba"]) {
 await t.test("отказ сервера: его слова родителю и перечитать (409 — бронь ушла вперёд)", async () => {
   const { view, h } = await boarding("ru", { status: "onboard", undoSec: 30 });
   h.reply = () => { throw new ApiError(409, "Отменить посадку можно в первые 5 минут."); };
-  await button(view.tree, "Отменить").props.onClick();
+  await button(view.tree, "Исправить посадку").props.onClick();
   await view.settle(3);
   assert.deepEqual(h.errors, ["Отменить посадку можно в первые 5 минут."]);
   assert.deepEqual(h.changed, [null], "после 409 родитель перечитывает правду");

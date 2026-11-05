@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -15,6 +16,28 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class OfflineDurableWriteTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private val authority = TripPassAuthorityFixture()
+    private var ownsAuthority = false
+
+    private fun preparePassport(pass: TripPass): TripPass {
+        cleanupGuard.requireHealthy()
+        if (!ownsAuthority) {
+            ownsAuthority = true
+            authority.start()
+        }
+        return authority.authorizePositive(pass)
+    }
+
+    @After fun closeAuthority() {
+        cleanupGuard.requireHealthy()
+        if (!ownsAuthority) return
+        finishOfflineWriteFixture02(cleanupGuard) {
+            authority.close()
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+        }
+    }
+
     private lateinit var context: Context
     private lateinit var disk: SharedPreferences
     private var writes = 0
@@ -37,7 +60,7 @@ class OfflineDurableWriteTest {
             }
         }
     }
-    @Before fun setup() {
+    @Before fun setup() = cleanupGuard.runSetup {
         context = ApplicationProvider.getApplicationContext()
         disk = context.getSharedPreferences("qa-durable", 0)
         disk.edit().clear().commit(); writes = 0
@@ -59,18 +82,26 @@ class OfflineDurableWriteTest {
         assertFalse(disk.contains("queue"))
     }
     @Test fun passportReturnsOnlyAfterDurableWrite() {
+        val passport = preparePassport(TripPass.fromJson(JSONObject().put("booking_id", 7)))
         TripPassStore.initStores(store(), null)
-        val result: Any = TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 7)))
+        val result: Any = TripPassStore.save(context, passport)
         assertEquals(true, result)
         assertTrue(writes > 0)
+        assertNotNull(disk.getString("pass_7", null))
         TripPassStore.initStores(disk, null)
         assertNotNull(TripPassStore.load(context, 7))
+        assertNotNull(offlineWriteLegacyPass02(7))
     }
     @Test fun failedPassportSaveReturnsFailure() {
+        val passport = preparePassport(TripPass.fromJson(JSONObject().put("booking_id", 7)))
         TripPassStore.initStores(store(fail = true), null)
-        val result: Any = TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 7)))
+        val result: Any = TripPassStore.save(context, passport)
         assertEquals(false, result)
-        assertNull(TripPassStore.load(context, 7))
+        assertTrue("The authorized save must reach the failing commit", writes > 0)
+        assertNull(disk.getString("pass_7", null))
+        assertNull(offlineWriteLegacyPass02(7))
+        // A failed local write does not revoke a separately confirmed server projection.
+        assertNotNull(TripPassStore.load(context, 7))
     }
     @Test fun failedCommitRestoresPreviousQueueEvenIfMemoryChanged() {
         Outbox.initStores(disk, null)

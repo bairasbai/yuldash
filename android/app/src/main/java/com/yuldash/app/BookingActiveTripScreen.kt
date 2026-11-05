@@ -283,6 +283,7 @@ import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.delay
@@ -304,6 +305,7 @@ internal fun BookingScreen(
     onAdImpression: (PartnerAd) -> Unit,
     onAdClick: (PartnerAd) -> Unit,
     canOpenActiveTrip: Boolean = true,
+    isCurrentParent: (() -> Boolean)? = null,
     // Состояние брони (pending | confirmed | cancelled | …). Нужно, чтобы человек, который
     // ЖДЁТ ответа водителя, мог передумать, а тот, кому отказали, — узнал об этом
     // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
@@ -322,25 +324,18 @@ internal fun BookingScreen(
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
     // не подставляем — молча возвращаемся назад.
     if (ride == null) {
-        if (bookingId == null) {
-            LaunchedEffect(Unit) { onBack() }
-        } else {
-            // The parent is restoring this known booking. Do not race its server lookup with back navigation.
-            Scaffold(
-                containerColor = CanonBg,
-                topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
-            ) { padding ->
-                Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
-                    CircularProgressIndicator(color = CanonGreen2)
-                }
-            }
-        }
+        BookingRideUnavailable(bookingId, onBack)
         return
     }
     if (bookingId == null && RideCategoryBlocked(ride.category, onBack, onFindAnotherRide)) return
     val routeAd = ads.forPlacement(AdPlacement.TripDetails).firstOrNull { it.matchesRoute(ride.from, ride.to) }
     val context = LocalContext.current
-    var details by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
+    val bookingScope = rememberCoroutineScope()
+    val bookingOwner = remember(bookingId) { OfflineTripSnapshots.currentOwner() }
+    val currentParent by rememberUpdatedState(isCurrentParent)
+    var rawDetails by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null, androidx.compose.runtime.referentialEqualityPolicy()) }
+    val detailsRevision by OfflineTripSnapshots.version.collectAsState()
+    val details = detailsRevision.let { currentBookingParentDetails(rawDetails, bookingId, ride) }
     // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
     // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены СВОЕГО участка (RS-02 Б).
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
@@ -358,17 +353,23 @@ internal fun BookingScreen(
     var offlineSaveRetry by remember(bookingId) { mutableIntStateOf(0) }
     var detailsSession by remember(bookingId) { mutableStateOf(ApiClient.queueSessionGeneration()) }
     val statusChanged by rememberUpdatedState(onBookingStatusChange)
+    fun isBookingDisplayCurrent() = bookingScope.isActive && detailsSession == ApiClient.queueSessionGeneration() &&
+        OfflineTripSnapshots.currentOwner() == bookingOwner && (currentParent?.invoke() != false)
     LaunchedEffect(bookingId, detailsReload) {
         val bid = bookingId ?: return@LaunchedEffect
         val session = detailsSession
-        if (session != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (session != ApiClient.queueSessionGeneration() || !isBookingDisplayCurrent()) return@LaunchedEffect
         detailsLoading = true
         val result = ApiClient.getBookingDetails(bid)
-        if (session != ApiClient.queueSessionGeneration()) return@LaunchedEffect
+        if (session != ApiClient.queueSessionGeneration() || !isBookingDisplayCurrent()) return@LaunchedEffect
         result
             .onSuccess { loaded ->
+                if (!ride.matchesPrivateBookingRide(bid, loaded.rideId)) {
+                    detailsError = true
+                    return@onSuccess
+                }
                 detailsSession = session
-                details = loaded; detailsError = false
+                rawDetails = loaded; detailsError = false
                 if (loaded.status.isNotBlank()) statusChanged(loaded.status)
                 // F11: как только бронь подтверждена (телефон/встреча открыты) — сохраняем офлайн-паспорт.
                 // Так экран активной поездки поднимет данные без сети на трассе без связи.
@@ -383,17 +384,17 @@ internal fun BookingScreen(
             .onFailure { detailsError = true }
         detailsLoading = false
     }
-    LaunchedEffect(bookingId, offlineSaveRetry) {
-        if (offlineSaveRetry == 0) return@LaunchedEffect
-        val loaded = details?.takeIf { it.contactUnlocked && it.status in setOf("confirmed", "onboard") }
-            ?: return@LaunchedEffect
-        offlineSaveBusy = true
-        try {
-            offlineSaveFailed = !saveTripPass(context, loaded, detailsSession, retryMigration = true)
-        } finally {
-            offlineSaveBusy = false
-        }
-    }
+    BookingOfflinePassRetry(
+        context, bookingId, ride, details, detailsSession, offlineSaveRetry, ::isBookingDisplayCurrent,
+        onDetails = { loaded ->
+            rawDetails = loaded
+            detailsError = false
+            if (loaded.status.isNotBlank()) statusChanged(loaded.status)
+        },
+        onDetailsFailed = { detailsError = true },
+        onSaveFailed = { offlineSaveFailed = it },
+        onBusy = { offlineSaveBusy = it },
+    )
     var historyRemovalFailed by remember(bookingId) { mutableStateOf(false) }
     var historyRemovalBusy by remember(bookingId) { mutableStateOf(false) }
     var historyRemovalRetry by remember(bookingId) { mutableIntStateOf(0) }
@@ -430,7 +431,7 @@ internal fun BookingScreen(
             pickupLng = it.pickupLng,
         )
     } ?: ride
-    val contactUnlocked = details?.contactUnlocked == true
+    val contactUnlocked = details?.contactUnlocked == true && OfflineTripSnapshots.privateDetails(details)
     val driverPhone = details?.driverPhone.orEmpty()
     val exactPickup = if (contactUnlocked) displayRide.pickup else ""
     val pickupLat = if (contactUnlocked) displayRide.pickupLat else null
@@ -546,7 +547,7 @@ internal fun BookingScreen(
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp),
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).tripAuthorityDraw { isBookingDisplayCurrent() && (details == null || OfflineTripSnapshots.freshDetails(details) || OfflineTripSnapshots.terminal(details.bookingId) != null) },
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
@@ -609,7 +610,7 @@ internal fun BookingScreen(
                             icon = Icons.Default.Refresh,
                             action = if (offlineSaveBusy) null else appText("Сохранить ещё раз", "Тағы һаҡларға"),
                             onAction = {
-                                if (!offlineSaveBusy) {
+                                if (!offlineSaveBusy && isBookingDisplayCurrent()) {
                                     offlineSaveBusy = true
                                     offlineSaveRetry++
                                 }
@@ -640,7 +641,7 @@ internal fun BookingScreen(
                     carSummary = carSummary,
                     phoneUnlocked = contactUnlocked && driverPhone.isNotBlank(),
                     onCall = {
-                        runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
+                        if (isBookingDisplayCurrent() && OfflineTripSnapshots.privateDetails(details)) runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:$driverPhone"))) }
                     },
                 )
             }
@@ -679,12 +680,13 @@ internal fun BookingScreen(
                     exactPickup = exactPickup,
                     pickupLat = pickupLat,
                     pickupLng = pickupLng,
+                    isCurrent = { isBookingDisplayCurrent() && OfflineTripSnapshots.privateDetails(details) },
                 )
             }
             // RS-03 Б: смена/предложение места и отзыв — у живой брони пассажира.
             if (details != null && bookingId != null) {
                 item {
-                    PassengerMeetingPoints(details) { detailsReload++ }
+                    PassengerMeetingPoints(currentOwnBookingDetails(details), isCurrentParent = ::isBookingDisplayCurrent) { detailsReload++ }
                 }
             }
             item {
@@ -746,7 +748,7 @@ internal fun BookingScreen(
                         )
                     }
                 }
-            } else if (details?.minorPassenger == true) {
+            } else if (details?.minorPassenger == true && OfflineTripSnapshots.privateDetails(details)) {
                 item {
                     InfoCard(
                         title = appText("Едет пассажир младше 18", "18-ҙән кесе юлсы бара"),
@@ -916,6 +918,7 @@ private fun BookingMeetingCard(
     exactPickup: String,
     pickupLat: Double?,
     pickupLng: Double?,
+    isCurrent: () -> Boolean,
 ) {
     val context = LocalContext.current
     AppCard {
@@ -946,6 +949,7 @@ private fun BookingMeetingCard(
                 AppButton(
                     text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
                     onClick = {
+                        if (!isCurrent()) return@AppButton
                         val uri = Uri.parse("geo:$pickupLat,$pickupLng?q=$pickupLat,$pickupLng(" + Uri.encode(meet) + ")")
                         runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, uri)) }
                     },
@@ -1335,58 +1339,21 @@ internal fun CompactProfileBanner() {
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
-@Composable
-internal fun ActiveTripScreen(
-    ride: Ride?,
-    contacts: List<TrustedContact>,
-    bookingId: Int?,
-    onBack: () -> Unit,
-    onTripEnd: () -> Unit,
-    onSos: () -> Unit,
-    onSupport: () -> Unit = {},
-    onOpenReceipt: (Int) -> Unit = {},
-    // Чат — второй вид этого же экрана (Screen.TripChat): общие сокет, опрос и черновик.
-    // null — экран уже не наш (идёт анимация ухода): держим тот вид, что был на экране.
-    chatOpen: Boolean? = null,
-    // null — без навигации (тесты, превью): вид переключается внутри экрана.
-    onChatOpenChange: ((Boolean) -> Unit)? = null,
-    terminalHint: ActiveTripTerminalHint? = null,
-    onTrustedContacts: () -> Unit = {},   // «Поделиться с близким» без контактов → добавить близкого (приёмка 18.10, п.8)
-    // Поездка кончилась, а экран остаётся (отмена в пути): живое гео и маршрут на карте — гасить сразу.
-    onTripStopped: () -> Unit = {},
-) {
-    val currentSession by ApiClient.sessionChanges.collectAsState()
-    val tripSession = remember(bookingId) { currentSession }
-    val leave by rememberUpdatedState(onBack)
-    if (currentSession != tripSession) {
-        // Remove all remembered state, sheets, coroutine scopes and subscriptions before navigation.
-        // chatOpen в ключе: «Назад» из чата приводит на этот же экран поездки — уходим и с него.
-        // null — экран уже уезжает: второй уход снял бы со стека «Назад» чужой экран.
-        LaunchedEffect(tripSession, chatOpen) { if (onChatOpenChange == null || chatOpen != null) leave() }
-        return
-    }
-    key(bookingId, tripSession) {
-        // Отмену в пути этот вход уже видел (CancelledInTransit.kt): экран помощи сразу, даже без сети.
-        val hint = terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }
-            ?: InTransitCancels.hint(bookingId, tripSession)
-        ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            hint, onTripStopped, onTrustedContacts)
-    }
-}
-
 @Composable
 @OptIn(ExperimentalMaterial3Api::class)
-private fun ActiveTripContent(
+internal fun ActiveTripContent(
     ride: Ride?, contacts: List<TrustedContact>, bookingId: Int?,
     onBack: () -> Unit, onTripEnd: () -> Unit, onSos: () -> Unit,
     onSupport: () -> Unit, onOpenReceipt: (Int) -> Unit, tripSession: Long,
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
     terminalHint: ActiveTripTerminalHint?,
-    onTripStopped: () -> Unit, onTrustedContacts: () -> Unit,
+    onTripStopped: () -> Unit, onTrustedContacts: () -> Unit, onDriverFinished: (suspend (Int) -> Boolean)?,
+    isCurrentParent: (() -> Boolean)?,
+    isCurrentReceiptParent: (() -> Boolean)?,
 ) {
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
+    val tripOwner = remember(bookingId, tripSession) { OfflineTripSnapshots.currentOwner() }
     // Русский тут на «ты», башкирский был на «вы» (тикшерегеҙ) — тон обязан совпадать в обоих языках.
     val statusErrMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
     val driverNotifiedMsg = appText("Пассажир уведомлён", "Пассажир хәбәрҙар ителде")
@@ -1409,16 +1376,43 @@ private fun ActiveTripContent(
     var pickupDetails by remember(bookingId) { mutableStateOf<com.yuldash.app.data.BookingDetailsDto?>(null) }
     val tripDetails = remember(bookingId) { ActiveTripDetailsState(bookingId, tripSession) }
     val inTransit = rememberCancelledInTransitState(bookingId, terminalHint, tripSession)   // отменили в пути: экран остаётся
-    fun acceptBookingStatus(value: String) {
+    val boardingGate = remember(bookingId) { BoardingUndoState() }
+    var boardingUndo by remember(bookingId) { mutableStateOf(com.yuldash.app.data.BoardingUndoTerms()) }
+    var boardingCode by remember(bookingId) { mutableStateOf("") }
+    var codeLoadRetry by remember(bookingId) { mutableStateOf(0) }
+    fun acceptBookingStatus(value: String, terms: com.yuldash.app.data.BoardingUndoTerms = boardingUndo, undoSec: Int? = null): Boolean {
         // A delayed poll must not revive a terminal booking or interrupt cleanup/retry.
-        if (bookingStatus == "done" || bookingStatus == "cancelled") return
+        if (!boardingGate.accept(bookingStatus, value, terms)) return false
+        if (bookingStatus == "onboard" && value == "confirmed") { boardingCode = ""; codeLoadRetry++ }
         tripDetails.statusChanged(bookingStatus, value)
-        bookingStatus = value
+        bookingStatus = value; boardingUndo = terms
+        if (undoSec != null) boardingUndoSec = undoSec
+        return true
     }
     // F11: офлайн-паспорт брони. Читаем СРАЗУ из локального (secure) хранилища — данные видны без сети.
-    var tripPass by remember(bookingId) { mutableStateOf(bookingId?.let { TripPassStore.load(context, it) }) }
-    fun isTripSessionCurrent() = tripSession == ApiClient.queueSessionGeneration()
-    fun isTripChatActive() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
+    val authorityRevision by OfflineTripSnapshots.version.collectAsState()
+    fun isTripSessionCurrent() = voiceScope.isActive && ApiClient.isCurrentSession(tripSession) && OfflineTripSnapshots.currentOwner() == tripOwner && (isCurrentParent?.invoke() != false)
+    // Only receipt navigation can use the lifetime of its explicit, stronger parent.
+    fun isTripReceiptSessionCurrent() = ApiClient.isCurrentSession(tripSession) &&
+        OfflineTripSnapshots.currentOwner() == tripOwner &&
+        (isCurrentReceiptParent?.invoke() ?: (voiceScope.isActive && isCurrentParent?.invoke() != false))
+    val offlinePassState = rememberActiveTripOfflinePass(bookingId, tripSession, boardingCode, bookingStatus.takeIf { it in setOf("done", "cancelled") }, role, pickupDetails, bookingStatus) { isTripSessionCurrent() && bookingId?.let(OfflineTripSnapshots::allowsLive) == true }
+    var tripPass by offlinePassState::pass
+    fun isTripDetailsCurrent() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
+    fun isTripChatActive() = isTripDetailsCurrent() && (bookingId == null || OfflineTripSnapshots.allowsLive(bookingId))
+    LaunchedEffect(bookingId, terminalHint) {
+        val id = bookingId ?: return@LaunchedEffect
+        val hint = terminalHint ?: return@LaunchedEffect
+        val accepted = OfflineTripSnapshots.terminal(id) ?: return@LaunchedEffect
+        if (isTripSessionCurrent() && hint.bookingId == id && accepted.owner == tripOwner &&
+            accepted.status == hint.status && accepted.role == hint.role) {
+            // Apply the accepted server fact before terminal cleanup observes the new status.
+            // The incoming hint alone cannot promote an ordinary cancellation to in-transit help.
+            inTransit.acceptTerminal(accepted.status, accepted.inTransit)
+            role = accepted.role
+            acceptBookingStatus(accepted.status)
+        }
+    }
     val terminalBooking = bookingStatus.takeIf { it == "done" || it == "cancelled" }
     // Конец поездки: паспорт удаляется, экран закрывается сам — кроме отмены в пути (CancelledInTransit.kt).
     ActiveTripTerminalCleanup(bookingId, terminalBooking, tripSession, role, inTransit,
@@ -1440,13 +1434,27 @@ private fun ActiveTripContent(
             // Recheck on lifecycle resume and before every poll: this screen belongs to one login.
             while (tripSession == ApiClient.queueSessionGeneration()) {
                 val detailsFailure = tripDetails.failure
-                val stateResult = ApiClient.getTripState(id)
+                var acceptedRole: com.yuldash.app.data.AcceptedRoleRead? = null
+                val stateResult = boardingGate.readFresh(id) { requestedId ->
+                    acceptedRole = null
+                    val read = ApiClient.getTripStateForNavigation(requestedId)
+                    acceptedRole = read.acceptedRole
+                    read.result
+                }
                 if (tripSession != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
                 stateResult
                     .onSuccess { st ->
+                        if (bookingStatus == "cancelled" && inTransit.keepsScreen(role) &&
+                            st.status == "cancelled" && st.role == "passenger" &&
+                            tripOwner != null && tripOwner.generation == tripSession && isTripSessionCurrent() &&
+                            acceptedRole?.matches(id, tripOwner, st) == true) {
+                            inTransit.accept(st)
+                            return@onSuccess
+                        }
+                        if (!acceptBookingStatus(st.status, st.boardingUndo, st.boardingUndoSec)) return@onSuccess
                         if (offline || Outbox.hasPending(context)) serverBack++
-                        if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
-                        if (isTripChatActive()) tripDetails.serverReached(detailsFailure)
+                        if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified; aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); offline = false
+                        if (isTripChatActive()) tripDetails.serverReached(detailsFailure, role, bookingStatus)
                     }
                     // Сетевой сбой (не ApiException) → уходим в офлайн-режим: поднимаем сохранённый паспорт.
                     .onFailure { e -> if (e !is ApiException) offline = true }
@@ -1494,34 +1502,10 @@ private fun ActiveTripContent(
     val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
     val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
-    var boardingCode by remember(bookingId) { mutableStateOf("") }
     var codeLoadFailed by remember(bookingId) { mutableStateOf(false) }
-    var codeLoadRetry by remember(bookingId) { mutableStateOf(0) }
-    var codeSaveFailed by remember(bookingId) { mutableStateOf(false) }
-    var codeSaveBusy by remember(bookingId) { mutableStateOf(false) }
-    var codeSaveRetry by remember(bookingId) { mutableIntStateOf(0) }
-    LaunchedEffect(bookingId, boardingCode, codeSaveRetry, terminalBooking, role, pickupDetails, bookingStatus) {
-        val id = bookingId ?: return@LaunchedEffect
-        val passDetails = offlinePassDetails(pickupDetails, id, bookingStatus)
-        // Копию кода просим только там, где её есть куда класть и кому она нужна (BoardingCodeRules.kt).
-        if (boardingCode.isBlank() || terminalBooking != null || tripSession != ApiClient.queueSessionGeneration() ||
-            !needsOfflineCodeCopy(role, hasPass = tripPass != null, hasDetails = passDetails != null)) {
-            codeSaveFailed = false
-            return@LaunchedEffect
-        }
-        codeSaveBusy = true
-        val codeToSave = boardingCode
-        try {
-            val saved = saveActiveTripBoardingCode(context, id, codeToSave, passDetails, tripSession, codeSaveRetry > 0) {
-                isTripChatActive() && role != "driver" && (passDetails == null || offlinePassDetails(passDetails, id, bookingStatus) != null)
-            }
-            if (tripSession != ApiClient.queueSessionGeneration() || bookingStatus == "done" || bookingStatus == "cancelled") return@LaunchedEffect
-            codeSaveFailed = !saved
-            tripPass = TripPassStore.load(context, id)
-        } finally {
-            codeSaveBusy = false
-        }
-    }
+    var codeSaveFailed by offlinePassState::failed
+    var codeSaveBusy by offlinePassState::busy
+    var codeSaveRetry by offlinePassState::retry
 
     // Договорённость об оплате (ЗАПИСЬ, не платёж) — показываем обеим сторонам в активной поездке.
     var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
@@ -1537,7 +1521,8 @@ private fun ActiveTripContent(
     // вида — карточку здесь и полноэкранный чат, поэтому переход между ними ничего не теряет.
     val chatTexts = rememberTripChatTexts(queuedMsg, queueSaveFailMsg)
     val chat = remember(bookingId) {
-        TripChatState(context, bookingId, tripSession, voiceScope, ::isTripChatActive, ::isTripSessionCurrent, chatTexts)
+        TripChatState(context, bookingId, tripSession, voiceScope, ::isTripChatActive, ::isTripSessionCurrent, chatTexts,
+            isHistoryParentCurrent = ::isTripSessionCurrent)
     }
     val chatListState = rememberLazyListState()
     // Вид поездки уходит из композиции, пока открыт чат: его сохраняемое состояние (закрытые
@@ -1553,10 +1538,12 @@ private fun ActiveTripContent(
 
     // Детали брони: оплата, маршрут и — пассажиру подтверждённой брони — телефон, машина, место встречи.
     suspend fun loadTripDetails() {
-        val d = tripDetails.load(::isTripChatActive, { bookingStatus }, { role }) ?: return
+        val d = tripDetails.load(::isTripDetailsCurrent, { bookingStatus }, { role },
+            confirmsBoardingCorrection = { current, incoming -> boardingGate.canConfirmCorrection(current, incoming.status, incoming.boardingUndo) }, initial = bookingId?.let { OfflineTripSnapshots.projection(it)?.details }) ?: return
         // Details are authoritative too: retry can recover even while the independent role poll is offline.
         if (role.isBlank()) role = d.role
-        inTransit.accept(d); if (d.status.isNotBlank()) acceptBookingStatus(d.status)
+        if (d.status.isNotBlank() && !acceptBookingStatus(d.status, d.boardingUndo)) return
+        inTransit.accept(d)
         pickupDetails = d
         contactsLoaded = true
         payMethod = d.payMethod
@@ -1567,28 +1554,44 @@ private fun ActiveTripContent(
         detailsRoute = d.fromCity to d.toCity
         armAfterMs = arrivalCheckAfterMs(d.fromLat, d.fromLng, d.toLat, d.toLng)
         liveContacts = passengerContacts(d)
+        tripDetails.privateRecoveryCommitted(d, ::isTripDetailsCurrent, role, bookingStatus)
     }
     // История независима от кода и приватных деталей поездки.
-    LaunchedEffect(bookingId, chat.historyTick) {
+    val historyReady = authorityRevision.let { isTripChatActive() }
+    val requestedHistoryTick = chat.historyTick
+    LaunchedEffect(bookingId, chat, requestedHistoryTick, historyReady) {
         val id = bookingId ?: run { chat.historyLoading = false; return@LaunchedEffect }
-        if (!isTripChatActive()) return@LaunchedEffect
-        chat.loadHistory(id)
+        if (!historyReady || !isTripChatActive()) return@LaunchedEffect
+        chat.loadInitialHistory(id, requestedHistoryTick)
     }
-    ActiveTripDetailsRefresh(tripDetails, ::isTripChatActive, ::loadTripDetails)
+    ActiveTripDetailsRefresh(tripDetails, ::isTripDetailsCurrent, ::loadTripDetails)
 
     // Начальный код и его повтор — один независимый запрос, без истории/деталей/изменений поездки.
-    LaunchedEffect(bookingId, codeLoadRetry) {
+    val privateDetailsReady = authorityRevision.let { currentTripPrivateDetails(bookingId)?.role in setOf("driver", "passenger") }
+    val privateDataMissing = isTripDetailsCurrent() && tripDetails.privateDataMissing(privateDetailsReady, role, bookingStatus)
+    // Only a completed screen load is a new CODE intent, even when DTO fields stayed equal.
+    // CODE may internally renew DETAILS; that preflight belongs to this same intent.
+    val codeDetailsCycle = tripDetails.completedLoad.takeIf {
+        tripDetails.completedDetails != null && !tripDetails.loading && !tripDetails.needsReload
+    }
+    val canFetchCode = bookingId?.let(OfflineTripSnapshots::allowsLive) == true && privateDetailsReady && codeDetailsCycle != null && !tripDetails.privateRecoveryPending
+    LaunchedEffect(bookingId, codeLoadRetry, canFetchCode, codeDetailsCycle) {
         val id = bookingId ?: return@LaunchedEffect
-        if (!isTripChatActive()) return@LaunchedEffect
+        if (!isTripChatActive() || !canFetchCode || tripDetails.completedLoad != codeDetailsCycle ||
+            tripDetails.loading || tripDetails.needsReload || !tripDetails.privateCodeReadStarted()) return@LaunchedEffect
         codeLoadFailed = false
         val result = ApiClient.getBoardingCode(id)
-        if (!isTripSessionCurrent() || bookingStatus == "done" || bookingStatus == "cancelled") return@LaunchedEffect
-        codeLoadFailed = result.getOrNull().isNullOrBlank()
-        result.onSuccess { code -> if (code.isNotBlank()) boardingCode = code }
+        if (!isTripSessionCurrent() || bookingStatus == "done" || bookingStatus == "cancelled" ||
+            tripDetails.completedLoad != codeDetailsCycle || tripDetails.loading || tripDetails.needsReload) return@LaunchedEffect
+        val code = result.getOrNull()
+        if (code != null && (code.isBlank() || !isTripChatActive() || currentTripPrivateDetails(id) == null ||
+                OfflineTripSnapshots.currentBoardingCode(id) != code)) return@LaunchedEffect
+        codeLoadFailed = code.isNullOrBlank()
+        if (code != null) boardingCode = code
     }
 
     // Realtime по WebSocket и дотяжка пропущенного после обрыва — у владельца, не у вида чата.
-    TripChatConnection(chat, terminalBooking)
+    TripChatConnection(chat, terminalBooking ?: "unverified".takeUnless { isTripChatActive() })
     // С навигацией закрытая поездка показывается видом поездки (экран завершения, очистка):
     // заменяем чат поездкой, чтобы «Назад» не водил по двум одинаковым экранам. Только пока чат
     // действительно на экране (chatOpen == true), а не во время ухода с него.
@@ -1604,10 +1607,11 @@ private fun ActiveTripContent(
         voiceScope.launch {
             // Очередь и лента чата — у состояния чата (TripChatState.flushQueued): неотправленное остаётся на экране.
             if (!isTripChatActive() || !chat.flushQueued() || !isTripChatActive()) return@launch
-            ApiClient.getTripState(id).onSuccess { st ->
+            boardingGate.readFresh(id).onSuccess { st ->
                 if (!isTripChatActive()) return@onSuccess
+                if (!acceptBookingStatus(st.status, st.boardingUndo, st.boardingUndoSec)) return@onSuccess
                 if (st.role.isNotBlank()) role = st.role; driverPhase = st.driverPhase; arrivalVerified = st.arrivalVerified
-                aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); acceptBookingStatus(st.status); offline = false
+                aloneWithDriver = st.aloneWithDriver; peerId = st.peerId; boardingUndoSec = st.boardingUndoSec; inTransit.accept(st); offline = false
             }
         }
     }
@@ -1637,29 +1641,35 @@ private fun ActiveTripContent(
 
     // Один шов для всех status-CTA: новая закреплённая кнопка B и старые сценарии используют
     // тот же серверный переход, очередь без сети и очистку офлайн-паспорта.
+    val gpsAction = rememberDriverGpsAction(bookingId)
     fun updateTripStatus(st: String) {
         val bid = bookingId
-        if (!isTripSessionCurrent()) return
+        if (!isTripChatActive()) return
         val queueSession = tripSession
+        val gpsTicket = if (role == "driver" && bid != null) gpsAction.begin(bid) else null
         if (role == "driver") {
             if (bid == null) {
                 bookingStatus = when (st) { "done" -> "done"; "boarded" -> "onboard"; else -> bookingStatus }
             } else voiceScope.launch {
                 if (!isTripSessionCurrent()) return@launch
                 ApiClient.driverStatus(bid, st)
+                    .also { gpsAction.finish(gpsTicket, it.isSuccess, closed = st == "done") }
                     .onSuccess {
                         if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
+                            if (onDriverFinished?.invoke(bid) == true) return@onSuccess
                             bookingStatus = "done"
                         } else {
                             Toast.makeText(context, driverNotifiedMsg, Toast.LENGTH_SHORT).show()
-                            ApiClient.getTripState(bid).onSuccess { s ->
+                            boardingGate.readFresh(bid).onSuccess { s ->
                                 if (!isTripSessionCurrent()) return@onSuccess
+                                if (!acceptBookingStatus(s.status, s.boardingUndo, s.boardingUndoSec)) return@onSuccess
                                 if (s.role.isNotBlank()) role = s.role
                                 driverPhase = s.driverPhase
                                 arrivalVerified = s.arrivalVerified
                                 aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
-                                inTransit.accept(s); acceptBookingStatus(s.status)
+                                inTransit.accept(s)
+                                if (isTripDetailsCurrent()) tripDetails.serverReached(tripDetails.failure, role, bookingStatus)
                             }
                         }
                     }
@@ -1690,13 +1700,14 @@ private fun ActiveTripContent(
                         if (!isTripSessionCurrent()) return@onSuccess
                         if (st == "done") {
                             bookingStatus = "done"
-                        } else ApiClient.getTripState(bid).onSuccess { s ->
+                        } else boardingGate.readFresh(bid).onSuccess { s ->
+                                if (!acceptBookingStatus(s.status, s.boardingUndo, s.boardingUndoSec)) return@onSuccess
                             if (!isTripSessionCurrent()) return@onSuccess
                             if (s.role.isNotBlank()) role = s.role
                             driverPhase = s.driverPhase
                             arrivalVerified = s.arrivalVerified
                             aloneWithDriver = s.aloneWithDriver; peerId = s.peerId; boardingUndoSec = s.boardingUndoSec
-                            inTransit.accept(s); acceptBookingStatus(s.status)
+                            inTransit.accept(s)
                         }
                     }
                     .onFailure { e ->
@@ -1731,6 +1742,8 @@ private fun ActiveTripContent(
             fallbackRole = role,
             fallbackPayMethod = payMethod,
             fallbackPayAmount = payAmount,
+            isCurrentParent = ::isTripSessionCurrent,
+            isCurrentReceiptParent = ::isTripReceiptSessionCurrent,
             onClose = onTripEnd,
             onOpenReceipt = { onOpenReceipt(bookingId) },
             onSupport = onSupport,
@@ -1746,9 +1759,10 @@ private fun ActiveTripContent(
     // An unknown booking is not a confirmed ride. Keep the independent loaders and retry alive,
     // but do not expose a boarding code, contacts, map or trip actions before authoritative data.
     // A passenger's existing encrypted offline passport remains usable without the role response.
-    if (bookingId != null && (bookingStatus == "cancelled" || (bookingStatus.isBlank() && tripPass == null))) {
-        ActiveTripUnverifiedScreen(tripDetails.loading, tripDetails.failure, tripDetails::retry, onBack,
-            cancelled = bookingStatus == "cancelled")
+    if (bookingId != null && (bookingStatus == "cancelled" || authorityRevision.let { !OfflineTripSnapshots.allowsLive(bookingId) })) {
+        ActiveTripUnverifiedScreen(tripDetails.loading || tripDetails.needsReload,
+            tripDetails.failure ?: IllegalStateException(), { if (isTripDetailsCurrent()) tripDetails.retryUnverified() },
+            onBack, cancelled = bookingStatus == "cancelled")
         return
     }
 
@@ -1801,7 +1815,7 @@ private fun ActiveTripContent(
     }
     val chatRoute = tripRouteLabel(activeFromCity, activeToCity)
     // Связь с водителем: свежая из деталей, без сети — из паспорта. Водителю и закрытой брони — нет.
-    val tripContacts = (if (contactsLoaded) liveContacts else tripPass?.contacts()).takeIf {
+    val tripContacts = (currentTripPrivateDetails(bookingId)?.let(::passengerContacts) ?: tripPass?.takeIf(OfflineTripSnapshots::matchesPass)?.contacts()).takeIf {
         terminalBooking == null && role != "driver" && (bookingStatus.isBlank() || bookingStatus in CONTACT_STATUSES)
     }
     // Без навигации системное «Назад» из чата возвращает к поездке (с навигацией — общий goBack).
@@ -1814,6 +1828,7 @@ private fun ActiveTripContent(
         onOpenTrip = { showChatView(false) },
         onSos = onSos,
     ) else viewStates.SaveableStateProvider("trip-view") { Scaffold(
+        modifier = Modifier.tripAuthorityDraw(::isTripChatActive),
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Моя поездка", "Минең сәфәр"), onBack) },
         bottomBar = {
@@ -1833,7 +1848,7 @@ private fun ActiveTripContent(
                     } else null,
                     onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },
                     boarding = activeTripBoardingSlot(role, bookingStatus, bookingId, peerId, if (role == "driver") "" else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
-                        boardingUndoSec) { r -> if (isTripSessionCurrent()) { acceptBookingStatus(r.status); boardingUndoSec = r.undoSec } },
+                        boardingUndoSec, undoTerms = boardingUndo, onUndone = { r -> if (isTripSessionCurrent() && boardingGate.resultIsCurrent(bookingStatus, r) && acceptBookingStatus(r.status, r.undo, r.undoSec)) boardingGate.actionCommitted() }),
                 )
             }
         },
@@ -1844,6 +1859,7 @@ private fun ActiveTripContent(
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
+            if (role == "driver" && bookingId != null && bookingStatus in setOf("confirmed", "onboard")) item(key = "driver-gps-share") { DriverRideShareButton(bookingId, pickupDetails?.rideId ?: 0) }
             item(key = "boarding-code-save") {
                 AnimatedVisibility(visible = codeSaveFailed && terminalBooking == null) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -1866,7 +1882,10 @@ private fun ActiveTripContent(
                     }
                 }
             }
-            if (terminalBooking == null && (tripDetails.loading || tripDetails.failure != null)) item(key = "trip-details-load") { ActiveTripDetailsNotice(tripDetails.loading, tripDetails.failure, tripDetails::retry) }
+            if (terminalBooking == null && (tripDetails.loading || tripDetails.failure != null || privateDataMissing)) item(key = "trip-details-load") {
+                ActiveTripDetailsNotice(tripDetails.loading || tripDetails.needsReload, tripDetails.failure,
+                    { tripDetails.retryData(::isTripDetailsCurrent, role, bookingStatus) })
+            }
             // Водителю вверху — тот, кого он везёт, а не карточка «Водитель» с ним самим (приёмка 18.10, п.14).
             val heroRide = ride.takeIf { role != "driver" }
             item {
@@ -1881,12 +1900,13 @@ private fun ActiveTripContent(
                     since = heroRide?.driverSince.orEmpty(),
                     carSummary = tripCarSummary(tripContacts, heroRide?.car),
                     // Водителю — звонок пассажиру, пока бронь подтверждена (решение 23.10.2026; сервер сам закрывает номер).
-                    phoneUnlocked = if (role == "driver") driverCanCallPassenger(pickupDetails, bookingStatus, terminalBooking != null)
+                    phoneUnlocked = if (role == "driver") driverCanCallPassenger(currentTripPrivateDetails(bookingId), bookingStatus, terminalBooking != null)
                         else !tripContacts?.phone.isNullOrBlank(),
-                    onCall = { dialDriver(context, if (role == "driver") pickupDetails?.passengerPhone.orEmpty() else tripContacts?.phone.orEmpty()) },
-                    boardingCode = boardingCode,
+                    onCall = { if (isTripChatActive()) currentTripPrivateDetails(bookingId)?.let { dialDriver(context, if (role == "driver") it.passengerPhone else it.driverPhone) } },
+                    boardingCode = currentTripCode(bookingId, boardingCode),
                     boardingCodeLoadFailed = codeLoadFailed,
-                    onRetryBoardingCode = { if (isTripSessionCurrent()) codeLoadRetry++ },
+                    onRetryBoardingCode = { tripDetails.retryCode(::isTripDetailsCurrent, role, bookingStatus) { codeLoadRetry++ } },
+                    boardingCodeAvailable = !privateDataMissing,
                     role = role,
                     driverPhase = driverPhase,
                     passengerStatus = status,
@@ -1903,11 +1923,11 @@ private fun ActiveTripContent(
             // Пассажир до посадки: номер водителя и точка встречи. Без сети они в паспорте ниже.
             pickupDetails?.takeIf { it.role in setOf("passenger", "driver") && it.status in setOf("pending", "confirmed", "onboard") }?.let { d -> item(key = "trip-pickup-stop") { BookingSegmentNote(d.pickupStop, d.dropoffStop, d.rideHasStops, d.fromCity, d.toCity) } }
             tripContacts?.takeIf { !boardingDone(status, bookingStatus) && !(offline && tripPass != null) }?.let { c ->
-                item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1), showMeeting = !hasOwnPickup(pickupDetails)) }
+                item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1), showMeeting = !hasOwnPickup(pickupDetails), isCurrent = { isTripChatActive() && currentTripPrivateDetails(bookingId)?.let(::passengerContacts) == c }) }
             }
             item(key = "trip-meeting-points") {
-                val meetingDetails = pickupDetails?.let { d -> if (bookingStatus.isNotBlank()) d.copy(status = bookingStatus) else d }
-                PassengerMeetingPoints(meetingDetails) { voiceScope.launch { loadTripDetails() } }
+                    val meetingDetails = currentTripPrivateDetails(bookingId)
+                PassengerMeetingPoints(meetingDetails, isCurrentParent = ::isTripChatActive) { voiceScope.launch { loadTripDetails() } }
             }
             // F11: офлайн-режим — сервер недоступен, но паспорт поездки сохранён локально.
             if (offline && tripPass != null) {
@@ -1915,8 +1935,7 @@ private fun ActiveTripContent(
                 item {
                     // A known newer server code must not be contradicted by the old offline copy.
                     val stored = tripPass!!
-                    val shown = if (boardingCode.isNotBlank() && stored.boardingCode != boardingCode)
-                        stored.copy(boardingCode = "") else stored
+                    val shown = stored
                     TripPassCard(pass = shown, modifier = Modifier.appearIn(1))
                 }
             }
@@ -2199,7 +2218,7 @@ private fun ActiveTripContent(
                 )
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     OutlinedButton(
-                        onClick = { showCancel = true },
+                        onClick = { if (isTripChatActive()) showCancel = true },
                         modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
                         shape = RoundedCornerShape(14.dp),
                         border = BorderStroke(1.dp, CanonRed)
@@ -2230,7 +2249,7 @@ private fun ActiveTripContent(
                                         fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
                                         fontSize = 14.sp,
                                         modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                            .clickable { cancelReason = if (on) "" else code }
+                                            .clickable { if (isTripChatActive()) cancelReason = if (on) "" else code }
                                             .background(if (on) CanonMint else Color.Transparent)
                                             .padding(horizontal = 10.dp, vertical = 8.dp)
                                     )
@@ -2239,11 +2258,14 @@ private fun ActiveTripContent(
                         },
                         confirmButton = {
                             TextButton(onClick = {
+                                if (!isTripChatActive()) return@TextButton
                                 showCancel = false
                                 bookingId?.let { id ->
                                     voiceScope.launch {
-                                        ApiClient.cancelBooking(id, cancelReason)
+                                        if (!isTripChatActive()) return@launch
+                                        ApiClient.cancelBooking(id, cancelReason, expectedGeneration = tripSession)
                                             .onSuccess { res ->
+                                                if (!isTripSessionCurrent()) return@onSuccess
                                                 if (!res.cancelled) {
                                                     // Сервер отменять отказался — поездка уже завершена (или отменена
                                                     // раньше). Экран у пассажира просто отстал: водитель нажал
@@ -2259,7 +2281,7 @@ private fun ActiveTripContent(
                                                 val msg = if (res.contactThenCancel) contactCancelMsg else cancelOkMsg
                                                 Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
                                             }
-                                            .onFailure { Toast.makeText(context, serverSaid(it, cancelFailMsg), Toast.LENGTH_LONG).show() }
+                                            .onFailure { if (isTripSessionCurrent()) Toast.makeText(context, serverSaid(it, cancelFailMsg), Toast.LENGTH_LONG).show() }
                                     }
                                 } ?: onTripEnd()
                             }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
@@ -2609,6 +2631,7 @@ internal fun ActiveTripOptionBHero(
     modifier: Modifier = Modifier,
     boardingCodeLoadFailed: Boolean = false,
     onRetryBoardingCode: () -> Unit = {},
+    boardingCodeAvailable: Boolean = true,
 ) {
     Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         ActiveTripDriverCard(
@@ -2624,7 +2647,7 @@ internal fun ActiveTripOptionBHero(
         )
         // Села — код больше не нужен: карточка плавно уходит, а не висит над «В пути».
         AnimatedVisibility(
-            visible = showBoardingCode(passengerStatus, bookingStatus),
+            visible = boardingCodeAvailable && showBoardingCode(passengerStatus, bookingStatus),
             enter = fadeIn(tween(CanonMotion.NORMAL)) + expandVertically(tween(CanonMotion.NORMAL)),
             exit = fadeOut(tween(CanonMotion.QUICK)) + shrinkVertically(tween(CanonMotion.NORMAL)),
         ) {
@@ -3080,9 +3103,13 @@ internal fun OfflineTripBanner(modifier: Modifier = Modifier) {
  */
 @Composable
 internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifier = Modifier) {
+    if (!OfflineTripSnapshots.matchesPass(pass)) return
     val context = LocalContext.current
+    val cardScope = rememberCoroutineScope()
+    val latest by rememberUpdatedState(pass)
+    fun current() = cardScope.isActive && latest === pass && OfflineTripSnapshots.matchesPass(pass)
     Card(
-        modifier = modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth().tripAuthorityDraw(::current),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
         shape = CanonItemShape,
         elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.card)
@@ -3107,7 +3134,7 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
                     TripPassRow(Icons.Default.Phone, appText("Телефон", "Телефон"), pass.driverPhone, modifier = Modifier.weight(1f))
                     FilledTonalButton(
                         onClick = {
-                            runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${pass.driverPhone}"))) }
+                            if (current()) runCatching { context.startActivity(Intent(Intent.ACTION_DIAL, Uri.parse("tel:${pass.driverPhone}"))) }
                         },
                         shape = RoundedCornerShape(14.dp),
                         contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp),
@@ -3131,6 +3158,7 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
                 AppButton(text = appText("Открыть точку на карте", "Нөктәне картала асыу"),
                     style = AppButtonStyle.Secondary, icon = Icons.Default.Map,
                     onClick = {
+                        if (!current()) return@AppButton
                         val uri = Uri.parse("geo:$meetingLat,$meetingLng?q=$meetingLat,$meetingLng(" + Uri.encode(label) + ")")
                         runCatching { context.startActivity(Intent.createChooser(Intent(Intent.ACTION_VIEW, uri), null)) }
                     })

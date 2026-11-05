@@ -37,12 +37,15 @@ data class DriverBookingDto(
     val meetingPointSet: Boolean = false, val meetingProposalPending: Boolean = false,
     // RS-03 Б: активное предложение смены места (водителю при confirmed/onboard) + версия для CAS.
     val meetingProposal: MeetingProposalDto? = null, val meetingVersion: Int = 0,
+    val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
+    val noShowWaitSec: Int = 0,
 )
 
 /** Бронь глазами водителя. */
 internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
     return DriverBookingDto(
         bookingId = o.optInt("booking_id"),
+        noShowWaitSec = o.optInt("no_show_wait_sec").coerceAtLeast(0),
         passengerName = o.optString("passenger_name"),
         passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
         route = o.optString("route"),
@@ -50,7 +53,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
         passengerId = o.optInt("passenger_id"),
-        boardingUndoSec = o.optInt("boarding_undo_sec"),
+        boardingUndoSec = o.optInt("boarding_undo_sec"), boardingUndo = parseBoardingUndo(o),
         noShowAt = if (o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },
         noShowNeedsArriving = o.optBoolean("no_show_needs_arriving"),
         arrivingOpensAt = if (o.isNull("arriving_opens_at")) null else o.optString("arriving_opens_at").ifBlank { null },

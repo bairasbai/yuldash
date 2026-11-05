@@ -163,11 +163,11 @@ internal fun DropoffStopNote(dropoffStop: String?, to: String = "", rideHasStops
 }
 
 @Composable
-internal fun BookingSegmentNote(pickup: String?, dropoff: String?, hasStops: Boolean, from: String = "", to: String = "") {
+internal fun BookingSegmentNote(pickup: String?, dropoff: String?, hasStops: Boolean, from: String = "", to: String = "", showSegmentLabel: Boolean = true) {
     Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
         val boarding = pickup?.ifEmpty { from }?.takeIf(String::isNotBlank)
         val alighting = dropoff?.ifEmpty { to }?.takeIf(String::isNotBlank)
-        if (boarding != null && alighting != null) Text(appText("Участок: $boarding → $alighting", "Юл өлөшө: $boarding → $alighting"), style = CanonBodyStrong, color = CanonText)
+        if (showSegmentLabel && boarding != null && alighting != null) Text(appText("Участок: $boarding → $alighting", "Юл өлөшө: $boarding → $alighting"), style = CanonBodyStrong, color = CanonText)
         PickupStopNote(pickup, hasStops, from)
         DropoffStopNote(dropoff, to, hasStops)
     }

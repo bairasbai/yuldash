@@ -190,13 +190,36 @@ class RideshareCompletedLoadTest {
         compose.runOnIdle { old() }; pump(); assertEquals("Restarted pending receipt GET", 2, receiptCalls.get())
         release.countDown(); pump()
     }
-    @Test fun heldReceiptKeepsUserRatingEdit() {
+    @Test fun heldReceiptBlocksRatingUntilOwnHistoryThenAcceptsExplicitEdit() {
         heldKind = "receipt"; mount()
-        compose.onNodeWithTag("rideshareStar4").performScrollTo().performClick()
+        assertEquals("Actual receipt must be held before checking its form", 0L, started.count)
+        assertEquals(1, receiptCalls.get())
+        assertEquals("Bearer $tokenA", requests.single { it.first == "GET /trips/42/receipt" }.second)
+        compose.onNodeWithTag("rideshareReceiptLoading").assertExists()
+        compose.onNodeWithTag("rideshareRatingCard").assertDoesNotExist()
+        compose.onNodeWithTag("rideshareStar4").assertDoesNotExist()
+        compose.onNodeWithTag("rideshareReviewText").assertDoesNotExist()
+        val loadingSubmit = compose.onNodeWithTag("rideshareRatingSubmit").assertIsNotEnabled().fetchSemanticsNode()
+        if (loadingSubmit.config.contains(SemanticsActions.OnClick)) {
+            val loadingAction = loadingSubmit.config[SemanticsActions.OnClick].action
+            compose.runOnIdle { loadingAction?.invoke() }
+        }
+        pump()
+        assertEquals(0, requests.count { it.first == "POST /bookings/42/rate" })
         release.countDown(); waitFor { replied.count == 0L }; pump()
+        waitFor { compose.onAllNodesWithTag("rideshareReceiptLoading").fetchSemanticsNodes().isEmpty() }
+        scroll(hasTestTag("rideshareRatingCard"))
+        compose.onNodeWithTag("rideshareRatingCard").assertIsDisplayed()
+        compose.onNodeWithTag("rideshareRatingSubmit").assertIsNotEnabled()
+        assertEquals(0, requests.count { it.first == "POST /bookings/42/rate" })
+        compose.onNodeWithTag("rideshareStar4").assertIsEnabled().performScrollTo().performClick()
         compose.onNodeWithTag("rideshareRatingSubmit").assertIsEnabled().performClick()
         waitFor { bodies.any { it.first == "POST /bookings/42/rate" } }
         assertEquals(4, JSONObject(bodies.single { it.first == "POST /bookings/42/rate" }.second).getInt("stars"))
+        waitFor { compose.onAllNodesWithText("Оценка сохранена").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(1, requests.count { it.first == "POST /bookings/42/rate" })
+        assertEquals("Bearer $tokenA", requests.single { it.first == "POST /bookings/42/rate" }.second)
+        assertEquals(1, receiptCalls.get())
     }
     private fun uncertain(saved: Boolean, twice: Boolean) {
         thanksCode = if (dropThanksBody) 200 else 503; commitBeforeFailure = saved; mount(); val old = clickThanks()

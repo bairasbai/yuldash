@@ -41,6 +41,8 @@ class ActiveTripRealtimeSessionTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(false)
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
+    @Volatile private var preparingRole = false
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     private val sockets = CopyOnWriteArrayList<WebSocket>()
     private val authenticated = CountDownLatch(1)
     private val secondPost = CountDownLatch(1)
@@ -64,15 +66,11 @@ class ActiveTripRealtimeSessionTest {
     private val connectivity get() = context.getSystemService(ConnectivityManager::class.java)
 
     @Before fun setup() {
-        ApiClient.resetForTest()
-        ApiClient.init(context)
-        ApiClient.saveToken(tokenA)
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
-        Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path.orEmpty()
+                    preparationRoleResponse(request)?.let { return it }
                     requests += "${request.method} $path" to request.getHeader("Authorization")
                     if (path == "/ws/bookings/42") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                         override fun onOpen(webSocket: WebSocket, response: Response) { sockets += webSocket }
@@ -103,13 +101,19 @@ class ActiveTripRealtimeSessionTest {
                         "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"$bookingStatus"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
-                    return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
+                    return MockResponse().setBody(canonicalTripBody(path, body)).setHeader("Content-Type", "application/json")
                 }
             }
             start()
         }
+        ApiClient.resetForTest()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 45000
+        ApiClient.init(context)
+        awaitSnapshotCleanup()
+        ApiClient.saveToken(tokenA)
+        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+        Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
     }
 
     @After fun cleanup() {
@@ -127,6 +131,7 @@ class ActiveTripRealtimeSessionTest {
     }
 
     private fun mount(ready: String = "Водитель отметит посадку"): List<ConnectivityManager.NetworkCallback> {
+        prepareRole()
         val before = Shadows.shadowOf(connectivity).networkCallbacks.toSet()
         mounted.value = true
         compose.setContent {
@@ -142,7 +147,11 @@ class ActiveTripRealtimeSessionTest {
         return Shadows.shadowOf(connectivity).networkCallbacks.filter { it !in before }
     }
 
-    private fun switchAccount() = compose.runOnIdle { ApiClient.logout(); ApiClient.saveToken(tokenB) }
+    private fun switchAccount() {
+        compose.runOnIdle { ApiClient.logout() }
+        awaitSnapshotCleanup()
+        compose.runOnIdle { ApiClient.saveToken(tokenB) }
+    }
     private fun polls() = requests.count { it.first == "GET /bookings/42/role" }
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
         compose.mainClock.advanceTimeBy(100)
@@ -256,4 +265,42 @@ class ActiveTripRealtimeSessionTest {
         compose.onAllNodesWithText("late-reconnect-A").assertCountEquals(0)
         assertNoOldBookingRequestAsB()
     }
+    private fun awaitSnapshotCleanup() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun canonicalTripBody(path: String?, body: String): String {
+        val endpoint = path.orEmpty()
+        val details = endpoint.endsWith("/details")
+        val role = endpoint.endsWith("/role")
+        val receipt = endpoint.endsWith("/receipt")
+        if (!details && !role && !receipt) return body
+        val value = org.json.JSONObject(body)
+        if ((details || receipt) && !value.has("ride_id")) value.put("ride_id", 1042)
+        if (details) {
+            if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
+            if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+        }
+        if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
+        if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))
+            value.put("onboard_at", "2031-02-03T09:00:00.123456Z")
+        return value.toString()
+    }
+
+    private fun preparationRoleResponse(request: RecordedRequest): MockResponse? {
+        if (!preparingRole || request.path != "/bookings/42/role") return null
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setBody(canonicalTripBody(request.path, """{"role":"passenger","status":"$bookingStatus","driver_phase":"departed"}"""))
+    }
+    private fun prepareRole() = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        preparingRole = true
+        try { ApiClient.getTripState(42).getOrThrow() } finally { preparingRole = false }
+        assertEquals(listOf("GET /bookings/42/role"), preparationRequests.drop(start))
+        assertTrue(com.yuldash.app.data.OfflineTripSnapshots.allowsLive(42))
+        assertNull(com.yuldash.app.data.OfflineTripSnapshots.privatePass(42))
+    }
+
 }

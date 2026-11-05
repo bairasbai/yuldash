@@ -696,8 +696,14 @@
 .install-sheet__actions {
   margin-top: 12px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: flex-end;
   gap: 8px;
+}
+.install-sheet__actions > button {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 
 /* ================================================================
@@ -2765,10 +2771,12 @@ button.list-row:active {
 .rate-stars {
   margin-top: 14px;
   display: flex;
+  flex-wrap: wrap;
   justify-content: center;
   gap: 8px;
 }
 .rate-star {
+  flex: 0 0 48px;
   width: 48px;
   height: 48px;
   display: grid;
@@ -2901,11 +2909,21 @@ button.list-row:active {
 .receipt__route {
   margin-top: 12px;
   display: flex;
+  flex-wrap: wrap;
+  overflow-wrap: anywhere;
   align-items: center;
   gap: 8px;
   font-size: var(--font-heading);
   font-weight: var(--weight-semibold);
   letter-spacing: -0.01em;
+}
+.receipt__route > span {
+  min-width: 0;
+  max-width: 100%;
+}
+.receipt__total {
+  flex-wrap: wrap;
+  gap: var(--space-sm);
 }
 .receipt__date {
   margin-top: 4px;
@@ -2916,6 +2934,15 @@ button.list-row:active {
   margin-top: 16px;
   border-top: 1px dashed var(--border);
   border-bottom: 1px dashed var(--border);
+}
+.receipt .info-row {
+  flex-wrap: wrap;
+}
+.receipt .info-row__k,
+.receipt .info-row__v {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 .receipt__rows .info-row {
   border-bottom: 1px solid var(--border);
@@ -6875,6 +6902,7 @@ select.field__input {
 }
 .act-card__actions {
   display: flex;
+  flex-wrap: wrap;
   gap: 10px;
 }
 .act-card__actions .btn-primary,
@@ -8470,6 +8498,18 @@ select.field__input {
 .update-banner__go {
   color: var(--green2);
 }
+@media (max-width: 480px) {
+  .update-banner {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+  }
+  .update-banner__actions {
+    grid-column: 1 / -1;
+    justify-content: flex-end;
+    flex-wrap: wrap;
+    min-width: 0;
+  }
+}
 
 /* ---- Отметка из очереди не принята сервером (OutboxRefusalBanner) ----
    Тёплая плашка, как .notice: пара --canon-gold-ink на --canon-gold-soft считается сторожем ui-test. */
@@ -9117,6 +9157,9 @@ select.field__input {
    высоты, палец водителя в машине не промахивается (приёмка PR184). */
 .list-row--stack > .btn-soft--sm {
   min-height: 48px;
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
 }
 /* Звёзды в списке — мельче, чем на экране оценки, но тач-цель остаётся 44. Пустая звезда — CanonMuted,
    как в приложении: на --border её почти не видно (контраст 1.3:1), и «2 из 5» не читается. */
@@ -9135,10 +9178,14 @@ select.field__input {
   align-items: center;
   justify-content: space-between;
   gap: var(--space-sm);
+  min-width: 0;
 }
 .rate-row .rate-stars {
   margin-top: 0;
   justify-content: flex-start;
+  min-width: 0;
+  max-width: 100%;
+  flex-wrap: wrap;
 }
 /* Звезда «зажигается»: цвет и размер догоняют выбор — как animate*AsState в приложении. */
 .rate-stars--sm .rate-star.is-on {
@@ -12232,6 +12279,16 @@ button.settings-row:active {
   color: var(--muted);
   font-size: var(--font-caption);
   line-height: var(--line-caption);
+}
+@media (max-width: 380px) {
+  .cabinet .settings-row[role="switch"] {
+    flex-wrap: wrap;
+    justify-content: space-between;
+  }
+  .cabinet .settings-row[role="switch"] > .settings-row__text {
+    flex: 1 0 100%;
+    order: 1;
+  }
 }
 .settings-row__badge {
   flex: none;
@@ -16997,9 +17054,13 @@ button.settings-row:active {
 }
 .rcpt-rate__stars {
   display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  max-width: 100%;
   gap: var(--space-sm);
 }
 .rcpt-rate__star {
+  flex: 0 0 48px;
   display: grid;
   place-items: center;
   width: 48px;
@@ -20154,6 +20215,135 @@ button.settings-row:active {
   font-size: var(--font-micro);
   line-height: var(--line-micro);
   font-weight: var(--weight-bold);
+}
+/* Узкие переключатели: полные подписи без уменьшения текста; крупный zoom требует запаса до 480px. */
+@media (max-width: 380px) {
+  .mode-switch__pill { flex-direction: column; align-items: stretch; }
+  .mode-switch__track { flex: none; grid-template-columns: minmax(0, 1fr); }
+  .mode-switch__thumb,
+  .mode-switch__divider { display: none; }
+  .mode-switch__seg {
+    height: auto;
+    min-height: 48px;
+    white-space: normal;
+    transition: color var(--motion-quick) ease, background var(--motion-quick) ease;
+  }
+  .mode-switch__seg > span { min-width: 0; overflow-wrap: anywhere; }
+  .mode-switch--pooling .mode-switch__seg.is-on { background: var(--pooling-bg); }
+  .mode-switch--taxi .mode-switch__seg.is-on { background: var(--taxi-bg); }
+  .mode-switch--courier .mode-switch__seg.is-on { background: var(--courier-bg); }
+  .mode-switch__explain { align-self: flex-end; flex: none; }
+  .chat-tabs { flex-direction: column; }
+  .chat-tab { flex: none; justify-content: flex-start; }
+  .chat-tab__icon { flex: none; }
+  .chat-tab__label {
+    flex: 1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  .chat-inbox > .inbox-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--space-xs);
+  }
+  .chat-inbox > .inbox-row > .inbox-row__when {
+    grid-column: 2;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  .chat-inbox > .inbox-row .inbox-row__name {
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+  }
+  .active-trip-pay-methods { flex-direction: column; }
+  .active-trip-pay-methods > .seg__item {
+    flex: none;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  .chat-tab__badge { position: static; flex: none; }
+}
+@media (max-width: 480px) {
+  /* Крупный текст: место забираем у полей значков, подписи сохраняют свой размер.
+     42px дают не менее 48px после самого малого крупного масштаба (1.15). */
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav { gap: 0; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav > .nav-item {
+    flex: 1 0 auto;
+    min-width: 42px;
+    max-width: none;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav > .nav-item > .nav-pill {
+    padding-inline: var(--space-sm);
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .bottom-nav > .nav-item > .nav-item__label {
+    overflow: visible;
+    text-overflow: clip;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__pill { flex-direction: column; align-items: stretch; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__track { flex: none; grid-template-columns: minmax(0, 1fr); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__thumb,
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__divider { display: none; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__seg {
+    height: auto;
+    min-height: 48px;
+    white-space: normal;
+    transition: color var(--motion-quick) ease, background var(--motion-quick) ease;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__seg > span { min-width: 0; overflow-wrap: anywhere; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch--pooling .mode-switch__seg.is-on { background: var(--pooling-bg); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch--taxi .mode-switch__seg.is-on { background: var(--taxi-bg); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch--courier .mode-switch__seg.is-on { background: var(--courier-bg); }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .mode-switch__explain { align-self: flex-end; flex: none; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tabs { flex-direction: column; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab { flex: none; justify-content: flex-start; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__icon { flex: none; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__label {
+    flex: 1;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: anywhere;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-inbox > .inbox-row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    row-gap: var(--space-xs);
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-inbox > .inbox-row > .inbox-row__when {
+    grid-column: 2;
+    min-width: 0;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-inbox > .inbox-row .inbox-row__name {
+    display: block;
+    white-space: normal;
+    overflow: visible;
+    text-overflow: clip;
+    overflow-wrap: break-word;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .active-trip-pay-methods { flex-direction: column; }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .active-trip-pay-methods > .seg__item {
+    flex: none;
+    min-width: 0;
+    max-width: 100%;
+    white-space: normal;
+    overflow-wrap: break-word;
+  }
+  :root:is([data-font-scale="large"], [data-font-scale="xlarge"]) .chat-tab__badge { position: static; flex: none; }
+}
+@media (max-width: 380px) {
+  /* 37px × 1.3 = 48.1px: сохраняем цель нажатия и место между полными подписями. */
+  :root[data-font-scale="xlarge"] .bottom-nav { gap: 2px; padding-inline: 0; }
+  :root[data-font-scale="xlarge"] .bottom-nav > .nav-item { min-width: 37px; }
 }
 /* ChatEmptyState: карточка 28 с рамкой и тенью, круг мятный (иконка 38, поля 24). */
 .chat-empty {

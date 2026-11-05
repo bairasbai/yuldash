@@ -72,7 +72,7 @@ class AccountDeletionReceiptTest {
     }
     private fun rejectsOldReceipt(change:()->Unit) {
         val actor=Robolectric.buildActivity(MainActivity::class.java).create()
-        try {val ticket=receipt();change();val vm=ViewModelProvider(actor.get())[YuldashViewModel::class.java];vm.screen.value=Screen.Settings;vm.activeBookingId.value=88;vm.isAdmin.value=true
+        try {val ticket=receipt();awaitSnapshotCleanup();change();val vm=ViewModelProvider(actor.get())[YuldashViewModel::class.java];vm.screen.value=Screen.Settings;vm.activeBookingId.value=88;vm.isAdmin.value=true
             assertFalse(completeAccountDeletion(context,vm,ticket));assertEquals(Screen.Settings,vm.screen.value);assertEquals(88,vm.activeBookingId.value);assertTrue(vm.isAdmin.value)
         } finally {actor.destroy()}
     }
@@ -97,4 +97,10 @@ class AccountDeletionReceiptTest {
         assertTrue(started.await(5,TimeUnit.SECONDS));ApiClient.saveToken(b);release.countDown()
         assertTrue(result.await().isFailure);assertEquals(b,ApiClient.currentToken());assertFalse(ApiClient.sessionExpired.value)
     }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
 }

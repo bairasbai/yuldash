@@ -85,6 +85,34 @@ class LocationSocketLifecycleTest {
         assertEquals(1, terminated)
     }
 
+    @Test fun publicationGuardBlocksSubscriptionAndDoesNotOpenAWebSocket() {
+        socket.close()
+        socket = LocationSocket(42, {}, socketFactory = factory, mayPublish = { false }, onTerminated = { terminated++ })
+        socket.connect()
+        assertTrue(factory.connections.isEmpty())
+        assertFalse(socket.sendLoc(54.0, 56.0))
+        assertEquals(1, terminated)
+    }
+
+    @Test fun revokedPublicationBlocksEachFrameAndAllNetworkOrTimerReconnects() {
+        socket.close()
+        var granted = true
+        socket = LocationSocket(42, {}, socketFactory = factory, mayPublish = { granted },
+            scheduleTask = { task, _, _ -> scheduled.addLast(task) }, onTerminated = { terminated++ })
+        socket.connect(); factory.latest.open()
+        assertTrue(socket.sendLoc(54.0, 56.0))
+        val sent = factory.latest.sent.size
+        granted = false
+        assertFalse(socket.sendLoc(54.1, 56.1))
+        networkReturned()
+        while (scheduled.isNotEmpty()) scheduled.removeFirst().run()
+        granted = true // a stale socket cannot resurrect even if the external predicate later changes
+        networkReturned()
+        assertEquals(1, factory.connections.size)
+        assertEquals(sent, factory.latest.sent.size)
+        assertEquals(1, terminated)
+    }
+
     @Test
     fun forbiddenSubscriptionCannotBeRevivedByNetworkRestoration() {
         socket.connect()

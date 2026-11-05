@@ -396,7 +396,10 @@ class ApiClientEndpointContractTest {
         Ep("deleteSavedPlace", "DELETE", "/places/saved/1") { ApiClient.deleteSavedPlace(id = 1) },
         Ep("getRecentPlaces", "GET", "/places/recent") { ApiClient.getRecentPlaces() },
         Ep("addRecentPlace", "POST", "/places/recent") { ApiClient.addRecentPlace(address = "x", lat = 1.0, lng = 1.0) },
-        Ep("getTripReceipt", "GET", "/trips/1/receipt") { ApiClient.getTripReceipt(bookingId = 1) },
+        Ep("getTripReceipt", "GET", "/trips/1/receipt",
+            okBody = """{"booking_id":1,"ride_id":7,"role":"passenger"}""",
+            strictEmptyReason = "квитанция без точной брони, поездки и роли не подтверждает собственную историю") {
+            ApiClient.getTripReceipt(bookingId = 1) },
         Ep("instantRoadsideHelp", "POST", "/instant/orders/1/stuck") { ApiClient.instantRoadsideHelp(orderId = 1, lat = null, lng = null) },
         Ep("waitForDriver", "POST", "/instant/orders/1/wait") { ApiClient.waitForDriver(orderId = 1) },
         Ep("getInstantReceipt", "GET", "/instant/orders/1/receipt") { ApiClient.getInstantReceipt(orderId = 1) },

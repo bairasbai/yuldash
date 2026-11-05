@@ -29,6 +29,8 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CopyOnWriteArrayList
+import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.TripPassAuthorityFixture
 
 /** Remote completion and failed durable cleanup through the real active-trip screen. */
 @RunWith(RobolectricTestRunner::class)
@@ -42,20 +44,17 @@ class ActiveTripDeletionTest {
     private val mounted = mutableStateOf(false)
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<String>()
+    @Volatile private var preparingPass: TripPass? = null
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     private val cancelBodies = CopyOnWriteArrayList<String>()
     @Volatile private var terminalStatus = "done"
     private var tripEndCalls = 0
 
     @Before fun setup() {
-        ApiClient.resetForTest()
-        ApiClient.logout() // No token: ChatSocket cannot open a real WebSocket.
-        TripPassStore.initStores(plain, secure)
-        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "old"))
-        assertTrue(TripPassStore.save(context, pass))
-        assertTrue(TripPassStore.save(context, pass.copy(bookingId = 99, boardingCode = "unrelated")))
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    preparationResponse(request)?.let { return it }
                     requests.add("${request.method} ${request.path}")
                     val body = when (request.path) {
                         "/bookings/42/cancel" -> {
@@ -72,13 +71,19 @@ class ActiveTripDeletionTest {
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
-                    return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody(canonicalTripBody(request.path, body))
                 }
             }
             start()
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
+        TripPassStore.initStores(plain, secure)
+        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "old").put("pay_method", "negotiate"))
+        preparePositive(pass)
+        assertTrue(TripPassStore.save(context, pass))
+        preparePositive(pass.copy(bookingId = 99, boardingCode = "unrelated"))
+        assertTrue(TripPassStore.save(context, pass.copy(bookingId = 99, boardingCode = "unrelated")))
     }
 
     @After fun cleanup() {
@@ -87,7 +92,7 @@ class ActiveTripDeletionTest {
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         TripPassStore.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
+        if (::server.isInitialized) server.shutdown()
     }
 
     @Test fun serverCompletedTripClearsStoredPassportWithoutLocalFinishAction() {
@@ -250,4 +255,51 @@ class ActiveTripDeletionTest {
         assertNull(TripPassStore.load(context, 42))
         assertEquals("unrelated", TripPassStore.load(context, 99)?.boardingCode)
     }
+    private fun preparationResponse(request: RecordedRequest): MockResponse? {
+        val pass = preparingPass ?: return null
+        val prefix = "/bookings/${pass.bookingId}"
+        val body = when (request.path) {
+            "$prefix/role" -> JSONObject().put("role", "passenger").put("status", "confirmed").put("driver_phase", "departed")
+            "$prefix/details" -> pass.toJson().put("ride_id", pass.bookingId + 1000)
+                .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+                .put("pay_method", pass.payMethod ?: "negotiate")
+            "$prefix/boarding-code" -> JSONObject().put("code", pass.boardingCode)
+            else -> return null
+        }
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setHeader("Content-Type", "application/json").setBody(body.toString())
+    }
+    private fun preparePositive(pass: TripPass) = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        check(preparingPass == null)
+        preparingPass = pass
+        try {
+            ApiClient.getTripState(pass.bookingId).getOrThrow()
+            val actual = ApiClient.getBookingDetails(pass.bookingId).getOrThrow()
+            assertTrue("Setup must obtain its own actual current DETAILS", OfflineTripSnapshots.privateDetails(actual))
+            assertEquals(pass.boardingCode, ApiClient.getBoardingCode(pass.bookingId).getOrThrow())
+        } finally { preparingPass = null }
+        val prefix = "GET /bookings/${pass.bookingId}"
+        assertEquals(listOf("$prefix/role", "$prefix/details", "$prefix/boarding-code"),
+            preparationRequests.drop(start))
+    }
+
+    private fun canonicalTripBody(path: String?, body: String): String {
+        val endpoint = path.orEmpty()
+        val details = endpoint.endsWith("/details")
+        val role = endpoint.endsWith("/role")
+        val receipt = endpoint.endsWith("/receipt")
+        if (!details && !role && !receipt) return body
+        val value = org.json.JSONObject(body)
+        if ((details || receipt) && !value.has("ride_id")) value.put("ride_id", 1042)
+        if (details) {
+            if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
+            if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+        }
+        if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
+        if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))
+            value.put("onboard_at", "2031-02-03T09:00:00.123456Z")
+        return value.toString()
+    }
+
 }

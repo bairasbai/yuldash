@@ -18,6 +18,7 @@ data class BookingMineDto(
     val driverName: String,
     val driverVerified: Boolean,
     val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
+    val declined: Boolean = false,
     val cancelledInTransit: Boolean = false,   // отменили, когда пассажир был в машине (23.10.2026); старый сервер — false
 )
 
@@ -69,6 +70,7 @@ data class BookingDetailsDto(
     val alightLandmarkRu: String = "", val alightLandmarkBa: String = "",
     val meetingVersion: Int = 0, val meetingProposal: MeetingProposalDto? = null,
     val meetLandmarkId: Int? = null, val alightLandmarkId: Int? = null,
+    val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
 )
 
 /** RS-03 Б: активное предложение смены места (публичные поля — без автора). */
@@ -94,6 +96,7 @@ internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
         driverVerified = o.optBoolean("driver_verified"),
         dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
         pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"), rideHasStops = o.optBoolean("ride_has_stops"),
+        declined = o.optBoolean("declined"),
         cancelledInTransit = o.optBoolean("cancelled_in_transit", false),
     )
 }
@@ -148,6 +151,7 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         alightLandmarkId = if (o.isNull("alight_landmark_id")) null else o.optInt("alight_landmark_id"),
         meetingVersion = o.optInt("meeting_version", 0),
         meetingProposal = parseMeetingProposal(o.optJSONObject("meeting_proposal")),
+        boardingUndo = parseBoardingUndo(o),
     )
 }
 

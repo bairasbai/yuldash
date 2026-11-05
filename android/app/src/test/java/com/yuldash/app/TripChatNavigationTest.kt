@@ -33,6 +33,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 @Config(sdk = [34], application = Application::class, qualifiers = "w411dp-h891dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TripChatNavigationTest {
+    companion object { private val cleanupGuard = com.yuldash.app.data.SnapshotWiringCleanupGuard() }
     @get:Rule val compose = createComposeRule()
     private val context get() = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(true)
@@ -43,8 +44,8 @@ class TripChatNavigationTest {
     private val records = CopyOnWriteArrayList<String>()
     @Volatile private var status = "confirmed"
 
-    @Before fun setup() {
-        ApiClient.resetForTest(); ApiClient.init(context); ApiClient.saveToken(tokenA)
+    @Before fun setup() = cleanupGuard.runSetup {
+        ApiClient.resetForTest()
         context.getSharedPreferences("yuldash_prefs", 0).edit().clear()
             .putBoolean("onboarding_completed", false).putString("mode_last", "pooling")
             .putBoolean("mode_hint_shown", true).commit()
@@ -67,13 +68,38 @@ class TripChatNavigationTest {
             }; start()
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/'); ApiClient.testTimeoutMs = 60000
+        ApiClient.init(context)
+        ApiClient.saveToken(tokenA)
+        val snapshotOwner = com.yuldash.app.data.OfflineTripSnapshots.currentOwner()
+        assertTrue("Positive chat fixture must have its own current synthetic owner",
+            snapshotOwner != null && snapshotOwner.userId == 11 &&
+                snapshotOwner.origin == com.yuldash.app.data.snapshotOrigin(ApiClient.apiBase()) &&
+                ApiClient.isCurrentSession(snapshotOwner.generation))
         vm = ViewModelProvider(actor.get())[YuldashViewModel::class.java]
         vm.screen.value = Screen.Home; vm.startHomeTab.value = HomeTab.Map; vm.persistNav()
     }
     @After fun cleanup() {
+        cleanupGuard.requireHealthy()
         compose.runOnIdle { mounted.value = false }; pump(300); actor.destroy(); vm.clearUserData()
-        ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown()
-        context.getSharedPreferences("yuldash", Context.MODE_PRIVATE).edit().remove("chat_safety_seen").commit()
+        val drained = runCatching { awaitFixtureJobs04() }.isSuccess
+        cleanupGuard.runCleanup(drained) {
+            ApiClient.resetForTest(); ApiClient.testTimeoutMs = null; server.shutdown()
+            context.getSharedPreferences("yuldash", Context.MODE_PRIVATE).edit().remove("chat_safety_seen").commit()
+        }
+    }
+
+    private fun awaitFixtureJobs04() = kotlinx.coroutines.runBlocking {
+        val parents = listOf(ApiClient to "bg", com.yuldash.app.data.OfflineTripSnapshots to "jobs").map { (owner, name) ->
+            val scope = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner) as kotlinx.coroutines.CoroutineScope
+            requireNotNull(scope.coroutineContext[kotlinx.coroutines.Job])
+        }
+        kotlinx.coroutines.withTimeout(10_000) {
+            while (true) {
+                val children = parents.flatMap { it.children.toList() }
+                if (children.isEmpty()) break
+                children.forEach { it.join() }
+            }
+        }
     }
 
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody(body)

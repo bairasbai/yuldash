@@ -31,7 +31,7 @@ export default function MyTripCard({
 }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
-  const status = statusView(booking.status, appText);
+  const status = statusView(booking.status, booking.declined === true, appText);
   const seats = appText(
     `${booking.seats} ${pluralRu(booking.seats, "место", "места", "мест")}`,
     `${booking.seats} урын`
@@ -62,7 +62,7 @@ export default function MyTripCard({
   );
 }
 
-function statusView(status: string, appText: (ru: string, ba: string) => string) {
+function statusView(status: string, declined: boolean, appText: (ru: string, ba: string) => string) {
   switch (status) {
     case "confirmed":
       return { label: appText("Подтверждена", "Раҫланды"), className: "is-mint", icon: <IconCar size={24} /> };
@@ -71,7 +71,7 @@ function statusView(status: string, appText: (ru: string, ba: string) => string)
     case "done":
       return { label: appText("Завершена", "Тамамланды"), className: "is-mint", icon: <IconCheck size={24} /> };
     case "cancelled":
-      return { label: appText("Отменена", "Кире ҡағылды"), className: "is-danger", icon: <IconWarn size={24} /> };
+      return { label: declined ? appText("Отклонена", "Кире ҡағылған") : appText("Отменена", "Кире алынды"), className: "is-danger", icon: <IconWarn size={24} /> };
     default:
       return { label: appText("Ожидает", "Көтә"), className: "is-warn", icon: <IconClock size={24} /> };
   }

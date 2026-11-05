@@ -13,8 +13,16 @@ import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.TripPassAuthorityFixture
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.TripPassStore
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -50,18 +58,59 @@ class BookingPendingRefreshTest {
     }
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<String>()
+    private val authenticationRequests = CopyOnWriteArrayList<String>()
+    private val tokenA = TripPassAuthorityFixture.jwt(7)
     @Volatile private var serverStatus = "pending"
     private val phone = "+7 900 111-22-33"
     private val statuses = CopyOnWriteArrayList<String>()   // что экран сообщил наверх (YuldashApp.selectedBookingStatus)
 
+    private fun awaitApiBackgroundCompletion()=runBlocking {
+        // Observe only the test-owned API coroutine job, never auth/key fields.
+        val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
+        val parent=requireNotNull(scope.coroutineContext[Job])
+        try {
+            withTimeout(10_000) {
+                while(true) {
+                    val children=parent.children.toList()
+                    if(children.isEmpty()) break
+                    children.forEach {it.join()}
+                }
+            }
+        } catch(failure:TimeoutCancellationException) {
+            throw AssertionError("Fixture API jobs still running; local origin/server retained. Abort this isolated run.",failure)
+        }
+    }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) {
+            while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10)
+        }
+    }
+
+    private fun startAuthenticatedFixture() {
+        ApiClient.init(context)
+        ApiClient.logout()
+        awaitSnapshotCleanup()
+        ApiClient.saveToken(tokenA)
+        val actual = requireNotNull(OfflineTripSnapshots.currentOwner())
+        assertEquals(7, actual.userId)
+        assertEquals(ApiClient.queueSessionGeneration(), actual.generation)
+        assertTrue(OfflineTripSnapshots.cacheEnabled(actual))
+    }
+
     @Before fun setup() {
+        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
         ApiClient.resetForTest()
         owner.registry.currentState = Lifecycle.State.RESUMED
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.path in setOf("/auth/logout", "/push/unregister")) {
+                        authenticationRequests.add(request.method + " " + request.path)
+                        return MockResponse().setHeader("Content-Type", "application/json").setBody("{}")
+                    }
                     requests.add("${request.method} ${request.path}")
+                    if (request.getHeader("Authorization") != "Bearer " + tokenA)
+                        return MockResponse().setResponseCode(403).setBody("{}")
                     val body = when (request.path) {
                         "/bookings/42/details" -> details()
                         "/bookings/42/boarding-code" -> """{"code":"4821"}"""
@@ -74,12 +123,20 @@ class BookingPendingRefreshTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1000
+        startAuthenticatedFixture()
+        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+        assertFalse("Login itself must not invent a live trip", OfflineTripSnapshots.allowsLive(42))
+        assertNull(OfflineTripSnapshots.privatePass(42))
     }
 
     @After fun cleanup() {
+        if (!::server.isInitialized) { awaitApiBackgroundCompletion(); awaitSnapshotCleanup(); return }
         compose.runOnIdle { mounted.value = false }
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         owner.registry.currentState = Lifecycle.State.DESTROYED
+        ApiClient.logout()
+        awaitApiBackgroundCompletion()
+        awaitSnapshotCleanup()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         TripPassStore.initStores(MemoryDiskPreferences(), null)

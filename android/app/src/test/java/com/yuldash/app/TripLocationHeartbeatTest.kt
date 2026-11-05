@@ -74,11 +74,13 @@ class TripLocationHeartbeatTest {
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.init(app)
-        ApiClient.saveToken("local-trip-heartbeat-test")
+        ApiClient.saveToken("fixture.eyJzdWIiOiIxIn0.fixture")
+        DriverGpsActions.revoke()
     }
 
     @After fun cleanup() {
         service?.onDestroy()
+        DriverGpsActions.revoke()
         ApiClient::class.java.getDeclaredMethod("clearLocalSession").apply {
             isAccessible = true
         }.invoke(ApiClient)
@@ -110,8 +112,13 @@ class TripLocationHeartbeatTest {
      * [revive] — Android воскресил сервис после смерти процесса: intent пустой, всё из prefs.
      */
     private fun startTrip(bookingId: Int = 42, isDriver: Boolean = true, revive: Boolean = false): TripLocationService {
+        if (isDriver) {
+            val ticket = DriverGpsActions.begin(bookingId)!!
+            assertTrue(DriverGpsActions.grant.complete(ticket, DriverGpsActions.owner(), 8, bookingId, Long.MAX_VALUE, SystemClock.elapsedRealtime(), System.currentTimeMillis()))
+        }
         val authenticated = queueSocket()
         val svc = Robolectric.buildService(TripLocationService::class.java).create().get().also { service = it }
+        svc.driverFeed = { Result.success(DriverBookingsFeed(listOf(com.yuldash.app.data.DriverBookingDto(bookingId, "", null, "", "onboard", rideId = 8)), false)) }
         svc.onStartCommand(if (revive) null else Intent(app, TripLocationService::class.java)
             .putExtra(TripLocationService.EXTRA_BOOKING, bookingId)
             .putExtra(TripLocationService.EXTRA_DRIVER, isDriver), 0, 1)
@@ -145,7 +152,7 @@ class TripLocationHeartbeatTest {
 
     @Test fun parkedCarStillReportsBeforeTheServerForgetsIt() {
         startTrip()
-        assertTrue("роль водителя не сохранена — после смерти процесса пульс пропадёт", prefs.getBoolean("last_driver", false))
+        assertFalse("GPS grant must never be persisted for cold revival", prefs.contains("last_driver"))
         gps(lat0)
         assertNotNull("первая точка поездки должна уйти сразу", nextFrame())
 
@@ -203,7 +210,7 @@ class TripLocationHeartbeatTest {
 
     @Test fun parkedPassengerSendsNoHeartbeat() {
         startTrip(isDriver = false)
-        assertFalse(prefs.getBoolean("last_driver", true))
+        assertFalse(prefs.contains("last_driver"))
         gps(lat0)
         assertNotNull("первая точка пассажира уходит, как раньше", nextFrame())
 
@@ -214,16 +221,15 @@ class TripLocationHeartbeatTest {
         assertNotNull("в движении точка пассажира уходит, как раньше", nextFrame())
     }
 
-    @Test fun revivedDriverServiceKeepsTheHeartbeat() {
-        // Android убил процесс посреди поездки и поднял сервис сам: intent пустой, роль — из prefs.
+    @Test fun coldRevivedDriverServiceCannotUseOldPreferencesForHeartbeat() {
         prefs.edit().putInt("last_booking", 42).putString("last_lang", "Ru").putBoolean("last_driver", true).apply()
-        startTrip(revive = true)
+        val svc = Robolectric.buildService(TripLocationService::class.java).create().get().also { service = it }
+        assertEquals(android.app.Service.START_NOT_STICKY, svc.onStartCommand(null, 0, 1))
+        assertTrue(shadowOf(svc).isStoppedBySelf)
+        assertTrue(shadowOf(manager).locationUpdateListeners.isEmpty())
         gps(lat0)
-        assertNotNull(nextFrame())
-        for (i in 1..14) { later(fixMs); gps(lat0) }
         assertTrue(noMoreFrames())
-        later(fixMs); gps(lat0)
-        assertNotNull("воскрешённый сервис забыл, что он у водителя, — машина пропадёт на стоянке", nextFrame())
+        assertEquals(0, server.requestCount)
     }
 
     @Test fun reconnectedChannelSendsTheNextPointAtOnce() {

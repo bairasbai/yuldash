@@ -41,6 +41,7 @@ const modules = {
 const root = fileURLToPath(new URL("../", import.meta.url));
 async function component(path, name = "default") {
   const result = await build({entryPoints:[root+path], bundle:true, write:false, format:"esm", platform:"node", jsx:"automatic", logLevel:"silent",
+    define:{"import.meta.env":JSON.stringify({VITE_API_BASE:"https://api.example.test",DEV:false})},
     plugins:[{name:"local-ui",setup(b){
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;

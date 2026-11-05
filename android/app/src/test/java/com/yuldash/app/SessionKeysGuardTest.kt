@@ -1,6 +1,10 @@
 package com.yuldash.app
 
 import com.yuldash.app.data.SessionKeys
+import com.yuldash.app.data.SNAPSHOT_AUTH_SCOPE
+import com.yuldash.app.data.SNAPSHOT_BARRIERS_KEY
+import com.yuldash.app.data.SNAPSHOT_META_PREFS
+import com.yuldash.app.data.SNAPSHOT_SECURE_PREFS
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -176,10 +180,11 @@ class SessionKeysGuardTest {
         )
         // Паспорта поездок (чужие имена и телефоны) и очередь исходящих — отдельные хранилища,
         // список ключей их не покрывает, поэтому проверяем отдельно.
-        assertTrue("выход должен вызывать общую очистку", logout.contains("clearAssociatedPersonalData()"))
-        val associated = src.substringAfter("private fun clearAssociatedPersonalData()").substringBefore("\n    }")
+        assertTrue("выход должен вызывать общую очистку снимков", Regex("""\bclearAssociatedPersonalData\(\s*snapshotReset\s*=\s*true\s*\)""").containsMatchIn(logout))
+        val associated = associatedCleanup(src)
         assertTrue("паспорта поездок должны стираться при выходе", associated.contains("TripPassStore.clearAll"))
         assertTrue("очередь исходящих должна стираться при выходе", associated.contains("Outbox.clearAll"))
+        assertTrue("явный выход должен вызывать очистку снимков", Regex("""if\s*\(\s*snapshotReset\s*\)\s*OfflineTripSnapshots\.logoutCleanup\(\s*\)""").containsMatchIn(associated))
     }
 
     @Test
@@ -199,13 +204,19 @@ class SessionKeysGuardTest {
     fun `выход заходит в каждый ящик настроек, а не только в тот, где токен`() {
         val src = File("src/main/java/com/yuldash/app/data/ApiClient.kt").readText()
         val logout = src.substringAfter("private fun clearLocalSession()").substringBefore("\n    }")
-        assertTrue("выход должен вызывать общую очистку", logout.contains("clearAssociatedPersonalData()"))
-        val associated = src.substringAfter("private fun clearAssociatedPersonalData()").substringBefore("\n    }")
+        assertTrue("выход должен вызывать общую очистку снимков", Regex("""\bclearAssociatedPersonalData\(\s*snapshotReset\s*=\s*true\s*\)""").containsMatchIn(logout))
+        val associated = associatedCleanup(src)
         assertTrue(
             "очистка перестала ходить по адресам из SessionKeys.CLEARED_BY_FILE — значит снова " +
                 "чистит один ящик, хотя ключи лежат в нескольких",
             associated.contains("CLEARED_BY_FILE"),
         )
+    }
+
+    private fun associatedCleanup(src: String): String {
+        val declaration = Regex("""private fun clearAssociatedPersonalData\(\s*snapshotReset:\s*Boolean\s*=\s*false\s*\)\s*\{""").find(src)
+        assertTrue("общая очистка должна иметь явный snapshotReset=false для обычного запуска", declaration != null)
+        return src.substring(requireNotNull(declaration).range.last + 1).substringBefore("\n    }")
     }
 
     @Test
@@ -217,6 +228,8 @@ class SessionKeysGuardTest {
             "yuldash_settings",  // звуки, уведомления, язык фоновых сервисов — настройки телефона
             "yuldash_secure",    // шифрованный ящик сессии: ключи те же, что у основного
             "login_methods",     // публичный список способов входа от сервера — не личные данные, переживает выход
+            SNAPSHOT_META_PREFS,  // зарегистрированное хранилище запретов snapshot, очищается его владельцем
+            SNAPSHOT_SECURE_PREFS, // зарегистрированные зашифрованные owner/scope payload snapshot
         )
         val unknown = (found - known).sorted()
         assertTrue(
@@ -266,5 +279,12 @@ class SessionKeysGuardTest {
         val точка = app.substringAfter("internal fun endSession").substringBefore("\n}")
         assertTrue("конец сессии перестал гасить живой GPS", точка.contains("stopLiveTracking("))
         assertTrue("конец сессии перестал чистить чужое из памяти", точка.contains("clearUserData("))
+    }
+
+    @Test fun snapshotStoresAndScopeHaveExplicitOwnershipWithoutChangingPublicLoginMethods() {
+        assertTrue(SNAPSHOT_AUTH_SCOPE in SessionKeys.CLEARED_ON_LOGOUT)
+        assertEquals(listOf(SNAPSHOT_BARRIERS_KEY), SessionKeys.CLEARED_BY_STORE[SNAPSHOT_META_PREFS])
+        assertEquals(emptyList<String>(), SessionKeys.CLEARED_BY_STORE[SNAPSHOT_SECURE_PREFS])
+        assertTrue("public login methods must survive logout", "methods" in SessionKeys.SURVIVES_LOGOUT)
     }
 }

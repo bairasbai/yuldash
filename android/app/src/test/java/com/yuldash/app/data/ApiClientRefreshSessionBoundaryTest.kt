@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
 import org.junit.After
@@ -83,8 +85,13 @@ class ApiClientRefreshSessionBoundaryTest {
         ApiClient.testTimeoutMs = 10_000
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.sessionExpired.value = false
         login("A")
+    }
+
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
     }
 
     private suspend fun login(account: String) {
@@ -107,6 +114,7 @@ class ApiClientRefreshSessionBoundaryTest {
         try {
             assertTrue("A refresh must reach the local server", refreshArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
+            awaitSnapshotCleanup()
             login("B")
         } finally {
             releaseOld.countDown()
@@ -123,6 +131,7 @@ class ApiClientRefreshSessionBoundaryTest {
         try {
             assertTrue("A GET must reach the server before switching accounts", oldGetArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
+            awaitSnapshotCleanup()
             login("B") // B has its own refresh token, exercising the refresh branch.
         } finally {
             releaseOld.countDown()

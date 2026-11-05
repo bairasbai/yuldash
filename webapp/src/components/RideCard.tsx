@@ -1,3 +1,4 @@
+import { rideDriverRating } from "../utils/rideDriverRating";
 import { useLang } from "../i18n/lang";
 import { Link } from "react-router-dom";
 import type { Ride } from "../api/rides";
@@ -122,7 +123,7 @@ export default function RideCard({ ride, index, to }: { ride: Ride; index: numbe
               )}
             </div>
             <div className="ride-card__driver-sub">
-              <YuStar size={12} className="star" /> {ride.driver_rating.toFixed(1)}
+              <YuStar size={12} className="star" /> {rideDriverRating(ride)?.toFixed(1) ?? appText("Нет оценок", "Баһалар юҡ")}
               {ride.driver_car ? ` · ${ride.driver_car}` : ""}
             </div>
           </div>

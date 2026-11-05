@@ -1,0 +1,13 @@
+# Сохранить код посадки водителю онлайн
+
+02.11.2026, Root. Уточнение offline4 после проверки старых сценариев, до кода — независимая проверка. Статусы только в audit-blocks.
+
+Факт: backend/app/routers/bookings.py984–990 разрешает code GET обоим участникам; RideshareBoarding ActiveTripBoardingCodeCard показывает водителю цифры и просьбу спросить код пассажира; прежний driverNeverSeesCodeNotSavedWarning использует5678 как readiness. Новый Hooks.code:100 отвергает driver DETAILS, хотя принятый offline plan:23 запрещает водителю сохранение пассажирского кода, а не явно отменяет онлайн-показ. Это функциональная регрессия; старую проверку не переписывать на отсутствие кода.
+
+Требуемое поведение: водитель видит код только текущей своей брони после actual authorized driver DETAILS200 и отдельного code GET200, связанных с той же owner/generation/origin/booking/details revision. ROLE/list/WS/cached DTO/blob сами не разрешают код; fresh DETAILS failure,403/terminal, смена владельца/поездки/ревизии, disposal/outgoing route, expiry/rollback немедленно запрещают старый код. После cold process никакой saved code не отображается.
+
+Код водителя — только память процесса и свежая ограниченная проекция, без TripPass-диска/приватного snapshot payload. TripPassStore.load для driver всегдаnull, save/update driverfalse; прямой вызов save также не обходит роль. Не превращать driver DETAILS в passenger permit/pass, не возвращать код из старого blob и не подменять источник актуальным ROLE. Текущий пассажирский DETAILS+code путь сохраняется без ослаблений, включая fault/late-owner/fingerprint/terminal/consent/D7/RS03/GPS.
+
+Сначала test-only meaningful actual HTTP regression в существующем wiring-классе либо отдельном новом data DriverBoardingCodeWiringTest: положительный fresh driver DETAILS+code→onlinecode/no durablecode; отказ DETAILS/oldrole/cold→nocode; latecode после смены owner/details/terminal→nocode; direct driver TripPass save denied. Старые assertions предупреждения/цифр сохраняются, исправляется только synthetic identity/freshDETAILS preparation по отдельному lease. Root сохраняет actual RED до продукта.
+
+После независимого принятия плана и RED — минимальное расширение текущей проекции/transport/currentTripCode, не новый постоянный store. Версии/зависимости/Backend/API policy/main/push/prod/деньги не менять, caps7905/3541 сохранять через узкий helper при реальной необходимости. Один writer; runtime/locks Root. Затем те же regression GREEN, полный36+driver wiring и старые предметные проверки/guards, assemble/compileAndroidTest/fullunit/R8/emulator по общему гейту4; свежая независимая приёмка результата.

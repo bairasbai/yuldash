@@ -38,9 +38,11 @@ for(const lang of ['ru','ba'])await test('F07-gate-'+lang,()=>{h.lang=lang;const
 if (!process.argv.includes('--gate-only')) {
  const {saveVerifiedTripPass,loadOfflineTripPass}=await compile('src/utils/offlineTripPass.ts');
  const {default:Fallback}=await compile('src/components/OfflineTripFallback.tsx');
+ const {default:PassCard}=await compile('src/components/OfflineTripPass.tsx');
  const {clearTripPassBoardingCode,dropTripPass}=await compile('src/utils/tripPass.ts');
  const realClient=await compile('src/api/client.ts');
  const {clearPersonalLocal}=await compile('src/utils/privacy.ts');
+ const cancellation=await compile('src/utils/inTransitCancel.ts');
  const pass={bookingId:42,fromCity:'Уфа',toCity:'Сибай',departAt:'2026-10-16T18:00:00+05:00',driverName:'QA Driver',driverCar:'QA Car',driverPlate:'QA001',driverPhone:'+79990000000',boardingCode:'4931',pickup:'QA pickup',price:300,seats:1};
  const save=()=>saveVerifiedTripPass(pass,7,'session-A');
  const edit=(key,fn)=>values.set(key,JSON.stringify(fn(JSON.parse(values.get(key)))));
@@ -86,5 +88,40 @@ if (!process.argv.includes('--gate-only')) {
  await test('F07-ui-online-closed',()=>{save();navigator.onLine=true;assert.equal(text(expand(Fallback())),'');});
  await test('F07-ui-storage-change-rechecks',()=>{save();assert(text(expand(Fallback())).includes('QA001'));values.set('yuldash.session','session-B');window.dispatchEvent(new Event('storage'));assert(h.renders>0);assert.equal(text(expand(Fallback())),'');});
  await test('F07-ui-online-event-clears',()=>{save();expand(Fallback());navigator.onLine=true;window.dispatchEvent(new Event('online'));assert(h.renders>0);assert.equal(text(expand(Fallback())),'');});
+ for(const method of ['cash','sbp','negotiate'])for(const lang of ['ru','ba'])await test('METHOD07-'+method+'-'+lang,()=>{
+   saveVerifiedTripPass({...pass,payMethod:method},7,'session-A');h.lang=lang;
+   assert.equal(loadOfflineTripPass(42)?.payMethod,method);
+   const label={cash:['Наличными','Аҡса менән'],sbp:['Перевод (СБП)','Күсереү (СБП)'],negotiate:['По договорённости','Килешеү буйынса']}[method][lang==='ba'?1:0];
+   assert(text(expand(Fallback())).includes(label));assert(text(expand(Fallback())).includes('300'));
+ });
+ await test('METHOD07-legacy-unknown-is-not-cash',()=>{save();const value=text(expand(Fallback()));assert(value.includes('Способ оплаты не сохранён'));assert(!value.includes('Наличными'));});
+ for(const lang of ['ru','ba'])await test('METHOD07-renderer-invalid-method-is-unknown-'+lang,()=>{
+   h.lang=lang;const value=text(expand(PassCard({pass:{...pass,payMethod:'future-unknown-method'}})));
+   assert(value.includes(lang==='ba'?'Түләү ысулы һаҡланмаған':'Способ оплаты не сохранён'));
+   assert(!value.includes(lang==='ba'?'Килешеү буйынса':'По договорённости'));
+   assert(!value.includes(lang==='ba'?'Аҡса менән':'Наличными'));
+ });
+ await test('METHOD07-invalid-method-cannot-be-read',()=>{save();edit(key,p=>({...p,payMethod:'not-a-method'}));assert.equal(loadOfflineTripPass(42),null);});
+ for(const lang of ['ru','ba'])await test('CANCEL08-offline-help-without-private-snapshot-'+lang,()=>{
+   save();cancellation.rememberInTransitCancel(42,7,'session-A');h.lang=lang;
+   const stored=JSON.parse(values.get('yuldash.inTransit.42'));assert.deepEqual(Object.keys(stored).sort(),['at','generation','owner']);
+   const tree=expand(RequireAuth({children:'PRIVATE_SCREEN',unavailableContent:Fallback()}));
+   const value=text(tree);assert(value.includes('SOS'));assert(value.includes(lang==='ba'?'Сәфәр юлда кире алынды':'Поездку отменили в пути'));
+   const links=[];const walk=n=>{if(Array.isArray(n))n.forEach(walk);else if(n&&typeof n==='object'){if(n.type==='a')links.push(n);walk(n.props?.children);}};walk(tree);
+   assert(links.some(n=>n.props.href==='tel:112'),'Emergency call must be reachable without the protected SOS route');
+   assert(!links.some(n=>n.props.href?.startsWith('/sos')),'Offline help must not return the user to RequireAuth');
+   assert(value.includes(lang==='ba'?'SOS хәбәре ебәрелмәй':'сообщение SOS не отправится'));
+   assert(!value.includes('PRIVATE_SCREEN'));assert(value.includes(lang==='ba'?'Ҡабат':'Повтор'));
+   for(const secret of ['QA001','4931','QA Car','PRIVATE','+79990000000'])assert(!value.includes(secret));
+ });
+ for(const kind of ['old','expired','future','other-login','no-token'])await test('CANCEL08-closed-'+kind,()=>{
+   cancellation.rememberInTransitCancel(42,7,'session-A');const marker='yuldash.inTransit.42';
+   if(kind==='old')values.set(marker,JSON.stringify({owner:7,car:'PRIVATE',plate:'PRIVATE'}));
+   if(kind==='expired')edit(marker,m=>({...m,at:Date.now()-cancellation.IN_TRANSIT_MARKER_TTL_MS-1}));
+   if(kind==='future')edit(marker,m=>({...m,at:Date.now()+10000}));
+   if(kind==='other-login')values.set('yuldash.session','session-B');
+   if(kind==='no-token')values.delete('yuldash.token');
+   assert.equal(text(expand(Fallback())),'');
+ });
 }
 console.log(`Full offline trip: ${total-failed}/${total} passed`);if(failed)process.exitCode=1;

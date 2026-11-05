@@ -196,6 +196,7 @@ internal fun ArrivingButton(
     onRefused: (ApiException) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val gpsAction = rememberDriverGpsAction(bookingId)
     val ctx = LocalContext.current
     var sending by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не удалось сохранить статус. Проверь сеть.", "Хәлде һаҡлап булманы. Селтәрҙе тикшер.")
@@ -206,8 +207,10 @@ internal fun ArrivingButton(
         onClick = {
             if (!sending) {
                 sending = true
+                val gpsTicket = gpsAction.begin(bookingId)
                 scope.launch {
                     BoardingApi.markArriving(bookingId)
+                        .also { gpsAction.finish(gpsTicket, it.isSuccess) }
                         .onSuccess { terms ->
                             Toast.makeText(ctx, sentMsg, Toast.LENGTH_SHORT).show()
                             onArrived(terms)
@@ -258,6 +261,7 @@ internal fun NoShowButton(
     onRefused: (ApiException) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val gpsAction = rememberDriverGpsAction(bookingId)
     val ctx = LocalContext.current
     var sending by remember(bookingId) { mutableStateOf(false) }
     var asking by remember(bookingId) { mutableStateOf(false) }
@@ -302,8 +306,10 @@ internal fun NoShowButton(
                     onClick = {
                         if (sending) return@TextButton
                         sending = true
+                        val gpsTicket = gpsAction.begin(bookingId)
                         scope.launch {
                             ApiClient.markNoShow(bookingId)
+                                .also { gpsAction.finish(gpsTicket, it.isSuccess, closed = true) }
                                 .onSuccess { asking = false; onSent() }
                                 .onFailure { e ->
                                     asking = false

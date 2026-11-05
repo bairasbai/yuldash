@@ -1,0 +1,11 @@
+import assert from "node:assert/strict";
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
+const result = await build({ entryPoints: [fileURLToPath(new URL("../src/utils/rideDriverRating.ts", import.meta.url))], bundle: true, platform: "node", format: "esm", write: false });
+const { rideDriverRating } = await import(`data:text/javascript;base64,${Buffer.from(result.outputFiles[0].text).toString("base64")}`);
+assert.equal(rideDriverRating({ driver_rating: 5, driver_rating_count: 0 }), null);
+assert.equal(rideDriverRating({ driver_rating: 4.7, driver_rating_count: 2 }), 4.7);
+assert.equal(rideDriverRating({ driver_rating: 0 }), null);
+assert.equal(rideDriverRating({ driver_rating: 4.8 }), 4.8);
+assert.equal(rideDriverRating({ driver_rating: NaN, driver_rating_count: 1 }), null);
+console.log("✓ 5 checks — honest ride rating");

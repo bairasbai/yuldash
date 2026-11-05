@@ -265,6 +265,8 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.HistoricalTripSummary
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.GeocoderClient
@@ -319,14 +321,29 @@ internal fun RidesScreen(
     var bookings by remember { mutableStateOf<List<com.yuldash.app.data.BookingMineDto>>(emptyList()) }
     var bookingsLoading by remember { mutableStateOf(true) }
     var bookingsError by remember { mutableStateOf(false) }
+    var historicalAllowed by remember { mutableStateOf(false) }
     var bookingsReload by remember { mutableStateOf(0) }
     LaunchedEffect(bookingsReload) {
         bookingsLoading = true
         ApiClient.getMyBookingsDetailed()
-            .onSuccess { bookings = it; bookingsError = false }
-            // 401 (не вошёл) — не ошибка сети: просто пусто. Реальный сбой → «Повторить».
-            .onFailure { e -> bookingsError = (e as? ApiException)?.status != 401 }
+            .onSuccess { bookings = it; bookingsError = false; historicalAllowed = false }
+            // Known access denials never fall back to a historical copy.
+            .onFailure { e ->
+                bookingsError = (e as? ApiException)?.status != 401
+                historicalAllowed = e is java.io.IOException || (e is ApiException && e.status in 500..599)
+            }
         bookingsLoading = false
+    }
+    val historicalOwner by OfflineTripSnapshots.owner.collectAsState()
+    val historicalVersion by OfflineTripSnapshots.version.collectAsState()
+    var historical by remember(historicalOwner) { mutableStateOf<List<HistoricalTripSummary>>(emptyList()) }
+    LaunchedEffect(bookingsError, historicalAllowed, historicalOwner, historicalVersion, bookingsReload) {
+        historical = emptyList()
+        if (bookingsError && historicalAllowed && historicalOwner != null) {
+            val readOwner = historicalOwner
+            val saved = OfflineTripSnapshots.historicalSummaries()
+            if (bookingsError && historicalAllowed && OfflineTripSnapshots.currentOwner() == readOwner) historical = saved
+        }
     }
     val activeStatuses = listOf("pending", "confirmed", "onboard")
     val historyStatuses = listOf("done", "cancelled")
@@ -375,6 +392,11 @@ internal fun RidesScreen(
                     "history" -> it.status in historyStatuses
                     "all" -> true
                     else -> it.status in activeStatuses
+                }
+            }
+            if (bookingsError && historicalAllowed && !bookingsLoading) {
+                items(historical, key = { "historical-" + it.bookingId }) { saved ->
+                    HistoricalTripSummaryCard(saved, onRetry = { bookingsReload++ })
                 }
             }
             when {
@@ -427,12 +449,13 @@ internal fun RidesScreen(
                         val displayRide = bookingTripRide(b, feed)
                         val isHist = b.status in historyStatuses
                         val canOpenReceipt = b.status == "done" && b.id > 0
+                        val canOpenCancelledHelp = b.status == "cancelled" && b.cancelledInTransit && b.id > 0
                         val opensActiveTrip = bookingStatusAllowsActiveTrip(b.status)
                         val (statusLabel, statusColor, statusIcon) = when (b.status) {
                             "confirmed" -> Triple(appText("Подтверждена", "Раҫланды"), CanonMint, Icons.Default.DirectionsCar)
                             "onboard" -> Triple(appText("В пути", "Юлда"), CanonMint, Icons.Default.DirectionsCar)
                             "done" -> Triple(appText("Завершена", "Тамамланды"), CanonMint, Icons.Default.CheckCircle)
-                            "cancelled" -> Triple(appText("Отменена", "Кире ҡағылды"), CanonDangerBg, Icons.Default.Close)
+                            "cancelled" -> Triple(if (b.declined) appText("Отклонена", "Кире ҡағылған") else appText("Отменена", "Кире алынды"), CanonDangerBg, Icons.Default.Close)
                             else -> Triple(appText("Ожидает", "Көтә"), CanonWarnBg, Icons.Default.Schedule)
                         }
                         Box(Modifier.appearIn(i)) {
@@ -444,11 +467,13 @@ internal fun RidesScreen(
                                 statusColor = statusColor,
                                 icon = statusIcon,
                                 primaryAction = when {
+                                    canOpenCancelledHelp -> appText("Открыть помощь", "Ярҙәмде асыу")
                                     isHist -> appText("Повторить маршрут", "Маршрутты ҡабатлау")
                                     opensActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
                                     else -> appText("Подробнее", "Ентекле")
                                 },
                                 secondaryAction = when {
+                                    canOpenCancelledHelp -> appText("Повторить маршрут", "Маршрутты ҡабатлау")
                                     canOpenReceipt -> appText("Квитанция", "Квитанция")
                                     isHist -> ""
                                     opensActiveTrip -> appText("Чат", "Чат")
@@ -457,6 +482,7 @@ internal fun RidesScreen(
                                 stackActions = canOpenReceipt,
                                 onPrimary = {
                                     when {
+                                        canOpenCancelledHelp -> onOpenBookingDetails(displayRide, b.status)
                                         isHist -> onCreateRequest()
                                         opensActiveTrip -> onOpenActiveTrip(displayRide, b.status)
                                         else -> onOpenBookingDetails(displayRide, b.status)
@@ -464,6 +490,7 @@ internal fun RidesScreen(
                                 },
                                 onSecondary = {
                                     when {
+                                        canOpenCancelledHelp -> onCreateRequest()
                                         canOpenReceipt -> onOpenReceipt(b.id)
                                         opensActiveTrip -> onOpenActiveTrip(displayRide, b.status)
                                         else -> onMessage()
@@ -697,7 +724,7 @@ internal fun NearbyRideCard(dto: com.yuldash.app.data.RideDto, soonest: Boolean,
                 Spacer(Modifier.weight(1f))
                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
                 Spacer(Modifier.width(4.dp))
-                Text(dto.driverRating.toString(), style = CanonCaption)
+                Text(if (dto.driverRating > 0.0) dto.driverRating.toString() else appText("Нет оценок", "Баһалар юҡ"), style = CanonCaption)
             }
             // F8: стаж/поездки водителя — в гибкой зоне (weight), высоту карточки не увеличивает.
             Box(Modifier.weight(1f).fillMaxWidth(), contentAlignment = Alignment.CenterStart) {
@@ -968,7 +995,7 @@ internal fun RideCard(
                     Text(ride.carText(), maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(18.dp))
-                Text(ride.rating.toString())
+                Text(if (ride.rating > 0.0) ride.rating.toString() else appText("Нет оценок", "Баһалар юҡ"))
             }
             // F8: бейджи доверия водителя (проверен · N поездок · с нами с …). Скрыт «Проверен» в чипе,
             // т.к. галочка уже есть рядом с именем выше — тут показываем «стаж» и «поездки».

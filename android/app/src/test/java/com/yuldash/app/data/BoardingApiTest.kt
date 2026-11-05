@@ -78,7 +78,7 @@ class BoardingApiTest {
 
     @Test
     fun tripStateAndDriverBookings_carryTheBoardingFields() = runBlocking {
-        server.enqueue(json("""{"role":"driver","status":"onboard","driver_phase":"arriving","peer_id":7,"boarding_undo_sec":120}"""))
+        server.enqueue(json("""{"role":"driver","status":"onboard","driver_phase":"arriving","peer_id":7,"boarding_undo_sec":120,"onboard_at":"2026-11-02T00:00:00Z"}"""))
         val state = ApiClient.getTripState(42).getOrThrow()
         assertEquals(7, state.peerId)
         assertEquals(120, state.boardingUndoSec)

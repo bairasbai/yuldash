@@ -211,7 +211,7 @@ async function shareView(lang, inTransit, state) {
       "/api/chat": `export const wsBase=()=>"ws://x";`,
     },
   });
-  const h = mount(View, { bookingId: 42, inTransit });
+  const h = mount(View, { bookingId: 42, rideId: 7, inTransit });
   h.render();
   if (state) {
     // состояние приходит из логики через onState → useState: подставляем его напрямую
@@ -230,17 +230,19 @@ for (const lang of ["ru", "ba"]) {
     assert.ok(text(h.tree).includes(L("Нажмёшь «Выехал» — сайт спросит доступ к месту", "«Сыҡтым» тип баҫһаң — сайт урыныңа рөхсәт һорар")));
     assert.equal(geoCalls.length, 0, "браузер о месте не спрашивали");
   });
-  await t.test(`${lang}: отправляем — честная подпись «только пока эта страница открыта»`, async () => {
+  await t.test(`${lang}: отправляем — подпись о поездке и кабинете водителя`, async () => {
     fakeNavigator({ watchPosition: () => 1, clearWatch() {} });
     const h = await shareView(lang, true, "sharing");
-    assert.ok(text(h.tree).includes(L("только пока эта страница открыта", "был бит асыҡ саҡта ғына")));
+    assert.ok(text(h.tree).includes(L("пока открыта поездка или кабинет водителя", "Сәфәр йәки йөрөтөүсе кабинеты асыҡ саҡта")));
   });
-  await t.test(`${lang}: доступ закрыт — объясняем, что делать, и «Повторить»; экран живой`, async () => {
+  await t.test(`${lang}: доступ закрыт — требуется новое действие водителя после настроек`, async () => {
     fakeNavigator({ watchPosition: () => 1, clearWatch() {} });
     const h = await shareView(lang, true, "denied");
-    assert.ok(text(h.tree).includes(L("Доступ к месту закрыт", "Урыныңа рөхсәт ябыҡ")));
+    assert.ok(text(h.tree).includes(L("Доступ к месту закрыт", "Урынға рөхсәт ябыҡ")));
     assert.ok(text(h.tree).includes(L("настройках браузера", "Браузер көйләүҙәрендә")));
-    assert.ok(button(h.tree, L("Повторить", "Ҡабатлау")));
+    assert.equal(button(h.tree, L("Повторить", "Ҡабатлау")), undefined, "повтор не должен возвращать отозванный grant");
+    assert.ok(text(h.tree).includes(L("нажми «Включить передачу места»", "«Урынды ебәреүҙе ҡабыҙырға» тип баҫ")));
+    assert.ok(button(h.tree, L("Включить передачу места", "Урынды ебәреүҙе ҡабыҙырға")), "новое явное включение доступно без phase-кнопок");
   });
 }
 

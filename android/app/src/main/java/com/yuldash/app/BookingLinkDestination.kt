@@ -62,7 +62,7 @@ internal fun YuldashViewModel.applyBookingLink(bookingId: Int, role: String, sta
         activeBookingId.value = bookingId
         activeDriverBookingId.value = bookingId.takeIf { role == "driver" }   // роль для живого гео (пульс стоянки)
         if (completed) activeTrip.value = null
-        else if (target == Screen.ActiveTrip) activeTrip.value = stub.takeIf { bookingStatusAllowsBoarding(status) }
+        else if (target == Screen.ActiveTrip) activeTrip.value = stub.takeIf { bookingStatusAllowsBoarding(status) && com.yuldash.app.data.OfflineTripSnapshots.allowsLive(bookingId) }
     }
     screen.value = target
     return target
@@ -74,6 +74,26 @@ internal fun YuldashViewModel.openDriverTrip(bookingId: Int) {
     selectedRide.value = stub
     activeBookingId.value = bookingId
     activeDriverBookingId.value = bookingId   // я водитель этой брони — живому гео нужен пульс стоянки
-    activeTrip.value = stub
+    activeTrip.value = stub.takeIf { com.yuldash.app.data.OfflineTripSnapshots.allowsLive(bookingId) }
     screen.value = Screen.ActiveTrip
+    offlineTripSnapshot.value = null
+}
+
+/** A restoration stub names its booking, not its ride. Only this exact factory value is exempt. */
+internal fun Ride?.matchesPrivateBookingRide(bookingId: Int, rideId: Int): Boolean {
+    if (bookingId <= 0 || rideId <= 0) return false
+    return this == null || this == bookingLinkStubRide(bookingId) || this.id.toIntOrNull() == rideId
+}
+
+/** Public map input from the current accepted trip; the navigation candidate stays unchanged. */
+internal fun Ride?.currentBookingMapRide(bookingId: Int): Ride? {
+    val candidate = this ?: return null
+    if (!com.yuldash.app.data.OfflineTripSnapshots.allowsLive(bookingId)) return candidate
+    val details = currentTripPrivateDetails(bookingId) ?: return candidate
+    if (!bookingStatusAllowsBoarding(details.status) || details.rideId <= 0 ||
+        !candidate.matchesPrivateBookingRide(bookingId, details.rideId) ||
+        details.fromCity.isBlank() || details.toCity.isBlank()) return candidate
+    return candidate.copy(
+        id = details.rideId.toString(), from = details.fromCity, to = details.toCity, price = details.price,
+    )
 }

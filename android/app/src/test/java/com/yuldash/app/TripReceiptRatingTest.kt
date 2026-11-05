@@ -50,7 +50,7 @@ class TripReceiptRatingTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1000
-        ApiClient.saveToken("local-receipt-rating-only")
+        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
     }
 
     @After fun cleanup() {

@@ -80,6 +80,7 @@ private data class ReceiptOwner(val generation: Long, val bookingId: Int)
 @Composable
 internal fun TripReceiptScreen(bookingId: Int, onBack: () -> Unit) {
     val generation by ApiClient.sessionChanges.collectAsState()
+    val authorityRevision by com.yuldash.app.data.OfflineTripSnapshots.version.collectAsState()
     val owner = remember(generation, bookingId) { ReceiptOwner(generation, bookingId) }
     val latestOwner by rememberUpdatedState(owner)
     val mounted = remember(owner) { AtomicBoolean(true) }
@@ -110,10 +111,15 @@ internal fun TripReceiptScreen(bookingId: Int, onBack: () -> Unit) {
             when {
                 loading -> ReceiptSkeleton()
                 errorStatus == 409 -> ReceiptPendingCard()
-                errorStatus != null || receipt == null -> AppErrorState(onRetry = {
+                errorStatus != null || receipt == null || authorityRevision.let { !com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(receipt!!) } -> AppErrorState(onRetry = {
                     if (current()) { receipt = null; loading = true; errorStatus = null; reload++ }
                 })
-                else -> ReceiptCard(receipt!!, owner.generation, ::current)
+                else -> {
+                    val value = requireNotNull(receipt)
+                    TripAuthorityContent({ current() && com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(value) }) {
+                        ReceiptCard(value, owner.generation) { current() && com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(value) }
+                    }
+                }
             }
         }
     }

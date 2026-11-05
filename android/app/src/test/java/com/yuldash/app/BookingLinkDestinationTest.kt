@@ -1,6 +1,14 @@
 package com.yuldash.app
 
+import android.app.Application
 import androidx.lifecycle.SavedStateHandle
+import com.yuldash.app.data.TripPassAuthorityFixture
+import org.json.JSONObject
+import org.junit.Before
+import org.junit.After
+import org.junit.runner.RunWith
+import org.robolectric.RobolectricTestRunner
+import org.robolectric.annotation.Config
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotEquals
@@ -21,7 +29,17 @@ import java.io.File
  *
  * `YuldashApp` после ответа сервера зовёт ровно `YuldashViewModel.applyBookingLink` — её и проверяем.
  */
+@RunWith(RobolectricTestRunner::class)
+@Config(sdk = [34], application = Application::class)
 class BookingLinkDestinationTest {
+    private val authority = TripPassAuthorityFixture()
+    @Before fun setupAuthority() { authority.start() }
+    @After fun closeAuthority() { authority.close() }
+    private fun freshDriver(bookingId: Int, status: String = "confirmed") {
+        authority.freshDetails(JSONObject().put("booking_id", bookingId).put("ride_id", bookingId + 1000)
+            .put("role", "driver").put("status", status).put("contact_unlocked", true)
+            .put("onboard_at", if (status == "onboard") "2031-02-03T09:00:00.123456Z" else JSONObject.NULL))
+    }
 
     private fun newVm() = YuldashViewModel(SavedStateHandle())
 
@@ -84,6 +102,9 @@ class BookingLinkDestinationTest {
     @Test
     fun `пуш водителю про подтверждённую бронь открывает экран поездки с живым гео`() {
         val vm = newVm()
+        vm.applyBookingLink(43, "driver", "confirmed", completed = false)
+        assertNull("A push alone is only a candidate", vm.activeTrip.value)
+        freshDriver(43)
         val target = vm.applyBookingLink(43, "driver", "confirmed", completed = false)
         assertEquals(Screen.ActiveTrip, target)
         assertEquals(Screen.ActiveTrip, vm.screen.value)
@@ -127,6 +148,9 @@ class BookingLinkDestinationTest {
     fun `кнопка Открыть поездку в кабинете ведёт на экран поездки этой брони`() {
         val vm = newVm()
         vm.openDriverTrip(77)
+        assertNull("A cabinet row alone is only a candidate", vm.activeTrip.value)
+        freshDriver(77)
+        vm.openDriverTrip(77)
         assertEquals(Screen.ActiveTrip, vm.screen.value)
         assertEquals(77, vm.activeBookingId.value)
         assertEquals("77", vm.selectedRide.value?.id)
@@ -147,8 +171,10 @@ class BookingLinkDestinationTest {
         assertFalse(vm.isDriverOf(null))
         assertTrue(
             "YuldashApp не передаёт владельцу гео текущую бронь, поездку, язык, роль и вход",
-            src("YuldashApp.kt").contains("TripLocationPermissionEffect(activeBookingId, activeTrip, vm.language.value, vm.activeDriverBookingId.value, navigationSession)"),
+            src("YuldashApp.kt").contains("TripLocationPermissionEffect(activeBookingId, activeTrip.takeIf { tripAuthorized }, vm.language.value, vm.activeDriverBookingId.value.takeIf { tripAuthorized }, navigationSession)"),
         )
+        assertTrue("GPS must require current live authority, not just a navigation candidate",
+            src("YuldashApp.kt").contains("val tripAuthorized = activeBookingId?.let(com.yuldash.app.data.OfflineTripSnapshots::allowsLive) == true && vm.offlineTripSnapshot.value == null"))
         val locationOwner = src("TripLocationPermissionEffect.kt")
         assertTrue("пульс только у водителя именно этой брони",
             locationOwner.contains("start(bookingId, language, driverBookingId == bookingId)"))

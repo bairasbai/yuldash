@@ -14,7 +14,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
@@ -23,6 +23,20 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.awaitOfflineWriteSnapshotReset02
+import com.yuldash.app.data.ChatSocket
+import com.yuldash.app.data.SnapshotWiringCleanupGuard
+import com.yuldash.app.data.finishOfflineWriteFixture02
+import com.yuldash.app.data.poisonOfflinePassportFixture03
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ThreadContextElement
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import java.net.InetAddress
 import com.yuldash.app.ui.theme.YuldashTheme
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -46,7 +60,16 @@ import java.util.Collections
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class BookingCompletionDestinationTest {
-    @get:Rule val compose = createComposeRule()
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private val requestJobs = RequestJobs()
+    private var setupEntered = false
+    private var serverStarted = false
+    private var sessionInstalled = false
+    private var contentSet = false
+    private val ownTrace: (String) -> Unit = {
+        if (it.startsWith("вошли в вызов ")) requestJobs.record()
+    }
+    @get:Rule val compose = createComposeRule(effectContext = requestJobs)
     private val owner = object : ViewModelStoreOwner {
         override val viewModelStore = ViewModelStore()
     }
@@ -56,6 +79,9 @@ class BookingCompletionDestinationTest {
     private val ratings = Collections.synchronizedList(mutableListOf<String>())
 
     @Before fun setUp() {
+        cleanupGuard.requireHealthy()
+        check(ApiClient.testTrace == null)
+        setupEntered = true
         val context: Context = ApplicationProvider.getApplicationContext()
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE)
             .edit().putBoolean("onboarding_completed", false).commit()
@@ -73,7 +99,7 @@ class BookingCompletionDestinationTest {
                         "/bookings/42/role" -> """{"role":"passenger","status":"done","driver_phase":""}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":""}"""
-                        "/bookings/42/details" -> "{}"
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":7,"role":"passenger","status":"done","from_city":"Тестовый пункт А","to_city":"Тестовый пункт Б"}"""
                         "/trips/42/receipt" -> """{"booking_id":42,"ride_id":7,"role":"passenger","from_city":"Уфа","to_city":"Казань","amount":500,"pay_method":"cash","my_stars":0,"counterparty_name":"Тестовый водитель"}"""
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
                         "/bookings/42/rate" -> {
@@ -86,16 +112,20 @@ class BookingCompletionDestinationTest {
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        serverStarted = true
+        ApiClient.testBaseUrl = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/')
+        ApiClient.testTrace = ownTrace
         // Ни один запрос здесь не должен упираться в таймаут: сервер местный и отвечает сразу
         // (`/rides/42` — через 200 мс). Прежние 300 мс — впритык: на медленном раннере GitHub
         // ответ о роли в поездке мог не успеть, и бронь вместо открытия уходила в ошибку.
         ApiClient.testTimeoutMs = 5_000
         ApiClient.init(context)
-        // No account or real service is needed to exercise the startup navigation race.
+        awaitOfflineWriteSnapshotReset02()
+        // A parseable synthetic owner exercises the actual startup navigation and authority.
         ApiClient.saveToken("")
+        sessionInstalled = true
         CanonMotion.enabled = true
         vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -106,14 +136,29 @@ class BookingCompletionDestinationTest {
     }
 
     @After fun tearDown() {
-        compose.runOnIdle { mounted.value = false }
-        compose.waitForIdle()
-        DeepLink.pendingCompletedBookingId.value = null
-
-        owner.viewModelStore.clear()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        server.shutdown()
+        try {
+            cleanupGuard.requireHealthy()
+            if (!setupEntered) return
+            if (contentSet) {
+                compose.runOnIdle { mounted.value = false }
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                compose.waitForIdle()
+            }
+            DeepLink.pendingCompletedBookingId.value = null
+            owner.viewModelStore.clear()
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            if (sessionInstalled) ApiClient.logout()
+            finishOfflineWriteFixture02(cleanupGuard) {
+                check(ApiClient.testTrace == null || ApiClient.testTrace === ownTrace)
+                if (serverStarted) server.shutdown()
+                ApiClient.resetForTest()
+                ApiClient.testTimeoutMs = null
+            }
+        } catch (failure: Throwable) {
+            poisonOfflinePassportFixture03(cleanupGuard, failure)
+        } finally {
+            if (ApiClient.testTrace === ownTrace) ApiClient.testTrace = null
+        }
     }
 
     /** Ручные часы: каждый шаг доставляет изменения состояния и кадр, пока не наступит событие. */
@@ -124,6 +169,7 @@ class BookingCompletionDestinationTest {
 
     @Test fun completedBookingDestinationSurvivesSplashAndUnfinishedOnboarding() {
         compose.mainClock.autoAdvance = false
+        contentSet = true
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
                 YuldashTheme { if (mounted.value) YuldashApp() }
@@ -141,7 +187,7 @@ class BookingCompletionDestinationTest {
         }
         // Finish startup without going through native MapKit: the destination must now open.
         compose.runOnIdle {
-            ApiClient.saveToken("local-completion-test")
+            ApiClient.saveToken(TripPassAuthorityFixture.jwt(11))
             vm.screen.value = Screen.Login
         }
         // Бронь открывается только после ответа сервера о роли (настоящий HTTP на местный
@@ -173,7 +219,7 @@ class BookingCompletionDestinationTest {
 
     @Test fun restoredCompletedBookingDoesNotReactivateLiveTrip() {
         DeepLink.pendingCompletedBookingId.value = null
-        ApiClient.saveToken("local-restore-test")
+        ApiClient.saveToken(TripPassAuthorityFixture.jwt(11))
         owner.viewModelStore.clear()
         vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST")
@@ -183,6 +229,7 @@ class BookingCompletionDestinationTest {
                     "yuldash_active_bid" to 42,
                 ))) as T
         })[YuldashViewModel::class.java]
+        contentSet = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
                 YuldashTheme { YuldashApp() }
@@ -207,6 +254,7 @@ class BookingCompletionDestinationTest {
         DeepLink.pendingCompletedBookingId.value = null
         vm.requestPublicRide(42)
         compose.mainClock.autoAdvance = false
+        contentSet = true
         compose.setContent {
             CompositionLocalProvider(LocalViewModelStoreOwner provides owner) {
                 YuldashTheme { if (mounted.value) YuldashApp() }
@@ -221,7 +269,7 @@ class BookingCompletionDestinationTest {
                 vm.pendingPublicRideNavigation.value?.rideId)
         }
         compose.runOnIdle {
-            ApiClient.saveToken("local-ride-test")
+            ApiClient.saveToken(TripPassAuthorityFixture.jwt(11))
             vm.screen.value = Screen.Login
         }
         compose.mainClock.autoAdvance = true
@@ -232,6 +280,45 @@ class BookingCompletionDestinationTest {
             assertEquals(Screen.Booking, vm.screen.value)
             assertEquals("42", vm.selectedRide.value?.id)
             assertEquals(null, vm.pendingPublicRideNavigation.value?.rideId)
+        }
+    }
+
+    /** Observes actual API callers; never creates a Job or replaces a dispatcher. */
+    private class RequestJobs : ThreadContextElement<Job?>, AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<RequestJobs>
+        private val current = ThreadLocal<Job?>()
+        private val started = java.util.concurrent.CopyOnWriteArrayList<Job>()
+        @Volatile private var missingParent = false
+
+        override fun updateThreadContext(context: CoroutineContext): Job? =
+            current.get().also { current.set(context[Job]) }
+
+        override fun restoreThreadContext(context: CoroutineContext, oldState: Job?) {
+            current.set(oldState)
+        }
+
+        fun record() {
+            current.get()?.let { job ->
+                started += job
+                val caller = job.parent
+                if (caller == null) missingParent = true else started += caller
+            }
+        }
+
+        fun awaitCompleted(port: Int?) = runBlocking {
+            withTimeout(5_000) {
+                check(!missingParent) { "Owned caller completion unavailable" }
+                val field = ChatSocket::class.java.getDeclaredField("client\$delegate")
+                    .apply { isAccessible = true }
+                val lazyClient = field.get(null) as Lazy<*>
+                val client = lazyClient.takeIf { it.isInitialized() }?.value as? okhttp3.OkHttpClient
+                while (started.any { !it.isCompleted } || client?.dispatcher?.let {
+                        it.runningCalls() + it.queuedCalls()
+                    }.orEmpty().any { it.request().url.host == "127.0.0.1" && it.request().url.port == port }) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    delay(10)
+                }
+            }
         }
     }
 }

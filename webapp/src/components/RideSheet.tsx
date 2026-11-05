@@ -1,3 +1,4 @@
+import { rideDriverRating } from "../utils/rideDriverRating";
 // ================================================================
 //  Нижняя шторка с деталями поездки + бронирование.
 //  Открывается тапом по поездке на витрине (Home). Гость → на вход.
@@ -14,6 +15,7 @@ import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { createBooking, type MeetingPointInput } from "../api/bookings";
+import { rememberGuestBookingDraft, type GuestBookingSelection } from "../utils/guestBookingDraft";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
 import { fetchRide } from "../api/rides";
@@ -22,21 +24,23 @@ import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
-import { initialSegment, keepDropoffAfterPickup, segmentReady, rideMatchState, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
+import { initialSegment, keepDropoffAfterPickup, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 import { MeetingPointPicker } from "./MeetingPointPicker";
 
 export default function RideSheet({
   ride,
   onClose,
+  initialSelection,
 }: {
   ride: Ride;
   onClose: () => void;
+  initialSelection?: GuestBookingSelection | null;
 }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
-  const { isAuthed } = useAuth();
+  const { isAuthed, status: authStatus } = useAuth();
   const features = useFeatures();
   const parcelCategory = ride.category === "parcel" || ride.category === "cargo";
   const ownBooking = useOwnBooking(ride.id);
@@ -68,12 +72,13 @@ export default function RideSheet({
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
   const [frontSeat, setFrontSeat] = useState(false);
-  const [seats, setSeats] = useState(1);
-  const [pickupStop, setPickupStop] = useState<string | null>(() => initialSegment(ride).pickup);
-  const [dropoffStop, setDropoffStop] = useState<string | null>(() => initialSegment(ride).dropoff);
+  const acceptedSelection = initialSelection && segmentReady(ride, initialSelection.pickupStop, initialSelection.dropoffStop) ? initialSelection : null;
+  const [seats, setSeats] = useState(acceptedSelection?.seats ?? 1);
+  const [pickupStop, setPickupStop] = useState<string | null>(() => acceptedSelection?.pickupStop ?? initialSegment(ride).pickup);
+  const [dropoffStop, setDropoffStop] = useState<string | null>(() => acceptedSelection?.dropoffStop ?? initialSegment(ride).dropoff);
   // RS-03 А: точное место встречи/высадки по желанию — сервер проверяет радиус от места.
-  const [meetPickup, setMeetPickup] = useState<MeetingPointInput | null>(null);
-  const [meetDropoff, setMeetDropoff] = useState<MeetingPointInput | null>(null);
+  const [meetPickup, setMeetPickup] = useState<MeetingPointInput | null>(acceptedSelection?.meeting ?? null);
+  const [meetDropoff, setMeetDropoff] = useState<MeetingPointInput | null>(acceptedSelection?.alighting ?? null);
   const selectionOwner = useRef(`${ownerGeneration}:${ride.id}`);
   const mounted = useRef(true);
   const bookingAbort = useRef<AbortController | null>(null);
@@ -88,11 +93,11 @@ export default function RideSheet({
     const key = `${ownerGeneration}:${ride.id}`;
     if (selectionOwner.current !== key) {
       selectionOwner.current = key;
-      const segment = initialSegment(ride);
+      const segment = initialSegment(withoutRideMatch(ride));
       setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
-      setSeats(1); setFreshRide(null);
+      setSeats(1); setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
     }
     return () => { mounted.current = false; bookingAbort.current?.abort(); };
   }, [ownerGeneration, ride.id]);
@@ -103,11 +108,12 @@ export default function RideSheet({
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
     if (bookingInFlight.current || !mounted.current || ownerGeneration !== getSessionGeneration() || selectionOwner.current !== `${ownerGeneration}:${ride.id}`) return;
     if (!isAuthed) {
-      const returnRide = { ...ride,
-        ...(pickupStop !== null ? { matched_stop: pickupStop === ride.from_city ? null : pickupStop, matched_from_start: pickupStop === ride.from_city } : {}),
-        ...(dropoffStop !== null ? { matched_dropoff_stop: dropoffStop === ride.to_city ? null : dropoffStop, matched_to_end: dropoffStop === ride.to_city } : {}) };
-      const returnState = rideMatchState(returnRide, ownerGeneration);
-      navigate("/login", { state: { from: `/rides/${ride.id}`, ...(returnState ? { returnState } : {}) } });
+      const guestBookingNonce = authStatus === "guest"
+        ? rememberGuestBookingDraft(ride.id, { seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff }, ownerGeneration)
+        : undefined;
+      // All guest choices travel only inside the bounded, one-use draft, never independently in history.
+      navigate("/login", { state: { from: "/rides/" + ride.id, guestBooking: true,
+        ...(guestBookingNonce ? { guestBookingNonce } : {}) } });
       return;
     }
     if (ownBooking) {
@@ -273,7 +279,7 @@ export default function RideSheet({
                 )}
               </div>
               <div className="ride-card__driver-sub">
-                <YuStar size={13} className="star" /> {ride.driver_rating?.toFixed(1) ?? "—"}
+                <YuStar size={13} className="star" /> {rideDriverRating(ride)?.toFixed(1) ?? appText("Нет оценок", "Баһалар юҡ")}
                 {ride.driver_car ? ` · ${ride.driver_car}` : ""}
                 <span className="sheet__driver-more">
                   {" · "}

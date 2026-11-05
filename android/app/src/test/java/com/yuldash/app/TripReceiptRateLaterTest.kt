@@ -57,7 +57,7 @@ class TripReceiptRateLaterTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1000
-        ApiClient.saveToken("local-receipt-rate-later")
+        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
     }
 
     @After fun cleanup() {

@@ -18,6 +18,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.ConcurrentLinkedQueue
 
 /**
@@ -28,16 +29,25 @@ import java.util.concurrent.ConcurrentLinkedQueue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class OfflineWriteRollbackFailureTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private lateinit var authStoreAtInit: SharedPreferences
+    private var passportClockPrepared = false
+    private var adjustedBootCount = false
+    private var originalBootCount: String? = null
+    private val passportDetails = ConcurrentHashMap<Pair<Int, Int>, JSONObject>()
+    private val passportCodes = ConcurrentHashMap<Pair<Int, Int>, String>()
+    private val passportReads = ConcurrentLinkedQueue<String>()
     private lateinit var context: Context
     private lateinit var server: MockWebServer
     private val sent = ConcurrentLinkedQueue<Pair<String, String>>()
 
-    @Before fun setup() {
+    @Before fun setup() = cleanupGuard.runSetup {
         context = ApplicationProvider.getApplicationContext()
         ApiClient.resetForTest()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    passportResponse(request)?.let { return it }
                     sent.add(request.path.orEmpty() to request.body.readUtf8())
                     return MockResponse().setResponseCode(200).setBody("{}")
                 }
@@ -46,17 +56,106 @@ class OfflineWriteRollbackFailureTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.init(context)
+        authStoreAtInit = persistentAuthStore()
         ApiClient.saveToken("QA-rollback-owner")
     }
 
     @After fun cleanup() {
+        cleanupGuard.requireHealthy()
         // Detach fault stores before logout, so cleanup cannot consume or hide the tested fault.
         Outbox.initStores(MemoryDiskPreferences(), null)
         TripPassStore.initStores(MemoryDiskPreferences(), null)
         ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testBaseUrl = null
-        server.shutdown()
+        finishOfflineWriteFixture02(cleanupGuard) {
+            ApiClient.resetForTest()
+            ApiClient.testBaseUrl = null
+            server.shutdown()
+            if (adjustedBootCount) {
+                assertTrue(android.provider.Settings.Global.putString(
+                    context.contentResolver, android.provider.Settings.Global.BOOT_COUNT, originalBootCount,
+                ))
+                assertEquals(originalBootCount, android.provider.Settings.Global.getString(
+                    context.contentResolver, android.provider.Settings.Global.BOOT_COUNT,
+                ))
+            }
+        }
+    }
+
+    private fun persistentAuthStore(): SharedPreferences = requireNotNull(
+        ApiClient::class.java.getDeclaredField("prefs").apply { isAccessible = true }.get(ApiClient) as? SharedPreferences,
+    )
+
+    private fun assertPersistentAuthBacking() {
+        assertSame("Preparation must retain the original persistent auth store", authStoreAtInit, persistentAuthStore())
+        for (name in listOf("appCtx", "plainAuthPrefs", "authStoreSource")) {
+            assertNotNull("The real initialized auth backing must remain bound", ApiClient::class.java
+                .getDeclaredField(name).apply { isAccessible = true }.get(ApiClient))
+        }
+        assertTrue("Login must be written through the original auth store",
+            authStoreAtInit.getString("token", null) == ApiClient.currentToken())
+    }
+
+    private fun passportResponse(request: RecordedRequest): MockResponse? {
+        val match = Regex("^/bookings/([79])/(details|boarding-code)$").matchEntire(request.path.orEmpty()) ?: return null
+        if (request.method != "GET") return null
+        val user = when (request.getHeader("Authorization")) {
+            "Bearer ${TripPassAuthorityFixture.jwt(7)}" -> 7
+            "Bearer ${TripPassAuthorityFixture.jwt(8)}" -> 8
+            else -> return MockResponse().setResponseCode(403).setBody("{}")
+        }
+        val id = match.groupValues[1].toInt()
+        val details = passportDetails[user to id] ?: return MockResponse().setResponseCode(403).setBody("{}")
+        passportReads.add("GET ${request.path}")
+        val body = if (match.groupValues[2] == "details") details else
+            JSONObject().put("code", passportCodes[user to id].orEmpty())
+        return MockResponse().setHeader("Content-Type", "application/json").setBody(body.toString())
+    }
+
+    /** Registering a synthetic response grants nothing; only the real matching-owner HTTP read can. */
+    private fun registerPassport(pass: TripPass, user: Int = 7) {
+        passportDetails[user to pass.bookingId] = pass.toJson().put("ride_id", pass.bookingId + 1000)
+            .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+            .put("pay_method", pass.payMethod ?: "negotiate")
+        passportCodes[user to pass.bookingId] = pass.boardingCode
+    }
+
+    private fun preparePassportClock() {
+        if (passportClockPrepared) return
+        val resolver = context.contentResolver
+        originalBootCount = android.provider.Settings.Global.getString(resolver, android.provider.Settings.Global.BOOT_COUNT)
+        if (originalBootCount == null) {
+            assertTrue(android.provider.Settings.Global.putInt(resolver, android.provider.Settings.Global.BOOT_COUNT, 41))
+            adjustedBootCount = true
+        }
+        assertTrue("Positive unit fixture needs a real readable boot count",
+            android.provider.Settings.Global.getInt(resolver, android.provider.Settings.Global.BOOT_COUNT) >= 0)
+        passportClockPrepared = true
+    }
+
+    private fun preparePassport(pass: TripPass): TripPass {
+        // Only passport positives touch this Robolectric precondition; queue setup is unchanged.
+        preparePassportClock()
+        if (ApiClient.currentToken() != TripPassAuthorityFixture.jwt(7)) {
+            awaitOfflineWriteSnapshotReset02()
+            ApiClient.saveToken(TripPassAuthorityFixture.jwt(7))
+        }
+        registerPassport(pass)
+        return fetchPreparedPassport(pass.bookingId, 7)
+    }
+
+    private fun fetchPreparedPassport(id: Int, user: Int): TripPass = runBlocking {
+        assertPersistentAuthBacking()
+        assertTrue("Read must use its own freshly logged-in identity", ApiClient.currentToken() == TripPassAuthorityFixture.jwt(user))
+        val before = passportReads.size
+        val expected = requireNotNull(passportCodes[user to id])
+        val details = ApiClient.getBookingDetails(id).getOrThrow()
+        assertTrue(OfflineTripSnapshots.privateDetails(details))
+        assertEquals(expected, ApiClient.getBoardingCode(id).getOrThrow())
+        assertEquals(listOf("GET /bookings/$id/details", "GET /bookings/$id/boarding-code"), passportReads.toList().drop(before))
+        requireNotNull(OfflineTripSnapshots.privatePass(id)).also {
+            assertTrue(OfflineTripSnapshots.matchesPass(it))
+            assertEquals(user, OfflineTripSnapshots.currentOwner()?.userId)
+        }
     }
 
     private enum class RollbackFault {
@@ -311,22 +410,26 @@ class OfflineWriteRollbackFailureTest {
     private fun rejectedPassportUpdateKeepsConfirmedCode(fault: RollbackFault) {
         val disk = MemoryDiskPreferences()
         TripPassStore.initStores(disk, null)
-        assertTrue(TripPassStore.save(context, passport("1111")))
-        assertTrue(TripPassStore.save(context, passport("3333", 9)))
+        assertTrue(TripPassStore.save(context, preparePassport(passport("1111"))))
+        assertTrue(TripPassStore.save(context, preparePassport(passport("3333", 9))))
+        val replacement = preparePassport(passport("2222"))
+        val requestsBeforeSave = server.requestCount
         val confirmedRaw = disk.restarted().getString("pass_7", null)
         val faulty = TwoFaultPreferences(disk, "pass_7", fault)
         TripPassStore.initStores(faulty, null)
         faulty.armed = true
 
-        val accepted = TripPassStore.save(context, passport("2222"))
-        val currentCode = TripPassStore.load(context, 7)?.boardingCode
+        val accepted = TripPassStore.save(context, replacement)
+        // These are guarded persisted bytes; load() is the independently accepted server2222.
+        val currentCode = offlineWriteLegacyPass02(7)?.boardingCode
+        assertEquals("2222", TripPassStore.load(context, 7)?.boardingCode)
         TripPassStore.initStores(faulty, null)
-        val reopenedCode = TripPassStore.load(context, 7)?.boardingCode
+        val reopenedCode = offlineWriteLegacyPass02(7)?.boardingCode
         val restarted = disk.restarted()
         val diskRawAfterRejection = restarted.getString("pass_7", null)
         TripPassStore.initStores(restarted, null)
-        val codeAfterRestart = TripPassStore.load(context, 7)?.boardingCode
-        val unrelatedCodeAfterRestart = TripPassStore.load(context, 9)?.boardingCode
+        val codeAfterRestart = offlineWriteLegacyPass02(7)?.boardingCode
+        val unrelatedCodeAfterRestart = offlineWriteLegacyPass02(9)?.boardingCode
         println("QA020 passport fault=$fault accepted=$accepted currentCode=$currentCode " +
             "reopenedCode=$reopenedCode codeAfterDiskRead=$codeAfterRestart")
 
@@ -338,7 +441,8 @@ class OfflineWriteRollbackFailureTest {
         assertEquals(confirmedRaw, diskRawAfterRejection)
         assertEquals("1111", codeAfterRestart)
         assertEquals("3333", unrelatedCodeAfterRestart)
-        assertEquals("passport save must not send an HTTP request", 0, server.requestCount)
+        assertEquals("passport save must not send an HTTP request", requestsBeforeSave, server.requestCount)
+        assertTrue("Only separately recorded positive preparation may use HTTP", sent.isEmpty())
     }
 
     @Test fun rollbackEditFailureKeepsConfirmedPassportCode() =
@@ -369,7 +473,9 @@ class OfflineWriteRollbackFailureTest {
 
         faulty.persistentFaultEnabled = false
         // saveToken follows the real ensureResetCommitted path before accepting a new login.
+        awaitOfflineWriteSnapshotReset02()
         ApiClient.saveToken("QA-new-queue-owner")
+        assertPersistentAuthBacking()
         Outbox.initStores(faulty, null)
         assertEquals(0, Outbox.count(context, 7))
         assertEquals(0, Outbox.count(context, 8))
@@ -383,38 +489,54 @@ class OfflineWriteRollbackFailureTest {
         val disk = MemoryDiskPreferences()
         TripPassStore.initStores(disk, null)
         Outbox.initStores(MemoryDiskPreferences(), null)
-        assertTrue(TripPassStore.save(context, passport("1111")))
+        assertTrue(TripPassStore.save(context, preparePassport(passport("1111"))))
+        val rejected = preparePassport(passport("2222"))
+        // This only registers B's future server response; it grants no permission to A or B.
+        registerPassport(passport("3333", 9), user = 8)
         val faulty = TwoFaultPreferences(disk, "pass_7", RollbackFault.PERSISTENT_EDIT)
         TripPassStore.initStores(faulty, null)
         faulty.armed = true
-        assertFalse(TripPassStore.save(context, passport("2222")))
+        assertFalse(TripPassStore.save(context, rejected))
+        assertEquals(1, faulty.candidateFailures)
+        assertTrue(faulty.rollbackFailures > 0)
         ApiClient.logout()
         assertFalse(ApiClient.isLoggedIn())
         assertNull("logout quarantine must override the old confirmed passport guard", TripPassStore.load(context, 7))
         assertFalse(TripPassStore.save(context, passport("3333", 9)))
 
         faulty.persistentFaultEnabled = false
-        ApiClient.saveToken("QA-new-passport-owner")
+        awaitOfflineWriteSnapshotReset02()
+        ApiClient.saveToken(TripPassAuthorityFixture.jwt(8))
+        assertPersistentAuthBacking()
         TripPassStore.initStores(faulty, null)
         assertNull(TripPassStore.load(context, 7))
         assertNull(disk.restarted().getString("pass_7", null))
-        assertTrue(TripPassStore.save(context, passport("3333", 9)))
+        // Only now, at the original B-positive boundary after old A is proven hidden, read B's own trip.
+        val ownNewPass = fetchPreparedPassport(9, user = 8)
+        assertTrue(TripPassStore.save(context, ownNewPass))
         TripPassStore.initStores(disk.restarted(), null)
         assertNull(TripPassStore.load(context, 7))
         assertEquals("3333", TripPassStore.load(context, 9)?.boardingCode)
+        assertEquals("3333", offlineWriteLegacyPass02(9)?.boardingCode)
+        assertEquals("3333", JSONObject(requireNotNull(disk.restarted().getString("pass_9", null))).getString("boarding_code"))
     }
 
     @Test fun confirmedPassportDeletionCannotBeUndoneByPendingWriteRecovery() {
         val plain = MemoryDiskPreferences()
         val secure = MemoryDiskPreferences()
         TripPassStore.initStores(plain, secure)
-        assertTrue(TripPassStore.save(context, passport("1111")))
+        assertTrue(TripPassStore.save(context, preparePassport(passport("1111"))))
+        val rejected = preparePassport(passport("2222"))
+        val unrelated = preparePassport(passport("3333", 9))
+        val requestsBeforeFault = server.requestCount
         // This fault refuses rollback putString commits but lets a deletion remove() commit.
         // Thus CLEARED can occur while an old pending-write snapshot still exists in RAM.
         val faulty = TwoFaultPreferences(secure, "pass_7", RollbackFault.PERSISTENT_DURABLE_ROLLBACK)
         TripPassStore.initStores(plain, faulty)
         faulty.armed = true
-        assertFalse(TripPassStore.save(context, passport("2222")))
+        assertFalse(TripPassStore.save(context, rejected))
+        assertEquals(1, faulty.candidateFailures)
+        assertTrue(faulty.rollbackFailures > 0)
         val removal = TripPassStore.requestRemoval(context, 7)
         assertTrue("the healthy plain store must persist the deletion barrier",
             removal == TripPassStore.RemovalResult.DEFERRED || removal == TripPassStore.RemovalResult.CLEARED)
@@ -430,7 +552,7 @@ class OfflineWriteRollbackFailureTest {
         }
         // With a prior CLEARED result, another passport write must not restore the old guard
         // before initStores has a chance to run its deletion reconciliation again.
-        assertTrue(TripPassStore.save(context, passport("3333", 9)))
+        assertTrue(TripPassStore.save(context, unrelated))
         assertNull("a new passport write must not resurrect a physically cleared old passport",
             secure.restarted().getString("pass_7", null))
         TripPassStore.initStores(plain, faulty)
@@ -440,5 +562,8 @@ class OfflineWriteRollbackFailureTest {
         TripPassStore.initStores(plain.restarted(), secure.restarted())
         assertNull(TripPassStore.load(context, 7))
         assertEquals("3333", TripPassStore.load(context, 9)?.boardingCode)
+        assertEquals("3333", offlineWriteLegacyPass02(9)?.boardingCode)
+        assertEquals("3333", TripPassAuthorityFixture.durable(secure, 9)?.boardingCode)
+        assertEquals("Deletion and unrelated save must issue no HTTP", requestsBeforeFault, server.requestCount)
     }
 }

@@ -24,6 +24,10 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class LegacyOfflineOwnerTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private lateinit var passportFixture: OfflinePassportFixture03
+    private var serverStartAttempted = false
+    private var apiInitAttempted = false
     private lateinit var context: LegacyContext
     private lateinit var server: MockWebServer
 
@@ -38,35 +42,55 @@ class LegacyOfflineOwnerTest {
         }
     }
 
-    @Before fun setup() = runBlocking {
+    @Before fun setup() = cleanupGuard.runSetup { runBlocking {
         ApiClient.resetForTest()
         context = LegacyContext(ApplicationProvider.getApplicationContext())
+        passportFixture = OfflinePassportFixture03(context)
+        passportFixture.prepareClock()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                override fun dispatch(request: RecordedRequest): MockResponse = passportFixture.response(request) ?: when (request.path) {
                     "/auth/verify" -> MockResponse().setBody(
-                        """{"access_token":"B-access","refresh_token":"B-refresh","user":{"name":"Name B","role":"passenger"}}"""
+                        """{"access_token":"${TripPassAuthorityFixture.jwt(8)}","refresh_token":"B-refresh","user":{"name":"Name B","role":"passenger"}}"""
                     )
                     "/auth/logout", "/push/register", "/push/unregister" -> MockResponse().setBody("{}")
                     else -> MockResponse().setResponseCode(404).setBody("{}")
                 }
             }
-            start()
         }
+        serverStartAttempted = true
+        server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 500
+        apiInitAttempted = true
         ApiClient.init(context)
         ApiClient.logout()
         ApiClient.init(context)
+        passportFixture.captureAuthBacking()
+        awaitOfflineWriteSnapshotReset02()
         ApiClient.verifyCode("+70000000000", "000000", "Fallback").getOrThrow()
-        assertEquals("B-access", ApiClient.currentToken())
-    }
+        assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
+    } }
 
     @After fun cleanup() {
-        ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        server.shutdown()
+        cleanupGuard.requireHealthy()
+        try {
+            if (::context.isInitialized) {
+                context.passes.failRemovalOf = null
+                context.queue.failRemovalOf = null
+            }
+            if (apiInitAttempted) ApiClient.logout()
+            finishOfflineWriteFixture02(cleanupGuard) {
+                cleanupGuard.requireHealthy()
+                if (serverStartAttempted) server.shutdown()
+                ApiClient.resetForTest()
+                ApiClient.testBaseUrl = null
+                ApiClient.testTimeoutMs = null
+                if (::passportFixture.isInitialized) passportFixture.restoreClock()
+            }
+        } catch (failure: Throwable) {
+            poisonOfflinePassportFixture03(cleanupGuard, failure)
+        }
     }
 
     private fun seedLegacy() {
@@ -90,7 +114,7 @@ class LegacyOfflineOwnerTest {
         seedLegacy()
         ApiClient.init(context)
 
-        assertEquals("Startup still resolves the current B session", "B-access", ApiClient.currentToken())
+        assertEquals("Startup still resolves the current B session", TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
         val visiblePass = TripPassStore.load(context, 7)
         val visibleQueueCount = Outbox.count(context, 7)
         assertTrue(
@@ -110,15 +134,29 @@ class LegacyOfflineOwnerTest {
         assertEquals(queueBefore, context.queue.restarted().getString("queue", null))
     }
 
-    @Test fun newAccountDataSurvivesRestartWithoutAdoptingLegacy() {
+    @Test fun newAccountCommittedDataSurvivesStoreReinitWithoutAdoptingLegacy() {
         seedLegacy()
+        val legacyPass = context.passes.restarted().getString("pass_7", null)
+        val legacyQueue = context.queue.restarted().getString("queue", null)
         ApiClient.init(context)
-        val pass = TripPass.fromJson(JSONObject().put("booking_id", 7).put("boarding_code", "B-code"))
+        // Prove the old unattributed A values stay invisible BEFORE B receives its own details.
+        assertNull(TripPassStore.load(context, 7))
+        assertEquals(0, Outbox.count(context, 7))
+        assertEquals(legacyPass, context.passes.restarted().getString("pass_7", null))
+        assertEquals(legacyQueue, context.queue.restarted().getString("queue", null))
+        val pass = passportFixture.prepare(TripPass.fromJson(JSONObject().put("booking_id", 7).put("boarding_code", "B-code")), 8)
         assertTrue(TripPassStore.save(context, pass))
+        val committed = pass.toJson().toString()
+        assertEquals(committed, offlinePassportRaw03(7))
+        assertEquals("B-code", TripPassStore.load(context, 7)?.boardingCode)
         assertTrue(Outbox.enqueue(context, Outbox.newMessage(7, "B-message")))
         ApiClient.init(context)
-        assertEquals("B-code", TripPassStore.load(context, 7)?.boardingCode)
+        // NOT_SAMEASSERT: a real re-init revokes the previous generation's current projection.
+        assertNull(TripPassStore.load(context, 7))
+        assertEquals(committed, offlinePassportRaw03(7))
         assertEquals(1, Outbox.count(context, 7))
+        assertEquals(legacyPass, context.passes.restarted().getString("pass_7", null))
+        assertEquals(legacyQueue, context.queue.restarted().getString("queue", null))
         assertTrue(context.queue.restarted().getString("queue", null)!!.contains("queued by A"))
     }
 
@@ -145,7 +183,7 @@ class LegacyOfflineOwnerTest {
         context.queue.failRemovalOf = "queue"
         ApiClient.verifyCode("+70000000000", "000000", "Fallback").getOrThrow()
         ApiClient.init(context)
-        assertEquals("B-access", ApiClient.currentToken())
+        assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
         assertTrue(context.passes.restarted().contains("pass_7"))
         assertTrue(context.queue.restarted().contains("queue"))
         assertNull(TripPassStore.load(context, 7))

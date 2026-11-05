@@ -89,7 +89,7 @@ class TripLocationTerminalTest {
         assertTrue("Local socket must receive authentication", authenticated.await(5, TimeUnit.SECONDS))
         assertFalse(shadowOf(svc).isStoppedBySelf)
         assertFalse("Test must start actual GPS subscription", shadowOf(manager).locationUpdateListeners.isEmpty())
-        assertEquals(42, prefs.getInt("last_booking", -1))
+        assertFalse("An Intent must not persist GPS authority", prefs.contains("last_booking"))
         socket.get().close(1008, "Trip ended")
 
         val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
@@ -123,7 +123,7 @@ class TripLocationTerminalTest {
 
         assertFalse("Old connection must not stop the next trip", shadowOf(svc).isStoppedBySelf)
         assertEquals(43, TripLocationBus.bookingId)
-        assertEquals(43, prefs.getInt("last_booking", -1))
+        assertFalse("New booking must not persist GPS authority", prefs.contains("last_booking"))
         assertFalse(shadowOf(manager).locationUpdateListeners.isEmpty())
     }
 }

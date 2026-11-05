@@ -16,7 +16,8 @@ export function saveVerifiedTripPass(pass: Omit<TripPass, "savedAt">, ownerId: n
     const ownershipId = crypto.randomUUID();
     const stage = tripPassStage(pass.bookingId, generation);
     if (stage === "terminal") return;
-    const snapshot = { ...pass, boardingCode: stage === "onboard" ? "" : pass.boardingCode,
+    const payMethod = pass.payMethod && ["cash", "sbp", "negotiate"].includes(pass.payMethod) ? pass.payMethod : undefined;
+    const snapshot = { ...pass, payMethod, boardingCode: stage === "onboard" ? "" : pass.boardingCode,
       ownerId, sessionGeneration: generation, ownershipId, savedAt: Date.now() };
     if (!current() || tripPassStage(pass.bookingId, generation) === "terminal") return;
     storageOperation(() => localStorage.setItem(passKey(pass.bookingId), JSON.stringify(snapshot)));
@@ -47,6 +48,7 @@ export function loadOfflineTripPass(bookingId: number): TripPass | null {
       !Number.isFinite(pass.price) || pass.price < 0 || !positiveId(pass.seats) ||
       ![pass.fromCity, pass.toCity, pass.departAt, pass.driverName, pass.driverCar, pass.driverPlate,
         pass.driverPhone, pass.boardingCode, pass.pickup].every(value => typeof value === "string")) return null;
+    if (pass.payMethod !== undefined && !["cash", "sbp", "negotiate"].includes(pass.payMethod)) return null;
     if ([pass.pickupStop, pass.dropoffStop].some(value => value != null && typeof value !== "string") ||
       (pass.rideHasStops !== undefined && typeof pass.rideHasStops !== "boolean")) return null;
     if (getToken() !== token || getSessionGeneration() !== generation ||

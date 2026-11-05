@@ -29,6 +29,7 @@ const modules = {
 const result = await build({
   entryPoints: [root + "src/components/DriverPassengers.tsx"], bundle: true, write: false, format: "esm",
   platform: "node", jsx: "automatic",
+  define: { "import.meta.env": JSON.stringify({ VITE_API_BASE: "https://api.example.test", DEV: false }) },
   plugins: [{
     name: "mock-ui",
     setup(b) {

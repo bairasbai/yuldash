@@ -27,14 +27,19 @@ class TripLocationPermissionEffectTest {
     private fun ride() = Ride("7", "Сибай", "Уфа", "", driver = "Водитель", car = "", price = 500,
         seats = 3, rating = 5.0, verified = true, boosted = false)
 
-    @Test fun denialThenGrantThenRevokeOnResumeStartsAndStopsSameBookingWithoutLanguageChange() {
+    @Test fun initialLiveGrantThenPermissionAndIrreversibleRevokeAreObservedOnResume() {
         shadowOf(app).denyPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+        val gps = DriverGpsGrant()
+        val identity = DriverGpsOwner("https://fixture", 1, 7, "process")
+        val ticket = gps.begin(identity, 42, 100, 1000)!!
+        assertTrue(gps.complete(ticket, identity, 8, 42, Long.MAX_VALUE, 110, 1010))
         val calls = mutableListOf<String>()
         compose.runOnIdle { owner.lifecycle.currentState = Lifecycle.State.RESUMED }
         compose.setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides owner) {
                 TripLocationPermissionEffect(42, ride(), AppLanguage.Ru, 42, 7, currentSession = { 7 },
-                    start = { id, lang, driver -> calls += "start:$id:$lang:$driver" }, stop = { calls += "stop" })
+                    start = { id, lang, driver -> calls += "start:$id:$lang:$driver" }, stop = { calls += "stop" },
+                    driverGrant = { gps.current(identity, 120, 1020) }, onPermission = gps::permission)
             }
         }
         compose.runOnIdle { assertEquals(listOf("stop"), calls) }
@@ -51,6 +56,12 @@ class TripLocationPermissionEffectTest {
             owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
         }
         compose.runOnIdle { assertEquals("stop", calls.last()); assertEquals(3, calls.size) }
+        compose.runOnIdle {
+            owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_PAUSE)
+            shadowOf(app).grantPermissions(Manifest.permission.ACCESS_FINE_LOCATION)
+            owner.lifecycle.handleLifecycleEvent(Lifecycle.Event.ON_RESUME)
+        }
+        compose.runOnIdle { assertEquals("stop", calls.last()); assertEquals(1, calls.count { it.startsWith("start:") }) }
     }
 
     @Test fun grantDoesNotBypassBookingActiveTripRoleOrSessionOwnerGuards() {
@@ -65,12 +76,13 @@ class TripLocationPermissionEffectTest {
         compose.setContent {
             CompositionLocalProvider(LocalLifecycleOwner provides owner) {
                 TripLocationPermissionEffect(id.value, active.value, AppLanguage.Ru, driverId.value, session.value,
-                    currentSession = { current }, start = { bid, _, driver -> calls += "start:$bid:$driver" }, stop = { calls += "stop" })
+                    currentSession = { current }, start = { bid, _, driver -> calls += "start:$bid:$driver" }, stop = { calls += "stop" },
+                    driverGrant = { null }, onPermission = {})
             }
         }
         compose.runOnIdle { assertEquals(listOf("stop"), calls); id.value = 42; active.value = null }
         compose.runOnIdle { assertEquals("stop", calls.last()); active.value = ride() }
-        compose.runOnIdle { assertEquals("start:42:true", calls.last()); driverId.value = 99 }
+        compose.runOnIdle { assertEquals("OS permission alone cannot grant driver publication", "stop", calls.last()); driverId.value = 99 }
         compose.runOnIdle { assertEquals("start:42:false", calls.last()); current = 8; id.value = 43 }
         compose.runOnIdle { assertEquals("stop", calls.last()); session.value = 8 }
         compose.runOnIdle { assertEquals("start:43:false", calls.last()); id.value = null }

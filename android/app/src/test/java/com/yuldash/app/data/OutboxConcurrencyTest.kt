@@ -3,6 +3,10 @@ package com.yuldash.app.data
 import android.app.Application
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
@@ -24,12 +28,17 @@ import java.util.concurrent.ConcurrentLinkedQueue
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class OutboxConcurrencyTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
     private lateinit var context: Context
     private lateinit var server: MockWebServer
+    private var serverStartAttempted = false
+    private var apiInitAttempted = false
     private val started = CountDownLatch(1)
     private val release = CountDownLatch(1)
     private val sent = ConcurrentLinkedQueue<String>()
-    @Before fun setup() {
+    @Before fun setup() = cleanupGuard.runSetup { prepareFixture02() }
+
+    private fun prepareFixture02() {
         context = ApplicationProvider.getApplicationContext()
         ApiClient.resetForTest()
         server = MockWebServer().apply {
@@ -45,20 +54,64 @@ class OutboxConcurrencyTest {
                     return MockResponse().setBody("{}")
                 }
             }
-            start()
         }
+        serverStartAttempted = true
+        server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 4000
+        apiInitAttempted = true
         ApiClient.init(context)
+        awaitSnapshotReset02()
         ApiClient.saveToken("QA-A")
         Outbox.clearAll()
     }
     @After fun cleanup() {
-        release.countDown()
-        ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        server.shutdown()
+        cleanupGuard.requireHealthy()
+        try {
+            release.countDown()
+            if (apiInitAttempted) ApiClient.logout()
+            awaitFixtureJobs02()
+            cleanupGuard.requireHealthy()
+            if (serverStartAttempted) server.shutdown()
+            cleanupGuard.runCleanup(true) {
+                ApiClient.resetForTest()
+                ApiClient.testTimeoutMs = null
+            }
+        } catch (failure: Throwable) {
+            recordBlockedCleanup03(failure)
+        }
+    }
+
+    private fun recordBlockedCleanup03(failure: Throwable): Nothing {
+        try {
+            cleanupGuard.runCleanup(false) {}
+        } catch (blocked: AssertionError) {
+            blocked.addSuppressed(failure)
+            throw blocked
+        }
+        throw failure // Defensive only: the pinned guard always throws for permitted=false.
+    }
+
+    /** Await only the real logout/startup reset before a legitimate new login. */
+    private fun awaitSnapshotReset02() = runBlocking {
+        withTimeout(5_000) {
+            while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10)
+        }
+    }
+
+    private fun awaitFixtureJobs02() = runBlocking {
+        val parents = listOf(ApiClient to "bg", OfflineTripSnapshots to "jobs").map { (owner, name) ->
+            val scope = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner) as CoroutineScope
+            requireNotNull(scope.coroutineContext[Job])
+        }
+        withTimeout(5_000) {
+            while (true) {
+                val children = parents.flatMap { it.children.toList() }
+                if (children.isEmpty()) break
+                children.forEach { it.join() }
+                delay(10)
+            }
+        }
     }
     @Test fun enqueueDuringHttpIsNotOverwrittenByOlderSnapshot() = runBlocking {
         assertTrue(Outbox.enqueue(context, Outbox.newMessage(1, "first")))
@@ -104,13 +157,15 @@ class OutboxConcurrencyTest {
         Outbox.enqueue(context, Outbox.newMessage(1, "first"))
         Outbox.enqueue(context, Outbox.newMessage(2, "second"))
         val first = async(Dispatchers.Default) { Outbox.flush(context) }
-        assertTrue(started.await(5, TimeUnit.SECONDS))
-        val second = async(Dispatchers.Default) { Outbox.flush(context) }
-        release.countDown()
-        first.await()
-        second.await()
-        assertEquals(listOf("/bookings/1/messages", "/bookings/2/messages"), sent.toList())
-        assertFalse(Outbox.hasPending(context))
+        try {
+            assertTrue(started.await(5, TimeUnit.SECONDS))
+            val second = async(Dispatchers.Default) { Outbox.flush(context) }
+            release.countDown()
+            first.await()
+            second.await()
+            assertEquals(listOf("/bookings/1/messages", "/bookings/2/messages"), sent.toList())
+            assertFalse(Outbox.hasPending(context))
+        } finally { release.countDown() }
     }
     @Test fun replacingStoreDuringHttpPreservesNewQueue() = runBlocking {
         Outbox.enqueue(context, Outbox.newMessage(1, "old first"))
@@ -133,7 +188,14 @@ class OutboxConcurrencyTest {
         try {
             assertTrue(started.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
-            ApiClient.saveToken("QA-B")
+            awaitSnapshotReset02()
+            try {
+                ApiClient.saveToken("QA-B")
+            } catch (failure: Throwable) {
+                runCatching { com.yuldash.app.data.printAuthResetDiagnostic01("remaining-outbox-concurrency-b-login-failed", loginResultKnown = true, loginFailed = true) }
+                    .onFailure { diagnosticFailure -> println("REMAINING_AUTH_DIAG01 phase=remaining-outbox-concurrency-b-login-failed diagnosticUnavailable=" + diagnosticFailure.javaClass.simpleName) }
+                throw failure
+            }
             assertTrue(Outbox.enqueue(context, Outbox.newMessage(3, "B queue")))
         } finally { release.countDown() }
         flush.await()

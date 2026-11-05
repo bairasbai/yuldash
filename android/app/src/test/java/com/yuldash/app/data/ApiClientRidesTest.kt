@@ -45,6 +45,15 @@ class ApiClientRidesTest {
 
     private fun json(body: String) = MockResponse().setResponseCode(200).setBody(body)
 
+    @Test
+    fun freshDriverHasNoInventedRating() {
+        val fresh = org.json.JSONObject("""{"driver_rating":5.0,"driver_rating_count":0}""").toRideDto()
+        assertEquals(0.0, fresh.driverRating, 0.001)
+        val rated = org.json.JSONObject("""{"driver_rating":4.7,"driver_rating_count":2}""").toRideDto()
+        assertEquals(4.7, rated.driverRating, 0.001)
+        assertEquals(0.0, org.json.JSONObject("{}").toRideDto().driverRating, 0.001)
+    }
+
     // ---------- getNearbyRides ----------
 
     @Test

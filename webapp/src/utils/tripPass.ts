@@ -1,3 +1,5 @@
+import type { BoardingUndoTerms } from "../api/bookings";
+import { compareBoardingTimestamps, isConfirmedBoardingUndo, sameBoardingTimestamp } from "./boardingUndo";
 import { storageOperation, storageFenceEnabled, storageFenced } from "./storageHealth";
 // ================================================================
 //  Офлайн-паспорт поездки. Зеркало Android `data/TripPass.kt` (F11).
@@ -30,18 +32,51 @@ const KEY = (bookingId: number) => `yuldash.tripPass.${bookingId}`;
 const STAGE_KEY = (id: number, generation: string, stage: string) => `${KEY(id)}.${stage}.${generation}`;
 
 const memoryStages = new Map<string, "onboard" | "terminal">();
+const memoryBoardings = new Map<string, Set<string>>();
+const memoryUndos = new Map<string, Set<string>>();
+const boardingKey = (id: number, generation: string, stamp: string) => `${STAGE_KEY(id, generation, "onboard")}.${encodeURIComponent(stamp)}`;
+const undoKey = (id: number, generation: string, stamp: string) => `${STAGE_KEY(id, generation, "undo")}.${encodeURIComponent(stamp)}`;
+function storedBoardings(id: number, generation: string): string[] {
+  const prefix = `${STAGE_KEY(id, generation, "onboard")}.`, stamps: string[] = [];
+  const size = storageOperation(() => localStorage.length);
+  for (let i = 0; i < size; i++) {
+    const key = storageOperation(() => localStorage.key(i));
+    if (key?.startsWith(prefix) && storageOperation(() => localStorage.getItem(key))) {
+      try { stamps.push(decodeURIComponent(key.slice(prefix.length))); } catch { stamps.push(""); /* broken marker keeps the code closed */ }
+    }
+  }
+  return stamps;
+}
+function rememberStamp(map: Map<string, Set<string>>, id: number, generation: string, stamp: string): void {
+  if (!storageFenceEnabled()) return;
+  const key = `${id}:${generation}`, stamps = map.get(key) ?? new Set<string>();
+  stamps.add(stamp); map.set(key, stamps);
+}
 function rememberStage(id: number, generation: string | undefined, stage: "onboard" | "terminal"): void {
   if (!storageFenceEnabled() || !generation) return;
   const key = `${id}:${generation}`;
   if (memoryStages.get(key) !== "terminal") memoryStages.set(key, stage);
 }
-/** Separate irreversible flags avoid a stale tab overwriting a newer stage. */
+/** Новая серверная посадка замещает историю; квитанция снимает только последнюю эпоху. */
 export function tripPassStage(id: number, generation: string): "confirmed" | "onboard" | "terminal" {
   const memory = memoryStages.get(`${id}:${generation}`);
   if (memory === "terminal") return "terminal";
   try {
     if (storageOperation(() => localStorage.getItem(STAGE_KEY(id, generation, "terminal")))) return "terminal";
-    return memory === "onboard" || storageOperation(() => localStorage.getItem(STAGE_KEY(id, generation, "onboard"))) ? "onboard" : "confirmed";
+    const undos = memoryUndos.get(`${id}:${generation}`);
+    const legacyUndo = undos?.has("legacy") || storageOperation(() => localStorage.getItem(undoKey(id, generation, "legacy")));
+    if (!legacyUndo && (memory === "onboard" || storageOperation(() => localStorage.getItem(STAGE_KEY(id, generation, "onboard"))))) return "onboard";
+    const stamps = new Set([...storedBoardings(id, generation), ...(memoryBoardings.get(`${id}:${generation}`) ?? [])]);
+    let latest: string | null = null, latestUndone = false;
+    for (const stamp of stamps) {
+      if (!sameBoardingTimestamp(stamp, stamp)) return "onboard";
+      const order = latest === null ? 1 : compareBoardingTimestamps(stamp, latest);
+      const undone = !!(undos?.has(stamp) || storageOperation(() => localStorage.getItem(undoKey(id, generation, stamp))));
+      if (order === 1) { latest = stamp; latestUndone = undone; }
+      else if (order === 0) latestUndone ||= undone;
+    }
+    if (latest !== null && !latestUndone) return "onboard";
+    return "confirmed";
   } catch (error) { if (memory === "onboard") return "onboard"; throw error; }
 }
 
@@ -67,6 +102,8 @@ export interface TripPass {
   rideHasStops?: boolean;
   price: number;
   seats: number;
+  /** Missing in legacy snapshots: never interpret it as cash. */
+  payMethod?: "cash" | "sbp" | "negotiate";
   savedAt: number;
 }
 
@@ -108,13 +145,21 @@ export function loadTripPass(bookingId: number): TripPass | null {
 }
 
 /** Посадка подтверждена: код больше не нужен, остальные данные ещё нужны в пути. */
-export function clearTripPassBoardingCode(bookingId: number, generation?: string): void {
-  rememberStage(bookingId, generation, "onboard");
+export function clearTripPassBoardingCode(bookingId: number, generation?: string, onboardAt?: string | null): void {
+  if (!onboardAt) rememberStage(bookingId, generation, "onboard");
+  else if (generation) rememberStamp(memoryBoardings, bookingId, generation, onboardAt);
   try {
     const raw = storageOperation(() => localStorage.getItem(KEY(bookingId)));
     const pass = raw ? JSON.parse(raw) as TripPass : null;
     const ownerGeneration = generation || pass?.sessionGeneration;
-    if (ownerGeneration) storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "onboard"), "1"));
+    if (ownerGeneration) {
+      if (onboardAt) storageOperation(() => localStorage.setItem(boardingKey(bookingId, ownerGeneration, onboardAt), "1"));
+      else {
+        storageOperation(() => localStorage.removeItem(undoKey(bookingId, ownerGeneration, "legacy")));
+        memoryUndos.get(`${bookingId}:${ownerGeneration}`)?.delete("legacy");
+        storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "onboard"), "1"));
+      }
+    }
     if (!pass?.boardingCode) return;
     // Сохраняем время самого снимка, это не новое чтение данных с сервера.
     storageOperation(() => localStorage.setItem(KEY(bookingId), JSON.stringify({ ...pass, boardingCode: "" })));
@@ -122,6 +167,39 @@ export function clearTripPassBoardingCode(bookingId: number, generation?: string
     // Если обновить снимок нельзя, не оставляем в нём использованный код.
     dropTripPass(bookingId, generation);
   }
+}
+
+/** Only an authenticated server receipt can reopen this boarding's code; terminal is permanent. */
+export function restoreConfirmedTripPass(bookingId: number, generation: string,
+  current: (BoardingUndoTerms & { status?: string }) | null | undefined,
+  receipt: BoardingUndoTerms & { status?: string },
+  currentGeneration: () => string = () => storageOperation(() => localStorage.getItem("yuldash.session") ?? ""),
+): boolean {
+  const currentOwner = () => !!generation && currentGeneration() === generation && !storageFenced();
+  try {
+    if (!currentOwner() || receipt.status !== "confirmed" || current?.status === "done" || current?.status === "cancelled" ||
+      tripPassStage(bookingId, generation) === "terminal") return false;
+    // A fresh /details after reload carries the receipt; saved per-boarding flags retain its source.
+    const source = current?.onboard_at ? current : { onboard_at: receipt.boarding_undo_onboard_at };
+    if (!isConfirmedBoardingUndo(source, receipt)) return false;
+    const stamps = new Set([...storedBoardings(bookingId, generation), ...(memoryBoardings.get(`${bookingId}:${generation}`) ?? [])]);
+    if ([...stamps].some(stamp => {
+      const order = compareBoardingTimestamps(stamp, receipt.boarding_undo_onboard_at);
+      return order === null || order > 0;
+    })) return false;
+    for (const stamp of stamps) {
+      if (!sameBoardingTimestamp(stamp, receipt.boarding_undo_onboard_at)) continue;
+      if (!currentOwner() || tripPassStage(bookingId, generation) === "terminal") return false;
+      storageOperation(() => localStorage.setItem(undoKey(bookingId, generation, stamp), receipt.boarding_undo_confirmed_id!));
+      rememberStamp(memoryUndos, bookingId, generation, stamp);
+    }
+    if (storageOperation(() => localStorage.getItem(STAGE_KEY(bookingId, generation, "onboard"))) || memoryStages.get(`${bookingId}:${generation}`) === "onboard") {
+      if (!currentOwner() || tripPassStage(bookingId, generation) === "terminal") return false;
+      storageOperation(() => localStorage.setItem(undoKey(bookingId, generation, "legacy"), receipt.boarding_undo_confirmed_id!));
+      rememberStamp(memoryUndos, bookingId, generation, "legacy");
+    }
+    return currentOwner() && tripPassStage(bookingId, generation) === "confirmed";
+  } catch { return false; }
 }
 
 /**

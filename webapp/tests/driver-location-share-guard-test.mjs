@@ -13,13 +13,13 @@
 //      кроме «Trip not active», — конец.
 //   3. Без ключа входа соединение не открываем вовсе (Android: currentToken() ?: return).
 //   4. Сменилась сессия — при следующей точке снимаем слежение и закрываем соединение.
-//   5. Проводка экрана: уход со страницы и «в пути → нет» останавливают отправку; ключа нет
-//      в адресе канала; выход из аккаунта виден логике (isCurrent).
+//   5. Проводка экрана: cold active не выдаёт grant; уход последнего держателя останавливает
+//      отправку через общий grace. Ключа нет в URL; выход виден логике (isCurrent).
 //   6. Сеть вернулась («online») — подключаемся сразу, не ждём шага лестницы до 30 с.
 // ================================================================
 import assert from "node:assert/strict";
 import { build } from "esbuild";
-import { ROOT, bundleComponent, checker, langMock, mount } from "./shallow-harness.mjs";
+import { ROOT, bundleComponent, button, checker, langMock, mount } from "./shallow-harness.mjs";
 
 const t = checker();
 const lib = await build({ entryPoints: [ROOT + "src/utils/tripLocationShare.ts"], bundle: true, write: false, format: "esm", platform: "node", logLevel: "silent" });
@@ -238,73 +238,49 @@ await t.test("сессия сменилась — слежение за мест
   assert.equal(s.sent.filter((f) => f.type === "loc").length, 1, "после выхода кадров нет");
 });
 
-// ---------------------------------------------------------------- проводка экрана
+// ---------------------------------------------------------------- настоящая проводка экрана и grant
 async function view() {
+  globalThis.__gpsTimers=[];
+  globalThis.__gpsFire=()=>{for(const tm of [...globalThis.__gpsTimers])if(!tm.done&&tm.ms<=1500){tm.done=true;tm.fn();}};
   return bundleComponent("src/components/DriverLocationShare.tsx", {
-    mocks: {
-      "/i18n/lang": langMock("ru"),
-      "/api/client": `export const getSessionGeneration=()=>globalThis.__gen;export const getToken=()=>"SECRET";export const refreshRejectedToken=async()=>true;`,
-      "/api/chat": `export const wsBase=()=>"ws://x";`,
-      "/utils/tripLocationShare": `export const tripLocationUrl=(b,id)=>b+"/ws/trip/"+id+"/location";
-        export function startDriverLocationShare(deps){const rec={deps,stops:0};(globalThis.__starts??=[]).push(rec);return{stop(){rec.stops++;},retry(){}};}`,
-    },
+    real:["/utils/driverRideShare","/utils/rideShareStore"],
+    mocks:{
+      "/i18n/lang":langMock("ru"),
+      "/api/client":`export const API_BASE="https://api.example.test";export const getSessionGeneration=()=>globalThis.__gen;
+        export const getToken=()=>"SECRET";export const refreshRejectedToken=async()=>true;`,
+      "/api/bookings":`export const fetchDriverBookings=async()=>[{booking_id:42,ride_id:7,status:"onboard",pickup_stop:""}];`,
+      "/api/chat":`export const wsBase=()=>"ws://x";`,
+      "./tripLocationShare":`export const tripLocationUrl=(b,id)=>b+"/ws/trip/"+id+"/location";
+        export function startDriverLocationShare(deps){const rec={deps,stops:0};(globalThis.__starts??=[]).push(rec);deps.onState("asking");return{stop(){rec.stops++;},retry(){}};}`,
+    }
   });
 }
-
-await t.test("ушёл со страницы / «Завершить» сняло «в пути» — отправка останавливается (stop)", async () => {
-  globalThis.__starts = [];
-  globalThis.__gen = "A";
-  globalThis.window = { setTimeout, clearTimeout };
-  const V = await view();
-  const h = mount(V, { bookingId: 42, inTransit: true });
-  h.render();
-  assert.equal(globalThis.__starts.length, 1);
-  h.props = { bookingId: 42, inTransit: false };
-  h.render();
-  assert.equal(globalThis.__starts[0].stops, 1, "смена «в пути» → нет: stop не вызван");
-  h.props = { bookingId: 42, inTransit: true };
-  h.render();
-  h.unmount();
-  assert.equal(globalThis.__starts[1].stops, 1, "уход со страницы: stop не вызван");
+function clockWindow(extra={}) { return {
+  setTimeout(fn,ms){const tm={fn,ms,done:false};globalThis.__gpsTimers.push(tm);return tm;},
+  clearTimeout(tm){if(tm)tm.done=true;},addEventListener(){},removeEventListener(){},...extra
+}; }
+await t.test("серверное active без нажатия не запускает отправку; уход отпускает право через общую паузу",async()=>{
+  globalThis.__starts=[];globalThis.__gen="A";globalThis.window=clockWindow();const V=await view();
+  const h=mount(V,{bookingId:42,rideId:7,inTransit:true});h.render();assert.equal(globalThis.__starts.length,0);
+  button(h.tree,"Включить передачу места").props.onClick();await h.settle();assert.equal(globalThis.__starts.length,1,"живое включение должно дойти до подменённого только на границе браузера транспорта");
+  h.props={bookingId:42,rideId:7,inTransit:false};h.render();assert.equal(globalThis.__starts[0].stops,0,"стадия экрана не отзывает действующий рейс");
+  h.unmount();globalThis.__gpsFire();assert.equal(globalThis.__starts[0].stops,1,"без поездки и кабинета передача остановлена");
 });
-
-await t.test("канал открывается без ключа в адресе; выход из аккаунта виден логике (isCurrent)", async () => {
-  globalThis.__starts = [];
-  globalThis.__gen = "A";
-  const made = [];
-  globalThis.WebSocket = class { constructor(url) { made.push(url); } };
-  const V = await view();
-  const h = mount(V, { bookingId: 42, inTransit: true });
-  h.render();
-  const d = globalThis.__starts[0].deps;
-  d.openSocket();
-  assert.equal(made[0], "ws://x/ws/trip/42/location");
-  assert.ok(!/token|SECRET/i.test(made[0]), "ключ входа в адресе канала");
-  assert.equal(d.isCurrent(), true);
-  globalThis.__gen = "B";
-  assert.equal(d.isCurrent(), false, "смена сессии не останавливает отправку");
-  assert.equal(typeof d.refreshToken, "function", "истёкший ключ экран не обновляет — точка погаснет до конца поездки");
-  assert.equal(typeof d.subscribeOnline, "function", "«сеть вернулась» не подключено");
+await t.test("канал без ключа в URL; владелец, обновление ключа и allowSend проходят через настоящую проводку",async()=>{
+  globalThis.__starts=[];globalThis.__gen="A";globalThis.window=clockWindow();const made=[];
+  globalThis.WebSocket=class{constructor(url){made.push(url);}};
+  const V=await view();const h=mount(V,{bookingId:42,rideId:7,inTransit:true});h.render();button(h.tree,"Включить передачу места").props.onClick();await h.settle();
+  const d=globalThis.__starts[0].deps;d.openSocket();assert.equal(made[0],"ws://x/ws/trip/42/location");assert.ok(!/token|SECRET/i.test(made[0]));
+  assert.equal(d.isCurrent(),true);assert.equal(d.allowSend(),true);globalThis.__gen="B";
+  assert.equal(d.isCurrent(),false);assert.equal(d.allowSend(),false);assert.equal(globalThis.__starts[0].stops,1);
+  assert.equal(typeof d.refreshToken,"function");assert.equal(typeof d.subscribeOnline,"function");assert.equal(typeof d.onEnd,"function");assert.equal(typeof d.onPermissionDenied,"function");h.unmount();globalThis.__gpsFire();
 });
-
-await t.test("экран подписывается на «online» окна и отписывается", async () => {
-  globalThis.__starts = [];
-  globalThis.__gen = "A";
-  const listeners = [];
-  globalThis.window = {
-    setTimeout,
-    clearTimeout,
-    addEventListener: (type, fn) => listeners.push([type, fn]),
-    removeEventListener: (type, fn) => { const i = listeners.findIndex(([t2, f]) => t2 === type && f === fn); if (i >= 0) listeners.splice(i, 1); },
-  };
-  const V = await view();
-  const h = mount(V, { bookingId: 42, inTransit: true });
-  h.render();
-  const fn = () => {};
-  const off = globalThis.__starts[0].deps.subscribeOnline(fn);
-  assert.deepEqual(listeners, [["online", fn]], "логика не узнает, что сеть вернулась");
-  off();
-  assert.equal(listeners.length, 0);
+await t.test("проводка подписывает online и проверку разрешения по focus; обе подписки убираются",async()=>{
+  globalThis.__starts=[];globalThis.__gen="A";const listeners=[];
+  globalThis.window=clockWindow({addEventListener:(type,fn)=>listeners.push([type,fn]),removeEventListener:(type,fn)=>{const i=listeners.findIndex(([t,f])=>t===type&&f===fn);if(i>=0)listeners.splice(i,1);}});
+  const V=await view();const h=mount(V,{bookingId:42,rideId:7,inTransit:true});h.render();button(h.tree,"Включить передачу места").props.onClick();await h.settle();
+  const fn=()=>{};const off=globalThis.__starts[0].deps.subscribeOnline(fn);
+  assert.deepEqual(listeners.filter(([type])=>type==="online"),[["online",fn]]);assert.equal(listeners.filter(([type])=>type==="focus").length,1);
+  off();assert.equal(listeners.filter(([type])=>type==="online").length,0);h.unmount();globalThis.__gpsFire();assert.equal(listeners.length,0);
 });
-
 t.done();

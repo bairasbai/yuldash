@@ -6,6 +6,7 @@
 //  оценивает завершённую поездку. Квитанция — GET /trips/{id}/receipt.
 // ================================================================
 import { apiGet, apiPost } from "./client";
+import { driverStep, emitDriverAction } from "../utils/driverActions";
 
 export type BookingStatus =
   | "pending"
@@ -80,7 +81,7 @@ export interface BookingRow {
 }
 
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
-export interface BookingDetails {
+export interface BookingDetails extends BoardingUndoTerms {
   booking_id: number;
   ride_id: number;
   pickup_stop?: string | null;
@@ -163,7 +164,16 @@ export interface MeetingProposal {
 }
 
 /** Live-состояние поездки (поллинг на активном экране). */
-export interface TripState {
+export interface BoardingUndoTerms {
+  boarding_undo_pending?: boolean;
+  boarding_undo_request_id?: string | null;
+  boarding_undo_wait_sec?: number;
+  onboard_at?: string | null;
+  boarding_undo_confirmed_id?: string | null;
+  boarding_undo_onboard_at?: string | null;
+}
+
+export interface TripState extends BoardingUndoTerms {
   role: "driver" | "passenger";
   status: BookingStatus;
   driver_phase: DriverPhase;
@@ -214,6 +224,7 @@ export interface TripReceipt {
 
 /** Элемент списка моих броней (GET /bookings/mine). */
 export interface MyBooking {
+  declined?: boolean;
   id: number;
   ride_id: number;
   pickup_stop?: string | null;
@@ -371,7 +382,7 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  * версия, ждавшая `{ items }`, всегда получала undefined, и блок «Ждут твоего ответа»
  * молчал бы при живых бронях.
  */
-export interface DriverBookingRow {
+export interface DriverBookingRow extends BoardingUndoTerms {
   from_city?: string;
   to_city?: string;
   pickup_stop?: string | null;
@@ -505,7 +516,7 @@ export function confirmBooking(id: number): Promise<BookingRow> {
  * «Точно?» перед отправкой. Поездка с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`.
  */
 export function markNoShow(id: number): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/no-show`);
+  return driverStep(id, true, () => apiPost<BookingRow>(`/bookings/${id}/no-show`));
 }
 
 /** Ответ на «Подъезжаю»: фаза и новый срок «Не вышел» (те же поля, что в строке `/driver/bookings`). */
@@ -526,11 +537,11 @@ export interface ArrivingResult {
  * 30 минут до выезда — 409 `arriving_too_early` (приёмка PR184): пассажиру ничего не уходит.
  */
 export function markArriving(id: number): Promise<ArrivingResult> {
-  return apiPost<ArrivingResult>(`/bookings/${id}/driver-status`, { status: "arriving" });
+  return apiPost<ArrivingResult>(`/bookings/${id}/driver-status`, { status: "arriving" }).then((result) => { emitDriverAction(id, false); return result; });
 }
 
 /** Ответ на «Сел» и «Отменить»: итоговый статус брони и сколько секунд ещё можно отменить. */
-export interface BoardingResult {
+export interface BoardingResult extends BoardingUndoTerms {
   ok: boolean;
   status: BookingStatus;
   boarding_undo_sec: number;
@@ -542,12 +553,17 @@ export interface BoardingResult {
  * раньше чем за 30 минут до выезда; повтор — тот же ответ. Та же ручка, что «Выехал/Подъезжаю».
  */
 export function markBoarded(id: number): Promise<BoardingResult> {
-  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" });
+  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" }).then((result) => { emitDriverAction(id, false); return result; });
 }
 
 /** «Отменить» свою отметку «Сел» — промахнулся карточкой. Только в первые 5 минут (409 позже). */
 export function undoBoarded(id: number): Promise<BoardingResult> {
   return apiPost<BoardingResult>(`/bookings/${id}/boarded/undo`);
+}
+
+/** Пассажир отвечает на текущий запрос исправления посадки в той же сессии. */
+export function respondBoardingUndo(id: number, requestId: string, confirm: boolean, generation: string): Promise<BoardingResult> {
+  return apiPost<BoardingResult>(`/bookings/${id}/boarded/undo/respond`, { request_id: requestId, confirm }, { _generation: generation });
 }
 
 /**

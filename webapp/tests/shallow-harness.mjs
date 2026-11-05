@@ -80,6 +80,9 @@ export async function bundleComponent(rel, { mocks = {}, real = [], exportName =
         name: "shallow",
         setup(b) {
           b.onResolve({ filter: /.*/ }, (a) => {
+            // Настоящий файл, импортированный из виртуального mock, должен вернуться
+            // в файловое пространство esbuild (в т.ч. абсолютный Windows-путь).
+            if (a.namespace === "sh" && a.path.replace(/\\/g, "/").startsWith(ROOT.replace(/\\/g, "/"))) return { path: resolve(a.path), namespace: "file" };
             if (a.path === "react" || a.path === "react/jsx-runtime") return { path: a.path, namespace: "sh" };
             if (a.importer !== entry) {
               const k = pick(a.path);
@@ -165,6 +168,7 @@ export const langMock = (lang = "ru") =>
 /** Счётчик проверок в стиле остальных наборов. */
 export function checker() {
   let bad = 0;
+  const failedNames = [];
   return {
     async test(name, fn) {
       try {
@@ -172,10 +176,13 @@ export function checker() {
         console.log("✓ " + name);
       } catch (e) {
         bad++;
-        console.log("✗ " + name + "\n    " + String(e?.message ?? e).split("\n").slice(0, 6).join("\n    "));
+        failedNames.push(name);
+        const detail = String(e?.stack ?? e?.message ?? e).replace(/data:text\/javascript;base64,[A-Za-z0-9+/=]+/g, "<bundled-module>");
+        console.log("✗ " + name + "\n    " + detail.split("\n").slice(0, 10).join("\n    "));
       }
     },
     done() {
+      if (bad) console.log("Не прошли: " + failedNames.join(" | "));
       console.log(bad === 0 ? "\nВСЁ СОШЛОСЬ" : `\nПРОВАЛЕНО: ${bad}`);
       process.exit(bad === 0 ? 0 : 1);
     },

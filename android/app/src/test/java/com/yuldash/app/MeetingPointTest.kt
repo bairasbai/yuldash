@@ -155,4 +155,20 @@ class MeetingPointTest {
         assertNull(draft.alighting) // в той же остановке высадка больше недопустима
     }
 
+    @Test fun `условия исправления посадки не вытесняют поля точных мест из деталей`() {
+        val dto = com.yuldash.app.data.parseBookingDetailsDto(org.json.JSONObject("""{
+            "booking_id":42,"role":"passenger","status":"onboard","onboard_at":"2026-10-24T12:00:00.123456Z",
+            "boarding_undo_pending":true,"boarding_undo_request_id":"undo-42","boarding_undo_wait_sec":120,
+            "meet_lat":52.7,"meet_lng":58.6,"meet_note":"у ворот","meet_landmark_id":17,
+            "alight_lat":52.8,"alight_lng":58.7,"alight_note":"у моста","alight_landmark_id":18,
+            "meeting_version":4,"meeting_proposal":{"proposal_id":"meeting-42","kind":"dropoff","point":{"clear":true}}
+        }"""))
+        assertTrue(dto.boardingUndo.pending)
+        assertEquals("undo-42", dto.boardingUndo.requestId)
+        assertEquals("2026-10-24T12:00:00.123456Z", dto.boardingUndo.onboardAt)
+        assertEquals(17, dto.meetLandmarkId); assertEquals(18, dto.alightLandmarkId)
+        assertEquals("у ворот", dto.meetNote); assertEquals("у моста", dto.alightNote)
+        assertEquals(4, dto.meetingVersion); assertTrue(dto.meetingProposal!!.clear)
+    }
+
 }

@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.*
 import org.junit.After
 import org.junit.Assert.*
@@ -61,6 +63,7 @@ class ApiClientStaleAccountResponseTest {
         ApiClient.testTimeoutMs = 10_000
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout() // resetForTest resets transport hooks, not private cached responses.
+        awaitSnapshotCleanup()
         ApiClient.sessionExpired.value = false
         ApiClient.saveToken("local-account-A")
     }
@@ -74,6 +77,10 @@ class ApiClientStaleAccountResponseTest {
         ApiClient.testTimeoutMs = null
     }
 
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
+
     private fun contacts(name: String) = "{\"items\":[{\"id\":1,\"name\":\"$name\",\"relation\":\"family\",\"phone\":\"+70000000000\"}]}"
 
     @Test fun delayedOldContactsCannotPopulateTheNewAccountsCache() = runBlocking {
@@ -81,6 +88,7 @@ class ApiClientStaleAccountResponseTest {
         try {
             assertTrue("A contacts GET must reach the local server before switching accounts", oldRequestArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
+            awaitSnapshotCleanup()
             ApiClient.saveToken("local-account-B")
         } finally {
             releaseOldResponse.countDown()
@@ -98,6 +106,7 @@ class ApiClientStaleAccountResponseTest {
         try {
             assertTrue("A contacts GET must reach the local server before releasing its 401", oldRequestArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
+            awaitSnapshotCleanup()
             ApiClient.saveToken("local-account-B")
         } finally {
             releaseOldResponse.countDown()

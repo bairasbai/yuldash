@@ -1,6 +1,13 @@
 package com.yuldash.app.data
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.joinAll
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -13,6 +20,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.TimeUnit
 
 /**
  * Сетевой слой `ApiClient`: read-методы группы БРОНИ / ЧАТА / ПРОФИЛЯ ВОДИТЕЛЯ / РЕКЛАМЫ
@@ -28,11 +36,13 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34])
 class ApiClientBookingsTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private var codeSessionPrepared = false
 
     private lateinit var server: MockWebServer
 
     @Before
-    fun setup() {
+    fun setup() = cleanupGuard.runSetup {
         server = MockWebServer()
         server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
@@ -40,8 +50,40 @@ class ApiClientBookingsTest {
 
     @After
     fun teardown() {
-        ApiClient.testBaseUrl = null
-        server.shutdown()
+        cleanupGuard.requireHealthy()
+        if (codeSessionPrepared) ApiClient.logout()
+        val drained = !codeSessionPrepared || runCatching { awaitPreparedSessionJobs() }.isSuccess
+        cleanupGuard.runCleanup(drained) {
+            if (codeSessionPrepared) ApiClient.resetForTest()
+            ApiClient.testBaseUrl = null
+            server.shutdown()
+        }
+    }
+
+    private fun prepareCodeSession() {
+        codeSessionPrepared = true
+        // Only this positive fixture gains a session; unauthenticated cases stay unchanged.
+        server.dispatcher = object : okhttp3.mockwebserver.QueueDispatcher() {
+            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse =
+                if (request.path in setOf("/auth/logout", "/push/unregister")) json("{}")
+                else super.dispatch(request)
+        }
+        ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
+        runBlocking {
+            withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+        }
+        ApiClient.saveToken(TripPassAuthorityFixture.jwt(11))
+        assertTrue("Positive fixture must establish a real synthetic owner", OfflineTripSnapshots.currentOwner() != null)
+    }
+
+    private fun awaitPreparedSessionJobs() = runBlocking {
+        withTimeout(5_000) {
+            for ((owner, fieldName) in listOf(ApiClient to "bg", OfflineTripSnapshots to "jobs")) {
+                val scope = owner.javaClass.getDeclaredField(fieldName).apply { isAccessible = true }
+                    .get(owner) as CoroutineScope
+                requireNotNull(scope.coroutineContext[Job]).children.toList().joinAll()
+            }
+        }
     }
 
     private fun json(body: String) = MockResponse().setResponseCode(200).setBody(body)
@@ -121,16 +163,25 @@ class ApiClientBookingsTest {
 
     @Test
     fun getBoardingCode_extractsCodeString() = runBlocking {
+        prepareCodeSession()
+        server.enqueue(json("""{"booking_id":7,"ride_id":90,"role":"passenger","status":"confirmed",
+            "contact_unlocked":true,"from_city":"Уфа","to_city":"Сибай","depart_at":"2030-01-01T08:00:00Z"}"""))
         server.enqueue(json("""{"code":"4271"}"""))
         val res = ApiClient.getBoardingCode(7)
         assertTrue(res.isSuccess)
         assertEquals("4271", res.getOrThrow())
-        assertEquals("/bookings/7/boarding-code", server.takeRequest().path)
+        val detailsRequest = server.takeRequest(5, TimeUnit.SECONDS)
+        assertEquals("GET", detailsRequest?.method)
+        assertEquals("/bookings/7/details", detailsRequest?.path)
+        val codeRequest = server.takeRequest(5, TimeUnit.SECONDS)
+        assertEquals("GET", codeRequest?.method)
+        assertEquals("/bookings/7/boarding-code", codeRequest?.path)
+        assertNull("No extra reads follow the exact DETAILS,CODE pair", server.takeRequest(200, TimeUnit.MILLISECONDS))
     }
 
     @Test
     fun getBookingRole_extractsRole() = runBlocking {
-        server.enqueue(json("""{"role":"driver","status":"active","driver_phase":"departed"}"""))
+        server.enqueue(json("""{"role":"driver","status":"confirmed","driver_phase":"departed"}"""))
         val res = ApiClient.getBookingRole(3)
         assertTrue(res.isSuccess)
         assertEquals("driver", res.getOrThrow())
@@ -138,10 +189,10 @@ class ApiClientBookingsTest {
 
     @Test
     fun getTripState_parsesRoleStatusPhase() = runBlocking {
-        server.enqueue(json("""{"role":"driver","status":"active","driver_phase":"arriving"}"""))
+        server.enqueue(json("""{"role":"driver","status":"confirmed","driver_phase":"arriving"}"""))
         val s = ApiClient.getTripState(3).getOrThrow()
         assertEquals("driver", s.role)
-        assertEquals("active", s.status)
+        assertEquals("confirmed", s.status)
         assertEquals("arriving", s.driverPhase)
     }
 

@@ -11,6 +11,10 @@ import com.yuldash.app.AppLanguage
 import com.yuldash.app.LocalAppLanguage
 import com.yuldash.app.MyDataScreen
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import com.yuldash.app.ui.theme.YuldashTheme
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -82,6 +86,7 @@ class MyDataScreenStatesTest {
         ApiClient.testTimeoutMs = 15_000
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.saveToken("QA-l2_3-mydata-states")
     }
 
@@ -91,6 +96,10 @@ class MyDataScreenStatesTest {
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
+    }
+
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
     }
 
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)

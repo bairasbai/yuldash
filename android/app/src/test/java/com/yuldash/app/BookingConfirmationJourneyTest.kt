@@ -13,6 +13,11 @@ import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.Outbox
+import com.yuldash.app.data.MemoryDiskPreferences
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.ui.theme.YuldashTheme
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
@@ -33,6 +38,7 @@ class BookingConfirmationJourneyTest {
     private val owner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     private val stage = mutableStateOf(0)
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
+    private val responseLedger = CopyOnWriteArrayList<String>()
     private val bookingBodies = CopyOnWriteArrayList<String>()
     private val tripStatuses = CopyOnWriteArrayList<String>()
     private var rejectBookingOnce = false
@@ -47,8 +53,8 @@ class BookingConfirmationJourneyTest {
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE).edit().clear()
             .putString("mode_last", "pooling").putBoolean("mode_hint_shown", true).commit()
         ApiClient.resetForTest()
-        ApiClient.init(context)
-        ApiClient.saveToken("local-passenger")
+        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+        Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -59,18 +65,18 @@ class BookingConfirmationJourneyTest {
                         path in listOf("/requests/near", "/seasonal-events", "/popular-routes", "/rides") -> """{"items":[]}"""
                         request.method == "POST" && path == "/bookings" -> {
                             bookingBodies.add(request.body.readUtf8())
-                            if (rejectBookingOnce && bookingBodies.size == 1) return json("""{"detail":"Тестовый временный отказ брони"}""", 503)
-                            if (conflictBooking) return json("""{"detail":{"ru":"У тебя уже есть бронь с другим количеством мест.","ba":"Һинең икенсе һандағы урындар менән бронең бар инде.","code":"booking_seats_conflict","booking_id":42}}""", 409)
+                            if (rejectBookingOnce && bookingBodies.size == 1) return response(path, """{"detail":"Тестовый временный отказ брони"}""", 503)
+                            if (conflictBooking) return response(path, """{"detail":{"ru":"У тебя уже есть бронь с другим количеством мест.","ba":"Һинең икенсе һандағы урындар менән бронең бар инде.","code":"booking_seats_conflict","booking_id":42}}""", 409)
                             """{"id":42,"ride_id":7,"status":"$status"}"""
                         }
                         path == "/bookings/42/confirm" -> {
-                            if (request.getHeader("Authorization") != "Bearer local-driver") return json("{}", 403)
+                            if (request.getHeader("Authorization") != "Bearer ${TripPassAuthorityFixture.jwt(9)}") return response(path, "{}", 403)
                             status = "confirmed"
                             "{}"
                         }
                         path == "/bookings/mine" -> """{"items":[{"id":42,"ride_id":7,"status":"$status","seats":1,"price":750,"from_city":"Пункт А","to_city":"Пункт Б","driver_name":"Тестовый водитель"}]}"""
                         path == "/bookings/42/trip-status" -> {
-                            if (request.getHeader("Authorization") != "Bearer local-passenger") return json("{}", 403)
+                            if (request.getHeader("Authorization") != "Bearer ${TripPassAuthorityFixture.jwt(7)}") return response(path, "{}", 403)
                             val next = JSONObject(request.body.readUtf8()).getString("status")
                             tripStatuses.add(next)
                             if (next == "done") status = "done"
@@ -81,18 +87,22 @@ class BookingConfirmationJourneyTest {
                         path == "/bookings/42/rate" -> { ratingBodies.add(request.body.readUtf8()); "{}" }
                         path == "/driver/bookings" -> """{"items":[{"booking_id":42,"passenger_name":"Тестовый пассажир","route":"Пункт А → Пункт Б","status":"$status"}]}"""
                         path == "/driver/rides" -> """{"items":[{"id":7,"from_city":"Пункт А","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","price":750,"seats_total":3,"seats_left":2,"status":"active"}]}"""
-                        path == "/bookings/42/details" -> """{"booking_id":42,"ride_id":7,"role":"passenger","status":"$status","from_city":"Пункт А","to_city":"Пункт Б","contact_unlocked":false}"""
-                        path == "/bookings/42/role" -> """{"role":"passenger","status":"$status"}"""
+                        path == "/bookings/42/details" -> JSONObject().put("booking_id", 42).put("ride_id", 7).put("role", "passenger")
+                            .put("status", status).put("from_city", "Пункт А").put("to_city", "Пункт Б")
+                            .put("contact_unlocked", status in setOf("confirmed", "onboard"))
+                            .put("onboard_at", if (status == "onboard") "2031-02-03T09:00:00.123456Z" else JSONObject.NULL).toString()
+                        path == "/bookings/42/role" -> JSONObject().put("role", "passenger").put("status", status).put("driver_phase", "")
+                            .put("onboard_at", if (status == "onboard") "2031-02-03T09:00:00.123456Z" else JSONObject.NULL).toString()
                         path == "/bookings/42/messages" -> """{"items":[]}"""
-                        path == "/bookings/42/boarding-code" -> if (status == "confirmed") """{"code":"5678"}""" else return json("{}", 403)
-                        else -> return json("{}", 404)
+                        path == "/bookings/42/boarding-code" -> if (status in setOf("confirmed", "onboard")) """{"code":"5678"}""" else return response(path, "{}", 403)
+                        else -> return response(path, "{}", 404)
                     }
-                    return json(body)
+                    return response(path, body)
                 }
             }
             start()
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
         vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -160,7 +170,7 @@ class BookingConfirmationJourneyTest {
         assertEquals(7, JSONObject(bookingBodies.single()).getInt("ride_id"))
 
         compose.runOnIdle { stage.value = -1 }
-        compose.runOnIdle { ApiClient.logout(); ApiClient.saveToken("local-driver"); stage.value = 1 }
+        compose.runOnIdle { ApiClient.logout(); ApiClient.saveToken(TripPassAuthorityFixture.jwt(9)); stage.value = 1 }
         compose.waitUntil(15000) {
             settle()
             requests.any { it.first == "GET /driver/bookings" }
@@ -173,7 +183,7 @@ class BookingConfirmationJourneyTest {
             settle()
             status == "confirmed" && requests.count { it.first == "GET /driver/bookings" } >= 2
         }
-        assertEquals(1, requests.count { it == ("POST /bookings/42/confirm" to "Bearer local-driver") })
+        assertEquals(1, requests.count { it == ("POST /bookings/42/confirm" to "Bearer ${TripPassAuthorityFixture.jwt(9)}") })
         // Условие выше ждёт, что повторный запрос броней УШЁЛ, а не что его ответ уже нарисован.
         // На быстрой машине разницы не видно; в CI кнопка «Подтвердить» ещё стояла на экране.
         compose.waitUntil(15000) {
@@ -186,7 +196,7 @@ class BookingConfirmationJourneyTest {
         compose.runOnIdle { stage.value = -1 }
         compose.runOnIdle {
             ApiClient.logout()
-            ApiClient.saveToken("local-passenger")
+            ApiClient.saveToken(TripPassAuthorityFixture.jwt(7))
             vm.selectedRide.value = null
             vm.activeTrip.value = null
             vm.screen.value = Screen.Booking
@@ -233,6 +243,7 @@ class BookingConfirmationJourneyTest {
         choosePublicRide()
         compose.onNodeWithText("Забронировать место").performClick()
         compose.waitUntil(15000) { vm.activeBookingId.value == 42 }
+        compose.waitUntil(15000) { settle(); OfflineTripSnapshots.allowsLive(42) && vm.activeTrip.value != null }
         compose.runOnIdle {
             assertEquals(Screen.ActiveTrip, vm.screen.value)
             assertNotNull(vm.activeTrip.value)
@@ -383,16 +394,27 @@ class BookingConfirmationJourneyTest {
                 settle()
                 ratingBodies.size == 1 && compose.onAllNodesWithText("Готово").fetchSemanticsNodes().isNotEmpty()
             }
-        } catch (failure: Exception) {
-            val tree = compose.onRoot(useUnmergedTree = true).printToString()
-            throw AssertionError("Оценка не подтверждена: POST=${ratingBodies.size}, bodies=$ratingBodies, " +
-                "stage=${stage.value}, screen=${vm.screen.value}, requests=$requests\n$tree", failure)
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError("Оценка не подтверждена: POST=${ratingBodies.size}, " +
+                "stage=${stage.value}, screen=${vm.screen.value}, requests=${requests.map { it.first }}, " +
+                "responses=$responseLedger", failure)
         }
     }
     private fun waitForText(text: String) {
-        compose.waitUntil(15000) {
-            settle()
-            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+        try {
+            compose.waitUntil(15000) {
+                compose.mainClock.advanceTimeByFrame()
+                settle()
+                compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            }
+        } catch (failure: ComposeTimeoutException) {
+            val target = text.takeUnless { value -> value.any { it.isDigit() } } ?: "<скрытое значение>"
+            // Только синтетические пути/HTTP-статусы и этапы: без bearer, тел, телефонов или кодов.
+            throw AssertionError("Не появился экранный шаг '$target': stage=${stage.value}, " +
+                "screen=${vm.screen.value}, booking=${vm.activeBookingId.value}, " +
+                "serverStatus=$status, live=${OfflineTripSnapshots.allowsLive(42)}, " +
+                "terminal=${OfflineTripSnapshots.terminal(42)?.status}, posts=${tripStatuses.toList()}, " +
+                "requests=${requests.map { it.first }}, responses=$responseLedger", failure)
         }
     }
     // Ждём, пока строка появится в списке: удачная прокрутка к ней и есть признак, что экран
@@ -404,6 +426,10 @@ class BookingConfirmationJourneyTest {
                 .performScrollToNode(hasText(text))
         }.isSuccess
     }
-    private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)
-        .setHeader("Content-Type", "application/json").setBody(body)
+    private fun response(path: String, body: String, code: Int = 200): MockResponse {
+        val tripStatus = if (path in setOf("/bookings/42/role", "/bookings/42/details"))
+            ":${JSONObject(body).optString("status")}" else ""
+        responseLedger += "$path:$code$tripStatus"
+        return MockResponse().setResponseCode(code).setHeader("Content-Type", "application/json").setBody(body)
+    }
 }

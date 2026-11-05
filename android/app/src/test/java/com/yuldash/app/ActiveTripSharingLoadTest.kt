@@ -40,6 +40,8 @@ class ActiveTripSharingLoadTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(true)
     private val requests = CopyOnWriteArrayList<Triple<String, String?, String>>()
+    @Volatile private var preparingPass: TripPass? = null
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     private val timeouts = CopyOnWriteArrayList<String>()
     private val started = CountDownLatch(1)
     private val release = CountDownLatch(1)
@@ -82,6 +84,7 @@ class ActiveTripSharingLoadTest {
                 override fun dispatch(r: RecordedRequest): MockResponse {
                     val path = r.path.orEmpty()
                     val key = "${r.method} $path"
+                    preparationResponse(r)?.let { return it }
                     requests += Triple(key, r.getHeader("Authorization"), r.body.readUtf8())
                     if (path == "/bookings/42/shares") {
                         val ordinal = listCalls.incrementAndGet()
@@ -116,18 +119,21 @@ class ActiveTripSharingLoadTest {
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
-                    return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
+                    return MockResponse().setBody(canonicalTripBody(path, body)).setHeader("Content-Type", "application/json")
                 }
             }
             start()
         }
-        ApiClient.resetForTest(); ApiClient.init(context)
+        ApiClient.resetForTest()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 60000
+        ApiClient.init(context)
+        awaitSnapshotCleanup()
         ApiClient.saveToken(tokenA)
         TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
-        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234"))))
+        preparePositive(TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate")))
+        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate"))))
         ShadowToast.reset()
     }
     @After fun cleanup() {
@@ -161,7 +167,7 @@ class ActiveTripSharingLoadTest {
             }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
-        if (!missingBooking) waitFor { requests.any { it.first == "GET /bookings/42/details" } }
+        if (!missingBooking) waitFor { OfflineTripSnapshots.projection(42)?.details?.let(OfflineTripSnapshots::freshDetails) == true }
         callbacks = Shadows.shadowOf(cm).networkCallbacks.filter { it !in before }
         // CI 14.10: the details request is recorded before its answer reaches the screen, and the share
         // row appears only after that answer. Give the screen a few frames and retry a bounded number of times.
@@ -374,4 +380,57 @@ class ActiveTripSharingLoadTest {
     }
     @Test fun closedHeldListCannotReplaceReopenedSnapshot() = reopened("list")
     @Test fun closedHeldCreateCannotChangeReopenedSnapshot() = reopened("create")
+    private fun awaitSnapshotCleanup() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun preparationResponse(request: RecordedRequest): MockResponse? {
+        val pass = preparingPass ?: return null
+        val prefix = "/bookings/${pass.bookingId}"
+        val body = when (request.path) {
+            "$prefix/role" -> JSONObject().put("role", "passenger").put("status", "confirmed").put("driver_phase", "departed")
+            "$prefix/details" -> pass.toJson().put("ride_id", pass.bookingId + 1000)
+                .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+                .put("pay_method", pass.payMethod ?: "negotiate")
+            "$prefix/boarding-code" -> JSONObject().put("code", pass.boardingCode)
+            else -> return null
+        }
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setHeader("Content-Type", "application/json").setBody(body.toString())
+    }
+    private fun preparePositive(pass: TripPass) = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        check(preparingPass == null)
+        preparingPass = pass
+        try {
+            ApiClient.getTripState(pass.bookingId).getOrThrow()
+            val actual = ApiClient.getBookingDetails(pass.bookingId).getOrThrow()
+            assertTrue("Setup must obtain its own actual current DETAILS", OfflineTripSnapshots.privateDetails(actual))
+            assertEquals(pass.boardingCode, ApiClient.getBoardingCode(pass.bookingId).getOrThrow())
+        } finally { preparingPass = null }
+        val prefix = "GET /bookings/${pass.bookingId}"
+        assertEquals(listOf("$prefix/role", "$prefix/details", "$prefix/boarding-code"),
+            preparationRequests.drop(start))
+    }
+
+    private fun canonicalTripBody(path: String?, body: String): String {
+        val endpoint = path.orEmpty()
+        val details = endpoint.endsWith("/details")
+        val role = endpoint.endsWith("/role")
+        val receipt = endpoint.endsWith("/receipt")
+        if (!details && !role && !receipt) return body
+        val value = org.json.JSONObject(body)
+        if ((details || receipt) && !value.has("ride_id")) value.put("ride_id", 1042)
+        if (details) {
+            if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
+            if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+        }
+        if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
+        if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))
+            value.put("onboard_at", "2031-02-03T09:00:00.123456Z")
+        return value.toString()
+    }
+
 }

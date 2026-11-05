@@ -23,6 +23,8 @@ import androidx.core.app.ServiceCompat
 import androidx.core.content.ContextCompat
 import com.yuldash.app.data.LocationSocket
 import com.yuldash.app.data.TripLocationBus
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.cancel
 
 /**
  * Foreground-сервис live-позиции. Пока активна поездка: шлёт мой GPS в WS-канал брони
@@ -30,9 +32,9 @@ import com.yuldash.app.data.TripLocationBus
  * ДРУГОГО участника (кладёт в TripLocationBus → карта рисует
  * маркер). Foreground = работает с погасшим экраном (Android не душит фоновую отправку).
  * Приватность: стрим только во время активной поездки; запускаем/глушим из YuldashApp по
- * activeBookingId. Координаты на сервере НЕ хранятся (только ретрансляция).
+ * activeBookingId. Доступ к точке определяет сервер отдельно для каждой брони.
  *
- * НЕ проверено вживую (нужны 2 телефона в одной брони) — собрано, помечено в docs/tasks.md.
+ * Водителю нужно отдельное живое разрешение процесса; перезапуск службы его не создаёт.
  */
 class TripLocationService : Service() {
     private var socket: LocationSocket? = null
@@ -46,37 +48,32 @@ class TripLocationService : Service() {
     private var currentLang = AppLanguage.Ru   // язык нотификации; приходит из YuldashApp по текущему AppLanguage
     private val watchdog = Handler(Looper.getMainLooper())   // сторож: сам глушит сервис, если YuldashApp упал и не позвал stop()
     private val autoStop = Runnable { stopSelf() }
+    private var foregroundStarted = false
 
     override fun onBind(intent: Intent?): IBinder? = null
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
-        val prefs = getSharedPreferences(PREFS, Context.MODE_PRIVATE)
-        val bookingId: Int
-        if (intent != null) {
-            bookingId = intent.getIntExtra(EXTRA_BOOKING, -1)
-            intent.getStringExtra(EXTRA_LANG)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
-            isDriver = intent.getBooleanExtra(EXTRA_DRIVER, false)
-            // H2: запоминаем активную бронь. Если Android убьёт процесс, при воскрешении (intent==null)
-            // продолжим ИМЕННО эту поездку, а не погасим трекинг. Чистим в onDestroy при штатном стопе.
-            if (bookingId > 0) prefs.edit().putInt(KEY_BOOKING, bookingId).putString(KEY_LANG, currentLang.name)
-                .putBoolean(KEY_DRIVER, isDriver).apply()
-        } else {
-            // H2: START_STICKY воскресил сервис после смерти процесса с intent==null. Долгая поездка ещё идёт —
-            // перечитываем bookingId/язык/роль из prefs и продолжаем трекинг (раньше тут bookingId=-1 → stopSelf, стрим гас).
-            bookingId = prefs.getInt(KEY_BOOKING, -1)
-            prefs.getString(KEY_LANG, null)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
-            isDriver = prefs.getBoolean(KEY_DRIVER, false)
-        }
-        // Нет брони ИЛИ нет гео-разрешения → не держим бесполезный foreground-сервис и ложную нотификацию
-        // «показываем вашу позицию» (если юзер отозвал гео — стрим всё равно не пойдёт).
-        if (bookingId <= 0 ||
-            ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            stopSelf(); return START_NOT_STICKY
+        if (intent == null) { stopTracking(); stopSelf(); return START_NOT_STICKY }
+        val bookingId = intent.getIntExtra(EXTRA_BOOKING, -1)
+        intent.getStringExtra(EXTRA_LANG)?.let { currentLang = runCatching { AppLanguage.valueOf(it) }.getOrDefault(AppLanguage.Ru) }
+        isDriver = intent.getBooleanExtra(EXTRA_DRIVER, false)
+        if (bookingId <= 0 || !hasPrecise() || (isDriver && DriverGpsActions.current()?.carrier != bookingId)) {
+            if (isDriver && !hasPrecise()) DriverGpsActions.permission(false)
+            stopTracking(); stopSelf(); return START_NOT_STICKY
         }
         ServiceCompat.startForeground(
             this, NOTIF_ID, buildNotification(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0
         )
+        foregroundStarted = true
+        if (isDriver && !DriverGpsActions.allowed(this, bookingId)) {
+            currentBookingId = bookingId
+            pauseDriverChannel(); resolveDriverCarrier()
+            watchdog.removeCallbacks(driverGuard); watchdog.postDelayed(driverGuard, DRIVER_GUARD_MS)
+            watchdog.removeCallbacks(driverRefresh); watchdog.postDelayed(driverRefresh, DRIVER_REFRESH_MS)
+            return START_NOT_STICKY
+        }
+        closedBookings.remove(bookingId)
         TripLocationBus.bookingId = bookingId
         // Пульс стоянки — только водителю: его точку сервер хранит для ссылки близким и для SOS. Точку пассажира
         // сервер лишь пересылает водителю, а у того она и так остаётся на карте — стоящему пассажиру слать незачем.
@@ -97,29 +94,105 @@ class TripLocationService : Service() {
                 // Канал (пере)подключился — следующая точка GPS уходит сразу (≤ 3 с), а не ждёт остаток паузы:
                 // после обрыва связи стоящая машина иначе молчала бы до 45 с.
                 onConnected = { connected ->
-                    if (connected) watchdog.post { if (socketGeneration == generation) pacer.reset() }
+                    watchdog.post {
+                        if (socketGeneration == generation) {
+                            TripLocationBus.rideShareActive = isDriver && connected
+                            if (connected) pacer.reset()
+                            updateNotification()
+                        }
+                    }
                 },
                 onTerminated = {
                     watchdog.post {
                         if (socketGeneration == generation) {
                             // Не ждём onDestroy: отказ уже окончательный, GPS и восстановление больше не нужны.
-                            stopTracking()
-                            stopSelf()
+                            if (isDriver) { closedBookings += currentBookingId; DriverGpsActions.grant.pauseCarrier(currentBookingId); pauseDriverChannel(); resolveDriverCarrier() }
+                            else { stopTracking(); stopSelf() }
                         }
                     }
                 },
+                mayPublish = { hasPrecise() && (!isDriver || DriverGpsActions.allowed(this, bookingId)) },
             ).also { it.connect() }
         }
         if (listener == null) startLocationUpdates()   // GPS-слушатель один на сервис (шлёт в текущий socket)
-        // Сторож-таймаут: если вызывающий (YuldashApp) крашнется и не позовёт stop(), сервис бы висел
-        // и вечно лил GPS (батарея + приватность). Через MAX_LIFETIME_MS глушим сами. Каждый новый
-        // onStartCommand (смена брони / рестарт живой поездки) сбрасывает таймер — активная поездка не оборвётся.
+        TripLocationBus.driverBookingClosed = if (isDriver) ({ id ->
+            closedBookings += id
+            if (currentBookingId == id) pauseDriverChannel()
+            resolveDriverCarrier()
+        }) else null
         watchdog.removeCallbacks(autoStop)
-        watchdog.postDelayed(autoStop, MAX_LIFETIME_MS)
-        return START_STICKY
+        if (isDriver) {
+            watchdog.removeCallbacks(driverGuard)
+            watchdog.postDelayed(driverGuard, DRIVER_GUARD_MS)
+            watchdog.removeCallbacks(driverRefresh)
+            watchdog.postDelayed(driverRefresh, DRIVER_REFRESH_MS)
+        } else watchdog.postDelayed(autoStop, MAX_LIFETIME_MS)
+        return START_NOT_STICKY
+    }
+
+    private val scope = kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+    private val closedBookings = mutableSetOf<Int>()
+    private var resolving = false
+    private var resolveVersion = 0L
+    internal var driverFeed: suspend (Long) -> Result<DriverBookingsFeed> = ::gpsDriverBookings
+    private fun hasPrecise() = ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    private val driverGuard = object : Runnable {
+        override fun run() {
+            if (isDriver && (DriverGpsActions.current() == null || !hasPrecise())) {
+                if (!hasPrecise()) DriverGpsActions.permission(false)
+                stopTracking(); stopSelf(); return
+            }
+            if (isDriver && !DriverGpsActions.allowed(this@TripLocationService, currentBookingId)) pauseDriverChannel()
+            watchdog.postDelayed(this, DRIVER_GUARD_MS)
+        }
+    }
+    private val driverRefresh = object : Runnable {
+        override fun run() { resolveDriverCarrier(); watchdog.postDelayed(this, DRIVER_REFRESH_MS) }
+    }
+    private fun pauseDriverChannel() {
+        DriverGpsActions.grant.pauseCarrier(currentBookingId)
+        socketGeneration++; socket?.close(); socket = null
+        listener?.let { runCatching { lm?.removeUpdates(it) } }; listener = null; lm = null
+        TripLocationBus.peer = null; TripLocationBus.rideShareActive = false
+        updateNotification()
+    }
+    private fun updateNotification() {
+        if (foregroundStarted) getSystemService(NotificationManager::class.java).notify(NOTIF_ID, buildNotification())
+    }
+    private fun resolveDriverCarrier() {
+        if (!isDriver || resolving) return
+        val lease = DriverGpsActions.current() ?: run { stopTracking(); stopSelf(); return }
+        resolving = true
+        val version = ++resolveVersion
+        scope.launch {
+            try {
+                val requestedAt = SystemClock.elapsedRealtime()
+                val feed = driverFeed(lease.ticket.owner.session).getOrNull()
+                if (version != resolveVersion || DriverGpsActions.current()?.ticket?.id != lease.ticket.id) return@launch
+                if (feed == null) { pauseDriverChannel(); return@launch }
+                val pick = pickRideCarrier(feed.rows, lease.rideId, closedBookings)
+                val carrier = pick.carrier
+                if (carrier == null) {
+                    pauseDriverChannel()
+                    if (!feed.partial) { DriverGpsActions.revoke(); stopTracking(); stopSelf() }
+                    return@launch
+                }
+                val now = SystemClock.elapsedRealtime()
+                val reconnect = carrier != currentBookingId || socket == null
+                if (reconnect) pauseDriverChannel()
+                if (!DriverGpsActions.grant.transfer(DriverGpsActions.owner(), lease.rideId, carrier,
+                        pick.carrierTtlSec?.let { requestedAt + it * 1000L } ?: Long.MAX_VALUE, now, System.currentTimeMillis())) return@launch
+                if (reconnect) {
+                    currentBookingId = -1
+                    onStartCommand(Intent(this@TripLocationService, TripLocationService::class.java)
+                        .putExtra(EXTRA_BOOKING, carrier).putExtra(EXTRA_DRIVER, true).putExtra(EXTRA_LANG, currentLang.name), 0, 0)
+                }
+            } finally { resolving = false }
+        }
     }
 
     private fun startLocationUpdates() {
+        if (isDriver && !DriverGpsActions.allowed(this, currentBookingId)) return
         if (ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION)
             != PackageManager.PERMISSION_GRANTED) return
         val manager = getSystemService(Context.LOCATION_SERVICE) as LocationManager
@@ -128,7 +201,8 @@ class TripLocationService : Service() {
             override fun onLocationChanged(loc: Location) {
                 // Гео отозвали посреди поездки — точку не шлём и сервис не держим (тот же гейт, что на старте).
                 if (ContextCompat.checkSelfPermission(this@TripLocationService, android.Manifest.permission.ACCESS_FINE_LOCATION)
-                    != PackageManager.PERMISSION_GRANTED) { stopSelf(); return }
+                    != PackageManager.PERMISSION_GRANTED) { DriverGpsActions.permission(false); stopTracking(); stopSelf(); return }
+                if (isDriver && !DriverGpsActions.allowed(this@TripLocationService, currentBookingId)) { pauseDriverChannel(); return }
                 // Монотонные часы: перевод времени на телефоне назад не замораживает отправку на час.
                 val now = SystemClock.elapsedRealtime()
                 if (!pacer.due(now, loc.latitude, loc.longitude)) return
@@ -171,7 +245,10 @@ class TripLocationService : Service() {
         return NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle(appTextFor(currentLang, "Юлдаш — поездка идёт", "Юлдаш — сәфәр бара"))
             // Уведомление в шторке — тоже голос Юлдаша: на «ты», как везде.
-            .setContentText(appTextFor(currentLang, "Показываем твою позицию попутчику", "Урыныңды юлдашыңа күрһәтәбеҙ"))
+            .setContentText(if (isDriver) {
+                if (TripLocationBus.rideShareActive) appTextFor(currentLang, "Показываем машину пассажирам рейса", "Машинаны рейс пассажирҙарына күрһәтәбеҙ")
+                else appTextFor(currentLang, "Передача приостановлена — проверяем поездку", "Урынды күрһәтеү туҡтатылды — сәфәрҙе тикшерәбеҙ")
+            } else appTextFor(currentLang, "Показываем твою позицию попутчику", "Урыныңды юлдашыңа күрһәтәбеҙ"))
             .setSmallIcon(android.R.drawable.ic_menu_mylocation)
             .setOngoing(true)
             .setContentIntent(open)
@@ -179,6 +256,9 @@ class TripLocationService : Service() {
     }
 
     private fun stopTracking() {
+        resolveVersion++
+        watchdog.removeCallbacks(driverGuard); watchdog.removeCallbacks(driverRefresh)
+        TripLocationBus.driverBookingClosed = null; TripLocationBus.rideShareActive = false
         socketGeneration++
         watchdog.removeCallbacks(autoStop)
         listener?.let { runCatching { lm?.removeUpdates(it) } }
@@ -190,14 +270,11 @@ class TripLocationService : Service() {
         currentBookingId = -1
         TripLocationBus.peer = null
         TripLocationBus.bookingId = null
-        // H2: поездка завершена штатно (stopService/stopSelf зовёт onDestroy) → стираем сохранённую бронь,
-        // чтобы будущее воскрешение сервиса НЕ подняло уже законченную поездку (приватность + не тот стрим).
-        // Если процесс убили без onDestroy (OOM) — prefs остаётся, и это правильно: поездка ещё шла.
-        getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().remove(KEY_BOOKING).remove(KEY_LANG).remove(KEY_DRIVER).apply()
     }
 
     override fun onDestroy() {
         stopTracking()
+        scope.cancel()
         super.onDestroy()
     }
 
@@ -205,11 +282,6 @@ class TripLocationService : Service() {
         const val EXTRA_BOOKING = "booking_id"
         const val EXTRA_LANG = "lang"
         const val EXTRA_DRIVER = "is_driver"   // я водитель в этой брони (нет — значит пассажир)
-        // H2: последняя активная бронь для воскрешения сервиса после смерти процесса (intent==null).
-        private const val PREFS = "trip_location_svc"
-        private const val KEY_BOOKING = "last_booking"
-        private const val KEY_LANG = "last_lang"
-        private const val KEY_DRIVER = "last_driver"
         private const val CHANNEL = "trip_location"
         private const val NOTIF_ID = 4711
         internal const val FIX_INTERVAL_MS = 3_000L   // как часто просим точку у GPS
@@ -220,6 +292,8 @@ class TripLocationService : Service() {
         // 60 с уже не держит потерю одного кадра (123 с), 30 с — вдвое больше кадров без нужды.
         internal const val HEARTBEAT_MS = 45_000L
         internal const val NO_HEARTBEAT_MS = Long.MAX_VALUE   // пассажир: на стоянке не шлём (см. onStartCommand)
+        private const val DRIVER_GUARD_MS = 1_000L
+        private const val DRIVER_REFRESH_MS = 12_000L
         private const val MAX_LIFETIME_MS = 6 * 3600_000L   // 6ч — заведомо дольше любой реальной поездки; страховка от зависшего сервиса
 
         internal fun start(ctx: Context, bookingId: Int, lang: AppLanguage, isDriver: Boolean) {

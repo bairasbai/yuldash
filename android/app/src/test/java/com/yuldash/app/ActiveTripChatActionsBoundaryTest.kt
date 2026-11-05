@@ -67,6 +67,8 @@ class ActiveTripChatActionsBoundaryTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(false)
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
+    @Volatile private var preparingPass: TripPass? = null
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     private val sockets = CopyOnWriteArrayList<WebSocket>()
     private val auth = LinkedBlockingQueue<String>()
     private val sent = LinkedBlockingQueue<String>()
@@ -142,6 +144,7 @@ class ActiveTripChatActionsBoundaryTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path.orEmpty()
                     val bearer = request.getHeader("Authorization")
+                    preparationResponse(request)?.let { return it }
                     requests += "${request.method} $path" to bearer
                     if (path == "/ws/bookings/42") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                         override fun onOpen(webSocket: WebSocket, response: Response) { sockets += webSocket }
@@ -203,8 +206,8 @@ class ActiveTripChatActionsBoundaryTest {
                         "/bookings/42/role" -> """{"role":"passenger","status":"$remoteStatus","driver_phase":"departed"}"""
                         "/bookings/42/messages" -> """{"items":[{"id":1,"sender_id":22,"text":"${if (bearer == "Bearer $tokenB") "private-history-B" else "private-history-A"}"}]}"""
                         "/bookings/42/boarding-code" -> """{"code":"1234"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed","pay_method":"cash","pay_amount":700}"""
-                        "/trips/42/receipt" -> """{"booking_id":42,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Водитель","amount":700,"paid":true}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"cash","pay_amount":700}"""
+                        "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Водитель","amount":700,"paid":true}"""
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
@@ -218,10 +221,12 @@ class ActiveTripChatActionsBoundaryTest {
         ApiClient.testTimeoutMs = 60000
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.verifyCode("+70000000000", "000000", "A").getOrThrow()
         TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
-        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234"))))
+        preparePositive(TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate")))
+        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate"))))
         ShadowToast.reset()
         Unit
     }
@@ -282,14 +287,41 @@ class ActiveTripChatActionsBoundaryTest {
             }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
-        waitFor { auth.peek() == tokenA && requests.any { it.first == "GET /bookings/42/messages" } &&
-            compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
+        try {
+            waitFor { auth.peek() == tokenA && requests.any { it.first == "GET /bookings/42/messages" } &&
+                compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
+        } catch (failure: ComposeTimeoutException) {
+            val waiting = runCatching {
+                compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty()
+            }
+            val currentOwner = OfflineTripSnapshots.currentOwner()
+            // Synthetic metadata only: never emit queue contents, headers, DTOs or private values.
+            throw AssertionError("CHAT_MOUNT authA=${auth.peek() == tokenA} " +
+                "messagesGET=${requests.any { it.first == "GET /bookings/42/messages" }} " +
+                "waitingText=${waiting.getOrNull()} semanticsLookupFailed=${waiting.isFailure} " +
+                "wsGET=${requests.count { it.first == "GET /ws/bookings/42" }} " +
+                "wsUpgrades=${sockets.size} authFrames=${auth.size} " +
+                "normalRole=${requests.count { it.first == "GET /bookings/42/role" }} " +
+                "normalDetails=${requests.count { it.first == "GET /bookings/42/details" }} " +
+                "normalCode=${requests.count { it.first == "GET /bookings/42/boarding-code" }} " +
+                "normalHistory=${requests.count { it.first == "GET /bookings/42/messages" }} " +
+                "prepRole=${preparationRequests.count { it == "GET /bookings/42/role" }} " +
+                "prepDetails=${preparationRequests.count { it == "GET /bookings/42/details" }} " +
+                "prepCode=${preparationRequests.count { it == "GET /bookings/42/boarding-code" }} " +
+                "prepHistory=${preparationRequests.count { it == "GET /bookings/42/messages" }} " +
+                "ownerPresent=${currentOwner != null} " +
+                "ownerGenerationCurrent=${currentOwner?.generation == ApiClient.queueSessionGeneration()} " +
+                "live=${OfflineTripSnapshots.allowsLive(42)} " +
+                "detailsPresent=${OfflineTripSnapshots.projection(42) != null} " +
+                "privatePresent=${OfflineTripSnapshots.privatePass(42) != null}", failure)
+        }
         assertEquals(tokenA, auth.poll())
         ownedNetworkCallbacks = Shadows.shadowOf(connectivity).networkCallbacks.filter { it !in callbacksBefore }
         assertEquals(1, ownedNetworkCallbacks.size)
         val result = callbacks(screenSocket(before))
         if (openChat) {
-            waitFor { requests.any { it.first == "GET /bookings/42/details" } }
+            // A verified preparation DETAILS may seed this mount without an extra GET.
+            waitFor { OfflineTripSnapshots.projection(42)?.details?.let(OfflineTripSnapshots::freshDetails) == true }
             compose.onNodeWithText("Написать").performClick()
             pump(1000)
             tripList().performScrollToNode(hasText("initial-history"))
@@ -681,4 +713,40 @@ class ActiveTripChatActionsBoundaryTest {
         assertTrue(bodies.single { it.first == "/voice" }.second.contains("\u0001\u0002\u0003\u0004"))
         assertEquals(org.robolectric.shadows.ShadowMediaRecorder.STATE_RELEASED, Shadows.shadowOf(native).state)
     }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun preparationResponse(request: RecordedRequest): MockResponse? {
+        val pass = preparingPass ?: return null
+        val prefix = "/bookings/${pass.bookingId}"
+        val body = when (request.path) {
+            "$prefix/role" -> JSONObject().put("role", "passenger").put("status", "confirmed").put("driver_phase", "departed")
+            "$prefix/details" -> pass.toJson().put("ride_id", pass.bookingId + 1000)
+                .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+                .put("pay_method", pass.payMethod ?: "negotiate")
+            "$prefix/boarding-code" -> JSONObject().put("code", pass.boardingCode)
+            else -> return null
+        }
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setHeader("Content-Type", "application/json").setBody(body.toString())
+    }
+
+    private fun preparePositive(pass: TripPass) = runBlocking {
+        val start = preparationRequests.size
+        check(preparingPass == null)
+        preparingPass = pass
+        try {
+            ApiClient.getTripState(pass.bookingId).getOrThrow()
+            val actual = ApiClient.getBookingDetails(pass.bookingId).getOrThrow()
+            assertTrue("Setup must obtain its own actual current DETAILS", OfflineTripSnapshots.privateDetails(actual))
+            assertEquals(pass.boardingCode, ApiClient.getBoardingCode(pass.bookingId).getOrThrow())
+        } finally { preparingPass = null }
+        val prefix = "GET /bookings/${pass.bookingId}"
+        assertEquals(listOf("$prefix/role", "$prefix/details", "$prefix/boarding-code"),
+            preparationRequests.drop(start))
+    }
+
 }

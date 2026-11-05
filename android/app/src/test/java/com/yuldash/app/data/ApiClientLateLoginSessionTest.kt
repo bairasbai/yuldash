@@ -5,6 +5,8 @@ import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -30,7 +32,12 @@ class ApiClientLateLoginSessionTest {
     private lateinit var server: MockWebServer
     private val oldLoginArrived = CountDownLatch(1)
     private val releaseOldLogin = CountDownLatch(1)
+    @Volatile private var oldLoginResponseTimedOut = false
     private val refreshBodies = CopyOnWriteArrayList<String>()
+
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
 
     @Before fun prepare() {
         ApiClient.resetForTest()
@@ -42,7 +49,10 @@ class ApiClientLateLoginSessionTest {
                         val isOldAccount = request.path == "/auth/tg/verify" || body.optString("name") == "Account A"
                         if (isOldAccount) {
                             oldLoginArrived.countDown()
-                            if (!releaseOldLogin.await(5, TimeUnit.SECONDS)) return MockResponse().setResponseCode(504)
+                            if (!releaseOldLogin.await(5, TimeUnit.SECONDS)) {
+                                oldLoginResponseTimedOut = true
+                                return MockResponse().setResponseCode(504)
+                            }
                             return ok(auth("A"))
                         }
                         return ok(auth("B"))
@@ -69,6 +79,7 @@ class ApiClientLateLoginSessionTest {
         ApiClient.testTimeoutMs = 10_000
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.sessionExpired.value = false
     }
 
@@ -94,6 +105,7 @@ class ApiClientLateLoginSessionTest {
         try {
             assertTrue("The first login must be waiting for its local HTTP response", oldLoginArrived.await(5, TimeUnit.SECONDS))
             ApiClient.logout()
+            awaitSnapshotCleanup()
             ApiClient.verifyCode("+70000000002", "1234", "Account B").getOrThrow()
             assertEquals("access-B", ApiClient.currentToken())
             assertEquals("Account B", ApiClient.cachedName())
@@ -101,6 +113,7 @@ class ApiClientLateLoginSessionTest {
             releaseOldLogin.countDown()
         }
         assertTrue("Old login response must not report successful authentication", oldLogin.await().isFailure)
+        assertFalse("Old login must stay held until the replacement login completes", oldLoginResponseTimedOut)
         assertEquals("Late login must not replace the current access token", "access-B", ApiClient.currentToken())
         assertEquals("Late login must not replace the current profile name", "Account B", ApiClient.cachedName())
         // Exercise refresh through the real public API, rather than inspecting private fields.

@@ -675,7 +675,7 @@ internal fun SettingsScreen(
             onDismissRequest = { showLogoutDialog = false },
             containerColor = CanonSurface,
             title = { Text(appText("Выйти из аккаунта?", "Иҫәптән сығаһыңмы?"), color = CanonText, fontWeight = FontWeight.Bold) },
-            text = { Text(appText("Нужно будет снова войти через Telegram.", "Telegram аша яңынан инергә кәрәк буласаҡ."), color = CanonMuted) },
+            text = { Text(appText("Чтобы вернуться, нужно будет снова войти.", "Кире ҡайтыу өсөн яңынан инергә кәрәк буласаҡ."), color = CanonMuted) },
             confirmButton = { TextButton(onClick = { showLogoutDialog = false; onLogout() }) { Text(appText("Выйти", "Сығыу"), color = CanonRed, fontWeight = FontWeight.Bold) } },
             dismissButton = { TextButton(onClick = { showLogoutDialog = false }) { Text(appText("Отмена", "Баш тартыу"), color = CanonMuted) } },
         )

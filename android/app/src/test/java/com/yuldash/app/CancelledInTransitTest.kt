@@ -11,6 +11,7 @@ import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
+import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassDeletion
 import com.yuldash.app.data.TripPassStore
@@ -23,6 +24,20 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import okhttp3.mockwebserver.SocketPolicy
+import com.yuldash.app.data.ChatSocket
+import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.SnapshotWiringCleanupGuard
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.finishOfflineWriteFixture02
+import com.yuldash.app.data.poisonOfflinePassportFixture03
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ThreadContextElement
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import java.net.InetAddress
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.*
@@ -52,7 +67,12 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class CancelledInTransitTest {
-    @get:Rule val compose = createComposeRule()
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private val requestJobs = RequestJobs()
+    private var contentSet = false
+    private var serverStarted = false
+    private var sessionInstalled = false
+    @get:Rule val compose = createComposeRule(effectContext = requestJobs)
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val plain = MemoryDiskPreferences()
     private val secure = MemoryDiskPreferences()
@@ -60,6 +80,10 @@ class CancelledInTransitTest {
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<String>()
     private val trace = CopyOnWriteArrayList<String>()   // ApiClient.testTrace: вызовы сети и кадры экрана поездки
+    private val ownTrace: (String) -> Unit = { line -> trace += line; if (line.startsWith("вошли в вызов ")) requestJobs.record() }
+    private val preparationRequests = CopyOnWriteArrayList<String>()
+    @Volatile private var preparingPassDetails: String? = null
+    @Volatile private var preparingEntryRole = false
     private var tripEndCalls = 0
     private var sosCalls = 0
     private var stoppedCalls = 0
@@ -79,6 +103,7 @@ class CancelledInTransitTest {
     @Volatile private var roleAfterDetails = false   // опрос /role отвечает позже первых деталей
     private val roleServed = CountDownLatch(1)
     private val detailsServed = CountDownLatch(1)
+    private val responseOrderGate = CountDownLatch(1)
 
     private fun roleJson() = """{"role":"$role","status":"cancelled","driver_phase":"","peer_id":9,""" +
         """"problem_report_sec":$reportSec,"cancelled_in_transit":$roleFlag}"""
@@ -88,10 +113,10 @@ class CancelledInTransitTest {
         """"driver_car_color":"серая","driver_plate":"М555ОР102","driver_phone":"","cancelled_in_transit":$detailsFlag}"""
 
     @Before fun setup() {
-        ApiClient.resetForTest()
-        ApiClient.init(ApplicationProvider.getApplicationContext<Application>())
-        ApiClient.logout()   // без входа ChatSocket не открывает настоящий WebSocket
+        cleanupGuard.requireHealthy()
+        check(ApiClient.testTrace == null)
         TripPassStore.initStores(plain, secure)
+        Outbox.initStores(MemoryDiskPreferences(), null)
         InTransitCancels.clearForTest()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
@@ -100,16 +125,29 @@ class CancelledInTransitTest {
                 override fun peek(): MockResponse =
                     if (offline) MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AT_START) else super.peek()
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    if (request.path?.startsWith("/bookings/42/") == true &&
+                        request.getHeader("Authorization") != "Bearer " + TripPassAuthorityFixture.jwt(11)) return MockResponse().setResponseCode(403)
+                    if (preparingEntryRole && request.path == "/bookings/42/role") {
+                        if (request.method != "GET") return MockResponse().setResponseCode(405)
+                        preparationRequests += request.method + " " + request.path
+                        return MockResponse().setHeader("Content-Type", "application/json").setBody(cancelledEntryRole09())
+                    }
+                    preparingPassDetails?.let { details ->
+                        val body = when (request.path) { "/bookings/42/details" -> details; "/bookings/42/boarding-code" -> """{"code":"4821"}"""; else -> null }
+                        if (body != null) { preparationRequests += request.method + " " + request.path; return MockResponse().setBody(body) }
+                    }
                     requests.add("${request.method} ${request.path}")
                     val body = when (request.path) {
                         "/bookings/42/role" -> roleBody ?: run {
-                            if (roleAfterDetails) { detailsServed.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
+                            if (roleAfterDetails) { responseOrderGate.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
                             roleJson().also { roleServed.countDown() }
+                                .also { if (detailsAfterRole) responseOrderGate.countDown() }
                         }
                         "/bookings/42/details" -> {
                             detailsGate?.await(10, TimeUnit.SECONDS)
-                            if (detailsAfterRole) { roleServed.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
+                            if (detailsAfterRole) { responseOrderGate.await(10, TimeUnit.SECONDS); Thread.sleep(300) }
                             detailsJson().also { detailsServed.countDown() }
+                                .also { if (roleAfterDetails) responseOrderGate.countDown() }
                         }
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":""}"""
@@ -118,24 +156,77 @@ class CancelledInTransitTest {
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
-        ApiClient.testTimeoutMs = 1000
-        ApiClient.testTrace = { trace += it }
+        serverStarted = true
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'), 11)
+        sessionInstalled = true
+        assertEquals(11, OfflineTripSnapshots.currentOwner()?.userId)
+        assertTrue(ApiClient.isCurrentSession(ApiClient.queueSessionGeneration()))
+        ApiClient.testTrace = ownTrace
     }
 
     @After fun cleanup() {
-        detailsGate?.countDown()
-        compose.runOnIdle { mounted.value = false }
-        settle()
-        ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        ApiClient.testTrace = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        InTransitCancels.clearForTest()
-        server.shutdown()
+        var stage06 = 0
+        try {
+            cleanupGuard.requireHealthy()
+            detailsGate?.countDown()
+            stage06 = 1
+            if (contentSet) {
+                compose.runOnIdle { mounted.value = false }
+                settle()
+                compose.waitForIdle()
+            }
+            responseOrderGate.countDown()
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            stage06 = 2
+            if (sessionInstalled) {
+                ApiClient.logout()
+            }
+            stage06 = 3
+            finishOfflineWriteFixture02(cleanupGuard) {
+                check(ApiClient.testTrace == null || ApiClient.testTrace === ownTrace)
+                if (serverStarted) {
+                    stage06 = 4
+                    server.shutdown()
+                    stage06 = 5
+                }
+                ApiClient.resetForTest()
+                ApiClient.testTimeoutMs = null
+                TripPassStore.initStores(MemoryDiskPreferences(), null)
+                Outbox.initStores(MemoryDiskPreferences(), null)
+                InTransitCancels.clearForTest()
+            }
+        } catch (failure: Throwable) {
+            runCatching {
+                println(cancelledCleanupObservation06(this, stage06))
+            }
+            poisonOfflinePassportFixture03(cleanupGuard, failure)
+        } finally {
+            if (ApiClient.testTrace === ownTrace) {
+                ApiClient.testTrace = null
+            }
+        }
+    }
+
+    /** Observes real API jobs; no Job/dispatcher replacement and no shared-client shutdown. */
+    private class RequestJobs : ThreadContextElement<Job?>, AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<RequestJobs>
+        private val current = ThreadLocal<Job?>()
+        private val started = CopyOnWriteArrayList<Job>()
+        @Volatile private var missingParent = false
+        override fun updateThreadContext(context: CoroutineContext): Job? = current.get().also { current.set(context[Job]) }
+        override fun restoreThreadContext(context: CoroutineContext, oldState: Job?) { current.set(oldState) }
+        fun record() { current.get()?.let { started += it; val caller = it.parent; if (caller == null) missingParent = true else started += caller } }
+        fun awaitCompleted(port: Int?) = runBlocking { withTimeout(5_000) {
+            check(!missingParent) { "Owned caller completion unavailable" }
+            val lazyClient = ChatSocket::class.java.getDeclaredField("client\$delegate").apply { isAccessible = true }.get(null) as Lazy<*>
+            val client = lazyClient.takeIf { it.isInitialized() }?.value as? okhttp3.OkHttpClient
+            while (started.any { !it.isCompleted } || (client?.dispatcher?.let { it.runningCalls() + it.queuedCalls() }.orEmpty()
+                    .any { it.request().url.host == "127.0.0.1" && it.request().url.port == port })) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle(); delay(10)
+            }
+        } }
     }
 
     // Ожидание простых переменных (счётчики, диск) — idle Looper + доставка снимков (testing.md, правило 5).
@@ -164,16 +255,20 @@ class CancelledInTransitTest {
         compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
     }
 
-    /** Паспорт поездки, сохранённый, пока бронь была живой: с телефоном водителя. */
-    private fun savePass() {
-        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("driver_name", "Ринат")
-            .put("driver_car", "серая Лада Веста").put("driver_plate", "М555ОР102")
-            .put("driver_phone", "+79990001122").put("boarding_code", "4821"))
+    /** Positive DETAILS/CODE preparation is always before the original fault boundary. */
+    private fun preparePassThroughHttp(): TripPass =
+        prepareCancelledPass09(plain, secure, preparationRequests) { preparingPassDetails = it }
+    private fun savePreparedPass(pass: TripPass) {
+        val before = preparationRequests.size
         assertTrue(TripPassStore.save(context, pass))
+        assertEquals(before, preparationRequests.size)
+        assertEquals(pass.toJson().toString(), secure.restarted().getString("pass_42", null))
     }
+    private fun savePass() = savePreparedPass(preparePassThroughHttp())
 
     private fun openTrip(language: AppLanguage = AppLanguage.Ru, hint: ActiveTripTerminalHint? = null) {
         mounted.value = true
+        contentSet = true
         compose.setContent {
             if (mounted.value) {
                 CompositionLocalProvider(LocalAppLanguage provides language) {
@@ -212,8 +307,9 @@ class CancelledInTransitTest {
     }
 
     @Test fun `обычная отмена закрывает экран как раньше`() {
+        val prepared = preparePassThroughHttp()
         inTransit = false
-        savePass()
+        savePreparedPass(prepared)
         openTrip()
         waitFor("обычная отмена не закрыла экран") { tripEndCalls > 0 }
         compose.waitForIdle()
@@ -232,7 +328,7 @@ class CancelledInTransitTest {
     }
 
     @Test fun `по пушу — сразу экран помощи, Застрял на трассе и Сообщить о проблеме`() {
-        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")   // «Застрял» и разбор живут только во входе
+        assertEquals(11, OfflineTripSnapshots.currentOwner()?.userId)   // «Застрял» и разбор живут только во входе
         openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
         compose.onNodeWithText("Поездку отменили в пути").assertIsDisplayed()
         // Паспорта нет — машину и номер экран дочитывает из деталей брони сам.
@@ -247,7 +343,7 @@ class CancelledInTransitTest {
 
     @Test fun `окно разбора закрыто — Сообщить о проблеме нет`() {
         reportSec = 0
-        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
+        assertEquals(11, OfflineTripSnapshots.currentOwner()?.userId)
         openTrip(hint = knownTerminalTripHint(42, "cancelled", "passenger", inTransit = true))
         waitForText("М555ОР102")
         waitFor("не спросили /role") { requests.contains("GET /bookings/42/role") }
@@ -268,8 +364,9 @@ class CancelledInTransitTest {
     // ── «Детали поездки», куда ведёт пуш ──
 
     private fun openBooking(language: AppLanguage = AppLanguage.Ru) {
+        mounted.value = true; contentSet = true
         compose.setContent {
-            CompositionLocalProvider(LocalAppLanguage provides language) {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
                 BookingScreen(
                     ride = Ride(id = "7", from = "Город А", to = "Город Б", time = "завтра, 09:00", driver = "Ринат",
                         car = "Лада Веста", price = 500, seats = 1, rating = 4.9, verified = true, boosted = false),
@@ -436,9 +533,12 @@ class CancelledInTransitTest {
     }
 
     @Test fun `признак только в деталях брони — экран помощи всё равно остаётся`() {
+        assertFalse(contentSet)
+        assertFalse(mounted.value)
+        prepareCancelledDetailsFirstEntry09(context, plain, secure, preparationRequests, cleanupGuard,
+            ::preparePassThroughHttp, ::savePreparedPass) { preparingEntryRole = it }
         roleFlag = false   // опрос /role о пути молчит
         roleAfterDetails = true   // детали брони (экран читает их сам, пока поездка жива) пришли первыми
-        savePass()
         openTrip()
         waitForText("Поездку отменили в пути")
         waitForText("М555ОР102")
@@ -459,9 +559,12 @@ class CancelledInTransitTest {
     }
 
     @Test fun `паспорт не удалился — «Закрыть» убирает окно, экран помощи остаётся`() {
+        val prepared = preparePassThroughHttp()
         plain.failWriteOf = TripPassDeletion.KEY
-        savePass()
+        assertEquals(TripPassDeletion.KEY, plain.failWriteOf)
+        savePreparedPass(prepared)
         openTrip()
+        assertEquals(TripPassDeletion.KEY, plain.failWriteOf)
         waitForText("Не удалось удалить сохранённую поездку")
         compose.onNode(hasText("Закрыть") and hasAnyAncestor(isDialog())).performClick()
         waitFor("окно не закрылось") {

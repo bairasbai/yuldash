@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
@@ -12,6 +13,12 @@ import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import okhttp3.mockwebserver.*
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -21,13 +28,14 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.Collections
 import java.util.IdentityHashMap
+import java.util.concurrent.CopyOnWriteArrayList
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
 
 /** Real Compose callbacks; deliberately non-cancellable dependency models a result racing disposal. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class RideshareCompletedBoundaryTest {
     @get:Rule val compose = createComposeRule()
@@ -44,34 +52,115 @@ class RideshareCompletedBoundaryTest {
     private val tokenA = "header.eyJzdWIiOiIxMSJ9.signature"
     private val tokenB = "header.eyJzdWIiOiIzMyJ9.signature"
 
+    private lateinit var server: MockWebServer
+    private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
+    private val fixtureFailures = CopyOnWriteArrayList<String>()
+    private val ownedJobs = CopyOnWriteArrayList<Job>()
+    @Volatile private var httpReceipt: TripReceiptDto? = null
+    private var contentMounted = false
+
+    private fun awaitBackgroundCompletion() = runBlocking {
+        val apiScope = ApiClient::class.java.getDeclaredField("bg").apply { isAccessible = true }.get(ApiClient) as CoroutineScope
+        val storageScope = OfflineTripSnapshots::class.java.getDeclaredField("jobs").apply { isAccessible = true }.get(OfflineTripSnapshots) as CoroutineScope
+        try {
+            withTimeout(10_000) {
+                while (true) {
+                    val children = listOf(apiScope, storageScope).flatMap { requireNotNull(it.coroutineContext[Job]).children.toList() }
+                    if (children.isEmpty()) break
+                    children.forEach { it.join() }
+                }
+            }
+        } catch (failure: TimeoutCancellationException) {
+            throw AssertionError("Fixture background jobs still running; local origin/server retained. Abort this isolated run.", failure)
+        }
+    }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
+    private fun awaitOwnedCompletion() {
+        if (!contentMounted) return
+        try {
+            compose.waitUntil(10_000) {
+                compose.mainClock.advanceTimeBy(100)
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                ownedJobs.all { it.isCompleted }
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError("Fixture foreground jobs still running; local origin/server retained. Abort this isolated run.", failure)
+        }
+    }
+    private suspend fun loadHistory(id: Int): Result<TripReceiptDto> {
+        currentCoroutineContext()[Job]?.let(ownedJobs::add)
+        return ApiClient.getTripReceipt(id).onSuccess { httpReceipt = it }
+    }
+    private fun awaitHistory(id: Int) {
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            httpReceipt?.let { it.bookingId == id && OfflineTripSnapshots.allowsHistory(it) } == true &&
+                compose.onAllNodesWithTag("rideshareStar4").fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue("Actual current receipt HISTORY required", httpReceipt?.let(OfflineTripSnapshots::allowsHistory) == true)
+        assertTrue("Actual authenticated receipt GET required", requests.any { it.first == "GET /trips/$id/receipt" && it.second == "Bearer $tokenA" })
+    }
     @Before fun prepare() {
+        awaitBackgroundCompletion(); awaitSnapshotCleanup()
         ApiClient.resetForTest()
+        server = MockWebServer().apply {
+            dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse {
+                    val key = "${request.method} ${request.path}"
+                    val bearer = request.getHeader("Authorization")
+                    requests += key to bearer
+                    val match = Regex("^/trips/(42|43)/receipt$").matchEntire(request.path.orEmpty())
+                    if (request.method != "GET" || match == null || bearer != "Bearer $tokenA") {
+                        fixtureFailures += "Unexpected local request $key"
+                        return MockResponse().setResponseCode(403).setBody("{}")
+                    }
+                    val id = match.groupValues[1].toInt()
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":true,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
+                }
+            }
+            start()
+        }
+        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testTimeoutMs = 60_000
         ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
+        awaitSnapshotCleanup()
         ApiClient.saveToken(tokenA)
+        assertEquals(11, OfflineTripSnapshots.currentOwner()?.userId)
+        assertFalse("Initial login must not invent live authority", OfflineTripSnapshots.allowsLive(42))
     }
     @After fun cleanup() {
+        if (!::server.isInitialized) { awaitBackgroundCompletion(); awaitSnapshotCleanup(); return }
         pending?.resume(Result.success(Unit)); pending = null
-        compose.runOnIdle { mounted.value = false }
+        if (contentMounted) compose.runOnIdle { mounted.value = false }
+        awaitOwnedCompletion(); awaitBackgroundCompletion(); awaitSnapshotCleanup()
         ApiClient.resetForTest()
+        ApiClient.testTimeoutMs = null
+        server.shutdown()
+        assertTrue("Unexpected fixture requests: $fixtureFailures", fixtureFailures.isEmpty())
     }
     private suspend fun action(kind: String, id: Int): Result<Unit> {
+        currentCoroutineContext()[Job]?.let(ownedJobs::add)
         calls += kind to id
         return if (held == kind && id == 42) suspendCoroutine { pending = it } else Result.success(Unit)
     }
     private fun mount() {
+        contentMounted = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 RideshareCompletedScreen(booking.value, null, "passenger", "cash", 400,
                     onClose = { closes++ }, onOpenReceipt = { receipts++ }, onSupport = { supports++ },
-                    loadReceipt = { id -> Result.success(TripReceiptDto(id, 9, "passenger", "Уфа", "Бирск",
-                        "2026-10-07T10:00:00", 1, 400, "cash", true, "Водитель", true, "Водитель", 0, "")) },
+                    loadReceipt = ::loadHistory,
                     rateBooking = { id, stars, _, _ -> assertEquals(4, stars); action("rating", id) },
                     loadThanks = { Result.success(TipInfoDto("Водитель", false, null)) },
                     sendThanks = { action("thanks", it) }, openLostItem = { action("lost", it) })
             }
         }
+        awaitHistory(booking.value)
         compose.waitForIdle()
-        compose.onNodeWithTag("rideshareStar4").performScrollTo().performClick()
+        compose.onNodeWithTag("rideshareStar4").assertIsEnabled().performScrollTo().performClick()
     }
     private fun node(kind: String): SemanticsNodeInteraction {
         val matcher = when (kind) {
@@ -105,6 +194,7 @@ class RideshareCompletedBoundaryTest {
             }
         }
         compose.waitForIdle()
+        if (kind == "booking") awaitHistory(booking.value)
     }
     private fun retained(kind: String, end: String) {
         mount(); val old = click(kind)

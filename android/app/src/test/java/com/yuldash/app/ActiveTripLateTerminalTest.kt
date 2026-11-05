@@ -12,6 +12,9 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.OfflineTripSnapshots
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -49,19 +52,24 @@ class ActiveTripLateTerminalTest {
     private val fixtureFailures = CopyOnWriteArrayList<String>()
     private val phone = "+7 900 000-00-42"
     private lateinit var server: MockWebServer
+    @Volatile private var seeding = true
 
     @Before fun setup() {
         ApiClient.resetForTest()
-        ApiClient.logout() // No authenticated WebSocket or external MapKit in this fixture.
         TripPassStore.initStores(plain, secure)
-        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234"))
-        assertTrue(TripPassStore.save(context, pass))
-        assertTrue(TripPassStore.save(context, pass.copy(bookingId = 99, boardingCode = "unrelated")))
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add("${request.method} ${request.path}")
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
+                    if (seeding || request.path?.startsWith("/bookings/99/") == true) {
+                        val id = request.path.orEmpty().split('/').getOrNull(2)?.toIntOrNull() ?: 42
+                        val body = if (request.path?.endsWith("/boarding-code") == true)
+                            JSONObject().put("code", if (id == 99) "unrelated" else "1234")
+                        else JSONObject().put("booking_id", id).put("ride_id", id + 1000).put("role", "passenger")
+                            .put("status", "confirmed").put("contact_unlocked", true).put("from_city", "Город А").put("to_city", "Город Б")
+                        return MockResponse().setBody(body.toString())
+                    }
                     val body = when (request.path) {
                         "/bookings/42/role" -> {
                             // Terminal follows the UI barrier: details were applied while code is held.
@@ -83,9 +91,9 @@ class ActiveTripLateTerminalTest {
                         "/bookings/42/details" -> {
                             // Details no longer wait for the outstanding boarding-code request.
                             detailsRequested.countDown()
-                            """{"booking_id":42,"role":"passenger","status":"confirmed","contact_unlocked":true,"driver_phone":"$phone","from_city":"Город А","to_city":"Город Б"}"""
+                            """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"driver_phone":"$phone","from_city":"Город А","to_city":"Город Б"}"""
                         }
-                        "/trips/42/receipt" -> """{"booking_id":42,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Серверный водитель","amount":700,"paid":true}"""
+                        "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Серверный водитель","amount":700,"paid":true}"""
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
@@ -94,8 +102,20 @@ class ActiveTripLateTerminalTest {
             }
             start()
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 45000 // A controlled latch, not an artificial network timeout.
+        runBlocking {
+            ApiClient.getBookingDetails(42).getOrThrow(); ApiClient.getBoardingCode(42).getOrThrow()
+            assertTrue(TripPassStore.save(context, requireNotNull(OfflineTripSnapshots.privatePass(42))))
+            ApiClient.getBookingDetails(99).getOrThrow(); ApiClient.getBoardingCode(99).getOrThrow()
+            assertTrue(TripPassStore.save(context, requireNotNull(OfflineTripSnapshots.privatePass(99))))
+            assertEquals("1234", TripPassAuthorityFixture.durable(secure, 42)?.boardingCode)
+            assertEquals("unrelated", TripPassAuthorityFixture.durable(secure, 99)?.boardingCode)
+            // Keep the original late-response recorder scoped to that phase. Its initial DETAILS
+            // is an actual current HTTP preload; the UI may reuse it but cannot reuse its old code.
+            requests.clear(); seeding = false
+            ApiClient.getBookingDetails(42).getOrThrow()
+        }
     }
 
     @After fun cleanup() {
@@ -160,6 +180,7 @@ class ActiveTripLateTerminalTest {
         assertNull(TripPassStore.load(context, 42))
         assertFalse(secure.restarted().contains("pass_42"))
         assertEquals("unrelated", TripPassStore.load(context, 99)?.boardingCode)
+        assertEquals("unrelated", TripPassAuthorityFixture.durable(secure, 99)?.boardingCode)
         assertEquals(1, requests.count { it == "GET /bookings/42/boarding-code" })
         assertFalse(requests.any { it.startsWith("POST ") })
         assertTrue("Fixture timeouts: $fixtureFailures", fixtureFailures.isEmpty())

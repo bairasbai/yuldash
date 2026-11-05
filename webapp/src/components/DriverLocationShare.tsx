@@ -1,60 +1,50 @@
 // ================================================================
 //  «Твоя точка для пассажира» — водитель на экране поездки (ActiveTripScreen).
-//  Логика и правила приватности — utils/tripLocationShare.ts; здесь только проводка
-//  к настоящему браузеру (navigator.geolocation, WebSocket) и слова на экране.
+//  Логика и правила приватности — utils/tripLocationShare.ts и (весь рейс, Д2) utils/rideLocationShare.ts;
+//  проводка к браузеру — utils/driverRideShare.ts; здесь — слова на экране.
 //
 //  До «Выехал» — одна строка «зачем»: человек заранее знает, почему сайт спросит место.
 //  В пути — состояние: спрашиваем / отправляем / нет связи / доступ закрыт / не определяется.
 // ================================================================
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
-import { getSessionGeneration, getToken, refreshRejectedToken } from "../api/client";
-import { wsBase } from "../api/chat";
-import {
-  startDriverLocationShare,
-  tripLocationUrl,
-  type ShareHandle,
-  type ShareState,
-  type SocketLike,
-} from "../utils/tripLocationShare";
+import type { ShareState } from "../utils/tripLocationShare";
+import { rideShareEnable, rideShareOpen, rideShareRetry } from "../utils/driverRideShare";
+import { subscribeRideShare } from "../utils/rideShareStore";
 import { IconLocate, IconWarn } from "./Icons";
+import { getSessionGeneration } from "../api/client";
 
-export default function DriverLocationShare({ bookingId, inTransit }: { bookingId: number; inTransit: boolean }) {
+export default function DriverLocationShare({ bookingId, rideId, inTransit }: { bookingId: number; rideId?: number; inTransit: boolean }) {
   const { appText } = useLang();
   const [state, setState] = useState<ShareState | null>(null);
-  const handle = useRef<ShareHandle | null>(null);
+  const [active, setActive] = useState(false);
+  const enabling = useRef<{ id: symbol; pendingSeen: boolean } | null>(null);
+  const session = getSessionGeneration();
 
   useEffect(() => {
-    if (!bookingId || !inTransit) {
+    if (!bookingId) {
       setState(null);
       return;
     }
-    const generation = getSessionGeneration();
-    const geo = typeof navigator !== "undefined" && navigator.geolocation ? navigator.geolocation : null;
-    const h = startDriverLocationShare({
-      geolocation: geo,
-      // Настоящий WebSocket шире SocketLike (у его обработчиков this и Event) — логике хватает подмножества.
-      openSocket: () => new WebSocket(tripLocationUrl(wsBase(), bookingId)) as unknown as SocketLike,
-      token: getToken,
-      now: Date.now,
-      setTimer: (fn, ms) => window.setTimeout(fn, ms),
-      clearTimer: (t) => window.clearTimeout(t as number),
-      onState: setState,
-      isCurrent: () => generation === getSessionGeneration(),
-      // Ключ входа истёк посреди поездки — обновить тихо и продолжить (приёмка PR155).
-      refreshToken: refreshRejectedToken,
-      subscribeOnline: (fn) => {
-        if (typeof window === "undefined") return () => {};
-        window.addEventListener("online", fn);
-        return () => window.removeEventListener("online", fn);
-      },
+    // Отправка одна на вкладку (driverRideShare.ts, Д2): ведёшь рейс — после «Завершить» по этому пассажиру
+    // точка идёт дальше через другую живую бронь рейса, а «Едут с тобой» держит её, пока открыт кабинет.
+    const release = rideShareOpen(bookingId);
+    const unsubscribe = subscribeRideShare((s) => {
+      const own = s.bookingId === bookingId || (rideId !== undefined && s.rideId === rideId);
+      setState(own ? s.state : null);
+      setActive(own && s.ride);
+      // beginClick сначала синхронно шлёт старое null-состояние через stopAll.
+      // Оно не завершает только что начатый UI-запрос и не разрешает второй тап.
+      if (enabling.current) {
+        if (own && s.state === "resolving") enabling.current.pendingSeen = true;
+        else if (enabling.current.pendingSeen) enabling.current = null;
+      }
     });
-    handle.current = h;
     return () => {
-      h.stop();
-      if (handle.current === h) handle.current = null;
+      unsubscribe?.();
+      release?.();
     };
-  }, [bookingId, inTransit]);
+  }, [bookingId, rideId, session]);
 
   // До выезда: просить место рано, но сказать «зачем» — самое время.
   if (!inTransit) {
@@ -70,19 +60,27 @@ export default function DriverLocationShare({ bookingId, inTransit }: { bookingI
       </p>
     );
   }
-  if (!state || state === "ended") return null;
-
   const problem = state === "denied" || state === "unavailable" || state === "unsupported";
   const text =
-    state === "asking"
+    !state || state === "ended"
+      ? appText(
+          "Передача места выключена. Можно включить её на этом устройстве без изменения этапа поездки.",
+          "Урынды ебәреү һүндерелгән. Сәфәр этабын үҙгәртмәйенсә, ошо ҡоролмала ҡабыҙырға була."
+        )
+      : state === "resolving"
+        ? appText(
+            "Проверяем пассажиров рейса. Передача места пока приостановлена.",
+            "Рейс пассажирҙарын тикшерәбеҙ. Урынды ебәреү әлегә туҡтатылған."
+          )
+      : state === "asking"
       ? appText(
           "Спрашиваем доступ к месту — так пассажир увидит твою машину на карте.",
           "Урыныңа рөхсәт һорайбыҙ — шулай пассажир машинаңды картала күрер."
         )
       : state === "sharing"
         ? appText(
-            "Отправляем твою точку пассажиру — только пока эта страница открыта.",
-            "Урыныңды пассажирға ебәрәбеҙ — был бит асыҡ саҡта ғына."
+            "Машину видят пассажиры этого рейса, пока открыта поездка или кабинет водителя.",
+            "Сәфәр йәки йөрөтөүсе кабинеты асыҡ саҡта, был рейстың пассажирҙары машинаңды күрә."
           )
         : state === "reconnecting"
           ? appText(
@@ -91,13 +89,13 @@ export default function DriverLocationShare({ bookingId, inTransit }: { bookingI
             )
           : state === "denied"
             ? appText(
-                "Доступ к месту закрыт — пассажир видит только «Выехал» и «Подъезжаю», без машины на карте. Разреши геолокацию для сайта в настройках браузера и нажми «Повторить».",
-                "Урыныңа рөхсәт ябыҡ — пассажир «Сыҡтым» һәм «Яҡынлашам» генә күрә, картала машинаһыҙ. Браузер көйләүҙәрендә сайтҡа геолокацияны рөхсәт ит һәм «Ҡабатлау» тип баҫ."
+                "Доступ к месту закрыт. Разреши геолокацию для сайта в настройках браузера, затем нажми «Включить передачу места».",
+                "Урынға рөхсәт ябыҡ. Браузер көйләүҙәрендә сайтҡа геолокацияны рөхсәт ит, шунан «Урынды ебәреүҙе ҡабыҙырға» тип баҫ."
               )
             : state === "unavailable"
               ? appText(
-                  "Не получается определить место. Проверь, что геолокация на телефоне включена, и нажми «Повторить».",
-                  "Урыныңды билдәләп булмай. Телефонда геолокация ҡабыҙылғанын тикшер һәм «Ҡабатлау» тип баҫ."
+                  "Не получилось включить передачу места. Проверь сеть и геолокацию на телефоне и попробуй ещё раз.",
+                  "Урынды ебәреүҙе ҡабыҙып булманы. Телефонда селтәрҙе һәм геолокацияны тикшереп, яңынан һынап ҡара."
                 )
               : appText(
                   "Этот браузер не умеет передавать место. Пассажир видит «Выехал» и «Подъезжаю».",
@@ -110,8 +108,18 @@ export default function DriverLocationShare({ bookingId, inTransit }: { bookingI
         {problem ? <IconWarn size={16} /> : <span className="trip-geo__dot" aria-hidden />}
         <span>{text}</span>
       </p>
-      {(state === "denied" || state === "unavailable") && (
-        <button type="button" className="btn-ghost trip-geo__retry" onClick={() => handle.current?.retry()}>
+      {!active && rideId !== undefined && rideId > 0 && state !== "unsupported" && (
+        <button type="button" className="btn-ghost trip-geo__retry" disabled={state === "resolving"} onClick={() => {
+          if (enabling.current) return;
+          const attempt = { id: Symbol("enable-location"), pendingSeen: false };
+          enabling.current = attempt;
+          void rideShareEnable(bookingId, rideId).finally(() => { if (enabling.current === attempt) enabling.current = null; });
+        }}>
+          {appText("Включить передачу места", "Урынды ебәреүҙе ҡабыҙырға")}
+        </button>
+      )}
+      {active && state === "unavailable" && (
+        <button type="button" className="btn-ghost trip-geo__retry" onClick={() => rideShareRetry()}>
           {appText("Повторить", "Ҡабатлау")}
         </button>
       )}

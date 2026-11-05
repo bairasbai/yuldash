@@ -6,9 +6,11 @@ import { fileURLToPath } from "node:url";
 const root = fileURLToPath(new URL("../", import.meta.url));
 // Шторка выносится в document.body (useSheetExit → exit.portal): браузера нет — хватит пустого body.
 globalThis.document ??= { body: {} };
+const guestStorage = new Map();
+globalThis.sessionStorage = {getItem:k=>guestStorage.get(k)??null,setItem:(k,v)=>guestStorage.set(k,String(v)),removeItem:k=>guestStorage.delete(k)};
 const h = globalThis.__ridePath = {
   states: [], refs: [], effects: [], si: 0, ri: 0, authed: true, routes: [], calls: [],
-  reset() { this.states = []; this.refs = []; this.effects = []; this.si = this.ri = 0; this.routes = []; this.calls = []; },
+  reset() { this.states = []; this.refs = []; this.effects = []; this.si = this.ri = 0; this.routes = []; this.calls = []; guestStorage.clear(); },
 };
 const modules = {
   react: `const h=globalThis.__ridePath; export function useState(value){const i=h.si++; if(!(i in h.states))h.states[i]=typeof value==='function'?value():value; return [h.states[i],v=>h.states[i]=typeof v==='function'?v(h.states[i]):v]}; export function useRef(value){const i=h.ri++; return h.refs[i]??=( {current:value} )}; export const useEffect=(fn)=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
@@ -17,7 +19,7 @@ const modules = {
   "react-dom": `export const createPortal=(node)=>node;`,
   "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'}); export const useLocation=()=>({state:globalThis.__ridePath.locationState});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru,t:k=>k});`,
-  auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed});`,
+  auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed,status:globalThis.__ridePath.authed?"authed":"guest"});`,
   bookings: `export const createBooking=body=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body)};`,
   rides: `export const fetchRide=(id,signal)=>globalThis.__ridePath.fetchRide(id,signal);`,
   client: `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__ridePath.generation??"same-session";`,
@@ -44,6 +46,7 @@ async function component(path) {
   return (await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'))).default;
 }
 const render=(Component,props)=>{h.si=h.ri=0;h.effects=[];return Component(props)};
+const runEffects=()=>{const cleanups=h.effects.map(fn=>fn());return ()=>cleanups.forEach(fn=>fn?.());};
 function all(node){if(!node||typeof node!=='object')return [];return [node,...[node.props?.children].flat(Infinity).flatMap(all)]}
 const button=tree=>all(tree).find(n=>n.type==='button'&&n.props.className?.includes('sheet__cta'));
 const ride={id:42,driver_id:7,from_city:'Уфа',to_city:'Сибай',depart_at:'2030-01-01T10:00:00',seats_left:2,seats_total:3,price:500,driver_name:'Ринат',driver_rating:5,driver_car:'Lada',category:'regular'};
@@ -57,8 +60,10 @@ h.reset(); h.authed=false;
 await button(render(Sheet,{ride,onClose(){}})).props.onClick();
 assert.equal(h.routes[0][0], '/login');
 assert.equal(h.routes[0][1].state.from, '/rides/42');
-assert.equal(h.routes[0][1].state.returnState.rideMatch.matched_from_start, true);
-assert.equal(h.routes[0][1].state.returnState.rideMatch.matched_to_end, true, 'Прямой рейс сохраняет обе известные точки');
+assert.equal(h.routes[0][1].state.guestBooking, true);
+assert.equal(h.routes[0][1].state.returnState, undefined, 'Остановки гостя не копируются отдельно в историю');
+assert.equal(JSON.parse(guestStorage.get('yuldash.guestBooking.pending')).pickupStop, 'Уфа');
+assert.equal(JSON.parse(guestStorage.get('yuldash.guestBooking.pending')).dropoffStop, 'Сибай', 'Прямой рейс сохраняет обе точки в одноразовом черновике');
 assert.equal(h.calls.length,0);
 h.reset(); h.authed=true; let resolve;h.booking=()=>new Promise(r=>resolve=r);
 let closed=0;let tree=render(Sheet,{ride,onClose(){closed++}});
@@ -89,23 +94,23 @@ assert.equal(h.calls[0].front_seat,true,'Просьба о переднем ме
 const Detail=await component('src/screens/RideDetailScreen.tsx');
 h.reset();h.fetchRide=async id=>{assert.equal(id,42);return ride};
 tree=render(Detail);assert.ok(all(tree).some(n=>n.type==='loading'));
-h.effects[0]();await new Promise(setImmediate);
+runEffects();await new Promise(setImmediate);
 tree=render(Detail);assert.ok(all(tree).some(n=>n.props.ride?.id===42),'Прямая ссылка загружает выбранную поездку');
 h.reset();h.fetchRide=async()=>{throw new Error('offline')};
-render(Detail);h.effects[0]();await new Promise(setImmediate);tree=render(Detail);
+render(Detail);runEffects();await new Promise(setImmediate);tree=render(Detail);
 const retry=all(tree).find(n=>n.type==='retry');assert.ok(retry,'Загрузка имеет видимую ошибку');
 h.fetchRide=async()=>ride;retry.props.onRetry();await new Promise(setImmediate);
 assert.ok(all(render(Detail)).some(n=>n.props.ride?.id===42),'Повтор восстанавливает детали');
 for(const unavailable of [{...ride,seats_left:0},{...ride,status:'cancelled'}]){
-  h.reset();h.fetchRide=async()=>unavailable;render(Detail);h.effects[0]();await new Promise(setImmediate);
+  h.reset();h.fetchRide=async()=>unavailable;render(Detail);runEffects();await new Promise(setImmediate);
   tree=render(Detail);assert.ok(!all(tree).some(n=>n.props.ride),'Закрытая/полная поездка не предлагает бронь');
   assert.ok(all(tree).some(n=>n.props.role==='status'));
 }
 h.reset();let deliver;h.fetchRide=()=>new Promise(r=>deliver=r);
-render(Detail);const cleanup=h.effects[0]();cleanup();deliver(ride);await new Promise(setImmediate);
+render(Detail);const cleanup=runEffects();cleanup();deliver(ride);await new Promise(setImmediate);
 assert.equal(h.states[0],null,'Ответ после ухода со страницы не меняет выбор');
 h.reset();h.fetchRide=async()=>{throw new Error('offline')};
-render(Detail);const leave=h.effects[0]();await new Promise(setImmediate);
+render(Detail);const leave=runEffects();await new Promise(setImmediate);
 h.fetchRide=()=>new Promise(r=>deliver=r);
 all(render(Detail)).find(n=>n.type==='retry').props.onRetry();leave();deliver(ride);await new Promise(setImmediate);
 assert.equal(h.states[0],null,'Повтор без AbortSignal тоже не оживляет закрытый экран');
@@ -149,17 +154,19 @@ assert.equal(h.calls[0].pickup_stop, 'Акъяр');
 assert.equal(h.calls[0].dropoff_stop, 'Сибай');
 const state = render(Card, { ride: matchedRide, index: 0, to: '/rides/42' }).props.state;
 h.reset(); h.locationState = state; h.fetchRide = async () => withStops;
-render(Detail); h.effects[0](); await new Promise(setImmediate);
+render(Detail); runEffects(); await new Promise(setImmediate);
 tree = render(Detail);
 assert.equal(all(tree).find(n => n.props.ride)?.props.ride.matched_stop, 'Акъяр', 'GET без фильтра сохраняет найденную подсказку');
 assert.equal(all(tree).find(n => n.props.ride)?.props.ride.matched_dropoff_stop, 'Сибай', 'GET без фильтра сохраняет высадку');
 h.reset(); h.locationState = { rideMatch: { rideId: 999, matched_stop: 'Акъяр', matched_from_start: false } };
-h.fetchRide = async () => withStops; render(Detail); h.effects[0](); await new Promise(setImmediate);
+h.fetchRide = async () => withStops; render(Detail); runEffects(); await new Promise(setImmediate);
 tree = render(Detail);
 assert.equal(all(tree).find(n => n.props.ride)?.props.ride.matched_stop, undefined, 'Подсказка другой поездки не переносится');
 h.reset(); h.authed = false; h.locationState = undefined;
 await button(render(Sheet, { ride: matchedRide, onClose() {} })).props.onClick();
-assert.deepEqual(h.routes[0][1].state.returnState, state, 'Переход на вход сохраняет найденную остановку');
+assert.equal(h.routes[0][1].state.returnState, undefined, 'Гостевой выбор нельзя независимо повторять через историю');
+assert.equal(JSON.parse(guestStorage.get('yuldash.guestBooking.pending')).pickupStop, 'Акъяр');
+assert.equal(JSON.parse(guestStorage.get('yuldash.guestBooking.pending')).dropoffStop, 'Сибай', 'Обе найденные остановки входят в один черновик');
 console.log('✓ Посадка: нет умолчания, явные начало/остановка, защита отправки, найденная подсказка и переход на вход');
 
 // Выбор посадки в истории вкладки принадлежит входу (23.10.2026): история переживает выход из аккаунта,
@@ -167,7 +174,7 @@ console.log('✓ Посадка: нет умолчания, явные нача�
 {
   const readBack = async (state, generation) => {
     h.reset(); h.generation = generation; h.locationState = state; h.fetchRide = async () => withStops;
-    render(Detail); h.effects[0](); await new Promise(setImmediate);
+    render(Detail); runEffects(); await new Promise(setImmediate);
     return all(render(Detail)).find(n => n.props.ride)?.props.ride;
   };
   h.reset(); h.generation = 'A';
@@ -180,6 +187,42 @@ console.log('✓ Посадка: нет умолчания, явные нача�
   assert.equal((await readBack(legacy, 'A')).matched_stop, undefined, 'Запись старой версии без метки не читается');
   h.reset(); h.authed = false; h.generation = 'guest';
   await button(render(Sheet, { ride: matchedRide, onClose() {} })).props.onClick();
-  assert.equal(h.routes[0][1].state.returnState.rideMatch.owner, 'guest', 'Выбор гостя несёт метку гостя; после входа её перепишет LoginScreen');
+  const savedGuest = JSON.parse(guestStorage.get('yuldash.guestBooking.pending'));
+assert.equal(savedGuest.sourceGeneration, 'guest', 'Весь выбор привязан к исходному входу');
+assert.equal(savedGuest.nonce, h.routes[0][1].state.guestBookingNonce, 'История несёт только разрешение на однократный перенос');
 }
 console.log('✓ Выбор посадки в истории принадлежит входу: чужой после выхода не читается');
+
+
+// GUEST10: restoring user input never creates a booking; fresh availability still rules.
+h.reset();h.authed=true;h.generation="restored-owner";h.booking=async()=>({id:901});
+const guestSelection={seats:2,pickupStop:"Уфа",dropoffStop:"Сибай",meeting:{note:"QA Gate A"},alighting:{note:"QA Gate B"}};
+tree=render(Sheet,{ride,onClose(){},initialSelection:guestSelection});
+assert.equal(h.calls.length,0,"restoration itself must not book");
+const restoredPoints=all(tree).filter(n=>n.type?.name==="MeetingPointPicker");
+assert.deepEqual(restoredPoints.map(n=>n.props.value),[guestSelection.meeting,guestSelection.alighting]);
+await button(tree).props.onClick();
+assert.equal(h.calls.length,1);assert.equal(h.calls[0].seats,2);
+assert.deepEqual(h.calls[0].meeting,guestSelection.meeting);assert.deepEqual(h.calls[0].alighting,guestSelection.alighting);
+console.log("PASS GUEST10 restore qty and points; manual booking only");
+h.reset();tree=render(Sheet,{ride:{...ride,seats_left:1},onClose(){},initialSelection:guestSelection});
+assert.equal(button(tree).props.disabled,true,"fresh availability must block the old two-seat selection");
+assert.equal(h.calls.length,0);
+h.generation="another-owner";render(Sheet,{ride,onClose(){},initialSelection:guestSelection});
+h.effects.forEach(fn=>fn());tree=render(Sheet,{ride,onClose(){},initialSelection:guestSelection});
+assert(all(tree).filter(n=>n.type?.name==="MeetingPointPicker").every(n=>n.props.value===null),"another login cannot inherit exact points");
+assert.equal(h.calls.length,0);
+console.log("PASS GUEST10 stale availability and owner boundary");
+
+// A mounted sheet cannot seed B from A's already enriched ride prop.
+h.reset();h.generation="account-A";
+tree=render(Sheet,{ride:matchedRide,onClose(){},initialSelection:{...guestSelection,pickupStop:"Акъяр",dropoffStop:"Сибай"}});runEffects();
+assert.equal(byName(tree,"PickupStopChoice").props.picked,"Акъяр");
+assert.equal(byName(tree,"DropoffStopChoice").props.picked,"Сибай");
+h.generation="account-B";render(Sheet,{ride:matchedRide,onClose(){}});runEffects();
+tree=render(Sheet,{ride:matchedRide,onClose(){}});
+assert.equal(byName(tree,"PickupStopChoice").props.picked,null,"B must choose a new pickup even with A's enriched ride prop");
+assert.equal(byName(tree,"DropoffStopChoice").props.picked,null,"B must choose a new dropoff");
+assert(all(tree).filter(n=>n.type?.name==="MeetingPointPicker").every(n=>n.props.value===null));
+assert.equal(h.calls.length,0);assert.equal(button(tree).props.disabled,true);
+console.log("PASS GUEST10 mounted sheet clears both stops and precise points at the account boundary");

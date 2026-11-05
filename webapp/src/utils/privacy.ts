@@ -41,6 +41,7 @@ const PERSONAL_PREFIXES = [
   "yuldash.tripPass.",
   // Отмена в пути, которую вкладка уже видела: номер брони, машина и госномер (без телефона).
   "yuldash.inTransit.",
+  "yuldash.guestBooking.", // one-use guest selection; cleared at every account boundary
 ];
 
 /**

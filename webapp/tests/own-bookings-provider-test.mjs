@@ -28,6 +28,7 @@ const mocks = {
     export const fetchMyBookings=signal=>{const req={...h().makeDeferred(),signal,generation:h().generation,userId:h().auth.user?.id};h().requests.push(req);return req.promise;};
     export const createBooking=body=>{h().posts.push(body);return h().book(body);};
     export const cancelBooking=id=>{h().cancels.push(id);return h().cancel(id);};
+    export const respondBoardingUndo=async()=>{throw new Error("unexpected boarding consent in own-bookings provider harness")};
     export const CANCEL_REASONS=[];
     export const fetchBookingDetails=(id,signal)=>h().details(id,signal);
     export const fetchTripState=async()=>({role:h().role,status:"confirmed",driver_phase:"departed"});
@@ -48,7 +49,7 @@ const mocks = {
   geo: `export const fetchPickupPoints=async()=>[]; export const fetchDistricts=async()=>[]; export const fetchPopularRoutes=async()=>[]; export const fetchSettlements=async()=>[];`,
   status: `export const StatusPill="status";`,
   partner: `export const PartnerAdSlot="ad";`,
-  pass: `export const loadTripPass=()=>null,loadOfflineTripPass=()=>null,saveTripPass=()=>false,saveVerifiedTripPass=()=>{},dropTripPass=()=>{},clearTripPassBoardingCode=()=>{},tripPassStage=()=>'confirmed';`,
+  pass: `export const loadTripPass=()=>null,loadOfflineTripPass=()=>null,saveTripPass=()=>false,saveVerifiedTripPass=()=>{},dropTripPass=()=>{},clearTripPassBoardingCode=()=>{},restoreConfirmedTripPass=()=>{throw new Error("unexpected boarding receipt in own-bookings provider harness")},tripPassStage=()=>'confirmed';`,
   driver: `export const setDriverStatus=async()=>({});`,
   chat: `export const openTripLocation=()=>({close(){}});`,
   safety: `export const winterCheck=async()=>({state:"ok"}),winterCheckOk=async()=>({});`,
@@ -59,6 +60,7 @@ const mocks = {
   share: `export default "share";`,
   tripchat: `export default "tripchat";`,
   offline: `export default "offline";`,
+  offlinefallback: `export const OfflineCancellationHelp="offline-cancellation-help";`,
   driverloc: `export default "driverloc";`,
   driverboarding: `export default "driverboarding";`,
   boardingwait: `export default "boardingwait";`,
@@ -79,7 +81,7 @@ const suffixes = {
   "/api/safety":"safety", "/utils/winterCheck.js":"winter", "/utils/useVisibleInterval":"interval",
   "/components/WeatherWarningCard":"weather", "/components/RoadsideHelp":"roadside",
   "/components/ShareTripCard":"share", "/components/TripChatCard":"tripchat",
-  "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/utils/useBookingRefusal":"refusalhook", "/components/DriverLocationShare":"driverloc",
+  "/components/OfflineTripFallback":"offlinefallback", "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/utils/useBookingRefusal":"refusalhook", "/components/DriverLocationShare":"driverloc",
   "/components/DriverBoarding":"driverboarding", "/components/BoardingWait":"boardingwait", "/components/DriverBoardedDispute":"driverboardeddispute",
   "/components/CancelledInTransitCard":"cancelledintransit",
 };

@@ -10,8 +10,21 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ChatSocket
+import com.yuldash.app.data.SnapshotWiringCleanupGuard
+import com.yuldash.app.data.finishOfflineWriteFixture02
+import com.yuldash.app.data.poisonOfflinePassportFixture03
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.ThreadContextElement
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
+import kotlin.coroutines.AbstractCoroutineContextElement
+import kotlin.coroutines.CoroutineContext
+import java.net.InetAddress
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.TripPassAuthorityFixture
 import com.yuldash.app.data.TripPass
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -36,10 +49,25 @@ import java.util.concurrent.CopyOnWriteArrayList
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class ActiveTripOfflineHonestyTest {
-    @get:Rule val compose = createComposeRule()
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private val requestJobs = RequestJobs()
+    private var setupEntered = false
+    private var serverStarted = false
+    private var sessionInstalled = false
+    private var contentSet = false
+    private val ownTrace: (String) -> Unit = {
+        if (it.startsWith("вошли в вызов ")) requestJobs.record()
+    }
+    @get:Rule val compose = createComposeRule(effectContext = requestJobs)
     private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val plain = MemoryDiskPreferences()
+    private val secure = MemoryDiskPreferences()
     private val mounted = mutableStateOf(true)
     private val requests = CopyOnWriteArrayList<String>()
+    private val authLogout = CopyOnWriteArrayList<Boolean>()
+    private val cleanupAuthLogout = CopyOnWriteArrayList<Boolean>()
+    private var explicitLogout = false
+    @Volatile private var cleaningUp = false
     @Volatile private var detailsAvailable = false
     @Volatile private var receiptAvailable = false
     private var openedReceipt = 0
@@ -47,13 +75,20 @@ class ActiveTripOfflineHonestyTest {
     private lateinit var server: MockWebServer
 
     @Before fun setup() {
-        ApiClient.resetForTest()
-        ApiClient.logout() // No authenticated WebSocket or external map in this fixture.
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+        cleanupGuard.requireHealthy()
+        check(ApiClient.testTrace == null)
+        setupEntered = true
+        TripPassStore.initStores(plain, secure)
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path.orEmpty()
+                    if (request.method == "POST" && path == "/auth/logout") {
+                        val expectedOwner = request.getHeader("Authorization") ==
+                            "Bearer " + TripPassAuthorityFixture.jwt(7)
+                        (if (cleaningUp) cleanupAuthLogout else authLogout).add(expectedOwner)
+                        return MockResponse().setHeader("Content-Type", "application/json").setBody("{}")
+                    }
                     requests += "${request.method} $path"
                     if (request.method != "GET") return MockResponse().setResponseCode(405)
                     val body = when (path) {
@@ -61,35 +96,60 @@ class ActiveTripOfflineHonestyTest {
                         "/bookings/42/role" -> return MockResponse().setResponseCode(503).setBody("{}")
                         "/bookings/42/details" -> {
                             if (!detailsAvailable) return MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST)
-                            """{"booking_id":42,"role":"driver","status":"done","from_city":"Город А","to_city":"Город Б"}"""
+                            """{"booking_id":42,"ride_id":7,"role":"driver","status":"done","from_city":"Город А","to_city":"Город Б"}"""
                         }
                         "/bookings/42/boarding-code" -> """{"code":"5678"}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/trips/42/receipt" -> {
                             if (!receiptAvailable) return MockResponse().setResponseCode(503).setBody("{}")
-                            """{"booking_id":42,"role":"driver","from_city":"Город А","to_city":"Город Б","counterparty_name":"Тестовый пассажир","amount":400,"paid":true,"my_stars":3}"""
+                            """{"booking_id":42,"ride_id":7,"role":"driver","from_city":"Город А","to_city":"Город Б","counterparty_name":"Тестовый пассажир","amount":400,"paid":true,"my_stars":3}"""
                         }
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        serverStarted = true
+        TripPassAuthorityFixture.installSession(
+            server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'), 7)
+        sessionInstalled = true
         ApiClient.testTimeoutMs = 2000
+        ApiClient.testTrace = ownTrace
     }
 
     @After fun cleanup() {
-        compose.runOnIdle { mounted.value = false }
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
+        try {
+            cleanupGuard.requireHealthy()
+            if (!setupEntered) return
+            if (contentSet) {
+                compose.runOnIdle { mounted.value = false }
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                compose.waitForIdle()
+            }
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            cleaningUp = true
+            val expectedCleanupLogout = sessionInstalled && ApiClient.isLoggedIn()
+            if (sessionInstalled) ApiClient.logout()
+            finishOfflineWriteFixture02(cleanupGuard) {
+                assertEquals(if (expectedCleanupLogout) listOf(true) else emptyList<Boolean>(),
+                    cleanupAuthLogout.toList())
+                check(ApiClient.testTrace == null || ApiClient.testTrace === ownTrace)
+                if (serverStarted) server.shutdown()
+                ApiClient.resetForTest()
+                ApiClient.testTimeoutMs = null
+                TripPassStore.initStores(MemoryDiskPreferences(), null)
+            }
+        } catch (failure: Throwable) {
+            poisonOfflinePassportFixture03(cleanupGuard, failure)
+        } finally {
+            if (ApiClient.testTrace === ownTrace) ApiClient.testTrace = null
+        }
     }
 
     private fun mount(language: AppLanguage, hint: ActiveTripTerminalHint? = null) {
+        contentSet = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
                 ActiveTripScreen(null, emptyList(), 42, onBack = { backCalls++ }, onTripEnd = {}, onSos = {},
@@ -110,6 +170,7 @@ class ActiveTripOfflineHonestyTest {
             compose.onAllNodesWithText(it).assertCountEquals(0)
         }
         assertTrue("Reading a failed booking must not change it", requests.all { it.startsWith("GET ") })
+        assertEquals(if (explicitLogout) listOf(true) else emptyList<Boolean>(), authLogout.toList())
     }
 
     private fun unknownFailure(language: AppLanguage) {
@@ -185,25 +246,37 @@ class ActiveTripOfflineHonestyTest {
     @Test fun logoutRemovesKnownCompletedScreenAndDoesNotContinueIt() {
         mount(AppLanguage.Ru, knownTerminalTripHint(42, "done", "driver"))
         awaitText("Поездка завершена")
-        compose.runOnIdle { ApiClient.logout() }
+        assertTrue(authLogout.isEmpty())
+        compose.runOnIdle {
+            explicitLogout = true
+            ApiClient.logout()
+        }
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            backCalls > 0 && compose.onAllNodesWithText("Поездка завершена").fetchSemanticsNodes().isEmpty()
+            backCalls > 0 && authLogout.size == 1 &&
+                compose.onAllNodesWithText("Поездка завершена").fetchSemanticsNodes().isEmpty()
         }
         assertNoInventedActiveTrip()
     }
 
     @Test fun knownCompletionRemovesOnlyItsOwnOfflinePassport() {
+        // NOT_SAME_ASSERT: prove physical legacy-byte deletion without granting private access.
         val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234"))
-        assertTrue(TripPassStore.save(context, pass))
-        assertTrue(TripPassStore.save(context, pass.copy(bookingId = 99, boardingCode = "unrelated")))
+        val ownBytes = pass.toJson().toString()
+        val otherBytes = pass.copy(bookingId = 99, boardingCode = "unrelated").toJson().toString()
+        assertTrue(secure.edit().putString("pass_42", ownBytes).putString("pass_99", otherBytes).commit())
+        assertEquals(ownBytes, secure.restarted().getString("pass_42", null))
+        assertEquals(otherBytes, secure.restarted().getString("pass_99", null))
+        assertFalse(plain.restarted().contains("pass_42"))
+        assertFalse(plain.restarted().contains("pass_99"))
         mount(AppLanguage.Ru, knownTerminalTripHint(42, "done", "driver"))
         awaitText("Поездка завершена")
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            TripPassStore.load(context, 42) == null
+            !plain.restarted().contains("pass_42") && !secure.restarted().contains("pass_42")
         }
-        assertEquals("unrelated", TripPassStore.load(context, 99)?.boardingCode)
+        assertEquals(otherBytes, secure.restarted().getString("pass_99", null))
+        assertFalse(plain.restarted().contains("pass_99"))
         assertNoInventedActiveTrip()
     }
 
@@ -224,5 +297,44 @@ class ActiveTripOfflineHonestyTest {
         assertNull(knownTerminalTripHint(42, "", "driver"))
         assertNull(knownTerminalTripHint(42, "done", ""))
         assertEquals(42, knownTerminalTripHint(42, "done", "passenger")?.bookingId)
+    }
+
+    /** Observes actual API callers; never creates a Job or replaces a dispatcher. */
+    private class RequestJobs : ThreadContextElement<Job?>, AbstractCoroutineContextElement(Key) {
+        companion object Key : CoroutineContext.Key<RequestJobs>
+        private val current = ThreadLocal<Job?>()
+        private val started = java.util.concurrent.CopyOnWriteArrayList<Job>()
+        @Volatile private var missingParent = false
+
+        override fun updateThreadContext(context: CoroutineContext): Job? =
+            current.get().also { current.set(context[Job]) }
+
+        override fun restoreThreadContext(context: CoroutineContext, oldState: Job?) {
+            current.set(oldState)
+        }
+
+        fun record() {
+            current.get()?.let { job ->
+                started += job
+                val caller = job.parent
+                if (caller == null) missingParent = true else started += caller
+            }
+        }
+
+        fun awaitCompleted(port: Int?) = runBlocking {
+            withTimeout(5_000) {
+                check(!missingParent) { "Owned caller completion unavailable" }
+                val field = ChatSocket::class.java.getDeclaredField("client\$delegate")
+                    .apply { isAccessible = true }
+                val lazyClient = field.get(null) as Lazy<*>
+                val client = lazyClient.takeIf { it.isInitialized() }?.value as? okhttp3.OkHttpClient
+                while (started.any { !it.isCompleted } || client?.dispatcher?.let {
+                        it.runningCalls() + it.queuedCalls()
+                    }.orEmpty().any { it.request().url.host == "127.0.0.1" && it.request().url.port == port }) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    delay(10)
+                }
+            }
+        }
     }
 }

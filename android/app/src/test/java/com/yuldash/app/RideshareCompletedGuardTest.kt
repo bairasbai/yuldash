@@ -32,14 +32,20 @@ class RideshareCompletedGuardTest {
     @Test
     fun `option B keeps all post trip actions and honest payment wording`() {
         val screen = source("RideshareCompletedScreen.kt")
-        assertTrue(screen.contains("ApiClient.rateBooking"))
-        assertTrue(screen.contains("ApiClient.sayBookingThanks"))
-        assertTrue(screen.contains("ApiClient.bookingLostItem"))
-        assertFalse(screen.contains("PayOnlineCard("))
+        val entry = source("TripReceiptParentDestinations.kt")
+            .substringAfter("internal fun RideshareCompletedScreen(", "")
+        val entireScreen = screen + entry
+        assertTrue(entry.contains("ApiClient.rateBooking"))
+        assertTrue(entry.contains("ApiClient.sayBookingThanks"))
+        assertTrue(entry.contains("ApiClient.bookingLostItem"))
+        assertTrue(entry.contains("RideshareCompletedSession("))
+        assertTrue(entry.contains("onClose, onOpenReceipt, onSupport, loadReceipt, rateBooking, loadThanks, sendThanks,"))
+        assertTrue(entry.contains("openLostItem, completedSession, isCurrentParent, isCurrentReceiptParent"))
+        assertFalse(entireScreen.contains("PayOnlineCard("))
         assertTrue(screen.contains("onOpenReceipt"))
         assertTrue(screen.contains("Как договорились"))
         assertTrue(screen.contains("if (paid) appText(\"Оплата подтверждена\""))
-        assertFalse(screen.contains("Оплачено ·"))
+        assertFalse(entireScreen.contains("Оплачено ·"))
     }
 
     @Test

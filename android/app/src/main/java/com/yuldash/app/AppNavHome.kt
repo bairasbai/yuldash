@@ -153,7 +153,9 @@ internal fun HomeRoute(
                 }
             },
             onOpenBookingDetails = { ride, status ->
-                openHomeDestination {
+                if (status == "cancelled") openHomeDestination {
+                    ride.id.toIntOrNull()?.takeIf { it > 0 }?.let { vm.requestBookingDestination(it, ApiClient.myUserId(), completed = false) }
+                } else openHomeDestination {
                 selectedRide = ride
                 activeTrip = null
                 activeBookingId = ride.id.toIntOrNull()
@@ -163,15 +165,14 @@ internal fun HomeRoute(
             },
             onOpenActiveTrip = { ride, status ->
                 openHomeDestination {
-                selectedRide = ride
-                // Живое гео гейтится на activeTrip != null (см. эффект TripLocationService выше):
-                // для подтверждённой поездки, открытой из списка, ставим activeTrip = ride, иначе
-                // сервис заглохнет и попутчик не увидит позицию. Для неактивной брони — null (как было).
-                // done остаётся доступным экраном оценки, но уже не включает живую геолокацию.
-                activeTrip = if (bookingStatusAllowsBoarding(status)) ride else null
-                activeBookingId = ride.id.toIntOrNull()
-                onBookingStatus(status)
-                screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
+                    val bookingId = ride.id.toIntOrNull()?.takeIf { it > 0 } ?: return@openHomeDestination
+                    // A MyTrips row names a booking, not its ride. The guarded destination reads the real ride.
+                    val stub = bookingLinkStubRide(bookingId)
+                    selectedRide = stub
+                    activeBookingId = bookingId
+                    activeTrip = stub.takeIf { bookingStatusAllowsBoarding(status) && com.yuldash.app.data.OfflineTripSnapshots.allowsLive(bookingId) }
+                    onBookingStatus(status)
+                    screen = if (bookingStatusAllowsActiveTrip(status)) Screen.ActiveTrip else Screen.Booking
                 }
             },
             onOpenReceipt = { bookingId ->

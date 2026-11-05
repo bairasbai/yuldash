@@ -19,7 +19,14 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.*
 import org.json.JSONArray
 import org.json.JSONObject
@@ -49,19 +56,53 @@ class LegacySavedStateCompatibilityTest {
     private lateinit var registry:androidx.compose.runtime.saveable.SaveableStateRegistry
     private lateinit var server:MockWebServer
     private val records=CopyOnWriteArrayList<Pair<String,String>>()
+    private val authenticationRequests=CopyOnWriteArrayList<Pair<String,String>>()
     private var kind=""
     private var target=0
     private var completedBooking=false
+    private fun awaitApiBackgroundCompletion()=runBlocking {
+        // Observe only the test-owned API coroutine job, never auth/key fields.
+        val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
+        val parent=requireNotNull(scope.coroutineContext[Job])
+        try {
+            withTimeout(10_000) {
+                while(true) {
+                    val children=parent.children.toList()
+                    if(children.isEmpty()) break
+                    children.forEach {it.join()}
+                }
+            }
+        } catch(failure:TimeoutCancellationException) {
+            throw AssertionError("Fixture API jobs still running; local origin/server retained. Abort this isolated run.",failure)
+        }
+    }
+    private fun awaitSnapshotCleanup()=runBlocking {
+        withTimeout(5_000) {while(!OfflineTripSnapshots.ensureResetCommitted()) delay(10)}
+    }
+    private fun terminalDetails(id:Int):String=JSONObject().put("booking_id",id).put("ride_id",9)
+        .put("role","passenger").put("status","done").put("contact_unlocked",false)
+        .put("from_city","Уфа").put("to_city","Бирск").put("driver_name","Водитель").put("seats",1).toString()
     @Before fun setup() {
-        ApiClient.resetForTest();ApiClient.init(context);ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
+        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
+        ApiClient.resetForTest()
         context.getSharedPreferences("yuldash_prefs",0).edit().clear().putBoolean("onboarding_completed",false).commit()
         NavSignals.openInstantChat.value=0;DeepLink.pendingRequestResponsesId.value=null
         server=MockWebServer().apply {
             dispatcher=object:Dispatcher() {
                 override fun dispatch(r:RecordedRequest):MockResponse {
-                    val path=r.requestUrl!!.encodedPath;records+=r.method!! to path
+                    val path=r.requestUrl!!.encodedPath
+                    if(path in setOf("/auth/logout","/push/unregister")) {
+                        authenticationRequests+=r.method!! to path
+                        return MockResponse().setHeader("Content-Type","application/json").setBody("{}")
+                    }
+                    records+=r.method!! to path
                     val body=when(path) {
                         "/bookings/mine" -> if(completedBooking) """{"items":[{"id":42,"ride_id":9,"status":"done","seats":1,"from_city":"Уфа","to_city":"Бирск","price":400,"driver_name":"Водитель"}]}""" else """{"items":[]}"""
+                        "/bookings/42/details" -> {
+                            if(r.getHeader("Authorization")!="Bearer header.eyJzdWIiOiIxMSJ9.signature")
+                                return MockResponse().setResponseCode(403).setBody("{}")
+                            terminalDetails(42)
+                        }
                         "/bookings/42/role" -> """{"role":"passenger","status":"done","driver_phase":""}"""
                         "/trips/42/receipt" -> """{"booking_id":42,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","amount":400,"pay_method":"cash","paid":true,"counterparty_name":"Водитель","my_stars":0}"""
                         "/notifications" -> """{"items":[{"id":901,"type":"$kind","title_ru":"Событие $target","title_ba":"Ваҡиға $target","ref_kind":"$kind","ref_id":$target,"read":true}]}"""
@@ -73,6 +114,11 @@ class LegacySavedStateCompatibilityTest {
             };start()
         }
         ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=1000
+        ApiClient.init(context);ApiClient.logout();awaitSnapshotCleanup()
+        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
+        assertEquals(11,OfflineTripSnapshots.currentOwner()?.userId)
+        assertFalse("Initial login must not invent live authority",OfflineTripSnapshots.allowsLive(42))
+        assertNull(OfflineTripSnapshots.terminal(42))
     }
     private fun pump() { repeat(8) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();Thread.sleep(10)};compose.waitForIdle() }
     private fun mount() {
@@ -249,6 +295,99 @@ class LegacySavedStateCompatibilityTest {
         vm.activeBookingId.value=42;vm.screen.value=Screen.ActiveTrip;vm.persistNav()
         registry=SaveableStateRegistry(null) {true}
         var armed=false;var calls=0;var receiptClick:(()->Boolean)?=null
+        var probeRide: Ride? = null
+        var probeOwner: com.yuldash.app.data.SnapshotOwner? = null
+        var probeSession = 0L
+        var probeRevision = 0L
+        fun scopeDiagnostic(stage: String) {
+            val visited = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<Any, Boolean>())
+            val queue = java.util.ArrayDeque<Pair<Any, Int>>()
+            val scopes = java.util.Collections.newSetFromMap(java.util.IdentityHashMap<CoroutineScope, Boolean>())
+            var limited = false; var inaccessible = 0
+            var clickableAdapters = 0; var clickableCallbacks = 0
+            fun clickableClass(type: Class<*>?): Class<*>? = generateSequence(type) { it.superclass }
+                .firstOrNull { it.name == "androidx.compose.foundation.AbstractClickableNode" }
+            var receiptIdSeen = false; var receiptIdZero = false; var receiptIdOwn = false; var receiptIdForeign = false
+            fun enqueue(value: Any?, depth: Int) {
+                if (value is Function<*> || value is androidx.compose.runtime.State<*> ||
+                    value is kotlin.jvm.internal.Ref.ObjectRef<*> || value is CoroutineScope ||
+                    (value != null && clickableClass(value.javaClass) != null)) {
+                    if (depth > 14 || visited.size >= 192) limited = true
+                    else if (visited.add(value)) queue.add(value to depth)
+                }
+            }
+            enqueue(receiptClick, 0)
+            while (queue.isNotEmpty()) {
+                val (value, depth) = queue.removeFirst()
+                when (value) {
+                    is CoroutineScope -> scopes.add(value)
+                    is androidx.compose.runtime.State<*> -> enqueue(value.value, depth + 1)
+                    is kotlin.jvm.internal.Ref.ObjectRef<*> -> enqueue(value.element, depth + 1)
+                    is Function<*> -> {
+                        var type: Class<*>? = value.javaClass
+                        while (type != null && type != Any::class.java) {
+                            for (field in type.declaredFields) {
+                                if (java.lang.reflect.Modifier.isStatic(field.modifiers) || field.type.isPrimitive ||
+                                    field.type == String::class.java ||
+                                    listOf("token", "auth", "prefs", "key").any { field.name.contains(it, ignoreCase = true) }) continue
+                                val captureType = field.type
+                                if (!(Function::class.java.isAssignableFrom(captureType) ||
+                                    androidx.compose.runtime.State::class.java.isAssignableFrom(captureType) ||
+                                    CoroutineScope::class.java.isAssignableFrom(captureType) ||
+                                    kotlin.jvm.internal.Ref.ObjectRef::class.java.isAssignableFrom(captureType) ||
+                                    captureType == Any::class.java || clickableClass(captureType) != null)) continue
+                                try {
+                                    field.isAccessible = true
+                                    val captured = field.get(value)
+                                    if (field.name.contains("receiptBookingId", ignoreCase = true) && captured is androidx.compose.runtime.State<*>) {
+                                        val id = captured.value
+                                        if (id is Int) {
+                                            receiptIdSeen = true; receiptIdZero = receiptIdZero || id == 0
+                                            receiptIdOwn = receiptIdOwn || id == 42; receiptIdForeign = receiptIdForeign || id !in listOf(0, 42)
+                                        }
+                                    }
+                                    enqueue(captured, depth + 1)
+                                } catch (_: ReflectiveOperationException) { inaccessible++ }
+                                catch (_: SecurityException) { inaccessible++ }
+                            }
+                            type = type.superclass
+                        }
+                    }
+                    else -> clickableClass(value.javaClass)?.let { adapter ->
+                        // Exact local foundation adapter only: never inspect node/tree/context fields.
+                        clickableAdapters++
+                        try {
+                            val field = adapter.getDeclaredField("onClick")
+                            check(field.type.name == "kotlin.jvm.functions.Function0")
+                            field.isAccessible = true
+                            val callback = field.get(value)
+                            if (callback is Function<*>) { clickableCallbacks++; enqueue(callback, depth + 1) }
+                        } catch (_: ReflectiveOperationException) { inaccessible++ }
+                        catch (_: SecurityException) { inaccessible++ }
+                    }
+                }
+            }
+            val history = synchronized(OfflineTripSnapshots) {
+                val histories = OfflineTripSnapshots::class.java.getDeclaredField("histories").apply { isAccessible = true }
+                    .get(OfflineTripSnapshots) as Map<*, *>
+                (histories[42] as? Pair<*, *>)?.first as? com.yuldash.app.data.TripReceiptDto
+            }
+            fun active(scope: CoroutineScope) = scope.coroutineContext[Job]?.isActive == true
+            println("NAV8 legacy stage="+stage+" visited="+visited.size+" limited="+limited+" inaccessible="+inaccessible+
+                " rootClass="+receiptClick?.javaClass?.name+
+                " clickableAdapters="+clickableAdapters+" clickableCallbacks="+clickableCallbacks+
+                " scopes="+scopes.size+" active="+scopes.count(::active)+
+                " activeIds="+scopes.filter(::active).map(System::identityHashCode).sorted()+
+                " inactiveIds="+scopes.filterNot(::active).map(System::identityHashCode).sorted()+
+                " historyCurrent="+(history?.let(OfflineTripSnapshots::allowsHistory) == true)+
+                " bookingOwn="+(vm.activeBookingId.value == 42)+" sameRide="+(vm.selectedRide.value === probeRide)+
+                " sameOwner="+(OfflineTripSnapshots.currentOwner() == probeOwner)+
+                " sameSession="+(ApiClient.queueSessionGeneration() == probeSession)+
+                " sameRevision="+(vm.privateNavigationRevision == probeRevision)+
+                " noPending="+(vm.pendingBookingNavigation.value == null && vm.pendingScreenNavigation.value == null && vm.pendingPublicRideNavigation.value == null)+
+                " receiptIdSeen="+receiptIdSeen+" receiptIdZero="+receiptIdZero+" receiptIdOwn="+receiptIdOwn+" receiptIdForeign="+receiptIdForeign)
+        }
+
         compose.mainClock.autoAdvance=false
         compose.setContent {
             if(mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get(),LocalSaveableStateRegistry provides registry) {
@@ -257,7 +396,7 @@ class LegacySavedStateCompatibilityTest {
                     // before the root fallback's LaunchedEffect observer is dispatched.
                     DisposableEffect(vm.screen.value) {
                         if(armed && vm.screen.value==Screen.TripReceipt) {
-                            armed=false;calls++;assertTrue(receiptClick!!.invoke())
+                            armed=false;calls++;scopeDiagnostic("insideDisposableEffectBeforeInvoke");assertTrue(receiptClick!!.invoke())
                         }
                         onDispose { }
                     }
@@ -265,13 +404,29 @@ class LegacySavedStateCompatibilityTest {
                 }
             }
         }
-        compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()}
+        try {
+            compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()}
+        } catch(failure:ComposeTimeoutException) {
+            throw AssertionError("NAV5 legacy hero screen="+vm.screen.value+" booking="+vm.activeBookingId.value+
+                " selectedId="+vm.selectedRide.value?.id+" activeNull="+(vm.activeTrip.value==null)+
+                " pending="+(vm.pendingBookingNavigation.value!=null || vm.pendingScreenNavigation.value!=null || vm.pendingPublicRideNavigation.value!=null)+
+                " revision="+vm.privateNavigationRevision+" owner11="+(OfflineTripSnapshots.currentOwner()?.userId==11)+
+                " roleGET="+records.count{it.first=="GET" && it.second=="/bookings/42/role"}+
+                " detailsGET="+records.count{it.first=="GET" && it.second=="/bookings/42/details"}+
+                " receiptGET="+records.count{it.first=="GET" && it.second=="/trips/42/receipt"}+
+                " terminal="+(OfflineTripSnapshots.terminal(42)!=null),failure)
+        }
         assertTrue(records.any {it.second=="/bookings/42/role"})
         compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
         compose.onNodeWithText("Квитанция").assertIsDisplayed().assertIsEnabled()
         receiptClick=compose.onNodeWithText("Квитанция").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         val checkCallback = {
-            compose.runOnIdle {armed=true;vm.screen.value=Screen.TripReceipt};pump()
+            compose.runOnIdle {
+                probeRide = vm.selectedRide.value; probeOwner = OfflineTripSnapshots.currentOwner()
+                probeSession = ApiClient.queueSessionGeneration(); probeRevision = vm.privateNavigationRevision
+                scopeDiagnostic("beforeScreenChange")
+                armed=true;vm.screen.value=Screen.TripReceipt
+            };pump()
             assertEquals(1,calls)
             assertEquals("A callback that supplies a current ID must win over the queued missing-ID fallback",Screen.TripReceipt,vm.screen.value)
             compose.waitUntil(12000) {Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();records.any {it.second=="/trips/42/receipt"}}
@@ -281,8 +436,10 @@ class LegacySavedStateCompatibilityTest {
         if(dropAutomaticNotification) withLostGlobalSnapshotNotification(checkCallback) else checkCallback()
     }
     @After fun cleanup() {
+        if(!::server.isInitialized) {awaitApiBackgroundCompletion();awaitSnapshotCleanup();return}
         if(::actor.isInitialized) {compose.runOnIdle {mounted.value=false};pump();actor.destroy()}
         NavSignals.openInstantChat.value=0;DeepLink.pendingRequestResponsesId.value=null
+        ApiClient.logout();awaitApiBackgroundCompletion();awaitSnapshotCleanup()
         ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()
     }
     private fun encode(value:Any?):JSONObject {

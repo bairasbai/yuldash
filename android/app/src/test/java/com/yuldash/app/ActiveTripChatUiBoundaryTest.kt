@@ -47,6 +47,9 @@ class ActiveTripChatUiBoundaryTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(false)
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
+    @Volatile private var preparingRole = false
+    @Volatile private var preparingPass: TripPass? = null
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     private val sockets = CopyOnWriteArrayList<WebSocket>()
     private val auth = LinkedBlockingQueue<String>()
     private val sent = LinkedBlockingQueue<String>()
@@ -74,6 +77,8 @@ class ActiveTripChatUiBoundaryTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.path.orEmpty()
                     val bearer = request.getHeader("Authorization")
+                    preparationRoleResponse(request)?.let { return it }
+                    preparationResponse(request)?.let { return it }
                     requests += "${request.method} $path" to bearer
                     if (path == "/ws/bookings/42") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                         override fun onOpen(webSocket: WebSocket, response: Response) { sockets += webSocket }
@@ -103,7 +108,7 @@ class ActiveTripChatUiBoundaryTest {
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
-                    return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
+                    return MockResponse().setBody(canonicalTripBody(path, body)).setHeader("Content-Type", "application/json")
                 }
             }
             start()
@@ -113,10 +118,12 @@ class ActiveTripChatUiBoundaryTest {
         ApiClient.testTimeoutMs = 10000
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.verifyCode("+70000000000", "000000", "A").getOrThrow()
         TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
-        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234"))))
+        preparePositive(TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate")))
+        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate"))))
         ShadowToast.reset()
         Unit
     }
@@ -171,7 +178,7 @@ class ActiveTripChatUiBoundaryTest {
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         assertEquals(tokenA, auth.poll(10, TimeUnit.SECONDS))
-        waitFor { requests.any { it.first == "GET /bookings/42/details" } && compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Йөрөтөүсе ултырыуҙы билдәләр" else "Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
+        waitFor { OfflineTripSnapshots.projection(42)?.details?.let(OfflineTripSnapshots::freshDetails) == true && compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Йөрөтөүсе ултырыуҙы билдәләр" else "Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         ownedNetworkCallbacks = Shadows.shadowOf(connectivity).networkCallbacks.filter { it !in callbacksBefore }
         assertEquals(1, ownedNetworkCallbacks.size)
         pump(500)
@@ -202,6 +209,7 @@ class ActiveTripChatUiBoundaryTest {
     }
     private fun switchAccount() = runBlocking {
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.verifyCode("+70000000000", "000000", "B").getOrThrow()
     }
     private fun queuedOnMain(callback: () -> Unit, beforeMainResumes: () -> Unit = {}) {
@@ -242,6 +250,7 @@ class ActiveTripChatUiBoundaryTest {
         pump()
         assertOldScreenHidden()
         waitFor { closed.get() == 1 }
+        awaitSnapshotCleanup()
         compose.runOnIdle { ApiClient.saveToken(tokenB) }
         pump()
         assertEquals(1, backs)
@@ -378,6 +387,7 @@ class ActiveTripChatUiBoundaryTest {
         val reopen: () -> Unit = {
             compose.runOnIdle { mounted.value = false }
             compose.waitForIdle()
+            prepareRole()
             compose.runOnIdle { mounted.value = true }
             waitFor { auth.peek() == tokenB }
             assertEquals(tokenB, auth.poll(10, TimeUnit.SECONDS))
@@ -395,4 +405,71 @@ class ActiveTripChatUiBoundaryTest {
         if (lostNotification) withLostGlobalSnapshotNotification(reopen) else reopen()
         assertEquals(1, backs)
     }
+    private fun awaitSnapshotCleanup() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun preparationResponse(request: RecordedRequest): MockResponse? {
+        val pass = preparingPass ?: return null
+        val prefix = "/bookings/${pass.bookingId}"
+        val body = when (request.path) {
+            "$prefix/role" -> JSONObject().put("role", "passenger").put("status", "confirmed").put("driver_phase", "departed")
+            "$prefix/details" -> pass.toJson().put("ride_id", pass.bookingId + 1000)
+                .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+                .put("pay_method", pass.payMethod ?: "negotiate")
+            "$prefix/boarding-code" -> JSONObject().put("code", pass.boardingCode)
+            else -> return null
+        }
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setHeader("Content-Type", "application/json").setBody(body.toString())
+    }
+    private fun preparePositive(pass: TripPass) = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        check(preparingPass == null)
+        preparingPass = pass
+        try {
+            ApiClient.getTripState(pass.bookingId).getOrThrow()
+            val actual = ApiClient.getBookingDetails(pass.bookingId).getOrThrow()
+            assertTrue("Setup must obtain its own actual current DETAILS", OfflineTripSnapshots.privateDetails(actual))
+            assertEquals(pass.boardingCode, ApiClient.getBoardingCode(pass.bookingId).getOrThrow())
+        } finally { preparingPass = null }
+        val prefix = "GET /bookings/${pass.bookingId}"
+        assertEquals(listOf("$prefix/role", "$prefix/details", "$prefix/boarding-code"),
+            preparationRequests.drop(start))
+    }
+
+    private fun canonicalTripBody(path: String?, body: String): String {
+        val endpoint = path.orEmpty()
+        val details = endpoint.endsWith("/details")
+        val role = endpoint.endsWith("/role")
+        val receipt = endpoint.endsWith("/receipt")
+        if (!details && !role && !receipt) return body
+        val value = org.json.JSONObject(body)
+        if ((details || receipt) && !value.has("ride_id")) value.put("ride_id", 1042)
+        if (details) {
+            if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
+            if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+        }
+        if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
+        if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))
+            value.put("onboard_at", "2031-02-03T09:00:00.123456Z")
+        return value.toString()
+    }
+
+    private fun preparationRoleResponse(request: RecordedRequest): MockResponse? {
+        if (!preparingRole || request.path != "/bookings/42/role") return null
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setBody(canonicalTripBody(request.path, """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""))
+    }
+    private fun prepareRole() = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        preparingRole = true
+        try { ApiClient.getTripState(42).getOrThrow() } finally { preparingRole = false }
+        assertEquals(listOf("GET /bookings/42/role"), preparationRequests.drop(start))
+        assertTrue(com.yuldash.app.data.OfflineTripSnapshots.allowsLive(42))
+        assertNull(com.yuldash.app.data.OfflineTripSnapshots.privatePass(42))
+    }
+
 }

@@ -53,6 +53,29 @@ const tick = async (h) => { await h.calls("useVisibleInterval").at(-1)[1](); awa
 const detailsGets = (at) => at.gets.filter((p) => p === "/bookings/42/details").length;
 const NO_NET = () => { throw new Error("нет сети"); };
 
+// A retained caller must carry the generation it observed, never borrow the next account's.
+await t.test("старый callback A не перезаписывает маркер отмены нового входа B", async () => {
+  session.clear();
+  globalThis.__citMarkerGeneration = "marker-A";
+  const compiled = await build({entryPoints:[ROOT+"src/utils/inTransitCancel.ts"],bundle:true,write:false,format:"esm",platform:"node",plugins:[{
+    name:"marker-session-boundary",setup(b){
+      b.onResolve({filter:/api\/client$/},()=>({path:"client",namespace:"marker"}));
+      b.onLoad({filter:/.*/,namespace:"marker"},()=>({contents:'export const getSessionGeneration=()=>globalThis.__citMarkerGeneration;',loader:"js"}));
+    }
+  }]});
+  const marker = await import("data:text/javascript;base64,"+Buffer.from(compiled.outputFiles[0].text).toString("base64"));
+  const expectedA = globalThis.__citMarkerGeneration;
+  const retainedA = () => marker.rememberInTransitCancel(42,1,expectedA);
+  retainedA();assert.equal(JSON.parse(session.get("yuldash.inTransit.42")).generation,expectedA,"current A must be able to store its own fact");
+  session.clear();globalThis.__citMarkerGeneration = "marker-B";
+  marker.rememberInTransitCancel(42,2,"marker-B");
+  const ownB = session.get("yuldash.inTransit.42");assert.equal(JSON.parse(ownB).owner,2);
+  retainedA();
+  assert.equal(session.get("yuldash.inTransit.42"),ownB,"late A must not stamp owner A into generation B or overwrite B");
+  session.clear();retainedA();assert.equal(session.size,0,"late A cannot create a marker when B has none");
+  globalThis.__citMarkerGeneration = "marker-A";
+  marker.rememberInTransitCancel(42,1);assert.equal(session.size,0,"missing expected generation must fail closed");
+});
 // ---------------------------------------------------------------- экран поездки
 await t.test("экран поездки: отменили в пути — карточка помощи с машиной и госномером, без телефона", async () => {
   const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT });
@@ -163,30 +186,27 @@ await t.test("признак только в /role, а машины в дета�
 });
 
 // ---------------------------------------------------------------- №3: вкладка помнит отмену в пути
-await t.test("SOS и назад без сети — экран помощи с машиной и госномером на месте; телефона в памяти нет", async () => {
+await t.test("SOS и назад без сети — только общая помощь, машина и госномер требуют живого допуска", async () => {
   session.clear();
   const first = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT });
-  assert.ok(card(first.h.tree));
-  first.h.unmount(); // ушёл на SOS — экран поездки закрылся
+  assert.ok(card(first.h.tree)); first.h.unmount();
   assert.deepEqual([...session.keys()], ["yuldash.inTransit.42"]);
-  assert.deepEqual(JSON.parse(session.get("yuldash.inTransit.42")), { owner: 1, car: "серая Лада Веста", plate: "М555ОР102" },
-    "вкладка помнит только номер брони, машину и госномер");
-  // Назад — а связи нет.
+  const marker = JSON.parse(session.get("yuldash.inTransit.42"));
+  assert.deepEqual(Object.keys(marker).sort(), ["at", "generation", "owner"]);
+  assert.equal(marker.owner, 1); assert.equal(marker.generation, "A"); assert(Number.isFinite(marker.at));
   const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, intercept: NO_NET });
-  const c = card(h.tree);
-  assert.ok(c, "без сети экран помощи пропал — только «Не удалось загрузить»");
-  assert.equal(c.props.bookingId, 42);
-  assert.equal(c.props.car, "серая Лада Веста");
-  assert.equal(c.props.plate, "М555ОР102");
-  assert.equal(ofType(h.tree, "ErrorState").length, 1, "«Повторить» на месте");
-  assert.ok(!JSON.stringify(h.tree).includes("tel:"));
+  const help = ofType(h.tree, "OfflineCancellationHelp")[0];
+  assert.ok(help, "без сети общая помощь должна остаться"); assert.equal(help.props.bookingId, 42);
+  assert.equal(card(h.tree), undefined, "без живых данных нельзя выдать приватную машину за проверенную");
+  assert.equal(ofType(h.tree, "ErrorState").length, 1);
+  for (const secret of ["М555ОР102", "серая Лада Веста", "tel:"]) assert(!JSON.stringify(h.tree).includes(secret));
 });
 
 await t.test("вернулся, а ответ сервера ещё идёт — сразу экран помощи, а не заглушка загрузки", async () => {
   session.clear();
   (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT })).h.unmount();
   const { h } = await openActiveTrip({ intercept: () => new Promise(() => {}) });
-  assert.equal(card(h.tree)?.props.plate, "М555ОР102", "пока грузимся, помощи нет");
+  assert.equal(ofType(h.tree, "OfflineCancellationHelp")[0]?.props.bookingId, 42, "пока грузимся, общая помощь остаётся");
   assert.equal(ofType(h.tree, "LoadingList").length, 0);
 });
 
@@ -359,7 +379,7 @@ const WARN_RU = "В машине пассажиры: 2. Если довёз — 
   "а близкие, с кем они поделились поездкой, увидят по ссылке, что поездку отменили в пути.";
 await t.test("ru: в машине пассажиры — окно называет число и что будет; чужая поездка не считается", async () => {
   const q = await dropRideText("ru", [row(1, 7, "onboard"), row(2, 7, "onboard"), row(3, 7, "confirmed"), row(4, 8, "onboard")]);
-  assert.ok(q.startsWith("Снять поездку? Брони отменятся у 3 чел., им придёт уведомление."), q);
+  assert.ok(q.startsWith("Снять поездку? Забронировано мест: 3. Пассажирам придёт уведомление."), q);
   assert.ok(q.endsWith(WARN_RU), q);
 });
 
@@ -370,7 +390,7 @@ await t.test("ba: то же предупреждение по-башкирски
 
 await t.test("никого в машине (или старый сервер без ride_id) — прежний вопрос без предупреждения", async () => {
   const q = await dropRideText("ru", [row(3, 7, "confirmed"), { ...row(5, 0, "onboard"), ride_id: undefined }]);
-  assert.equal(q, "Снять поездку? Брони отменятся у 3 чел., им придёт уведомление.");
+  assert.equal(q, "Снять поездку? Забронировано мест: 3. Пассажирам придёт уведомление.");
 });
 
 t.done();

@@ -39,6 +39,7 @@ import type { Ride } from "../api/rides";
 import { LoadingList, ErrorState, EmptyStateCard } from "../components/States";
 import RideEditActions from "../components/RideEditActions";
 import DriverPassengers from "../components/DriverPassengers";
+import RideShareNote from "../components/RideShareNote";
 import DeclineBookingButton from "../components/DeclineBookingButton";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
@@ -235,8 +236,8 @@ export default function DriverCabinetScreen() {
     const занято = Math.max(r.seats_booked ?? ((r.seats_total ?? 0) - (r.seats_left ?? 0)), 0);
     const вопрос = занято > 0
       ? appText(
-          `Снять поездку? Брони отменятся у ${занято} чел., им придёт уведомление.`,
-          `Сәфәрҙе алырғамы? ${занято} кешенең урыны кире алына, уларға хәбәр китә.`
+          `Снять поездку? Забронировано мест: ${занято}. Пассажирам придёт уведомление.`,
+          `Сәфәрҙе алырғамы? Бронләнгән урындар: ${занято}. Юлсыларға хәбәр китә.`
         )
       : appText("Снять поездку? Её больше не будет видно в ленте.",
                 "Сәфәрҙе алырғамы? Ул таҫмала күренмәйәсәк.");
@@ -398,6 +399,7 @@ export default function DriverCabinetScreen() {
             <p>{appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр.")}</p>
           </div>
 
+          <RideShareNote />
           <VerifyBanner docs={driver.docs_status} />
 
           {taxiOn && (
@@ -481,7 +483,9 @@ export default function DriverCabinetScreen() {
                         <span className="my-trip-card__meta"><IconClock size={16} /> {formatWhen(r.depart_at, ru)}</span>
                         <span className="my-trip-card__meta">
                           <IconProfile size={16} />{" "}
-                          {appText(`${taken} из ${r.seats_total} занято`, `${r.seats_total}-нән ${taken} банд`)} · {priceLabel(r.price, ru)}
+                          {stops.length > 0
+                            ? appText(`Всего забронировано мест: ${taken}`, `Бөтәһе бронләнгән урын: ${taken}`)
+                            : appText(`${taken} из ${r.seats_total} занято`, `${r.seats_total}-нән ${taken} банд`)} · {priceLabel(r.price, ru)}
                         </span>
                         {/* RS-02 А: загрузка по участкам — «Сибай → Ургаза: занято 3 из 3» (без имён). */}
                         {stops.length > 0 && legs.length === points.length - 1 && (

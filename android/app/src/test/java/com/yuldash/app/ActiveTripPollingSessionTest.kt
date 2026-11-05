@@ -22,6 +22,7 @@ import org.robolectric.annotation.GraphicsMode
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import com.yuldash.app.data.TripPassAuthorityFixture
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -34,20 +35,20 @@ class ActiveTripPollingSessionTest {
     private val release = CountDownLatch(1)
     private val returned = CountDownLatch(1)
     private val requests = CopyOnWriteArrayList<Pair<String?, String?>>()
+    @Volatile private var preparingRole = false
+    private val preparationRequests = CopyOnWriteArrayList<String>()
+    private val tokenA = TripPassAuthorityFixture.jwt(7)
+    private val tokenB = TripPassAuthorityFixture.jwt(8)
     private var holdPath = "/bookings/42/role"
     @Volatile private var serverStatus = "confirmed"
     private var finished = 0
     private lateinit var server: MockWebServer
 
     @Before fun setup() {
-        ApiClient.resetForTest()
-        ApiClient.init(context)
-        ApiClient.logout()
-        ApiClient.saveToken("local-account-A")
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    preparationRoleResponse(request)?.let { return it }
                     requests.add(request.path to request.getHeader("Authorization"))
                     if (request.path == holdPath) {
                         held.countDown()
@@ -61,13 +62,19 @@ class ActiveTripPollingSessionTest {
                         "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed"}"""
                         else -> return MockResponse().setResponseCode(404)
                     }
-                    return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody(canonicalTripBody(request.path, body))
                 }
             }
             start()
         }
+        ApiClient.resetForTest()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 45000
+        ApiClient.init(context)
+        ApiClient.logout()
+        awaitSnapshotCleanup()
+        ApiClient.saveToken(tokenA)
+        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
     }
 
     @After fun cleanup() {
@@ -89,17 +96,16 @@ class ActiveTripPollingSessionTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             requests.any { it.first == "/bookings/42/details" }
         }
-        compose.runOnIdle {
-            ApiClient.logout()
-            ApiClient.saveToken("local-account-B")
-        }
+        compose.runOnIdle { ApiClient.logout() }
+        awaitSnapshotCleanup()
+        compose.runOnIdle { ApiClient.saveToken(tokenB) }
         serverStatus = "done"
         release.countDown()
         assertTrue(returned.await(5, TimeUnit.SECONDS))
         pumpPollPeriods()
         compose.onAllNodesWithText("Поездка завершена").assertCountEquals(0)
         assertEquals(0, finished)
-        val leaked = requests.filter { it.first == holdPath && it.second == "Bearer local-account-B" }
+        val leaked = requests.filter { it.first == holdPath && it.second == "Bearer $tokenB" }
         assertTrue("Old polling loop requested status as B: $leaked", leaked.isEmpty())
     }
 
@@ -127,6 +133,7 @@ class ActiveTripPollingSessionTest {
     }
 
     private fun mount() {
+        prepareRole()
         mounted.value = true
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -141,7 +148,7 @@ class ActiveTripPollingSessionTest {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             held.count == 0L
         }
-        assertTrue(requests.contains(holdPath to "Bearer local-account-A"))
+        assertTrue(requests.contains(holdPath to "Bearer $tokenA"))
     }
 
     // Advance Android's delayed main-loop tasks and allow IO dispatch to complete.
@@ -155,4 +162,42 @@ class ActiveTripPollingSessionTest {
         }
         compose.waitForIdle()
     }
+    private fun awaitSnapshotCleanup() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun canonicalTripBody(path: String?, body: String): String {
+        val endpoint = path.orEmpty()
+        val details = endpoint.endsWith("/details")
+        val role = endpoint.endsWith("/role")
+        val receipt = endpoint.endsWith("/receipt")
+        if (!details && !role && !receipt) return body
+        val value = org.json.JSONObject(body)
+        if ((details || receipt) && !value.has("ride_id")) value.put("ride_id", 1042)
+        if (details) {
+            if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
+            if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+        }
+        if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
+        if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))
+            value.put("onboard_at", "2031-02-03T09:00:00.123456Z")
+        return value.toString()
+    }
+
+    private fun preparationRoleResponse(request: RecordedRequest): MockResponse? {
+        if (!preparingRole || request.path != "/bookings/42/role") return null
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setBody(canonicalTripBody(request.path, """{"role":"passenger","status":"$serverStatus","driver_phase":"waiting"}"""))
+    }
+    private fun prepareRole() = kotlinx.coroutines.runBlocking {
+        val start = preparationRequests.size
+        preparingRole = true
+        try { ApiClient.getTripState(42).getOrThrow() } finally { preparingRole = false }
+        assertEquals(listOf("GET /bookings/42/role"), preparationRequests.drop(start))
+        assertTrue(com.yuldash.app.data.OfflineTripSnapshots.allowsLive(42))
+        assertNull(com.yuldash.app.data.OfflineTripSnapshots.privatePass(42))
+    }
+
 }

@@ -44,6 +44,7 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [34], application = Application::class, qualifiers = "w360dp-h740dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TripChatBottomComposerTest {
+    companion object { private val cleanupGuard = com.yuldash.app.data.SnapshotWiringCleanupGuard() }
     @get:Rule val compose = createComposeRule()
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(false)
@@ -59,52 +60,63 @@ class TripChatBottomComposerTest {
         override val lifecycle: Lifecycle get() = registry
     }
 
-    @Before fun prepare() = runBlocking {
-        server = MockWebServer().apply {
-            dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse {
-                    val path = request.path.orEmpty()
-                    requests += "${request.method} $path"
-                    if (path == "/ws/bookings/42") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
-                        override fun onOpen(webSocket: WebSocket, response: Response) { sockets += webSocket }
-                        override fun onMessage(webSocket: WebSocket, text: String) {
-                            val body = JSONObject(text)
-                            if (body.getString("type") == "auth") auth.offer(body.getString("token"))
-                            else sent.offer(body.getString("text"))
+    @Before fun prepare() = cleanupGuard.runSetup {
+        runBlocking {
+            server = MockWebServer().apply {
+                dispatcher = object : Dispatcher() {
+                    override fun dispatch(request: RecordedRequest): MockResponse {
+                        val path = request.path.orEmpty()
+                        requests += "${request.method} $path"
+                        if (path == "/ws/bookings/42") return MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
+                            override fun onOpen(webSocket: WebSocket, response: Response) { sockets += webSocket }
+                            override fun onMessage(webSocket: WebSocket, text: String) {
+                                val body = JSONObject(text)
+                                if (body.getString("type") == "auth") auth.offer(body.getString("token"))
+                                else sent.offer(body.getString("text"))
+                            }
+                            override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
+                        })
+                        val body = when (path) {
+                            "/auth/verify" -> """{"access_token":"$tokenA","refresh_token":"refresh-A"}"""
+                            "/auth/logout", "/push/unregister" -> "{}"
+                            "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":""}"""
+                            "/bookings/42/messages" -> JSONObject().put("items", JSONArray().apply {
+                                // Чужие и свои вперемешку — как в живой переписке.
+                                for (i in 1..historySize) put(JSONObject().put("id", i).put("sender_id", if (i % 2 == 0) 11 else 22).put("text", "msg-$i"))
+                            }).toString()
+                            "/bookings/42/boarding-code" -> """{"code":"1234"}"""
+                            "/bookings/42/details" -> """{"booking_id":42,"ride_id":7,"role":"passenger","status":"confirmed","from_city":"Город А","to_city":"Город Б","driver_name":"Ильдар","pay_method":"cash","pay_amount":700}"""
+                            else -> return MockResponse().setResponseCode(404).setBody("{}")
                         }
-                        override fun onClosing(webSocket: WebSocket, code: Int, reason: String) { webSocket.close(code, null) }
-                    })
-                    val body = when (path) {
-                        "/auth/verify" -> """{"access_token":"$tokenA","refresh_token":"refresh-A"}"""
-                        "/auth/logout", "/push/unregister" -> "{}"
-                        "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":""}"""
-                        "/bookings/42/messages" -> JSONObject().put("items", JSONArray().apply {
-                            // Чужие и свои вперемешку — как в живой переписке.
-                            for (i in 1..historySize) put(JSONObject().put("id", i).put("sender_id", if (i % 2 == 0) 11 else 22).put("text", "msg-$i"))
-                        }).toString()
-                        "/bookings/42/boarding-code" -> """{"code":"1234"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed","from_city":"Город А","to_city":"Город Б","driver_name":"Ильдар","pay_method":"cash","pay_amount":700}"""
-                        else -> return MockResponse().setResponseCode(404).setBody("{}")
+                        return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
                     }
-                    return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
                 }
+                start()
             }
-            start()
+            ApiClient.resetForTest()
+            ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+            ApiClient.testTimeoutMs = 10000
+            ApiClient.init(context)
+            ApiClient.logout()
+            kotlinx.coroutines.withTimeout(5_000) {
+                while (!OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+            }
+            ApiClient.verifyCode("+70000000000", "000000", "A").getOrThrow()
+            val snapshotOwner = com.yuldash.app.data.OfflineTripSnapshots.currentOwner()
+            assertTrue("Positive chat fixture must have its own current synthetic owner",
+                snapshotOwner != null && snapshotOwner.userId == 11 &&
+                    snapshotOwner.origin == com.yuldash.app.data.snapshotOrigin(ApiClient.apiBase()) &&
+                    ApiClient.isCurrentSession(snapshotOwner.generation))
+            TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+            Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
+            // Дисклеймер безопасности уже прочитан: он закрывается «Понятно» и в геометрии не участвует.
+            context.getSharedPreferences("yuldash", Context.MODE_PRIVATE).edit().putBoolean("chat_safety_seen", true).commit()
+            Unit
         }
-        ApiClient.resetForTest()
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
-        ApiClient.testTimeoutMs = 10000
-        ApiClient.init(context)
-        ApiClient.logout()
-        ApiClient.verifyCode("+70000000000", "000000", "A").getOrThrow()
-        TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
-        Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
-        // Дисклеймер безопасности уже прочитан: он закрывается «Понятно» и в геометрии не участвует.
-        context.getSharedPreferences("yuldash", Context.MODE_PRIVATE).edit().putBoolean("chat_safety_seen", true).commit()
-        Unit
     }
 
     @After fun cleanup() {
+        cleanupGuard.requireHealthy()
         compose.runOnIdle {
             mounted.value = false
             if (owner.registry.currentState != Lifecycle.State.INITIALIZED) owner.registry.currentState = Lifecycle.State.DESTROYED
@@ -112,12 +124,29 @@ class TripChatBottomComposerTest {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         sockets.forEach { it.close(1000, null) }
         ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        context.getSharedPreferences("yuldash", Context.MODE_PRIVATE).edit().remove("chat_safety_seen").commit()
-        server.shutdown()
+        val drained = runCatching { awaitFixtureJobs04() }.isSuccess
+        cleanupGuard.runCleanup(drained) {
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            Outbox.initStores(MemoryDiskPreferences(), null)
+            context.getSharedPreferences("yuldash", Context.MODE_PRIVATE).edit().remove("chat_safety_seen").commit()
+            server.shutdown()
+        }
+    }
+
+    private fun awaitFixtureJobs04() = kotlinx.coroutines.runBlocking {
+        val parents = listOf(ApiClient to "bg", com.yuldash.app.data.OfflineTripSnapshots to "jobs").map { (owner, name) ->
+            val scope = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner) as kotlinx.coroutines.CoroutineScope
+            requireNotNull(scope.coroutineContext[kotlinx.coroutines.Job])
+        }
+        kotlinx.coroutines.withTimeout(10_000) {
+            while (true) {
+                val children = parents.flatMap { it.children.toList() }
+                if (children.isEmpty()) break
+                children.forEach { it.join() }
+            }
+        }
     }
 
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
@@ -149,6 +178,8 @@ class TripChatBottomComposerTest {
             }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
+        // Process UI callbacks while the real WebSocket handshake completes.
+        waitFor { auth.peek() != null }
         assertEquals(tokenA, auth.poll(10, TimeUnit.SECONDS))
         waitFor { requests.contains("GET /bookings/42/details") && compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         pump(500)
@@ -167,6 +198,65 @@ class TripChatBottomComposerTest {
     private fun tripList() = compose.onNode(hasScrollToNodeAction() and
         SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
 
+    private inline fun observeOriginalFailure05(stage: String, action: () -> Unit) {
+        try {
+            action()
+        } catch (failure: AssertionError) {
+            runCatching { printFailureObservation05(stage) }
+            throw failure
+        } catch (failure: ComposeTimeoutException) {
+            runCatching { printFailureObservation05(stage) }
+            throw failure
+        }
+    }
+
+    private fun printFailureObservation05(stage: String) {
+        runCatching {
+            val snapshot = OfflineTripSnapshots
+            val state = synchronized(snapshot) {
+                val type = snapshot::class.java
+                val raw = (type.getDeclaredField("details").apply { isAccessible = true }.get(snapshot) as Map<*, *>)[42]
+                    as? TripPrivateProjection
+                val rawLive = (type.getDeclaredField("live").apply { isAccessible = true }.get(snapshot) as Map<*, *>).containsKey(42)
+                val currentOwner = snapshot.currentOwner()
+                listOf("ownerPresent" to (currentOwner != null),
+                    "apiSessionValid" to ApiClient.isCurrentSession(ApiClient.queueSessionGeneration()),
+                    "rawLiveEntryPresent" to rawLive, "rawDetailsPresent" to (raw != null),
+                    "rawDetailsOwnerCurrent" to (raw != null && raw.owner == currentOwner),
+                    "rawDetailsProofVerified" to (raw?.proof?.verified() == true),
+                    "privateGateAllowed" to (raw?.let { snapshot.gate.allowsPrivate(it.owner, 42, it.fingerprint) } == true))
+            }
+            fun exists(text: String) = compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            fun displayed(node: SemanticsNodeInteraction) = runCatching { node.assertIsDisplayed(); true }.getOrDefault(false)
+            fun rect(node: SemanticsNodeInteraction): List<Float>? = runCatching {
+                val value = node.fetchSemanticsNode().boundsInRoot
+                listOf(value.left, value.top, value.right, value.bottom)
+            }.getOrNull()
+            val paths = listOf("GET /bookings/42/role", "GET /bookings/42/details", "GET /bookings/42/boarding-code",
+                "GET /bookings/42/messages", "GET /ws/bookings/42")
+            val geometry = listOf("root" to rect(compose.onRoot()), "feed" to rect(compose.onNodeWithTag("chatFeed")),
+                "composer" to rect(compose.onNodeWithTag("chatComposerBar")), "field" to rect(compose.onNode(hasSetTextAction())),
+                "mic" to rect(mic()), "empty" to rect(compose.onNodeWithText("Пока нет сообщений. Напиши первым")),
+                "newest40" to rect(compose.onNodeWithText("msg-40")), "older5" to rect(compose.onNodeWithText("msg-5")),
+                "preview2" to rect(compose.onNodeWithText("Ты: msg-2")), "incoming43" to rect(compose.onNodeWithText("msg-43")))
+            println("CHAT_BOTTOM_AFTER_FAILURE05 stage=" + stage + " state=" + state +
+                " expectedHistoryRows=" + historySize + " socketCount=" + sockets.size +
+                " labels=" + listOf("chatShown" to compose.onAllNodesWithTag("tripChatScreen").fetchSemanticsNodes().isNotEmpty(),
+                    "emptyComposed" to exists("Пока нет сообщений. Напиши первым"),
+                    "emptyDisplayed" to displayed(compose.onNodeWithText("Пока нет сообщений. Напиши первым")),
+                    "newest40Composed" to exists("msg-40"), "newest40Displayed" to displayed(compose.onNodeWithText("msg-40")),
+                    "older5Composed" to exists("msg-5"), "preview2Composed" to exists("Ты: msg-2"),
+                    "preview2Displayed" to displayed(compose.onNodeWithText("Ты: msg-2")), "incoming43Composed" to exists("msg-43"),
+                    "historyCardLoading" to exists("Загружаем переписку…"), "historyError" to exists("Не удалось загрузить чат"),
+                    "unreadThree" to compose.onAllNodesWithContentDescription("Новых сообщений: 3").fetchSemanticsNodes().isNotEmpty(),
+                    "progressPresent" to compose.onAllNodes(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo)).fetchSemanticsNodes().isNotEmpty()) +
+                " geometryPx=" + geometry + " ownCounts=" + paths.associateWith { path -> requests.count { it == path } } +
+                " ownOrder=" + requests.filter { it in paths })
+        }.onFailure { diagnosticFailure ->
+            println("CHAT_BOTTOM_AFTER_FAILURE05 stage=" + stage + " diagnosticUnavailable=" + diagnosticFailure.javaClass.simpleName)
+        }
+    }
+
     /** Нижний край кнопки микрофона почти совпадает с нижним краем экрана — строка прибита к низу. */
     private fun assertComposerPinnedToBottom() {
         mic().assertIsDisplayed()
@@ -183,7 +273,9 @@ class TripChatBottomComposerTest {
         mount(); openChat()
         assertComposerPinnedToBottom()
         val empty = compose.onNodeWithText("Пока нет сообщений. Напиши первым")
-        empty.assertIsDisplayed()
+        observeOriginalFailure05("empty-initial-state") {
+            empty.assertIsDisplayed()
+        }
         // Пустая лента прижата к низу: заглушка стоит там, где появится первое сообщение.
         assertTrue("Заглушка пустой ленты висит наверху", bounds(empty).top > root().height / 2)
         assertTrue(bounds(empty).bottom <= bounds(compose.onNode(hasSetTextAction())).top)
@@ -194,7 +286,9 @@ class TripChatBottomComposerTest {
         mount(); openChat()
         assertComposerPinnedToBottom()
         val newest = compose.onNodeWithText("msg-40")
-        newest.assertIsDisplayed()
+        observeOriginalFailure05("newest-initial-history") {
+            newest.assertIsDisplayed()
+        }
         val gap = dp(bounds(compose.onNode(hasSetTextAction())).top - bounds(newest).bottom)
         assertTrue("Между последним сообщением и строкой ввода $gap dp", gap in 0f..140f)
         // Начало переписки ушло вверх — без прокрутки его не видно.
@@ -237,7 +331,9 @@ class TripChatBottomComposerTest {
         mount()
         tripList().performScrollToNode(hasTestTag("tripChatCard"))
         // Карточка показывает последнее сообщение; история при первом показе прочитана — бейджа нет.
-        compose.onNodeWithText("Ты: msg-2").assertIsDisplayed()
+        observeOriginalFailure05("trip-card-initial-preview") {
+            compose.onNodeWithText("Ты: msg-2").assertIsDisplayed()
+        }
         compose.onAllNodesWithContentDescription("Новых сообщений: 1").assertCountEquals(0)
         assertTrue(sockets.first().send("""{"type":"message","id":3,"sender_id":22,"text":"Подъезжаю к рынку"}"""))
         waitFor { compose.onAllNodesWithContentDescription("Новых сообщений: 1").fetchSemanticsNodes().isNotEmpty() }
@@ -273,7 +369,9 @@ class TripChatBottomComposerTest {
         pump(1000)
         for (i in 41..43) assertTrue(sockets.first().send("""{"type":"message","id":$i,"sender_id":22,"text":"msg-$i"}"""))
         // Бейдж на «Написать» в нижней панели: три новых, пока человек смотрел поездку.
-        waitFor { compose.onAllNodesWithContentDescription("Новых сообщений: 3").fetchSemanticsNodes().isNotEmpty() }
+        observeOriginalFailure05("reopen-unread-three") {
+            waitFor { compose.onAllNodesWithContentDescription("Новых сообщений: 3").fetchSemanticsNodes().isNotEmpty() }
+        }
         openChat()
         compose.onNodeWithText("msg-43").assertIsDisplayed()
         assertTrue(bounds(compose.onNodeWithText("msg-43")).bottom <= bounds(compose.onNode(hasSetTextAction())).top)
@@ -285,7 +383,9 @@ class TripChatBottomComposerTest {
     @Test fun scrolledUpReaderIsNotYankedAndGetsAJumpButtonWithTheCount() {
         historySize = 40
         mount(); openChat()
-        tripList().performScrollToNode(hasText("msg-5"))
+        observeOriginalFailure05("scroll-to-initial-history") {
+            tripList().performScrollToNode(hasText("msg-5"))
+        }
         pump(500)
         assertTrue(sockets.first().send("""{"type":"message","id":41,"sender_id":22,"text":"msg-41"}"""))
         waitFor { compose.onAllNodesWithContentDescription("Новых сообщений: 1").fetchSemanticsNodes().isNotEmpty() }

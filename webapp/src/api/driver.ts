@@ -4,7 +4,9 @@
 //  (/driver/rides, /rides), driver_schedule.py, instant.py
 //  (/driver/earnings). Точные пути/поля — из этих роутеров.
 // ================================================================
+import { driverStep, emitDriverRideTerminal } from "../utils/driverActions";
 import { apiGet, apiPost, apiDelete, apiUpload } from "./client";
+import * as client from "./client";
 import type { Ride, RideCategory } from "./rides";
 
 // ----------------------------- Публикация поездки -----------------------------
@@ -132,12 +134,26 @@ export function setDriverStatus(
   bookingId: number,
   status: DriverPhase
 ): Promise<{ ok?: boolean; status?: string }> {
-  return apiPost(`/bookings/${bookingId}/driver-status`, { status });
+  return driverStep(bookingId, status === "done", () =>
+    apiPost<{ ok?: boolean; status?: string }>(`/bookings/${bookingId}/driver-status`, { status }));
 }
 
 /** Завершить весь рейс (все брони разом) — POST /rides/{id}/complete. */
 export function completeRide(rideId: number): Promise<Ride> {
-  return apiPost<Ride>(`/rides/${rideId}/complete`);
+  return terminalRide(rideId, () => apiPost<Ride>(`/rides/${rideId}/complete`));
+}
+
+/** Владелец запроса неизменен во время сети; token refresh той же session его не меняет. */
+async function terminalRide<T>(rideId: number, request: () => Promise<T>): Promise<T> {
+  const session = client.getSessionGeneration();
+  const base = String(client.API_BASE ?? "");
+  let origin = base;
+  try { origin = new URL(base, typeof location !== "undefined" ? location.href : undefined).origin; } catch { /* как у driverRideShare */ }
+  const owner = JSON.stringify([origin, session]);
+  const result = await request();
+  // До resolve API и обновления кабинета: held GET и старый holder не сохраняют разрешение.
+  emitDriverRideTerminal(rideId, owner);
+  return result;
 }
 
 /**
@@ -149,7 +165,7 @@ export function completeRide(rideId: number): Promise<Ride> {
  * пассажиры выходили к дороге к машине, которая не приедет.
  */
 export function cancelRide(rideId: number): Promise<Ride> {
-  return apiPost<Ride>(`/rides/${rideId}/cancel`);
+  return terminalRide(rideId, () => apiPost<Ride>(`/rides/${rideId}/cancel`));
 }
 
 // ----------------------------- Подсказка цены -----------------------------

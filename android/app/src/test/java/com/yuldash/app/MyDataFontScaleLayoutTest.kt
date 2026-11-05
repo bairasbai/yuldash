@@ -19,7 +19,14 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -52,6 +59,7 @@ class MyDataFontScaleLayoutTest {
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
 
     @Before fun setup() {
+        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
         ApiClient.resetForTest()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
@@ -70,16 +78,42 @@ class MyDataFontScaleLayoutTest {
         ApiClient.testTimeoutMs = 1_000
         ApiClient.init(ApplicationProvider.getApplicationContext<Application>())
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.saveToken("QA-design018-synthetic")
     }
 
     @After fun cleanup() {
+        if (!::server.isInitialized) { awaitApiBackgroundCompletion(); awaitSnapshotCleanup(); return }
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
         ApiClient.logout()
+        awaitApiBackgroundCompletion()
+        awaitSnapshotCleanup()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
+    }
+
+    private fun awaitApiBackgroundCompletion()=runBlocking {
+        // Observe only the test-owned API coroutine job, never auth/key fields.
+        val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
+        val parent=requireNotNull(scope.coroutineContext[Job])
+        try {
+            withTimeout(10_000) {
+                while(true) {
+                    val children=parent.children.toList()
+                    if(children.isEmpty()) break
+                    children.forEach {it.join()}
+                }
+            }
+        } catch(failure:TimeoutCancellationException) {
+            throw AssertionError("Fixture API jobs still running; local origin/server retained. Abort this isolated run.",failure)
+        }
+    }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) {
+            while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10)
+        }
     }
 
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)

@@ -11,7 +11,12 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.*
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -53,20 +58,71 @@ class LoginFailureRecoveryTest {
     private val starts = AtomicInteger()
     private val attempts = CopyOnWriteArrayList<String>()
     private val consumed = mutableSetOf<String>()
+    private val tokenA = TripPassAuthorityFixture.jwt(7)
+    private val preparationRequests = CopyOnWriteArrayList<String>()
     @Volatile private var verifyStatus = 200
     private val invalidCode = "Неверный код. Проверь и введи снова."
     private val temporaryWarning = "Не удалось проверить код. Попробуй ещё раз."
     private val storageWarning = "Не удалось сохранить вход на телефоне. Получи новый код и попробуй ещё раз."
 
+    private fun awaitApiBackgroundCompletion()=runBlocking {
+        // Observe only the test-owned API coroutine job, never auth/key fields.
+        val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
+        val parent=requireNotNull(scope.coroutineContext[Job])
+        try {
+            withTimeout(10_000) {
+                while(true) {
+                    val children=parent.children.toList()
+                    if(children.isEmpty()) break
+                    children.forEach {it.join()}
+                }
+            }
+        } catch(failure:TimeoutCancellationException) {
+            throw AssertionError("Fixture API jobs still running; local origin/server retained. Abort this isolated run.",failure)
+        }
+    }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) {
+            while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10)
+        }
+    }
+
     private fun response(status: Int, body: String) = MockResponse().setResponseCode(status)
         .setHeader("Content-Type", "application/json").setBody(body)
-    private fun session(account: String) = """{"access_token":"$account-access","refresh_token":"$account-refresh","user":{"name":"Test $account","role":"passenger"}}"""
+    private fun session(account: String): String {
+        val access = if (account == "A") tokenA else "$account-access"
+        return """{"access_token":"$access","refresh_token":"$account-refresh","user":{"name":"Test $account","role":"passenger"}}"""
+    }
+
+    private fun seedBooking(request: RecordedRequest): MockResponse {
+        if (request.method != "GET" || request.getHeader("Authorization") != "Bearer $tokenA")
+            return response(403, "{}")
+        preparationRequests.add("${request.method} ${request.path}")
+        return when (request.path) {
+            "/bookings/7/role" -> response(200, """{"role":"passenger","status":"confirmed","driver_phase":""}""")
+            "/bookings/7/details" -> response(200, TripPass.fromJson(JSONObject()
+                .put("booking_id", 7).put("boarding_code", "old-account").put("pay_method", "negotiate"))
+                .toJson().put("ride_id", 1007).put("role", "passenger").put("status", "confirmed")
+                .put("contact_unlocked", true).toString())
+            else -> response(200, """{"code":"old-account"}""")
+        }
+    }
+
+    private fun authorizeSeedPass() = runBlocking {
+        assertEquals("passenger", ApiClient.getBookingRole(7).getOrThrow())
+        val actual = ApiClient.getBookingDetails(7).getOrThrow()
+        assertTrue("The initial saved pass requires actual current DETAILS", OfflineTripSnapshots.privateDetails(actual))
+        assertEquals("old-account", ApiClient.getBoardingCode(7).getOrThrow())
+        assertEquals(listOf("GET /bookings/7/role", "GET /bookings/7/details", "GET /bookings/7/boarding-code"),
+            preparationRequests.toList())
+    }
 
     @Before fun setup() {
         // Настоящий поток входа через Telegram. Имя бота подставляем сами: раньше тест требовал
         // BuildConfig.TELEGRAM_BOT из local.properties, и в CI (файла нет) падал ещё в setup —
         // проверял наличие файла на машине разработчика, а не вход.
         TelegramLoginBot.testName = "yuldash_test_bot"
+        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
         ApiClient.resetForTest()
         context = OfflineContext(ApplicationProvider.getApplicationContext())
         server = MockWebServer().apply {
@@ -91,6 +147,7 @@ class LoginFailureRecoveryTest {
                         }
                     }
                     "/auth/verify" -> response(200, session("A"))
+                    "/bookings/7/role", "/bookings/7/details", "/bookings/7/boarding-code" -> seedBooking(request)
                     "/auth/logout", "/push/register", "/push/unregister" -> response(200, "{}")
                     else -> response(404, "{}")
                 }
@@ -101,14 +158,18 @@ class LoginFailureRecoveryTest {
         ApiClient.testTimeoutMs = 1000
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.init(context)
     }
 
     @After fun cleanup() {
+        if (!::server.isInitialized) { awaitApiBackgroundCompletion(); awaitSnapshotCleanup(); return }
         mounted.value = false
         compose.waitForIdle()
         context.passes.failWriteOf = null
         ApiClient.logout()
+        awaitApiBackgroundCompletion()
+        awaitSnapshotCleanup()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         TelegramLoginBot.testName = null
@@ -171,7 +232,8 @@ class LoginFailureRecoveryTest {
         Outbox.initStores(context.outbox, MemoryDiskPreferences())
         assertFalse(context.passes.restarted().contains(OfflineStoreReset.PENDING))
         TripPassStore.initStores(context.passes, null)
-        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 7).put("boarding_code", "old-account"))))
+        authorizeSeedPass()
+        assertTrue(TripPassStore.save(context, TripPass.fromJson(JSONObject().put("booking_id", 7).put("boarding_code", "old-account").put("pay_method", "negotiate"))))
         context.passes.failWriteOf = OfflineStoreReset.PENDING
         ApiClient.logout()
         assertFalse(context.passes.restarted().contains(OfflineStoreReset.PENDING))
@@ -184,6 +246,7 @@ class LoginFailureRecoveryTest {
         compose.onNodeWithText(storageWarning).assertIsDisplayed()
         assertFalse(context.passes.restarted().contains(OfflineStoreReset.PENDING))
         context.passes.failWriteOf = null
+        awaitSnapshotCleanup()
         compose.onNodeWithText("Открыть Telegram ещё раз").performScrollTo().performClick()
         compose.waitUntil(20_000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()

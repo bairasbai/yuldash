@@ -202,17 +202,17 @@ const pendingCard = (tree, id) => all(tree).find(n => n.key === id && n.props.cl
 const rideCard = (tree, id) => all(tree).find(n => n.key === id && n.props.className === "driver-ride");
 const freeSeats = (tree, lang) => ofType(tree, "CabinetMetric").find(n => n.props.label === (lang === "ba" ? "Буш" : "Свободно"))?.props.value;
 
-async function openCabinet(lang, action = "confirm", secondPending = false) {
-  globalThis.__cabRows = [
+async function openCabinet(lang, action = "confirm", secondPending = false, fixture = {}) {
+  globalThis.__cabRows = fixture.rows ?? [
     { ...ROWS[4], booking_id: 77, ride_id: 7, status: action === "finish" || action === "drop" ? "confirmed" : "pending" },
     { ...ROWS[2], booking_id: 88, ride_id: 8, my_stars: 4 },
     ...(action === "finish" || action === "drop" || secondPending ? [{ ...ROWS[4], booking_id: 78, ride_id: 7 }] : []),
   ];
-  globalThis.__cabRides = [{ id: 7, from_city: "Сибай", to_city: "Акъяр", depart_at: "2030-10-19T10:00:00Z", seats_total: secondPending ? 3 : 2, seats_left: action === "finish" || action === "drop" ? 0 : 1, price: 700, status: "active" }];
+  globalThis.__cabRides = fixture.rides ?? [{ id: 7, from_city: "Сибай", to_city: "Акъяр", depart_at: "2030-10-19T10:00:00Z", seats_total: secondPending ? 3 : 2, seats_left: action === "finish" || action === "drop" ? 0 : 1, price: 700, status: "active" }];
   globalThis.__cabReads = 0; globalThis.__cabWrites = []; globalThis.__cabFail = ""; globalThis.__cabRoutes = [];
   globalThis.__cabRideReads = 0; globalThis.__cabHoldRides = false; globalThis.__cabRidesFail = false; globalThis.__cabRideLoads = [];
   const mocks = { "/i18n/lang": langMock(lang), "/api/bookings": CABINET_BOOKINGS, "/api/client": CABINET_CLIENT };
-  const Cabinet = await bundleComponent("src/screens/DriverCabinetScreen.tsx", { mocks: {
+  const Cabinet = await bundleComponent("src/screens/DriverCabinetScreen.tsx", { real: ["/utils/format", "/utils/rideCancelWarning"], mocks: {
     ...mocks, "/api/driver": CABINET_DRIVER,
     "react-router-dom": `export const useNavigate=()=>path=>globalThis.__cabRoutes.push(path);`,
     "/auth/AuthProvider": `export const useAuth=()=>({user:{id:1,rating:4.8}});`,
@@ -241,6 +241,87 @@ await t.test("кабинет водителя передаёт «Открыть 
   assert.deepEqual(globalThis.__cabRoutes, ["/trip/77"]);
   h.close();
 });
+
+// Четыре забронированных места за весь рейс не означают четыре человека
+// одновременно в трёхместной машине: три едут до Ургазы, один садится после неё.
+const segmentedCabinetFixture = () => ({
+  rides: [{
+    id: 7, from_city: "Сибай", to_city: "Акъяр", waypoints: "Ургаза",
+    depart_at: "2030-10-19T10:00:00Z", status: "active", terms_version: 9,
+    seats_total: 3, seats_left: 0, seats_booked: 4, seats_by_leg: [0, 2],
+    price: 700, stop_prices: [{ stop: "Ургаза", price: 400 }],
+  }, {
+    id: 8, from_city: "Уфа", to_city: "Бирск", depart_at: "2030-10-19T12:00:00Z",
+    status: "active", seats_total: 4, seats_left: 3, seats_booked: 1, price: 900,
+  }],
+  rows: [
+    { ...ROWS[0], booking_id: 77, ride_id: 7, route: "Сибай → Акъяр", seats: 3, price: 400, pickup_stop: "Сибай", dropoff_stop: "Ургаза", ride_has_stops: true },
+    { ...ROWS[0], booking_id: 78, ride_id: 7, route: "Сибай → Акъяр", seats: 1, price: 300, pickup_stop: "Ургаза", dropoff_stop: "Акъяр", ride_has_stops: true },
+    { ...ROWS[1], booking_id: 88, ride_id: 8, route: "Уфа → Бирск", status: "confirmed", seats: 1, price: 900 },
+  ],
+});
+
+for (const lang of ["ru", "ba"]) {
+  const L = (ru, ba) => lang === "ba" ? ba : ru;
+  await t.test(`${lang}: на рейсе с остановкой всего забронировано 4 места, без невозможных «4 из 3»`, async () => {
+    const fixture = segmentedCabinetFixture();
+    const before = structuredClone(fixture);
+    const h = await openCabinet(lang, "drop", false, fixture);
+    try {
+      const card = rideCard(h.parent.tree, 7); assert.ok(card, "реальная карточка рейса отрисована");
+      const other = rideCard(h.parent.tree, 8); assert.ok(other, "другая поездка тоже отрисована");
+      assert.ok(text(other).includes(L("1 из 4 занято", "4-нән 1 банд")), "счётчик другого рейса без остановок остаётся самостоятельным");
+      const label = text(card);
+      assert.ok(label.includes("700 ₽"), "цена всего рейса по-прежнему 700 рублей, без пересчёта единиц");
+      for (const leg of [
+        L("Сибай → Ургаза: занято 3 из 3", "Сибай → Ургаза: 3 урындан 3 билдәле"),
+        L("Ургаза → Акъяр: занято 1 из 3", "Ургаза → Акъяр: 3 урындан 1 билдәле"),
+      ]) assert.ok(label.includes(leg), `поучастковая загрузка сохранена: ${leg}`);
+      assert.equal(freeSeats(h.parent.tree, lang), "3", "общий остаток 0+3 не выводится из total booked");
+      const edit = ofType(card, "RideEditActions")[0]; assert.ok(edit);
+      assert.deepEqual(edit.props.ride, before.rides[0], "редактирование получает исходный серверный DTO, включая total4/legs/terms/цены");
+      const segmentPriceRub = await bundleComponent("src/utils/pickupStops.ts", { exportName: "segmentPriceRub" });
+      const seatsOnSpan = await bundleComponent("src/utils/pickupStops.ts", { exportName: "seatsOnSpan" });
+      assert.deepEqual([
+        segmentPriceRub(edit.props.ride, "Сибай", "Ургаза"),
+        segmentPriceRub(edit.props.ride, "Ургаза", "Акъяр"),
+      ], [400, 300], "цены участков остаются 400 и 300 целых рублей");
+      assert.deepEqual([
+        seatsOnSpan(edit.props.ride, "Сибай", "Ургаза"),
+        seatsOnSpan(edit.props.ride, "Ургаза", "Акъяр"),
+        seatsOnSpan(edit.props.ride, "Сибай", "Акъяр"),
+      ], [0, 2, 0], "доступность участка остаётся минимумом свободных мест, без clamp total4 к capacity3");
+      assert.deepEqual(globalThis.__cabRides, before.rides, "отрисовка не переписывает ответ сервера");
+      assert.deepEqual(globalThis.__cabRows, before.rows, "цены и места броней сохранены");
+      assert.deepEqual(globalThis.__cabWrites, [], "просмотр не меняет поездку");
+      assert.ok(label.includes(L("Всего забронировано мест: 4", "Бөтәһе бронләнгән урын: 4")), "общая надпись явно показывает total4 за весь рейс");
+      assert.ok(!label.includes(L("4 из 3", "3-нән 4")), "total бронирований не представлен как одновременная загрузка машины");
+    } finally { h.close(); }
+  });
+
+  await t.test(`${lang}: предупреждение отмены рейса с остановкой сохраняет все 4 забронированных места`, async () => {
+    const fixture = segmentedCabinetFixture();
+    const before = structuredClone(fixture);
+    const previousWindow = globalThis.window;
+    const prompts = [];
+    globalThis.window = { confirm: message => { prompts.push(message); return false; } };
+    let h;
+    try {
+      h = await openCabinet(lang, "drop", false, fixture);
+      assert.ok(rideCard(h.parent.tree, 8), "в кабинете есть другой рейс, но отменяется карточка7");
+      const drop = button(rideCard(h.parent.tree, 7), L("Снять поездку", "Сәфәрҙе алыу")); assert.ok(drop);
+      drop.props.onClick(); await h.sync();
+      assert.deepEqual(prompts, [L(
+        "Снять поездку? Забронировано мест: 4. Пассажирам придёт уведомление.",
+        "Сәфәрҙе алырғамы? Бронләнгән урындар: 4. Юлсыларға хәбәр китә."
+      )], "диалог использует seats_booked4, а не capacity3 или total-minus-left3");
+      assert.deepEqual(globalThis.__cabWrites, [], "ответ «нет» не отменяет рейс");
+      assert.deepEqual(globalThis.__cabRides, before.rides, "предупреждение не меняет серверные места, цены и версию условий");
+      assert.deepEqual(globalThis.__cabRows, before.rows, "предупреждение не меняет бронь, её участок и стоимость");
+      assert.ok(rideCard(h.parent.tree, 7), "после отказа от отмены тот же рейс остаётся виден");
+    } finally { h?.close(); globalThis.window = previousWindow; }
+  });
+}
 
 /** Кнопка «Отклонить» с вопросом в карточке брони (поверхностная отрисовка — узел с её свойствами). */
 const declineOf = (card) => {

@@ -1386,6 +1386,7 @@ internal fun DriverCabinetScreen(
     onPretrip: () -> Unit = {},          // 580-ФЗ: готовность к работе на сегодня
     onMyResponses: () -> Unit = {},      // «Мои отклики»: торг о цене по заявкам пассажиров
     onOpenTrip: (Int) -> Unit = {},      // «Едут с тобой» → экран поездки этой брони (id брони)
+    focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},
     onOpenCompletedTrip: (Int) -> Unit = {},
 ) {
     val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без линии, панели и поездок такси
@@ -1740,6 +1741,7 @@ internal fun DriverCabinetScreen(
             onCancelRide = { rideId ->
                 rateScope.launch {
                     ApiClient.cancelRide(rideId)
+                        .onSuccess { DriverGpsActions.rideClosed(rideId) }
                         .onSuccess { Toast.makeText(ctx, rideCancelledMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
                         .onFailure { Toast.makeText(ctx, serverSaid(it, rideActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
@@ -1747,6 +1749,7 @@ internal fun DriverCabinetScreen(
             onCompleteRide = { rideId ->
                 rateScope.launch {
                     ApiClient.completeRide(rideId)
+                        .onSuccess { DriverGpsActions.rideClosed(rideId) }
                         .onSuccess { Toast.makeText(ctx, rideDoneMsg, Toast.LENGTH_LONG).show(); ridesReload++ }
                         .onFailure { Toast.makeText(ctx, serverSaid(it, rideActionFailMsg), Toast.LENGTH_LONG).show() }
                 }
@@ -1793,7 +1796,7 @@ internal fun DriverCabinetScreen(
             onTaxiDocs = onTaxiDocs,
             onPretrip = onPretrip,
             pretripNeeded = pretripNeeded,
-            taxiOn = taxiOn, onOpenTrip = onOpenTrip,
+            taxiOn = taxiOn, onOpenTrip = onOpenTrip, focusRiding = focusRiding, onFocusRidingDone = onFocusRidingDone,
             onOpenCompletedTrip = onOpenCompletedTrip,
         )
         }
@@ -2942,6 +2945,7 @@ internal fun DriverCabinetContent(
     pretripNeeded: Boolean = false,  // сегодня ещё не отмечался → без этого на линию не пустят
     taxiOn: Boolean = true,          // такси включено на сервере; нет → линия, панель и поездки такси спрятаны
     onOpenTrip: (Int) -> Unit = {},  // «Едут с тобой»: открыть экран поездки этой брони (id брони)
+    focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},
     onOpenCompletedTrip: (Int) -> Unit = {},
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
@@ -2974,7 +2978,9 @@ internal fun DriverCabinetContent(
     }
     // F3: какая поездка правится сейчас (null = диалог закрыт).
     var editing by remember { mutableStateOf<Ride?>(null) }
+    val ridingList = rememberRidingFocusList(focusRiding, driverBookings.any { it.status in setOf("confirmed", "onboard") }, onFocusRidingDone)
     LazyColumn(
+        state = ridingList,
         modifier = modifier.padding(horizontal = 16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
@@ -3259,7 +3265,7 @@ internal fun DriverCabinetContent(
         // состоялась — сервер вернёт 409), а вот «Сел» и «пассажир не вышел» нужны именно тут.
         val ridingBookings = driverBookings.filter { it.status == "confirmed" || it.status == "onboard" }
         if (ridingBookings.isNotEmpty()) {
-            item {
+            item(key = RIDING_HEADER_KEY) {
                 SectionHeader(
                     appText("Едут с тобой", "Һинең менән баралар"),
                     appText(
@@ -3275,7 +3281,8 @@ internal fun DriverCabinetContent(
                         DriverMeetingAnswerRow(b, meetingAnswers, onAnswerMeeting)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // Посадку отмечает водитель: «Сел» рядом с «Не пришёл» (срок от сервера; на поездке с остановками сначала «Подъезжаю»), «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
-                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt)
+                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo)
+                        DriverRideShareButton(b.bookingId, b.rideId)
                     }
                 }
             }

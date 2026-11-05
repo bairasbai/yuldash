@@ -19,6 +19,7 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import com.yuldash.app.data.TripPassAuthorityFixture
 
 /**
  * Экран брони пассажира после отказа водителя (приёмка 18.10, п.6; ревью Opus 23.10 просило UI-тест).
@@ -35,8 +36,6 @@ class BookingDeclinedScreenTest {
     @Volatile private var declined = true
 
     @Before fun setup() {
-        ApiClient.resetForTest(); ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
-        ApiClient.saveToken("local-declined-screen")
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
@@ -51,8 +50,12 @@ class BookingDeclinedScreenTest {
             }
             start()
         }
+        ApiClient.resetForTest()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1000
+        ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
+        awaitSnapshotCleanup()
+        ApiClient.saveToken(TripPassAuthorityFixture.jwt(7))
     }
 
     @After fun cleanup() {
@@ -83,4 +86,10 @@ class BookingDeclinedScreenTest {
         compose.waitUntil(15000) { compose.onAllNodesWithText("Бронь отменена").fetchSemanticsNodes().isNotEmpty() }
         compose.onAllNodesWithText("Водитель отклонил бронь").assertCountEquals(0)
     }
+    private fun awaitSnapshotCleanup() = kotlinx.coroutines.runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
 }

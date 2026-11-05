@@ -4,7 +4,9 @@ import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -20,6 +22,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicReference
 
 @RunWith(RobolectricTestRunner::class)
@@ -29,6 +32,7 @@ class ApiClientLateMutationSessionTest {
     private val requestArrived = CountDownLatch(1)
     private val releaseResponse = CountDownLatch(1)
     private val oldRequest = AtomicReference<RecordedRequest>()
+    private val oldResponseHoldTimedOut = AtomicBoolean(false)
 
     @Before fun prepare() {
         ApiClient.resetForTest()
@@ -38,7 +42,10 @@ class ApiClientLateMutationSessionTest {
                     if (request.path in listOf("/me/delete", "/upload/chat-photo")) {
                         oldRequest.set(request)
                         requestArrived.countDown()
-                        if (!releaseResponse.await(5, TimeUnit.SECONDS)) return MockResponse().setResponseCode(504)
+                        if (!releaseResponse.await(5, TimeUnit.SECONDS)) {
+                            oldResponseHoldTimedOut.set(true)
+                            return MockResponse().setResponseCode(504)
+                        }
                         return MockResponse().setResponseCode(200).setBody(
                             if (request.path == "/upload/chat-photo") """{"url":"/uploads/account-A-private.jpg"}""" else "{}",
                         )
@@ -56,6 +63,7 @@ class ApiClientLateMutationSessionTest {
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
         ApiClient.sessionExpired.value = false
+        awaitSnapshotCleanup()
         ApiClient.saveToken("local-account-A")
     }
 
@@ -68,12 +76,17 @@ class ApiClientLateMutationSessionTest {
         ApiClient.testTimeoutMs = null
     }
 
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
+
     private fun switchAccountsWhileResponseIsHeld() {
         try {
             assertTrue("Old mutation must reach the local server before switching accounts", requestArrived.await(5, TimeUnit.SECONDS))
             assertEquals("POST", oldRequest.get().method)
             assertEquals("Bearer local-account-A", oldRequest.get().getHeader("Authorization"))
             ApiClient.logout()
+            awaitSnapshotCleanup()
             ApiClient.saveToken("local-account-B")
         } finally {
             releaseResponse.countDown()
@@ -84,6 +97,7 @@ class ApiClientLateMutationSessionTest {
         val request = async(Dispatchers.IO) { ApiClient.deleteAccount() }
         switchAccountsWhileResponseIsHeld()
         request.await()
+        assertFalse("The old HTTP response must remain held until the account switch", oldResponseHoldTimedOut.get())
         assertEquals("A's completed deletion must not erase B's login", "local-account-B", ApiClient.currentToken())
         assertFalse("Old mutation must not navigate B to login", ApiClient.sessionExpired.value)
     }
@@ -92,6 +106,7 @@ class ApiClientLateMutationSessionTest {
         val request = async(Dispatchers.IO) { ApiClient.uploadChatPhoto("local synthetic image bytes".toByteArray()) }
         switchAccountsWhileResponseIsHeld()
         val result = request.await()
+        assertFalse("The old HTTP response must remain held until the account switch", oldResponseHoldTimedOut.get())
         assertTrue("Public upload API must use the real multipart transport", oldRequest.get().getHeader("Content-Type").orEmpty().startsWith("multipart/form-data;"))
         assertTrue("A's private upload URL must not be returned as B's success", result.isFailure)
         assertEquals("local-account-B", ApiClient.currentToken())

@@ -6,7 +6,7 @@ import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.TripPassStore.RemovalResult
 import org.json.JSONObject
 import org.junit.Assert.*
-import org.junit.Test
+import org.junit.*
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
@@ -15,6 +15,9 @@ import org.robolectric.annotation.Config
 @Config(sdk = [34], application = Application::class)
 class TripPassDeletionFailuresTest {
     private val context = ApplicationProvider.getApplicationContext<Context>()
+    private val authority = TripPassAuthorityFixture()
+    @Before fun authorizeSession() { authority.start() }
+    @After fun closeSession() { authority.close() }
     private fun pass(code: String) = TripPass.fromJson(
         JSONObject().put("booking_id", 7).put("boarding_code", code),
     )
@@ -23,7 +26,7 @@ class TripPassDeletionFailuresTest {
         val plain = MemoryDiskPreferences()
         val secure = MemoryDiskPreferences()
         TripPassStore.initStores(plain, secure)
-        assertTrue(TripPassStore.save(context, pass("account-A")))
+        assertTrue(TripPassStore.save(context, authority.authorizePositive(pass("account-A"))))
         plain.failWriteOf = TripPassDeletion.KEY
 
         repeat(2) {
@@ -48,7 +51,7 @@ class TripPassDeletionFailuresTest {
         val plain = MemoryDiskPreferences()
         val secure = MemoryDiskPreferences()
         TripPassStore.initStores(plain, secure)
-        assertTrue(TripPassStore.save(context, pass("account-A")))
+        assertTrue(TripPassStore.save(context, authority.authorizePositive(pass("account-A"))))
         secure.failRemovalOf = "pass_7"
 
         assertEquals(RemovalResult.DEFERRED, TripPassStore.requestRemoval(context, 7))
@@ -72,15 +75,17 @@ class TripPassDeletionFailuresTest {
         TripPassStore.initStores(plain, secure)
 
         assertNull(TripPassStore.load(context, 7))
-        assertFalse(TripPassStore.save(context, pass("replacement")))
+        val replacement = authority.authorizePositive(pass("replacement"))
+        assertFalse(TripPassStore.save(context, replacement))
         assertEquals(RemovalResult.NOT_SAVED, TripPassStore.requestRemoval(context, 7))
         val restartedPlain = plain.restarted()
         val restartedSecure = secure.restarted()
         assertEquals("account-A", JSONObject(restartedSecure.getString("pass_7", null)!!).getString("boarding_code"))
         assertEquals("not-json", restartedPlain.getString(TripPassDeletion.KEY, null))
         TripPassStore.initStores(restartedPlain, restartedSecure)
+        authority.coldAuthority()
         assertNull(TripPassStore.load(context, 7))
-        assertFalse(TripPassStore.save(context, pass("replacement")))
+        assertFalse(TripPassStore.save(context, authority.authorizePositive(pass("replacement"))))
     }
 
     @Test fun durableLogoutClearsCommittedDeletionBarrierForNextAccount() {
@@ -95,7 +100,7 @@ class TripPassDeletionFailuresTest {
         val plain = MemoryDiskPreferences()
         val secure = MemoryDiskPreferences()
         TripPassStore.initStores(plain, secure)
-        assertTrue(TripPassStore.save(context, pass("account-A")))
+        assertTrue(TripPassStore.save(context, authority.authorizePositive(pass("account-A"))))
         if (failMarker) plain.failWriteOf = TripPassDeletion.KEY
         assertEquals(
             if (failMarker) RemovalResult.NOT_SAVED else RemovalResult.CLEARED,
@@ -105,7 +110,8 @@ class TripPassDeletionFailuresTest {
         assertFalse(plain.restarted().contains(TripPassDeletion.KEY))
         assertFalse(secure.restarted().contains("pass_7"))
         // Use the same preferences object: logout must cancel its in-memory barrier too.
-        assertTrue(TripPassStore.save(context, pass("account-B")))
+        authority.nextAccount()
+        assertTrue(TripPassStore.save(context, authority.authorizePositive(pass("account-B"))))
         TripPassStore.initStores(plain.restarted(), secure.restarted())
         assertEquals("account-B", TripPassStore.load(context, 7)?.boardingCode)
         assertEquals("account-B", JSONObject(secure.restarted().getString("pass_7", null)!!).getString("boarding_code"))
@@ -115,7 +121,7 @@ class TripPassDeletionFailuresTest {
         val plain = MemoryDiskPreferences()
         val secure = MemoryDiskPreferences()
         TripPassStore.initStores(plain, null)
-        assertTrue(TripPassStore.save(context, pass("account-A")))
+        assertTrue(TripPassStore.save(context, authority.authorizePositive(pass("account-A"))))
         plain.failRemovalOf = "pass_7"
         TripPassStore.initStores(plain, secure)
         assertTrue(plain.restarted().contains(OfflineMigration.JOURNAL))
@@ -128,7 +134,8 @@ class TripPassDeletionFailuresTest {
         assertTrue(plain.restarted().getBoolean(OfflineStoreReset.PENDING, false))
         assertFalse(plain.restarted().contains(TripPassDeletion.KEY))
         assertFalse(plain.restarted().contains(OfflineMigration.JOURNAL))
-        assertTrue(TripPassStore.save(context, pass("account-B")))
+        authority.nextAccount()
+        assertTrue(TripPassStore.save(context, authority.authorizePositive(pass("account-B"))))
         assertEquals("account-A", JSONObject(secure.restarted().getString("pass_7", null)!!).getString("boarding_code"))
 
         val restartedPlain = plain.restarted()

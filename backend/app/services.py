@@ -1573,7 +1573,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
     prof = profiles.get(ride.driver_id)
     car = f"{prof.car_make} {prof.car_model}".strip() if prof else ""
     avg, cnt = rating_agg.get(ride.driver_id, (0.0, 0))
-    rating = round(avg, 1) if cnt > 0 else (prof.rating if prof else 5.0)  # реальный рейтинг; до отзывов — сид
+    rating = round(avg, 1) if cnt > 0 else 0.0  # Без оценок среднего балла ещё нет; count=0 открывает честную подпись клиента.
     trips = (trips_agg or {}).get(ride.driver_id, 0)                       # F8: завершённых поездок водителя
     since = member_since(drv.created_at if drv else None)   # F8: «С нами с <мес год>», месяц местный
     from .ride_seats import legs_free, stop_prices_out   # лениво: ride_seats → ride_stops → services (круг)

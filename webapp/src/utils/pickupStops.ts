@@ -151,3 +151,9 @@ export function preserveRideMatch(ride: Ride, state: unknown, owner: string): Ri
   return { ...ride, matched_stop: typeof match.matched_stop === "string" ? match.matched_stop : null, matched_from_start: match.matched_from_start === true,
     matched_dropoff_stop: typeof match.matched_dropoff_stop === "string" ? match.matched_dropoff_stop : null, matched_to_end: match.matched_to_end === true };
 }
+
+/** Account changes must not seed the next person from the old enriched search result. */
+export function withoutRideMatch(ride: Ride): Ride {
+  return { ...ride, matched_stop: null, matched_from_start: false,
+    matched_dropoff_stop: null, matched_to_end: false };
+}

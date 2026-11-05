@@ -49,6 +49,7 @@ class ApiClientLateProfileCommitTest {
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
         ApiClient.sessionExpired.value = false
+        awaitSnapshotCleanup()
         ApiClient.saveToken("local-A")
         ApiClient.saveName("Original A")
         ApiClient.saveRole("driver")
@@ -63,6 +64,10 @@ class ApiClientLateProfileCommitTest {
         ApiClient.testTimeoutMs = null
     }
 
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
+
     private fun <T> finishOldResponseAfterSwitch(operation: suspend () -> Result<T>): Result<T> {
         val request = scope.async { operation() }
         caller.next("initial caller dispatch").run()
@@ -71,6 +76,7 @@ class ApiClientLateProfileCommitTest {
         val completedIoContinuation = caller.next("successful HTTP result returning to caller")
         assertFalse(request.isCompleted)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.saveToken("local-B")
         ApiClient.saveName("New account B")
         ApiClient.saveRole("passenger")

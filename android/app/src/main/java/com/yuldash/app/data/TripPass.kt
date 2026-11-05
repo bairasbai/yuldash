@@ -118,7 +118,7 @@ data class TripPass(
 
 /**
  * Локальное хранилище паспортов поездок (по booking id). Secure — внутри телефон водителя.
- * Если Keystore недоступен — мягко падаем на обычные prefs (как ApiClient с токеном).
+ * Сохранённые байты не дают доступа: общий process gate разрешает только текущую проекцию.
  */
 object TripPassStore {
     // v1 has no trustworthy owner. Keep it isolated; never migrate it into v2.
@@ -195,6 +195,8 @@ object TripPassStore {
         expectedGeneration: Long? = null,
     ): Boolean = runCatching {
         if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) return@runCatching false
+        val owner = OfflineTripSnapshots.currentOwner() ?: return@runCatching false
+        if (!OfflineTripSnapshots.cacheEnabled(owner) || !OfflineTripSnapshots.matchesPass(pass)) return@runCatching false
         sp(context)
         if (TripPassDeletion.blocks(plainPrefs ?: return@runCatching false, pass.bookingId)) return@runCatching false
         if (retryMigration && migration?.writable == false) {
@@ -209,11 +211,11 @@ object TripPassStore {
         commitOfflineString(store, KEY_PREFIX + pass.bookingId, pass.toJson().toString(), plainPrefs ?: return@runCatching false)
     }.getOrDefault(false)
 
-    /** Прочитать паспорт (синхронно, из локального хранилища) — доступно без сети. */
+    /** Only a current fresh-details projection can be returned. Cold ciphertext is never authority. */
     @Synchronized fun load(context: Context, bookingId: Int): TripPass? = runCatching {
-        sp(context)
-        if (TripPassDeletion.blocks(plainPrefs ?: return@runCatching null, bookingId)) return@runCatching null
-        migration?.read(KEY_PREFIX + bookingId)?.let { TripPass.fromJson(JSONObject(it)) }
+        val owner = OfflineTripSnapshots.currentOwner() ?: return@runCatching null
+        if (!OfflineTripSnapshots.cacheEnabled(owner)) return@runCatching null
+        OfflineTripSnapshots.privatePass(bookingId)
     }.getOrNull()
 
     /** Дополнить сохранённый паспорт кодом посадки (приходит на экране активной поездки). */
@@ -234,6 +236,10 @@ object TripPassStore {
         if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) {
             return@runCatching RemovalResult.NOT_SAVED
         }
+        val owner = OfflineTripSnapshots.currentOwner() ?: return@runCatching RemovalResult.NOT_SAVED
+        OfflineTripSnapshots.ticket()?.let { OfflineTripSnapshots.gate.close(it, bookingId) }
+        OfflineTripSnapshots.forgetLive(owner, bookingId)
+        if (!OfflineTripSnapshots.cacheEnabled(owner)) return@runCatching RemovalResult.NOT_SAVED
         sp(context)
         val plain = plainPrefs ?: return@runCatching RemovalResult.NOT_SAVED
         if (OfflineMigration.resetUnconfirmed(plain)) return@runCatching RemovalResult.NOT_SAVED

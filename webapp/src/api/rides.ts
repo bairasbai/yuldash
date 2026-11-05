@@ -51,6 +51,7 @@ export interface Ride {
   status?: "active" | "done" | "cancelled" | string; // есть в /driver/rides (RideOut)
   driver_name: string;
   driver_rating: number;
+  driver_rating_count?: number;
   driver_verified: boolean;
   driver_car: string;
   driver_avatar?: string;

@@ -55,7 +55,9 @@ object ApiClient {
      *  В проде остаётся null → идём на buildBase из BuildConfig. Поведение приложения НЕ меняется. */
     internal var testBaseUrl: String? = null
 
-    private val BASE: String get() = testBaseUrl ?: buildBase
+    private val BASE: String get() =
+        if (BuildConfig.YULDASH_NATIVE_QA_PINNED_API) BuildConfig.YULDASH_API_BASE_URL
+        else testBaseUrl ?: buildBase
 
     /**
      * Тест-хук: короткие таймауты и без повторов. В проде null → всё как было.
@@ -103,6 +105,7 @@ object ApiClient {
      * из `@Before`/`@After` тестов, в проде не вызывается.
      */
     internal fun resetForTest() {
+        OfflineTripSnapshotHooks.resetForTest()
         bg.coroutineContext.cancelChildren()
         testBaseUrl = null
         com.yuldash.app.FeatureFlags.resetForTest()   // в тестах все направления открыты, без сети
@@ -308,6 +311,7 @@ object ApiClient {
         plainAuthPrefs = plain
         secureAuthPrefs = secure
         authStoreSource = selected?.source
+        OfflineTripSnapshots.init(app); OfflineTripSnapshotHooks.selected(selected)
         // Keystore недоступен (бывает на «кривых» прошивках) → токены легли бы в ОТКРЫТЫЙ xml,
         // и раньше это происходило совершенно молча. Вход не ломаем (иначе человек не войдёт
         // вообще), но факт делаем видимым: флаг + сигнал в Sentry без единого байта PII.
@@ -335,7 +339,8 @@ object ApiClient {
         seedStatic("ad-packages", ::parseAdPackages)
         seedStatic("boost-plans", ::parseBoostPlans)
         // F11: локальные хранилища офлайн-паспорта поездки и очереди исходящих действий.
-        TripPassStore.init(app)
+        OfflineTripSnapshotHooks.restore(p, !token.isNullOrBlank(), myUserId(), sessionGeneration)
+        if (OfflineTripSnapshots.currentOwner()?.let(OfflineTripSnapshots::cacheEnabled) == true) TripPassStore.init(app)
         Outbox.init(app)
         // Startup can invalidate auth without going through logout (corruption,
         // interrupted login/logout). Do not hand the previous user's offline data to a guest.
@@ -486,8 +491,9 @@ object ApiClient {
     }
 
     fun saveToken(t: String) = synchronized(sessionLock) {
+        val snapshotScope = java.util.UUID.randomUUID().toString()
         check(persistNewSession { editor ->
-            editor.putString("token", t).remove("refresh_token")
+            editor.putString("token", t).putString(SNAPSHOT_AUTH_SCOPE, snapshotScope).remove("refresh_token")
                 .remove("refresh_rotation_id").remove("refresh_rotation_token")
                 .remove("user_name").remove("user_role")
         }) { "Session storage unavailable" }
@@ -500,6 +506,7 @@ object ApiClient {
         userName = null
         userRole = null
         sessionExpired.value = false
+        OfflineTripSnapshotHooks.newSession(myUserId(), snapshotScope, sessionGeneration)
         mutableSessionChanges.value = sessionGeneration
     }
 
@@ -541,15 +548,16 @@ object ApiClient {
 
     /** Локальная очистка сессии (токены, имя, кеши). Реюз: logout + deleteAccount. */
     private fun clearLocalSession() = synchronized(sessionLock) {
-        plainAuthPrefs?.let { AuthStorePolicy.logout(it, secureAuthPrefs, prefs) }
         sessionGeneration++
         token = null
+        OfflineTripSnapshotHooks.clearSession(sessionGeneration)
         refreshToken = null
         userName = null
         userRole = null
         cachedUserId = null
         cachedUserIdForToken = null
         clearSessionCaches()   // сброс кешей (иначе следующий юзер увидит чужой /me/referral/contacts)
+        plainAuthPrefs?.let { AuthStorePolicy.logout(it, secureAuthPrefs, prefs) }
         // Диск тоже чистим, иначе следующий пользователь телефона получает чужое наследство:
         //  • push_token — чтобы не зарегистрировать устройство прошлого владельца заново;
         //  • паспорта поездок — там ИМЯ И ТЕЛЕФОН пассажиров (чужие ПДн на диске, 152-ФЗ);
@@ -560,12 +568,12 @@ object ApiClient {
         prefs?.edit()?.apply {
             SessionKeys.CLEARED_ON_LOGOUT.forEach { remove(it) }
         }?.apply()
-        clearAssociatedPersonalData()
+        clearAssociatedPersonalData(snapshotReset = true)
         mutableSessionChanges.value = sessionGeneration
     }
 
     /** Also used after a startup auth reset, once both offline stores have been initialized. */
-    private fun clearAssociatedPersonalData() {
+    private fun clearAssociatedPersonalData(snapshotReset: Boolean = false) {
         // Ящиков настроек на диске несколько, и раньше выход ходил только в тот, где лежит токен
         // (волна 109). В остальных оставались «я вожу», номер брони и номера посылок — а по двум
         // последним фоновый сервис умеет ВОСКРЕСНУТЬ и снова начать слать GPS уже под новым
@@ -583,6 +591,7 @@ object ApiClient {
             runCatching { PersonalDataExports.clear(ctx) }
         }
         TripPassStore.clearAll()
+        if (snapshotReset) OfflineTripSnapshots.logoutCleanup()
         Outbox.clearAll()
         clearVoiceCache()
     }
@@ -765,8 +774,9 @@ object ApiClient {
             val refresh = obj.optString("refresh_token").takeIf { it.isNotBlank() }
             val name = obj.optJSONObject("user")?.optString("name")?.takeIf { it.isNotBlank() } ?: fallbackName
             val role = obj.optJSONObject("user")?.optString("role")?.takeIf { it.isNotBlank() }
+            val snapshotScope = java.util.UUID.randomUUID().toString()
             if (!persistNewSession { editor ->
-                editor.putString("token", access).putString("refresh_token", refresh)
+                editor.putString("token", access).putString("refresh_token", refresh).putString(SNAPSHOT_AUTH_SCOPE, snapshotScope)
                     .remove("refresh_rotation_id").remove("refresh_rotation_token")
                     .putString("user_name", name).putString("user_role", role)
             }) return@synchronized Result.failure(SessionPersistenceException())
@@ -779,21 +789,22 @@ object ApiClient {
             sessionExpired.value = false
             userName = name
             userRole = role
+            OfflineTripSnapshotHooks.newSession(myUserId(), snapshotScope, sessionGeneration)
             mutableSessionChanges.value = sessionGeneration
             Result.success(obj)
         }
     private fun persistNewSession(write: (android.content.SharedPreferences.Editor) -> Unit): Boolean {
-        val selected = prefs ?: return appCtx == null // Calls without init exist only in isolated unit tests.
-        val plain = plainAuthPrefs ?: return false
-        val source = authStoreSource ?: return false
+        val selected = prefs ?: return OfflineTripSnapshotHooks.authWriteResult(appCtx == null) // Calls without init exist only in isolated unit tests.
+        val plain = plainAuthPrefs ?: return OfflineTripSnapshotHooks.authWriteResult(false)
+        val source = authStoreSource ?: return OfflineTripSnapshotHooks.authWriteResult(false)
         // A nonempty new token skips the guest-startup cleanup; finish the old reset first.
-        if (!TripPassStore.ensureResetCommitted() || !Outbox.ensureResetCommitted()) return false
+        if (!TripPassStore.ensureResetCommitted() || !Outbox.ensureResetCommitted() || !OfflineTripSnapshots.ensureResetCommitted()) return OfflineTripSnapshotHooks.authWriteResult(false)
         val saved = AuthStorePolicy.writeSession(plain, AuthStorePolicy.Selection(selected, source)) { editor ->
             write(editor)
             editor.remove(SosRetryIntent.PREF_KEY)
         }
         if (saved) sosRetryIntent = SosRetryIntent(selected)
-        return saved
+        return OfflineTripSnapshotHooks.authWriteResult(saved)
     }
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
     suspend fun tgStart(): Result<String> =
@@ -1139,7 +1150,7 @@ object ApiClient {
     /** Пассажир: изменить/предложить место. pending — применится сразу; confirmed/onboard —
      * предложение водителю. clear=true — снять свою точку. proposalId — idempotent повтор своего. */
     suspend fun proposeMeetingPoint(
-        bookingId: Int, kind: String, point: MeetingPointInput, baseVersion: Int, proposalId: String? = null,
+        bookingId: Int, kind: String, point: MeetingPointInput, baseVersion: Int, proposalId: String? = null, owner: Long = queueSessionGeneration(),
     ): Result<JSONObject> = call(
         "POST", "/bookings/$bookingId/meeting-point",
         JSONObject()
@@ -1147,35 +1158,33 @@ object ApiClient {
             .put("point", if (point.clear) JSONObject().put("clear", true) else point.toJson())
             .put("base_version", baseVersion)
             .apply { if (proposalId != null) put("proposal_id", proposalId) },
-        auth = true,
+        auth = true, expectedGeneration = owner,
     )
 
     /** Водитель: ответ на предложение места. accept=true — применить точку; false — прежняя остаётся. */
     suspend fun answerMeetingPoint(
-        bookingId: Int, proposalId: String, baseVersion: Int, accept: Boolean,
+        bookingId: Int, proposalId: String, baseVersion: Int, accept: Boolean, owner: Long = queueSessionGeneration(),
     ): Result<JSONObject> = call(
         "POST", "/bookings/$bookingId/meeting-point/answer",
         JSONObject()
             .put("proposal_id", proposalId)
             .put("base_version", baseVersion)
             .put("accept", accept),
-        auth = true,
+        auth = true, expectedGeneration = owner,
     )
 
     /** Пассажир: отозвать своё предложение. */
     suspend fun withdrawMeetingPoint(
-        bookingId: Int, proposalId: String, baseVersion: Int,
+        bookingId: Int, proposalId: String, baseVersion: Int, owner: Long = queueSessionGeneration(),
     ): Result<JSONObject> = call(
         "POST", "/bookings/$bookingId/meeting-point/withdraw",
         JSONObject().put("proposal_id", proposalId).put("base_version", baseVersion),
-        auth = true,
+        auth = true, expectedGeneration = owner,
     )
 
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
-        call("GET", "/bookings/$bookingId/details", null, auth = true).map { o ->
-            parseBookingDetailsDto(o)
-        }
+        OfflineTripSnapshotHooks.details(bookingId)
 
     // ---------- Заявки ----------
 
@@ -1682,10 +1691,10 @@ object ApiClient {
                     }
                     Unit
                 }
-            "trip_status" -> call("POST", "/bookings/${action.bookingId}/trip-status",
-                JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
-            "driver_status" -> call("POST", "/bookings/${action.bookingId}/driver-status",
-                JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation).map { }
+            "trip_status" -> OfflineTripSnapshotHooks.tripStatus(action.bookingId, action.payload, generation) {
+                call("POST", "/bookings/${action.bookingId}/trip-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation) }
+            "driver_status" -> OfflineTripSnapshotHooks.driverStatus(action.bookingId, action.payload, generation) {
+                call("POST", "/bookings/${action.bookingId}/driver-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation) }
             else -> Result.success(Unit)
         }
     }
@@ -1699,25 +1708,24 @@ object ApiClient {
 
     /** Код посадки брони (виден только участникам) — пассажир называет, водитель сверяет. */
     suspend fun getBoardingCode(bookingId: Int): Result<String> =
-        call("GET", "/bookings/$bookingId/boarding-code", null, auth = true).map { it.optString("code") }
+        OfflineTripSnapshotHooks.code(bookingId)
 
     /** Роль в брони: "driver" | "passenger" — экран активной поездки показывает нужные кнопки. */
     suspend fun getBookingRole(bookingId: Int): Result<String> =
-        call("GET", "/bookings/$bookingId/role", null, auth = true).map { it.optString("role") }
+        OfflineTripSnapshotHooks.state(bookingId).result.map { it.role }
 
     /** Состояние активной поездки (для live-баннера): роль + статус брони + подфаза водителя
      *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
     suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
-        call("GET", "/bookings/$bookingId/role", null, auth = true).map {
-            TripStateDto(it.optString("role"), it.optString("status"), it.optString("driver_phase"),
-                         it.optBoolean("arrival_verified", false),
-                         it.optBoolean("alone_with_driver", false), it.optInt("peer_id"), it.optInt("boarding_undo_sec"),
-                         it.optInt("problem_report_sec"), it.optBoolean("cancelled_in_transit", false))
-        }
+        OfflineTripSnapshotHooks.state(bookingId).result
+    internal suspend fun getTripStateForNavigation(bookingId: Int) = OfflineTripSnapshotHooks.state(bookingId)
+    internal suspend fun readTripSnapshotJson(path: String, read: SnapshotTransportRead): Result<JSONObject> =
+        call("GET", path, null, auth = true, expectedGeneration = read.generation, snapshotRead = read)
 
     /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true).map { }
+        OfflineTripSnapshotHooks.driverStatus(bookingId, status, queueSessionGeneration()) { generation ->
+            call("POST", "/bookings/$bookingId/driver-status", JSONObject().put("status", status), auth = true, expectedGeneration = generation) }
 
     /** Мой реферал: код, сколько привёл, бонусы, вводил ли чей-то код. */
     suspend fun getReferral(): Result<ReferralDto> = cachedGet("referral", TTL_PERSONAL) {
@@ -2333,7 +2341,8 @@ object ApiClient {
     }
 
     suspend fun setTripStatus(bookingId: Int, status: String): Result<Unit> =
-        call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true).map { }
+        OfflineTripSnapshotHooks.tripStatus(bookingId, status, queueSessionGeneration()) { generation ->
+            call("POST", "/bookings/$bookingId/trip-status", JSONObject().put("status", status), auth = true, expectedGeneration = generation) }
 
     /** Оценить вторую сторону поездки (1..5 звёзд) + опц. текстовый отзыв (≤500, идёт на модерацию)
      *  и быстрые метки («вежливый», «вовремя») — коды из закрытого списка, сервер их фильтрует. */
@@ -2400,21 +2409,15 @@ object ApiClient {
      *
      * Поэтому отдаём наверх настоящий статус: экран сам решает, что показать.
      */
-    suspend fun cancelBooking(bookingId: Int, reason: String = ""): Result<CancelResultDto> =
-        call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason), auth = true)
-            .map { o ->
-                val status = o.optString("status")
-                CancelResultDto(
-                    cancelled = status == "cancelled",
-                    contactThenCancel = o.optBoolean("contact_then_cancel"),
-                    status = status,
-                )
-            }
+    suspend fun cancelBooking(bookingId: Int, reason: String = "", expectedGeneration: Long = queueSessionGeneration()): Result<CancelResultDto> =
+        OfflineTripSnapshotHooks.cancel(bookingId, expectedGeneration) { generation ->
+            call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason), auth = true, expectedGeneration = generation) }
             .onSuccess { if (it.cancelled) Analytics.log("booking_cancel") }
 
     // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
     suspend fun markNoShow(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true).map { }
+        OfflineTripSnapshotHooks.bookingTerminal(bookingId) { generation ->
+            call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true, expectedGeneration = generation) }
             .onSuccess { Analytics.log("booking_no_show") }
 
     /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
@@ -2449,11 +2452,11 @@ object ApiClient {
 
     /** F1: снять поездку (сломался/передумал). Сервер каскадно отменяет брони и шлёт пуши пассажирам. */
     suspend fun cancelRide(rideId: Int): Result<Unit> =
-        call("POST", "/rides/$rideId/cancel", JSONObject(), auth = true).map { }
+        OfflineTripSnapshotHooks.rideTerminal(rideId) { generation -> call("POST", "/rides/$rideId/cancel", JSONObject(), auth = true, expectedGeneration = generation) }
 
     /** F1: завершить рейс целиком (поездка → done, подтверждённые брони → done). */
     suspend fun completeRide(rideId: Int): Result<Unit> =
-        call("POST", "/rides/$rideId/complete", JSONObject(), auth = true).map { }
+        OfflineTripSnapshotHooks.rideTerminal(rideId) { generation -> call("POST", "/rides/$rideId/complete", JSONObject(), auth = true, expectedGeneration = generation) }
 
     /** F3: правка своей поездки (null = поле не менять). POST-алиас /edit: HttpURLConnection не умеет PATCH.
      *  С активными бронями сервер разрешит только комментарий и цену ВНИЗ (иначе 409 с понятным текстом). */
@@ -3611,9 +3614,11 @@ object ApiClient {
         expectedGeneration: Long? = null,
         idempotencyKey: String? = null,
         singleAttemptMutation: Boolean = false,
+        snapshotRead: SnapshotTransportRead? = SnapshotTransportRead.denialFor(path, expectedGeneration ?: queueSessionGeneration(), auth),
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
+        val snapshotOwner = OfflineTripSnapshots.currentOwner()
         val sessionBound = auth || expectedGeneration != null
         return withContext(Dispatchers.IO) {
         testTrace?.invoke("вошли в вызов $method $path")
@@ -3640,6 +3645,7 @@ object ApiClient {
         var attempt = 0
         while (true) {
             if (sessionBound && !sameSession(generation)) return@withContext staleSession()
+            snapshotRead?.attempt()
             var conn: HttpURLConnection? = null
             var mutationResponse: Response? = null
             try {
@@ -3664,8 +3670,10 @@ object ApiClient {
                         }
                     }.build()
                     val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
+                    snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
+                    snapshotRead?.status(code)
                     serverUnreachable.value = false
                     text = mutationResponse.body?.string().orEmpty()
                 } else {
@@ -3683,7 +3691,9 @@ object ApiClient {
                             OutputStreamWriter(outputStream, Charsets.UTF_8).use { it.write(body.toString()) }
                         }
                     }
+                    snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     code = conn.responseCode
+                    snapshotRead?.status(code)
                     // Сервер ОТВЕТИЛ — связь есть, даже если ответ 4xx/5xx. Гасим флаг «нет связи»:
                     // иначе плашка висела бы после восстановления сети до следующего перезапуска.
                     serverUnreachable.value = false
@@ -3700,14 +3710,16 @@ object ApiClient {
                         else -> JSONObject(text)
                     }
                     testTrace?.invoke("ВЫШЛИ из вызова $method $path успешно (код $code)")
+                    if (!idempotent) OfflineTripSnapshotHooks.acceptedPrivateChange(path, snapshotOwner)
                     Result.success(obj)
                 } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                     conn?.disconnect(); conn = null
                     mutationResponse?.close(); mutationResponse = null
                     val refreshed = tryRefresh(usedToken, generation)
+                    snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
-                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation)
+                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -3733,6 +3745,7 @@ object ApiClient {
                 testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
                 throw ce   // отмена корутины — не глотаем и не повторяем, пробрасываем дальше
             } catch (e: IOException) {
+                snapshotRead?.wireFailed()
                 // Обрыв связи ДО получения ответа. Повторяем, только если это безопасно:
                 // чтение (GET) — всегда, меняющий запрос — лишь когда до сервера мы вообще
                 // не дозвонились. Таймаут ЧТЕНИЯ у POST не повторяем: запрос уже ушёл, и
@@ -3746,6 +3759,7 @@ object ApiClient {
                 serverUnreachable.value = true   // повторы исчерпаны — связи действительно нет
                 return@withContext Result.failure(e)
             } catch (e: Exception) {
+                snapshotRead?.invalid()
                 return@withContext Result.failure(e)
             } finally {
                 conn?.disconnect()
@@ -3831,17 +3845,17 @@ object ApiClient {
             if (!sameSession(generation)) return@withLock staleSession()
             if (token != null && token != staleToken) return@withLock Result.success(Unit)
             val rt = refreshToken ?: return@withLock Result.failure(ApiException(401, genericByStatus(401, langBa)))
-            val p = prefs ?: return@withLock Result.failure(IOException("Refresh storage unavailable"))
+            val p = prefs ?: return@withLock OfflineTripSnapshotHooks.authFailure(IOException("Refresh storage unavailable"))
             val id = runCatching {
                 val saved = p.getString("refresh_rotation_id", null)
                 if (p.getString("refresh_rotation_token", null) == rt && saved?.matches(Regex("[0-9a-f]{64}")) == true) saved
                 else ByteArray(32).also { SecureRandom().nextBytes(it) }.joinToString("") { "%02x".format(it.toInt() and 255) }
-            }.getOrElse { return@withLock Result.failure(IOException("Refresh intent unavailable", it)) }
+            }.getOrElse { return@withLock OfflineTripSnapshotHooks.authFailure(IOException("Refresh intent unavailable", it)) }
             // commit обязателен даже для существующего intent: предыдущая запись могла
             // изменить только RAM-кеш SharedPreferences, но не пережить остановку процесса.
             val saved = runCatching { p.edit().putString("refresh_rotation_id", id)
                 .putString("refresh_rotation_token", rt).commit() }.getOrDefault(false)
-            if (!saved) return@withLock Result.failure(IOException("Refresh intent was not persisted"))
+            if (!saved) return@withLock OfflineTripSnapshotHooks.authFailure(IOException("Refresh intent was not persisted"))
             rt to id
         }
         val (rt, rotationId) = intent
@@ -3859,7 +3873,7 @@ object ApiClient {
             val access = (obj.opt("access_token") as? String)?.takeIf { it.isNotBlank() }
             val refresh = (obj.opt("refresh_token") as? String)?.takeIf { it.isNotBlank() }
             if (access == null || refresh == null) {
-                return@withLock Result.failure(ApiException(502, genericByStatus(502, langBa)))
+                return@withLock OfflineTripSnapshotHooks.authFailure(ApiException(502, genericByStatus(502, langBa)))
             }
             // Атомарное обновление пары внутри той же сессии — не новый вход.
             val persisted = runCatching { prefs?.edit()?.putString("token", access)?.putString("refresh_token", refresh)
@@ -3869,10 +3883,11 @@ object ApiClient {
                 // чтобы повтор/init не приняли непроверенную запись за успешную.
                 runCatching { prefs?.edit()?.putString("token", token)?.putString("refresh_token", rt)
                     ?.putString("refresh_rotation_id", rotationId)?.putString("refresh_rotation_token", rt)?.commit() }
-                return@withLock Result.failure(IOException("Refreshed session was not persisted"))
+                return@withLock OfflineTripSnapshotHooks.authFailure(IOException("Refreshed session was not persisted"))
             }
             token = access
             refreshToken = refresh
+            OfflineTripSnapshotHooks.refreshed(myUserId(), sessionGeneration)
             Result.success(Unit)
         }
     }
@@ -4931,7 +4946,7 @@ object ApiClient {
 
     /** Квитанция завершённой поездки (только участник; незавершённая → 409; посторонний → 403). */
     suspend fun getTripReceipt(bookingId: Int, expectedGeneration: Long? = null): Result<TripReceiptDto> =
-        call("GET", "/trips/$bookingId/receipt", null, auth = true, expectedGeneration = expectedGeneration).map(::parseTripReceiptDto)
+        OfflineTripSnapshotHooks.receipt(bookingId, expectedGeneration)
 
     // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
     // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
@@ -6530,7 +6545,8 @@ internal fun JSONObject.toRideDto(): RideDto {
     category = optString("category"),
     driverId = optInt("driver_id"),
     driverName = optString("driver_name"),
-    driverRating = optDouble("driver_rating", 5.0),
+    driverRating = if (has("driver_rating_count") && optInt("driver_rating_count") <= 0) 0.0
+        else optDouble("driver_rating", 0.0),
     driverVerified = optBoolean("driver_verified"),
     driverCar = optString("driver_car"),
     driverAvatar = optString("driver_avatar"),
@@ -6700,22 +6716,6 @@ data class PublicReviewDto(
 )
 
 /** Заявка пассажира рядом (/requests/near) — для маркера «ищет попутку» на карте. Без телефона. */
-/** Состояние активной поездки: роль + статус брони + подфаза водителя (""/departed/arriving). */
-/** arrivalVerified — сервер сам сверил «подъезжаю» с GPS водителя: машина правда рядом. */
-data class TripStateDto(
-    val role: String,
-    val status: String,
-    val driverPhase: String,
-    val arrivalVerified: Boolean = false,
-    // Ехал(а) не один(на), а теперь остался(ась) в машине один на один с водителем. Клиент
-    // ТИХО (без пуша и звука) предлагает поделиться поездкой с близким. Водителю не видно.
-    val aloneWithDriver: Boolean = false,
-    val peerId: Int = 0,            // вторая сторона брони (пассажиру — водитель): «Сообщить о проблеме»; 0 — старый сервер
-    val boardingUndoSec: Int = 0,   // водителю: сколько секунд ещё можно отменить свою отметку «Сел» (17.10.2026)
-    val problemReportSec: Int = 0,  // пассажиру: сколько ещё показывать «Сообщить о проблеме» (после поездки и отмены в пути)
-    // Отменили, когда пассажир был в машине (23.10.2026): экран поездки не закрывается сам. Старый сервер — false.
-    val cancelledInTransit: Boolean = false,
-)
 
 data class RequestNearDto(
     val id: Int,

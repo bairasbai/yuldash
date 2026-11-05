@@ -10,6 +10,8 @@ import androidx.compose.runtime.setValue
  * Singleton-объект: переживает смену экранов, не зависит от жизненного цикла Compose.
  */
 object TripLocationBus {
+    var rideShareActive by mutableStateOf(false)
+    internal var driverBookingClosed: ((Int) -> Unit)? = null
     var peer by mutableStateOf<LocationSocket.Peer?>(null)   // последняя позиция другого участника
     var bookingId: Int? = null                                // бронь, по которой идёт стрим (UI-гейт)
 }

@@ -23,6 +23,11 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class LoginAfterOfflineResetFailureTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private lateinit var passportFixture: OfflinePassportFixture03
+    private var serverStartAttempted = false
+    private var apiInitAttempted = false
+    private fun accountToken() = TripPassAuthorityFixture.jwt(if (account == "A") 7 else 8)
     private lateinit var context: OfflineContext
     private lateinit var server: MockWebServer
     @Volatile private var account = "A"
@@ -45,27 +50,33 @@ class LoginAfterOfflineResetFailureTest {
     private fun pass() = TripPass.fromJson(JSONObject().put("booking_id", 7).put("boarding_code", "account-A"))
     private suspend fun login() = ApiClient.verifyCode("+70000000000", "000000", "Fallback")
 
-    @Before fun setup() = runBlocking {
+    @Before fun setup() = cleanupGuard.runSetup { runBlocking {
         ApiClient.resetForTest()
         context = OfflineContext(ApplicationProvider.getApplicationContext())
+        passportFixture = OfflinePassportFixture03(context)
+        passportFixture.prepareClock()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
-                override fun dispatch(request: RecordedRequest): MockResponse = when (request.path) {
+                override fun dispatch(request: RecordedRequest): MockResponse = passportFixture.response(request) ?: when (request.path) {
                     "/auth/verify" -> {
                         val current = account
-                        MockResponse().setBody("""{"access_token":"$current-access","refresh_token":"$current-refresh","user":{"name":"Name $current","role":"passenger"}}""")
+                        MockResponse().setBody("""{"access_token":"${accountToken()}","refresh_token":"$current-refresh","user":{"name":"Name $current","role":"passenger"}}""")
                     }
                     "/auth/logout", "/push/register", "/push/unregister" -> MockResponse().setBody("{}")
                     else -> MockResponse().setResponseCode(404).setBody("{}")
                 }
             }
-            start()
         }
+        serverStartAttempted = true
+        server.start()
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 500
+        apiInitAttempted = true
         ApiClient.init(context)
         ApiClient.logout()
         ApiClient.init(context)
+        passportFixture.captureAuthBacking()
+        awaitOfflineWriteSnapshotReset02()
         login().getOrThrow()
         // Complete any guest-startup reset first. The later fault must reject the FIRST durable
         // marker for account A, rather than accidentally rely on an older marker already on disk.
@@ -76,17 +87,33 @@ class LoginAfterOfflineResetFailureTest {
         // Secure storage becomes unavailable again; account A now uses the fallback disks.
         TripPassStore.initStores(context.passes, null)
         Outbox.initStores(context.outbox, null)
-        assertTrue(TripPassStore.save(context, pass()))
+        val canonicalPass = passportFixture.prepare(pass(), 7)
+        assertTrue(TripPassStore.save(context, canonicalPass))
+        assertEquals(canonicalPass.toJson().toString(), context.passes.restarted().getString("pass_7", null))
+        assertNotNull(TripPassStore.load(context, 7))
         assertTrue(Outbox.enqueue(context, Outbox.newMessage(7, "account-A queued message")))
-    }
+        assertTrue(context.outbox.restarted().getString("queue", null)!!.contains("account-A queued message"))
+    } }
 
     @After fun cleanup() {
-        context.passes.failWriteOf = null
-        context.outbox.failWriteOf = null
-        ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        server.shutdown()
+        cleanupGuard.requireHealthy()
+        try {
+            if (::context.isInitialized) {
+                context.passes.failWriteOf = null
+                context.outbox.failWriteOf = null
+            }
+            if (apiInitAttempted) ApiClient.logout()
+            finishOfflineWriteFixture02(cleanupGuard) {
+                cleanupGuard.requireHealthy()
+                if (serverStartAttempted) server.shutdown()
+                ApiClient.resetForTest()
+                ApiClient.testBaseUrl = null
+                ApiClient.testTimeoutMs = null
+                if (::passportFixture.isInitialized) passportFixture.restoreClock()
+            }
+        } catch (failure: Throwable) {
+            poisonOfflinePassportFixture03(cleanupGuard, failure)
+        }
     }
 
     private suspend fun assertLoginWaitsForReset(failPasses: Boolean) {
@@ -97,14 +124,14 @@ class LoginAfterOfflineResetFailureTest {
         assertFalse("The first reset marker must not have reached disk", failingDisk.restarted().contains(OfflineStoreReset.PENDING))
         account = "B"
         val attempt = login()
-        val publishedB = ApiClient.currentToken() == "B-access"
+        val publishedB = ApiClient.currentToken() == TripPassAuthorityFixture.jwt(8)
 
         // Fresh disk objects discard the failed commit's memory changes and the in-process quarantine.
         // Actual ApiClient.init decides whether auth requires another personal-data reset.
         if (attempt.isSuccess) {
             context.restartDisks()
             ApiClient.init(context)
-            assertEquals("B-access", ApiClient.currentToken())
+            assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
             assertNull("Account A passport returned after B login and restart", TripPassStore.load(context, 7))
             assertEquals("Account A queue returned after B login and restart", 0, Outbox.count(context, 7))
         }
@@ -116,11 +143,13 @@ class LoginAfterOfflineResetFailureTest {
 
         // Recover the failed disk and retry login in this process, without a manual extra logout.
         failingDisk.failWriteOf = null
+        // Only the independent real Snapshot cleanup may settle here; auth must recover its own legacy reset.
+        awaitOfflineWriteSnapshotReset02()
         login().getOrThrow()
-        assertEquals("B-access", ApiClient.currentToken())
+        assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
         context.restartDisks()
         ApiClient.init(context)
-        assertEquals("B-access", ApiClient.currentToken())
+        assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
         assertNull(TripPassStore.load(context, 7))
         assertEquals(0, Outbox.count(context, 7))
     }
@@ -144,8 +173,10 @@ class LoginAfterOfflineResetFailureTest {
         assertTrue(context.passes.restarted().getBoolean(OfflineStoreReset.PENDING, false))
         assertTrue(context.outbox.restarted().getBoolean(OfflineStoreReset.PENDING, false))
         account = "B"
+        // Both original durable legacy markers were asserted above; this waits only for Snapshot cleanup.
+        awaitOfflineWriteSnapshotReset02()
         login().getOrThrow()
-        assertEquals("B-access", ApiClient.currentToken())
+        assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())
         assertNull(TripPassStore.load(context, 7))
         assertEquals(0, Outbox.count(context, 7))
         // The same secure disks return later: the durable marker must erase account A first.

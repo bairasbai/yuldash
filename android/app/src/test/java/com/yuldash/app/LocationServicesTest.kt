@@ -68,26 +68,28 @@ class LocationServicesTest {
     // ---------- Поездка ----------
 
     @Test
-    fun `поездка запомнена, чтобы пережить смерть процесса`() {
+    fun `поездка не сохраняет право на передачу после смерти процесса`() {
         val svc = Robolectric.buildService(TripLocationService::class.java, tripIntent(42)).create().get()
         val result = svc.onStartCommand(tripIntent(42), 0, 1)
 
-        assertEquals("сервис должен просить систему воскресить себя", Service.START_STICKY, result)
-        assertEquals("номер поездки не сохранён — после смерти процесса трекинг погаснет", 42, tripPrefs().getInt("last_booking", -1))
+        assertEquals("служба не должна просить холодное воскрешение", Service.START_NOT_STICKY, result)
+        assertEquals("право на GPS не сохраняется на диске", -1, tripPrefs().getInt("last_booking", -1))
         assertEquals("карта должна знать, по какой поездке идёт стрим", 42, TripLocationBus.bookingId)
         svc.onDestroy()
     }
 
     @Test
-    fun `воскрешение без данных продолжает ту же поездку`() {
+    fun `холодное воскрешение не получает право на GPS из прежних настроек`() {
         // Android убил процесс и поднял сервис заново — intent приходит пустым.
         tripPrefs().edit().putInt("last_booking", 77).putString("last_lang", "Ba").apply()
 
         val svc = Robolectric.buildService(TripLocationService::class.java).create().get()
         val result = svc.onStartCommand(null, 0, 1)
 
-        assertEquals(Service.START_STICKY, result)
-        assertEquals("долгая поездка оборвалась бы на середине", 77, TripLocationBus.bookingId)
+        assertEquals(Service.START_NOT_STICKY, result)
+        assertTrue(shadowOf(svc).isStoppedBySelf)
+        assertNull(TripLocationBus.bookingId)
+        assertTrue(shadowOf(app.getSystemService(android.location.LocationManager::class.java)).locationUpdateListeners.isEmpty())
         svc.onDestroy()
     }
 
@@ -131,7 +133,7 @@ class LocationServicesTest {
         // Поездка A кончилась, сразу началась B: GPS не должен продолжать литься в канал A.
         svc.onStartCommand(tripIntent(2), 0, 2)
         assertEquals(2, TripLocationBus.bookingId)
-        assertEquals(2, tripPrefs().getInt("last_booking", -1))
+        assertEquals("смена канала не даёт постоянное согласие", -1, tripPrefs().getInt("last_booking", -1))
         svc.onDestroy()
     }
 
@@ -139,7 +141,7 @@ class LocationServicesTest {
     fun `язык шторки берётся из приложения, а не по умолчанию`() {
         val svc = Robolectric.buildService(TripLocationService::class.java, tripIntent(5, AppLanguage.Ba)).create().get()
         svc.onStartCommand(tripIntent(5, AppLanguage.Ba), 0, 1)
-        assertEquals("Ba", tripPrefs().getString("last_lang", null))
+        assertEquals("Юлдаш — сәфәр бара", shadowOf(svc).lastForegroundNotification.extras.getString(android.app.Notification.EXTRA_TITLE))
         svc.onDestroy()
     }
 
@@ -147,8 +149,8 @@ class LocationServicesTest {
     fun `битое имя языка не роняет сервис`() {
         val broken = tripIntent(5).putExtra(TripLocationService.EXTRA_LANG, "Klingon")
         val svc = Robolectric.buildService(TripLocationService::class.java, broken).create().get()
-        assertEquals(Service.START_STICKY, svc.onStartCommand(broken, 0, 1))
-        assertEquals("непонятный язык → падаем на русский", "Ru", tripPrefs().getString("last_lang", null))
+        assertEquals(Service.START_NOT_STICKY, svc.onStartCommand(broken, 0, 1))
+        assertEquals("непонятный язык → русский текст уведомления", "Юлдаш — поездка идёт", shadowOf(svc).lastForegroundNotification.extras.getString(android.app.Notification.EXTRA_TITLE))
         svc.onDestroy()
     }
 

@@ -21,6 +21,10 @@ import androidx.lifecycle.ViewModel
  */
 internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel() {
 
+    // Только память текущего окна: без черновика SOS и без SavedStateHandle.
+    internal data class SosReturnOrigin(val principalId: Int, val generation: Long)
+    internal var visibleSosOrigin: SosReturnOrigin? = null
+
     // --- Survival-критичные: переживают поворот И kill процесса (SavedStateHandle) ---
     private val restoredScreen = saved.get<String>(KEY_SCREEN)
         ?.let { runCatching { Screen.valueOf(it) }.getOrNull() } ?: Screen.Splash
@@ -53,7 +57,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     // Совместимость с уже сохранёнными booking_done task и прежними внутренними callers.
     val pendingCompletedNavigation = derivedStateOf { pendingBookingNavigation.value?.takeIf { it.completed } }
     val hasHandledBookingIntent: Boolean get() = (saved.get<Long>(KEY_PENDING_REVISION) ?: 0L) > 0L
-    val privateNavigationRevision: Long get() = saved.get<Long>(KEY_PENDING_REVISION) ?: 0L
+    val privateNavigationRevisions = saved.getStateFlow(KEY_PENDING_REVISION, 0L)
+    val privateNavigationRevision: Long get() = privateNavigationRevisions.value
 
     // Публичное назначение принадлежит окну, получившему Intent, а не всему процессу.
     data class PendingPublicRideNavigation(val rideId: Int, val revision: Long)
@@ -271,6 +276,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
 
     /** Явный выбор внутри приложения отменяет прежнее ожидающее назначение, не серверную операцию. */
     fun navigateLocally(applyRoute: () -> Unit) {
+        offlineTripSnapshot.value = null
         clearPendingPublicRide()
         pendingBookingNavigation.value?.let(::clearPendingBooking)
         pendingScreenNavigation.value?.let(::clearPendingScreen)
@@ -341,11 +347,14 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     // --- Транзитные/бизнес: переживают поворот, не переживают kill (как и было) ---
     val selectedRide = mutableStateOf<Ride?>(null)
     val activeTrip = mutableStateOf<Ride?>(null)
+    val offlineTripSnapshot = mutableStateOf<OfflineTripSnapshotMode?>(null)
     // Бронь, в которой я ВОДИТЕЛЬ (её поездку открыли из кабинета или по ссылке с ролью driver). Живому гео
     // нужна роль: пульс стоянки шлёт только водитель (TripLocationService). Привязка к номеру, а не флаг:
     // открыл потом свою пассажирскую бронь — номер другой, роль сама становится «пассажир».
     val activeDriverBookingId = mutableStateOf<Int?>(null)
     fun isDriverOf(bookingId: Int?): Boolean = bookingId != null && activeDriverBookingId.value == bookingId
+    val focusRidingSection = mutableStateOf(false)
+    val driverRideOverBooking = mutableStateOf(0)
     val callbackRequested = mutableStateOf(false)
     val isAdmin = mutableStateOf(false)
     // Реклама начинается ПУСТОЙ, а не с демо-партнёров. Раньше стартовым значением стоял
@@ -396,6 +405,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
      */
     fun clearUserData() {
+        visibleSosOrigin = null
+        offlineTripSnapshot.value = null
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()
         instantChatOrderId.value = 0
@@ -408,6 +419,8 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
         activeTrip.value = null
         activeBookingId.value = null
         activeDriverBookingId.value = null
+        focusRidingSection.value = false
+        driverRideOverBooking.value = 0
         isAdmin.value = false
         callbackRequested.value = false
         responsesRequestId.value = 0

@@ -32,6 +32,7 @@ class LocationSocket(
     // Тот же mutex и intent, что у запросов после 401; поколение — сессии-владельца канала: сменился
     // аккаунт — обновление откажет, а не выдаст ключ другого человека. Явный отказ в продлении завершает вход так же.
     private val refreshToken: suspend (String, Long) -> Result<Unit> = { token, owner -> ApiClient.tryRefresh(token, owner) },
+    private val mayPublish: () -> Boolean = { true },
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
@@ -70,6 +71,7 @@ class LocationSocket(
 
     @Synchronized
     fun connect() {
+        if (!mayPublish()) { terminate(); return }
         closed = false; attempt = 0; softAttempt = 0; tokenAttempt = 0; rejectedToken = null
         NetworkMonitor.subscribe(netListener); openSocket()
     }
@@ -77,6 +79,7 @@ class LocationSocket(
     @Synchronized
     private fun openSocket() {
         if (closed) return
+        if (!mayPublish()) { terminate(); return }
         // Вышли или сменили аккаунт — канал не наш: не подключаемся чужим ключом к этой брони.
         if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return }
         val token = currentToken() ?: run { terminate(); return }   // ключа нет — вход кончился, GPS не нужен
@@ -92,7 +95,7 @@ class LocationSocket(
                 override fun onOpen(webSocket: WebSocket, response: Response) {
                     synchronized(this@LocationSocket) {
                         if (closed || generation != connection) return
-                        if (!ApiClient.isCurrentSession(ownerSession)) { terminate(); return }
+                        if (!ApiClient.isCurrentSession(ownerSession) || !mayPublish()) { terminate(); return }
                         webSocket.send(JSONObject().put("type", "auth").put("token", token).toString())
                         authed = true
                         authedAt = System.currentTimeMillis()
@@ -223,6 +226,7 @@ class LocationSocket(
     /** Отправить свою позицию другому участнику. true — ушло. */
     @Synchronized
     fun sendLoc(lat: Double, lng: Double, bearing: Double? = null): Boolean {
+        if (!mayPublish()) { terminate(); return false }
         // До кадра входа точку не шлём: OkHttp отправил бы её раньше {type:auth}, сервер принял бы её
         // за попытку входа и закрыл канал «Invalid token» (приёмка PR158). Как `authed` на сайте.
         if (!authed) return false

@@ -40,6 +40,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class TripChatRefusedSocketResyncTest {
+    companion object { private val cleanupGuard = com.yuldash.app.data.SnapshotWiringCleanupGuard() }
     @get:Rule val compose = createComposeRule()
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private val mounted = mutableStateOf(false)
@@ -55,10 +56,9 @@ class TripChatRefusedSocketResyncTest {
     @Volatile private var acceptSocket = false
     @Volatile private var driverWrote = false
 
-    @Before fun setup() {
+    @Before fun setup() = cleanupGuard.runSetup {
         ApiClient.resetForTest()
         ApiClient.init(context)
-        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
         TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         Outbox.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
         server = MockWebServer().apply {
@@ -80,7 +80,7 @@ class TripChatRefusedSocketResyncTest {
                         "/bookings/42/messages" ->
                             if (driverWrote) """{"items":[{"id":90,"sender_id":22,"text":"Я у подъезда"}]}""" else """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":"1234"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed"}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":7,"role":"passenger","status":"confirmed"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setBody(body).setHeader("Content-Type", "application/json")
@@ -90,18 +90,42 @@ class TripChatRefusedSocketResyncTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 45000
+        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
+        val snapshotOwner = com.yuldash.app.data.OfflineTripSnapshots.currentOwner()
+        assertTrue("Positive chat fixture must have its own current synthetic owner",
+            snapshotOwner != null && snapshotOwner.userId == 11 &&
+                snapshotOwner.origin == com.yuldash.app.data.snapshotOrigin(ApiClient.apiBase()) &&
+                ApiClient.isCurrentSession(snapshotOwner.generation))
     }
 
     @After fun cleanup() {
+        cleanupGuard.requireHealthy()
         compose.runOnIdle { mounted.value = false; owner.registry.currentState = Lifecycle.State.DESTROYED }
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         sockets.forEach { it.close(1000, null) }
         ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
+        val drained = runCatching { awaitFixtureJobs04() }.isSuccess
+        cleanupGuard.runCleanup(drained) {
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            Outbox.initStores(MemoryDiskPreferences(), null)
+            server.shutdown()
+        }
+    }
+
+    private fun awaitFixtureJobs04() = kotlinx.coroutines.runBlocking {
+        val parents = listOf(ApiClient to "bg", com.yuldash.app.data.OfflineTripSnapshots to "jobs").map { (owner, name) ->
+            val scope = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner) as kotlinx.coroutines.CoroutineScope
+            requireNotNull(scope.coroutineContext[kotlinx.coroutines.Job])
+        }
+        kotlinx.coroutines.withTimeout(10_000) {
+            while (true) {
+                val children = parents.flatMap { it.children.toList() }
+                if (children.isEmpty()) break
+                children.forEach { it.join() }
+            }
+        }
     }
 
     private fun historyReads() = requests.count { it == "GET /bookings/42/messages" }

@@ -27,6 +27,8 @@ const OUT = join(SUITE_DIR, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const ALL_SUITES = [
+  { test: "guest-booking-draft-test", src: null, out: null, bundle: false },
+  { test: "ride-rating-count-test", src: null, out: null, bundle: false },
   { test: "multiseat-booking-test", src: null, out: null, bundle: false },
   { test: "storage-boundary-test", src: null, out: null, bundle: false },
   { test: "update-banner-test", src: null, out: null, bundle: false },
@@ -93,6 +95,8 @@ const ALL_SUITES = [
   { test: "driver-noshow-onboard-test", src: null, out: null, bundle: false },
   // Посадку отмечает водитель (17.10.2026): «Сел» → «Пассажир в машине» и «Отменить · 4:59»,
   // у пассажира «Водитель отметит посадку» и «Сообщить о проблеме», «Я сел» нет.
+  { test: "boarding-undo-consent-test", src: null, out: null, bundle: false },
+  { test: "my-trip-declined-test", src: null, out: null, bundle: false },
   { test: "driver-marks-boarding-test", src: null, out: null, bundle: false },
   // «Не вышел» — через 15 минут после выезда (срок от сервера, `no_show_at`) и с вопросом «Точно?» (18.10.2026).
   { test: "driver-noshow-wait-test", src: null, out: null, bundle: false },
@@ -213,6 +217,8 @@ const ALL_SUITES = [
   // …и сторожа приёмки PR155: без шторма соединений (лестница 1-2-4…30 с), отказ в ключе — ждём
   // обновлённый (отказ обновления — конец), без ключа — ни одного соединения, «online» — сразу.
   { test: "driver-location-share-guard-test", src: null, out: null, bundle: false },
+  { test: "driver-ride-share-test", src: null, out: null, bundle: false },
+  { test: "driver-device-grant-test", src: null, out: null, bundle: false },
   // Пассажир: машина на карте не замирает — после обрыва связи и истёкшего ключа приём возобновляется
   // (лестница 1…30 с, «online» — сразу); конец поездки, чужая бронь, блокировка — конец.
   { test: "passenger-trip-location-test", src: null, out: null, bundle: false },

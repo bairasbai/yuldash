@@ -7,16 +7,19 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.Alignment
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import kotlinx.coroutines.CancellationException
@@ -43,7 +46,7 @@ internal fun ActiveTripUnverifiedScreen(loading: Boolean, failure: Throwable?, o
                     AppButton(appText("Закрыть", "Ябырға"), onClick = onBack, style = AppButtonStyle.Secondary)
                 }
             }
-            else ActiveTripDetailsNotice(loading = loading || failure == null, failure = failure, onRetry = onRetry)
+            else ActiveTripDetailsNotice(loading = loading, failure = failure, onRetry = onRetry)
         }
     }
 }
@@ -60,7 +63,52 @@ internal class ActiveTripDetailsState(private val bookingId: Int?, private val o
     private var attemptedTick = -1
     private var latestRequest = 0L
     private var loadedStatus: String? = null
+    // A completed screen load, not a cached/private-ready Boolean, serializes the first CODE read.
+    var completedDetails by mutableStateOf<BookingDetailsDto?>(null)
+        private set
+    var completedLoad by mutableLongStateOf(0L)
+        private set
+    private var initialConsumed = false
     val needsReload: Boolean get() = reloadTick != attemptedTick
+
+    // UI recovery intent only. Neither flag grants permission or replaces current private authority.
+    private var privateWasReady by mutableStateOf(false)
+    var privateRecoveryPending by mutableStateOf(false)
+        private set
+
+    fun privateCodeReadStarted(): Boolean {
+        val id = bookingId ?: return false
+        if (privateRecoveryPending || !ApiClient.isCurrentSession(owner) || currentTripPrivateDetails(id) == null) return false
+        privateWasReady = true
+        return true
+    }
+    fun privateDataMissing(ready: Boolean, role: String, status: String): Boolean =
+        bookingId != null && role in setOf("driver", "passenger") && status in CONTACT_STATUSES &&
+            ((privateWasReady && !ready) || privateRecoveryPending)
+
+    fun retryData(isCurrent: () -> Boolean, role: String, status: String) {
+        if (!isCurrent() || !ApiClient.isCurrentSession(owner)) return
+        if (privateDataMissing(currentTripPrivateDetails(bookingId) != null, role, status)) retryPrivateData(isCurrent, role, status)
+        else retry()
+    }
+    fun retryCode(isCurrent: () -> Boolean, role: String, status: String, codeOnlyRetry: () -> Unit) {
+        if (!isCurrent() || !ApiClient.isCurrentSession(owner)) return
+        if (privateDataMissing(currentTripPrivateDetails(bookingId) != null, role, status)) retryPrivateData(isCurrent, role, status)
+        else codeOnlyRetry()
+    }
+    private fun retryPrivateData(isCurrent: () -> Boolean, role: String, status: String) {
+        if (!isCurrent() || !ApiClient.isCurrentSession(owner) || loading || needsReload ||
+            role !in setOf("driver", "passenger") || status !in CONTACT_STATUSES) return
+        privateRecoveryPending = true
+        loading = true
+        reloadTick++
+    }
+    fun privateRecoveryCommitted(details: BookingDetailsDto, isCurrent: () -> Boolean, role: String, status: String) {
+        if (!privateRecoveryPending || !isCurrent() || !ApiClient.isCurrentSession(owner) || loading || needsReload || failure != null) return
+        if (details.bookingId != bookingId || details.role != role || details.status != status ||
+            status !in CONTACT_STATUSES || currentTripPrivateDetails(bookingId) !== details) return
+        privateRecoveryPending = false
+    }
 
     fun statusChanged(previous: String, next: String) {
         if (next in CONTACT_STATUSES && next != previous &&
@@ -72,9 +120,35 @@ internal class ActiveTripDetailsState(private val bookingId: Int?, private val o
         loading = true
         reloadTick++
     }
-    fun serverReached(failureAtRequestStart: Throwable?) {
-        // Ответ запроса, начатого до ошибки details, ещё не доказывает восстановление после неё.
-        if (failureAtRequestStart != null && failure === failureAtRequestStart) retry()
+    fun retryUnverified() {
+        val id = bookingId ?: return
+        if (loading || needsReload || !ApiClient.isCurrentSession(owner) ||
+            com.yuldash.app.data.OfflineTripSnapshots.allowsLive(id)) return
+        // Only this explicit action turns lost authority into a fresh details attempt.
+        if (privateWasReady) privateRecoveryPending = true
+        if (failure == null) failure = IllegalStateException()
+        retry()
+    }
+    private var sawSuccessfulPoll = false
+    fun serverReached(failureAtRequestStart: Throwable?, role: String = "", status: String = "") {
+        val first = !sawSuccessfulPoll
+        sawSuccessfulPoll = true
+        if (privateRecoveryPending && failure != null) return
+        // A role request begun before a details failure cannot recover that later failure.
+        if (failureAtRequestStart != null && failure === failureAtRequestStart) { retry(); return }
+        if (failure != null || loading || needsReload || loadedStatus == null ||
+            !ApiClient.isCurrentSession(owner) || role !in setOf("driver", "passenger") || status !in CONTACT_STATUSES) return
+        // A phase change can withdraw private access while retaining accepted DETAILS.
+        // A semantic blank CODE removes that projection; ROLE alone must not recreate it.
+        val projection = bookingId?.let(com.yuldash.app.data.OfflineTripSnapshots::projection) ?: return
+        if (projection.owner.generation != owner || projection.details.bookingId != bookingId) return
+        val missing = !com.yuldash.app.data.OfflineTripSnapshots.privateDetails(projection.details)
+        if (first && !missing) return
+        // A successful poll refreshes mutable details (including the payment agreement).
+        // The GET still needs its own authority; a ROLE response never grants private access.
+        privateRecoveryPending = missing
+        loading = true
+        reloadTick++
     }
 
     suspend fun load(
@@ -82,25 +156,36 @@ internal class ActiveTripDetailsState(private val bookingId: Int?, private val o
         currentStatus: () -> String,
         currentRole: () -> String,
         fetch: suspend (Int) -> Result<BookingDetailsDto> = { ApiClient.getBookingDetails(it) },
+        confirmsBoardingCorrection: (String, BookingDetailsDto) -> Boolean = { _, _ -> false },
+        initial: BookingDetailsDto? = null,
     ): BookingDetailsDto? {
         val id = bookingId ?: return null
         if (!isCurrent() || owner != ApiClient.queueSessionGeneration()) return null
         val ticket = ++latestRequest
         attemptedTick = reloadTick
         loading = true
+        completedDetails = null
         failure = null
         try {
-            val result = fetch(id)
+            // Reusing a current permit is not a new network observation and never renews its age.
+            val seeded = initial?.takeIf { !initialConsumed && reloadTick == 0 && com.yuldash.app.data.OfflineTripSnapshots.freshDetails(it) }
+            initialConsumed = true
+            val result = seeded?.let { Result.success(it) } ?: fetch(id)
             if (ticket != latestRequest || !isCurrent() || owner != ApiClient.queueSessionGeneration()) return null
             return result.fold(onSuccess = { details ->
                 val status = currentStatus()
                 val role = currentRole()
+                val terminal = com.yuldash.app.data.OfflineTripSnapshots.terminal(id)
+                val acceptedTerminal = details.status in setOf("done", "cancelled") && terminal?.let {
+                    it.owner.generation == owner && it.status == details.status && it.role == details.role
+                } == true
                 if (details.bookingId != id ||
-                    (status.isNotBlank() && details.status.isNotBlank() && status != details.status) ||
-                    (role.isNotBlank() && details.role.isNotBlank() && role != details.role)) {
+                    (role.isNotBlank() && details.role.isNotBlank() && role != details.role) ||
+                    (status.isNotBlank() && details.status.isNotBlank() && status != details.status &&
+                        !acceptedTerminal && !(status == "onboard" && details.status == "confirmed" && confirmsBoardingCorrection(status, details)))) {
                     failure = IllegalStateException()
                     null
-                } else details.also { loadedStatus = it.status }
+                } else details.also { loadedStatus = it.status; completedDetails = it; completedLoad = ticket }
             }, onFailure = { error ->
                 if (error is CancellationException) throw error
                 failure = error
@@ -145,4 +230,23 @@ internal fun ActiveTripDetailsNotice(loading: Boolean, failure: Throwable?, onRe
             }
         }
     }
+}
+
+/** Existing missing-ride UI, extracted to keep the guarded booking screen within its cap. */
+@Composable
+internal fun BookingRideUnavailable(bookingId: Int?, onBack: () -> Unit) {
+    if (bookingId == null) {
+        LaunchedEffect(Unit) { onBack() }
+    } else {
+        // The parent is restoring this known booking. Do not race its server lookup with back navigation.
+        Scaffold(
+            containerColor = CanonBg,
+            topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
+        ) { padding ->
+            Box(Modifier.fillMaxSize().padding(padding), contentAlignment = Alignment.Center) {
+                CircularProgressIndicator(color = CanonGreen2)
+            }
+        }
+    }
+    return
 }

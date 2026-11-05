@@ -1,10 +1,14 @@
 package com.yuldash.app
 
+import android.app.Application
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassStore
+import com.yuldash.app.data.TripPassAuthorityFixture
+import com.yuldash.app.data.MemoryDiskPreferences
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Before
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -27,10 +31,14 @@ import org.robolectric.annotation.Config
  * или урезанный JSON не роняет приложение.
  */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34])
+@Config(sdk = [34], application = Application::class)
 class TripPassTest {
 
     private val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+    private val authority = TripPassAuthorityFixture()
+    private val plain = MemoryDiskPreferences()
+    private val secure = MemoryDiskPreferences()
+    @Before fun prepare() { authority.start(); TripPassStore.initStores(plain, secure) }
 
     private fun pass(id: Int = 7) = TripPass(
         bookingId = id,
@@ -53,12 +61,12 @@ class TripPassTest {
     @After
     fun tearDown() {
         TripPassStore.clearAll()
+        authority.close()
     }
 
     @Test
     fun `паспорт переживает запись и чтение без потерь`() {
-        TripPassStore.init(ctx)
-        TripPassStore.save(ctx, pass())
+        TripPassStore.save(ctx, authority.authorizePositive(pass()))
         val got = TripPassStore.load(ctx, 7)
         assertNotNull("паспорт не прочитался — на трассе экран будет пуст", got)
         assertEquals("Баймак", got!!.fromCity)
@@ -70,32 +78,36 @@ class TripPassTest {
         assertEquals(52.5911, got.pickupLat!!, 0.00001)
         assertEquals(350, got.price)
         assertEquals(2, got.seats)
+        val disk = TripPassAuthorityFixture.durable(secure, 7)!!
+        assertEquals(got, disk)
+        authority.coldAuthority()
+        assertNull(TripPassStore.load(ctx, 7))
     }
 
     @Test
     fun `удаление стирает паспорт — телефон не остаётся на устройстве`() {
-        TripPassStore.init(ctx)
-        TripPassStore.save(ctx, pass(11))
+        TripPassStore.save(ctx, authority.authorizePositive(pass(11)))
         assertNotNull(TripPassStore.load(ctx, 11))
         TripPassStore.remove(ctx, 11)
         assertNull("после поездки телефон водителя не должен лежать на телефоне", TripPassStore.load(ctx, 11))
+        assertNull(TripPassAuthorityFixture.durable(secure, 11))
     }
 
     @Test
     fun `код посадки обновляется, остальное не теряется`() {
-        TripPassStore.init(ctx)
-        TripPassStore.save(ctx, pass(12))
+        TripPassStore.save(ctx, authority.authorizePositive(pass(12)))
+        authority.authorizePositive(pass(12).copy(boardingCode = "9999"))
         TripPassStore.updateBoardingCode(ctx, 12, "9999")
         val got = TripPassStore.load(ctx, 12)!!
         assertEquals("9999", got.boardingCode)
         assertEquals("код обновили — остальное должно уцелеть", "Айдар", got.driverName)
         assertEquals("+79990000001", got.driverPhone)
+        assertEquals("9999", TripPassAuthorityFixture.durable(secure, 12)?.boardingCode)
     }
 
     @Test
     fun `чужой номер брони не отдаёт паспорт`() {
-        TripPassStore.init(ctx)
-        TripPassStore.save(ctx, pass(13))
+        TripPassStore.save(ctx, authority.authorizePositive(pass(13)))
         assertNull(TripPassStore.load(ctx, 14))
     }
 

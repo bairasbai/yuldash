@@ -13,7 +13,14 @@ import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
 import org.junit.*
@@ -38,36 +45,72 @@ class CompletedNavigationRestorationTest {
     private class Owner:ViewModelStoreOwner { override val viewModelStore=ViewModelStore() }
     private val owner=mutableStateOf(Owner()); private val mounted=mutableStateOf(true)
     private var contentMounted=false
+    private var observedSaveableRegistry: androidx.compose.runtime.saveable.SaveableStateRegistry? = null
     private val allOwners=mutableListOf(owner.value)
     private lateinit var handle:SavedStateHandle;private lateinit var vm:YuldashViewModel
     private lateinit var server:MockWebServer
     private val records=CopyOnWriteArrayList<Triple<String,String?,String>>()
     private val mineCalls=AtomicInteger();private val started=CountDownLatch(1);private val release=CountDownLatch(1);private val dispatched=CountDownLatch(1)
+    @Volatile private var heldDetailsRide:Ride?=null
+    @Volatile private var preselectedHeldRide:Ride?=null
+    private val heldDetailsCalls=AtomicInteger()
     private val failures=CopyOnWriteArrayList<String>()
-    private var heldMine=false;private var heldStatus=200
+    private var heldDetails=false;private var heldStatus=200
     @Volatile private var serverBooking=42
     @Volatile private var thanked=false
     private val tokenA="header.eyJzdWIiOiIxMSJ9.signature";private val tokenB="header.eyJzdWIiOiIzMyJ9.signature"
     private val context get()=ApplicationProvider.getApplicationContext<Context>()
+    private fun awaitApiBackgroundCompletion()=runBlocking {
+        // Observe only the test-owned API coroutine job, never auth/key fields.
+        val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
+        val parent=requireNotNull(scope.coroutineContext[Job])
+        try {
+            withTimeout(10_000) {
+                while(true) {
+                    val children=parent.children.toList()
+                    if(children.isEmpty()) break
+                    children.forEach {it.join()}
+                }
+            }
+        } catch(failure:TimeoutCancellationException) {
+            throw AssertionError("Fixture API jobs still running; local origin/server retained. Abort this isolated run.",failure)
+        }
+    }
+    private fun awaitSnapshotCleanup()=runBlocking {
+        withTimeout(5_000) {while(!OfflineTripSnapshots.ensureResetCommitted()) delay(10)}
+    }
+    private fun terminalDetails(id:Int):String=JSONObject().put("booking_id",id).put("ride_id",9)
+        .put("role","passenger").put("status","done").put("contact_unlocked",false)
+        .put("from_city","Уфа").put("to_city","Бирск").put("driver_name","Водитель").put("seats",1).toString()
     @Before fun prepare() {
         context.getSharedPreferences("yuldash_prefs",Context.MODE_PRIVATE).edit()
             .putBoolean("onboarding_completed",false).commit()
-        ApiClient.resetForTest();ApiClient.init(context)
+        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
+        ApiClient.resetForTest()
         server=MockWebServer().apply {
             dispatcher=object:Dispatcher() {
                 override fun dispatch(request:RecordedRequest):MockResponse {
                     val path=request.requestUrl!!.encodedPath;val key="${request.method} $path"
                     records+=Triple(key,request.getHeader("Authorization"),request.body.readUtf8())
                     if(path=="/bookings/mine") {
-                        val id=serverBooking;val first=mineCalls.incrementAndGet()==1
-                        if(heldMine && first) {
-                            started.countDown();if(!release.await(40,TimeUnit.SECONDS)) failures+="mine timeout"
-                            dispatched.countDown()
-                        }
-                        return json("""{"items":[{"id":$id,"ride_id":9,"status":"done","seats":1,"from_city":"Уфа","to_city":"Бирск","price":400,"driver_name":"Водитель"}]}""",if(first && heldMine) heldStatus else 200)
+                        val id=serverBooking;mineCalls.incrementAndGet()
+                        return json("""{"items":[{"id":$id,"ride_id":9,"status":"done","seats":1,"from_city":"Уфа","to_city":"Бирск","price":400,"driver_name":"Водитель"}]}""")
                     }
                     val id=path.split('/').getOrNull(2)?.toIntOrNull() ?: 42
                     val body=when {
+                        path=="/bookings/$id/details" -> {
+                            if(request.getHeader("Authorization")!="Bearer "+tokenA) return json("{}",403)
+                            if(heldDetails && id==42 && heldDetailsCalls.incrementAndGet()==1) {
+                                heldDetailsRide=vm.selectedRide.value
+                                if(heldDetailsRide!==preselectedHeldRide) failures+="held details candidate changed before dispatch"
+                                started.countDown()
+                                if(!release.await(40,TimeUnit.SECONDS)) failures+="details timeout"
+                                val response=json(terminalDetails(id),heldStatus)
+                                dispatched.countDown()
+                                return response
+                            }
+                            terminalDetails(id)
+                        }
                         path=="/bookings/$id/role" -> """{"role":"passenger","status":"done","driver_phase":""}"""
                         path=="/bookings/$id/messages" -> """{"items":[]}"""
                         path=="/bookings/$id/boarding-code" -> """{"code":""}"""
@@ -82,7 +125,11 @@ class CompletedNavigationRestorationTest {
                 }
             };start()
         }
-        ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=60000;ApiClient.saveToken(tokenA)
+        ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=60000
+        ApiClient.init(context);ApiClient.logout();awaitSnapshotCleanup();ApiClient.saveToken(tokenA)
+        assertEquals(11,OfflineTripSnapshots.currentOwner()?.userId)
+        assertFalse("Initial login must not invent live authority",OfflineTripSnapshots.allowsLive(42))
+        assertNull(OfflineTripSnapshots.terminal(42))
         newVm(mapOf("yuldash_screen" to Screen.ActiveTrip.name,"yuldash_active_bid" to 42,"yuldash_tab" to HomeTab.Profile.name))
     }
     private fun json(body:String,status:Int=200)=MockResponse().setResponseCode(status).setHeader("Content-Type","application/json").setBody(body)
@@ -93,18 +140,41 @@ class CompletedNavigationRestorationTest {
         })[YuldashViewModel::class.java]
     }
     @After fun cleanup() {
-        release.countDown();if(contentMounted) {compose.runOnIdle {mounted.value=false};pump(300)}
-        allOwners.forEach {it.viewModelStore.clear()};ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()
+        release.countDown()
+        if(!::server.isInitialized) {awaitApiBackgroundCompletion();awaitSnapshotCleanup();return}
+        if(contentMounted) {compose.runOnIdle {mounted.value=false};pump(300)}
+        allOwners.forEach {it.viewModelStore.clear()}
+        ApiClient.logout();awaitApiBackgroundCompletion();awaitSnapshotCleanup()
+        ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()
         assertTrue(failures.toString(),failures.isEmpty())
     }
     private fun pump(ms:Long=700) {
         repeat((ms/100).toInt()) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100));Thread.sleep(10)}
         compose.waitForIdle()
     }
-    private fun await(check:()->Boolean)=compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();check()}
+    private fun await(check:()->Boolean) {
+        try {
+            compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();check()}
+        } catch(failure:ComposeTimeoutException) {
+            val bid=vm.activeBookingId.value
+            throw AssertionError("NAV5 completed await screen="+vm.screen.value+" booking="+bid+
+                " selectedId="+vm.selectedRide.value?.id+" activeNull="+(vm.activeTrip.value==null)+
+                " pending="+(vm.pendingBookingNavigation.value!=null || vm.pendingScreenNavigation.value!=null || vm.pendingPublicRideNavigation.value!=null)+
+                " revision="+vm.privateNavigationRevision+" owner11="+(OfflineTripSnapshots.currentOwner()?.userId==11)+
+                " roleGET="+records.count{it.first=="GET /bookings/"+bid+"/role"}+
+                " detailsGET="+records.count{it.first=="GET /bookings/"+bid+"/details"}+
+                " receiptGET="+records.count{it.first=="GET /trips/"+bid+"/receipt"}+
+                " mineGET="+mineCalls.get()+" terminal="+(bid?.let(OfflineTripSnapshots::terminal)!=null),failure)
+        }
+    }
     private fun mount() {
         contentMounted=true
-        restoration.setContent {if(mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides owner.value) {YuldashTheme {YuldashApp()}}}
+        restoration.setContent {
+            if(mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides owner.value) {
+                observedSaveableRegistry = androidx.compose.runtime.saveable.LocalSaveableStateRegistry.current
+                YuldashTheme {YuldashApp()}
+            }
+        }
         await {compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()};pump()
     }
     private fun tag(value:String):SemanticsNodeInteraction {
@@ -141,7 +211,71 @@ class CompletedNavigationRestorationTest {
         mount();draft();receipt();back();awaitCompleted();checkDraft();assertEquals(0,posts("rate"));assertRating()
     }
     @Test fun supportBackRetainsExactDraftWithoutAutomaticPost() {
-        mount();draft();text("Нужна помощь?").performClick();await {vm.screen.value==Screen.Support};pump();back();awaitCompleted();checkDraft();assertEquals(0,posts("rate"))
+        var initialBooking: Int? = null
+        var initialRide: Ride? = null
+        var initialSession = 0L
+        var initialRevision = 0L
+        var initialOwner: com.yuldash.app.data.SnapshotOwner? = null
+        fun diagnostic(stage: String) {
+            // Test-owned current reference only: never print DTO fields, text or request payloads.
+            val receipt = synchronized(OfflineTripSnapshots) {
+                val histories = OfflineTripSnapshots::class.java.getDeclaredField("histories").apply { isAccessible = true }
+                    .get(OfflineTripSnapshots) as Map<*, *>
+                (histories[42] as? Pair<*, *>)?.first as? com.yuldash.app.data.TripReceiptDto
+            }
+            fun nodes(tag: String) = compose.onAllNodesWithTag(tag).fetchSemanticsNodes().size
+            val ontimeText = "Приехал вовремя"
+            val draftText = "Спасибо за дорогу"
+            fun containsSynthetic(value: Any?, target: String): Boolean = when (value) {
+                is String -> value == target
+                is androidx.compose.runtime.State<*> -> containsSynthetic(value.value, target)
+                is Map<*, *> -> value.values.any { containsSynthetic(it, target) }
+                is Iterable<*> -> value.any { containsSynthetic(it, target) }
+                is Array<*> -> value.any { containsSynthetic(it, target) }
+                is android.os.Bundle -> value.keySet().any { containsSynthetic(value.get(it), target) }
+                else -> false
+            }
+            // Observe the existing root registry; do not replace it or print its keys/values.
+            val saved = compose.runOnIdle { requireNotNull(observedSaveableRegistry).performSave() }
+            val savedExactDraft = containsSynthetic(saved, draftText)
+            val savedOntime = containsSynthetic(saved, "ontime")
+            if (stage == "beforeSupport") {
+                assertTrue("Saved-state observer must see the existing synthetic draft before navigation", savedExactDraft)
+                assertTrue("Saved-state observer must see the selected synthetic tag before navigation", savedOntime)
+            }
+            val submitEnabled = compose.onAllNodesWithTag("rideshareRatingSubmit").fetchSemanticsNodes()
+                .count { !it.config.contains(SemanticsProperties.Disabled) }
+            val ontimeVisible = compose.onAllNodesWithText(ontimeText).fetchSemanticsNodes().size
+            val ontimeSelected = compose.onAllNodesWithText(ontimeText).fetchSemanticsNodes()
+                .count { it.config.contains(SemanticsProperties.Selected) && it.config[SemanticsProperties.Selected] }
+            println("NAV7 support stage="+stage+
+                " sameBooking="+(vm.activeBookingId.value == initialBooking)+
+                " sameRide="+(vm.selectedRide.value == initialRide)+
+                " sameRideRef="+(vm.selectedRide.value === initialRide)+
+                " sameSession="+(ApiClient.queueSessionGeneration() == initialSession)+
+                " sameOwner="+(OfflineTripSnapshots.currentOwner() == initialOwner)+
+                " sameRevision="+(vm.privateNavigationRevision == initialRevision)+
+                " form="+nodes("rideshareReviewText")+" submitEnabled="+submitEnabled+
+                " ontimeVisible="+ontimeVisible+" ontimeSelected="+ontimeSelected+
+                " savedExactDraft="+savedExactDraft+
+                " savedOntime="+savedOntime)
+
+            println("NAV6 support stage="+stage+" historyRef="+(receipt?.let { System.identityHashCode(it) } ?: 0)+
+                " historyCurrent="+(receipt?.let(OfflineTripSnapshots::allowsHistory) == true)+
+                " card="+nodes("rideshareRatingCard")+" form="+nodes("rideshareReviewText")+
+                " loader="+nodes("rideshareReceiptLoading")+" error="+nodes("rideshareReceiptError")+
+                " receiptGET="+records.count { it.first=="GET /trips/42/receipt" })
+        }
+        mount();draft()
+        initialBooking = vm.activeBookingId.value; initialRide = vm.selectedRide.value
+        initialSession = ApiClient.queueSessionGeneration(); initialRevision = vm.privateNavigationRevision
+        initialOwner = OfflineTripSnapshots.currentOwner()
+        diagnostic("beforeSupport")
+        text("Нужна помощь?").performClick();await {vm.screen.value==Screen.Support};pump()
+        diagnostic("onSupport")
+        back();awaitCompleted()
+        diagnostic("afterReturnBeforeExactCheck")
+        checkDraft();assertEquals(0,posts("rate"))
     }
     @Test fun confirmedThanksSurvivesReceiptRoundTripWithoutAnotherPost() {
         mount();text("Сказать «Рәхмәт»").performClick();await {posts("thanks")==1};pump();receipt();back();awaitCompleted()
@@ -162,23 +296,85 @@ class CompletedNavigationRestorationTest {
         tag("rideshareStar2").performClick();tag("rideshareRatingSubmit").performClick();await {posts("rate",43)==1}
         assertEquals(0,posts("rate",42));assertEquals(2,JSONObject(records.single {it.first=="POST /bookings/43/rate"}.third).getInt("stars"))
     }
-    private fun releaseMine() {release.countDown();await {dispatched.count==0L};pump()}
+    private fun preselectHeldDetailsContext() {
+        assertFalse("The known candidate must be selected before the first composition",contentMounted)
+        val candidate=bookingLinkStubRide(42)
+        preselectedHeldRide=candidate
+        vm.selectedRide.value=candidate
+        assertSame(candidate,vm.selectedRide.value)
+        assertEquals(42,vm.activeBookingId.value);assertNull(vm.activeTrip.value)
+        assertFalse("A selected stub must not install live authority",OfflineTripSnapshots.allowsLive(42))
+        assertNull("Terminal authority must still arrive through the real ROLE read",OfflineTripSnapshots.terminal(42))
+    }
+    private fun assertHeldDetailsContextIsCurrent() {
+        assertEquals(42,vm.activeBookingId.value)
+        assertEquals(bookingLinkStubRide(42),vm.selectedRide.value)
+        assertSame("The first composition and the action must use the preselected candidate",
+            preselectedHeldRide,vm.selectedRide.value)
+        assertSame("The dispatched validation must still use the preselected candidate",
+            preselectedHeldRide,heldDetailsRide)
+    }
+    private fun releaseDetails() {
+        assertEquals("The actual DETAILS request must have started before the route action",0L,started.count)
+        assertEquals("The held response must still be pending until after the route action",1L,dispatched.count)
+        release.countDown();await {dispatched.count==0L};pump()
+    }
+    private fun assertHeldDetailsDidNotWriteOrReadReceiptZero() {
+        assertFalse(records.any {it.first.startsWith("POST /bookings/")})
+        assertFalse(records.any {it.first=="GET /trips/0/receipt"})
+    }
     @Test fun failedHeldRestoreCannotReplaceReceiptRouteWithHome() {
-        heldMine=true;heldStatus=503;mount();await {started.count==0L};receipt();releaseMine()
-        assertEquals(Screen.TripReceipt,vm.screen.value);compose.onNodeWithText("Квитанция").assertIsDisplayed();assertNull(vm.selectedRide.value)
+        heldDetails=true;heldStatus=503;preselectHeldDetailsContext();mount();await {started.count==0L};assertHeldDetailsContextIsCurrent()
+        val selectedBeforeReceipt=vm.selectedRide.value
+        assertEquals(bookingLinkStubRide(42),selectedBeforeReceipt)
+        receipt();releaseDetails()
+        assertEquals(Screen.TripReceipt,vm.screen.value);compose.onNodeWithText("Квитанция").assertIsDisplayed();assertSame(selectedBeforeReceipt,vm.selectedRide.value)
+        assertEquals(42,vm.activeBookingId.value);assertEquals("42",vm.selectedRide.value?.id);assertNull(vm.activeTrip.value)
+        assertHeldDetailsDidNotWriteOrReadReceiptZero()
     }
     @Test fun heldRestoreCannotReplaceNewBookingAfterCurrentLoaderCompletes() {
-        heldMine=true;mount();await {started.count==0L}
+        heldDetails=true;preselectHeldDetailsContext();mount();await {started.count==0L};assertHeldDetailsContextIsCurrent()
         compose.runOnIdle {serverBooking=43;vm.activeBookingId.value=43;vm.selectedRide.value=null};pump()
-        await {vm.selectedRide.value?.id=="43"};releaseMine()
+        await {vm.selectedRide.value?.id=="43"}
+        val currentRide=vm.selectedRide.value
+        assertEquals(bookingLinkStubRide(43),currentRide)
+        releaseDetails()
         assertEquals(43,vm.activeBookingId.value);assertEquals("43",vm.selectedRide.value!!.id);assertNull(vm.activeTrip.value);assertEquals(Screen.ActiveTrip,vm.screen.value)
+        assertSame(currentRide,vm.selectedRide.value);assertHeldDetailsDidNotWriteOrReadReceiptZero()
     }
     @Test fun heldRestoreFromPreviousLoginCannotReopenPreviousReceiptContext() {
-        heldMine=true;mount();await {started.count==0L};receipt();compose.runOnIdle {ApiClient.saveToken(tokenB)};pump();releaseMine()
+        heldDetails=true;preselectHeldDetailsContext();mount();await {started.count==0L};assertHeldDetailsContextIsCurrent();receipt();compose.runOnIdle {ApiClient.saveToken(tokenB)};pump()
+        // saveToken replaces API authority; this fixture does not invoke the separate endSession VM cleanup.
+        assertEquals(Screen.Notifications,vm.screen.value)
+        compose.onNodeWithText("Уведомления").assertIsDisplayed()
+        compose.onNodeWithTag("rideshareCompletedHero").assertDoesNotExist()
+        compose.onNodeWithTag("rideshareRatingCard").assertDoesNotExist()
+        val selectedAfterSwitch=vm.selectedRide.value
+        assertTrue("Only null or the exact empty fixture candidate may remain after API account replacement",
+            selectedAfterSwitch==null || selectedAfterSwitch==bookingLinkStubRide(42))
+        assertNull(vm.activeTrip.value)
+        val bookingAfterSwitch=vm.activeBookingId.value
+        val revisionAfterSwitch=vm.privateNavigationRevision
+        val ownerAfterSwitch=OfflineTripSnapshots.currentOwner()
+        val sessionAfterSwitch=ApiClient.queueSessionGeneration()
+        assertEquals(33,ownerAfterSwitch?.userId)
+        assertFalse(OfflineTripSnapshots.allowsLive(42));assertNull(OfflineTripSnapshots.terminal(42))
+        releaseDetails()
         assertEquals(Screen.Notifications,vm.screen.value);compose.onNodeWithText("Уведомления").assertIsDisplayed()
-        assertNull(vm.selectedRide.value);assertEquals(0,posts("rate"))
+        assertTrue("A late response from the previous account must not change the post-switch candidate reference",
+            vm.selectedRide.value===selectedAfterSwitch)
+        assertEquals(bookingAfterSwitch,vm.activeBookingId.value)
+        assertEquals(revisionAfterSwitch,vm.privateNavigationRevision)
+        assertTrue(OfflineTripSnapshots.currentOwner()==ownerAfterSwitch)
+        assertEquals(sessionAfterSwitch,ApiClient.queueSessionGeneration())
+        assertNull(vm.activeTrip.value)
+        assertFalse(OfflineTripSnapshots.allowsLive(42));assertNull(OfflineTripSnapshots.terminal(42))
+        compose.onNodeWithTag("rideshareCompletedHero").assertDoesNotExist()
+        compose.onNodeWithTag("rideshareRatingCard").assertDoesNotExist()
+        assertEquals(0,posts("rate"))
         assertFalse(records.any {it.first=="GET /trips/42/receipt" && it.second=="Bearer $tokenB"})
         assertFalse(records.any {it.first=="GET /trips/0/receipt"})
+        assertHeldDetailsDidNotWriteOrReadReceiptZero()
     }
     @Test fun savedNavigationTrailReconstructsOrderWithoutRestoringBusinessObjects() {
         val saved=SavedStateHandle();val first=YuldashViewModel(saved)
@@ -191,5 +387,58 @@ class CompletedNavigationRestorationTest {
         val saved=SavedStateHandle();val first=YuldashViewModel(saved);first.navHistory.add(Screen.ActiveTrip);first.persistNav();first.clearUserData()
         val restored=YuldashViewModel(SavedStateHandle(saved.keys().associateWith {saved.get<Any?>(it)}))
         assertTrue(restored.navHistory.isEmpty())
+    }
+    private fun standaloneReceiptAction(
+        receiptParent: (() -> Boolean)? = null,
+        genericParent: (() -> Boolean)? = null,
+    ): Pair<() -> Boolean, AtomicInteger> {
+        val opens = AtomicInteger()
+        var httpReceipt: com.yuldash.app.data.TripReceiptDto? = null
+        val receiptLabel = "Квитанция"
+        contentMounted = true
+        restoration.setContent {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                YuldashTheme {
+                    RideshareCompletedScreen(
+                        bookingId = 42, ride = bookingLinkStubRide(42), fallbackRole = "passenger",
+                        fallbackPayMethod = "cash", fallbackPayAmount = null,
+                        onClose = {}, onOpenReceipt = { opens.incrementAndGet() }, onSupport = {},
+                        loadReceipt = { id -> ApiClient.getTripReceipt(id).onSuccess { httpReceipt = it } },
+                        isCurrentParent = genericParent, isCurrentReceiptParent = receiptParent,
+                    )
+                }
+            }
+        }
+        await {
+            httpReceipt?.let(OfflineTripSnapshots::allowsHistory) == true &&
+                compose.onAllNodesWithText(receiptLabel).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(OfflineTripSnapshots.allowsHistory(requireNotNull(httpReceipt)))
+        assertTrue(records.any { it.first == "GET /trips/42/receipt" })
+        assertEquals(0, opens.get())
+        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText(receiptLabel))
+        val node = compose.onNodeWithText(receiptLabel).assertIsDisplayed().assertIsEnabled()
+        val action = requireNotNull(node.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action)
+        return action to opens
+    }
+    private fun assertStandaloneReceiptDidNotWrite() {
+        assertFalse(records.any { it.first.startsWith("POST /bookings/") })
+    }
+    @Test fun standaloneCurrentReceiptWithActualHistoryCanOpen() {
+        val (action, opens) = standaloneReceiptAction()
+        compose.runOnIdle { assertTrue(action()); assertEquals(1, opens.get()) }
+        assertStandaloneReceiptDidNotWrite()
+    }
+    @Test fun standaloneDisposedReceiptCallbackWithoutExplicitParentCannotOpen() {
+        val (action, opens) = standaloneReceiptAction()
+        compose.runOnIdle { mounted.value = false }
+        pump()
+        compose.runOnIdle { assertTrue(action()); assertEquals(0, opens.get()) }
+        assertStandaloneReceiptDidNotWrite()
+    }
+    @Test fun explicitReceiptParentDenialCannotFallBackToAllowedGenericParent() {
+        val (action, opens) = standaloneReceiptAction(receiptParent = { false }, genericParent = { true })
+        compose.runOnIdle { assertTrue(action()); assertEquals(0, opens.get()) }
+        assertStandaloneReceiptDidNotWrite()
     }
 }

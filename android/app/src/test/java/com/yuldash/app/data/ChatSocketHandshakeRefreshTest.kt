@@ -2,7 +2,11 @@ package com.yuldash.app.data
 
 import android.app.Application
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.Protocol
 import okhttp3.Request
 import okhttp3.Response
@@ -31,8 +35,11 @@ import java.util.concurrent.atomic.AtomicInteger
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class ChatSocketHandshakeRefreshTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
     private lateinit var server: MockWebServer
     private lateinit var chat: ChatSocket
+    private val ownedChats = CopyOnWriteArrayList<ChatSocket>()
+    private val ownedClientSockets = CopyOnWriteArrayList<WebSocket>()
     private val upgrades = AtomicInteger()
     private val refreshes = AtomicInteger()
     private val held = CountDownLatch(1)
@@ -50,7 +57,9 @@ class ChatSocketHandshakeRefreshTest {
     @Volatile private var rejectAuth = false
     @Volatile private var reconnectInCallback = false
 
-    @Before fun prepare() = runBlocking {
+    @Before fun prepare() = cleanupGuard.runSetup { prepareFixture02() }
+
+    private fun prepareFixture02() = runBlocking {
         ApiClient.resetForTest()
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
@@ -110,6 +119,7 @@ class ChatSocketHandshakeRefreshTest {
         ApiClient.testTimeoutMs = 10000
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
+        awaitLogoutSnapshotReset02()
         ApiClient.verifyCode("+70000000000", "000000", "A").getOrThrow()
         chat = newChat()
         Unit
@@ -119,21 +129,82 @@ class ChatSocketHandshakeRefreshTest {
         onConnected = { value ->
             events += value
             if (!value && reconnectInCallback) chat.connect()
-        }, onRejected = { id, _ -> rejections.offer(id) })
+        }, onRejected = { id, _ -> rejections.offer(id) }).also { ownedChats += it }
 
     @After fun cleanup() {
         release.countDown()
-        chat.close()
-        sockets.forEach { it.close(1000, null) }
-        val bearer = ApiClient.currentToken()?.let { "Bearer $it" }
-        ApiClient.logout()
-        if (bearer != null) waitFor { requests.contains("POST /auth/logout" to bearer) }
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
+        cleanupGuard.requireHealthy()
+        val drained = runCatching {
+            // Only clients created by this fixture; prepare may fail before chat is assigned.
+            ownedChats.forEach { owner ->
+                synchronized(owner) {
+                    (ChatSocket::class.java.getDeclaredField("ws").apply { isAccessible = true }
+                        .get(owner) as? WebSocket)?.let { ownedClientSockets.addIfAbsent(it) }
+                    owner.close()
+                }
+            }
+            val bearer = ApiClient.currentToken()?.let { "Bearer $it" }
+            ApiClient.logout()
+            if (bearer != null) waitFor { requests.contains("POST /auth/logout" to bearer) }
+            awaitFixtureJobs02()
+            cleanupGuard.requireHealthy()
+            if (::server.isInitialized) server.shutdown()
+        }.isSuccess
+        // A timeout pins the local origin and server and blocks the next setup in this loaded class.
+        cleanupGuard.runCleanup(drained) {
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            Outbox.initStores(MemoryDiskPreferences(), null)
+        }
         assertTrue(fixtureFailures.toString(), fixtureFailures.isEmpty())
+    }
+
+    private suspend fun awaitLogoutSnapshotReset02() {
+        withTimeout(5_000) {
+            while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10)
+        }
+    }
+
+    private fun awaitFixtureJobs02() = runBlocking {
+        val parents = listOf(ApiClient to "bg", OfflineTripSnapshots to "jobs").map { (owner, name) ->
+            val scope = owner.javaClass.getDeclaredField(name).apply { isAccessible = true }.get(owner) as CoroutineScope
+            requireNotNull(scope.coroutineContext[Job])
+        }
+        val origin = if (::server.isInitialized) server.url("/") else null
+        val client = if (ownedClientSockets.isEmpty()) null else
+            (ChatSocket::class.java.getDeclaredField("client\$delegate").apply { isAccessible = true }
+                .get(null) as Lazy<*>).value as okhttp3.OkHttpClient
+        val closing = mutableSetOf<WebSocket>()
+        withTimeout(5_000) {
+            while (true) {
+                // A released held upgrade may open after cleanup started.
+                sockets.forEach { if (closing.add(it)) it.close(1000, null) }
+                val children = parents.flatMap { it.children.toList() }
+                val calls = client?.let { it.dispatcher.queuedCalls() + it.dispatcher.runningCalls() }.orEmpty()
+                val localCalls = calls.any { call ->
+                    val url = call.request().url
+                    origin != null && url.scheme == origin.scheme && url.host == origin.host && url.port == origin.port
+                }
+                val transports = (ownedClientSockets + sockets).distinct()
+                if (children.isEmpty() && !localCalls && sockets.size == upgrades.get() &&
+                    ownedClientSockets.size == upgrades.get() && transports.all(::socketTasksIdle02)) break
+                children.forEach { it.join() }
+                delay(10)
+            }
+        }
+    }
+
+    /** Exact private fields of the pinned OkHttp 4.12.0 test transport; never stop its shared pools. */
+    private fun socketTasksIdle02(socket: WebSocket): Boolean {
+        val queue = socket.javaClass.getDeclaredField("taskQueue").apply { isAccessible = true }.get(socket)
+        val type = queue.javaClass
+        val runner = type.getDeclaredField("taskRunner").apply { isAccessible = true }.get(queue)
+        return synchronized(runner) {
+            type.getDeclaredField("shutdown").apply { isAccessible = true }.getBoolean(queue) &&
+                type.getDeclaredField("activeTask").apply { isAccessible = true }.get(queue) == null &&
+                (type.getDeclaredField("futureTasks").apply { isAccessible = true }.get(queue) as List<*>).isEmpty()
+        }
     }
 
     private fun waitFor(condition: () -> Boolean) {
@@ -147,6 +218,7 @@ class ChatSocketHandshakeRefreshTest {
         assertEquals(1, pair.first)
         assertEquals(1 to "access-A", auth.poll(5, TimeUnit.SECONDS))
         waitFor { events == listOf(true) }
+        clientSocket() // Record this owned transport before a later reconnect replaces it.
         return pair.second
     }
     private fun startHeld(): WebSocket {
@@ -164,7 +236,8 @@ class ChatSocketHandshakeRefreshTest {
         assertEquals(1, requests.count { it == ("GET /trusted-contacts" to "Bearer access-A") })
         assertEquals(1, requests.count { it == ("GET /trusted-contacts" to "Bearer access-A2") })
     }
-    private fun clientSocket() = ChatSocket::class.java.getDeclaredField("ws").apply { isAccessible = true }.get(chat) as WebSocket
+    private fun clientSocket() = (ChatSocket::class.java.getDeclaredField("ws").apply { isAccessible = true }.get(chat) as WebSocket)
+        .also { ownedClientSockets.addIfAbsent(it) }
     private fun listener(socket: WebSocket) = socket.javaClass.getDeclaredField("listener").apply { isAccessible = true }.get(socket) as WebSocketListener
     private fun networkReturn() {
         NetworkMonitor::class.java.getDeclaredMethod("notifyAvailable").apply { isAccessible = true }.invoke(NetworkMonitor)
@@ -181,12 +254,14 @@ class ChatSocketHandshakeRefreshTest {
         assertEquals(2, pair.first)
         assertEquals(2 to ApiClient.currentToken(), auth.poll(5, TimeUnit.SECONDS))
         waitFor { events.count { it } == 2 }
+        clientSocket() // Record a callback-created replacement owned by this fixture.
         return pair.second
     }
 
     @Test fun heldHandshakeCannotAuthenticateAsEitherAccountAfterSwitch() = runBlocking {
         startHeld()
         ApiClient.logout()
+        awaitLogoutSnapshotReset02()
         ApiClient.verifyCode("+70000000000", "000000", "B").getOrThrow()
         release.countDown()
         assertEquals(1, requireNotNull(opened.poll(5, TimeUnit.SECONDS)).first)

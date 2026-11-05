@@ -1,3 +1,4 @@
+import { rideDriverRating } from "../utils/rideDriverRating";
 // ================================================================
 //  Ряд «Ближайшие поездки» на карте — зеркало NearbyRideCard / NearbySkeletonCard /
 //  NearbyMoreCard / NearbyEmptyCard (RidesRequestsChatScreens.kt): карточки 286×152 в
@@ -113,7 +114,7 @@ export default function NearbyRideCard({ ride, soonest, onOpen }: { ride: NearRi
         )}
         <span className="nrc__rating">
           <IconStar size={15} />
-          {ride.driver_rating.toFixed(1)}
+          {rideDriverRating(ride)?.toFixed(1) ?? appText("Нет оценок", "Баһалар юҡ")}
         </span>
       </div>
       <div className="nrc__trust">

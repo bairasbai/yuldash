@@ -42,6 +42,9 @@ import DriverNoShow from "./DriverNoShow";
 import { SectionHeader } from "./cabinetUi";
 import { pluralRu } from "../utils/format";
 import { BookingSegmentNote } from "./PickupStopChoice";
+import { beginDriverClick, finishDriverClick } from "../utils/driverActions";
+import { rideShareKeep, subscribeRideShare, takeRidingFocus } from "../utils/rideShareStore";
+import RideShareNote from "./RideShareNote";
 
 /** RS-03 Б: предложение смены места от пассажира — ответ водителя.
  *  «Согласиться» применяет точку, «Оставить прежнее» — отклоняет; после ответа кабинет
@@ -236,21 +239,46 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
 
+  const actionSending = useRef(false);
+  const pendingClick = useRef<ReturnType<typeof beginDriverClick>>(null);
+  useEffect(() => () => { finishDriverClick(pendingClick.current, false); pendingClick.current = null; }, []);
+  const [rideOn, setRideOn] = useState<string | null>(null);
+  useEffect(() => subscribeRideShare((s) => setRideOn(s.ride && s.bookingId !== null ? s.grantId ?? String(s.bookingId) : null)), []);
+  useEffect(() => {
+    const release = rideShareKeep(rows);
+    return () => release?.();
+  }, [rows, rideOn]);
+  useEffect(() => {
+    if (boot !== "ready" || takeRidingFocus() !== true || typeof document === "undefined") return;
+    const anchor = document.querySelector<HTMLElement>("[data-riding-anchor]");
+    const still = typeof window !== "undefined" && window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
+    anchor?.scrollIntoView?.({ behavior: still ? "auto" : "smooth", block: "start" });
+  }, [boot]);
+
   /** `done` — что сказать после успеха (как тост в приложении: «Пассажир уведомлён»). */
-  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }, done?: { ru: string; ba: string }) {
-    if (busyId) return;
+  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }, done?: { ru: string; ba: string }, gps?: { rideId: number; closing: boolean }) {
+    if (actionSending.current || busyId) return;
+    actionSending.current = true;
+    const click = gps ? beginDriverClick(id, gps.rideId, gps.closing) : null;
+    pendingClick.current = click;
     setBusyId(id);
     setNote("");
     try {
       await fn();
+      if (pendingClick.current !== click) return;
+      finishDriverClick(click, true);
+      pendingClick.current = null;
       if (done) setNote(appText(done.ru, done.ba));
       load();
     } catch (e) {
+      finishDriverClick(click, false);
+      pendingClick.current = null;
       setNote(e instanceof ApiError && e.message ? e.message : appText(fail.ru, fail.ba));
       // 409 — состояние брони ушло вперёд (посадку отметили с другого телефона, пока список
       // висел): перечитываем, и вместо «Не вышел» появляется «Пассажир в машине».
       if (e instanceof ApiError && e.status === 409) load();
     } finally {
+      actionSending.current = false;
       setBusyId(null);
     }
   }
@@ -328,13 +356,13 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
     <>
       {riding.length > 0 && (
         <>
-          <SectionHeader
+          <div data-riding-anchor=""><SectionHeader
             title={appText("Едут с тобой", "Һинең менән баралар")}
             subtitle={appText(
               "Поездка ещё не закончилась. Оценить сможешь, когда завершишь рейс.",
               "Сәфәр әле тамамланманы. Рейсты тамамлағас баһалай алаһың."
             )}
-          />
+          /><RideShareNote /></div>
           <div className="list">
             {riding.map((b) => {
               const st = String(b.status);
@@ -349,7 +377,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
                   {/* Посадку отмечает водитель: «Сел» рядом с «Не вышел» (решение 17.10.2026). */}
                   {st === CONFIRMED && (
-                    <DriverBoarding bookingId={b.booking_id} status={st} onChanged={reload} onError={setNote} />
+                    <DriverBoarding bookingId={b.booking_id} rideId={b.ride_id} status={st} onChanged={reload} onError={setNote} />
                   )}
 
                   {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
@@ -369,14 +397,15 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
                         void act(b.booking_id, () => markNoShow(b.booking_id), {
                           ru: "Не получилось отметить. Проверь сеть.",
                           ba: "Билдәләп булманы. Селтәрҙе тикшер.",
-                        })
+                        }, undefined, { rideId: b.ride_id ?? 0, closing: true })
                       }
                       onArriving={() =>
                         void act(
                           b.booking_id,
                           () => markArriving(b.booking_id),
                           { ru: "Не удалось сохранить статус. Проверь сеть.", ba: "Хәлде һаҡлап булманы. Селтәрҙе тикшер." },
-                          { ru: "Пассажир уведомлён", ba: "Пассажир хәбәрҙар ителде" }
+                          { ru: "Пассажир уведомлён", ba: "Пассажир хәбәрҙар ителде" },
+                          { rideId: b.ride_id ?? 0, closing: false }
                         )
                       }
                     />
@@ -388,8 +417,9 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
                   {st === ONBOARD && (
                     <DriverBoarding
                       bookingId={b.booking_id}
+                      rideId={b.ride_id}
                       status={st}
-                      undoSec={b.boarding_undo_sec ?? 0}
+                      undoSec={b.boarding_undo_sec ?? 0} undoPending={b.boarding_undo_pending}
                       onChanged={reload}
                       onError={setNote}
                     >

@@ -24,6 +24,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import com.yuldash.app.data.MeetingPointInput
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.isActive
 
 /** RS-03 А: «Уточнить место (по желанию)» — точка на карте или ориентир + короткое пояснение.
  *  Ничего не обязательно: не указал — как раньше (место = остановка/начало/конец). */
@@ -67,16 +68,21 @@ internal fun hasOwnPickup(d: com.yuldash.app.data.BookingDetailsDto?): Boolean =
 
 /** Свои данные из ответа сервера доступны пассажиру независимо от открытия чужих контактов. */
 @Composable
-internal fun OwnMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?) {
+internal fun OwnMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?, isCurrent: () -> Boolean = { currentOwnBookingDetails(details) != null }) {
     val d = details?.takeIf { it.role == "passenger" } ?: return
-    Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-        OwnMeetingPoint(d, pickup = true)
-        OwnMeetingPoint(d, pickup = false)
+    val scope = androidx.compose.runtime.rememberCoroutineScope()
+    val latest by androidx.compose.runtime.rememberUpdatedState(d)
+    fun current() = scope.isActive && latest === d && isCurrent()
+    TripAuthorityContent(::current) {
+        Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            OwnMeetingPoint(d, pickup = true, isCurrent = ::current)
+            OwnMeetingPoint(d, pickup = false, isCurrent = ::current)
+        }
     }
 }
 
 @Composable
-private fun OwnMeetingPoint(d: com.yuldash.app.data.BookingDetailsDto, pickup: Boolean) {
+private fun OwnMeetingPoint(d: com.yuldash.app.data.BookingDetailsDto, pickup: Boolean, isCurrent: () -> Boolean) {
     val ru = if (pickup) d.meetLandmarkRu else d.alightLandmarkRu
     val ba = if (pickup) d.meetLandmarkBa else d.alightLandmarkBa
     val note = if (pickup) d.meetNote else d.alightNote
@@ -97,6 +103,7 @@ private fun OwnMeetingPoint(d: com.yuldash.app.data.BookingDetailsDto, pickup: B
                            else appText("Маршрут к месту высадки", "Төшөү урынына маршрут"),
                     style = AppButtonStyle.Secondary, icon = Icons.Default.Map,
                     onClick = {
+                        if (!isCurrent()) return@AppButton
                         val uri = android.net.Uri.parse("geo:$lat,$lng?q=$lat,$lng(" + android.net.Uri.encode(title) + ")")
                         runCatching { context.startActivity(android.content.Intent.createChooser(
                             android.content.Intent(android.content.Intent.ACTION_VIEW, uri), null)) }
@@ -109,20 +116,24 @@ private fun OwnMeetingPoint(d: com.yuldash.app.data.BookingDetailsDto, pickup: B
 
 /** Один блок своих точек и команд в деталях брони и в основной поездке. */
 @Composable
-internal fun PassengerMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?, onChanged: () -> Unit) {
+internal fun PassengerMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?, isCurrentParent: (() -> Boolean)? = null, onChanged: () -> Unit) {
     val d = details?.takeIf { it.role == "passenger" } ?: return
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val session = remember(d.bookingId) { com.yuldash.app.data.ApiClient.queueSessionGeneration() }
+    val latest by androidx.compose.runtime.rememberUpdatedState(d)
+    fun mounted() = scope.isActive && latest === d && com.yuldash.app.data.ApiClient.isCurrentSession(session) && (isCurrentParent?.invoke() != false)
+    fun current() = mounted() && currentOwnBookingDetails(d) != null
     var busy by remember(d.bookingId) { mutableStateOf(false) }
     var error by remember(d.bookingId) { mutableStateOf<String?>(null) }
     val failed = appText("Не получилось изменить место. Повторить?", "Урынды үҙгәртеп булманы. Ҡабатлайынмы?")
     fun submit(onSaved: () -> Unit = {}, request: suspend () -> Result<*>) {
-        if (busy || session != com.yuldash.app.data.ApiClient.queueSessionGeneration()) return
+        if (busy || !current()) return
         busy = true; error = null
         scope.launch {
             try {
+                if (!current()) return@launch
                 val result = request()
-                if (session != com.yuldash.app.data.ApiClient.queueSessionGeneration()) return@launch
+                if (!mounted()) return@launch
                 result.onSuccess { onSaved(); onChanged() }.onFailure { e ->
                     error = (e as? com.yuldash.app.data.ApiException)?.message ?: failed
                     if ((e as? com.yuldash.app.data.ApiException)?.detailCode == "meeting_point_stale") onChanged()
@@ -131,13 +142,13 @@ internal fun PassengerMeetingPoints(details: com.yuldash.app.data.BookingDetails
         }
     }
     Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-        OwnMeetingPoints(d)
-        BookingMeetingActions(d, busy = busy, error = error,
+        OwnMeetingPoints(d, ::current)
+        BookingMeetingActions(d, busy = busy, error = error, isCurrent = ::current,
             onPropose = { kind, point, onSaved -> submit(onSaved) {
-                com.yuldash.app.data.ApiClient.proposeMeetingPoint(d.bookingId, kind, point, d.meetingVersion)
+                com.yuldash.app.data.ApiClient.proposeMeetingPoint(d.bookingId, kind, point, d.meetingVersion, owner = session)
             } },
             onWithdraw = { d.meetingProposal?.let { proposal -> submit {
-                com.yuldash.app.data.ApiClient.withdrawMeetingPoint(d.bookingId, proposal.proposalId, d.meetingVersion)
+                com.yuldash.app.data.ApiClient.withdrawMeetingPoint(d.bookingId, proposal.proposalId, d.meetingVersion, owner = session)
             } } })
         error?.let { Text(it, style = CanonCaption, color = CanonText) }
     }
@@ -172,10 +183,14 @@ internal fun BookingMeetingActions(
     details: com.yuldash.app.data.BookingDetailsDto,
     busy: Boolean = false,
     error: String? = null,
+    isCurrent: () -> Boolean = { currentOwnBookingDetails(details) != null },
     onPropose: (kind: String, point: MeetingPointInput, onSaved: () -> Unit) -> Unit,
     onWithdraw: () -> Unit,
 ) {
     if (details.role != "passenger") return
+    val actionScope = androidx.compose.runtime.rememberCoroutineScope()
+    val latest by androidx.compose.runtime.rememberUpdatedState(details)
+    fun current() = actionScope.isActive && latest === details && isCurrent()
     val status = details.status
     if (status != "pending" && status != "confirmed" && status != "onboard") return
     val proposal = details.meetingProposal
@@ -186,7 +201,7 @@ internal fun BookingMeetingActions(
                     style = CanonCaption, color = CanonMuted)
                 AppButton(
                     text = appText("Отозвать предложение", "Тәҡдимде кире алыу"),
-                    onClick = onWithdraw, enabled = !busy,
+                    onClick = { if (current()) onWithdraw() }, enabled = !busy,
                     style = AppButtonStyle.Secondary,
                 )
             } else {
@@ -195,7 +210,7 @@ internal fun BookingMeetingActions(
                     AppButton(
                         text = if (kind == "pickup") appText("Изменить место посадки", "Ултырыу урынын үҙгәртеү")
                                else appText("Изменить место высадки", "Төшөү урынын үҙгәртеү"),
-                        onClick = { editing = kind }, enabled = !busy,
+                        onClick = { if (current()) editing = kind }, enabled = !busy,
                         style = AppButtonStyle.Secondary, icon = Icons.Default.Edit,
                     )
                 }
@@ -205,19 +220,19 @@ internal fun BookingMeetingActions(
                         style = CanonCaption, color = CanonMuted,
                     )
                 }
-                when (editing?.takeIf { it in meetingEditableKinds(status) }) {
+                when (editing?.takeIf { current() && it in meetingEditableKinds(status) }) {
                     "pickup" -> MeetingPointSheet(
                         city = details.pickupStop?.takeIf { it.isNotBlank() } ?: details.fromCity,
                         title = appText("Где тебя забрать?", "Һине ҡайҙан алырға?"),
                         initial = meetingPointDraft(details, "pickup", LocalAppLanguageSafe()),
-                        onDone = { onPropose("pickup", it) { editing = null } },
+                        onDone = { if (current()) onPropose("pickup", it) { editing = null } },
                         onDismiss = { editing = null }, busy = busy, error = error,
                     )
                     "dropoff" -> MeetingPointSheet(
                         city = details.dropoffStop?.takeIf { it.isNotBlank() } ?: details.toCity,
                         title = appText("Где тебя высадить?", "Һине ҡайҙа төшөрөргә?"),
                         initial = meetingPointDraft(details, "dropoff", LocalAppLanguageSafe()),
-                        onDone = { onPropose("dropoff", it) { editing = null } },
+                        onDone = { if (current()) onPropose("dropoff", it) { editing = null } },
                         onDismiss = { editing = null }, busy = busy, error = error,
                     )
                 }

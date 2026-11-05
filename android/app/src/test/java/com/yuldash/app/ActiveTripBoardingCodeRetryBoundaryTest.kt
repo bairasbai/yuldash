@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.*
 import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
 import org.junit.*
@@ -43,6 +44,10 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     }
     private var plain = MemoryDiskPreferences()
     private var secure = MemoryDiskPreferences()
+    @Volatile private var preparingPass: TripPass? = null
+    private val preparationRequests = CopyOnWriteArrayList<String>()
+    private val tokenA = TripPassAuthorityFixture.jwt(7)
+    private val tokenB = TripPassAuthorityFixture.jwt(8)
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
     private val trace = CopyOnWriteArrayList<String>()
     private val codeCalls = AtomicInteger()
@@ -61,6 +66,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
+                    preparationResponse(request)?.let { return it }
                     requests += "${request.method} ${request.path}" to request.getHeader("Authorization")
                     if (request.path == "/bookings/42/boarding-code") {
                         val index = codeCalls.incrementAndGet()
@@ -73,8 +79,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
                     val body = when (request.path) {
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/role" -> """{"role":"passenger","status":"$tripStatus","driver_phase":"departed"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"confirmed","price":700,"pay_method":"cash","pay_amount":400}"""
-                        "/trips/42/receipt" -> """{"booking_id":42,"role":"passenger","amount":400}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"price":700,"pay_method":"cash","pay_amount":400}"""
+                        "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","amount":400}"""
                         else -> "{}"
                     }
                     return MockResponse().setBody(body)
@@ -87,9 +93,13 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         ApiClient.testTrace = { trace += it }
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
+        ApiClient.saveToken(tokenA)
         TripPassStore.initStores(plain, secure)
         Outbox.initStores(MemoryDiskPreferences(), null)
+        preparePositive(pass(42, "1234", "cash", 400))
         assertTrue(TripPassStore.save(context, pass(42, "1234", "cash", 400)))
+        preparePositive(pass(99, "other", "sbp", 900))
         assertTrue(TripPassStore.save(context, pass(99, "other", "sbp", 900)))
     }
 
@@ -191,13 +201,19 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     @Test fun lateSuccessfulRetryCannotReplaceNewAccountSnapshot() = switchAccount(200)
     @Test fun lateRejectedRetryCannotOfferOldScreenAnotherRequestAsNewAccount() = switchAccount(503)
     private fun switchAccount(response: Int) {
-        ApiClient.saveToken("local-code-account-A")
+        ApiClient.saveToken(tokenA)
+        preparePositive(pass(42, "1234", "cash", 400))
+        preparePositive(pass(99, "other", "sbp", 900))
         startHeldRetry()
-        assertTrue(requests.contains("GET /bookings/42/boarding-code" to "Bearer local-code-account-A"))
-        compose.runOnIdle { ApiClient.logout(); ApiClient.saveToken("local-code-account-B") }
+        assertTrue(requests.contains("GET /bookings/42/boarding-code" to "Bearer $tokenA"))
+        compose.runOnIdle { ApiClient.logout() }
+        awaitSnapshotCleanup()
+        compose.runOnIdle { ApiClient.saveToken(tokenB) }
         plain = MemoryDiskPreferences(); secure = MemoryDiskPreferences()
         TripPassStore.initStores(plain, secure)
+        preparePositive(pass(42, "B-only", "sbp", 900))
         assertTrue(TripPassStore.save(context, pass(42, "B-only", "sbp", 900)))
+        preparePositive(pass(99, "B-other", "cash", 0))
         assertTrue(TripPassStore.save(context, pass(99, "B-other", "cash", 0)))
         val own = disk(); val sibling = disk(99)
         lateStatus = response
@@ -206,7 +222,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         assertEquals(sibling, disk(99))
         compose.onAllNodesWithText("5678").assertCountEquals(0)
         compose.onAllNodesWithText("Повторить загрузку кода").assertCountEquals(0)
-        assertFalse(requests.any { it.first == "GET /bookings/42/boarding-code" && it.second == "Bearer local-code-account-B" })
+        assertFalse(requests.any { it.first == "GET /bookings/42/boarding-code" && it.second == "Bearer $tokenB" })
         assertNoRepeatedHistoryOrTripPost()
     }
 
@@ -246,4 +262,40 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         compose.onAllNodesWithText("Моя поездка").assertCountEquals(0)
         assertNoRepeatedHistoryOrTripPost()
     }
+    private fun awaitSnapshotCleanup() = runBlocking {
+        kotlinx.coroutines.withTimeout(5000) {
+            while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+        }
+    }
+
+    private fun preparationResponse(request: RecordedRequest): MockResponse? {
+        val pass = preparingPass ?: return null
+        val prefix = "/bookings/${pass.bookingId}"
+        val body = when (request.path) {
+            "$prefix/role" -> JSONObject().put("role", "passenger").put("status", "confirmed").put("driver_phase", "departed")
+            "$prefix/details" -> pass.toJson().put("ride_id", pass.bookingId + 1000)
+                .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+                .put("pay_method", pass.payMethod ?: "negotiate")
+            "$prefix/boarding-code" -> JSONObject().put("code", pass.boardingCode)
+            else -> return null
+        }
+        preparationRequests += "${request.method} ${request.path}"
+        return MockResponse().setHeader("Content-Type", "application/json").setBody(body.toString())
+    }
+
+    private fun preparePositive(pass: TripPass) = runBlocking {
+        val start = preparationRequests.size
+        check(preparingPass == null)
+        preparingPass = pass
+        try {
+            ApiClient.getTripState(pass.bookingId).getOrThrow()
+            val actual = ApiClient.getBookingDetails(pass.bookingId).getOrThrow()
+            assertTrue("Setup must obtain its own actual current DETAILS", OfflineTripSnapshots.privateDetails(actual))
+            assertEquals(pass.boardingCode, ApiClient.getBoardingCode(pass.bookingId).getOrThrow())
+        } finally { preparingPass = null }
+        val prefix = "GET /bookings/${pass.bookingId}"
+        assertEquals(listOf("$prefix/role", "$prefix/details", "$prefix/boarding-code"),
+            preparationRequests.drop(start))
+    }
+
 }

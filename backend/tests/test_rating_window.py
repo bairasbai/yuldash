@@ -101,6 +101,9 @@ def test_ride_card_exposes_rating_count(client, user_factory):
         "from_city": "A", "to_city": "B", "depart_at": "2030-05-01T09:00:00",
         "seats_total": 3, "price": 400,
     }).json()["id"]
+    fresh = client.get(f"/rides/{ride_id}", headers=drv["auth"]).json()
+    assert fresh["driver_rating_count"] == 0
+    assert fresh["driver_rating"] == 0.0  # seeded profile rating is not a review
     r1, r2 = _raters(2, "card")
     _rate(drv["id"], [r1], 5, utcnow())
     _rate(drv["id"], [r2], 4, utcnow())

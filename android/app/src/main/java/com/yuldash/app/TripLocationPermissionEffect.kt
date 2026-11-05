@@ -28,6 +28,8 @@ internal fun TripLocationPermissionEffect(
     currentSession: () -> Long = { ApiClient.queueSessionGeneration() },
     start: (Int, AppLanguage, Boolean) -> Unit = { id, lang, driver -> TripLocationService.start(context, id, lang, driver) },
     stop: () -> Unit = { TripLocationService.stop(context) },
+    driverGrant: () -> DriverGpsLease? = { DriverGpsActions.current() },
+    onPermission: (Boolean) -> Unit = DriverGpsActions::permission,
 ) {
     val owner = LocalLifecycleOwner.current
     var preciseGranted by remember(context) { mutableStateOf(permissionGranted()) }
@@ -39,8 +41,14 @@ internal fun TripLocationPermissionEffect(
         preciseGranted = permissionGranted()
         onDispose { owner.lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(bookingId, activeTrip, language, driverBookingId, session, preciseGranted) {
-        if (session == currentSession() && bookingId != null && activeTrip != null && preciseGranted) {
+    val grantRevision = DriverGpsActions.revision
+    LaunchedEffect(bookingId, activeTrip, language, driverBookingId, session, preciseGranted, grantRevision) {
+        onPermission(preciseGranted)
+        val grant = driverGrant()
+        if (session == currentSession() && preciseGranted && grant != null &&
+            (activeTrip == null || driverBookingId == bookingId)) {
+            start(grant.carrier, language, true)
+        } else if (session == currentSession() && bookingId != null && activeTrip != null && preciseGranted && driverBookingId != bookingId) {
             start(bookingId, language, driverBookingId == bookingId)
         } else stop()
     }

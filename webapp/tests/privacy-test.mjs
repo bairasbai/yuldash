@@ -52,8 +52,11 @@ sess.set("yuldash.winterAsk.4472", "1");
 sess.set("yuldash.tracked.booking_created", "1");
 sess.set("yuldash.scroll.rides", "1200");
 sess.set("yuldash.chunkReload", "1");
+sess.set("yuldash.guestBooking.pending", "own pending selection");
+sess.set("yuldash.guestBooking.restore", "own restored selection");
 
 p.clearPersonalLocal();
+check(!sess.has("yuldash.guestBooking.pending") && !sess.has("yuldash.guestBooking.restore"), "гостевой выбор не переживает выход");
 
 for (const k of Object.keys(personal)) {
   check(!store.has(k), `стёрто личное: ${k}`);
@@ -88,7 +91,8 @@ globalThis.localStorage = {
   removeItem: () => { throw new Error("SecurityError"); },
 };
 let crashed = false;
-try { p.clearPersonalLocal(); } catch { crashed = true; }
+try { p.clearPersonalLocal();
+ } catch { crashed = true; }
 globalThis.localStorage = real;
 globalThis.sessionStorage = realSess;
 check(!crashed, "запрет хранилища не роняет выход из аккаунта");

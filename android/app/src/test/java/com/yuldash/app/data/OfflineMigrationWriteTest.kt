@@ -5,6 +5,7 @@ import android.content.Context
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import org.json.JSONObject
+import org.junit.After
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Test
@@ -15,10 +16,32 @@ import org.robolectric.annotation.Config
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
 class OfflineMigrationWriteTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
+    private val authority = TripPassAuthorityFixture()
+    private var ownsAuthority = false
+
+    private fun preparePassport(pass: TripPass): TripPass {
+        cleanupGuard.requireHealthy()
+        if (!ownsAuthority) {
+            ownsAuthority = true
+            authority.start()
+        }
+        return authority.authorizePositive(pass)
+    }
+
+    @After fun closeAuthority() {
+        cleanupGuard.requireHealthy()
+        if (!ownsAuthority) return
+        finishOfflineWriteFixture02(cleanupGuard) {
+            authority.close()
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+        }
+    }
+
     private lateinit var context: Context
     private val plain get() = context.getSharedPreferences("migration-plain", 0)
     private val secure get() = context.getSharedPreferences("migration-secure", 0)
-    @Before fun setup() {
+    @Before fun setup() = cleanupGuard.runSetup {
         context = ApplicationProvider.getApplicationContext()
         plain.edit().clear().commit()
         secure.edit().clear().commit()
@@ -38,17 +61,26 @@ class OfflineMigrationWriteTest {
     }
     private fun pass(id: Int) = TripPass.fromJson(JSONObject().put("booking_id", id))
     @Test fun failedPassportCopyPreservesSourceAndDefersNewWrites() {
+        val first = preparePassport(pass(7))
+        val next = preparePassport(pass(8))
         TripPassStore.initStores(plain, null)
-        assertTrue(TripPassStore.save(context, pass(7)))
+        assertTrue(TripPassStore.save(context, first))
         TripPassStore.initStores(plain, refusesWrites())
         assertTrue("source erased before secure copy succeeded", plain.contains("pass_7"))
         assertNotNull(TripPassStore.load(context, 7))
-        assertFalse("pending migration must refuse new writes", TripPassStore.save(context, pass(8)))
+        assertNotNull(offlineWriteLegacyPass02(7))
+        assertFalse("pending migration must refuse new writes", TripPassStore.save(context, next))
+        assertNull(offlineWriteLegacyPass02(8))
+        assertNull(secure.getString("pass_8", null))
         TripPassStore.initStores(plain, secure)
         assertNotNull(TripPassStore.load(context, 7))
-        assertNull(TripPassStore.load(context, 8))
-        assertTrue(TripPassStore.save(context, pass(8)))
+        assertNotNull(offlineWriteLegacyPass02(7))
+        assertNull(offlineWriteLegacyPass02(8))
+        assertNull(secure.getString("pass_8", null))
+        assertTrue(TripPassStore.save(context, next))
         assertNotNull(TripPassStore.load(context, 8))
+        assertNotNull(offlineWriteLegacyPass02(8))
+        assertNotNull(secure.getString("pass_8", null))
         assertFalse(plain.contains("pass_7"))
     }
     @Test fun failedQueueCopyPreservesSourceAndDefersNewWrites() {

@@ -4,6 +4,8 @@ import android.app.Application
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
 import org.junit.*
@@ -23,6 +25,10 @@ class ApiClientRefreshReplayTest {
     private val prefsField = ApiClient::class.java.getDeclaredField("prefs").apply { isAccessible = true }
     private fun prefs() = prefsField.get(ApiClient) as SharedPreferences
     private fun json(body: String = "{}", code: Int = 200) = MockResponse().setBody(body).setResponseCode(code)
+
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
+    }
 
     @Before fun setup() = runBlocking {
         ApiClient.resetForTest()
@@ -48,6 +54,7 @@ class ApiClientRefreshReplayTest {
         ApiClient.testTimeoutMs = 250
         ApiClient.init(ApplicationProvider.getApplicationContext())
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.verifyCode("+70000000000", "000000", "Local").getOrThrow()
         Unit
     }

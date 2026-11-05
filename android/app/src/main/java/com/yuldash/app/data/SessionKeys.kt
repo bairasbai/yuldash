@@ -26,6 +26,7 @@ internal object SessionKeys {
         "refresh_token",   // токен продления сессии
         "refresh_rotation_id", // секрет одной попытки продления, не переживает смену аккаунта
         "refresh_rotation_token", // ключ, к которому привязана эта попытка
+        SNAPSHOT_AUTH_SCOPE, // владелец кеша одного входа; повреждение отключает только необязательный снимок
         "sos_pending_intent", // nonce/hash незавершённого SOS принадлежат этому входу
         "user_name",       // имя человека
         "user_role",       // кем он был в приложении
@@ -83,7 +84,7 @@ internal object SessionKeys {
     )
 
     /**
-     * Cleared by each store's atomic reset, never separately through CLEARED_BY_FILE.
+     * Cleared by the owning store, never separately through CLEARED_BY_FILE.
      *
      * Очередь исходящих (`queue`) — неотправленные сообщения и статусы («сел», «доехал»). Это
      * чужая переписка, и выход из аккаунта стирает её целиком: `Outbox.clearAll` → общий сброс
@@ -92,6 +93,8 @@ internal object SessionKeys {
      * а не в `CLEARED_BY_FILE`: поштучно её удалять не нужно, сброс забирает ящик целиком.
      */
     val CLEARED_BY_STORE: Map<String, List<String>> = mapOf(
+        SNAPSHOT_META_PREFS to listOf(SNAPSHOT_BARRIERS_KEY), // хэши запретов; снимать только после подтверждённой очистки payload
+        SNAPSHOT_SECURE_PREFS to emptyList(), // динамические owner/scope namespace очищает владелец snapshot repository
         "yuldash_trippass_v2" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
         "yuldash_outbox_v2" to listOf(OfflineMigration.JOURNAL, "queue"),
         "yuldash_trippass" to listOf(OfflineMigration.JOURNAL, TripPassDeletion.KEY),
