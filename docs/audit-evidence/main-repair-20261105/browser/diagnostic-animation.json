@@ -1,0 +1,443 @@
+{
+  "server": "http://127.0.0.1:4199",
+  "browser": "154.0.8037.57",
+  "syntheticHTTP": true,
+  "cases": [
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ru",
+        "theme": "light"
+      },
+      "screenshot": "ru-light-telegram-cancel.png"
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ru",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "sms",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ru",
+        "theme": "light"
+      },
+      "screenshot": "ru-light-sms-cancel.png"
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "sms",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ru",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "sms",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "dark",
+      "method": "telegram",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ru",
+        "theme": "dark"
+      },
+      "screenshot": "ru-dark-telegram-cancel.png"
+    },
+    {
+      "lang": "ru",
+      "theme": "dark",
+      "method": "telegram",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ru",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "dark",
+      "method": "telegram",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "dark",
+      "method": "sms",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ru",
+        "theme": "dark"
+      },
+      "screenshot": "ru-dark-sms-cancel.png"
+    },
+    {
+      "lang": "ru",
+      "theme": "dark",
+      "method": "sms",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ru",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "dark",
+      "method": "sms",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "light",
+      "method": "telegram",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ba",
+        "theme": "light"
+      },
+      "screenshot": "ba-light-telegram-cancel.png"
+    },
+    {
+      "lang": "ba",
+      "theme": "light",
+      "method": "telegram",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ba",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "light",
+      "method": "telegram",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ba",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "light",
+      "method": "sms",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ba",
+        "theme": "light"
+      },
+      "screenshot": "ba-light-sms-cancel.png"
+    },
+    {
+      "lang": "ba",
+      "theme": "light",
+      "method": "sms",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ba",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "light",
+      "method": "sms",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ba",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "dark",
+      "method": "telegram",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ba",
+        "theme": "dark"
+      },
+      "screenshot": "ba-dark-telegram-cancel.png"
+    },
+    {
+      "lang": "ba",
+      "theme": "dark",
+      "method": "telegram",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ba",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "dark",
+      "method": "telegram",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [
+        "Cannot read properties of undefined (reading 'forEach')",
+        "Cannot read properties of undefined (reading 'forEach')",
+        "Cannot read properties of undefined (reading 'forEach')"
+      ],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ba",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "dark",
+      "method": "sms",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ba",
+        "theme": "dark"
+      },
+      "screenshot": "ba-dark-sms-cancel.png"
+    },
+    {
+      "lang": "ba",
+      "theme": "dark",
+      "method": "sms",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ba",
+        "theme": "dark"
+      }
+    },
+    {
+      "lang": "ba",
+      "theme": "dark",
+      "method": "sms",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ba",
+        "theme": "dark"
+      }
+    }
+  ]
+}

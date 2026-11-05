@@ -1,0 +1,91 @@
+{
+  "checked_at_utc": "2026-11-05 09:48:04 UTC",
+  "repository": "bairasbai/yuldash",
+  "main_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+  "prs": [
+    {
+      "number": 215,
+      "url": "https://github.com/bairasbai/yuldash/pull/215",
+      "base": "main",
+      "base_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+      "head": "audit/e2e-portable-20261101",
+      "head_sha": "29b05c0163498c35acd1007fea47f05f7092047c",
+      "mergeable": true,
+      "draft": true
+    },
+    {
+      "number": 214,
+      "url": "https://github.com/bairasbai/yuldash/pull/214",
+      "base": "codex/rs-01-honest-promises-20261024",
+      "base_sha": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+      "head": "audit/pr213-session-recovery-20261101",
+      "head_sha": "e200a56093e813423f677e8984149a17b83a7d08",
+      "mergeable": true,
+      "draft": true
+    },
+    {
+      "number": 213,
+      "url": "https://github.com/bairasbai/yuldash/pull/213",
+      "base": "main",
+      "base_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+      "head": "codex/rs-01-honest-promises-20261024",
+      "head_sha": "1e0e7663156eb27a902224d44e64cdb49b40e4ae",
+      "mergeable": false,
+      "draft": false
+    },
+    {
+      "number": 211,
+      "url": "https://github.com/bairasbai/yuldash/pull/211",
+      "base": "main",
+      "base_sha": "0ef03f4194012431e0996be4d8e748d37e34d63d",
+      "head": "claude/rideshare-plans-20261024",
+      "head_sha": "965c88945cd61f56d0e36779f66e790ff1aaa59b",
+      "mergeable": false,
+      "draft": true
+    }
+  ],
+  "main_ci": {
+    "url": "https://github.com/bairasbai/yuldash/actions/runs/41198117093",
+    "job_id": 124528313550,
+    "conclusion": "failure",
+    "tests": 4512,
+    "failed": 2,
+    "skipped": 2
+  },
+  "pr215_ci": {
+    "url": "https://github.com/bairasbai/yuldash/actions/runs/41287440794",
+    "conclusion": "success",
+    "jobs": [
+      {
+        "id": 124791502702,
+        "name": "backend-tests-postgres",
+        "conclusion": "success"
+      },
+      {
+        "id": 124791502730,
+        "name": "web-build",
+        "conclusion": "success"
+      },
+      {
+        "id": 124791502767,
+        "name": "backend-tests",
+        "conclusion": "success"
+      },
+      {
+        "id": 124791502786,
+        "name": "webapp-build",
+        "conclusion": "success"
+      },
+      {
+        "id": 124791502789,
+        "name": "android-build",
+        "conclusion": "success"
+      },
+      {
+        "id": 124791502852,
+        "name": "android-unit-tests",
+        "conclusion": "success"
+      }
+    ]
+  }
+}

@@ -1,0 +1,6 @@
+{
+  "own_vite_pids_stopped": [
+    3327
+  ],
+  "method": "SIGTERM, exact own worktree Vite command"
+}

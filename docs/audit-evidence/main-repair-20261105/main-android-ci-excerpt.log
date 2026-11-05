@@ -1,0 +1,21 @@
+2026-10-31T11:44:48.1413365Z [command]/usr/bin/git -c protocol.version=2 fetch --no-tags --prune --no-recurse-submodules --depth=1 origin +1b02947b56aa279f7721f475d26c0dd8018cda75:refs/remotes/origin/main
+2026-10-31T11:44:51.0825265Z  * [new ref]         1b02947b56aa279f7721f475d26c0dd8018cda75 -> origin/main
+2026-10-31T11:44:51.4787156Z 1b02947b56aa279f7721f475d26c0dd8018cda75
+2026-10-31T11:53:40.4541937Z ▶ com.yuldash.app.FindRideButtonTest
+2026-10-31T11:53:40.4543191Z   ⏱ 15s FindRideButtonTest.findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt
+2026-10-31T11:53:40.4574539Z FindRideButtonTest > findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt FAILED
+2026-10-31T11:53:40.4576036Z     androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 15000 ms
+2026-10-31T11:53:40.4581478Z         at com.yuldash.app.FindRideButtonTest.waitFor(FindRideButtonTest.kt:78)
+2026-10-31T11:53:40.4583174Z         at com.yuldash.app.FindRideButtonTest.findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt(FindRideButtonTest.kt:104)
+2026-10-31T11:53:55.4527840Z   ⏱ 15s FindRideButtonTest.allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip
+2026-10-31T11:53:55.4529839Z FindRideButtonTest > allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip FAILED
+2026-10-31T11:53:55.4531618Z     androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 15000 ms
+2026-10-31T11:53:55.4536436Z         at com.yuldash.app.FindRideButtonTest.waitFor(FindRideButtonTest.kt:78)
+2026-10-31T11:53:55.4538043Z         at com.yuldash.app.FindRideButtonTest.allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip(FindRideButtonTest.kt:136)
+2026-10-31T11:53:55.4539740Z ✓ com.yuldash.app.FindRideButtonTest 30s, тестов 2, упало 2
+2026-10-31T12:08:45.5540154Z 4512 tests completed, 2 failed, 2 skipped
+2026-10-31T12:08:45.9921270Z BUILD FAILED in 23m 29s
+2026-10-31T12:08:46.4801907Z   • com.yuldash.app.FindRideButtonTest.findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt
+2026-10-31T12:08:46.4803525Z       androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 15000 ms
+2026-10-31T12:08:46.4805148Z   • com.yuldash.app.FindRideButtonTest.allRoutesRemovesSearchFilterEvenWhenThereIsAnActiveTrip
+2026-10-31T12:08:46.4806688Z       androidx.compose.ui.test.ComposeTimeoutException: Condition still not satisfied after 15000 ms

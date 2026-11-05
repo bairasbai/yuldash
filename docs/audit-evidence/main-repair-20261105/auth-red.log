@@ -1,0 +1,41 @@
+✗ telegram: queued publication cancelled by back
+    Cancelled operation must never write A's token, even temporarily
+✗ telegram: queued publication cancelled by unmount
+    Cancelled operation must never write A's token, even temporarily
+✗ sms: queued publication cancelled by back
+    Cancelled operation must never write A's token, even temporarily
+✗ sms: queued publication cancelled by unmount
+    Cancelled operation must never write A's token, even temporarily
+✓ existing logout guard also rejects a queued publication
+✓ existing account B guard also rejects a queued publication
+✓ existing storage fence guard also rejects a queued publication
+✗ real logout intent wins over login waiting for the session write lock
+    Cancelled operation must never write A's token, even temporarily
+✗ new provider login supersedes an older queued publication
+    Cancelled operation must never write A's token, even temporarily
+✗ old queued publication cannot steal a newly started operation
+    Cancelled operation must never write A's token, even temporarily
+✗ telegram: HTTP success after logout starts during disableWebPush is obsolete
+    Cancelled operation must never write A's token, even temporarily
+✗ telegram: HTTP success after logout starts during logoutServer is obsolete
+    Cancelled operation must never write A's token, even temporarily
+✗ telegram: request response after logout starts cannot open the code step
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+✓ telegram: fresh login after completed logout remains available
+✗ sms: HTTP success after logout starts during disableWebPush is obsolete
+    Cancelled operation must never write A's token, even temporarily
+✗ sms: HTTP success after logout starts during logoutServer is obsolete
+    Cancelled operation must never write A's token, even temporarily
+✗ sms: request response after logout starts cannot open the code step
+    Expected values to be strictly equal:
+    
+    true !== false
+    
+✓ sms: fresh login after completed logout remains available
+✗ overlapping logouts invalidate a verify that began between them
+    Cancelled operation must never write A's token, even temporarily
+
+ПРОВАЛЕНО: 14

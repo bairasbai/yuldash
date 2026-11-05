@@ -27,7 +27,7 @@ type Step = "choose" | "code";
  */
 export default function LoginScreen() {
   const { appText, lang, setLang } = useLang();
-  const { login } = useAuth();
+  const { login, getLoginEpoch } = useAuth();
   const navigate = useNavigate();
   const location = useLocation();
   const from = (location.state as { from?: string } | null)?.from ?? "/map";
@@ -48,15 +48,16 @@ export default function LoginScreen() {
   const [smsName, setSmsName] = useState("");
   const [smsError, setSmsError] = useState<LoginError | null>(null);
 
-  const live = useRef({ login, navigate, from, returnState });
-  live.current = { login, navigate, from, returnState };
+  const live = useRef({ login, getLoginEpoch, navigate, from, returnState });
+  live.current = { login, getLoginEpoch, navigate, from, returnState };
   const flow = useRef<ReturnType<typeof createLoginFlow> | null>(null);
   if (!flow.current) {
     const deps: LoginFlowDeps = {
       getGeneration: getSessionGeneration,
+      getLoginEpoch: () => live.current.getLoginEpoch(),
       botAvailable: () => TELEGRAM_BOT.length > 0,
       tgStart, tgVerify, smsRequest: requestSmsCode, smsVerify: verifySmsCode,
-      login: (access, refresh, user) => live.current.login(access, refresh, user),
+      login: (access, refresh, user, isCurrentOperation) => live.current.login(access, refresh, user, isCurrentOperation),
       updateName: (updatedName) => apiPost("/me/update", { name: updatedName }),
       getStatus: (e) => e instanceof ApiError ? e.status : 0,
       telegramStartUrl, telegramChatUrl,

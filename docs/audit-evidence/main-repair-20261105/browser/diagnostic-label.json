@@ -1,0 +1,74 @@
+{
+  "server": "http://127.0.0.1:4199",
+  "browser": "154.0.8037.57",
+  "syntheticHTTP": true,
+  "cases": [
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "back",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/login",
+        "lang": "ru",
+        "theme": "light"
+      },
+      "screenshot": "ru-light-telegram-cancel.png"
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "unmount",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "state": {
+        "token": null,
+        "refresh": null,
+        "writes": [],
+        "path": "/rules",
+        "lang": "ru",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [
+        "Cannot read properties of undefined (reading 'forEach')",
+        "Cannot read properties of undefined (reading 'forEach')",
+        "Cannot read properties of undefined (reading 'forEach')"
+      ],
+      "external": [],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "light"
+      }
+    },
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "sms",
+      "action": "back",
+      "passed": false,
+      "pageErrors": [],
+      "external": []
+    }
+  ]
+}

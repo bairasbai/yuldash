@@ -1,0 +1,48 @@
+{
+  "server": "http://127.0.0.1:4199",
+  "browser": "154.0.8037.57",
+  "syntheticHTTP": true,
+  "cases": [
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "success",
+      "passed": true,
+      "pageErrors": [],
+      "external": [],
+      "apiPaths": [
+        "/api/config/features",
+        "/api/events",
+        "/api/auth/tg/start",
+        "/api/auth/tg/verify",
+        "/api/events",
+        "/api/events",
+        "/api/feed",
+        "/api/rides/cities",
+        "/api/seasonal-events",
+        "/api/settlements/popular-routes",
+        "/api/rides/near",
+        "/api/requests/near",
+        "/api/bookings/mine",
+        "/api/feed",
+        "/api/seasonal-events",
+        "/api/settlements/popular-routes",
+        "/api/rides/near",
+        "/api/requests/near",
+        "/api/referral/me",
+        "/api/referral/me"
+      ],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "light"
+      }
+    }
+  ]
+}

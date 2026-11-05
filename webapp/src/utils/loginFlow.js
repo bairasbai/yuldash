@@ -21,8 +21,9 @@ export function createLoginFlow(deps) {
     if (busy || disposed) return null;
     const startedGeneration = generation();
     if (startedGeneration === null) { deps.onError("save"); return null; }
+    const loginEpoch = deps.getLoginEpoch?.();
     busy = true;
-    return { id: ++serial, generation: startedGeneration };
+    return { id: ++serial, generation: startedGeneration, loginEpoch };
   };
   const current = (op) => {
     const now = generation();
@@ -30,7 +31,8 @@ export function createLoginFlow(deps) {
       freshCodeRequired = true;
       deps.onError("save");
     }
-    return !disposed && now !== null && op.id === serial && op.generation === now;
+    return !disposed && now !== null && op.id === serial && op.generation === now &&
+      op.loginEpoch === deps.getLoginEpoch?.();
   };
   const finish = (op) => {
     if (op.id === serial) {
@@ -46,7 +48,7 @@ export function createLoginFlow(deps) {
   const saveAndContinue = async (op, pair, method, name = "") => {
     if (!current(op)) return;
     try {
-      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user);
+      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user, () => current(op));
       const syncGeneration = publication && typeof publication.then === "function" ? null : generation();
       const committed = await publication;
       const publishedGeneration = typeof committed === "string" ? committed : syncGeneration;

@@ -1,0 +1,13 @@
+PASS ru light telegram back
+PASS ru light telegram unmount
+PASS ru light telegram success
+locator.click: Timeout 30000ms exceeded.
+Call log:
+[2m  - waiting for getByRole('button', { name: 'Войти по номеру', exact: true })[22m
+
+    at /tmp/yuldash-main-repair-evidence/browser/matrix.cjs:39:109 {
+  log: [
+    "  - waiting for getByRole('button', { name: 'Войти по номеру', exact: true })"
+  ],
+  name: 'TimeoutError'
+}
