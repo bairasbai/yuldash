@@ -1,0 +1,50 @@
+{
+  "server": "http://127.0.0.1:4199",
+  "browser": "154.0.8037.57",
+  "syntheticHTTP": true,
+  "cases": [
+    {
+      "lang": "ru",
+      "theme": "light",
+      "method": "telegram",
+      "action": "success",
+      "passed": false,
+      "pageErrors": [
+        "TypeError: Cannot read properties of undefined (reading 'forEach')\n    at http://127.0.0.1:4199/src/screens/HomeScreen.tsx:222:10\n    at updateMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:12208:27)\n    at Object.useMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:12724:24)\n    at useMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-I4MZPW7S.js?v=bc68bee5:1116:29)\n    at HomeScreen (http://127.0.0.1:4199/src/screens/HomeScreen.tsx:220:19)\n    at renderWithHooks (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:11546:26)\n    at updateFunctionComponent (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:14580:28)\n    at beginWork (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:15922:22)\n    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:3672:22)\n    at Object.invokeGuardedCallbackDev (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:3697:24)",
+        "TypeError: Cannot read properties of undefined (reading 'forEach')\n    at http://127.0.0.1:4199/src/screens/HomeScreen.tsx:222:10\n    at updateMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:12208:27)\n    at Object.useMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:12724:24)\n    at useMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-I4MZPW7S.js?v=bc68bee5:1116:29)\n    at HomeScreen (http://127.0.0.1:4199/src/screens/HomeScreen.tsx:220:19)\n    at renderWithHooks (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:11546:26)\n    at updateFunctionComponent (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:14580:28)\n    at beginWork (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:15922:22)\n    at HTMLUnknownElement.callCallback2 (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:3672:22)\n    at Object.invokeGuardedCallbackDev (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:3697:24)",
+        "TypeError: Cannot read properties of undefined (reading 'forEach')\n    at http://127.0.0.1:4199/src/screens/HomeScreen.tsx:222:10\n    at updateMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:12208:27)\n    at Object.useMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:12724:24)\n    at useMemo (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-I4MZPW7S.js?v=bc68bee5:1116:29)\n    at HomeScreen (http://127.0.0.1:4199/src/screens/HomeScreen.tsx:220:19)\n    at renderWithHooks (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:11546:26)\n    at updateFunctionComponent (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:14580:28)\n    at beginWork (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:15922:22)\n    at beginWork$1 (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:19751:22)\n    at performUnitOfWork (http://127.0.0.1:4199/node_modules/.vite/deps/chunk-XPR23Y44.js?v=bc68bee5:19196:20)"
+      ],
+      "external": [],
+      "apiPaths": [
+        "/api/config/features",
+        "/api/events",
+        "/api/auth/tg/start",
+        "/api/auth/tg/verify",
+        "/api/events",
+        "/api/events",
+        "/api/feed",
+        "/api/rides/cities",
+        "/api/seasonal-events",
+        "/api/settlements/popular-routes",
+        "/api/rides/near",
+        "/api/requests/near",
+        "/api/bookings/mine",
+        "/api/feed",
+        "/api/seasonal-events",
+        "/api/settlements/popular-routes",
+        "/api/rides/near",
+        "/api/requests/near"
+      ],
+      "state": {
+        "token": "synthetic-browser-A",
+        "refresh": "synthetic-browser-RA",
+        "writes": [
+          "synthetic-browser-A"
+        ],
+        "path": "/map",
+        "lang": "ru",
+        "theme": "light"
+      }
+    }
+  ]
+}

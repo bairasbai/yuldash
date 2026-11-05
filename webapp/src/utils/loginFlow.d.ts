@@ -5,12 +5,13 @@ export function filterLoginCode(value: string): string;
 export type LoginError = "botMissing" | "start" | "enterTgCode" | "badTgCode" | "phoneRequired" | "notYet" | "expired" | "tooMany" | "verify" | "save" | "enterPhone" | "sendFail" | "smsTooMany" | "enterSmsCode" | "badSmsCode";
 export interface LoginFlowDeps {
   getGeneration(): string;
+  getLoginEpoch?(): number;
   botAvailable(): boolean;
   tgStart(): Promise<{ request_id: string }>;
   tgVerify(requestId: string, code: string): Promise<{ access_token: string; refresh_token: string; user: unknown }>;
   smsRequest(phone: string): Promise<unknown>;
   smsVerify(phone: string, code: string, name: string): Promise<{ access_token: string; refresh_token: string; user: unknown }>;
-  login(access: string, refresh: string, user: any): void | string | Promise<void | string>;
+  login(access: string, refresh: string, user: any, isCurrentOperation?: () => boolean): void | string | Promise<void | string>;
   updateName(name: string): Promise<unknown>;
   getStatus(error: unknown): number;
   telegramStartUrl(id: string): string;

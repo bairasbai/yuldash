@@ -1,0 +1,34 @@
+{
+  "base_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+  "source_commit": "f7f81c0c8f96e24f7cbcf92f3646bd3677aac781",
+  "files": [
+    {
+      "path": "webapp/src/auth/AuthProvider.tsx",
+      "sha256": "93830f136c9c56399ff47822c3a726296cfcb5e3a5ede32c1ed8c4caa898223f"
+    },
+    {
+      "path": "webapp/src/screens/LoginScreen.tsx",
+      "sha256": "c7ab86f0f21bb7995fcb621314bfde192a7f55438d778ccecb456618f681cac9"
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.d.ts",
+      "sha256": "6dd98b4c4ac6d5e288e117d6b990a9ebba9811849f4fe4c802053a9c0e6bd239"
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.js",
+      "sha256": "7e14877959b148bdb390213d787b2b547f7afd915bbba155c1fac2e6384973ca"
+    },
+    {
+      "path": "webapp/tests/login-return-owner-test.mjs",
+      "sha256": "09ca913a5f441b0aa27b5a45d9a84fa9d125b480353fbded360845b710b84c06"
+    },
+    {
+      "path": "webapp/tests/run.mjs",
+      "sha256": "6479e4ed4bb4bd9fdb710915e3ab47ada8e924639daba98a1a2ba813b7da237c"
+    },
+    {
+      "path": "webapp/tests/login-publication-cancel-test.mjs",
+      "sha256": "21f5b25cf516c8a160a79f825bc048dff7223c293a14360f6059b079b76c5d1e"
+    }
+  ]
+}

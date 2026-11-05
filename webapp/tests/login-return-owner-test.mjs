@@ -8,7 +8,7 @@ const t = checker();
 const h = globalThis.__loginReturn = { generation: "guest", routes: [], state: undefined, deps: null };
 const mocks = lang => ({
   "/i18n/lang": langMock(lang),
-  "/auth/AuthProvider": `export const useAuth=()=>({login(){}});`,
+  "/auth/AuthProvider": `export const useAuth=()=>({login(){},getLoginEpoch:()=>0});`,
   "/api/client": `export class ApiError extends Error {} export const apiPost=()=>{}; export const getSessionGeneration=()=>globalThis.__loginReturn.generation;`,
   "/utils/loginFlow": `export const createLoginFlow=deps=>{globalThis.__loginReturn.deps=deps;return{revive(){},dispose(){},start(){},verify(){},smsRequest(){},smsVerify(){}}};
     export const filterLoginCode=x=>x,nextNeedPhone=c=>c;`,

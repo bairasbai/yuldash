@@ -1,0 +1,122 @@
+{
+  "base_sha": "1b02947b56aa279f7721f475d26c0dd8018cda75",
+  "historical_inventory_vs_current_main": {
+    "added": 55,
+    "removed": 0,
+    "changed": 74
+  },
+  "changed": [
+    {
+      "path": "webapp/src/auth/AuthProvider.tsx",
+      "before": {
+        "path": "webapp/src/auth/AuthProvider.tsx",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "5bcce15c158a94869e6bcfe6f46668c077ed5cf1b80d66ec364be56b341f7ba4",
+        "lines": 238
+      },
+      "after": {
+        "path": "webapp/src/auth/AuthProvider.tsx",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "93830f136c9c56399ff47822c3a726296cfcb5e3a5ede32c1ed8c4caa898223f",
+        "lines": 249
+      }
+    },
+    {
+      "path": "webapp/src/screens/LoginScreen.tsx",
+      "before": {
+        "path": "webapp/src/screens/LoginScreen.tsx",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "ca0c77764ae2983f37285ac2bbbe89acbefac9e3a16cea213492be154f121c1b",
+        "lines": 353
+      },
+      "after": {
+        "path": "webapp/src/screens/LoginScreen.tsx",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "c7ab86f0f21bb7995fcb621314bfde192a7f55438d778ccecb456618f681cac9",
+        "lines": 354
+      }
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.d.ts",
+      "before": {
+        "path": "webapp/src/utils/loginFlow.d.ts",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "67c8f5c62a6ec2dfed752763caded5a7badbdbd38018057d83855abca0ee4b81",
+        "lines": 36
+      },
+      "after": {
+        "path": "webapp/src/utils/loginFlow.d.ts",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "6dd98b4c4ac6d5e288e117d6b990a9ebba9811849f4fe4c802053a9c0e6bd239",
+        "lines": 37
+      }
+    },
+    {
+      "path": "webapp/src/utils/loginFlow.js",
+      "before": {
+        "path": "webapp/src/utils/loginFlow.js",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "3f103fa249c10df4eed82cfbdbf971086a0bb28024117ae3e0117a8d352cd896",
+        "lines": 154
+      },
+      "after": {
+        "path": "webapp/src/utils/loginFlow.js",
+        "kind": "pwa_main",
+        "block": "B01",
+        "sha256": "7e14877959b148bdb390213d787b2b547f7afd915bbba155c1fac2e6384973ca",
+        "lines": 156
+      }
+    },
+    {
+      "path": "webapp/tests/login-return-owner-test.mjs",
+      "before": {
+        "path": "webapp/tests/login-return-owner-test.mjs",
+        "kind": "test_support",
+        "block": "B01",
+        "sha256": "8f6398e8f597d3389c13862fe7ac20874874a824d0ac8ed95f8ffca53cdee584",
+        "lines": 41
+      },
+      "after": {
+        "path": "webapp/tests/login-return-owner-test.mjs",
+        "kind": "test_support",
+        "block": "B01",
+        "sha256": "09ca913a5f441b0aa27b5a45d9a84fa9d125b480353fbded360845b710b84c06",
+        "lines": 41
+      }
+    },
+    {
+      "path": "webapp/tests/run.mjs",
+      "before": {
+        "path": "webapp/tests/run.mjs",
+        "kind": "test_support",
+        "block": "B09",
+        "sha256": "c19e652551c2a9543ab4502a99af62ddbc1ccbc054f1b96070199874e658710c",
+        "lines": 325
+      },
+      "after": {
+        "path": "webapp/tests/run.mjs",
+        "kind": "test_support",
+        "block": "B09",
+        "sha256": "6479e4ed4bb4bd9fdb710915e3ab47ada8e924639daba98a1a2ba813b7da237c",
+        "lines": 326
+      }
+    }
+  ],
+  "added": [
+    {
+      "path": "webapp/tests/login-publication-cancel-test.mjs",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "21f5b25cf516c8a160a79f825bc048dff7223c293a14360f6059b079b76c5d1e",
+      "lines": 267
+    }
+  ],
+  "removed": []
+}
