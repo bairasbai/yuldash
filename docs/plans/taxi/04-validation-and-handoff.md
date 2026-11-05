@@ -22,9 +22,9 @@
 | CT09 Подача/недвижение | TP44–46; TD25–31 | Номер/место/контакт, ETA и stale; корректная отмена или переназначение |
 | CT10 Прибытие/ожидание | TP47–49; TD27–29/31 | Один старт, бесплатный/платный интервал, истинное серверное время и цена |
 | CT11 Неявка/посадка | TP50–52; TD30–36; TX08 | Условия/причина/связь и единственный исход, без самовольной санкции |
-| CT12 Смена адреса | TP54/55; TD38–41; TX10 | Предложение, цена, принятие/отказ/отзыв и stale ack; навигация после результата |
+| CT12 Смена адреса | TP54/55; TD38–41; TX10 | Обычная смена уже применена, ack означает ознакомление; крупная pending-смена ждёт accept/decline/withdraw. Цена, поздние ответы и разные последствия отказа проверяются отдельно |
 | CT13 Остановки | TP56/57; TD42–44; TX12/13 | Порядок, согласование, один интервал, повтор после unknown без toggle эффекта |
-| CT14 Смена оплаты | TP58/64–66; TD45; TX11 | Обе стороны согласны с одним способом; отсутствие дубля cash/provider |
+| CT14 Смена оплаты | TP58/64–66; TD45; TX11 | Новый способ записан сервером, changed и ознакомление через ack различимы; ack не является разрешением или оплатой. Нет дубля cash/provider |
 | CT15 Нет сети/перезапуск | TP31/37/59; TD46–49; TX12–16 | До/после commit, first error, stale и тот же заказ после восстановления |
 | CT16 Фон/ключ/уведомления | TD16/47/48; TX16/31 | Согласованные версия/сессия, реальный FCM/GPS/MapKit/фон, конец передачи |
 | CT17 Safety/SOS/share | TP60/61; TD50; TX17–20/31 | Права/TTL/revoke/конец, экстренный и обычный путь, результат отправки |
@@ -65,16 +65,16 @@ QA-B03-001/002/003 и PATH-04/05 сохраняются как историче�
 
 | Проверка | Факт и команда | Первичное доказательство |
 |---|---|---|
-| Backend, существующая выборка | Python3.12.14, изолированная venv, SQLite и fakeredis; 10 выбранных файлов, **89 passed/4 skipped**, exit0, 20.85s | `backend/taxi-regression.log`, `.xml` |
-| Backend, новые наблюдения | Внешний временный pytest harness, **3 passed**, exit0, 2.89s; подтверждение текущего поведения, а не принятие исправления | `backend/contract-observations.log`, `.xml`, `backend/probes/test_contract_observations.py` |
-| PWA установка | `npm ci --cache /workspace/pwa-npm-cache --no-audit --no-fund`, exit0; исходная попытка вне writable cache не удалась и сохранена | `pwa/npm-ci-workspace-cache.log`, `pwa/npm-ci.log` |
-| PWA сборка | `VITE_API_BASE=http://127.0.0.1:4173/api npm run build`, exit0 | `pwa/build.log`, `pwa/provenance.json` |
-| PWA существующие проверки | `npm run check`, exit0, **140 наборов**, не140 новых сценариев такси | `pwa/check.log` |
-| PWA браузер | **13 UI fixture cases**, 2 реальных retry clicks; Chromium154.0.8037.57, RU/BA и темы,320/390; pageerror0, external hosts0 | `pwa-runtime.md`, `pwa/runtime-results.json`, `runtime_smoke.py`, PNG/TXT |
-| PWA неоплаченный итог | **2 дополнительных UI cases**, exit0; passenger/driver onboard→done→реальный клик в receipt.paid=false; payment write requests0 | `pwa-completion-runtime.md`, `pwa/completion-results.json`, `completion_smoke.py`, PNG/TXT |
+| Backend, существующая выборка | Python 3.12.14, изолированная venv, SQLite и fakeredis; 10 выбранных файлов, **89 passed/4 skipped**, exit 0, 20.85 s | `backend/taxi-regression.log`, `.xml` |
+| Backend, новые наблюдения | Внешний временный pytest harness, **3 passed**, exit 0, 2.89 s; подтверждение текущего поведения, а не принятие исправления | `backend/contract-observations.log`, `.xml`, `backend/probes/test_contract_observations.py` |
+| PWA установка | `npm ci --cache /workspace/pwa-npm-cache --no-audit --no-fund`, exit 0; исходная попытка вне writable cache не удалась и сохранена | `pwa/npm-ci-workspace-cache.log`, `pwa/npm-ci.log` |
+| PWA сборка | `VITE_API_BASE=http://127.0.0.1:4173/api npm run build`, exit 0 | `pwa/build.log`, `pwa/provenance.json` |
+| PWA существующие проверки | `npm run check`, exit 0, **140 наборов**, не 140 новых сценариев такси | `pwa/check.log` |
+| PWA браузер | **13 UI fixture cases**, 2 реальных retry clicks; Chromium 154.0.8037.57, RU/BA и темы,320/390; pageerror 0, external hosts 0 | `pwa-runtime.md`, `pwa/runtime-results.json`, `runtime_smoke.py`, PNG/TXT |
+| PWA неоплаченный итог | **2 дополнительных UI cases**, exit 0; passenger/driver onboard→done→реальный клик в receipt.paid=false; payment write requests 0 | `pwa-completion-runtime.md`, `pwa/completion-results.json`, `completion_smoke.py`, PNG/TXT |
 | Replica | Прочитаны и применены recon/test/diff фиксированного SHA; утилиты parity/imgdiff не запускались | Карта источников/TS/TP/TD/TX/CT и расхождения этого пакета |
-| REA | Реальный `analyze-javascript-application`, exit0; только собственная собранная PWA, отдельный static artifact анализ | `rea-check.md`, `rea-pwa-analysis.log`, `rea-pwa-summary.json`, полное compressed Evidence отдельно |
-| Traceability такси | `python -B tools/audit_traceability/check.py --mode taxi --baseline-ref 1b02947b56aa279f7721f475d26c0dd8018cda75 --json`, **exit1 / accepted=false** | `docs/taxi-traceability.json`; нет полных implementation/execution/acceptance связей и YULDASH_TARGET |
+| REA | Реальный `analyze-javascript-application`, exit 0; только собственная собранная PWA, отдельный static artifact анализ | `rea-check.md`, `rea-pwa-analysis.log`, `rea-pwa-summary.json`, полное compressed Evidence отдельно |
+| Traceability такси | `python -B tools/audit_traceability/check.py --mode taxi --baseline-ref 1b02947b56aa279f7721f475d26c0dd8018cda75 --json`, **exit 1 / accepted=false** | `docs/taxi-traceability.json`; нет полных implementation/execution/acceptance связей и YULDASH_TARGET |
 
 Backend команда (из `backend/`, venv `/workspace/taxi-audit-venv`):
 
@@ -103,48 +103,48 @@ python -m pytest tests/test_taxi_gate.py tests/test_taxi_wait_queue_honest.py te
   одну остановку, у активации — false и пустой список. Подтверждён неполный набор входов, не конкретный размер убытка.
 
 Браузер использует **только подставные ответы**, валидный внешний вход не нужен. Host guard разрешает
-только127.0.0.1, Service Worker блокирован, гео denied, карты без ключа. Начальная ошибка503/повтор,
-flag off, accepted, HTTP503 при online, restore503 и настоящий context.offline проверены раздельно.
-В неоплаченном итоге водитель пишет «Заплатил250₽», следующий чек — «Оплата не отмечена»; пассажирский
+только 127.0.0.1, Service Worker блокирован, гео denied, карты без ключа. Начальная ошибка 503/повтор,
+flag off, accepted, HTTP 503 при online, restore 503 и настоящий context.offline проверены раздельно.
+В неоплаченном итоге водитель пишет «Заплатил 250₽», следующий чек — «Оплата не отмечена»; пассажирский
 итог не писал «Заплатил». «Получено» в этом fixture не отрисовано и остаётся только статической веткой.
 Fixtures исправлялись до итогового прогона: сначала перепутаны рубли/копейки, отдельно не подошёл
-networkidle при polling. Exploratory/timeout журналы сохранены, не прибавлены к15 итоговым случаям.
+networkidle при polling. Exploratory/timeout журналы сохранены, не прибавлены к 15 итоговым случаям.
 
 ## Точное применение REA
 
-REA5.0.0 / FreeNAP/rea-- SHA `1d13cef5f46f5e07f594bde7b1a4725f189b9a5e`;
-Node24.19.0/npm11.9.0. Из `/workspace/rea-research`:
+REA 5.0.0 / FreeNAP/rea-- SHA `1d13cef5f46f5e07f594bde7b1a4725f189b9a5e`;
+Node 24.19.0/npm 11.9.0. Из `/workspace/rea-research`:
 
 ```bash
 node scripts/rea.mjs analyze-javascript-application /workspace/yuldash/webapp/dist --format json > /workspace/research-evidence/rea-pwa-evidence.json 2> /workspace/research-evidence/rea-pwa-analysis.log
 ```
 
-Exit0, terminal progress `Application graph and Electron boundaries reconstructed`.
+Exit 0, terminal progress `Application graph and Electron boundaries reconstructed`.
 Это JavaScript application/artifact reconstruction, **не JADX/Ghidra/APK и не выполнение приложения через REA**.
-Цель `/workspace/yuldash/webapp/dist`:147 файлов/3154982байт; manifest с индивидуальными SHA256 сохранён.
+Цель `/workspace/yuldash/webapp/dist`:147 файлов/3154982 байт; manifest с индивидуальными SHA256 сохранён.
 REA root artifact SHA256 `e42c68e8f3f80ef94bb2088eb01fa2498ab6812246e4feb6414037d691531468`.
 Evidence ID `ev_432ee253ee8349f8127bba6c13e33a8014928b8f5e06386f61f0434ec21250d7`.
 
-117 JS разобраны без parse failures,118 релевантных файлов; application graph1087nodes/3456edges,
-12 связанных с такси routes (10 user,2 admin) и8 именованных taxi chunks. Семантический граф
-**partial/truncated** по пределу100000nodes;7 unresolved dynamic imports при наличии соответствующих
+117 JS разобраны без parse failures,118 релевантных файлов; application graph 1087 nodes/3456 edges,
+12 связанных с такси routes (10 user,2 admin) и 8 именованных taxi chunks. Семантический граф
+**partial/truncated** по пределу 100000 nodes;7 unresolved dynamic imports при наличии соответствующих
 файлов — ограничение REA, не воспроизведённая ошибка приложения. Слово complete в отдельной части
 extractor не означает полный семантический аудит. После анализа байты dist не изменились.
 
-Полный raw JSON592927219байт, SHA256 `e0b959ce9cb189ce50f8f3dfa5b002e22ba9aa325f4382d31506226a9d21a95d`.
-Сжатый файл71219486байт, SHA256 `5b4ad2407d7ac2f07902a870a613eb0fd177df6582c60382a2019a6113ccd025`.
+Полный raw JSON 592927219 байт, SHA256 `e0b959ce9cb189ce50f8f3dfa5b002e22ba9aa325f4382d31506226a9d21a95d`.
+Сжатый файл 71219486 байт, SHA256 `5b4ad2407d7ac2f07902a870a613eb0fd177df6582c60382a2019a6113ccd025`.
 Проверена потоковая распаковка и исходный hash. Большой raw сохраняется отдельно; компактный комплект
 содержит summary/происхождение/target manifest/журнал и точные ссылки на raw. Ни JSX исходники,
 ни статические названия routes не доказывают доступность действий и серверные права.
 
 ## Документационные проверки и независимость
 
-Проверяются: уникальность/непрерывность TP01…70,TD01…63,TX01…32; существование групп01…10,
+Проверяются: уникальность/непрерывность TP01…70, TD01…63, TX01…32; существование групп 01…10,
 ссылок/заякоренных source paths и строк, сохранность исходного TAXI scope/manifest, diff только docs,
 отсутствие ключей/изменений mobile; `git diff --check`; наличие первичных журналов и SHA256.
 Формальная traceability ожидаемо не принимает приложение: исходный манифест не переписан ради зелёного
-результата. Exit1 сохранён, не скрыт. Выбранная база main сверена отдельно, не выведена из кандидата.
-У исходного манифеста historical target `4c1f879e091dbd3176c699b94f651afad3979387`, у первой проверки HEAD `e5ee61a7ed2e622cee6119b6f9f412d943d29332`, отдельно сверенная база — main `1b02947b56aa279f7721f475d26c0dd8018cda75`. Поэтому помимо30 неполных связей есть `YULDASH_TARGET`; новый документационный commit тоже не становится принятым target от старого манифеста. Исторический манифест не переписывался; source-код и документационный HEAD различны намеренно.
+результата. Exit 1 сохранён, не скрыт. Выбранная база main сверена отдельно, не выведена из кандидата.
+У исходного манифеста historical target `4c1f879e091dbd3176c699b94f651afad3979387`, у первой проверки HEAD `e5ee61a7ed2e622cee6119b6f9f412d943d29332`, отдельно сверенная база — main `1b02947b56aa279f7721f475d26c0dd8018cda75`. Поэтому помимо 30 неполных связей есть `YULDASH_TARGET`; новый документационный commit тоже не становится принятым target от старого манифеста. Исторический манифест не переписывался; source-код и документационный HEAD различны намеренно.
 Команда запускалась из `/workspace/taxi-plan` со штатным историческим манифестом: это диагностическая проверка, а не проверка кандидата реализации кода main.
 
 Свежая редакционная проверка должна изучить материалы и журналы независимо от автора. Свежая
@@ -153,7 +153,7 @@ extractor не означает полный семантический ауди
 полного runtime не дают права поставить «принято». Итог этой проверки фиксируется в передаче, реестр
 сохраняет B03=частично, PATH/QA не повышаются. Никакой публикации из отчёта не следует.
 
-Фактический редакционный итог: два свежих Codex gpt-6.1-sol; первый нашёл4 замечания, после исправлений второй не нашёл открытых P1/P2 и независимо подтвердил покрытие CT165/165. Первичные отчёты `docs/independent-review.md` и `docs/final-editorial-review.md` передаются в комплекте доказательств. Это редакционное заключение той же семьи, не межсемейная или продуктовая приёмка.
+Фактический редакционный итог: два свежих Codex gpt-6.1-sol; первый нашёл 4 замечания, после исправлений второй не нашёл открытых P1/P2 и независимо подтвердил покрытие CT 165/165. Первичные отчёты `docs/independent-review.md` и `docs/final-editorial-review.md` передаются в комплекте доказательств. Это редакционное заключение той же семьи, не межсемейная или продуктовая приёмка.
 
 ## Оставшиеся решения и блокеры полного аудита
 
@@ -163,11 +163,11 @@ extractor не означает полный семантический ауди
   производственные flags и правдивость помощи требуют своего безопасного стенда и допуска. Не создавать
   реальные поездки ради проверки; staging и тестовые аккаунты/провайдеры должны быть согласованы отдельно.
 - BA — черновики/существующие строки не подтверждены носителем. Полные a11y/темы/клавиатура/все TS и lifecycle
-  Android не пройдены. Отсутствие overflow в15 fixtures не заменяет эти проверки.
+  Android не пройдены. Отсутствие overflow в 15 fixtures не заменяет эти проверки.
 - Денежная политика ожидания/отмены/спора, определение чистого дохода/получения, provider и компенсации
   должны опираться на действующее решение владельца; новые ставки/сроки/правовые гарантии не утверждены.
 - Формальная независимая приёмка другой семьёй, все цепочки TAXI-E2E и отдельное разрешение выпуска открыты.
 
-Перенос: применить только documentation patch к проверенной основе e5ee61a7 (или перенести5 новых
+Перенос: применить только documentation patch к проверенной основе e5ee61a7 (или перенести 5 новых
 файлов такси и минимальные ссылки после разрешения), изучить контекст свежей целевой ветки и не вливать
 всю историю courier-плана ради этого дополнения. Дополнительное поручение владельца разрешает обычный commit/push **только этой документации** в отдельную ветку; main/force-push/PR/merge/deploy и продуктовые изменения не разрешены. После публикации проверяются remote HEAD и прямая ссылка; patch и документационный commit не принимают продукт.
