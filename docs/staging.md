@@ -5,14 +5,15 @@
 > хорошо — катим на **прод** (боевой `yulbash.ru`, которым пользуются люди). Так мы не роняем
 > живых пользователей на непроверенном коде.
 
-Зачем это Юлдашу: сейчас код едет сразу в бой. Один плохой деплой = приложение легло у всех.
-Staging убирает этот риск — ошибку ловим на «черновике».
+Этот документ описывает проект отдельного контура, а не подтверждает, что он сейчас развёрнут. Наличие сервиса, домена и его живые настройки в этой уборке не проверялись. Создание/изменение сервера и базы — только по §8 [AGENTS.md](../AGENTS.md).
+
+Ниже согласованы пути с текущим [deploy.sh](../backend/ops/deploy.sh#L80), но сам сценарий на этой схеме каталогов не прогонялся. Настройки тестовые и независимые, реальные данные и рабочие ключи не копировать. Перед доступом клиентов нужны ограничения тестового контура по [agent-reliability.md](agent-reliability.md#2-изоляция-тестов).
 
 ---
 
 ## Что такое staging из чего состоит (3 кусочка)
 
-Всё живёт на **том же сервере** `85.239.52.55`, просто рядом с боевым, со своими именами:
+В исходном плане предполагался тот же сервер рядом с рабочим, но отдельные имена, база, настройки и порт. Фактическое размещение сначала подтвердить; пример ниже не является свидетельством существования этого контура:
 
 | Кусочек | Прод (боевой) | Staging (черновой) |
 |---|---|---|
@@ -41,21 +42,17 @@ Staging деплоится через `git pull` (в отличие от про�
 ```bash
 cd /opt
 git clone https://github.com/<owner>/<repo>.git yuldash-staging
-cd yuldash-staging
+cd yuldash-staging/backend
 python3 -m venv .venv
-./.venv/bin/pip install -r backend/requirements.txt
+./.venv/bin/pip install -r requirements.txt
 chown -R yuldash:yuldash /opt/yuldash-staging
 ```
 > Если репозиторий приватный — настрой deploy-key или токен для `git pull` (как для любого CI).
 
 ### 3. Свой `.env` (НЕ из git — секреты)
-Скопируй боевой и поменяй базу + пометь окружение:
-```bash
-cp /opt/yuldash/.env /opt/yuldash-staging/.env
-# в /opt/yuldash-staging/.env:
-#   env=staging
-#   DATABASE_URL=postgresql://.../yuldash_staging   ← своя база!
-```
+Владелец создаёт **самостоятельные тестовые настройки** в рабочей папке сервиса `/opt/yuldash-staging/backend`; рабочий файл с ключами не копировать и не передавать агенту. Требуются явные `ENV=dev`, `SMS_PROVIDER=mock`, `PAYMENTS_PROVIDER=mock`, `SEED_DEMO=false` и адрес отдельной тестовой БД. Проверить также все используемые подключения, включая Redis, и ограничить доступ к dev-контуру тестовыми клиентами.
+
+`staging` — название контура, а не допустимое значение `ENV`: [проверка настроек](../backend/app/config.py#L1093) его отвергает. Относительный файл настроек читается от рабочей папки — [config.py](../backend/app/config.py#L1012); ниже это именно `backend/`. Эти требования не означают чтение агентом существующих секретных файлов.
 
 ### 4. systemd-сервис на порту 8100
 Создай `/etc/systemd/system/yuldash-api-staging.service` (копия боевого, меняем каталог и порт):
@@ -67,7 +64,7 @@ After=network.target postgresql.service
 [Service]
 User=yuldash
 WorkingDirectory=/opt/yuldash-staging/backend
-ExecStart=/opt/yuldash-staging/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8100
+ExecStart=/opt/yuldash-staging/backend/.venv/bin/uvicorn app.main:app --host 127.0.0.1 --port 8100
 Restart=always
 
 [Install]
@@ -82,7 +79,7 @@ systemctl enable --now yuldash-api-staging
 ### 5. Первый прогон миграций и проверка
 ```bash
 cd /opt/yuldash-staging/backend
-sudo -u yuldash ../.venv/bin/alembic upgrade head
+sudo -u yuldash ./.venv/bin/alembic upgrade head
 curl -s http://127.0.0.1:8100/health     # ждём {"status":"ok",...}
 ```
 
@@ -95,24 +92,19 @@ curl -s http://127.0.0.1:8100/health     # ждём {"status":"ok",...}
 
 ---
 
-## Как катить на staging (каждый раз — одна команда)
+## Пример вызова для согласованной схемы каталогов
 
-Скрипт `backend/ops/deploy.sh` уже настроен на staging по умолчанию:
+[Скрипт](../backend/ops/deploy.sh#L27) имеет значения по умолчанию, но при клоне всего репозитория необходимо явно указать папку `backend/`, где лежат `requirements.txt` и `alembic.ini`. Перед реальным использованием нужен отдельный согласованный прогон:
 ```bash
 ssh root@85.239.52.55
 cd /opt/yuldash-staging/backend
-APP_DIR=/opt/yuldash-staging SERVICE=yuldash-api-staging \
+APP_DIR=/opt/yuldash-staging/backend SERVICE=yuldash-api-staging \
 HEALTH_URL=http://127.0.0.1:8100/health BRANCH=main bash ops/deploy.sh
 ```
 Скрипт сам: подтянет код → накатит миграции → перезапустит → проверит `/health`.
-**Если не поднялось — автоматически откатит код назад** и (если настроен Telegram-бот) пришлёт алерт.
+Ветка отката кода запускается **только при неуспешной проверке здоровья после перезапуска** — [deploy.sh](../backend/ops/deploy.sh#L113). Ошибка установки зависимостей или миграций раньше прерывает скрипт без этого отката. Откат БД по умолчанию отключён; автоматическое восстановление всех сбоев не обещается.
 
-Пощупал на `https://staging.yulbash.ru`, всё ок → тогда катишь на прод (с осторожностью):
-```bash
-APP_DIR=/opt/yuldash SERVICE=yuldash-api \
-HEALTH_URL=http://127.0.0.1:8000/health BRANCH=main bash ops/deploy.sh
-```
-> Перед прод-деплоем всегда делай бэкап: `ssh root@85.239.52.55 "/opt/yuldash/backup-db.sh"`.
+Успешная проверка staging сама не разрешает выкладку на рабочий сервер. Для неё отдельно подтвердить целевую версию, реальную схему каталогов/сервиса и восстановимую резервную копию, получить «да» Александра и проверить [применимость выпускной инструкции](release-runbook.md). Команду со старым неподтверждённым рабочим каталогом здесь не приводим.
 
 ---
 

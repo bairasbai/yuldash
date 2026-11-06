@@ -101,7 +101,7 @@
   "excluded_counts": {
     "binary_asset_or_non_source": 105,
     "documentation": 20,
-    "documentation_artifacts_or_private_material": 338,
+    "documentation_artifacts_or_private_material": 339,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
     "secret_or_local_settings_not_read": 2
@@ -17685,10 +17685,6 @@
       "reason": "documentation_artifacts_or_private_material"
     },
     {
-      "path": "docs/HANDOFF-2026-09-24.md",
-      "reason": "documentation_artifacts_or_private_material"
-    },
-    {
       "path": "docs/acceptance-monetization-2026-08-31.md",
       "reason": "documentation_artifacts_or_private_material"
     },
@@ -17722,6 +17718,22 @@
     },
     {
       "path": "docs/architecture.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/archive/HANDOFF-2026-09-24.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/archive/branch-cleanup-2026-07.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/archive/handoff-2026-08-08.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/archive/index-history-through-2026-10.md",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
@@ -18325,10 +18337,6 @@
       "reason": "documentation_artifacts_or_private_material"
     },
     {
-      "path": "docs/branch-cleanup-2026-07.md",
-      "reason": "documentation_artifacts_or_private_material"
-    },
-    {
       "path": "docs/branches-audit-2026-07-20.md",
       "reason": "documentation_artifacts_or_private_material"
     },
@@ -18402,10 +18410,6 @@
     },
     {
       "path": "docs/handoff-2026-08-06.md",
-      "reason": "documentation_artifacts_or_private_material"
-    },
-    {
-      "path": "docs/handoff-2026-08-08.md",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
