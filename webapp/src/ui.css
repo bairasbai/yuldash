@@ -17073,6 +17073,15 @@ button.settings-row:active {
 .rcpt-rate__star:active {
   transform: scale(0.9);
 }
+.act-card--rating .rcpt-rate__stars {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(48px, 1fr));
+  gap: 0;
+  width: min(100%, calc(5 * 48px + 4 * var(--space-sm)));
+}
+.act-card--rating .rcpt-rate__star {
+  justify-self: center;
+}
 .rcpt-rate__star.is-on {
   color: var(--canon-star);
 }

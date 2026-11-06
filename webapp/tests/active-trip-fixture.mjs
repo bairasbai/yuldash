@@ -37,6 +37,10 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
         export const setDriverStatus=async(id,ph)=>{if(globalThis.__at.offline)throw new ApiError(0,"offline");globalThis.__at.phases.push([id,ph]);return{ok:true};};`,
       // Слушатель отказов очереди: экран отдаёт сюда свой обработчик, набор вызывает его сам.
       "/utils/useBookingRefusal": `export const useBookingRefusal=(id,fn)=>{globalThis.__at.refusal={id,fn};};`,
+      // Д2: остались ли у рейса пассажиры после «Завершить» (at.rideRemains; по умолчанию — не знаем).
+      "/utils/driverRideShare": `export const driverRideRemains=async(id)=>{globalThis.__at.remainsAsked.push(id);return globalThis.__at.rideRemains;}; export const rideShareTerminal=()=>{};`,
+      "/utils/rideShareStore": `export const requestRidingFocus=()=>{globalThis.__at.ridingFocus++;};
+        export const rideShareHandoff=()=>{globalThis.__at.handoffs++;};`,
     },
   });
   const at = (globalThis.__at = {
@@ -49,6 +53,10 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
     tracked: [],
     phases: [],
     posts: [],
+    rideRemains: undefined,
+    remainsAsked: [],
+    ridingFocus: 0,
+    handoffs: 0,
     details: {
       booking_id: 42, ride_id: 7, role, status, contact_unlocked: true,
       from_city: "Уфа", to_city: "Сибай", depart_at: "2030-01-01T10:00:00", seats: 1, price: 500,

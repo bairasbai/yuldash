@@ -112,9 +112,16 @@ export function useFormDraft<T extends object>(
  * Черновик для формы, которая уже написана на обычных `useState` — чтобы не
  * переписывать рабочий экран ради сохранения.
  *
- * При первом показе отдаёт сохранённое в `apply`, дальше пишет каждое изменение.
+ * При первом показе отдаёт сохранённое в `apply`, дальше пишет каждое ИЗМЕНЕНИЕ полей.
  * Порядок важен: пока не восстановили, ничего не пишем — иначе пустая форма
  * первым же кадром затрёт черновик.
+ *
+ * Пишем только когда поля действительно поменялись (приёмка попутки 24.10.2026). Раньше запись
+ * шла после КАЖДОЙ отрисовки: экран звал `clearDraft` после успешной публикации, но следующая же
+ * отрисовка («Поездка опубликована», снятие «Отправляем…») записывала те же поля обратно. Водитель
+ * открывал «Опубликовать маршрут» снова — и видел прошлый рейс с его остановками; поменял маршрут,
+ * а старая остановка совпала с новым концом — «Начало и конец маршрута уже указаны». Первая
+ * отрисовка тоже больше не пишет пустые поля поверх сохранённого черновика.
  */
 export function useDraftSync<T extends object>(
   key: string,
@@ -125,16 +132,23 @@ export function useDraftSync<T extends object>(
   const restored = useRef(false);
   const applyRef = useRef(apply);
   applyRef.current = apply;
+  const serialized = JSON.stringify(values);
+  const lastSeen = useRef<string | null>(null);
 
   useEffect(() => {
     if (generation !== getSessionGeneration()) return;
     const saved = readDraft<Partial<T>>(key);
+    // Поля первого кадра — исходные, не ввод человека: их не пишем поверх черновика.
+    lastSeen.current = serialized;
     if (saved) applyRef.current(saved);
     restored.current = true;
+    // serialized первого кадра — намеренно: эффект восстановления выполняется один раз.
   }, [key, generation]);
 
   useEffect(() => {
     if (!restored.current || generation !== getSessionGeneration()) return;
+    if (lastSeen.current === serialized) return;
+    lastSeen.current = serialized;
     writeDraft(key, values);
   });
 }

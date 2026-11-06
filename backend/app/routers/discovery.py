@@ -33,17 +33,21 @@ def popular_routes(session: Session = Depends(get_session)):
     """Топ направлений — считаем из реальных поездок. Кеш 120с (Redis, если есть).
 
     Отменённые и просроченные (никто не поехал) поездки не считаем: иначе 50 опубликованных и
-    снятых поездок делали маршрут первой карточкой «Здесь часто ездят» (ревью Opus 23.10)."""
-    cached = cache_get_json("popular_routes:v2")
+    снятых поездок делали маршрут первой карточкой «Здесь часто ездят» (ревью Opus 23.10).
+    `count` — сколько РАЗНЫХ водителей ездит по маршруту: один водитель с десятком активных поездок
+    иначе сам делал свой маршрут «популярным» (приёмка PR210)."""
+    cached = cache_get_json("popular_routes:v3")
     if cached is not None:
         return cached
     rides = session.exec(
-        select(Ride).where(Ride.status.in_((RideStatus.active, RideStatus.done)))
+        select(Ride.from_city, Ride.to_city, Ride.driver_id)
+        .where(Ride.status.in_((RideStatus.active, RideStatus.done)))
         .order_by(Ride.id.desc()).limit(SCAN_LIMIT)
     ).all()
-    cnt = Counter((r.from_city, r.to_city) for r in rides if r.from_city and r.to_city)
+    # dict.fromkeys — разные (маршрут, водитель) без потери порядка: при равенстве выше свежий маршрут.
+    cnt = Counter((f, t) for f, t, _driver in dict.fromkeys(rides) if f and t)
     result = [{"from_city": f, "to_city": t, "count": n} for (f, t), n in cnt.most_common(6)]
-    cache_set_json("popular_routes:v2", result, 120)
+    cache_set_json("popular_routes:v3", result, 120)
     return result
 
 

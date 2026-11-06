@@ -65,6 +65,47 @@ def _near_params(ride):
     # Тот же уникальный маршрут, что в /rides: после тысяч тестов первая страница не вся база.
     return {"lat": 52.591, "lng": 58.317, "radius_km": 50,
             "from_city": ride["from_city"], "to_city": ride["to_city"]}
+_PAGE = 200   # больше одной страницы ленты сервер не отдаёт (`DEFAULT_FEED_LIMIT`)
+
+
+def _feed(client, query="", headers=None):
+    """Вся лента `/rides` постранично, а не первая страница.
+
+    В общей базе набора (PostgreSQL в CI — один процесс на все тесты) первую страницу — 200 поездок,
+    поднятые первыми — занимают поездки других тестов, и поездка «в больницу» через несколько часов
+    могла на неё просто не попасть (CI PR212). Тогда «аноним не видит связку» проходило бы вхолостую,
+    а «вошедший видит» — падало. Читаем ВСЕ страницы: проверка не слабее, а строже прежней.
+
+    Конец ленты — пустые страницы подряд, а не «страница короче 200»: сервер режет страницу в базе,
+    а потом убирает из неё поездки заблокированных и отстранённых — неполная страница не последняя.
+    """
+    out, empty = [], 0
+    for page_no in range(100):
+        sep = "&" if query else ""
+        r = client.get(f"/rides?{query}{sep}limit={_PAGE}&offset={page_no * _PAGE}", headers=headers)
+        assert r.status_code == 200, r.text
+        page = r.json()
+        out += page
+        empty = empty + 1 if not page else 0
+        if empty >= 3:
+            return out
+    raise AssertionError("лента длиннее 100 страниц — тест не дочитал её")
+
+
+_NEAR = "/rides/near?lat=52.591&lng=58.317&radius_km=50"
+
+
+def _near(client, headers=None):
+    """«Ближайшие» целиком: та же история, что с лентой, — страница ограничена, читаем все (`count` — всего)."""
+    out = []
+    for page_no in range(100):
+        r = client.get(f"{_NEAR}&limit={_PAGE}&offset={page_no * _PAGE}", headers=headers)
+        assert r.status_code == 200, r.text
+        body = r.json()
+        out += body.get("items", [])
+        if (page_no + 1) * _PAGE >= body.get("count", 0):
+            return out
+    raise AssertionError("«Ближайшие» длиннее 100 страниц — тест не дочитал их")
 
 
 # ----------------------------- аноним не видит связку -----------------------------
@@ -73,6 +114,9 @@ def test_лента_не_выдаёт_анониму_поездку_в_клин�
     assert r.status_code == 200
     assert any(x["id"] == hospital_ride["id"] for x in r.json()), "свежая поездка не попала в выборку — тест слеп"
     assert not _hits(r.json(), hospital_ride["partner_id"]), "связка с клиникой ушла анониму"
+    feed = _feed(client)
+    assert any(x["id"] == hospital_ride["id"] for x in feed), "поездки нет в ленте — проверка вхолостую"
+    assert not _hits(feed, hospital_ride["partner_id"]), "связка с клиникой ушла анониму"
 
 
 def test_рядом_не_выдаёт_анониму_поездку_в_клинику(client, hospital_ride):
@@ -85,6 +129,9 @@ def test_рядом_не_выдаёт_анониму_поездку_в_клин�
     assert r.status_code == 200
     assert any(x["id"] == hospital_ride["id"] for x in r.json()["items"]), "поездка не попала в выборку — тест слеп"
     assert not _hits(r.json(), hospital_ride["partner_id"])
+    near = _near(client)
+    assert any(x["id"] == hospital_ride["id"] for x in near), "поездки нет в «Ближайших» — проверка вхолостую"
+    assert not _hits(near, hospital_ride["partner_id"])
 
 
 def test_карточка_по_ссылке_не_выдаёт_анониму_клинику(client, hospital_ride):
@@ -161,6 +208,7 @@ def test_вошедший_видит_поездку_в_клинику_целик
 
     filtered = client.get(f"/rides?category=hospital&{cities}", headers=me["auth"])
     assert _hits(filtered.json(), pid), "фильтр «в больницу» перестал работать для своих"
+    assert all(x.get("category") == "hospital" for x in filtered.json()), "для своих фильтр по категории — настоящий"
 
     at_clinic = client.get(f"/medical-partners/{pid}/rides", headers=me["auth"])
     assert at_clinic.status_code == 200 and at_clinic.json()["count"] >= 1

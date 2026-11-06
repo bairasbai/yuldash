@@ -28,9 +28,10 @@ from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused,
                             guard_women_only)
 from ..security import current_user, gen_otp
 from ..logs import log
-from ..visibility import LIVE_GEO_LEAD_HOURS, booking_contacts_open, cancelled_in_transit, transit_cancel_car_open
+from ..visibility import (LIVE_GEO_LEAD_HOURS, PROBLEM_REPORT_WINDOW, booking_contacts_open, cancelled_in_transit,
+                          transit_cancel_car_open)
 from ..services import booking_and_ride_for_user, geocode_city, haversine_km, is_blocked, notify_map_changed, push_notification, user_rating
-from ..rating_service import guard_rating_on_pause, guard_rating_window
+from ..rating_service import booking_rating_open, rating_allowed_now
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -270,7 +271,8 @@ def _boarding_undo_request_left(booking: Booking) -> int:
 # открыл приложение. Ранний «Завершить» водителя окно не сокращает, а долгая поездка, закрытая
 # через восемь часов после посадки, его всё ещё оставляет (повторная приёмка PR174). Позже —
 # «Нужна помощь?» (поддержка); сам сервер разбор по брони принимает и после окна.
-PROBLEM_REPORT_WINDOW = timedelta(hours=6)
+# Само окно (`PROBLEM_REPORT_WINDOW`, 6 ч) — в `visibility.py`: им же держится удаление аккаунта
+# водителя после отмены в пути (решение 24.10.2026).
 
 
 def problem_report_left(booking: Booking, ride: Ride, now=None) -> int:
@@ -449,6 +451,10 @@ class BookingDetailsOut(BaseModel):
     onboard_at: Optional[datetime] = None
     boarding_undo_confirmed_id: Optional[str] = None
     boarding_undo_onboard_at: Optional[str] = None
+    # Оценка второй стороны (решение 24.10.2026): `can_rate` — та же проверка, что у /rate (кто, срок 60 дн.,
+    # пауза); у отменённой в пути — только пассажиру. `my_stars` — только СВОЯ оценка (0 — не ставил).
+    can_rate: bool = False
+    my_stars: int = 0
     # Где садится пассажир (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null —
     # неизвестно (или водителю уже не видно: бронь отменена / поездка давно закрыта).
     pickup_stop: Optional[str] = None
@@ -869,6 +875,11 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
     # Бронь на остановке: место встречи — сама остановка, пин начала маршрута ей не отдаём (он про
     # другую точку, часто у дома водителя).
     on_stop = has_stops and bool(booking.pickup_stop)
+    # Оценка (решение 24.10.2026): у отменённой в пути пассажир оценивает водителя прямо на экране
+    # «Поездку отменили в пути» — квитанции у отменённой нет. Та же проверка, что у /rate (кто, срок,
+    # пауза). Живую бронь не считаем вовсе — её детали опрашивают по ходу поездки, лишние запросы ни к чему.
+    rateable = booking_rating_open(booking, ride, user.id)
+    my_rating = _my_rating_of(session, booking.id, user.id) if rateable else None
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
@@ -913,6 +924,8 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "cancelled_in_transit": in_transit,
         **_boarding_undo_fields(booking),
         "onboard_at": booking.onboard_at,
+        "can_rate": rateable and rating_allowed_now(session, user.id, ride.depart_at),
+        "my_stars": int(my_rating.stars) if my_rating else 0,   # только СВОЯ оценка, чужую не отдаём
         "pickup_stop": pickup_stop,
         "dropoff_stop": dropoff_stop,
         "ride_has_stops": has_stops,
@@ -990,14 +1003,13 @@ def boarding_code(booking_id: int, user: User = Depends(current_user), session: 
 
 
 def _rating_allowed(session: Session, user_id: int, happened_at) -> bool:
-    """Те же проверки, что у /rate: срок 60 дней и пауза аккаунта (ревью Opus 23.10: человек на паузе
-    видел звёзды и получал отказ). Звёзды в квитанции — только когда оценка правда пройдёт."""
-    try:
-        guard_rating_window(happened_at)
-        guard_rating_on_pause(session, user_id, happened_at)
-    except HTTPException:
-        return False
-    return True
+    """Те же проверки, что у /rate: срок 60 дней и пауза аккаунта (`rating_service.rating_allowed_now`)."""
+    return rating_allowed_now(session, user_id, happened_at)
+
+
+def _my_rating_of(session: Session, booking_id: int, user_id: int) -> Optional[Rating]:
+    """Только СВОЯ оценка по брони: чужая остаётся анонимной и влияет лишь на агрегат."""
+    return session.exec(select(Rating).where(Rating.booking_id == booking_id, Rating.rater_id == user_id)).first()
 
 
 @router.get("/trips/{booking_id}/receipt")
@@ -1017,10 +1029,7 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
     counterparty = passenger if role == "driver" else driver
     # Возвращаем только СВОЮ оценку. Чужая остаётся анонимной и влияет лишь на агрегат.
     # Это позволяет экрану после поездки честно восстановить уже отправленные звёзды.
-    my_rating = session.exec(select(Rating).where(
-        Rating.booking_id == booking.id,
-        Rating.rater_id == user.id,
-    )).first()
+    my_rating = _my_rating_of(session, booking.id, user.id)
     amount = booking.pay_amount if booking.pay_amount is not None else booking.price
     # Исторический выбор не восстанавливаем из нынешнего маршрута/справочника: NULL и "" различаются.
     # Пассажир видит свои места; водителю — то же окно связи, что в деталях и списке броней.
@@ -1143,10 +1152,11 @@ def _verify_arrival(session: Session, booking: Booking, ride: Ride,
     Точки — все свежие точки водителя по ЛЮБОЙ подтверждённой брони этого рейса
     (`livepos.driver_points_for_ride`, 18.10.2026), а не только по этой: водитель открыл поездку
     брони A, а «Подъезжаю» жмёт по брони B — кэш B пуст, и раньше проверка молча пропускала.
-    Сверяем БЛИЖАЙШУЮ к цели: второе устройство водителя дома (планшет с открытой бронью) не
-    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2). Плюс внутренняя
-    точка по рейсу (`with_ride_point`, приёмка PR186, A1): водитель открыл бронь, чьё окно ещё
-    закрыто, — в кэш брони точка не легла, а проверить его слово всё равно есть чем.
+    Сверяем БЛИЖАЙШУЮ к пину: второе устройство водителя дома (планшет с открытой бронью) не
+    должно давать ложный отказ тому, кто правда у подъезда (приёмка PR0, P2). Плюс точка по рейсу
+    (`with_ride_point`, приёмка PR186, A1): водитель открыл бронь, чьё окно ещё закрыто, — в кэш
+    брони точка не легла, а проверить его слово всё равно есть чем. (С 24.10.2026 ту же точку по
+    рейсу читает и `location.driver_point_for_booking` — последним запасом, по правилам брони.)
     """
     if not settings.arrival_verify_enabled:
         return None
@@ -1746,7 +1756,7 @@ def _cancel_booking(booking_id: int, body: Optional[CancelIn], user: User, sessi
         _raw_reason = ((body.reason or "").strip()[:80] or None) if body else None
         # «Отклонил» ставит только сервер: подделанный код от клиента — «другое» (ревью Opus 23.10).
         # Отказ помечаем всегда, даже с причиной: экран брони и пуш говорят одно и то же;
-        # причину водителя сохраняем для текста пуша.
+        # причину водителя сохраняем отдельным полем — для пуша, разборов и статистики.
         _reason = _raw_reason if _raw_reason in CANCEL_REASONS else ("other" if _raw_reason else None)
         причина_код = _reason if _reason != "driver_declined" else ("other" if not declined else None)
         changed = session.execute(update(Booking).where(
@@ -1815,7 +1825,8 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
                                 background: Optional[BackgroundTasks] = None) -> None:
     """Бронь отменили, когда пассажир был в машине (`cancelled_in_transit`): пассажиру — срочный пуш
     с путём к помощи (SOS и «Застрял» работают и по отменённой брони), близким, с кем он поделился
-    поездкой, — SMS «отменили в пути» (один раз, под общим потолком SMS, «Только SOS» не тревожим).
+    поездкой, — SMS «отменили в пути» (один раз, под общим потолком SMS, «Только SOS» не тревожим);
+    несовершеннолетний — ещё SMS взрослому из брони (решение 24.10.2026, тот же шлюз и потолок).
     Причину отмены не пишем: «пассажир опоздал» и прочие причины до посадки здесь неправда.
 
     Отмена к этому моменту уже сохранена — ни один шаг здесь её не роняет: дежурный первым, сбой
@@ -1844,13 +1855,20 @@ def notify_cancelled_in_transit(session: Session, booking: Booking, ride: Ride,
     )
     passenger = session.get(User, booking.passenger_id)
     if passenger is not None:
-        from .family import notify_family_trip_status
+        from .family import notify_family_trip_status, notify_guardian_cancelled_in_transit
         try:
             notify_family_trip_status(session, bid, passenger, "cancelled_onboard")
         except Exception as e:  # noqa: BLE001 — отмена уже сохранена, остальные уведомления важнее
             session.rollback()
             log.warning(f"[CANCEL-IN-TRANSIT] сбой на шаге SMS близким по брони #{bid} "
                         f"(часть могла уйти): {type(e).__name__}")
+        # Несовершеннолетний: SMS взрослому из брони (решение 24.10.2026) — ПОСЛЕ близких: так видно,
+        # кому из них «отменили в пути» уже ушло, и маме, которая и близкий, и взрослый, второе SMS не идёт.
+        try:
+            notify_guardian_cancelled_in_transit(session, bid, passenger)
+        except Exception as e:  # noqa: BLE001 — отмена уже сохранена
+            session.rollback()
+            log.warning(f"[CANCEL-IN-TRANSIT] сбой на шаге SMS взрослому по брони #{bid}: {type(e).__name__}")
 
 
 def _onboard_cancel_refusal() -> HTTPException:
@@ -2051,6 +2069,8 @@ def my_bookings(
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),
             "cancelled_in_transit": cancelled_in_transit(b),
+            # Отказ водителя — не «отмена»: «Мои поездки» подписывают его «Отклонена», как экран брони
+            # (`/details` → `declined`, приёмка PR210).
             "declined": b.cancel_reason == "driver_declined",
             # Где садится (18.10.2026): "" — начало, «Акъяр» — остановка, null — не указано.
             "pickup_stop": (b.pickup_stop if r is not None and ride_has_stops_raw(r, entry) else ""),

@@ -69,6 +69,26 @@ class KeyboardResizeModeTest {
         assertEquals(SOFT_INPUT_ADJUST_NOTHING, window!!.adjustMode())
     }
 
+    /** Экран отзыва о приложении: на эмуляторе Android 15 окно сдвигалось целиком поверх imePadding (приёмка PR210). */
+    @Test
+    fun appReviewScreenResizesWhileShownAndGivesPanBack() {
+        val shown = mutableStateOf(false)
+        var window: Window? = null
+        compose.setContent {
+            window = LocalView.current.context.findActivity()?.window
+            if (shown.value) AppReviewScreen(onBack = {})
+        }
+        compose.runOnIdle { window!!.setSoftInputMode(0) }
+
+        compose.runOnIdle { shown.value = true }
+        compose.waitForIdle()
+        assertEquals(SOFT_INPUT_ADJUST_RESIZE, window!!.adjustMode())
+
+        compose.runOnIdle { shown.value = false }
+        compose.waitForIdle()
+        assertEquals(SOFT_INPUT_ADJUST_PAN, window!!.adjustMode())
+    }
+
     @Test
     fun twoScreensAtOnceKeepResizeUntilBothAreGone() {
         val first = mutableStateOf(false)

@@ -7,14 +7,20 @@
 //  SOS (с бронью — дежурный и близкие узнают машину), «Застрял на трассе», «Сообщить о проблеме»,
 //  пока сервер держит окно (`problem_report_sec`, 6 ч от отмены), машина и госномер — по ним
 //  родные и полиция ищут машину. Телефона водителя и чата нет: сервер их после отмены не отдаёт.
+//
+//  Оценка водителя (решение Александра 24.10.2026): иначе водитель уходил от плохого отзыва, отменив
+//  поездку перед прибытием. Звёзды — ниже помощи и разбора, пока сервер разрешает (`can_rate` из деталей:
+//  срок и пауза как у завершённой) и своей оценки нет; поставил — «Твоя оценка».
 // ================================================================
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import RoadsideHelp from "./RoadsideHelp";
 import FileIncidentCard from "./FileIncidentCard";
-import { IconCar, IconFlag, IconWarn } from "./Icons";
+import ReceiptRateDriver from "./ReceiptRateDriver";
+import { IconCar, IconFlag, IconStar, IconWarn } from "./Icons";
 import { sosPath } from "../utils/sosLink";
+import { getSessionGeneration } from "../api/client";
 
 export default function CancelledInTransitCard({
   bookingId,
@@ -23,6 +29,8 @@ export default function CancelledInTransitCard({
   driverId,
   driverName,
   problemReportSec = 0,
+  canRate = false,
+  myStars = 0,
 }: {
   bookingId: number;
   /** «серая Лада Веста» — цвет и модель. Пусто — водитель не указал. */
@@ -33,6 +41,10 @@ export default function CancelledInTransitCard({
   driverName: string;
   /** Сколько секунд ещё открыт «Сообщить о проблеме» (считает сервер). */
   problemReportSec?: number;
+  /** Можно оценить водителя (`can_rate` из деталей брони; старый сервер — нет). */
+  canRate?: boolean;
+  /** Сколько звёзд я уже поставил (`my_stars`; 0 — не ставил). */
+  myStars?: number;
 }) {
   const { appText } = useLang();
   const navigate = useNavigate();
@@ -40,6 +52,21 @@ export default function CancelledInTransitCard({
   const [filed, setFiled] = useState(false);
   const [note, setNote] = useState("");
   const canReport = problemReportSec > 0 && !!driverId;
+  // Оценка, поставленная здесь: своя на каждую бронь — поздний ответ чужой брони сюда не ляжет.
+  const [rated, setRated] = useState<{ id: number; stars: number } | null>(null);
+  const currentId = useRef(bookingId);
+  currentId.current = bookingId;
+  const alive = useRef(true);
+  const ownerGeneration = useRef(getSessionGeneration()).current;
+  const canAct = () => alive.current && currentId.current === bookingId && getSessionGeneration() === ownerGeneration;
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+  const justRated = rated?.id === bookingId ? rated.stars : 0;
+  const shownStars = justRated || (myStars >= 1 && myStars <= 5 ? myStars : 0);
 
   return (
     <>
@@ -136,6 +163,32 @@ export default function CancelledInTransitCard({
           {note && <p className="demand__quiet">{note}</p>}
         </div>
       )}
+
+      {/* Оценка — ниже помощи и разбора: сначала безопасность, потом звёзды. */}
+      {shownStars > 0 ? (
+        <div className="act-card" role="status">
+          {justRated > 0 && (
+            <div className="act-card__title">
+              <IconStar size={18} /> {appText("Спасибо! Оценка учтена.", "Рәхмәт! Баһа иҫәпкә алынды.")}
+            </div>
+          )}
+          <p className="act-card__text" style={{ marginBottom: 0 }}>
+            {appText("Твоя оценка", "Һинең баһаң")}: {appText(`${shownStars} из 5`, `5-тән ${shownStars}`)}
+          </p>
+        </div>
+      ) : canRate ? (
+        <div className="act-card act-card--rating">
+          <ReceiptRateDriver
+            bookingId={bookingId}
+            canAct={canAct}
+            onRated={(stars) => { if (canAct()) setRated({ id: bookingId, stars }); }}
+            hint={appText(
+              "Как ехалось до отмены? Оценка поможет другим выбрать водителя.",
+              "Кире алынғансы нисек барҙың? Баһаң башҡаларға йөрөтөүсе һайларға ярҙам итер."
+            )}
+          />
+        </div>
+      ) : null}
     </>
   );
 }

@@ -1351,6 +1351,7 @@ internal fun ActiveTripContent(
     isCurrentParent: (() -> Boolean)?,
     isCurrentReceiptParent: (() -> Boolean)?,
 ) {
+    ResizeWindowForKeyboard()
     val context = LocalContext.current
     val voiceScope = rememberCoroutineScope()
     val tripOwner = remember(bookingId, tripSession) { OfflineTripSnapshots.currentOwner() }
@@ -1496,6 +1497,7 @@ internal fun ActiveTripContent(
     // Ключуем по bookingId: выбранный статус не должен утекать в другую бронь (черновик — в TripChatState).
     var status by remember(bookingId) { mutableStateOf<String?>(null) }
     var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
+    var driverFinishing by remember(bookingId, tripSession) { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
     val shareSheet = rememberModalBottomSheetState()
     val tripSharedPrefix = appText("Ссылка готова", "Һылтанма әҙер")
@@ -1650,7 +1652,7 @@ internal fun ActiveTripContent(
         if (role == "driver") {
             if (bid == null) {
                 bookingStatus = when (st) { "done" -> "done"; "boarded" -> "onboard"; else -> bookingStatus }
-            } else voiceScope.launch {
+            } else voiceScope.launch { try {
                 if (!isTripSessionCurrent()) return@launch
                 ApiClient.driverStatus(bid, st)
                     .also { gpsAction.finish(gpsTicket, it.isSuccess, closed = st == "done") }
@@ -1687,7 +1689,7 @@ internal fun ActiveTripContent(
                                            Toast.LENGTH_LONG).show()
                         }
                     }
-            }
+            } finally { if (st == "done") { driverFinishing = false; showDriverFinishConfirmation = false } } }
         } else {
             val previousStatus = status
             status = st
@@ -1760,49 +1762,32 @@ internal fun ActiveTripContent(
     // but do not expose a boarding code, contacts, map or trip actions before authoritative data.
     // A passenger's existing encrypted offline passport remains usable without the role response.
     if (bookingId != null && (bookingStatus == "cancelled" || authorityRevision.let { !OfflineTripSnapshots.allowsLive(bookingId) })) {
+        val completingAcceptedDriverTrip = driverFinishing && showDriverFinishConfirmation &&
+            role == "driver" && isTripSessionCurrent() &&
+            OfflineTripSnapshots.terminal(bookingId)?.let {
+                it.owner == tripOwner && it.role == "driver" && it.status == "done"
+            } == true
+        if (completingAcceptedDriverTrip) {
+            DriverFinishDialog(busy = true, onConfirm = {}, onDismiss = {})
+            return
+        }
         ActiveTripUnverifiedScreen(tripDetails.loading || tripDetails.needsReload,
             tripDetails.failure ?: IllegalStateException(), { if (isTripDetailsCurrent()) tripDetails.retryUnverified() },
             onBack, cancelled = bookingStatus == "cancelled")
         return
     }
 
-    if (showDriverFinishConfirmation) {
-        AlertDialog(
-            onDismissRequest = { showDriverFinishConfirmation = false },
-            title = { Text(appText("Завершить поездку?", "Сәфәрҙе тамамларғамы?")) },
-            text = {
-                Text(
-                    appText(
-                        "Подтверди, что поездка действительно закончилась.",
-                        "Сәфәр ысынлап та тамамланғанын раҫла.",
-                    ),
-                )
-            },
-            confirmButton = {
-                TextButton(
-                    onClick = {
-                        showDriverFinishConfirmation = false
-                        updateTripStatus("done")
-                    },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text(
-                        appText("Да, завершить", "Эйе, тамамларға"),
-                        color = CanonGreen2,
-                        fontWeight = FontWeight.Bold,
-                    )
-                }
-            },
-            dismissButton = {
-                TextButton(
-                    onClick = { showDriverFinishConfirmation = false },
-                    modifier = Modifier.heightIn(min = 48.dp),
-                ) {
-                    Text(appText("Не завершать", "Тамамламаҫҡа"))
-                }
-            },
-        )
-    }
+    if (showDriverFinishConfirmation) DriverFinishDialog(
+        busy = driverFinishing,
+        onDismiss = { showDriverFinishConfirmation = false },
+        onConfirm = {
+            if (!driverFinishing && isTripChatActive()) {
+                driverFinishing = bookingId != null
+                if (bookingId == null) showDriverFinishConfirmation = false
+                updateTripStatus("done")
+            }
+        },
+    )
 
     // Шапка чата — с кем переписка. Имя из вкладки «Чат» известно сразу; пассажиру собеседник —
     // водитель брони, водителю — пассажир из деталей брони; пока имени нет — пишем роль.

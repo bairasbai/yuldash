@@ -89,5 +89,46 @@ await check('old form forget callback cannot delete B draft', ({ api }) => {
   assert.deepEqual(api.readDraft(key), draftB);
 });
 
+// Приёмка попутки 24.10.2026: после «Опубликовать» экран зовёт clearDraft, но следующая отрисовка
+// («Поездка опубликована», снятие «Отправляем…») не должна записать те же поля обратно.
+await check('submitted form stays cleared on later renders with unchanged fields', ({ api }) => {
+  api.setSession('A', 'refresh-A');
+  const filled = { from: 'Уфа', to: 'Мелеуз', waypoints: ['Стерлитамак'] };
+  render(() => api.useDraftSync('create-ride', { from: '', to: '', waypoints: [] }, () => {}));
+  flushEffects();
+  render(() => api.useDraftSync('create-ride', filled, () => {}));
+  flushEffects();
+  assert.deepEqual(api.readDraft('create-ride'), filled);
+  api.clearDraft('create-ride');                       // успешная публикация
+  render(() => api.useDraftSync('create-ride', filled, () => {}));   // экран «Готово»
+  flushEffects();
+  render(() => api.useDraftSync('create-ride', filled, () => {}));   // ещё одна отрисовка
+  flushEffects();
+  assert.equal(api.readDraft('create-ride'), null);
+});
+
+await check('first frame does not overwrite a saved draft with empty fields', ({ api }) => {
+  api.setSession('A', 'refresh-A');
+  const saved = { from: 'Уфа', to: 'Сибай', waypoints: [] };
+  api.writeDraft('create-ride', saved);
+  let applied = null;
+  render(() => api.useDraftSync('create-ride', { from: '', to: '', waypoints: [] }, (d) => { applied = d; }));
+  flushEffects();
+  assert.deepEqual(applied, saved);
+  assert.deepEqual(api.readDraft('create-ride'), saved);
+});
+
+await check('real edits after restore are still saved, including clearing a field', ({ api }) => {
+  api.setSession('A', 'refresh-A');
+  render(() => api.useDraftSync('create-ride', { from: '' }, () => {}));
+  flushEffects();
+  render(() => api.useDraftSync('create-ride', { from: 'У' }, () => {}));
+  flushEffects();
+  assert.deepEqual(api.readDraft('create-ride'), { from: 'У' });
+  render(() => api.useDraftSync('create-ride', { from: '' }, () => {}));
+  flushEffects();
+  assert.deepEqual(api.readDraft('create-ride'), { from: '' });
+});
+
 console.log(`Draft owner cases: ${serial - failed} passed, ${failed} failed`);
 if (failed) process.exitCode = 1;

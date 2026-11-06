@@ -61,6 +61,7 @@ internal fun AppReviewScreen(onBack: () -> Unit) {
     )
 
     val canSubmit = text.trim().length >= 10 && !sending
+    ResizeWindowForKeyboard()   // Клавиатура сжимает окно, а не сдвигает: иначе на Android 15+ к сдвигу добавляется imePadding — двойной скачок (приёмка PR210, эмулятор 24.10).
 
     Scaffold(
         containerColor = CanonBg,

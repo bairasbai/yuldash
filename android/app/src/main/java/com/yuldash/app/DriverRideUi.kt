@@ -1,5 +1,15 @@
 package com.yuldash.app
 
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.TextButton
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.dp
+
 import android.Manifest
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.tween
@@ -140,4 +150,32 @@ internal fun YuldashViewModel.endTripScreen(booking: Int?, fallback: () -> Unit)
             }
         }
     }
+}
+
+/**
+ * «Завершить поездку?» у водителя. Пока сервер не ответил и не пришёл список рейса, окно открыто и
+ * кнопка показывает «Завершаем…»: второй тап не уходит, а человек видит, что дело идёт (Д2).
+ */
+@Composable
+internal fun DriverFinishDialog(busy: Boolean, onConfirm: () -> Unit, onDismiss: () -> Unit) {
+    AlertDialog(
+        onDismissRequest = { if (!busy) onDismiss() },
+        title = { Text(appText("Завершить поездку?", "Сәфәрҙе тамамларғамы?")) },
+        text = {
+            Text(appText("Подтверди, что поездка действительно закончилась.", "Сәфәр ысынлап та тамамланғанын раҫла."))
+        },
+        confirmButton = {
+            TextButton(onClick = { if (!busy) onConfirm() }, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                if (busy) {
+                    CircularProgressIndicator(Modifier.padding(end = CanonSpace.sm).size(18.dp), color = CanonGreen2, strokeWidth = 2.dp)
+                    Text(appText("Завершаем…", "Тамамлайбыҙ…"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+                } else Text(appText("Да, завершить", "Эйе, тамамларға"), color = CanonGreen2, fontWeight = FontWeight.Bold)
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss, enabled = !busy, modifier = Modifier.heightIn(min = 48.dp)) {
+                Text(appText("Не завершать", "Тамамламаҫҡа"))
+            }
+        },
+    )
 }

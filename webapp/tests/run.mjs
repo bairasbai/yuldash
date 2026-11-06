@@ -35,6 +35,7 @@ const ALL_SUITES = [
   { test: "full-offline-trip-test", src: null, out: null, bundle: false },
   { test: "boarding-code-contrast-test", src: null, out: null, bundle: false },
   { test: "rideshare-local-regression-test", src: null, out: null, bundle: false },
+  { test: "rideshare-acceptance-labels-test", src: null, out: null, bundle: false },
   { test: "receipt-owner-test", src: null, out: null, bundle: false },
   { test: "receipt-lost-item-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
@@ -201,6 +202,9 @@ const ALL_SUITES = [
   { test: "driver-passengers-open-trip-test", src: null, out: null, bundle: false },
   // «Отклонить» бронь — сначала «Отклонить бронь?», как в Android (приёмка 18.10, п.6).
   { test: "driver-decline-confirm-test", src: null, out: null, bundle: false },
+  // …а пассажиру пометка на экране брони — «Отклонена», не «Отменена», как текст «Водитель отклонил бронь» (приёмка PR210).
+  { test: "booking-declined-pill-test", src: null, out: null, bundle: false },
+  // …и «Мои поездки»: /bookings/mine отдаёт `declined`, карточка пишет «Отклонена» (приёмка PR210).
   // «Оценить водителя» в квитанции попутки — для тех, кто пропустил экран завершения (приёмка 18.10, п.7).
   { test: "receipt-rate-later-test", src: null, out: null, bundle: false },
   // Водитель звонит пассажиру после подтверждения (решение 23.10.2026).
@@ -214,10 +218,12 @@ const ALL_SUITES = [
   { test: "family-order-no-phone-test", src: null, out: null, bundle: false },
   // Точка водителя с сайта в канал /ws/trip/{id}/location: только в пути, без журнала и аналитики, отказ не роняет экран.
   { test: "driver-location-share-test", src: null, out: null, bundle: false },
+  // Д2: точка водителя на весь рейс — «Завершить» по одному пассажиру не гасит её, пока у рейса есть живые брони;
+  // только после шага водителя на этом устройстве, не дольше 6 ч, без утечки не севшей пассажирке (общий набор с Android).
+  { test: "driver-ride-share-test", src: null, out: null, bundle: false },
   // …и сторожа приёмки PR155: без шторма соединений (лестница 1-2-4…30 с), отказ в ключе — ждём
   // обновлённый (отказ обновления — конец), без ключа — ни одного соединения, «online» — сразу.
   { test: "driver-location-share-guard-test", src: null, out: null, bundle: false },
-  { test: "driver-ride-share-test", src: null, out: null, bundle: false },
   { test: "driver-device-grant-test", src: null, out: null, bundle: false },
   // Пассажир: машина на карте не замирает — после обрыва связи и истёкшего ключа приём возобновляется
   // (лестница 1…30 с, «online» — сразу); конец поездки, чужая бронь, блокировка — конец.
@@ -242,6 +248,8 @@ const ALL_SUITES = [
   // Отменили, когда пассажир был в машине (23.10.2026): экран поездки ведёт к помощи (SOS, «Застряли», разбор,
   // машина и госномер), «Бронь» уводит туда же, «Снять поездку?» предупреждает про пассажиров в машине.
   { test: "cancelled-in-transit-test", src: null, out: null, bundle: false },
+  // «Удалить аккаунт»: отказ сервера 409 (отмена в пути, комиссия, живая поездка) — его текст, а не «проверь связь».
+  { test: "settings-delete-refusal-test", src: null, out: null, bundle: false },
 ];
 
 const SUITES = SANDBOX ? ALL_SUITES.filter((s) => existsSync(join(SANDBOX, `${s.test}.mjs`))) : ALL_SUITES;

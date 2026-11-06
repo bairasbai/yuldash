@@ -243,6 +243,7 @@ async function openCard(lang, props) {
     mocks: {
       "react-router-dom": `export const useNavigate=()=>p=>globalThis.__cit.nav.push(p);`,
       "/i18n/lang": langMock(lang),
+      "/api/client": `export const getSessionGeneration=()=>globalThis.__citCardGeneration ?? "card-A";`,
     },
   });
   globalThis.__cit = { nav: [] };
@@ -289,6 +290,74 @@ await t.test("водитель не указал машину — так и пи
   const h = await openCard("ru", { car: "", plate: "" });
   assert.ok(text(h.tree).includes("Водитель не указал машину и госномер"));
   assert.ok(button(h.tree, "SOS — нужна помощь"), "SOS есть и без машины");
+});
+
+// ---------------------------------------------------------------- оценка водителя (решение 24.10.2026)
+const RATE_HINT = ["Как ехалось до отмены? Оценка поможет другим выбрать водителя.",
+  "Кире алынғансы нисек барҙың? Баһаң башҡаларға йөрөтөүсе һайларға ярҙам итер."];
+
+for (const lang of ["ru", "ba"]) {
+  await t.test(`${lang}: можно оценить — звёзды ниже помощи, после оценки «Спасибо» и «Твоя оценка»`, async () => {
+    const h = await openCard(lang, { canRate: true, myStars: 0 });
+    const rate = ofType(h.tree, "ReceiptRateDriver")[0];
+    assert.ok(rate, "блока оценки нет");
+    assert.equal(rate.props.bookingId, 42);
+    assert.equal(rate.props.hint, L(lang, ...RATE_HINT));
+    assert.equal(rate.props.canAct(), true);
+    // Помощь — выше звёзд: SOS и «Застрял» рисуются раньше блока оценки.
+    const order = all(h.tree).map((n) => n.type);
+    assert.ok(order.indexOf("RoadsideHelp") < order.indexOf("ReceiptRateDriver"), "оценка выше помощи");
+    rate.props.onRated(4);
+    await h.settle();
+    assert.equal(ofType(h.tree, "ReceiptRateDriver").length, 0, "звёзды после оценки остались");
+    const s = text(h.tree);
+    assert.ok(s.includes(L(lang, "Спасибо! Оценка учтена.", "Рәхмәт! Баһа иҫәпкә алынды.")), s);
+    assert.ok(s.includes(L(lang, "Твоя оценка", "Һинең баһаң")) && s.includes(L(lang, "4 из 5", "5-тән 4")), s);
+  });
+}
+
+await t.test("нельзя оценить (срок, пауза, старый сервер) — блока нет", async () => {
+  const h = await openCard("ru", { canRate: false });
+  assert.equal(ofType(h.tree, "ReceiptRateDriver").length, 0);
+  assert.ok(!text(h.tree).includes("Твоя оценка"));
+  const old = await openCard("ru", {});
+  assert.equal(ofType(old.tree, "ReceiptRateDriver").length, 0, "без поля can_rate звёзд нет");
+});
+
+await t.test("уже оценил — «Твоя оценка», без звёзд и без «Спасибо»", async () => {
+  const h = await openCard("ru", { canRate: true, myStars: 3 });
+  assert.equal(ofType(h.tree, "ReceiptRateDriver").length, 0);
+  const s = text(h.tree);
+  assert.ok(s.includes("Твоя оценка") && s.includes("3 из 5"), s);
+  assert.ok(!s.includes("Спасибо! Оценка учтена."));
+});
+
+await t.test("экран поездки передаёт карточке оценку из деталей брони", async () => {
+  session.clear();
+  const { h } = await openActiveTrip({ status: "cancelled", details: { ...IN_TRANSIT, can_rate: true, my_stars: 2 },
+    trip: TRIP_IN_TRANSIT });
+  const c = card(h.tree);
+  assert.equal(c.props.canRate, true);
+  assert.equal(c.props.myStars, 2);
+  const plain = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT });
+  assert.equal(card(plain.h.tree).props.canRate, false, "старый сервер без can_rate — без звёзд");
+});
+
+await t.test("старый callback оценки не действует после смены входа", async () => {
+  globalThis.__citCardGeneration = "card-A";
+  const h = await openCard("ru", { canRate: true, myStars: 0 });
+  const retained = ofType(h.tree, "ReceiptRateDriver")[0].props;
+  assert.equal(retained.canAct(), true);
+  globalThis.__citCardGeneration = "card-B";
+  try {
+    assert.equal(retained.canAct(), false, "старый экран получил право действовать от нового входа");
+    retained.onRated(5);
+    await h.settle();
+    assert.equal(ofType(h.tree, "ReceiptRateDriver").length, 1, "поздняя оценка A изменила состояние B");
+  } finally {
+    h.unmount();
+    globalThis.__citCardGeneration = "card-A";
+  }
 });
 
 // ---------------------------------------------------------------- «Бронь» уводит на экран поездки

@@ -71,6 +71,8 @@ data class BookingDetailsDto(
     val meetingVersion: Int = 0, val meetingProposal: MeetingProposalDto? = null,
     val meetLandmarkId: Int? = null, val alightLandmarkId: Int? = null,
     val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
+    val canRate: Boolean = false,
+    val myStars: Int = 0,
 )
 
 /** RS-03 Б: активное предложение смены места (публичные поля — без автора). */
@@ -152,6 +154,8 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         meetingVersion = o.optInt("meeting_version", 0),
         meetingProposal = parseMeetingProposal(o.optJSONObject("meeting_proposal")),
         boardingUndo = parseBoardingUndo(o),
+        canRate = o.optBoolean("can_rate", false),
+        myStars = o.optInt("my_stars", 0),
     )
 }
 

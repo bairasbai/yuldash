@@ -77,7 +77,7 @@ import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
 import { loadInTransitCancel, rememberInTransitCancel } from "../utils/inTransitCancel";
 import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
-import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+import { formatWhen, priceLabel, payMethodLabel, pluralRu } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
 import { enqueue } from "../utils/outbox";
 import { useBookingRefusal } from "../utils/useBookingRefusal";
@@ -835,6 +835,9 @@ export default function ActiveTripScreen() {
           driverId={trip?.peer_id}
           driverName={details.driver_name}
           problemReportSec={trip?.problem_report_sec ?? 0}
+          /* Оценка водителя после отмены в пути (решение 24.10.2026) — из деталей брони. */
+          canRate={details.can_rate === true}
+          myStars={details.my_stars ?? 0}
         />
       </>
     );
@@ -851,7 +854,7 @@ export default function ActiveTripScreen() {
 
       {/* Живой баннер статуса */}
       <div className="trip-banner">
-        <StatusPill status={(trip?.status ?? details.status) as BookingDetails["status"]} phase={trip?.driver_phase} arrivalVerified={trip?.arrival_verified} />
+        <StatusPill status={(trip?.status ?? details.status) as BookingDetails["status"]} phase={trip?.driver_phase} arrivalVerified={trip?.arrival_verified} declined={details.declined === true} />
         {st === "pending" && (
           <span className="trip-banner__hint">
             {appText("Ждём, пока водитель подтвердит.", "Йөрөтөүсе раҫлағанды көтәбеҙ.")}
@@ -1284,7 +1287,7 @@ export default function ActiveTripScreen() {
                 type="button"
                 className={"rate-star" + (n <= myStars ? " is-on" : "")}
                 onClick={() => pickStars(n)}
-                aria-label={appText(`${n} звёзд`, `${n} йондоҙ`)}
+                aria-label={appText(`${n} ${pluralRu(n, "звезда", "звезды", "звёзд")}`, `${n} йондоҙ`)}
               >
                 <IconStar size={34} />
               </button>

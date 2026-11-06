@@ -33,6 +33,7 @@ class LocationSocket(
     // аккаунт — обновление откажет, а не выдаст ключ другого человека. Явный отказ в продлении завершает вход так же.
     private val refreshToken: suspend (String, Long) -> Result<Unit> = { token, owner -> ApiClient.tryRefresh(token, owner) },
     private val mayPublish: () -> Boolean = { true },
+    private val ownerSession: Long = ApiClient.queueSessionGeneration(),
 ) {
     data class Peer(val role: String, val lat: Double, val lng: Double, val bearing: Double?, val ts: Long)
 
@@ -46,7 +47,6 @@ class LocationSocket(
     @Volatile private var authed = false         // кадр {type:auth} ушёл — только теперь можно слать точки
     @Volatile private var authedAt = 0L
     // Чья это поездка: канал живёт в сессии, в которой его открыли (как ChatSocket.ownerSession).
-    private val ownerSession = ApiClient.queueSessionGeneration()
 
     // Сеть вернулась → мгновенный реконнект (не ждём backoff-таймер). Держим как поле:
     // NetworkMonitor хранит слушателей через WeakReference, ссылку не даём собрать GC.

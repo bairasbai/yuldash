@@ -1845,8 +1845,8 @@ object ApiClient {
         call("POST", "/driver/gender", JSONObject().put("gender", gender), auth = true).map { }
 
     /** Брони на поездки водителя — чтобы оценить пассажиров. */
-    suspend fun getDriverBookings(): Result<List<DriverBookingDto>> =
-        call("GET", "/driver/bookings", null, auth = true).map { obj ->
+    suspend fun getDriverBookings(expectedGeneration: Long? = null): Result<List<DriverBookingDto>> =
+        call("GET", "/driver/bookings", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)

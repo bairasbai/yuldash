@@ -82,6 +82,9 @@ export interface BookingRow {
 
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
 export interface BookingDetails extends BoardingUndoTerms {
+  /** Сервер разрешил оценку; чужие звёзды не раскрываются. */
+  can_rate?: boolean;
+  my_stars?: number;
   booking_id: number;
   ride_id: number;
   pickup_stop?: string | null;
@@ -102,6 +105,8 @@ export interface BookingDetails extends BoardingUndoTerms {
   driver_phone: string; // пусто до разблокировки
   /** Телефон пассажира — только водителю и только пока связь открыта (решение 23.10.2026). */
   passenger_phone?: string;
+  /** Имя пассажира для шапки чата водителя (как в приложении). Старый сервер — нет. */
+  passenger_name?: string;
   /** Водитель отклонил неподтверждённую бронь (сервер решает сам) — «Водитель отклонил бронь». */
   declined?: boolean;
   driver_car: string;
@@ -244,6 +249,8 @@ export interface MyBooking {
   driver_verified: boolean;
   /** Отменили, когда пассажир был в машине (23.10.2026). Старый сервер — поля нет. */
   cancelled_in_transit?: boolean;
+  /** Водитель отклонил неподтверждённую бронь — «Отклонена», не «Отменена» (приёмка PR210). Старый сервер — поля нет. */
+
 }
 
 export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {
