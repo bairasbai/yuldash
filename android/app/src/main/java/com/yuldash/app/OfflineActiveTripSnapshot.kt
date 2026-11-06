@@ -80,17 +80,37 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
             if (visible()) TripAuthorityContent(::visible) {
                 val value = requireNotNull(displayed)
                 val route = requireNotNull(value.route)
-                AppCard {
-                    Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
-                        Text("${route.from} → ${route.to}", style = CanonTitle, color = CanonText)
-                        Text(formatDepart(route.departAt), style = CanonBody, color = CanonText)
-                        BookingSegmentNote(route.pickup, route.dropoff, route.hasStops, route.from, route.to, showSegmentLabel = false)
-                        Text(when {
-                            value.state.status == "onboard" -> appText("Пассажир сел", "Пассажир ултырҙы")
-                            value.state.phase == "arriving" -> appText("Водитель подъезжает", "Йөрөтөүсе яҡынлаша")
-                            value.state.phase == "departed" -> appText("Водитель выехал", "Йөрөтөүсе юлға сыҡты")
-                            else -> appText("Поездка подтверждена", "Сәфәр раҫланды")
-                        }, style = CanonBodyStrong, color = CanonText)
+                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                    AppCard {
+                        Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                            Text("${route.from} → ${route.to}", style = CanonTitle, color = CanonText)
+                            Text(formatDepart(route.departAt), style = CanonBody, color = CanonText)
+                            BookingSegmentNote(route.pickup, route.dropoff, route.hasStops, route.from, route.to, showSegmentLabel = false)
+                            Text(when {
+                                value.state.status == "onboard" -> appText("Пассажир сел", "Пассажир ултырҙы")
+                                value.state.phase == "arriving" -> appText("Водитель подъезжает", "Йөрөтөүсе яҡынлаша")
+                                value.state.phase == "departed" -> appText("Водитель выехал", "Йөрөтөүсе юлға сыҡты")
+                                else -> appText("Поездка подтверждена", "Сәфәр раҫланды")
+                            }, style = CanonBodyStrong, color = CanonText)
+                        }
+                    }
+                    // Only the current in-process private projection may enrich a warm snapshot.
+                    // Persisted bytes and the separate historical summary never grant this content.
+                    val bound = value.owner == mode.snapshot.owner && value.bookingId == mode.snapshot.bookingId &&
+                        value.rideId == mode.snapshot.rideId && OfflineTripSnapshots.currentOwner() == value.owner
+                    val pass = if (visible() && bound) OfflineTripSnapshots.privatePass(value.bookingId) else null
+                    val method = pass?.payMethod?.takeIf { it in payMethodKeys }
+                    if (pass != null && method != null) {
+                        fun privateVisible() = visible() && isCurrent() && displayed === value &&
+                            OfflineTripSnapshots.currentOwner() == value.owner && OfflineTripSnapshots.matchesPass(pass)
+                        TripAuthorityContent(::privateVisible) {
+                            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                                Text("${kopToRub(rideshareRubToKop(pass.effectivePayAmount))} · ${payMethodLabel(method)}",
+                                    style = CanonBodyStrong, color = CanonText)
+                                PayAgreementBlock(editable = false, method = method, amountText = "",
+                                    summaryAmount = pass.effectivePayAmount, onMethod = {}, onAmount = {})
+                            }
+                        }
                     }
                 }
             } else if (loading) CircularProgressIndicator(color = CanonGreen2)
