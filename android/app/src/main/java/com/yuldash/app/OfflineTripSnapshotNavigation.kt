@@ -5,12 +5,12 @@ import com.yuldash.app.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.isActive
 
-internal fun YuldashViewModel.openOfflineTrip(saved: OfflineTripSnapshot, revision: Long) {
+internal fun YuldashViewModel.openOfflineTrip(saved: OfflineTripSnapshot, revision: Long, cold: ColdTripPassport? = null) {
     if (privateNavigationRevision != revision || !OfflineTripSnapshots.current(saved.owner)) return
     selectedRide.value = bookingLinkStubRide(saved.bookingId)
     activeBookingId.value = saved.bookingId
     activeTrip.value = null; activeDriverBookingId.value = null
-    offlineTripSnapshot.value = OfflineTripSnapshotMode(saved, revision)
+    offlineTripSnapshot.value = OfflineTripSnapshotMode(saved, revision, cold)
     screen.value = Screen.ActiveTrip
 }
 
@@ -45,7 +45,7 @@ internal suspend fun restoreBookingSnapshotNavigation(
             if (requested.contentScreen() == Screen.ActiveTrip && target == Screen.Booking && state.role == "passenger" &&
                 bookingStatusAllowsActiveTrip(state.status)) vm.screen.value = requested
             onRestored(state); restored = true
-        } else read.saved?.let { saved -> vm.openOfflineTrip(saved, revision); restored = true }
+        } else read.saved?.let { saved -> vm.openOfflineTrip(saved, revision, read.cold); restored = true }
     }
     return restored
 }

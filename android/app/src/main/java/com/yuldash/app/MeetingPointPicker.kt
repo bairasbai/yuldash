@@ -116,25 +116,32 @@ private fun OwnMeetingPoint(d: com.yuldash.app.data.BookingDetailsDto, pickup: B
 
 /** Один блок своих точек и команд в деталях брони и в основной поездке. */
 @Composable
-internal fun PassengerMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?, isCurrentParent: (() -> Boolean)? = null, onChanged: () -> Unit) {
+internal fun PassengerMeetingPoints(details: com.yuldash.app.data.BookingDetailsDto?, isCurrentParent: (() -> Boolean)? = null, completionScope: kotlinx.coroutines.CoroutineScope? = null, onChanged: () -> Unit) {
     val d = details?.takeIf { it.role == "passenger" } ?: return
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     val session = remember(d.bookingId) { com.yuldash.app.data.ApiClient.queueSessionGeneration() }
     val latest by androidx.compose.runtime.rememberUpdatedState(d)
     fun mounted() = scope.isActive && latest === d && com.yuldash.app.data.ApiClient.isCurrentSession(session) && (isCurrentParent?.invoke() != false)
-    fun current() = mounted() && currentOwnBookingDetails(d) != null
+    fun current() = (if (completionScope == null) mounted() else completionScope.isActive &&
+        com.yuldash.app.data.ApiClient.isCurrentSession(session) && isCurrentParent?.invoke() != false) &&
+        currentOwnBookingDetails(d) != null
     var busy by remember(d.bookingId) { mutableStateOf(false) }
     var error by remember(d.bookingId) { mutableStateOf<String?>(null) }
     val failed = appText("Не получилось изменить место. Повторить?", "Урынды үҙгәртеп булманы. Ҡабатлайынмы?")
     fun submit(onSaved: () -> Unit = {}, request: suspend () -> Result<*>) {
         if (busy || !current()) return
         busy = true; error = null
-        scope.launch {
+        (completionScope ?: scope).launch {
             try {
                 if (!current()) return@launch
                 val result = request()
-                if (!mounted()) return@launch
-                result.onSuccess { onSaved(); onChanged() }.onFailure { e ->
+                if (completionScope == null && !mounted()) return@launch
+                result.onSuccess {
+                    if (com.yuldash.app.data.ApiClient.isCurrentSession(session) && isCurrentParent?.invoke() != false) {
+                        onSaved(); onChanged()
+                    }
+                }.onFailure { e ->
+                    if (!mounted()) return@onFailure
                     error = (e as? com.yuldash.app.data.ApiException)?.message ?: failed
                     if ((e as? com.yuldash.app.data.ApiException)?.detailCode == "meeting_point_stale") onChanged()
                 }

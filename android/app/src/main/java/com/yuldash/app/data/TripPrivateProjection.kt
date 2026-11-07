@@ -8,6 +8,7 @@ internal data class TripPrivateProjection(
     val owner: SnapshotOwner, val details: BookingDetailsDto, val pass: TripPass,
     val proof: SnapshotNetworkProof, val permit: SnapshotAuthorityPermit?, val stamp: SnapshotClock,
     val driverCodeBlocked: Boolean = false,
+    val codeProof: SnapshotNetworkProof? = null,
 ) {
     val fingerprint: String = privateTripFingerprint(details, pass)
 }

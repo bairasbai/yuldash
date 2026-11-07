@@ -6,6 +6,7 @@ internal interface SnapshotTransportAuthority {
     fun currentOwner(): SnapshotOwner?
     fun cacheEnabled(owner: SnapshotOwner): Boolean
     fun revoked(owner: SnapshotOwner, bookingId: Int)
+    suspend fun coldDenied(ticket: SnapshotTicket, bookingId: Int): SnapshotPersistence
     suspend fun close(ticket: SnapshotTicket?, bookingId: Int)
 }
 
@@ -34,6 +35,7 @@ internal class SnapshotTransportRead(
             // In particular 401 MUST run before body IO and before token refresh.
             authority.gate.denied(it, status)
             if (status in setOf(401, 403, 404, 410)) authority.revoked(it.ticket.owner, bookingId)
+            if (status == 401) authority.coldDenied(it.ticket, bookingId)
         }
         if (status == 401) renew = true
         trace.persistAccessDenial()

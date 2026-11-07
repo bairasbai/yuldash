@@ -9,7 +9,7 @@ import java.util.UUID
 internal data class SnapshotOwner(val userId: Int, val scope: String, val generation: Long, val origin: String) {
     val valid: Boolean get() = userId > 0 && generation >= 0 && snapshotOrigin(origin) == origin &&
         runCatching { UUID.fromString(scope).toString() == scope }.getOrDefault(false)
-    val namespace: String get() = snapshotHash("owner\n$origin\n$userId\n$scope")
+    val namespace: String by lazy { snapshotHash("owner\n$origin\n$userId\n$scope") }
     fun barrier(kind: String, id: Int): String = namespace + ":" + snapshotHash("$kind\n$origin\n$userId\n$scope\n$id")
 }
 
@@ -21,8 +21,17 @@ internal fun snapshotOrigin(value: String): String? = runCatching {
     URI(uri.scheme, null, uri.host.lowercase(), port, uri.path.orEmpty().trimEnd('/'), null, null).toASCIIString()
 }.getOrNull()
 
-internal fun snapshotHash(value: String): String = MessageDigest.getInstance("SHA-256")
-    .digest(value.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }
+internal fun snapshotHash(value: String): String {
+    val bytes = MessageDigest.getInstance("SHA-256").digest(value.toByteArray(Charsets.UTF_8))
+    val hex = "0123456789abcdef"
+    return buildString(bytes.size * 2) {
+        bytes.forEach { byte ->
+            val item = byte.toInt() and 0xff
+            append(hex[item ushr 4])
+            append(hex[item and 0x0f])
+        }
+    }
+}
 
 /** Historical display only: carries no private payload, current authority or action capability. */
 internal data class HistoricalTripSummary(
@@ -35,7 +44,45 @@ internal data class HistoricalTripSummary(
     }
 }
 
-internal object OfflineTripSnapshotPolicy { const val MAX_AGE_MS = 6 * 3_600_000L }
+internal object OfflineTripSnapshotPolicy {
+    const val MAX_AGE_MS = 6 * 3_600_000L
+    const val COLD_GRANT_SCHEMA = 1
+}
+
+internal data class ColdTripPassportGrant(
+    val ownerId: Int,
+    val origin: String,
+    val scope: String,
+    val bookingId: Int,
+    val rideId: Int,
+    val snapshotCandidate: String,
+    val sourcePrivateFingerprint: String,
+    val tripPassSha256: String,
+    val detailsTicket: SnapshotTicket,
+    val codeTicket: SnapshotTicket,
+    val grantStamp: SnapshotClock,
+    val schema: Int = OfflineTripSnapshotPolicy.COLD_GRANT_SCHEMA,
+) {
+    val valid: Boolean
+        get() = schema == OfflineTripSnapshotPolicy.COLD_GRANT_SCHEMA && ownerId > 0 &&
+            snapshotOrigin(origin) == origin && runCatching { UUID.fromString(scope).toString() == scope }.getOrDefault(false) &&
+            bookingId > 0 && rideId > 0 && snapshotCandidate.matches(Regex("blocked:[0-9a-f]{64}")) &&
+            sourcePrivateFingerprint.matches(Regex("[0-9a-f]{64}")) && tripPassSha256.matches(Regex("[0-9a-f]{64}")) &&
+            detailsTicket.sequence > 0 && codeTicket.sequence > detailsTicket.sequence &&
+            detailsTicket.process == codeTicket.process && grantStamp.valid &&
+            runCatching { UUID.fromString(detailsTicket.process).toString() == detailsTicket.process }.getOrDefault(false)
+}
+
+internal data class ColdTripPassport(
+    val snapshot: OfflineTripSnapshot,
+    val pass: TripPass,
+    val grant: ColdTripPassportGrant,
+) {
+    fun remaining(now: SnapshotClock): Long? = minOf(
+        snapshot.remaining(now) ?: return null,
+        grant.grantStamp.remaining(now) ?: return null,
+    )
+}
 
 internal data class SnapshotClock(val boot: Int, val wall: Long, val before: Long, val after: Long) {
     val valid: Boolean get() = boot >= 0 && wall >= 0 && before >= 0 && after >= before

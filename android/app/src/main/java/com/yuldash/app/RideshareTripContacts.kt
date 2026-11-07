@@ -44,8 +44,8 @@ import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import com.yuldash.app.data.TripPass
-import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.SnapshotPersistence
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.isActive
@@ -101,7 +101,9 @@ internal suspend fun saveActiveTripBoardingCode(
 ): Boolean = if (details != null) {
     saveTripPass(context, details, expectedGeneration, retryMigration, code, shouldContinue)
 } else withContext(Dispatchers.IO) {
-    shouldContinue() && TripPassStore.updateBoardingCode(context, bookingId, code, expectedGeneration, retryMigration)
+    shouldContinue() && OfflineTripSnapshots.updateColdBoardingCode(
+        context, bookingId, code, expectedGeneration, retryMigration,
+    ) == SnapshotPersistence.COMMITTED
 }
 
 /** Те же данные из офлайн-паспорта — на трассе без связи. */
@@ -158,7 +160,8 @@ internal suspend fun saveTripPass(
     val current = OfflineTripSnapshots.privatePass(d.bookingId)?.takeIf { it.boardingCode == boardingCode } ?: return false
     return withContext(Dispatchers.IO) {
         shouldContinue() && OfflineTripSnapshots.matchesPass(current) &&
-            TripPassStore.save(context, current, retryMigration, expectedGeneration)
+            OfflineTripSnapshots.saveColdPassport(context, current, retryMigration, expectedGeneration, shouldContinue) ==
+            SnapshotPersistence.COMMITTED
     }
 }
 

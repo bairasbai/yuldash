@@ -5,6 +5,7 @@ import android.content.SharedPreferences
 import androidx.compose.runtime.mutableStateOf
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONArray
@@ -116,6 +117,19 @@ data class TripPass(
     }
 }
 
+internal data class TripPassCommitReceipt(
+    val bookingId: Int,
+    val sourcePrivateFingerprint: String,
+    val payloadSha256: String,
+)
+
+internal data class TripPassSecureCandidate(
+    val bookingId: Int,
+    val raw: String,
+    val pass: TripPass,
+    val payloadSha256: String,
+)
+
 /**
  * Локальное хранилище паспортов поездок (по booking id). Secure — внутри телефон водителя.
  * Сохранённые байты не дают доступа: общий process gate разрешает только текущую проекцию.
@@ -211,6 +225,51 @@ object TripPassStore {
         commitOfflineString(store, KEY_PREFIX + pass.bookingId, pass.toJson().toString(), plainPrefs ?: return@runCatching false)
     }.getOrDefault(false)
 
+    @Synchronized internal fun commitSecure(
+        context: Context,
+        pass: TripPass,
+        sourcePrivateFingerprint: String,
+        retryMigration: Boolean,
+        expectedGeneration: Long?,
+    ): TripPassCommitReceipt? = runCatching {
+        if (pass.boardingCode.isBlank() ||
+            (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration())) return@runCatching null
+        val owner = OfflineTripSnapshots.currentOwner() ?: return@runCatching null
+        if (!OfflineTripSnapshots.cacheEnabled(owner) || !OfflineTripSnapshots.matchesPass(pass) ||
+            OfflineTripSnapshots.projection(pass.bookingId)?.fingerprint != sourcePrivateFingerprint) return@runCatching null
+        sp(context)
+        val plain = plainPrefs ?: return@runCatching null
+        if (OfflineMigration.resetUnconfirmed(plain) || TripPassDeletion.blocks(plain, pass.bookingId)) return@runCatching null
+        if (retryMigration && migration?.writable == false) {
+            val secure = securePrefs
+            if (secure != null) initStores(plain, secure) else init(context)
+        }
+        val secure = securePrefs ?: return@runCatching null
+        if (migration?.writable != true) return@runCatching null
+        val key = KEY_PREFIX + pass.bookingId
+        val raw = pass.toJson().toString()
+        if (!commitOfflineString(secure, key, raw, plain)) return@runCatching null
+        if (readOfflineString(secure, plain, key) != raw) return@runCatching null
+        TripPassCommitReceipt(pass.bookingId, sourcePrivateFingerprint, snapshotHash(raw))
+    }.getOrNull()
+
+    @Synchronized internal fun readSecureCandidate(
+        context: Context,
+        owner: SnapshotOwner,
+        bookingId: Int,
+    ): TripPassSecureCandidate? = runCatching {
+        if (!OfflineTripSnapshots.cacheEnabled(owner) || bookingId <= 0) return@runCatching null
+        sp(context)
+        val plain = plainPrefs ?: return@runCatching null
+        val secure = securePrefs ?: return@runCatching null
+        if (OfflineMigration.resetUnconfirmed(plain) || migration?.readable != true ||
+            TripPassDeletion.blocks(plain, bookingId)) return@runCatching null
+        val raw = readOfflineString(secure, plain, KEY_PREFIX + bookingId) ?: return@runCatching null
+        val pass = TripPass.fromJson(JSONObject(raw))
+        require(raw == pass.toJson().toString() && pass.bookingId == bookingId && pass.boardingCode.isNotBlank())
+        TripPassSecureCandidate(bookingId, raw, pass, snapshotHash(raw))
+    }.getOrNull()
+
     /** Only a current fresh-details projection can be returned. Cold ciphertext is never authority. */
     @Synchronized fun load(context: Context, bookingId: Int): TripPass? = runCatching {
         val owner = OfflineTripSnapshots.currentOwner() ?: return@runCatching null
@@ -232,7 +291,20 @@ object TripPassStore {
     enum class RemovalResult { CLEARED, DEFERRED, NOT_SAVED }
 
     /** CLEARED means both sources were erased; DEFERRED means a durable deletion barrier exists. */
-    @Synchronized fun requestRemoval(context: Context, bookingId: Int, expectedGeneration: Long? = null): RemovalResult = runCatching {
+    fun requestRemoval(context: Context, bookingId: Int, expectedGeneration: Long? = null): RemovalResult {
+        // Never hold this store's monitor while OfflineTripSnapshots acquires diskAccess.
+        val cold = runCatching { runBlocking { OfflineTripSnapshots.revokeForRemoval(bookingId, expectedGeneration) } }
+            .getOrDefault(SnapshotPersistence.NOT_DURABLE)
+        if (cold == SnapshotPersistence.STALE || cold == SnapshotPersistence.NOT_DURABLE) return RemovalResult.NOT_SAVED
+        val removed = synchronized(this) { requestRemovalAfterCold(context, bookingId, expectedGeneration) }
+        return if (cold == SnapshotPersistence.DURABLY_BLOCKED && removed == RemovalResult.CLEARED) {
+            RemovalResult.DEFERRED
+        } else removed
+    }
+
+    @Synchronized private fun requestRemovalAfterCold(
+        context: Context, bookingId: Int, expectedGeneration: Long?,
+    ): RemovalResult = runCatching {
         if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) {
             return@runCatching RemovalResult.NOT_SAVED
         }
@@ -249,7 +321,7 @@ object TripPassStore {
     }.getOrDefault(RemovalResult.NOT_SAVED)
 
     /** Compatibility result: true only when physical cleanup of both stores was confirmed. */
-    @Synchronized fun remove(context: Context, bookingId: Int): Boolean =
+    fun remove(context: Context, bookingId: Int): Boolean =
         requestRemoval(context, bookingId) == RemovalResult.CLEARED
 
     /**

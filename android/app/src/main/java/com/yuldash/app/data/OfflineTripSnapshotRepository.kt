@@ -18,7 +18,8 @@ internal interface SnapshotDisk {
 }
 
 /** One serialized writer plus the SAME process gate used by navigation and the private passport.
- * A disk record is only a candidate. A newly constructed gate cannot authorize a cold load.
+ * A disk record is only a candidate. Ordinary load stays process-only; cold access additionally
+ * requires the explicit grant, secure TripPass candidate and all durable barriers.
  */
 internal class OfflineTripSnapshotRepository(
     private val disk: SnapshotDisk,
@@ -73,7 +74,35 @@ internal class OfflineTripSnapshotRepository(
         return SnapshotClock(integer(value, "boot"), number(value, "wall"), number(value, "before"), number(value, "after")).also { require(it.valid) }
     }
     private fun nullable(value: JSONObject, key: String): String? = if (value.get(key) == JSONObject.NULL) null else string(value, key)
-    private fun encode(value: OfflineTripSnapshot): JSONObject = JSONObject().put("booking", value.bookingId)
+    private data class SavedRecord(val snapshot: OfflineTripSnapshot, val grant: ColdTripPassportGrant?)
+
+    private fun ticket(value: SnapshotTicket) = JSONObject().put("process", value.process).put("sequence", value.sequence)
+    private fun ticket(value: JSONObject, owner: SnapshotOwner): SnapshotTicket {
+        keys(value, setOf("process", "sequence"))
+        val process = string(value, "process").also { require(UUID.fromString(it).toString() == it) }
+        return SnapshotTicket(owner, process, number(value, "sequence")).also { require(it.sequence > 0) }
+    }
+    private fun encodeGrant(value: ColdTripPassportGrant): JSONObject = JSONObject()
+        .put("schema", value.schema).put("owner", value.ownerId).put("origin", value.origin).put("scope", value.scope)
+        .put("booking", value.bookingId).put("ride", value.rideId).put("snapshot_candidate", value.snapshotCandidate)
+        .put("source_private_fingerprint", value.sourcePrivateFingerprint).put("trippass_sha256", value.tripPassSha256)
+        .put("details_ticket", ticket(value.detailsTicket)).put("code_ticket", ticket(value.codeTicket))
+        .put("grant_stamp", stamp(value.grantStamp))
+    private fun decodeGrant(owner: SnapshotOwner, saved: OfflineTripSnapshot, value: JSONObject): ColdTripPassportGrant {
+        keys(value, setOf("schema", "owner", "origin", "scope", "booking", "ride", "snapshot_candidate",
+            "source_private_fingerprint", "trippass_sha256", "details_ticket", "code_ticket", "grant_stamp"))
+        val grant = ColdTripPassportGrant(integer(value, "owner"), string(value, "origin"), string(value, "scope"),
+            integer(value, "booking"), integer(value, "ride"), string(value, "snapshot_candidate"),
+            string(value, "source_private_fingerprint"), string(value, "trippass_sha256"),
+            ticket(value.getJSONObject("details_ticket"), owner), ticket(value.getJSONObject("code_ticket"), owner),
+            clock(value.getJSONObject("grant_stamp")), integer(value, "schema"))
+        require(grant.valid && grant.ownerId == owner.userId && grant.origin == owner.origin && grant.scope == owner.scope &&
+            grant.bookingId == saved.bookingId && saved.rideId == grant.rideId && grant.snapshotCandidate == proof(saved) &&
+            saved.ticketProcess == grant.codeTicket.process && saved.payloadTicket == grant.codeTicket.sequence &&
+            grant.detailsTicket.process == saved.ticketProcess)
+        return grant
+    }
+    private fun encode(value: OfflineTripSnapshot, grant: ColdTripPassportGrant? = null): JSONObject = JSONObject().put("booking", value.bookingId)
         .put("ride", value.rideId ?: JSONObject.NULL).put("role", value.state.role).put("status", value.state.status)
         .put("phase", value.state.phase).put("onboard", value.state.maxOnboard ?: JSONObject.NULL)
         .put("corrected", value.state.corrected ?: JSONObject.NULL).put("state_stamp", stamp(value.stateStamp))
@@ -81,6 +110,7 @@ internal class OfflineTripSnapshotRepository(
         .put("process", value.ticketProcess).put("state_ticket", value.stateTicket).put("payload_ticket", value.payloadTicket)
         .put("route", value.route?.let { JSONObject().put("from", it.from).put("to", it.to).put("depart", it.departAt)
             .put("pickup", it.pickup ?: JSONObject.NULL).put("dropoff", it.dropoff ?: JSONObject.NULL).put("stops", it.hasStops) } ?: JSONObject.NULL)
+        .apply { if (grant != null) put("cold_grant", encodeGrant(grant)) }
     /** Journal holds a candidate hash, never its personal projection. */
     private fun proof(value: OfflineTripSnapshot): String {
         fun clockArray(clock: SnapshotClock?) = clock?.let { JSONArray(listOf(it.boot, it.wall, it.before, it.after)) } ?: JSONObject.NULL
@@ -89,8 +119,11 @@ internal class OfflineTripSnapshotRepository(
             value.state.status, value.state.phase, value.state.maxOnboard, value.state.corrected, route,
             clockArray(value.payloadStamp), clockArray(value.stateStamp), value.ticketProcess, value.stateTicket, value.payloadTicket)).toString())
     }
-    private fun decode(owner: SnapshotOwner, value: JSONObject): OfflineTripSnapshot {
-        keys(value, setOf("booking", "ride", "role", "status", "phase", "onboard", "corrected", "state_stamp", "payload_stamp", "process", "state_ticket", "payload_ticket", "route"))
+    private fun decodeRecord(owner: SnapshotOwner, value: JSONObject): SavedRecord {
+        val base = setOf("booking", "ride", "role", "status", "phase", "onboard", "corrected", "state_stamp",
+            "payload_stamp", "process", "state_ticket", "payload_ticket", "route")
+        val optional = if (value.has("cold_grant")) setOf("cold_grant") else emptySet<String>()
+        keys(value, base + optional)
         val state = SnapshotEpochState(string(value, "role"), string(value, "status"), string(value, "phase"), nullable(value, "onboard"), nullable(value, "corrected"))
         require(state.role in setOf("driver", "passenger") && state.status in setOf("confirmed", "onboard"))
         require(state.phase in setOf("", "departed", "arriving"))
@@ -111,9 +144,12 @@ internal class OfflineTripSnapshotRepository(
         val process = string(value, "process").also { require(UUID.fromString(it).toString() == it) }
         require(integer(value, "booking") > 0 && number(value, "state_ticket") > 0 && number(value, "payload_ticket") >= 0)
         require((route == null) == (stamp == null) && (route == null || (ride != null && number(value, "payload_ticket") > 0)))
-        return OfflineTripSnapshot(owner, integer(value, "booking"), ride, state, route, stamp,
+        val saved = OfflineTripSnapshot(owner, integer(value, "booking"), ride, state, route, stamp,
             clock(value.getJSONObject("state_stamp")), process, number(value, "state_ticket"), number(value, "payload_ticket"))
+        val grant = if (value.has("cold_grant")) decodeGrant(owner, saved, value.getJSONObject("cold_grant")) else null
+        return SavedRecord(saved, grant)
     }
+    private fun decode(owner: SnapshotOwner, value: JSONObject): OfflineTripSnapshot = decodeRecord(owner, value).snapshot
 
     suspend fun load(owner: SnapshotOwner, bookingId: Int): OfflineTripSnapshot? = writer.withLock {
         if (!current(owner) || owner.namespace in quarantined || bookingId <= 0) return@withLock null
@@ -170,16 +206,20 @@ internal class OfflineTripSnapshotRepository(
     /** A cached DTO or a bare ticket is insufficient: permit is issued only by the shared gate. */
     suspend fun observe(
         ticket: SnapshotTicket, bookingId: Int, state: SnapshotState, rideId: Int? = null, route: SnapshotRoute? = null,
-        acknowledgement: Boolean = false, permit: SnapshotAuthorityPermit? = null,
+        acknowledgement: Boolean = false, permit: SnapshotAuthorityPermit? = null, coldSave: Boolean = false,
     ): SnapshotPersistence = writer.withLock {
         if (!valid(ticket) || bookingId <= 0 || !authority.canObserve(permit, ticket, bookingId, state, rideId, route) ||
-            acknowledgement != permit?.mutation) return@withLock SnapshotPersistence.STALE
+            acknowledgement != permit?.mutation ||
+            (coldSave && (acknowledgement || permit?.kind != SnapshotAuthorityKind.DETAILS || route?.valid != true))) {
+            return@withLock SnapshotPersistence.STALE
+        }
         val owner = ticket.owner
         runCatching {
             val doc = root(owner)
             if (deny(owner, bookingId, rideId, doc)) return@withLock SnapshotPersistence.STALE
             val records = doc.getJSONObject("records")
-            val old = records.optJSONObject(bookingId.toString())?.let { decode(owner, it) }
+            val oldRecord = records.optJSONObject(bookingId.toString())?.let { decodeRecord(owner, it) }
+            val old = oldRecord?.snapshot
             val actualRide = rideId ?: old?.rideId
             if (deny(owner, bookingId, actualRide, doc)) return@withLock SnapshotPersistence.STALE
             if (old?.rideId != null && rideId != null && old.rideId != rideId) return@withLock SnapshotPersistence.STALE
@@ -208,16 +248,28 @@ internal class OfflineTripSnapshotRepository(
                 (old.remaining(now) == null || authority.candidateDenied(owner, bookingId, proof(old)))
             val stateChanged = old == null || merged != old.state
             val payloadChanged = full && (old?.route != route || old?.rideId != actualRide)
-            if (!stateChanged && !payloadChanged && !(full && expired)) {
+            val grantChanged = oldRecord?.grant != null
+            val coldRevokeRequired = coldSave || acknowledgement || permit.kind == SnapshotAuthorityKind.DETAILS ||
+                (grantChanged && (stateChanged || payloadChanged || (full && expired)))
+            var coldBarrierSaved = true
+            var coldSaveEpoch: Long? = null
+            if (coldRevokeRequired) {
+                authority.revokeColdProjection(owner, bookingId)
+                if (coldSave) coldSaveEpoch = authority.coldEpoch(owner, bookingId) ?: return@withLock SnapshotPersistence.STALE
+                val coldKey = owner.barrier("cold-booking", bookingId)
+                coldBarrierSaved = disk.setBarrier(coldKey, "blocked")
+            }
+            if (!coldSave && !stateChanged && !payloadChanged && !(full && expired) && (!grantChanged || !coldRevokeRequired)) {
                 val pending = disk.barrier(orderKey)
                 if (pending == null) {
                     if (full && old != null) authority.snapshotCommitted(permit, proof(old))
-                    return@withLock SnapshotPersistence.UNCHANGED
+                    return@withLock if (!coldBarrierSaved) SnapshotPersistence.NOT_DURABLE else SnapshotPersistence.UNCHANGED
                 }
                 if (!full || old == null || pending != proof(old)) return@withLock SnapshotPersistence.DURABLY_BLOCKED
                 val cleared = disk.setBarrier(orderKey, null); changed()
                 if (cleared) authority.snapshotCommitted(permit, proof(old))
                 return@withLock if (!valid(ticket)) SnapshotPersistence.STALE
+                    else if (!coldBarrierSaved) SnapshotPersistence.NOT_DURABLE
                     else if (cleared) SnapshotPersistence.COMMITTED else SnapshotPersistence.DURABLY_BLOCKED
             }
             val next = OfflineTripSnapshot(owner, bookingId, actualRide, merged, acceptedRoute,
@@ -231,13 +283,163 @@ internal class OfflineTripSnapshotRepository(
             if (!disk.write(owner.namespace, doc.toString())) {
                 if (!blocked) quarantined += owner.namespace
                 changed()
-                return@withLock if (blocked) SnapshotPersistence.DURABLY_BLOCKED else SnapshotPersistence.NOT_DURABLE
+                return@withLock if (!coldBarrierSaved) SnapshotPersistence.NOT_DURABLE
+                    else if (blocked || (coldRevokeRequired && coldBarrierSaved)) SnapshotPersistence.DURABLY_BLOCKED
+                    else SnapshotPersistence.NOT_DURABLE
             }
             val cleared = disk.setBarrier(barrier, null); changed()
             if (cleared) authority.snapshotCommitted(permit, proof(next))
             if (!valid(ticket) || !authority.canObserve(permit, ticket, bookingId, state, rideId, route)) SnapshotPersistence.STALE
+            else if (!coldBarrierSaved) SnapshotPersistence.NOT_DURABLE
+            else if (cleared && coldSave &&
+                !authority.markColdSaveObserved(permit, requireNotNull(coldSaveEpoch))) SnapshotPersistence.STALE
             else if (cleared) SnapshotPersistence.COMMITTED else SnapshotPersistence.DURABLY_BLOCKED
         }.getOrElse { quarantined += owner.namespace; changed(); SnapshotPersistence.NOT_DURABLE }
+    }
+
+    suspend fun beginColdSave(
+        permit: SnapshotAuthorityPermit, state: SnapshotState, rideId: Int, route: SnapshotRoute, barrier: String,
+    ): SnapshotPersistence = writer.withLock {
+        val owner = permit.owner
+        val bookingId = permit.bookingId
+        if (!valid(permit.ticket) || !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route) ||
+            permit.kind != SnapshotAuthorityKind.DETAILS || !barrier.matches(Regex("blocked:[0-9a-f]{64}"))) {
+            return@withLock SnapshotPersistence.STALE
+        }
+        authority.revokeColdProjection(owner, bookingId)
+        val saved = runCatching { disk.setBarrier(owner.barrier("cold-booking", bookingId), barrier) }.getOrDefault(false)
+        changed()
+        if (!valid(permit.ticket) || !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route)) {
+            SnapshotPersistence.STALE
+        } else if (saved) SnapshotPersistence.COMMITTED else SnapshotPersistence.NOT_DURABLE
+    }
+
+    suspend fun commitColdGrant(
+        permit: SnapshotAuthorityPermit,
+        detailsTicket: SnapshotTicket,
+        receipt: TripPassCommitReceipt,
+        state: SnapshotState,
+        rideId: Int,
+        route: SnapshotRoute,
+    ): SnapshotPersistence = writer.withLock {
+        val owner = permit.owner
+        val bookingId = permit.bookingId
+        if (!valid(permit.ticket) || permit.kind != SnapshotAuthorityKind.DETAILS || permit.mutation ||
+            !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route) ||
+            !authority.coldSaveCommitCurrent(permit) ||
+            detailsTicket.owner != owner || detailsTicket.process != permit.ticket.process ||
+            detailsTicket.sequence >= permit.ticket.sequence || receipt.bookingId != bookingId ||
+            receipt.sourcePrivateFingerprint != permit.fingerprint) return@withLock SnapshotPersistence.STALE
+        runCatching {
+            val doc = root(owner)
+            if (deny(owner, bookingId, rideId, doc)) return@withLock SnapshotPersistence.STALE
+            val records = doc.getJSONObject("records")
+            val saved = records.optJSONObject(bookingId.toString())?.let { decodeRecord(owner, it) }?.snapshot
+                ?: return@withLock SnapshotPersistence.DURABLY_BLOCKED
+            val coldKey = owner.barrier("cold-booking", bookingId)
+            if (disk.barrier(coldKey) == null || saved.rideId != rideId || saved.route != route ||
+                saved.state.role != "passenger" || saved.ticketProcess != permit.ticket.process ||
+                saved.payloadTicket != permit.ticket.sequence || !sameSnapshotProjection(saved.state, permit.state!!)) {
+                return@withLock SnapshotPersistence.DURABLY_BLOCKED
+            }
+            val now = clock()?.takeIf { it.valid } ?: return@withLock SnapshotPersistence.DURABLY_BLOCKED
+            if (saved.remaining(now) == null) return@withLock SnapshotPersistence.DURABLY_BLOCKED
+            val grant = ColdTripPassportGrant(owner.userId, owner.origin, owner.scope, bookingId, rideId,
+                proof(saved), requireNotNull(permit.fingerprint), receipt.payloadSha256,
+                detailsTicket, permit.ticket, now)
+            require(grant.valid)
+            records.put(bookingId.toString(), encode(saved, grant))
+            doc.put("version", Math.addExact(doc.getLong("version"), 1))
+            if (!disk.write(owner.namespace, doc.toString())) {
+                changed()
+                return@withLock SnapshotPersistence.DURABLY_BLOCKED
+            }
+            val confirmed = root(owner).getJSONObject("records").getJSONObject(bookingId.toString())
+                .let { decodeRecord(owner, it) }
+            if (confirmed.grant != grant || confirmed.snapshot != saved) {
+                quarantined += owner.namespace
+                changed()
+                return@withLock SnapshotPersistence.DURABLY_BLOCKED
+            }
+            if (!valid(permit.ticket) || !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route)) {
+                return@withLock SnapshotPersistence.STALE
+            }
+            var clearAttempted = false
+            val allowed = authority.allowColdRestoreAfterGrant(permit, grant, state, rideId, route) {
+                clearAttempted = true
+                disk.setBarrier(coldKey, null)
+            }
+            if (clearAttempted) changed()
+            if (allowed) SnapshotPersistence.COMMITTED
+            else if (clearAttempted) SnapshotPersistence.DURABLY_BLOCKED
+            else SnapshotPersistence.STALE
+        }.getOrElse { quarantined += owner.namespace; changed(); SnapshotPersistence.DURABLY_BLOCKED }
+    }
+
+    suspend fun loadCold(
+        owner: SnapshotOwner,
+        bookingId: Int,
+        candidate: TripPassSecureCandidate,
+        restore: SnapshotColdRestoreTicket,
+    ): ColdTripPassport? = writer.withLock {
+        if (!current(owner) || owner.namespace in quarantined || bookingId <= 0 ||
+            restore.ticket.owner != owner || restore.bookingId != bookingId) return@withLock null
+        runCatching {
+            val doc = root(owner)
+            if (deny(owner, bookingId, null, doc) || disk.barrier(owner.barrier("cold-scope", 0)) != null ||
+                disk.barrier(owner.barrier("cold-booking", bookingId)) != null) return@withLock null
+            val record = doc.getJSONObject("records").optJSONObject(bookingId.toString())
+                ?.let { decodeRecord(owner, it) } ?: return@withLock null
+            val saved = record.snapshot
+            val grant = record.grant ?: return@withLock null
+            val ride = saved.rideId ?: return@withLock null
+            if (saved.bookingId != bookingId || deny(owner, bookingId, ride, doc) ||
+                disk.barrier(owner.barrier("booking", bookingId)) != null ||
+                disk.barrier(owner.barrier("cold-ride", ride)) != null ||
+                saved.state.role != "passenger" || saved.route == null || saved.payloadStamp == null ||
+                candidate.bookingId != bookingId || candidate.pass.bookingId != bookingId ||
+                candidate.pass.boardingCode.isBlank() || candidate.raw != candidate.pass.toJson().toString() ||
+                candidate.payloadSha256 != snapshotHash(candidate.raw) || grant.tripPassSha256 != candidate.payloadSha256) {
+                return@withLock null
+            }
+            val value = ColdTripPassport(saved, candidate.pass, grant)
+            val now = clock()
+            if (authority.candidateDenied(owner, bookingId, grant.snapshotCandidate) || now == null || value.remaining(now) == null) {
+                authority.expireCandidate(owner, bookingId, grant.snapshotCandidate)
+                disk.setBarrier(owner.barrier("cold-booking", bookingId), "blocked")
+                changed()
+                return@withLock null
+            }
+            if (!current(owner) || !authority.restoreCold(restore, value)) null else value
+        }.getOrNull()
+    }
+
+    suspend fun revokeCold(request: SnapshotColdRevocation): SnapshotPersistence {
+        if (!authority.coldCurrent(request)) return SnapshotPersistence.STALE
+        return writer.withLock {
+            if (!authority.coldCurrent(request)) return@withLock SnapshotPersistence.STALE
+            val owner = request.ticket.owner
+            val bookingId = request.bookingId
+            val blocked = runCatching {
+                disk.setBarrier(owner.barrier("cold-booking", bookingId), "blocked")
+            }.getOrDefault(false)
+            val saved = runCatching {
+                val doc = root(owner)
+                val records = doc.getJSONObject("records")
+                val old = records.optJSONObject(bookingId.toString())?.let { decodeRecord(owner, it) }
+                if (old?.grant == null) true else {
+                    records.put(bookingId.toString(), encode(old.snapshot))
+                    doc.put("version", Math.addExact(doc.getLong("version"), 1))
+                    disk.write(owner.namespace, doc.toString())
+                }
+            }.getOrDefault(false)
+            if (!blocked && !saved) quarantined += owner.namespace
+            changed()
+            if (!authority.coldCurrent(request)) SnapshotPersistence.STALE
+            else if (!blocked) SnapshotPersistence.NOT_DURABLE
+            else if (saved) SnapshotPersistence.COMMITTED
+            else SnapshotPersistence.DURABLY_BLOCKED
+        }
     }
 
     private fun blockDisk(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence {
