@@ -1,3 +1,11 @@
+## RS-PGFULL-20261108 — изоляция PostgreSQL-проверки RS-03
+
+Продуктовый путь не изменён. `cleanup.scrub_meeting_points` по-прежнему пересчитывает защиту SOS/Incident/Report в самом UPDATE после eligibility SELECT. Изменён только `backend/tests/test_meeting_cleanup_race_pg.py`: каждый параметризованный случай получает собственную БД через существующий `fresh_db`, применяет Alembic `head`, направляет cleanup и конкурирующий worker в отдельный engine и освобождает его до удаления БД. Это устраняет влияние старых fixture-строк общего набора на глобальный счётчик очистки.
+
+Проверочный договор не ослаблен: реальный commit защиты между SELECT и UPDATE, PostgreSQL READ COMMITTED, фактический UPDATE, `rowcount == [0]`, `reported_count == 0`, сохранение всех полей встречи/высадки. Отдельная общая БД на весь полный набор остаётся; изолированы только шесть случаев этой гонки. Новых таблиц, миграций, API, экранов, зависимостей и production-настроек нет.
+
+Полный набор на новой PostgreSQL16.15:6751PASS/8SKIP/0fail/error,exit0,coverage93.122129% при пороге85%; ruff F зелёный. Тестовый `MEDIA_BASE_URL=https://yulbash.ru` задаётся только запуску, внешние HTTP-провайдеры закрыты proxy. Доказательства, независимая приёмка, восемь пропусков, разбор ошибочной ссылки и cleanup — [RS-PGFULL-20261108](audit-blocks.md#rs-pgfull-20261108--полный-backend-на-изолированной-postgresql).
+
 ## RS-COLD-20261106 — ограниченный приватный cold-паспорт пассажира
 
 Отдельный `ColdTripPassportGrant` выдаётся только для passenger confirmed/onboard после свежего DETAILS и непустого CODE. `OfflineTripSnapshots.saveColdPassport` под общим `diskAccess` выполняет cold-barrier → secure `TripPassStore.commitSecure` с read-back и SHA-256 → подтверждённый snapshot/proof → grant-last → снятие barrier. Grant связан с owner/origin/scope/booking/ride, исходным private fingerprint и точными байтами паспорта; приватный payload в snapshot-документ не дублируется. Старые TripPass/schema v2/ROLE/POST/receipt grant разрешения не создают; driver CODE остаётся online-only.

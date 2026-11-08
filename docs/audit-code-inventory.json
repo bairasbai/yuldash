@@ -10457,8 +10457,8 @@
       "path": "backend/tests/test_meeting_cleanup_race_pg.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "3f72ee2117ebb62ee25dc3a738ff6c90e4c9e02aaa1ce0745787d694070790ec",
-      "lines": 126
+      "sha256": "e984c0eec99bb0574ff4918c22743cbbfbc0a68fee77e9a7ab16b1cea367bdad",
+      "lines": 141
     },
     {
       "path": "backend/tests/test_meeting_commands.py",

@@ -2,19 +2,20 @@
 
 Real PostgreSQL READ COMMITTED with a barrier immediately before the actual UPDATE.
 SQLite cannot prove this statement-snapshot race and is explicitly skipped.
-No production cleanup change is included in the initial RED-test revision.
+Each case gets a fresh database so unrelated fixture rows cannot affect the cleanup count.
 """
 import json
 import threading
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import create_engine, event
 from sqlmodel import Session
 
 from app import cleanup
 from app.db import engine
 from app.models import Booking, BookingStatus, Incident, Report, SosEvent
 from test_cleanup import _ride_with_booking
+from walk.l1_1.test_l1_1_refund_migration import _cfg, fresh_db
 
 pytestmark = [
     pytest.mark.skipif(engine.dialect.name != "postgresql", reason="READ COMMITTED race requires PostgreSQL"),
@@ -24,9 +25,23 @@ FIELDS = ("meet_lat", "meet_lng", "meet_note", "meet_landmark_id", "alight_lat",
           "alight_note", "alight_landmark_id", "meet_proposal")
 
 
+@pytest.fixture
+def isolated_engine(fresh_db):
+    from alembic import command
+
+    command.upgrade(_cfg(), "head")
+    engine = create_engine(fresh_db)
+    try:
+        yield engine
+    finally:
+        engine.dispose()
+
+
 @pytest.mark.parametrize("kind", ["sos", "incident", "report"])
 @pytest.mark.parametrize("transition", ["insert", "reopen"])
-def test_protection_committed_after_selection_prevents_wipe_pg(client, monkeypatch, kind, transition):
+def test_protection_committed_after_selection_prevents_wipe_pg(isolated_engine, monkeypatch, kind, transition):
+    monkeypatch.setattr(cleanup, "engine", isolated_engine)
+    monkeypatch.setattr("test_meeting_cleanup_race_pg.engine", isolated_engine)
     monkeypatch.setattr(cleanup, "DRY", False)
     with Session(engine) as session:
         bid = _ride_with_booking(session, status=BookingStatus.done, depart_days_ago=60, confirmed=True)
