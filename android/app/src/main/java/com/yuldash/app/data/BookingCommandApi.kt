@@ -22,12 +22,17 @@ internal object BookingCommandApi {
     suspend fun book(rideId: Int, body: JSONObject, expectedGeneration: Long,
                      previousKey: String?, retry: Boolean): Result<BookingCreatedDto> {
         val owner = bookingCommandOwner(expectedGeneration).getOrElse { return Result.failure(it) }
-        val snapshot = runCatching {
-            CommandFingerprint.create(BookingCommandOutcome.SCOPE, rideId.toLong(), body)
-        }.getOrElse { return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Storage)) }
-        val slot = withBookingCommands(owner) {
+        val (snapshot, slot) = withBookingCommands(owner) {
             if (deletingGeneration == owner.generation) throw stale()
-            prepare(owner.account, rideId, snapshot.payloadHash, previousKey, retry)
+            // Reserving or returning a seat advances the public version of the ride.
+            // Replaying the original command must keep its precondition and still match the entire body.
+            val originalTerms = if (retry) list(owner.account)
+                .firstOrNull { it.rideId == rideId && it.key == previousKey }?.bookingTerms else null
+            val currentTerms = CommandIntent.BookingTerms(
+                if (body.isNull("expected_terms_version")) null else body.getLong("expected_terms_version"),
+            )
+            val snapshot = bookingCommandSnapshot(rideId, body, originalTerms)
+            snapshot to prepare(owner.account, rideId, snapshot.payloadHash, previousKey, retry, currentTerms)
         }.getOrElse { return Result.failure(it) }
         val response = ApiClient.bookingCommandRequest("POST", BookingCommandOutcome.PATH, snapshot.wireBody,
             owner.generation, owner.base, slot.key)
@@ -171,6 +176,18 @@ internal object BookingCommandApi {
             outcome
         }
     }
+}
+
+internal fun bookingCommandSnapshot(
+    rideId: Int, body: JSONObject, originalTerms: CommandIntent.BookingTerms?,
+): CommandFingerprint.Snapshot = try {
+    val outgoing = if (originalTerms == null) body else JSONObject(body, body.keys().asSequence().toList().toTypedArray()).apply {
+        if (originalTerms.version == null) remove("expected_terms_version")
+        else put("expected_terms_version", originalTerms.version)
+    }
+    CommandFingerprint.create(BookingCommandOutcome.SCOPE, rideId.toLong(), outgoing)
+} catch (_: Exception) {
+    throw CommandIntent.Failure(CommandIntent.Problem.Storage)
 }
 
 internal fun bookingPayload(

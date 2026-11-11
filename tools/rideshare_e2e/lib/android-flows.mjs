@@ -127,28 +127,33 @@ export async function searchAndOpen({ from, to, cardText }) {
   return cardTexts;
 }
 
-/** Tap the first of `options` that appears below the heading `head` (scrolling as needed). */
+/** Choose and verify a stop below the heading, even when the selected row stops being clickable. */
 export async function tapOptionAfter(head, options) {
   const [, h] = A.screenSize();
   for (let i = 0; i < 10; i++) {
     const nodes = A.dump();
     const hd = A.find(nodes, head);
     if (hd) {
-      const opt = nodes.filter((n) => options.includes(n.text) && n.box[1] > hd.box[1]).sort((a, b) => a.box[1] - b.box[1])[0];
-      if (opt && opt.box[3] < h * 0.88) { A.tapXY(...A.center(opt)); log("android.option", { head: String(head), option: opt.text }); await sleep(600); return opt.text; }
-      await A.swipeUp(0.25);
+      const option = A.stopOption(nodes, head, options);
+      if (option?.checked) return option.label;
+      const action = option?.action;
+      if (action?.enabled === "true" && action.box[3] < h * 0.88) {
+        A.tapXY(...A.center(action));
+        log("android.option", { head: String(head), option: option.label });
+        await sleep(600);
+      } else await A.swipeUp(0.25);
     } else {
       await A.scrollTo(head);
     }
   }
-  throw new Error(`option ${options} not reachable after ${head}`);
+  throw new Error(`option ${options} not selected after ${head}`);
 }
 
 export async function chooseStopsAndBook({ pickup, dropoff }) {
   if (pickup) await tapOptionAfter("Где садишься?", [pickup, `Начало маршрута · ${pickup}`]);
   if (dropoff) await tapOptionAfter("Где выходишь?", [dropoff, `Конец маршрута · ${dropoff}`]);
   A.screencap("android-booking-choice");
-  await A.tapText("Забронировать место", { what: "book" });
+  await A.tapEnabledText("Забронировать место");
   await A.waitFor("Отменить бронь", { timeout: 20000 });
   log("android.booked", { pickup, dropoff });
 }

@@ -93,6 +93,36 @@ assert.equal((await api.createBooking(body, signal(), ownerA(), after404, true))
 assert.equal(posts, 2);
 console.log("PASS two tabs, old server 404 and manual retry with the same key");
 
+for (const originalVersion of [0, undefined]) {
+  restore();
+  const requests = [];
+  globalThis.fetch = async (url, options) => {
+    assert.equal(new URL(url).pathname, "/bookings/commands/v1");
+    requests.push({ body: options.body, key: options.headers["Idempotency-Key"] });
+    if (requests.length === 1) throw new TypeError("network closed after server commit");
+    return reply({ ...booking, status: "cancelled" });
+  };
+  await assert.rejects(api.createBooking({ ...body, expected_terms_version: originalVersion }, signal(), ownerA()), problem("unknown"));
+  const savedTerms = await restarted.readBookingCommand(ownerA(), body.ride_id);
+  assert.equal(savedTerms.expectedTermsVersion, originalVersion ?? null);
+  const refreshed = { ...body, expected_terms_version: 2 };
+  await assert.rejects(restarted.createBooking({ ...refreshed, seats: 3 }, signal(), ownerA(), savedTerms, true),
+    error => error.kind === "changed");
+  assert.equal(requests.length, 1);
+  assert.equal((await restarted.createBooking(refreshed, signal(), ownerA(), savedTerms, true)).status, "cancelled");
+  assert.deepEqual(requests[0], requests[1]);
+  assert.equal(refreshed.expected_terms_version, 2);
+}
+restore();
+const legacyBody = { ...body, expected_terms_version: 0 };
+const legacyHash = await api.commandFingerprint("booking.create", body.ride_id, legacyBody);
+const legacy = (await api.reserveBookingCommand(ownerA(), body.ride_id, legacyHash.payloadHash)).command;
+assert.equal(legacy.expectedTermsVersion, undefined);
+globalThis.fetch = async () => { assert.fail("a legacy record cannot guess an older version"); };
+await assert.rejects(api.createBooking({ ...legacyBody, expected_terms_version: 2 }, signal(), ownerA(), legacy, true),
+  problem("changed"));
+console.log("PASS replay keeps the exact original terms after seat changes and rejects edited bookings");
+
 const credentials = restore();
 let releasePost;
 let began;

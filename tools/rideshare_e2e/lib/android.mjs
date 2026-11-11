@@ -22,14 +22,47 @@ export const sh = (cmd, o) => adb(["shell", cmd], o);
 function decode(s) { return s.replace(/&#(\d+);/g, (m, d) => (d === "10" || d === "13" ? m : String.fromCodePoint(Number(d)))).replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&#10;/g, "\n").replace(/&#13;/g, "").replace(/&amp;/g, "&"); }
 export function parse(xml) {
   const nodes = [];
-  for (const m of xml.matchAll(/<node ([^>]*?)\/?>/g)) {
+  const parents = [];
+  for (const m of xml.matchAll(/<node ([^>]*?)(\/?)>|<\/node>/g)) {
+    if (m[1] === undefined) {
+      parents.pop();
+      continue;
+    }
     const a = {};
     for (const am of m[1].matchAll(/([\w-]+)="([^"]*)"/g)) a[am[1]] = decode(am[2]);
     const b = (a.bounds || "").match(/\[(\d+),(\d+)\]\[(\d+),(\d+)\]/);
     if (b) a.box = b.slice(1).map(Number);
+    Object.defineProperty(a, "parent", { value: parents.at(-1) });
     nodes.push(a);
+    if (m[2] !== "/") parents.push(a);
   }
   return nodes;
+}
+
+export function actionNode(labelNode) {
+  for (let node = labelNode; node; node = node.parent) {
+    if (node.enabled === "false") return null;
+    if (node.clickable === "true" && node.box) return node;
+  }
+  return null;
+}
+
+export function checkedNode(labelNode) {
+  for (let node = labelNode; node; node = node.parent) {
+    if (node.checkable === "true" && (node.checked === "true" || node.selected === "true")) return node;
+  }
+  return null;
+}
+
+export function stopOption(nodes, heading, options) {
+  const section = find(nodes, heading)?.parent;
+  if (!section) return null;
+  const labelNode = nodes.find(node => {
+    if (!node.box || !options.includes(node.text)) return false;
+    for (let parent = node.parent; parent; parent = parent.parent) if (parent === section) return true;
+    return false;
+  });
+  return labelNode && { label: labelNode.text, checked: checkedNode(labelNode) !== null, action: actionNode(labelNode) };
 }
 
 let dumpN = 0;
@@ -72,6 +105,19 @@ export async function tapText(want, { index = 0, timeout = 20000, what = null } 
   log("android.tap", { want: String(want), what, at: [x, y] });
   await sleep(500);
   return n;
+}
+
+export async function tapEnabledText(want, { timeout = 20000 } = {}) {
+  const deadline = Date.now() + timeout;
+  while (Date.now() < deadline) {
+    const node = actionNode(find(dump(), want));
+    if (node?.enabled === "true") {
+      tapXY(...center(node));
+      return node;
+    }
+    await sleep(600);
+  }
+  throw new Error("android: enabled action not reachable: " + want);
 }
 export async function waitFor(want, { index = 0, timeout = 20000, gone = false } = {}) {
   const t0 = Date.now();

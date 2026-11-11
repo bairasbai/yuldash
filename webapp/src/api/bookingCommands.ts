@@ -51,21 +51,24 @@ export async function createBooking(
   let command: BookingCommand;
   let wireBody: string;
   try {
-    const snapshot = await commandFingerprint(BOOKING_COMMAND_SCOPE, body.ride_id, body);
+    const current = retry ? await readBookingCommand(owner, body.ride_id) : undefined;
+    if (retry && (!current || current.key !== prior?.key || current.state !== "unknown")) {
+      throw new BookingCommandProblem("unknown", current);
+    }
+    // The ride's public version can move when this very request reserves a seat.
+    const outgoing = current?.expectedTermsVersion === undefined ? body
+      : { ...body, expected_terms_version: current.expectedTermsVersion ?? undefined };
+    const snapshot = await commandFingerprint(BOOKING_COMMAND_SCOPE, body.ride_id, outgoing);
     if (snapshot.wireBody === undefined) throw new Error("Missing booking body");
     wireBody = snapshot.wireBody;
-    if (retry) {
-      const current = await readBookingCommand(owner, body.ride_id);
-      if (!current || current.key !== prior?.key || current.state !== "unknown") {
-        throw new BookingCommandProblem("unknown", current);
-      }
+    if (current) {
       if (current.hash !== snapshot.payloadHash) throw new BookingCommandProblem("changed", current);
       const age = Date.now() - current.createdAt;
       if (age < 0 || age >= BOOKING_RETRY_WINDOW) throw new BookingCommandProblem("expired", current);
       command = current;
     } else {
       const reservation = await reserveBookingCommand(owner, body.ride_id, snapshot.payloadHash,
-        prior && prior.state !== "unknown" ? prior.key : undefined);
+        prior && prior.state !== "unknown" ? prior.key : undefined, body.expected_terms_version ?? null);
       if (reservation.status === "full") throw new BookingCommandProblem("full");
       if (reservation.status === "existing") throw new BookingCommandProblem("unknown", reservation.command);
       command = reservation.command;
