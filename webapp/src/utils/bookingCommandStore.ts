@@ -2,13 +2,21 @@ import { API_BASE, isAccountSession } from "../api/client";
 import { COMMAND_KEY_PREFIX } from "./commandFingerprint";
 
 type State = "unknown" | "applied" | "rejected" | "closed_no_effect";
-export interface BookingCommand {
-  rideId: number;
+interface CommandSlot {
   key: string;
   hash: string;
   createdAt: number;
   state: State;
 }
+export interface BookingCommand extends CommandSlot {
+  rideId: number;
+}
+export interface RidePublication extends CommandSlot {
+  draftHash: string;
+  stopLanguage: "ru" | "ba";
+  utcOffsetMinutes: number;
+}
+type PublicationRow = RidePublication | { key: string; state: "released" };
 export interface BookingCommandOwner {
   userId: number;
   generation: string;
@@ -29,9 +37,10 @@ export function isCurrentBookingOwner(owner: BookingCommandOwner): boolean {
   return isAccountSession(owner);
 }
 
-type Edit<T> = { result: T; updated?: BookingCommand[] | null };
-async function transaction<T>(
-  owner: BookingCommandOwner, edit: (rows: BookingCommand[]) => Edit<T>, requireCurrent = true,
+type Edit<T, Row> = { result: T; updated?: Row[] | null };
+async function transaction<T, Row = BookingCommand>(
+  owner: BookingCommandOwner, edit: (rows: Row[]) => Edit<T, Row>,
+  requireCurrent = true, storageKey = owner.namespace,
 ): Promise<T> {
   const active = () => !requireCurrent || isCurrentBookingOwner(owner);
   if (!active()) throw new Error("Booking session changed");
@@ -54,14 +63,14 @@ async function transaction<T>(
       let result: T;
       tx.onabort = () => reject(tx.error ?? new Error("Booking storage aborted"));
       tx.oncomplete = () => active() ? resolve(result) : reject(new Error("Booking session changed"));
-      const request = store.get(owner.namespace);
+      const request = store.get(storageKey);
       request.onsuccess = () => {
         try {
           if (!active()) throw new Error("Booking session changed");
           const { updated, result: value } = edit(request.result ?? []);
           result = value;
-          if (updated === null) store.delete(owner.namespace);
-          else if (updated !== undefined) store.put(updated, owner.namespace);
+          if (updated === null) store.delete(storageKey);
+          else if (updated !== undefined) store.put(updated, storageKey);
         } catch (error) { tx.abort(); reject(error); }
       };
     });
@@ -112,7 +121,63 @@ export function resolveBookingCommand(
   });
 }
 
+function publicationKey(owner: BookingCommandOwner): string {
+  return JSON.stringify(["ride.create", owner.namespace]);
+}
+
+function publicationTransaction<T>(
+  owner: BookingCommandOwner, edit: (rows: PublicationRow[]) => Edit<T, PublicationRow>,
+  requireCurrent = true,
+): Promise<T> {
+  return transaction(owner, edit, requireCurrent, publicationKey(owner));
+}
+
+export function readPublicationSlot(owner: BookingCommandOwner) {
+  return publicationTransaction(owner, ([row]) => ({
+    result: { revision: row?.key ?? null, command: row?.state === "released" ? undefined : row },
+  }));
+}
+
+type PublicationReservation =
+  | { status: "reserved" | "existing"; command: RidePublication }
+  | { status: "stale" };
+
+export function reserveRidePublication(
+  owner: BookingCommandOwner, revision: string | null, hash: string,
+  normalization: Pick<RidePublication, "draftHash" | "stopLanguage" | "utcOffsetMinutes">,
+) {
+  return publicationTransaction<PublicationReservation>(owner, ([prior]) => {
+    if (prior && prior.state !== "released") return { result: { status: "existing", command: prior } };
+    if ((prior?.key ?? null) !== revision) return { result: { status: "stale" } };
+    const command: RidePublication = {
+      key: COMMAND_KEY_PREFIX + crypto.randomUUID(), hash, ...normalization,
+      createdAt: Date.now(), state: "unknown",
+    };
+    return { result: { status: "reserved", command }, updated: [command] };
+  });
+}
+
+export function resolveRidePublication(
+  owner: BookingCommandOwner, command: RidePublication, state: Exclude<State, "unknown">,
+): Promise<boolean> {
+  return publicationTransaction(owner, ([current]) => {
+    if (current?.key !== command.key) return { result: false };
+    if (current.state !== "unknown") return { result: current.state === state };
+    return { result: true, updated: [{ ...current, state }] };
+  });
+}
+
+export function releaseRidePublication(owner: BookingCommandOwner, command: RidePublication): Promise<boolean> {
+  return publicationTransaction(owner, ([current]) => {
+    if (current?.key !== command.key || current.state === "unknown" || current.state === "released") return { result: false };
+    return { result: true, updated: [{ key: current.key, state: "released" }] };
+  });
+}
+
 /** Call only after deleting the account and publishing the logged-out generation. */
-export function purgeBookingCommands(owner: BookingCommandOwner): Promise<void> {
-  return transaction(owner, () => ({ result: undefined, updated: null }), false);
+export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<void> {
+  await Promise.all([
+    transaction(owner, () => ({ result: undefined, updated: null }), false),
+    publicationTransaction(owner, () => ({ result: undefined, updated: null }), false),
+  ]);
 }

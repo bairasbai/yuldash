@@ -13,14 +13,17 @@ for (const entry of entries) {
     mocks[path]="export default function Stub(){return null;}\n"+names.map(n=>`export const ${n}=()=>null;`).join("\n");
   }
 }
-mocks.react=`const h=()=>globalThis.__parcelRide;export const useState=v=>{const s=h(),i=s.cursor++;if(!(i in s.slots))s.slots[i]=typeof v==='function'?v():v;return[s.slots[i],v=>{s.slots[i]=typeof v==='function'?v(s.slots[i]):v;s.dirty=true;}];};export const useRef=v=>{const s=h(),i=s.cursor++;return s.slots[i]??={current:v};};export const useEffect=()=>{};`;
+mocks.react=`const h=()=>globalThis.__parcelRide;export const useState=v=>{const s=h(),i=s.cursor++;if(!(i in s.slots))s.slots[i]=typeof v==='function'?v():v;return[s.slots[i],v=>{s.slots[i]=typeof v==='function'?v(s.slots[i]):v;s.dirty=true;}];};export const useRef=v=>{const s=h(),i=s.cursor++;return s.slots[i]??={current:v};};export const useMemo=f=>f();export const useEffect=()=>{};`;
 mocks["react/jsx-runtime"]="export const Fragment='fragment';export const jsx=(type,props)=>({type,props});export const jsxs=jsx;";
 mocks["react-router-dom"]="export const useNavigate=()=> (...args)=>globalThis.__parcelRide.routes.push(args);";
 mocks["../i18n/lang"]="export const useLang=()=>({lang:globalThis.__parcelRide.lang,appText:(ru,ba)=>globalThis.__parcelRide.lang==='ba'?ba:ru});";
-mocks["../auth/AuthProvider"]="export const useAuth=()=>({isAuthed:true});";
+mocks["../auth/AuthProvider"]="export const useAuth=()=>({isAuthed:true,status:'authed',user:{id:7,created_at:'fixture'}});";
 mocks["../features"]="export const getFeatures=()=>({parcels:globalThis.__parcelRide.parcels,ready:true});export const useFeatures=getFeatures;";
-mocks["../utils/formDraft"]="export const clearDraft=()=>{};export const useDraftSync=(key,state,apply)=>{const h=globalThis.__parcelRide;if(!h.hydrated){h.hydrated=true;apply(h.draft);}};";
-mocks["../api/driver"]="export const fetchPriceHint=async()=>({});export const publishRide=async body=>{globalThis.__parcelRide.published.push(body);return{id:42};};";
+mocks["../utils/formDraft"]="export const clearDraft=()=>{};export const readDraft=()=>null;export const useDraftSync=(key,state,apply)=>{const h=globalThis.__parcelRide;if(!h.hydrated){h.hydrated=true;apply(h.draft);}};";
+mocks["../api/driver"]="export const fetchPriceHint=async()=>({});";
+mocks["../utils/bookingCommandStore"]="export const bookingCommandOwner=()=>({});export const isCurrentBookingOwner=()=>true;export const releaseRidePublication=async()=>true;";
+mocks["../utils/useSavedPublication"]="export const useSavedPublication=owner=>({publication:{owner},setSavedPublication(){},reloadPublication(){}});";
+mocks["../api/ridePublication"]="export class PublicationProblem extends Error{};export const publicationDraftHash=async()=>'draft';export const checkRidePublication=async()=>({state:'unseen'});export const publishRide=async body=>{globalThis.__parcelRide.published.push(body);return{command:{key:'fixture',draftHash:'draft'},result:{state:'applied',ride:{id:42,status:'active'}}};};";
 mocks["../api/bookingCommands"]=bookingCommandStub("export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};");
 mocks["../api/client"]="export class ApiError extends Error{}export const getSessionGeneration=()=> 'same-owner';";
 mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";

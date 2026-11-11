@@ -34,6 +34,7 @@ import { useTaxiOrderOnScreen } from "./navSignals";
 import { useAuth } from "./auth/AuthProvider";
 import { useLang } from "./i18n/lang";
 import { fetchDriverDebt } from "./api/driver";
+import { getSessionGeneration } from "./api/client";
 import { disableFeatures, refreshFeatures, useFeatures } from "./features";
 import { isTaxiOpen } from "./featureRules";
 
@@ -206,6 +207,7 @@ function TaxiGuestGate({ children }: { children: ReactNode }) {
 
 export default function App() {
   const { status: queueStatus, user: queueUser } = useAuth();
+  const { key: routeKey } = useLocation();
   // Приложение поднялось — значит куски грузятся. Снимаем метку разовой
   // перезагрузки, чтобы следующее обновление сайта тоже сработало.
   useEffect(() => {
@@ -499,7 +501,7 @@ export default function App() {
           path="/create-ride"
           element={
             <RequireAuth>
-              <CreateRideScreen />
+              <CreateRideScreen key={JSON.stringify([getSessionGeneration(), queueUser?.id, queueUser?.created_at, routeKey])} />
             </RequireAuth>
           }
         />

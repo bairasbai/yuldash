@@ -141,8 +141,12 @@ for (const lang of ["ru", "ba"]) {
       "/api/geo": geoMock, "/api/client": clientMock, "/i18n/lang": langMock(lang),
       "/features": "export const useFeatures=()=>({parcels:true});export const getFeatures=useFeatures;",
       "/WeatherWarningCard": "export default 'Weather';export const useRouteWeather=()=>null;",
-      "/api/driver": `export const fetchPriceHint=async()=>({});export const publishRide=async body=>{const f=globalThis.__createRideStops;f.published.push(body);if(f.reject)throw new globalThis.__stopApiError('Остановка временно недоступна');return{id:42};};`,
-      "/utils/formDraft": `export const useDraftSync=(key,value,apply)=>{const f=globalThis.__createRideStops;if(!f.hydrated){f.hydrated=true;apply(f.draft);}};export const clearDraft=()=>globalThis.__createRideStops.cleared++;`,
+      "/api/driver": "export const fetchPriceHint=async()=>({});",
+      "/auth/AuthProvider": "export const useAuth=()=>({status:'authed',user:{id:7,created_at:'fixture'}});",
+      "/utils/bookingCommandStore": "export const bookingCommandOwner=(user,generation)=>({generation});export const isCurrentBookingOwner=owner=>owner.generation===globalThis.__createRideStops.owner;export const releaseRidePublication=async()=>true;",
+      "/utils/useSavedPublication": "export const useSavedPublication=owner=>({publication:{owner},setSavedPublication(){},reloadPublication(){}});",
+      "/api/ridePublication": `export class PublicationProblem extends Error{};export const publicationDraftHash=async()=>'draft';export const checkRidePublication=async()=>({state:'unseen'});export const publishRide=async body=>{const f=globalThis.__createRideStops;f.published.push(body);if(f.reject)throw new globalThis.__stopApiError('Остановка временно недоступна');return{command:{key:'fixture',draftHash:'draft'},result:{state:'applied',ride:{id:42,status:'active'}}};};`,
+      "/utils/formDraft": `export const useDraftSync=(key,value,apply)=>{const f=globalThis.__createRideStops;if(!f.hydrated){f.hydrated=true;apply(f.draft);}};export const readDraft=()=>null;export const clearDraft=()=>globalThis.__createRideStops.cleared++;`,
     },
   });
   const stops = (tree) => all(tree).filter((node) => typeof node.type === "function" && node.type.name === "StopSuggestField");

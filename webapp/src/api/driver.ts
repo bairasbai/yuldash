@@ -60,11 +60,6 @@ export interface RideCreateInput {
   stop_prices?: number[];
 }
 
-/** POST /rides → созданная поездка (Ride). RequireAuth. */
-export function publishRide(body: RideCreateInput): Promise<Ride> {
-  return apiPost<Ride>("/rides", body);
-}
-
 // ----------------------------- Онлайн-статус / профиль -----------------------------
 /** GET /driver/status — сводка своего водительского профиля (только для себя). */
 export interface DriverStatus {
