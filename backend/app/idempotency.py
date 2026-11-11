@@ -18,7 +18,7 @@ from sqlmodel import Session, select
 from .errors import herr
 from .logs import log
 from .meeting_points import booking_public_dto
-from .models import Booking, BookingStatus, CommandReceipt, Ride, RideStatus
+from .models import Booking, BookingStatus, CommandReceipt, Ride, RideStatus, User, UserRole
 from .services import is_blocked, ride_out
 from .timeutil import utcnow
 
@@ -118,7 +118,11 @@ def _current(session: Session, owner_id: int, receipt: CommandReceipt) -> dict |
         if ride is None or ride.created_at != receipt.ref_created_at:
             return None
         if ride.driver_id != owner_id:
-            raise _denied()
+            actor = session.get(User, owner_id, populate_existing=True)
+            if actor is None or actor.role != UserRole.admin or receipt.scope not in (
+                Scope.RIDE_CANCEL.value, Scope.RIDE_COMPLETE.value,
+            ):
+                raise _denied()
         return ride_command_dto(session, ride)
 
     booking = session.get(Booking, receipt.ref_id, populate_existing=True)
@@ -133,7 +137,12 @@ def _current(session: Session, owner_id: int, receipt: CommandReceipt) -> dict |
 
 
 def ride_command_dto(session: Session, ride: Ride) -> dict:
+    from .ride_stops import clean_waypoints, split_raw
+
     current = ride_out(ride, session).model_dump(mode="json")
+    current["waypoints"] = clean_waypoints(ride)
+    stops = set(split_raw(current["waypoints"]))
+    current["stop_prices"] = [entry for entry in current["stop_prices"] if entry["stop"] in stops]
     if ride.status != RideStatus.active:
         current.update(pickup_lat=None, pickup_lng=None, pickup="", comment="", receiver_name=None)
     return current
@@ -150,6 +159,11 @@ def booking_command_dto(session: Session, booking: Booking, ride: Ride, owner_id
             dropoff_landmark_ba="", dropoff_source="", meeting_proposal=None, meeting_proposal_pending=False,
         )
     return jsonable_encoder(current)
+
+
+def booking_applied(session: Session, booking: Booking, ride: Ride, owner_id: int, *,
+                    after_commit: Callable[[], None] | None = None) -> Applied:
+    return Applied(booking.id, booking.created_at, booking_command_dto(session, booking, ride, owner_id), after_commit)
 
 
 def _view(session: Session, owner_id: int, receipt: CommandReceipt | None) -> dict:
@@ -174,6 +188,33 @@ _FINAL_REFUSALS = {
     "front_seat_taken": (409, "Переднее место уже занято", "Алғы урын инде алынған"),
     "cancel_terms_changed": (409, "Условия отмены изменились.", "Кире алыу шарттары үҙгәрҙе."),
     "driver_marks_boarding": (409, "Посадку отмечает водитель.", "Ултырыуҙы йөрөтөүсе билдәләй."),
+    "booking_cannot_confirm": (400, "Эту бронь уже нельзя подтвердить", "Был бронде инде раҫлап булмай"),
+    "onboard_no_cancel": (409, "Водитель отметил посадку. Не садился — сообщи о проблеме.",
+                          "Йөрөтөүсе ултырыуҙы билдәләне. Ултырмаған булһаң — проблема тураһында хәбәр ит."),
+    "passenger_onboard": (409, "Пассажир уже отмечен в машине.", "Пассажир машинала тип билдәләнгән инде."),
+    "no_show_needs_arriving": (409, "Сначала отметь «Подъезжаю».", "Тәүҙә «Яҡынлашам» тип билдәлә."),
+    "no_show_too_early": (409, "Пассажир ещё может подойти.", "Пассажир әле килеп етеүе мөмкин."),
+    "no_show_requires_confirmed": (409, "Неявку можно отметить только по подтверждённой брони",
+                                   "Килмәүҙе тик раҫланған бронь буйынса ғына билдәләп була"),
+    "ride_already_completed": (400, "Поездка уже завершена", "Сәфәр инде тамамланған"),
+    "ride_cancelled": (400, "Поездка отменена — завершать нечего", "Сәфәр кире алынған — тамамлар нәмә юҡ"),
+    "trip_not_started": (409, "Поездка ещё не началась — завершить можно после времени выезда",
+                         "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була"),
+    "trip_inactive": (409, "Поездка не активна", "Сәфәр актив түгел"),
+    "driver_status_invalid": (400, "Недопустимый статус", "Ярамаған хәл"),
+    "boarding_requires_confirmed": (409, "Посадку можно отметить только у подтверждённого пассажира",
+                                    "Ултырыуҙы тик раҫланған пассажирға ғына билдәләп була"),
+    "boarding_too_early": (409, "Пока рано отмечать посадку.", "Ултырыуҙы билдәләргә әле иртә."),
+    "departed_too_early": (409, "Пока рано отмечать выезд.", "Юлға сығыуҙы билдәләргә әле иртә."),
+    "arriving_too_early": (409, "Пока рано отмечать прибытие.", "Яҡынлашыуҙы билдәләргә әле иртә."),
+    "arriving_too_far": (409, "Машина ещё далеко от места встречи.", "Машина осрашыу урынынан әле алыҫ."),
+    "trip_status_invalid": (400, "Недопустимый статус поездки", "Ярамаған сәфәр хәле"),
+    "arrived_requires_onboard": (409, "«Доехал» можно отметить в пути — после отметки посадки.",
+                                 "«Барып еттем» тип ултырыуҙы билдәләгәндән һуң әйтеп була."),
+    "done_requires_onboard": (409, "Поездку завершит водитель после посадки",
+                              "Сәфәрҙе ултырғандан һуң йөрөтөүсе тамамлар"),
+    "boarding_undo_open": (409, "Водитель только что отметил посадку. Подожди немного.",
+                          "Йөрөтөүсе әле генә ултырыуҙы билдәләне. Бер аҙ көт."),
 }
 
 
@@ -183,7 +224,8 @@ def _final_refusal(error: HTTPException) -> str | None:
     return code if saved and error.status_code == saved[0] else None
 
 
-def _replay(session: Session, owner_id: int, command: Command, receipt: CommandReceipt) -> dict:
+def _replay(session: Session, owner_id: int, command: Command, receipt: CommandReceipt,
+            rejected_response: Callable[[str], HTTPException | None] | None) -> dict:
     _match(receipt, command)
     view = _view(session, owner_id, receipt)
     if utcnow() - receipt.created_at >= timedelta(hours=REPLAY_HOURS):
@@ -191,6 +233,10 @@ def _replay(session: Session, owner_id: int, command: Command, receipt: CommandR
                    "Туранан-тура ҡабатлау иҫкерҙе. Һаҡланған һөҙөмтәне тикшер.",
                    code="idempotency_key_expired", intent_path=f"/command-intents/{command.key}")
     if receipt.state == "rejected":
+        if rejected_response is not None:
+            response = rejected_response(receipt.result_code)
+            if response is not None:
+                raise response
         status, ru, ba = _FINAL_REFUSALS[receipt.result_code]
         raise herr(status, ru, ba, code=receipt.result_code)
     if receipt.state == "closed_no_effect":
@@ -230,10 +276,11 @@ def _winner(session: Session, owner_id: int, command: Command, error: IntegrityE
 
 
 def execute(session: Session, owner_id: int, command: Command, apply: Callable[[], Applied], *,
-            replay_response: Callable[[dict], Any] | None = None, prepare: Callable[[], None] | None = None) -> Any:
+            replay_response: Callable[[dict], Any] | None = None, prepare: Callable[[], None] | None = None,
+            rejected_response: Callable[[str], HTTPException | None] | None = None) -> Any:
     """apply пишет во вложенной транзакции. Только execute завершает внешнюю."""
     def replay(receipt: CommandReceipt) -> Any:
-        current = _replay(session, owner_id, command, receipt)
+        current = _replay(session, owner_id, command, receipt, rejected_response)
         return replay_response(current) if replay_response is not None else current
 
     try:

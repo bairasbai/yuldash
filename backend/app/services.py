@@ -7,6 +7,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 `main.py` разрезан без дублирования логики (поведение 1:1).
 """
 from collections import deque
+from collections.abc import Callable
 from datetime import timedelta
 import base64
 import json
@@ -236,6 +237,20 @@ def booking_and_ride_for_user(session: Session, booking_id: int, user: User) -> 
     ride = session.get(Ride, booking.ride_id)
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
+    if booking.passenger_id != user.id and ride.driver_id != user.id:
+        raise herr(403, "Нет доступа к этой брони", "Был урын һаҡлауға инеү юҡ")
+    return booking, ride
+
+
+def lock_booking_and_ride_for_user(session: Session, booking_id: int, user: User) -> tuple[Booking, Ride]:
+    """Проверить участие и перечитать состояние под замками Ride → Booking."""
+    _, original_ride = booking_and_ride_for_user(session, booking_id, user)
+    ride = session.exec(select(Ride).where(Ride.id == original_ride.id)
+                        .with_for_update().execution_options(populate_existing=True)).first()
+    booking = session.exec(select(Booking).where(Booking.id == booking_id)
+                           .with_for_update().execution_options(populate_existing=True)).first()
+    if booking is None or ride is None or booking.ride_id != ride.id:
+        raise herr(404, "Бронь не найдена", "Урын һаҡлау табылманы")
     if booking.passenger_id != user.id and ride.driver_id != user.id:
         raise herr(403, "Нет доступа к этой брони", "Был урын һаҡлауға инеү юҡ")
     return booking, ride
@@ -728,6 +743,7 @@ def push_notification(
     data: "dict | None" = None,
     urgent: bool = False,
     storm_exempt: bool = False,
+    record_if: Callable[[Session], bool] | None = None,
 ) -> None:
     """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
 
@@ -754,6 +770,8 @@ def push_notification(
         push = False
     try:
         with Session(engine) as s:
+            if record_if is not None and not record_if(s):
+                return
             if not storm_exempt and _notify_storm(s, user_id, ref_kind, ref_id):
                 return
             s.add(Notification(
@@ -768,6 +786,9 @@ def push_notification(
             ))
             s.commit()
     except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
+        if record_if is not None:
+            log.warning("[NOTIFY] Guarded write failed: %s", type(e).__name__)
+            return
         log.warning(f"[NOTIFY] db error: {e}")
     if push:
         # Язык получателя: BA-пользователю пуш уходит на башкирском (клиент пишет выбор
