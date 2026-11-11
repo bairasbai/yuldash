@@ -6,7 +6,7 @@ import org.json.JSONObject
 internal data class RidePublicationOutcome(
     val state: CommandIntent.State,
     val ride: RideDto? = null,
-    val rejectionCode: String? = null,
+    val rejectionMessage: String? = null,
 ) {
     companion object {
         const val SCOPE = "ride.create"
@@ -40,7 +40,6 @@ internal data class RidePublicationOutcome(
                     require(body.isNull("ref_id") && body.isNull("ref_kind") && body.isNull("current"))
                     RidePublicationOutcome(
                         if (state == "rejected") CommandIntent.State.Rejected else CommandIntent.State.Closed,
-                        rejectionCode = body.opt("result_code") as? String,
                     )
                 }
                 else -> error("Unexpected publication result")
@@ -92,7 +91,12 @@ internal object RidePublicationApi {
         val refusal = response.exceptionOrNull() as? ApiException
         if (refusal != null && refusal.status in 400..499 && refusal.status !in setOf(401, 404, 405, 408, 429)) {
             val outcome = check(owner, slot, close = false).getOrNull()
-            if (outcome != null && outcome.state != CommandIntent.State.Unknown) return Result.success(RidePublicationSubmission(slot, outcome))
+            if (outcome != null && outcome.state != CommandIntent.State.Unknown) {
+                val checked = if (outcome.state == CommandIntent.State.Rejected) {
+                    outcome.copy(rejectionMessage = refusal.message)
+                } else outcome
+                return Result.success(RidePublicationSubmission(slot, checked))
+            }
         }
         return Result.failure(RidePublicationIntent.Failure(CommandIntent.Problem.Unknown, slot, refusal))
     }

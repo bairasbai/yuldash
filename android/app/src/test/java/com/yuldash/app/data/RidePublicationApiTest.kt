@@ -123,6 +123,16 @@ class RidePublicationApiTest {
         assertEquals(4, server.requestCount)
     }
 
+    @Test fun confirmedRefusalKeepsServerExplanation() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(400)
+            .setBody("""{"detail":{"ru":"Время выезда уже прошло","ba":"Сығыу ваҡыты үткән"}}"""))
+        server.enqueue(MockResponse().setBody("""{"scope":"ride.create","state":"rejected","current":null}"""))
+        val result = RidePublicationApi.publish(generation(), body, draft, null, retry = false).getOrThrow().outcome
+        assertEquals(CommandIntent.State.Rejected, result.state)
+        assertEquals("Время выезда уже прошло", result.rejectionMessage)
+        assertEquals(CommandIntent.State.Rejected, saved().state)
+    }
+
     @Test fun receiptRejectsWrongOwnerAndReferenceAndRecognizesGoneResult() {
         val receipt = JSONObject("""{"scope":"ride.create","state":"applied","ref_kind":"ride","ref_id":42,
             "current":{"id":42,"driver_id":8,"status":"done"}}""")

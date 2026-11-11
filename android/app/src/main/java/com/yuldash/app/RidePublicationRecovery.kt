@@ -233,7 +233,8 @@ private fun RidePublicationNotice(
                     else -> appText("Поездка больше недоступна.", "Сәфәр бүтән асыҡ түгел.")
                 }
                 CommandIntent.State.Closed -> appText("Запрос закрыт. Можно опубликовать поездку.", "Һорау ябылды. Сәфәрҙе баҫтырырға мөмкин.")
-                CommandIntent.State.Rejected -> appText("Сервер отклонил запрос. Проверь данные поездки.", "Сервер һорауҙы кире ҡаҡты. Сәфәр мәғлүмәтен тикшер.")
+                CommandIntent.State.Rejected -> outcome.rejectionMessage
+                    ?: appText("Сервер отклонил запрос. Проверь данные поездки.", "Сервер һорауҙы кире ҡаҡты. Сәфәр мәғлүмәтен тикшер.")
                 CommandIntent.State.Unknown -> return@Column
             }
             Text(message, style = CanonCaption)
