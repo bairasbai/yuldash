@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import com.yuldash.app.data.FilterCity
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -61,7 +62,11 @@ class NearbyConditionsServerSideTest {
             src.contains("""if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty""""),
         )
         assertTrue("кнопка «Сбросить фильтры» не снимает города", src.contains("onClick = { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null }"))
-        assertTrue("список городов не обновляется вместе с лентой", src.contains("rememberNearbyCityFilter(nearbyReload)"))
+        assertTrue(
+            "первая поездка должна обновить города, даже если водитель ещё не проверен",
+            src.contains("reloadKey = nearbyReload,") &&
+                src.contains("hasNearbyRides = nearby.isNotEmpty() || verified.hidden > 0,"),
+        )
     }
 
     @Test
@@ -144,6 +149,28 @@ class NearbyConditionsServerSideTest {
         assertEquals("Откуда", cityChipLabel("Откуда", emptyList()))
         assertEquals("Откуда · Баймак", cityChipLabel("Откуда", listOf("Баймак")))
         assertEquals("Откуда · Баймак +2", cityChipLabel("Откуда", listOf("Баймак", "Сибай", "Учалы")))
+    }
+
+    @Test
+    fun `первая поездка обновляет пустой список городов один раз`() {
+        val state = NearbyCityFilterState().apply { loadedAtMs = 10_000L }
+        assertFalse(state.needsReload(35_000L, hasNearbyRides = false))
+        assertTrue(state.needsReload(35_000L, hasNearbyRides = true))
+        // Отменённый или неудачный запрос не обновляет данные и время успешной загрузки.
+        assertTrue(state.needsReload(36_000L, hasNearbyRides = true))
+        state.loadedWithNearbyRides = true
+        state.loadedAtMs = 36_000L
+        assertFalse(state.needsReload(60_000L, hasNearbyRides = true))
+        assertTrue(state.needsReload(36_000L + CITIES_REFRESH_MS, hasNearbyRides = true))
+    }
+
+    @Test
+    fun `готовый список городов ждёт обычного обновления`() {
+        val state = NearbyCityFilterState().apply {
+            loadedAtMs = 10_000L
+            fromOptions = listOf(FilterCity("Сибай", "Сибай"))
+        }
+        assertFalse(state.needsReload(35_000L, hasNearbyRides = true))
     }
 
     @Test

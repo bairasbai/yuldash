@@ -66,8 +66,13 @@ internal class NearbyCityFilterState {
     val active: Boolean get() = from.isNotEmpty() || to.isNotEmpty()
     /** Когда список городов последний раз пришёл с сервера (elapsedRealtime, мс); 0 — ещё ни разу. */
     var loadedAtMs = 0L
+    /** Был ли уже рейс в ближайшей ленте при последней успешной загрузке списка. */
+    var loadedWithNearbyRides = false
     /** Есть что выбрать или что снять: тогда чипы на месте, даже если рядом поездок нет. */
     val offered: Boolean get() = active || fromOptions.isNotEmpty() || toOptions.isNotEmpty()
+
+    fun needsReload(nowMs: Long, hasNearbyRides: Boolean): Boolean =
+        citiesStale(loadedAtMs, nowMs) || (hasNearbyRides && !loadedWithNearbyRides && !offered)
 
     /** «Сбросить фильтры»: снимает выбор и найденные поиском — иначе снятая деревня висела строкой в обеих шторках (приёмка PR154). */
     fun clear() {
@@ -94,20 +99,22 @@ internal fun citiesStale(loadedAtMs: Long, nowMs: Long): Boolean = loadedAtMs ==
 
 /**
  * Состояние фильтров городов. Список городов проверяет вместе с лентой ([reloadKey] — её «Обновить»
- * и авто-обновление), а перечитывает с сервера не чаще раза в [CITIES_REFRESH_MS]: город с новой
+ * и авто-обновление), а обычно перечитывает с сервера не чаще раза в [CITIES_REFRESH_MS]: город с новой
  * поездкой появляется сам, сбой сети при открытии карты не прячет чипы до следующего входа, а сервер
  * не получает запрос от каждой открытой карты каждые 25 секунд (приёмка PR147).
+ * Первый рейс в ленте обновляет пустой список сразу, включая рейсы за кнопкой «Показать».
  * Старый сервер без `/rides/cities` — чипов нет.
  */
 @Composable
-internal fun rememberNearbyCityFilter(reloadKey: Int): NearbyCityFilterState {
+internal fun rememberNearbyCityFilter(reloadKey: Int, hasNearbyRides: Boolean): NearbyCityFilterState {
     val state = remember { NearbyCityFilterState() }
-    LaunchedEffect(reloadKey) {
-        if (!citiesStale(state.loadedAtMs, SystemClock.elapsedRealtime())) return@LaunchedEffect
+    LaunchedEffect(reloadKey, hasNearbyRides) {
+        if (!state.needsReload(SystemClock.elapsedRealtime(), hasNearbyRides)) return@LaunchedEffect
         ApiClient.getRideCities().onSuccess {
             state.fromOptions = it.from
             state.toOptions = it.to
             state.loadedAtMs = SystemClock.elapsedRealtime()
+            state.loadedWithNearbyRides = hasNearbyRides
         }
     }
     return state
