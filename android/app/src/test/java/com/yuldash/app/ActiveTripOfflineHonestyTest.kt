@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -127,7 +128,7 @@ class ActiveTripOfflineHonestyTest {
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 compose.waitForIdle()
             }
-            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null) { compose.mainClock.advanceTimeByFrame() }
             cleaningUp = true
             val expectedCleanupLogout = sessionInstalled && ApiClient.isLoggedIn()
             if (sessionInstalled) ApiClient.logout()
@@ -320,7 +321,7 @@ class ActiveTripOfflineHonestyTest {
             }
         }
 
-        fun awaitCompleted(port: Int?) = runBlocking {
+        fun awaitCompleted(port: Int?, advanceFrame: () -> Unit) = runBlocking {
             withTimeout(5_000) {
                 check(!missingParent) { "Owned caller completion unavailable" }
                 val field = ChatSocket::class.java.getDeclaredField("client\$delegate")
@@ -330,6 +331,8 @@ class ActiveTripOfflineHonestyTest {
                 while (started.any { !it.isCompleted } || client?.dispatcher?.let {
                         it.runningCalls() + it.queuedCalls()
                     }.orEmpty().any { it.request().url.host == "127.0.0.1" && it.request().url.port == port }) {
+                    Snapshot.sendApplyNotifications()
+                    advanceFrame()
                     org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                     delay(10)
                 }

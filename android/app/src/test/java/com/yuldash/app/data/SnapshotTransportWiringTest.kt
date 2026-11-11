@@ -286,6 +286,7 @@ internal open class SnapshotWiringFixture {
     protected fun requireHealthyWiringFixture() = cleanupGuard.requireHealthy()
     protected val context = ApplicationProvider.getApplicationContext<Context>()
     protected lateinit var server: MockWebServer
+    protected val serverOrigin: String get() = "http://127.0.0.1:${server.port}"
     protected var meta = MemoryDiskPreferences()
     protected var secure = MemoryDiskPreferences()
     protected val metaFault = SnapshotWiringCommitFault()
@@ -305,7 +306,7 @@ internal open class SnapshotWiringFixture {
         server = MockWebServer().apply { dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse { requests += request; return handler(request) }
         }; start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0) }
-        ApiClient.testBaseUrl = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/')
+        ApiClient.testBaseUrl = serverOrigin
         ApiClient.testTimeoutMs = 500
         OfflineTripSnapshots.installForTest(SnapshotPreferencesDisk(metaFault.wrap(meta), secureFault.wrap(secure))) { clock }
         ApiClient.saveToken(jwt(7))

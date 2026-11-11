@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -149,7 +150,7 @@ class SosExpiredLoginReturnTest {
             compose.runOnIdle { mounted.value = false }
             compose.waitForIdle()
             owner.viewModelStore.clear()
-            requestJobs.awaitCompleted()
+            requestJobs.awaitCompleted { compose.mainClock.advanceTimeByFrame() }
             cleanupGuard.requireHealthy()
             check(ownBase == null || ApiClient.testBaseUrl == ownBase)
             check(if (traceInstalled) ApiClient.testTrace === ownTrace else ApiClient.testTrace == null)
@@ -189,9 +190,11 @@ class SosExpiredLoginReturnTest {
             if (isSos) { check(sos == null); sos = transport to caller; sosGeneration = ApiClient.queueSessionGeneration() }
         }
         fun sosCompleted(): Boolean = !unavailable && sos?.let { it.first.isCompleted && it.second.isCompleted } == true
-        fun awaitCompleted() = runBlocking { withTimeout(5_000) {
+        fun awaitCompleted(advanceFrame: () -> Unit) = runBlocking { withTimeout(5_000) {
             check(!unavailable) { "Owned API caller completion unavailable" }
             while (reads.any { !it.first.isCompleted || !it.second.isCompleted }) {
+                Snapshot.sendApplyNotifications()
+                advanceFrame()
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 delay(10)
             }
