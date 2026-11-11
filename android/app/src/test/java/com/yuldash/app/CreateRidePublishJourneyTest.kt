@@ -184,7 +184,7 @@ class CreateRidePublishJourneyTest {
         edit("Цена, ₽", "900")
         revealReceipt = true
         awaitInList("Проверить запрос")
-        compose.onNodeWithText("Проверить запрос", exact = true).performClick()
+        compose.onNodeWithText("Проверить запрос").performClick()
         awaitInList("Поездка опубликована.")
         assertEquals(1, resolved.get())
         assertTrue(published.isEmpty())
