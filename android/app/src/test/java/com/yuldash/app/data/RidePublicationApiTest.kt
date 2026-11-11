@@ -1,6 +1,8 @@
 package com.yuldash.app.data
 
 import java.util.concurrent.TimeUnit
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -84,6 +86,41 @@ class RidePublicationApiTest {
         assertEquals("ride.create", sent.getString("scope"))
         assertTrue(sent.has("target_id") && sent.isNull("target_id"))
         assertEquals(slot.hash, sent.getString("payload_hash"))
+    }
+
+    @Test fun latePublishResponseCannotOverwriteCloseOutcome() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"id":42,"driver_id":7,"status":"active"}""")
+            .setBodyDelay(550, TimeUnit.MILLISECONDS))
+        val pending = async(Dispatchers.IO) { RidePublicationApi.publish(generation(), body, draft, null, retry = false) }
+        assertEquals("/me", request().path)
+        val sent = request()
+        val slot = saved()
+        assertEquals(slot.key, sent.getHeader("Idempotency-Key"))
+        server.enqueue(MockResponse().setBody("""{"scope":"ride.create","state":"closed_no_effect","current":null}"""))
+        assertEquals(CommandIntent.State.Closed, RidePublicationApi.check(generation(), slot, close = true).getOrThrow().state)
+        assertTrue(request().path!!.endsWith("/close"))
+        val failure = pending.await().exceptionOrNull() as RidePublicationIntent.Failure
+        assertEquals(CommandIntent.Problem.Superseded, failure.problem)
+        assertEquals(CommandIntent.State.Closed, saved().state)
+    }
+
+    @Test fun deletionPurgesOriginalPublicationWithoutUsingTheReplacementAccount() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(404))
+        assertTrue(RidePublicationApi.publish(generation(), body, draft, null, retry = false).isFailure)
+        request()
+        request()
+        val originalSlot = saved()
+        val originalGeneration = generation()
+        server.enqueue(MockResponse().setBody("""{"ok":true}""").setBodyDelay(400, TimeUnit.MILLISECONDS))
+        val deleting = async(Dispatchers.IO) { ApiClient.deleteAccount(originalGeneration) }
+        assertEquals("/me/delete", request().path)
+        ApiClient.saveToken("test.eyJzdWIiOiI5In0.signature")
+        assertTrue(RidePublicationApi.publish(originalGeneration, body, draft, originalSlot.key, retry = true).isFailure)
+        assertTrue(deleting.await().isFailure)
+        startBookingCommandSession(server)
+        assertNull(RidePublicationApi.saved(generation()).getOrThrow())
+        assertEquals("/me", request().path)
+        assertEquals(4, server.requestCount)
     }
 
     @Test fun receiptRejectsWrongOwnerAndReferenceAndRecognizesGoneResult() {
