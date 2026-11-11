@@ -26,6 +26,7 @@ import java.time.LocalDate
 import java.time.OffsetDateTime
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.atomic.AtomicInteger
 
 /** Actual form, Compose departure dialog and ApiClient; local HTTP replaces the backend only. */
 @RunWith(RobolectricTestRunner::class)
@@ -39,7 +40,9 @@ class CreateRidePublishJourneyTest {
     private val keys = CopyOnWriteArrayList<String>()
     private val published = CopyOnWriteArrayList<Ride>()
     private lateinit var server: MockWebServer
-    private var rejectFirst = false
+    @Volatile private var rejectFirst = false
+    @Volatile private var revealReceipt = false
+    private val resolved = AtomicInteger()
     private val owner = object : ViewModelStoreOwner { override val viewModelStore = ViewModelStore() }
     private val requests = CopyOnWriteArrayList<String>()
     @Volatile private var created: String? = null
@@ -71,6 +74,12 @@ class CreateRidePublishJourneyTest {
                             created = bodies.last()
                             json(JSONObject(checkNotNull(created)).put("id", 42).put("driver_id", 7).put("status", "active").put("seats_left", 3).toString(), 201)
                         }
+                    }
+                    if (revealReceipt && request.requestUrl!!.encodedPath.startsWith("/command-intents/")) {
+                        val ride = JSONObject(bodies.first()).put("id", 42).put("driver_id", 7)
+                            .put("status", "active").put("seats_left", 3)
+                        return json(JSONObject().put("scope", "ride.create").put("state", "applied")
+                            .put("ref_kind", "ride").put("ref_id", 42).put("current", ride).toString())
                     }
                     if (request.requestUrl!!.encodedPath in setOf("/driver/rides", "/rides")) {
                         val record = created?.let { JSONObject(it).put("id", 42).put("seats_left", 3).put("status", "active") }
@@ -167,6 +176,23 @@ class CreateRidePublishJourneyTest {
         assertEquals(1, published.size)
     }
 
+    @Test fun receiptRefreshesPublishedRidesWithoutDiscardingChangedDraft() {
+        rejectFirst = true
+        fillForm()
+        publishButton().performClick()
+        awaitInList("Повторить тот же запрос")
+        edit("Цена, ₽", "900")
+        revealReceipt = true
+        awaitInList("Проверить запрос")
+        compose.onNodeWithText("Проверить запрос", exact = true).performClick()
+        awaitInList("Поездка опубликована.")
+        assertEquals(1, resolved.get())
+        assertTrue(published.isEmpty())
+        assertEquals(1, bodies.size)
+        list().performScrollToNode(hasText("Цена, ₽"))
+        compose.onNodeWithText("Цена, ₽").assertTextContains("900")
+    }
+
     @Test fun publicationFromCabinetReturnsToReloadedRouteList() {
         val vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -208,7 +234,7 @@ class CreateRidePublishJourneyTest {
     private fun fillForm(mount: Boolean = true, language: AppLanguage = AppLanguage.Ru) {
         if (mount) restoration.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
-                CreateRideScreen(onBack = {}, onPublish = { published.add(it) })
+                CreateRideScreen(onBack = {}, onPublish = { published.add(it) }, onPublicationResolved = { resolved.incrementAndGet() })
             }
         }
         val isBa = language == AppLanguage.Ba

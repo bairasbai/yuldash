@@ -283,7 +283,10 @@ internal fun createRideValid(from: String, to: String, price: String): Boolean {
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, prefillDate: String? = null) {
+internal fun CreateRideScreen(
+    onBack: () -> Unit, onPublish: (Ride) -> Unit, prefillDate: String? = null,
+    onPublicationResolved: () -> Unit = {},
+) {
     // rememberSaveable, а не remember: Android выгружает приложение из памяти, пока человек
     // отвечает на звонок или смотрит карту в другом приложении. Экран после этого
     // восстанавливается (`screen` живёт в SavedStateHandle), а вот заполненная форма — нет:
@@ -357,7 +360,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
         .put("stop_prices_enabled", stopPricesStore.enabled)
         .put("stop_prices", JSONArray(if (stopPricesStore.enabled) stopPricesStore.values else emptyList<String>()))
 
-    val publication = rememberRidePublication(::publicationBody, stopPricesStore.errorText, if (isBa) "ba" else "ru", onPublish)
+    val publication = rememberRidePublication(::publicationBody, stopPricesStore.errorText, if (isBa) "ba" else "ru", onPublicationResolved, onPublish)
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
     Scaffold(

@@ -1293,8 +1293,8 @@ private fun YuldashAppContent() {
             Screen.CreateRide -> CreateRideScreen(
                 prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
                 onBack = { goBack() },
+                onPublicationResolved = { ridesReload++ },
                 onPublish = {
-                    ridesReload++
                     screenStates.removeState("$screenStateOwner:${Screen.CreateRide.name}")
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
                     if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)

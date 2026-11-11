@@ -31,6 +31,7 @@ internal fun rememberRidePublication(
     bodyForDraft: () -> JSONObject,
     stopPriceError: String,
     stopLanguage: String,
+    onPublicationResolved: () -> Unit,
     onPublish: (Ride) -> Unit,
 ): RidePublicationUi {
     val publishScope = rememberCoroutineScope()
@@ -52,6 +53,13 @@ internal fun rememberRidePublication(
         publicationSlot = slot.copy(state = outcome.state)
         publicationStatus = outcome
         publishError = null
+        if (outcome.state == CommandIntent.State.Applied) {
+            onPublicationResolved()
+            val ride = outcome.ride
+            if (ride?.status == "active" && publicationDraftHash(bodyForDraft()) == slot.draft.hash) {
+                onPublish(ride.toUiRide())
+            }
+        }
     }
 
     LaunchedEffect(session, publicationRead) {
@@ -138,10 +146,6 @@ internal fun rememberRidePublication(
                 if (!ApiClient.isCurrentSession(session)) return@launch
                 submitted.onSuccess { (slot, outcome) ->
                     applyPublication(slot, outcome)
-                    val ride = outcome.ride
-                    if (ride?.status == "active" && publicationDraftHash(bodyForDraft()) == draft.hash) {
-                        onPublish(ride.toUiRide())
-                    }
                 }.onFailure { error ->
                     val failure = error as? RidePublicationIntent.Failure
                     if (failure != null) {
