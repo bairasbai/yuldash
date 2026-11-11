@@ -48,7 +48,7 @@ class RideshareCompletedInstrumentedTest {
         composeRule.onNodeWithText("Забыл вещь?").performScrollTo().assertIsDisplayed()
         composeRule.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Итог поездки"))
         composeRule.onNodeWithText("Итог поездки").assertIsDisplayed()
-        composeRule.onNodeWithText("Как договорились").assertIsDisplayed()
+        composeRule.onNodeWithText("Как договорились").performScrollTo().assertIsDisplayed()
     }
 
     @Test
