@@ -69,6 +69,7 @@ class ReceiptParityInstrumentedTest {
             }}
         }
         val own=if(language==AppLanguage.Ba)"Һинең юл өлөшөң" else "Твой участок"
+        val passengerSegment=if(language==AppLanguage.Ba)"Юлсының юл өлөшө" else "Участок пассажира"
         val parent=if(language==AppLanguage.Ba)"Сәфәр" else "Рейс"
         val rating=if(language==AppLanguage.Ba)"Һинең баһаң" else "Твоя оценка"
         val stars=if(language==AppLanguage.Ba)"5 йондоҙ" else "5 звёзд"
@@ -77,11 +78,15 @@ class ReceiptParityInstrumentedTest {
         compose.onNodeWithText(parent).assertIsDisplayed()
         compose.onNodeWithText(rating).performScrollTo().assertIsDisplayed();compose.onNodeWithText(stars).assertIsDisplayed()
         capture(language,dark,"known-segment-and-rating")
-        compose.runOnIdle{receipt.value=receipt.value.copy(dropoffStop=null)}
+        compose.runOnIdle{receipt.value=receipt.value.copy(role="driver")}
+        compose.onNodeWithText(passengerSegment).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText("Ургаза → Бурибай").assertIsDisplayed()
+        compose.onNodeWithText(own).assertDoesNotExist()
+        compose.runOnIdle{receipt.value=receipt.value.copy(role="passenger",dropoffStop=null)}
         compose.onNodeWithText(own).assertDoesNotExist();compose.onNodeWithText("Ургаза → Акъяр").assertDoesNotExist()
         compose.onNodeWithText(parent).performScrollTo().assertIsDisplayed();capture(language,dark,"legacy-null")
         compose.runOnIdle{receipt.value=receipt.value.copy(pickupStop="",dropoffStop="",role="driver")}
-        compose.onNodeWithText(own).performScrollTo().assertIsDisplayed()
+        compose.onNodeWithText(passengerSegment).performScrollTo().assertIsDisplayed()
         compose.onAllNodesWithText("Сибай → Акъяр").onLast().performScrollTo().assertIsDisplayed();capture(language,dark,"explicit-endpoints")
         compose.runOnIdle{receipt.value=receipt.value.copy(myStars=0)}
         compose.onNodeWithText(rating).assertDoesNotExist();compose.onNodeWithText(stars).assertDoesNotExist()

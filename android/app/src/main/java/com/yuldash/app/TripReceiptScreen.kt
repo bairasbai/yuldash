@@ -356,7 +356,12 @@ internal fun ReceiptIdentityCard(r: TripReceiptDto) {
                         Modifier.fillMaxWidth().padding(CanonSpace.md),
                         verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
                     ) {
-                        Text(appText("Твой участок", "Һинең юл өлөшөң"), style = CanonCaption, color = CanonMuted)
+                        val segmentLabel = if (r.role == "driver") {
+                            appText("Участок пассажира", "Юлсының юл өлөшө")
+                        } else {
+                            appText("Твой участок", "Һинең юл өлөшөң")
+                        }
+                        Text(segmentLabel, style = CanonCaption, color = CanonMuted)
                         Text(segment, modifier = Modifier.fillMaxWidth(), style = CanonBodyStrong, color = CanonText)
                     }
                     ReceiptDivider()
