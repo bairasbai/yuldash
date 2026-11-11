@@ -11,7 +11,9 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.activity.compose.BackHandler
+import androidx.compose.ui.autofill.ContentType
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentType
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -923,7 +925,8 @@ internal fun ColumnScope.LoginSmsSection(
                 textStyle = TextStyle(fontSize = LoginTitle, fontWeight = FontWeight.Bold, letterSpacing = 6.sp, color = CanonText),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .heightIn(min = 72.dp),
+                    .heightIn(min = 72.dp)
+                    .semantics { contentType = ContentType.SmsOtpCode },
                 singleLine = true,
                 shape = CanonItemShape
             )
@@ -948,7 +951,7 @@ internal fun ColumnScope.LoginSmsSection(
             colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
         ) {
             if (loading) {
-                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = Color.White, strokeWidth = 2.dp)
+                CircularProgressIndicator(modifier = Modifier.size(24.dp), color = CanonOnFilled, strokeWidth = 2.dp)
             } else {
                 Text(
                     text = if (step == 0) appTextFor(currentLanguage, "Получить код", "Код алыу") else appTextFor(currentLanguage, "Войти", "Инеү"),

@@ -1,5 +1,9 @@
 package com.yuldash.app
 
+import androidx.compose.ui.autofill.ContentType
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -93,6 +97,19 @@ class LoginFormContentTest {
         form(methods = listOf("sms", "telegram"))
         composeRule.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).assertExists()
         composeRule.onNodeWithText("Войти по номеру телефона").assertExists()
+    }
+
+    @Test fun smsCodeFieldOffersSystemAutofill() {
+        form(step = 1, showPhone = true, methods = listOf("sms"))
+        composeRule.onNodeWithText("Код из SMS").assertExists()
+        composeRule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.ContentType, ContentType.SmsOtpCode))
+            .assertCountEquals(1)
+    }
+
+    @Test fun phoneStepDoesNotOfferCodeAutofill() {
+        form(step = 0, showPhone = true, methods = listOf("sms"))
+        composeRule.onAllNodes(SemanticsMatcher.expectValue(SemanticsProperties.ContentType, ContentType.SmsOtpCode))
+            .assertCountEquals(0)
     }
 
     @Test fun disabledLoginOffersRetryInsteadOfDeadButtons() {

@@ -32,6 +32,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -152,9 +153,9 @@ class LoginFailureRecoveryTest {
                     else -> response(404, "{}")
                 }
             }
-            start()
+            start(InetAddress.getByName("127.0.0.1"), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testBaseUrl = "http://127.0.0.1:${server.port}"
         ApiClient.testTimeoutMs = 1000
         ApiClient.init(context)
         ApiClient.logout()

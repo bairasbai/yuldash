@@ -1161,8 +1161,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "733439d6e73633d7c2788ff1007d5b54875227588fd3f1b9b1e091d5e7ce8cf3",
-      "lines": 1330
+      "sha256": "c2e097de6a0c417076b6f868a300f19b9195c682387615c7dffa9755ad85c843",
+      "lines": 1314
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
@@ -3415,15 +3415,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/LoginFailureRecoveryTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "be6b0f1ef6118545684009501892efd690af208fccd6f4e4b52a8a5bf8ea404f",
-      "lines": 208
+      "sha256": "5ee9d28e9e573ca895aa5d0d630c9c162b159c5f69bd64649edaff2d14a3155a",
+      "lines": 279
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LoginFormContentTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "6d5ddb393b4be65d09e89ec95141c89a946bcd0f2c8446f53d8fce84b225b3db",
-      "lines": 205
+      "sha256": "a775ace40b8f7615294e199f101e7729599e6752a62cca5ad7dcee963e5f2868",
+      "lines": 272
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LoginScreenContentTest.kt",
