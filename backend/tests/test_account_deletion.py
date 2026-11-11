@@ -177,6 +177,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # Список держит самопроверка ниже: забудешь новую таблицу — тест покраснеет.
         s.add(M.RefreshToken(user_id=uid, token_hash="hash-of-refresh",
                              expires_at=utcnow() + timedelta(days=30)))
+        s.add(M.CommandReceipt(user_id=uid, request_key="account-delete-fixture",
+                               scope="ride.create", payload_hash="0" * 64,
+                               state="closed_no_effect", result_code="idempotency_closed_no_effect"))
         s.add(M.DeviceToken(user_id=uid, token=f"fcm-{uid}"))
         # Подписка браузера на уведомления — то же, что FCM-токен, но для веб-версии.
         s.add(M.WebPushSubscription(

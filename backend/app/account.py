@@ -39,7 +39,7 @@ from .config import settings
 from .errors import herr
 from .timeutil import utcnow
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommissionDebt, Consent, Coupon,
+    Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommandReceipt, CommissionDebt, Consent, Coupon,
     DriverCancel, OfferDecline, PriceComplaint,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
@@ -795,6 +795,7 @@ def delete_user_account(session: Session, user: User) -> None:
     # 3.23 Отвязать рефералов, кто указал меня пригласившим (FK referred_by → user.id).
     session.execute(update(User).where(User.referred_by == uid).values(referred_by=None))
     # 3.24 Наконец — сам аккаунт.
+    session.execute(delete(CommandReceipt).where(CommandReceipt.user_id == uid))
     session.execute(delete(User).where(User.id == uid))
     session.commit()
 

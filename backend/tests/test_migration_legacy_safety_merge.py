@@ -17,7 +17,9 @@ def test_legacy_and_segment_meeting_histories_keep_exact_parents():
     cfg = Config(str(BACKEND / "alembic.ini"))
     cfg.set_main_option("script_location", str(BACKEND / "alembic"))
     scripts = ScriptDirectory.from_config(cfg)
-    assert scripts.get_heads() == [MERGE]
+    heads = scripts.get_heads()
+    assert len(heads) == 1
+    assert MERGE in {revision.revision for revision in scripts.iterate_revisions(heads[0], "base")}
     parents = {
         "cc_booking_decline_reason_20261024": "cb_sos_retry_intent_20261021",
         "cd_boarding_undo_consent_20261024": "cc_booking_decline_reason_20261024",

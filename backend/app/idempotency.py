@@ -1,0 +1,308 @@
+"""Транзакционная защита команд попутки при потере ответа."""
+
+from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import datetime, timedelta
+from enum import Enum
+from hashlib import sha256
+import json
+import re
+from typing import Annotated, Any
+
+from fastapi import Header, HTTPException
+from fastapi.encoders import jsonable_encoder
+from sqlalchemy import event, text
+from sqlalchemy.exc import IntegrityError
+from sqlmodel import Session, select
+
+from .errors import herr
+from .logs import log
+from .meeting_points import booking_public_dto
+from .models import Booking, BookingStatus, CommandReceipt, Ride, RideStatus
+from .services import is_blocked, ride_out
+from .timeutil import utcnow
+
+
+REPLAY_HOURS = 24
+_KEY = re.compile(r"[A-Za-z0-9_-]{16,128}")
+IdempotencyKey = Annotated[str | None, Header(alias="Idempotency-Key")]
+
+
+class Scope(str, Enum):
+    RIDE_CREATE = "ride.create"
+    RIDE_CANCEL = "ride.cancel"
+    RIDE_COMPLETE = "ride.complete"
+    BOOKING_CREATE = "booking.create"
+    BOOKING_CONFIRM = "booking.confirm"
+    BOOKING_CANCEL = "booking.cancel"
+    BOOKING_NO_SHOW = "booking.no_show"
+    BOOKING_DRIVER_STATUS = "booking.driver_status"
+    BOOKING_TRIP_STATUS = "booking.trip_status"
+
+    @property
+    def ref_kind(self) -> str:
+        return self.value.split(".", 1)[0]
+
+
+def validate_key(key: str) -> str:
+    if not _KEY.fullmatch(key):
+        raise herr(422, "Не получилось распознать действие. Обнови приложение.",
+                   "Ғәмәлде танып булманы. Ҡушымтаны яңырт.", code="idempotency_key_invalid")
+    return key
+
+
+def fingerprint(scope: Scope, target_id: int | None, body: Any) -> str:
+    payload = {"scope": scope.value, "target_id": target_id,
+               "body": jsonable_encoder(body, exclude_unset=True)}
+    canonical = json.dumps(payload, ensure_ascii=False, sort_keys=True, separators=(",", ":"), allow_nan=False)
+    return sha256(canonical.encode("utf-8")).hexdigest()
+
+
+@dataclass(frozen=True)
+class Command:
+    key: str
+    scope: Scope
+    target_id: int | None
+    payload_hash: str
+
+    @classmethod
+    def from_body(cls, key: str, scope: Scope, target_id: int | None, body: Any = None) -> "Command":
+        return cls(validate_key(key), scope, target_id, fingerprint(scope, target_id, body))
+
+
+@dataclass(frozen=True)
+class Applied:
+    ref_id: int
+    ref_created_at: datetime
+    response: Any
+    after_commit: Callable[[], None] | None = None
+
+
+def _lock(session: Session, owner_id: int, key: str) -> None:
+    dialect = session.get_bind().dialect.name
+    if dialect == "sqlite":
+        # current_user уже читал через эту сессию. Начать настоящую внешнюю транзакцию
+        # до SELECT/SAVEPOINT, иначе RELEASE может сам сохранить изменения SQLite.
+        session.rollback()
+        session.connection().exec_driver_sql("BEGIN IMMEDIATE")
+    elif dialect == "postgresql":
+        digest = sha256(f"yuldash:command:{owner_id}:{key}".encode("ascii")).digest()
+        lock_id = int.from_bytes(digest[:8], byteorder="big", signed=True)
+        session.execute(text("SELECT pg_advisory_xact_lock(:lock_id)"), {"lock_id": lock_id})
+    else:
+        raise RuntimeError("Unsupported command receipt database")
+
+
+def _find(session: Session, owner_id: int, key: str) -> CommandReceipt | None:
+    return session.exec(select(CommandReceipt).where(
+        CommandReceipt.user_id == owner_id, CommandReceipt.request_key == key,
+    ).execution_options(populate_existing=True)).one_or_none()
+
+
+def _match(receipt: CommandReceipt, command: Command) -> None:
+    if (receipt.scope, receipt.target_id, receipt.payload_hash) != (
+        command.scope.value, command.target_id, command.payload_hash,
+    ):
+        raise herr(409, "Данные этого действия изменились. Сначала проверь прошлый результат.",
+                   "Был ғәмәлдең мәғлүмәттәре үҙгәрҙе. Тәүҙә элекке һөҙөмтәне тикшер.",
+                   code="idempotency_key_reused")
+
+
+def _denied() -> HTTPException:
+    return herr(403, "Результат сейчас недоступен.", "Һөҙөмтә хәҙер асыҡ түгел.")
+
+
+def _current(session: Session, owner_id: int, receipt: CommandReceipt) -> dict | None:
+    if receipt.ref_kind == "ride":
+        ride = session.get(Ride, receipt.ref_id, populate_existing=True)
+        if ride is None or ride.created_at != receipt.ref_created_at:
+            return None
+        if ride.driver_id != owner_id:
+            raise _denied()
+        return ride_command_dto(session, ride)
+
+    booking = session.get(Booking, receipt.ref_id, populate_existing=True)
+    if booking is None or booking.created_at != receipt.ref_created_at:
+        return None
+    ride = session.get(Ride, booking.ride_id, populate_existing=True)
+    if ride is None:
+        return None
+    if owner_id not in (booking.passenger_id, ride.driver_id) or is_blocked(session, booking.passenger_id, ride.driver_id):
+        raise _denied()
+    return booking_command_dto(session, booking, ride, owner_id)
+
+
+def ride_command_dto(session: Session, ride: Ride) -> dict:
+    current = ride_out(ride, session).model_dump(mode="json")
+    if ride.status != RideStatus.active:
+        current.update(pickup_lat=None, pickup_lng=None, pickup="", comment="", receiver_name=None)
+    return current
+
+
+def booking_command_dto(session: Session, booking: Booking, ride: Ride, owner_id: int) -> dict:
+    current = booking_public_dto(session, booking, ride, owner_id)
+    if booking.status not in (BookingStatus.confirmed, BookingStatus.onboard) or owner_id != booking.passenger_id:
+        current["boarding_code"] = ""
+    if booking.status in (BookingStatus.cancelled, BookingStatus.done):
+        current.update(
+            pickup_lat=None, pickup_lng=None, pickup_note="", pickup_landmark_ru="", pickup_landmark_ba="",
+            pickup_source="", dropoff_lat=None, dropoff_lng=None, dropoff_note="", dropoff_landmark_ru="",
+            dropoff_landmark_ba="", dropoff_source="", meeting_proposal=None, meeting_proposal_pending=False,
+        )
+    return jsonable_encoder(current)
+
+
+def _view(session: Session, owner_id: int, receipt: CommandReceipt | None) -> dict:
+    if receipt is None:
+        return dict(state="unseen", scope=None, ref_kind=None, ref_id=None, result_code=None, current=None)
+    current = _current(session, owner_id, receipt) if receipt.state == "applied" else None
+    result_code = receipt.result_code
+    if receipt.state == "applied" and current is None:
+        result_code = "idempotency_result_gone"
+    return dict(state=receipt.state, scope=receipt.scope, ref_kind=receipt.ref_kind,
+                ref_id=receipt.ref_id, result_code=result_code, current=current)
+
+
+def read_intent(session: Session, owner_id: int, key: str) -> dict:
+    return _view(session, owner_id, _find(session, owner_id, validate_key(key)))
+
+
+_FINAL_REFUSALS = {
+    "ride_terms_changed": (409, "Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе."),
+    "price_changed": (409, "Цена поездки изменилась.", "Сәфәр хаҡы үҙгәрҙе."),
+    "seats_not_enough": (400, "На этом участке не хватило мест.", "Был участкала урындар етмәне."),
+    "front_seat_taken": (409, "Переднее место уже занято", "Алғы урын инде алынған"),
+    "cancel_terms_changed": (409, "Условия отмены изменились.", "Кире алыу шарттары үҙгәрҙе."),
+    "driver_marks_boarding": (409, "Посадку отмечает водитель.", "Ултырыуҙы йөрөтөүсе билдәләй."),
+}
+
+
+def _final_refusal(error: HTTPException) -> str | None:
+    code = error.detail.get("code") if isinstance(error.detail, dict) else None
+    saved = _FINAL_REFUSALS.get(code)
+    return code if saved and error.status_code == saved[0] else None
+
+
+def _replay(session: Session, owner_id: int, command: Command, receipt: CommandReceipt) -> dict:
+    _match(receipt, command)
+    view = _view(session, owner_id, receipt)
+    if utcnow() - receipt.created_at >= timedelta(hours=REPLAY_HOURS):
+        raise herr(409, "Прямой повтор устарел. Проверь сохранённый результат.",
+                   "Туранан-тура ҡабатлау иҫкерҙе. Һаҡланған һөҙөмтәне тикшер.",
+                   code="idempotency_key_expired", intent_path=f"/command-intents/{command.key}")
+    if receipt.state == "rejected":
+        status, ru, ba = _FINAL_REFUSALS[receipt.result_code]
+        raise herr(status, ru, ba, code=receipt.result_code)
+    if receipt.state == "closed_no_effect":
+        raise herr(409, "Действие закрыто без выполнения.", "Ғәмәл башҡарылмайынса ябылды.",
+                   code="idempotency_closed_no_effect")
+    if view["current"] is None:
+        raise herr(409, "Результат больше недоступен. Повтор не создаст новую запись.",
+                   "Һөҙөмтә бүтән асыҡ түгел. Ҡабатлау яңы яҙма яһамаҫ.", code="idempotency_result_gone")
+    return view["current"]
+
+
+def _save(session: Session, owner_id: int, command: Command, state: str, *,
+          ref_id: int | None = None, ref_created_at: datetime | None = None,
+          result_code: str | None = None) -> CommandReceipt:
+    receipt = CommandReceipt(user_id=owner_id, request_key=command.key, scope=command.scope.value,
+                             target_id=command.target_id, payload_hash=command.payload_hash, state=state,
+                             ref_kind=command.scope.ref_kind if ref_id is not None else None,
+                             ref_id=ref_id, ref_created_at=ref_created_at, result_code=result_code)
+    session.add(receipt)
+    session.flush()
+    return receipt
+
+
+def _winner(session: Session, owner_id: int, command: Command, error: IntegrityError) -> CommandReceipt:
+    session.rollback()
+    constraint = getattr(getattr(error.orig, "diag", None), "constraint_name", None)
+    sqlite_constraint = getattr(error.orig, "sqlite_errorname", None) == "SQLITE_CONSTRAINT_UNIQUE" and (
+        str(error.orig) == "UNIQUE constraint failed: commandreceipt.user_id, commandreceipt.request_key"
+    )
+    if constraint != "uq_command_receipt_owner_key" and not sqlite_constraint:
+        raise error
+    _lock(session, owner_id, command.key)
+    receipt = _find(session, owner_id, command.key)
+    if receipt is None:
+        raise error
+    return receipt
+
+
+def execute(session: Session, owner_id: int, command: Command, apply: Callable[[], Applied], *,
+            replay_response: Callable[[dict], Any] | None = None, prepare: Callable[[], None] | None = None) -> Any:
+    """apply пишет во вложенной транзакции. Только execute завершает внешнюю."""
+    def replay(receipt: CommandReceipt) -> Any:
+        current = _replay(session, owner_id, command, receipt)
+        return replay_response(current) if replay_response is not None else current
+
+    try:
+        _lock(session, owner_id, command.key)
+        receipt = _find(session, owner_id, command.key)
+        if receipt is not None:
+            return replay(receipt)
+        if prepare is not None:
+            # Медленная подготовка без записи. За это время ключ мог исполниться или закрыться.
+            session.rollback()
+            prepare()
+            _lock(session, owner_id, command.key)
+            receipt = _find(session, owner_id, command.key)
+            if receipt is not None:
+                return replay(receipt)
+        try:
+            try:
+                with session.begin_nested() as domain:
+                    def protect_transaction(active_session):
+                        nested = active_session.get_nested_transaction()
+                        if nested is None or nested is domain:
+                            raise RuntimeError("Command mutator attempted to commit its transaction")
+
+                    event.listen(session, "before_commit", protect_transaction)
+                    try:
+                        applied = apply()
+                        if not domain.is_active:
+                            raise RuntimeError("Command mutator rolled back its transaction")
+                    finally:
+                        event.remove(session, "before_commit", protect_transaction)
+                    _save(session, owner_id, command, "applied",
+                          ref_id=applied.ref_id, ref_created_at=applied.ref_created_at)
+            except HTTPException as error:
+                code = _final_refusal(error)
+                if code is not None:
+                    _save(session, owner_id, command, "rejected", result_code=code)
+                    session.commit()
+                raise
+            session.commit()
+        except IntegrityError as error:
+            return replay(_winner(session, owner_id, command, error))
+    finally:
+        if session.in_transaction():
+            session.rollback()
+
+    if applied.after_commit is not None:
+        try:
+            applied.after_commit()
+        except Exception as error:  # уведомление не меняет уже сохранённый результат
+            session.rollback()
+            log.warning("[COMMAND] Post-commit action failed: scope=%s error=%s",
+                        command.scope.value, type(error).__name__)
+    return applied.response
+
+
+def close_intent(session: Session, owner_id: int, command: Command) -> dict:
+    try:
+        _lock(session, owner_id, command.key)
+        receipt = _find(session, owner_id, command.key)
+        if receipt is None:
+            try:
+                receipt = _save(session, owner_id, command, "closed_no_effect", result_code="idempotency_closed_no_effect")
+                view = _view(session, owner_id, receipt)
+                session.commit()
+                return view
+            except IntegrityError as error:
+                receipt = _winner(session, owner_id, command, error)
+        _match(receipt, command)
+        return _view(session, owner_id, receipt)
+    finally:
+        if session.in_transaction():
+            session.rollback()

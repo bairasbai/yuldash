@@ -483,6 +483,12 @@ def moderate_open_text(
     возможность открыть саму запись и решить.
     """
     kind = moderate_text(text, check_contact=check_contact)
+    record_open_text_flag(kind, user_id, place=place, ref_id=ref_id, session=session)
+    return kind
+
+
+def record_open_text_flag(kind: str, user_id: Optional[int], *, place: str, ref_id: Optional[int], session) -> None:
+    """Записать результат чистой проверки текста после сохранения команды."""
     if kind and user_id:
         try:
             from .instant_service import _redis
@@ -491,7 +497,6 @@ def moderate_open_text(
             pass
         if session is not None and place:
             log_text_flag(session, user_id, kind, place, ref_id)
-    return kind
 
 
 def text_suspects_today(r) -> int:

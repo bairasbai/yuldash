@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, Column, ForeignKey, Integer, Index, UniqueConstraint, text
+from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Integer, Index, UniqueConstraint, text
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -696,6 +696,36 @@ class ChatMessageRequest(SQLModel, table=True):
     request_key: str = Field(max_length=128)
     payload_hash: str = Field(max_length=64)
     message_id: int = Field(sa_column=Column(Integer, ForeignKey("message.id", ondelete="CASCADE"), nullable=False, index=True))
+
+
+class CommandReceipt(SQLModel, table=True):
+    """Результат одного намерения попутки. Тело команды и ответа не сохраняются."""
+
+    __table_args__ = (
+        UniqueConstraint("user_id", "request_key", name="uq_command_receipt_owner_key"),
+        CheckConstraint(
+            "(state = 'applied' AND ref_kind IS NOT NULL AND ref_kind IN ('ride', 'booking') "
+            "AND ref_id IS NOT NULL AND ref_created_at IS NOT NULL AND result_code IS NULL) OR "
+            "(state IN ('rejected', 'closed_no_effect') AND ref_kind IS NULL "
+            "AND ref_id IS NULL AND ref_created_at IS NULL AND result_code IS NOT NULL)",
+            name="ck_command_receipt_result",
+        ),
+    )
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(
+        sa_column=Column(Integer, ForeignKey("user.id", ondelete="CASCADE"), nullable=False, index=True),
+    )
+    request_key: str = Field(max_length=128)
+    scope: str = Field(max_length=40)
+    target_id: Optional[int] = None
+    payload_hash: str = Field(max_length=64)
+    state: str = Field(max_length=24)
+    ref_kind: Optional[str] = Field(default=None, max_length=16)
+    ref_id: Optional[int] = None
+    # SQLite может повторно выдать удалённый номер. Сверяем дату создания исходной строки.
+    ref_created_at: Optional[datetime] = None
+    result_code: Optional[str] = Field(default=None, max_length=64)
+    created_at: datetime = Field(default_factory=utcnow, index=True)
 
 
 class TrustedContact(SQLModel, table=True):

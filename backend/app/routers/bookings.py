@@ -11,10 +11,12 @@ from sqlalchemy import update
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from .. import idempotency
 from .. import livepos            # модулем, а не функцией: так подмена в тестах цепляет вызов
 from .. import meeting_points     # RS-03: точка встречи/высадки, единый DTO ответа брони
 from .. import ride_seats         # RS-02 А: единственная дверь записи свободных мест
 from .. import trip_wake
+from ..antifraud import moderate_text, record_open_text_flag
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
@@ -542,8 +544,23 @@ def _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, mee
 
 
 @router.post("/bookings", response_model=meeting_points.BookingPublicOut)
-def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) реально блокирует бронь
+def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session),
+         idempotency_key: idempotency.IdempotencyKey = None):
+    if idempotency_key is None:
+        return _book(body, user, session)
+    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.BOOKING_CREATE, body.ride_id, body)
+    return idempotency.execute(session, user.id, command, lambda: _book(body, user, session, keyed=True))
+
+
+def _booking_create_result(session, booking, ride, user_id, keyed):
+    if keyed:
+        current = idempotency.booking_command_dto(session, booking, ride, user_id)
+        return idempotency.Applied(booking.id, booking.created_at, current)
+    return meeting_points.booking_public_dto(session, booking, ride, user_id)
+
+
+def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
+    ensure_active(session, user.id, refresh=not keyed)
     # Потолок на ТЕМП бронирования. Каждая бронь будит водителя пушем, и отмена будит второй
     # раз: цикл «забронировал → отменил» давал 80 уведомлений за минуту одному человеку —
     # травля кнопкой, ровно как 300 сообщений в чате (проверено запросом, аудит 2026-08-12,
@@ -585,7 +602,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # и человек просто ждал бы ответа, которого не будет. Из ленты такие поездки убраны, но
     # прямая ссылка (старый пуш, открытый экран, «поделился в чате») ленту обходит.
     # Пассажиру НЕ сообщаем, что водителя наказали, — это чужая история разбора.
-    if account_paused(session, ride.driver_id):
+    if account_paused(session, ride.driver_id, refresh=not keyed):
         raise herr(409, "Этот водитель сейчас не выходит в рейс. Посмотри другие поездки — рядом есть ещё.",
                    "Был водитель хәҙер юлға сыҡмай. Башҡа сәфәрҙәрҙе ҡара — яҡында тағы бар.")
     # «Только для своих» (L3) закрывает поездку ЦЕЛИКОМ, а не только ленту. Фильтр стоял на всех
@@ -593,7 +610,7 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # знала: лента прячет, GET /rides/{id} даёт 404 — и тут же POST /bookings проходит с 200.
     # Чужой становился полноправным участником закрытой поездки (чат, детали, телефон водителя),
     # а id взять есть откуда: они последовательные, плюс пуш «карауль маршрут» (аудит 2026-08-07).
-    if getattr(ride, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
+    if getattr(ride, "only_trusted", False) and trust_level(session, user, refresh=not keyed) < INSIDER_LEVEL:
         raise herr(403, "Поездка только для своих", "Сәфәр тик үҙ кешеләр өсөн")
     # «Только женщины» — теперь правило, а не пожелание (решение Александра, 2026-08-08).
     # Стоит РЯДОМ с «только для своих» намеренно: обе отметки закрывают поездку целиком, и
@@ -614,10 +631,12 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     # Модерация пояснения может закоммитить сессию и снять FOR UPDATE (antifraud): тогда
     # перечитываем рейс под замком и повторяем ключевые проверки, прежде чем трогать места.
     meet = meeting_points.validate_meeting(session, ride, "pickup", body.meeting,
-                                           stop_name=effective_pickup or "", user_id=user.id, entry=entry)
+                                           stop_name=effective_pickup or "", user_id=user.id, entry=entry,
+                                           skip_moderation=keyed)
     alight = meeting_points.validate_meeting(session, ride, "dropoff", body.alighting,
-                                             stop_name=dropoff_stop or "", user_id=user.id, entry=entry)
-    if body.meeting is not None or body.alighting is not None:
+                                             stop_name=dropoff_stop or "", user_id=user.id, entry=entry,
+                                             skip_moderation=keyed)
+    if not keyed and (body.meeting is not None or body.alighting is not None):
         ride = session.exec(select(Ride).where(Ride.id == body.ride_id)
                             .with_for_update().execution_options(populate_existing=True)).first()
         if not ride or ride.status != RideStatus.active:
@@ -640,8 +659,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
                                                  stop_name=dropoff_stop or "", user_id=user.id,
                                                  entry=entry, skip_moderation=True)
     if existing:
-        return meeting_points.booking_public_dto(
-            session, _booking_retry(existing, body, pickup_stop, dropoff_stop, meet, alight), ride, user.id)
+        repeat = _booking_retry(existing, body, pickup_stop, dropoff_stop, meet, alight)
+        return _booking_create_result(session, repeat, ride, user.id, keyed)
     guard_delivery_ride(ride.category)
     # Условия, которые человек видел перед бронью (RS-02 А): версия не сошлась — без резерва,
     # пусть посмотрит новые и подтвердит осознанно. Под тем же замком строки поездки.
@@ -675,8 +694,8 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
             # бронь. Собственный повтор не превращаем в отказ «переднее занято».
             retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, meet, alight)
             if retry is not None:
-                return meeting_points.booking_public_dto(session, retry, ride, user.id)
-            raise herr(409, *FRONT_SEAT_TAKEN)
+                return _booking_create_result(session, retry, ride, user.id, keyed)
+            raise herr(409, *FRONT_SEAT_TAKEN, code="front_seat_taken" if keyed else None)
     # Несовершеннолетний пассажир: взрослый обязателен и назван поимённо. Это не бюрократия —
     # без имени и телефона взрослого никто не отвечает за ребёнка в дороге, а водитель узнаёт
     # о подростке только когда тот сядет в машину. Проверяем ДО списания мест.
@@ -749,14 +768,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
         )
         if reserved:
             break
-        session.rollback()
+        if not keyed:
+            session.rollback()
         # SQLite не держит FOR UPDATE: другой запрос того же пассажира мог уже
         # записать бронь между чтением existing и UPDATE. Проверяем после отката,
         # не создавая вторую бронь и уведомление. Условие UPDATE проверяется под
         # блокировкой записи самой БД, вместе с проверкой оставшихся мест.
         retry = _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, meet, alight)
         if retry is not None:
-            return meeting_points.booking_public_dto(session, retry, ride, user.id)
+            return _booking_create_result(session, retry, ride, user.id, keyed)
         attempts_left -= 1
         if attempts_left <= 0:
             raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
@@ -782,16 +802,36 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
             raise herr(409, "Места только что разобрали", "Урындар хәҙер генә алынды")
     session.add(booking)
     try:
-        session.commit()
+        if keyed:
+            session.flush()
+        else:
+            session.commit()
     except IntegrityError:
         # Две заявки на переднее в одно мгновение: проверку выше обе прошли, а вторую
         # отсекла база (uq_booking_front_seat_live). Откат возвращает и списанные места.
-        session.rollback()
+        if not keyed:
+            session.rollback()
         if body.front_seat:
-            raise herr(409, *FRONT_SEAT_TAKEN)
+            raise herr(409, *FRONT_SEAT_TAKEN, code="front_seat_taken" if keyed else None)
         raise
     session.refresh(booking)
     session.refresh(ride)   # объект в памяти помнит прежнее число мест — перечитываем
+    if keyed:
+        flags = tuple(moderate_text((point.note or "").strip()[:120], check_contact=False)
+                      for point in (body.meeting, body.alighting) if point is not None)
+        current = idempotency.booking_command_dto(session, booking, ride, user.id)
+
+        def after_commit():
+            for flag in flags:
+                record_open_text_flag(flag, user.id, place="meeting_note", ref_id=booking.id, session=session)
+            _notify_new_booking(session, booking, ride, user, bool(meet or alight))
+
+        return idempotency.Applied(booking.id, booking.created_at, current, after_commit)
+    _notify_new_booking(session, booking, ride, user, bool(meet or alight))
+    return meeting_points.booking_public_dto(session, booking, ride, user.id)
+
+
+def _notify_new_booking(session: Session, booking: Booking, ride: Ride, user: User, meeting_set: bool) -> None:
     notify_map_changed()   # места убыли → если 0, поездка уходит с карты live
     # Уведомление + push водителю о новой брони.
     #
@@ -818,16 +858,15 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
     stop_ba = " · юл ыңғайында ултыра" if booking.pickup_stop else ""
     # RS-03 А: точное место указано — знак водителю без координат и без текста пояснения
     # (пуш виден на экране блокировки; само место откроется после подтверждения).
-    meet_ru = " · место встречи указано" if (meet or alight) else ""
-    meet_ba = " · осрашыу урыны күрһәтелгән" if (meet or alight) else ""
+    meet_ru = " · место встречи указано" if meeting_set else ""
+    meet_ba = " · осрашыу урыны күрһәтелгән" if meeting_set else ""
     push_notification(
         session, ride.driver_id, "booking",
         "Новая бронь", "Яңы бронь",
-        f"{pax_name}: {route}, мест {body.seats}{stop_ru}{front_ru}{minor_ru}{women_hint_ru}{meet_ru}",
-        f"{pax_name}: {route}, {body.seats} урын{stop_ba}{front_ba}{minor_ba}{women_hint_ba}{meet_ba}",
+        f"{pax_name}: {route}, мест {booking.seats}{stop_ru}{front_ru}{minor_ru}{women_hint_ru}{meet_ru}",
+        f"{pax_name}: {route}, {booking.seats} урын{stop_ba}{front_ba}{minor_ba}{women_hint_ba}{meet_ba}",
         ref_kind="booking", ref_id=booking.id,
     )
-    return meeting_points.booking_public_dto(session, booking, ride, user.id)
 
 
 @router.get("/bookings/{booking_id}/details", response_model=BookingDetailsOut)
