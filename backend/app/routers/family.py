@@ -447,10 +447,10 @@ def _boarding_undo_open_refusal(undo_left: int, status: str) -> HTTPException:
 
 @router.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
 def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user),
-                    session: Session = Depends(get_session), idempotency_key: idempotency.IdempotencyKey = None):
-    if idempotency_key is None:
+                    session: Session = Depends(get_session), keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None:
         return _set_trip_status(booking_id, body, user, session)
-    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.BOOKING_TRIP_STATUS, booking_id, body)
+    command = keyed_body.command(idempotency.Scope.BOOKING_TRIP_STATUS, booking_id, body)
     current = idempotency.execute(session, user.id, command, lambda: _set_trip_status(
         booking_id, body, user, session, keyed=True,
     ))

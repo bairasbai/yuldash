@@ -222,10 +222,10 @@ def seat_cap(back_max_two: bool, front_seat_available: bool) -> int:
 
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session),
-                idempotency_key: idempotency.IdempotencyKey = None):
-    if idempotency_key is None:
+                keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None:
         return _create_ride(body, user, session)
-    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.RIDE_CREATE, None, body)
+    command = keyed_body.command(idempotency.Scope.RIDE_CREATE, None, body)
     geo = {}
 
     def prepare():

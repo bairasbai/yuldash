@@ -83,6 +83,7 @@ const ALL_SUITES = [
   { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
+  { test: "command-fingerprint-test", src: null, out: null, bundle: false },
   { test: "booking-pending-refresh-test", src: null, out: null, bundle: false },
   { test: "pickup-stop-test", src: null, out: null, bundle: false },
   // RS-02 А/Б: цена и места участка на сайте — та же таблица, что у сервера и Android.

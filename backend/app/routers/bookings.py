@@ -547,10 +547,10 @@ def _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, mee
 
 @router.post("/bookings", response_model=meeting_points.BookingPublicOut)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session),
-         idempotency_key: idempotency.IdempotencyKey = None):
-    if idempotency_key is None:
+         keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None:
         return _book(body, user, session)
-    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.BOOKING_CREATE, body.ride_id, body)
+    command = keyed_body.command(idempotency.Scope.BOOKING_CREATE, body.ride_id, body)
     return idempotency.execute(session, user.id, command, lambda: _book(body, user, session, keyed=True))
 
 
@@ -1242,10 +1242,10 @@ def _distance_to_stop_km(session: Session, ride: Ride, place) -> Optional[float]
 
 @router.post("/bookings/{booking_id}/driver-status")
 def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(current_user),
-                  session: Session = Depends(get_session), idempotency_key: idempotency.IdempotencyKey = None):
-    if idempotency_key is None:
+                  session: Session = Depends(get_session), keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None:
         return _driver_status(booking_id, body, user, session)
-    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.BOOKING_DRIVER_STATUS, booking_id, body)
+    command = keyed_body.command(idempotency.Scope.BOOKING_DRIVER_STATUS, booking_id, body)
     current = idempotency.execute(session, user.id, command, lambda: _driver_status(booking_id, body, user, session, keyed=True))
     return {"ok": True, **current}
 
@@ -1877,10 +1877,10 @@ def preview_booking_cancel(booking_id: int, user: User = Depends(current_user), 
 @router.post("/bookings/{booking_id}/cancel", response_model=meeting_points.BookingPublicOut)
 def cancel_booking(booking_id: int, background: BackgroundTasks, body: Optional[CancelIn] = None,
                    user: User = Depends(current_user), session: Session = Depends(get_session),
-                   idempotency_key: idempotency.IdempotencyKey = None):
-    if idempotency_key is None:
+                   keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None:
         return _cancel_booking(booking_id, body, user, session, attempts=3, background=background)
-    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.BOOKING_CANCEL, booking_id, body)
+    command = keyed_body.command(idempotency.Scope.BOOKING_CANCEL, booking_id, body)
 
     def rejected_response(code):
         if code == "cancel_terms_changed":

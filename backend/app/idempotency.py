@@ -9,12 +9,13 @@ import json
 import re
 from typing import Annotated, Any
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException, Request
 from fastapi.encoders import jsonable_encoder
 from sqlalchemy import event, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from .command_fingerprint import KEY_PREFIX, parse_body, wire_fingerprint
 from .errors import herr
 from .logs import log
 from .meeting_points import booking_public_dto
@@ -68,6 +69,40 @@ class Command:
     @classmethod
     def from_body(cls, key: str, scope: Scope, target_id: int | None, body: Any = None) -> "Command":
         return cls(validate_key(key), scope, target_id, fingerprint(scope, target_id, body))
+
+
+def _invalid_payload() -> HTTPException:
+    return herr(422, "Не получилось прочитать данные действия.", "Ғәмәл мәғлүмәттәрен уҡып булманы.",
+                code="idempotency_payload_invalid")
+
+
+@dataclass(frozen=True)
+class CommandInput:
+    key: str
+    wire_body: Any = None
+
+    def command(self, scope: Scope, target_id: int | None, typed_body: Any) -> Command:
+        if not self.key.startswith(KEY_PREFIX):
+            return Command.from_body(self.key, scope, target_id, typed_body)
+        try:
+            return Command(self.key, scope, target_id, wire_fingerprint(scope.value, target_id, self.wire_body))
+        except ValueError:
+            raise _invalid_payload() from None
+
+
+async def command_input(request: Request, idempotency_key: IdempotencyKey = None) -> CommandInput | None:
+    if idempotency_key is None:
+        return None
+    key = validate_key(idempotency_key)
+    if not key.startswith(KEY_PREFIX):
+        return CommandInput(key)
+    try:
+        return CommandInput(key, parse_body(await request.body()))
+    except ValueError:
+        raise _invalid_payload() from None
+
+
+KeyedBody = Annotated[CommandInput | None, Depends(command_input)]
 
 
 @dataclass(frozen=True)

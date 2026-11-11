@@ -2,6 +2,7 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from hashlib import sha256
 from threading import Barrier, Event
 
 import httpx
@@ -108,6 +109,83 @@ def test_close_first_reserves_no_seat_and_other_account_cannot_see_receipt(clien
     assert _close(client, passenger, {**payload, "seats": 2}).json()["detail"]["code"] == "idempotency_key_reused"
     assert _post(client, passenger, payload).json()["detail"]["code"] == "idempotency_closed_no_effect"
     assert _get(client, driver).json()["state"] == "unseen"
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
+
+
+def _wire_close(client, actor, key, scope, target, canonical_body):
+    target_json = "null" if target is None else str(target)
+    envelope = f'{{"body":{canonical_body},"scope":"{scope}","target_id":{target_json}}}'
+    return client.post(f"/command-intents/{key}/close", headers=actor["auth"], json={
+        "scope": scope, "target_id": target, "payload_hash": sha256(envelope.encode()).hexdigest(),
+    })
+
+
+def test_wire_close_matches_client_hash_and_rejects_changed_input(client, case):
+    _, passenger, ride_id = case
+    key = f"cmd1_{KEY}"
+    canonical = f'{{"meeting":{{"lat":54,"lon":56,"note":"У входа"}},"ride_id":{ride_id},"seats":2}}'
+    closed = _wire_close(client, passenger, key, "booking.create", ride_id, canonical)
+    assert closed.status_code == 200 and closed.json()["state"] == "closed_no_effect", closed.text
+    headers = {**passenger["auth"], "Idempotency-Key": key, "Content-Type": "application/json"}
+    wire = f'{{"seats":2,"ride_id":{ride_id},"meeting":{{"note":"У входа","lon":5.6e1,"lat":54.0}}}}'
+    matching = client.post("/bookings", headers=headers, content=wire.encode())
+    assert matching.status_code == 409
+    assert matching.json()["detail"]["code"] == "idempotency_closed_no_effect"
+    changed = client.post("/bookings", headers=headers, content=wire.replace("54.0", "54.1").encode())
+    assert changed.status_code == 409 and changed.json()["detail"]["code"] == "idempotency_key_reused"
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
+
+
+def test_wire_publication_close_preserves_original_date_text(client, user_factory):
+    driver = user_factory("WirePublication", role=UserRole.driver)
+    key = f"cmd1_{KEY}"
+    canonical = ('{"depart_at":"2030-01-01T10:00:00.120Z","from_city":"Баймак",'
+                 '"price":300,"seats_total":3,"to_city":"Сибай"}')
+    closed = _wire_close(client, driver, key, "ride.create", None, canonical)
+    assert closed.status_code == 200 and closed.json()["state"] == "closed_no_effect", closed.text
+    headers = {**driver["auth"], "Idempotency-Key": key, "Content-Type": "application/json"}
+    matching = client.post("/rides", headers=headers, content=canonical.encode())
+    assert matching.status_code == 409 and matching.json()["detail"]["code"] == "idempotency_closed_no_effect"
+    changed = client.post("/rides", headers=headers, content=canonical.replace(".120Z", ".120000Z").encode())
+    assert changed.status_code == 409 and changed.json()["detail"]["code"] == "idempotency_key_reused"
+    with Session(engine) as reader:
+        assert reader.exec(select(Ride).where(Ride.driver_id == driver["id"])).first() is None
+
+
+def test_wire_cancel_close_distinguishes_empty_object_from_no_body(client, case):
+    _, passenger, ride_id = case
+    booking = _post(client, passenger, {"ride_id": ride_id})
+    assert booking.status_code == 200, booking.text
+    booking_id = booking.json()["id"]
+    key = f"cmd1_{KEY}"
+    closed = _wire_close(client, passenger, key, "booking.cancel", booking_id, "null")
+    assert closed.status_code == 200 and closed.json()["state"] == "closed_no_effect", closed.text
+    headers = {**passenger["auth"], "Idempotency-Key": key}
+    path = f"/bookings/{booking_id}/cancel"
+    no_body = client.post(path, headers=headers)
+    assert no_body.status_code == 409 and no_body.json()["detail"]["code"] == "idempotency_closed_no_effect"
+    explicit_null = client.post(path, headers={**headers, "Content-Type": "application/json"}, content="null")
+    assert explicit_null.status_code == 409 and explicit_null.json()["detail"]["code"] == "idempotency_closed_no_effect"
+    empty_object = client.post(path, headers=headers, json={})
+    assert empty_object.status_code == 409 and empty_object.json()["detail"]["code"] == "idempotency_key_reused"
+    assert _seats_left(ride_id) == 3
+
+
+@pytest.mark.parametrize("invalid", [
+    '"seats":1,"seats":2',
+    '"extra":NaN',
+    r'"extra":"\ud800"',
+    '"extra":' + "[" * 33 + "0" + "]" * 33,
+])
+def test_invalid_prefixed_body_creates_no_receipt_or_booking(client, case, invalid):
+    _, passenger, ride_id = case
+    key = f"cmd1_{KEY}"
+    response = client.post("/bookings", headers={
+        **passenger["auth"], "Idempotency-Key": key, "Content-Type": "application/json",
+    }, content=f'{{"ride_id":{ride_id},{invalid}}}')
+    assert response.status_code == 422
+    assert response.json()["detail"]["code"] == "idempotency_payload_invalid"
+    assert _get(client, passenger, key).json()["state"] == "unseen"
     assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
 
 
