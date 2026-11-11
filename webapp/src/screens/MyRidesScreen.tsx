@@ -10,6 +10,7 @@ import MyTripCard, { bookingStatusAllowsActiveTrip } from "../components/MyTripC
 import { LoadingList } from "../components/States";
 import PartnerAdCard, { usePartnerAds } from "../components/PartnerAd";
 import { IconCar, IconRoute, IconShield, IconSignal } from "../components/Icons";
+import { BookingCommandRecovery } from "../components/BookingCommandRecovery";
 
 type Segment = "active" | "history" | "all";
 type ViewState = "loading" | "error" | "ready";
@@ -83,6 +84,7 @@ export default function MyRidesScreen() {
   return (
     <>
       <ScreenHeader title={appText("Мои поездки", "Минең сәфәрҙәр")} />
+      <BookingCommandRecovery />
 
       <div className="segmented" role="tablist" aria-label={appText("Какие поездки показать", "Ниндәй сәфәрҙәрҙе күрһәтергә")}>
         {segments.map((s) => (

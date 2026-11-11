@@ -1,5 +1,6 @@
 // Исполняем реальные компоненты; заменены только браузерные hooks, навигация и сеть.
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { readFileSync, existsSync } from "node:fs";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
@@ -20,7 +21,7 @@ const modules = {
   "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'}); export const useLocation=()=>({state:globalThis.__ridePath.locationState});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru,t:k=>k});`,
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed,status:globalThis.__ridePath.authed?"authed":"guest"});`,
-  bookings: `export const createBooking=(body,signal)=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body,signal)};`,
+  commands: bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body,signal)};`),
   rides: `export const fetchRide=(id,signal)=>globalThis.__ridePath.fetchRide(id,signal);`,
   client: `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__ridePath.generation??"same-session";`,
   ownBookings: `export const useOwnBooking=()=>null,useRefreshOwnBookings=()=>()=>{};`,
@@ -38,7 +39,7 @@ async function component(path) {
     plugins:[{name:"local-ui",setup(b){
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;
-        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null;
+        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookingCommands')?'commands':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null;
         return key?{path:key,namespace:'mock'}:null;
       });
       b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:modules[args.path],loader:'js'}));

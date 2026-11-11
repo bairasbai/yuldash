@@ -1,5 +1,6 @@
 // Real provider, cards, sheet and trip/booking callers. Browser, hooks and HTTP boundaries are controlled.
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -24,9 +25,9 @@ const mocks = {
   auth: `export const useAuth=()=>globalThis.__ownBookingsHarness.auth;`,
   lang: `export const useLang=()=>({lang:globalThis.__ownBookingsHarness.lang,appText:(ru,ba)=>globalThis.__ownBookingsHarness.lang==="ba"?ba:ru});`,
   client: `export const getSessionGeneration=()=>globalThis.__ownBookingsHarness.generation;export class ApiError extends Error{}`,
+  commands: bookingCommandStub(`export const createBooking=body=>{const h=globalThis.__ownBookingsHarness;h.posts.push(body);return h.book(body);};`),
   bookings: `const h=()=>globalThis.__ownBookingsHarness;
     export const fetchMyBookings=signal=>{const req={...h().makeDeferred(),signal,generation:h().generation,userId:h().auth.user?.id};h().requests.push(req);return req.promise;};
-    export const createBooking=body=>{h().posts.push(body);return h().book(body);};
     export const cancelBooking=id=>{h().cancels.push(id);return h().cancel(id);};
     export const respondBoardingUndo=async()=>{throw new Error("unexpected boarding consent in own-bookings provider harness")};
     export const CANCEL_REASONS=[];
@@ -73,7 +74,7 @@ const mocks = {
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
 const suffixes = {
-  "/api/client":"client", "/api/bookings":"bookings", "/api/geo":"geo", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
+  "/api/client":"client", "/api/bookings":"bookings", "/api/bookingCommands":"commands", "/api/geo":"geo", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
   "/features":"features", "/ComingSoon":"soon",
   "/analytics":"analytics", "/cabinetUi":"cabinet", "/Icons":"icons", "/components/States":"states",
   "/ConsentsScreen":"header", "/YandexMap":"map", "/components/StatusPill":"status",

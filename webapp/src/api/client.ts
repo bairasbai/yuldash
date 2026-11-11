@@ -208,9 +208,16 @@ export function refreshRejectedToken(rejected: string): Promise<boolean> {
   return runRefresh(getSessionGeneration(), rejected);
 }
 
-function authHeaders(): Record<string, string> {
-  const token = getToken();
-  return token ? { Authorization: `Bearer ${token}` } : {};
+function tokenMatchesUser(token: string | null, userId: number): boolean {
+  if (!token) return false;
+  try {
+    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
+    return JSON.parse(atob(payload)).sub === String(userId);
+  } catch { return false; }
+}
+
+export function isAccountSession(owner: { generation: string; userId: number }): boolean {
+  return owner.generation === getSessionGeneration() && tokenMatchesUser(getToken(), owner.userId);
 }
 
 /** Язык интерфейса для текстов ошибок. Читаем из того же места, что и i18n. */
@@ -327,23 +334,30 @@ function errorMessage(status: number, detail: unknown): string {
 
 async function request<T>(
   path: string,
-  init: RequestInit & { auth?: boolean; _retried?: boolean; _generation?: string; onResponse?: (response: Response) => void } = {}
+  init: RequestInit & {
+    auth?: boolean; _retried?: boolean; _generation?: string; _userId?: number; _deletionConfirmation?: boolean;
+    onResponse?: (response: Response) => void;
+  } = {}
 ): Promise<T> {
-  const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), onResponse, ...rest } = init;
+  const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), _userId,
+    _deletionConfirmation, onResponse, ...rest } = init;
   const checkSession = () => {
-    if (auth && _generation !== getSessionGeneration()) {
+    if (auth && (_generation !== getSessionGeneration() || (_userId !== undefined && !tokenMatchesUser(getToken(), _userId)))) {
       throw new ApiError(409, genericByStatus(409, isBashkir()));
     }
   };
   checkSession();
   const sentToken = getToken();
+  if (_userId !== undefined && !tokenMatchesUser(sentToken, _userId)) {
+    throw new ApiError(409, genericByStatus(409, isBashkir()));
+  }
   let res: Response;
   try {
     res = await fetch(`${API_BASE}${path}`, {
       ...rest,
       headers: {
         Accept: "application/json",
-        ...(auth ? authHeaders() : {}),
+        ...(auth && sentToken ? { Authorization: `Bearer ${sentToken}` } : {}),
         ...(headers as Record<string, string> | undefined),
       },
     });
@@ -356,7 +370,7 @@ async function request<T>(
     throw new ApiError(0, genericByStatus(0, isBashkir()));
   }
 
-  checkSession();
+  if (!_deletionConfirmation || !res.ok) checkSession();
 
   if (res.status === 401) {
     // Access протух → один раз пробуем обновить по refresh и повторить запрос.
@@ -396,7 +410,7 @@ async function request<T>(
 
   if (res.status === 204) return undefined as T;
   const body = await res.json();
-  checkSession();
+  if (!_deletionConfirmation) checkSession();
   onResponse?.(res);
   return body as T;
 }
@@ -423,6 +437,30 @@ export function apiPost<T>(
       ...(opts?.idempotencyKey ? { "Idempotency-Key": opts.idempotencyKey } : {}),
     },
     body: body !== undefined ? JSON.stringify(body) : undefined,
+  });
+}
+
+/** A saved command may only use the credentials of its original account. */
+export function apiCommand<T>(
+  path: string,
+  owner: { generation: string; userId: number },
+  opts: { signal?: AbortSignal; method: "GET" | "POST"; body?: string; key?: string },
+): Promise<T> {
+  return request<T>(path, {
+    method: opts.method, signal: opts.signal, body: opts.body, redirect: "error", cache: "no-store",
+    _generation: owner.generation, _userId: owner.userId,
+    headers: {
+      ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
+      ...(opts.key ? { "Idempotency-Key": opts.key } : {}),
+    },
+  });
+}
+
+export function apiAccountDeletion(owner: { generation: string; userId: number }): Promise<{ ok: boolean }> {
+  // The confirmation only triggers cleanup of the original owner even if another account has signed in.
+  return request("/me/delete", {
+    method: "POST", redirect: "error", cache: "no-store",
+    _generation: owner.generation, _userId: owner.userId, _deletionConfirmation: true,
   });
 }
 

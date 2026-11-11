@@ -1,5 +1,6 @@
 // Production CreateRide/RideSheet: saved draft and retained click, API replaced only by spies.
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
@@ -20,7 +21,7 @@ mocks["../auth/AuthProvider"]="export const useAuth=()=>({isAuthed:true});";
 mocks["../features"]="export const getFeatures=()=>({parcels:globalThis.__parcelRide.parcels,ready:true});export const useFeatures=getFeatures;";
 mocks["../utils/formDraft"]="export const clearDraft=()=>{};export const useDraftSync=(key,state,apply)=>{const h=globalThis.__parcelRide;if(!h.hydrated){h.hydrated=true;apply(h.draft);}};";
 mocks["../api/driver"]="export const fetchPriceHint=async()=>({});export const publishRide=async body=>{globalThis.__parcelRide.published.push(body);return{id:42};};";
-mocks["../api/bookings"]="export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};";
+mocks["../api/bookingCommands"]=bookingCommandStub("export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};");
 mocks["../api/client"]="export class ApiError extends Error{}export const getSessionGeneration=()=> 'same-owner';";
 mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";
 mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const rubLabel=()=>'';export const pluralRu=(n,one)=>one;";

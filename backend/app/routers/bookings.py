@@ -550,6 +550,19 @@ def book(body: BookIn, user: User = Depends(current_user), session: Session = De
          keyed_body: idempotency.KeyedBody = None):
     if keyed_body is None:
         return _book(body, user, session)
+    return _book_with_command(body, user, session, keyed_body)
+
+
+@router.post("/bookings/commands/v1", response_model=meeting_points.BookingPublicOut)
+def book_command_v1(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session),
+                    keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None or not keyed_body.key.startswith(idempotency.KEY_PREFIX):
+        raise herr(422, "Не получилось распознать действие. Обнови приложение.",
+                   "Ғәмәлде танып булманы. Ҡушымтаны яңырт.", code="idempotency_key_invalid")
+    return _book_with_command(body, user, session, keyed_body)
+
+
+def _book_with_command(body: BookIn, user: User, session: Session, keyed_body: idempotency.CommandInput):
     command = keyed_body.command(idempotency.Scope.BOOKING_CREATE, body.ride_id, body)
     return idempotency.execute(session, user.id, command, lambda: _book(body, user, session, keyed=True))
 

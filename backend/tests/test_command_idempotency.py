@@ -136,6 +136,38 @@ def test_wire_close_matches_client_hash_and_rejects_changed_input(client, case):
     assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
 
 
+def test_versioned_booking_path_requires_key_and_replays_one_booking(client, case):
+    _, passenger, ride_id = case
+    path = "/bookings/commands/v1"
+    body = {"ride_id": ride_id, "seats": 2}
+    for headers in [passenger["auth"], {**passenger["auth"], "Idempotency-Key": KEY}]:
+        response = client.post(path, headers=headers, json=body)
+        assert response.status_code == 422 and response.json()["detail"]["code"] == "idempotency_key_invalid"
+    assert _get(client, passenger).json()["state"] == "unseen"
+    assert _snapshot(ride_id) == ([], 0)
+    key = f"cmd1_{KEY}"
+    headers = {**passenger["auth"], "Idempotency-Key": key}
+    applied = client.post(path, headers=headers, json=body)
+    assert applied.status_code == 200, applied.text
+    again = client.post(path, headers=headers, json=body)
+    assert again.status_code == 200 and again.json()["id"] == applied.json()["id"]
+    checked = _get(client, passenger, key)
+    assert checked.json()["state"] == "applied" and checked.json()["ref_id"] == applied.json()["id"]
+    assert len(_snapshot(ride_id)[0]) == 1 and _seats_left(ride_id) == 2
+
+
+def test_versioned_booking_path_respects_existing_close(client, case):
+    _, passenger, ride_id = case
+    key = f"cmd1_{KEY}"
+    canonical = f'{{"ride_id":{ride_id},"seats":2}}'
+    closed = _wire_close(client, passenger, key, "booking.create", ride_id, canonical)
+    assert closed.status_code == 200 and closed.json()["state"] == "closed_no_effect"
+    delayed = client.post("/bookings/commands/v1", json={"ride_id": ride_id, "seats": 2},
+                          headers={**passenger["auth"], "Idempotency-Key": key})
+    assert delayed.status_code == 409 and delayed.json()["detail"]["code"] == "idempotency_closed_no_effect"
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
+
+
 def test_wire_publication_close_preserves_original_date_text(client, user_factory):
     driver = user_factory("WirePublication", role=UserRole.driver)
     key = f"cmd1_{KEY}"

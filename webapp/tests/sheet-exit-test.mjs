@@ -8,6 +8,7 @@
 //  сеть брони, вход, навигация и соседние компоненты подменены.
 // ================================================================
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { readFileSync } from "node:fs";
 import { browser, FakeEl, finish, flat, JSX, LANG, load, mount, PORTAL, portals, REACT, root, test } from "./fake-react.mjs";
 
@@ -25,7 +26,7 @@ const Sheet = (
     [/\/ComingSoon$/, `export default "ComingSoon";`],
     [/\/api\/client$/, `export class ApiError extends Error {} export const getSessionGeneration = () => "same";`],
     [/\/booking\/OwnBookingsProvider$/, `export const useOwnBooking = () => globalThis.__rideExit.own; export const useRefreshOwnBookings = () => () => {};`],
-    [/\/api\/bookings$/, `export const createBooking = (body) => (globalThis.__rideExit.calls.push(body), globalThis.__rideExit.booking(body));`],
+    [/\/api\/bookingCommands$/, bookingCommandStub(`export const createBooking = (body) => (globalThis.__rideExit.calls.push(body), globalThis.__rideExit.booking(body));`)],
     [/\/analytics$/, `export const track = () => {};`],
     [/\/utils\/format$/, `export const formatWhen = () => "завтра, 10:00"; export const priceLabel = () => "500 ₽"; export const pluralRu = (n, one) => one;`],
     [/\/Icons$/, `export const IconArrow = "Icon", IconCheck = "Icon", IconPin = "Icon";`],

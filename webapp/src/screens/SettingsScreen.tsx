@@ -18,7 +18,9 @@ import { useFontScale, type FontScale } from "../fontScale";
 import { getUiPref, setUiPref, type UiPrefKey } from "../uiPrefs";
 import PushToggle from "../components/PushToggle";
 import { deleteAccount } from "../api/auth";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration, getToken } from "../api/client";
+import { bookingCommandOwner, purgeBookingCommands } from "../utils/bookingCommandStore";
+import { reportStorageFailure } from "../utils/storageHealth";
 import { SettingsGroup, SettingsNavRow, SettingSwitchRow } from "../components/cabinetUi";
 import {
   IconBell,
@@ -121,14 +123,26 @@ export default function SettingsScreen() {
   ];
 
   async function confirmDelete() {
+    const generation = getSessionGeneration();
+    if (!user) return;
+    const owner = bookingCommandOwner(user, generation);
     setDel("deleting");
     setDelError(null);
     try {
-      await deleteAccount();
+      const confirmation = await deleteAccount({ userId: user.id, generation });
+      if (confirmation?.ok !== true) throw new Error("Account deletion was not confirmed");
       // Аккаунт удалён на сервере → чистим локальную сессию и уводим на старт.
-      await logout();
-      navigate("/splash", { replace: true });
+      const stillOnDeletedAccount = generation === getSessionGeneration();
+      if (stillOnDeletedAccount) await logout();
+      const loggedOutGeneration = getSessionGeneration();
+      if (owner) await purgeBookingCommands(owner).catch(() => {
+        if (loggedOutGeneration === getSessionGeneration() && !getToken()) reportStorageFailure();
+      });
+      if (stillOnDeletedAccount && loggedOutGeneration === getSessionGeneration() && !getToken()) {
+        navigate("/splash", { replace: true });
+      }
     } catch (e) {
+      if (generation !== getSessionGeneration()) return;
       const notReady = e instanceof ApiError && (e.status === 404 || e.status === 405);
       // 409 — сервер объяснил, что закрыть до удаления и когда можно (комиссия, живая поездка, отмена в
       // пути — решение 24.10.2026). Его текст уже на языке человека; «проверь связь» тут неправда.

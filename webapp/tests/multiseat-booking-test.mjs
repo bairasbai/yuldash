@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { all, bundleComponent, checker, langMock, mount, text } from "./shallow-harness.mjs";
 
 const t = checker();
@@ -14,7 +15,7 @@ for (const lang of ["ru", "ba"]) {
     "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
     "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__multi.own,useRefreshOwnBookings=()=>()=>{globalThis.__multi.refreshed++;};`,
     "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v),pluralRu=(n,a,b,c)=>[a,b,c][n%10===1&&n%100!==11?0:n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?1:2];`,
-    "/api/bookings": `export const createBooking=(body,signal)=>{globalThis.__multi.sent.push({body,signal});return globalThis.__multi.send?.()??Promise.resolve({id:55});};`,
+    "/api/bookingCommands": bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__multi.sent.push({body,signal});return globalThis.__multi.send?.()??Promise.resolve({id:55});};`),
   } });
   const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; h.refreshed = 0; };
   const selector = s => all(s.tree).find(n => n.type === "select");

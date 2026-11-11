@@ -253,10 +253,6 @@ export interface MyBooking {
 
 }
 
-export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {
-  return apiPost<BookingRow>("/bookings", body, { signal });
-}
-
 export function fetchBookingDetails(
   id: number,
   signal?: AbortSignal

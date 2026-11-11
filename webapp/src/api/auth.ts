@@ -5,6 +5,7 @@
 // ================================================================
 import {
   ApiError,
+  apiAccountDeletion,
   apiGet,
   apiPost,
   apiUpload,
@@ -185,8 +186,8 @@ export function logoutServer(): Promise<{ ok: boolean }> {
 /** POST /me/delete — необратимое удаление аккаунта и всех персональных данных
  *  (152-ФЗ, право на удаление). После успеха токен на сервере становится недействителен —
  *  вызывающий экран сам чистит локальную сессию и уводит на старт. */
-export function deleteAccount(): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/me/delete");
+export function deleteAccount(owner: { generation: string; userId: number }): Promise<{ ok: boolean }> {
+  return apiAccountDeletion(owner);
 }
 
 /** Имя бота из окружения (VITE_TELEGRAM_BOT). Пусто → кнопка Telegram скрыта. */
