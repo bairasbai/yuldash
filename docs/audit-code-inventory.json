@@ -15112,8 +15112,8 @@
       "path": "webapp/src/components/MeetingPointPicker.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "953f64ef09e1898dd7e9367e6ed817b224cff1b2bfe8ab291b8a25e994678322",
-      "lines": 134
+      "sha256": "41a6048e5689d3898d4c3d9b7900a67c757124d303c562c5fe865c17d4bb0d2d",
+      "lines": 162
     },
     {
       "path": "webapp/src/components/ModeSwitch.tsx",
@@ -17527,8 +17527,8 @@
       "path": "webapp/tests/meeting-point-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "372996702a85be919c1a4fa2043f99919144fddd8f5f98cecb0f6dbd58af302a",
-      "lines": 275
+      "sha256": "aad4c05ebe1ef5ea533e16c6da654da5ba99fa0aeae8df806a4ef7629669fece",
+      "lines": 329
     },
     {
       "path": "webapp/tests/motion-test.mjs",

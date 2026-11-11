@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
 import { fetchPickupPoints, type PickupPoint } from "../api/geo";
 import type { MeetingPointInput } from "../api/bookings";
@@ -18,22 +18,44 @@ export function MeetingPointPicker({
   const { appText, lang } = useLang();
   const [open, setOpen] = useState(false);
   const [points, setPoints] = useState<PickupPoint[]>([]);
-  const [showMap, setShowMap] = useState(false);
+  const [mapSession, setMapSession] = useState<{ id: number; city: string } | null>(null);
+  const activeMapSession = useRef<typeof mapSession>(null);
+  const nextMapSessionId = useRef(0);
   const note = value?.note ?? "";
   const [loadState, setLoadState] = useState<"loading" | "ready" | "error">("loading");
   const [retry, setRetry] = useState(0);
   const previousCity = useRef(city);
-  const latest = useRef({ value, disabled, onChange });
-  latest.current = { value, disabled, onChange };
+  const latest = useRef({ city, value, disabled, onChange });
+  latest.current = { city, value, disabled, onChange };
+
+  const closeMap = useCallback(() => {
+    activeMapSession.current = null;
+    setMapSession(null);
+  }, []);
+
+  function closePicker() {
+    closeMap();
+    setOpen(false);
+  }
+
+  function toggleMap() {
+    if (activeMapSession.current?.city === city) {
+      closeMap();
+      return;
+    }
+    const session = { id: ++nextMapSessionId.current, city };
+    activeMapSession.current = session;
+    setMapSession(session);
+  }
 
   useEffect(() => {
     if (previousCity.current !== city) {
       previousCity.current = city;
       setPoints([]);
-      setShowMap(false);
+      closeMap();
       onChange(null);
     }
-  }, [city, onChange]);
+  }, [city, closeMap, onChange]);
 
   useEffect(() => {
     if (!open) return;
@@ -58,7 +80,7 @@ export function MeetingPointPicker({
   return (
     <div className="card" style={{ display: "grid", gap: 10 }}>
       <button type="button" className="btn-ghost" style={{ minHeight: 48, textAlign: "left" }}
-        disabled={disabled} onClick={() => setOpen((v) => !v)}>
+        disabled={disabled} onClick={open ? closePicker : () => setOpen(true)}>
         <b>{title}</b>
         <div className="muted" style={{ fontSize: 13 }}>{label}</div>
       </button>
@@ -82,24 +104,30 @@ export function MeetingPointPicker({
               {points.map((p) => (
                 <button key={p.id} type="button" className={"chip" + (value?.landmark_id === p.id ? " chip--on" : "")}
                   style={{ minHeight: 48 }} disabled={disabled}
-                  onClick={() => onChange({ landmark_id: p.id, note: note.trim() || undefined })}>
+                  onClick={() => {
+                    closeMap();
+                    onChange({ landmark_id: p.id, note: note.trim() || undefined });
+                  }}>
                   {lang === "ba" && p.title_ba ? p.title_ba : p.title_ru}
                 </button>
               ))}
             </div>
           )}
           <button type="button" className="btn-ghost" style={{ minHeight: 48 }} disabled={disabled}
-            onClick={() => setShowMap((v) => !v)}>
+            onClick={toggleMap}>
             {appText("На карте", "Картала")}
           </button>
-          {showMap && (
+          {mapSession?.city === city && (
             <>
               <YandexMap
+                key={mapSession.id}
                 height={260}
                 center={value?.lat != null && value?.lng != null ? { lat: value.lat, lng: value.lng } : undefined}
                 onCenterChange={(p) => {
                   const current = latest.current;
-                  if (!current.disabled) current.onChange({ lat: p.lat, lng: p.lng, note: current.value?.note?.trim() || undefined });
+                  // Уходящая карта может прислать событие до того, как React её удалит.
+                  if (activeMapSession.current !== mapSession || current.city !== mapSession.city || current.disabled) return;
+                  current.onChange({ lat: p.lat, lng: p.lng, note: current.value?.note?.trim() || undefined });
                 }}
               />
               <div className="muted" style={{ fontSize: 13 }}>
@@ -115,14 +143,14 @@ export function MeetingPointPicker({
           <div style={{ display: "flex", gap: 8 }}>
             <button type="button" className="btn-primary" style={{ minHeight: 48, flex: 1 }} disabled={disabled}
               onClick={() => {
+                closePicker();
                 if (value && !value.clear) onChange({ ...value, note: note.trim() || undefined });
-                setOpen(false);
               }}>
               {appText("Готово", "Әҙер")}
             </button>
             {value && !value.clear && (
               <button type="button" className="btn-ghost" style={{ minHeight: 48 }} disabled={disabled}
-                onClick={() => { onChange({ clear: true }); setOpen(false); }}>
+                onClick={() => { closePicker(); onChange({ clear: true }); }}>
                 {appText("Убрать место", "Урынды алып ташлау")}
               </button>
             )}
