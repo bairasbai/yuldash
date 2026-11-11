@@ -296,7 +296,10 @@ internal fun MapScreen(
     val filterCtx = LocalContext.current
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verified = rememberNearbyVerified()   // «Только проверенные» из «Безопасности»: с 17.10.2026 вкл. по умолчанию (NearbyVerifiedOnly.kt)
-    val cityFilter = rememberNearbyCityFilter(nearbyReload)   // «Откуда»/«Куда» (NearbyCityFilter.kt); города — не чаще раза в 2 мин
+    val cityFilter = rememberNearbyCityFilter(
+        reloadKey = nearbyReload,
+        hasNearbyRides = nearby.isNotEmpty() || verified.hidden > 0,
+    )
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
