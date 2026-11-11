@@ -132,22 +132,22 @@ class ApiClientCriticalBadPathTest {
 
     @Test
     fun publishRide_disconnect_returnsFailure() = runBlocking {
+        ApiClient.init(org.robolectric.RuntimeEnvironment.getApplication())
+        ApiClient.saveToken(COMMAND_TEST_TOKEN)
         server.enqueue(disconnect())
-        val res = ApiClient.publishRide(
-            fromCity = "Уфа", toCity = "Казань",
-            departAt = "2026-07-01T10:00:00", seats = 3, price = 500, comment = "",
-        )
+        val res = ApiClient.ridePublicationRequest("POST", "/rides/commands/v1", "{}",
+            ApiClient.queueSessionGeneration(), ApiClient.apiBase(), "cmd1_11111111-1111-1111-1111-111111111111")
         assertTrue(res.isFailure)
         assertFalse(res.isSuccess)
     }
 
     @Test
     fun publishRide_serverError500_failureWithStatus() = runBlocking {
+        ApiClient.init(org.robolectric.RuntimeEnvironment.getApplication())
+        ApiClient.saveToken(COMMAND_TEST_TOKEN)
         server.enqueue(error500())
-        val res = ApiClient.publishRide(
-            fromCity = "Уфа", toCity = "Казань",
-            departAt = "2026-07-01T10:00:00", seats = 3, price = 500, comment = "",
-        )
+        val res = ApiClient.ridePublicationRequest("POST", "/rides/commands/v1", "{}",
+            ApiClient.queueSessionGeneration(), ApiClient.apiBase(), "cmd1_11111111-1111-1111-1111-111111111111")
         assertApiStatus(res, 500)
     }
 

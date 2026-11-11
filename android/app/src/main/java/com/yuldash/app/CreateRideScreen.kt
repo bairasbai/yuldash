@@ -242,6 +242,8 @@ import com.yandex.mapkit.map.IconStyle
 import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
+import org.json.JSONArray
+import org.json.JSONObject
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.PickupPointDto
@@ -327,10 +329,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
     // Подсказка цены + честный расчёт бензина по маршруту (аддитивные поля сервера).
     var priceHintDto by remember { mutableStateOf<PriceHintDto?>(null) }
     val priceHint = priceHintDto?.takeIf { it.count > 0 }?.avg ?: 0
-    var publishing by remember { mutableStateOf(false) }   // ждём ответ сервера, блок двойного нажатия
-    var publishError by remember { mutableStateOf<String?>(null) }
     var showDeparturePicker by remember { mutableStateOf(false) }
-    val publishScope = rememberCoroutineScope()
     val stopPricesStore = rememberStopPricesStore()   // RS-02 Б: цены остановок (редактор — CreateRideStops.kt)
     var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
@@ -340,11 +339,25 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             ApiClient.getPriceHint(from.trim(), to.trim()).getOrNull()
         } else null
     }
-    val defaultTime = appText("Сегодня, 18:00", "Бөгөн, 18:00")
-    val defaultCar = appText("Моя машина", "Минең машина")
     val dropPinLabel = appText("Точка на карте", "Картала нөктә")
-    val errPublish = appText("Не удалось опубликовать. Проверь сеть и повтори.", "Баҫтырып булманы. Селтәрҙе тикшереп ҡабатла.")
-    val stopErrors = rideStopErrorMessages()
+    fun publicationBody(): JSONObject = JSONObject()
+        .put("from_city", from).put("to_city", to).put("depart_at", dateTime)
+        .put("seats_total", (seats.toIntOrNull() ?: 4).coerceIn(1, seatCap(backMaxTwo, frontSeatAvailable)))
+        .put("price", price.toIntOrNull() ?: 300)
+        .put("category", category).put("comment", comment.trim())
+        .put("pets_allowed", petsAllowed).put("child_seat", childSeat).put("women_only", womenOnly)
+        .put("smoking", smoking).put("baggage", baggage).put("air_conditioner", airConditioner).put("quiet", quiet)
+        .put("no_minors", noMinors).put("back_max_two", backMaxTwo).put("front_seat_available", frontSeatAvailable)
+        .put("waypoints", JSONArray(waypoints)).put("recurrence", recurrence)
+        .put("pickup", pickup.trim()).put("pickup_lat", pickupLat ?: JSONObject.NULL)
+        .put("pickup_lng", pickupLng ?: JSONObject.NULL).put("only_trusted", onlyTrusted)
+        .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
+        .put("receiver_name", receiverName.trim()).put("parcel_size", parcelSize.trim())
+        .put("partner_id", (if (category == "hospital") partnerId else null) ?: JSONObject.NULL)
+        .put("stop_prices_enabled", stopPricesStore.enabled)
+        .put("stop_prices", JSONArray(if (stopPricesStore.enabled) stopPricesStore.values else emptyList<String>()))
+
+    val publication = rememberRidePublication(::publicationBody, stopPricesStore.errorText, if (isBa) "ba" else "ru", onPublish)
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -363,7 +376,7 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             onFrontSeatAvailable = { frontSeatAvailable = it; seats = clampSeatsText(seats, backMaxTwo, it) },
             priceHint = priceHint,
             fuelDistanceKm = priceHintDto?.distanceKm, fuelEstimateKop = priceHintDto?.fuelEstimateKop,
-            loading = publishing, error = publishError,
+            loading = publication.busy, error = publication.error,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = clampSeatsText(it.filter(Char::isDigit), backMaxTwo, frontSeatAvailable) },
             onPriceChange = { price = it.filter(Char::isDigit) },
@@ -378,61 +391,10 @@ internal fun CreateRideScreen(onBack: () -> Unit, onPublish: (Ride) -> Unit, pre
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
             onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
             onOnlyTrusted = { onlyTrusted = it }, onQuiet = { quiet = it }, onNoMinors = { noMinors = it }, onWaypointsChange = { waypoints = it },
-            onPublish = {
-                if (publishing || rideCategoryClosed(category)) return@CreateRideFormContent
-                val fromVal = from.ifBlank { "Баймаҡ" }
-                val toVal = to.ifBlank { "Сибай" }
-                val priceVal = price.toIntOrNull() ?: 300
-                val seatsVal = (seats.toIntOrNull() ?: 4).coerceIn(1, seatCap(backMaxTwo, frontSeatAvailable))   // мест не меньше 1 и не больше, чем позволяют опции
-                // Берём выбранную дату из пикера ("dd.MM.yyyy, HH:mm"); если пусто/не распарсилось — now+3ч.
-                // Время выезда шлём С ЧАСОВЫМ ПОЯСОМ. Раньше уходила голая строка «10:00», и сервер
-                // считал её десятью часами UTC — поездка уезжала на 5 часов (разбор №2). Пояс
-                // снимает догадку: сервер переводит точно, где бы ни был телефон.
-                val departIso = runCatching {
-                    val picked = java.text.SimpleDateFormat("dd.MM.yyyy, HH:mm", java.util.Locale.US).parse(dateTime)
-                    isoWithOffset(picked!!.time)
-                }.getOrElse { isoWithOffset(System.currentTimeMillis() + 3 * 3600_000L) }
-                val ride = Ride(
-                    id = "local-${System.currentTimeMillis()}", category = category,
-                    from = fromVal, to = toVal,
-                    time = dateTime.ifBlank { defaultTime }, timeBa = dateTime.ifBlank { defaultTime },
-                    driver = ApiClient.cachedName() ?: "Я",
-                    car = comment.ifBlank { defaultCar }, carBa = comment.ifBlank { defaultCar },
-                    price = priceVal, seats = seatsVal, rating = 5.0, verified = false, boosted = false,
-                    petsAllowed = petsAllowed, childSeat = childSeat, womenOnly = womenOnly,
-                    smoking = smoking, baggage = baggage, airConditioner = airConditioner, quiet = quiet,
-                    backMaxTwo = backMaxTwo, frontSeatAvailable = frontSeatAvailable,
-                    waypoints = waypoints.filter { it.isNotBlank() },
-                )
-                publishError = null
-                publishing = true
-                val stopInputs = waypoints.toList()
-                val publishSession = ApiClient.queueSessionGeneration()
-                // Ждём ответ сервера: успех → навигация, ошибка → сообщение (не уходим, не теряем ввод).
-                publishScope.launch {
-                    if (rideCategoryClosed(category)) { publishing = false; return@launch }
-                    val selectedStops = try {
-                        resolveRideStops(stopInputs, fromVal, toVal, if (isBa) AppLanguage.Ba else AppLanguage.Ru)
-                    } catch (e: Exception) {
-                        if (e is kotlinx.coroutines.CancellationException) throw e
-                        publishing = false
-                        publishError = if (e is RideStopException) stopErrors.getValue(e.problem) else serverSaid(e, errPublish)
-                        return@launch
-                    }
-                    if (publishSession != ApiClient.queueSessionGeneration() || rideCategoryClosed(category)) { publishing = false; return@launch }
-                    // RS-02 Б: цены остановок — из хранилища (проверка до сети, сервер перепроверяет).
-                    val stopPricesToSend = stopPricesStore.toSend(priceVal, selectedStops.size, selectedStops.isNotEmpty())
-                        ?: run { publishing = false; publishError = stopPricesStore.errorText; return@launch }
-                    ApiClient.publishRide(fromVal, toVal, departIso, seatsVal, priceVal, comment.trim(), petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup.trim(), pickupLat, pickupLng, onlyTrusted, receiverName.trim(), parcelSize.trim(), pickupPointId, if (category == "hospital") partnerId else null, quiet, selectedStops.joinToString(" | "), noMinors, backMaxTwo, frontSeatAvailable, stopPricesToSend)
-                        .onSuccess { id -> publishing = false; onPublish(ride.copy(id = id.toString(), waypoints = selectedStops)) }
-                        // Сервер объясняет отказ по-человечески («время выезда уже прошло»,
-                        // «слишком много активных поездок»). Показываем именно его слова:
-                        // раньше на любой отказ писали «проверь сеть» — водитель проверял сеть,
-                        // жал ещё раз и получал то же самое, так и не узнав причину.
-                        // Без ответа сервера (нет связи) остаётся прежний текст про сеть.
-                        .onFailure { e -> publishing = false; publishError = serverSaid(e, errPublish) }
-                }
-            },
+            onPublish = publication.publish,
+            publishLabel = publication.label,
+            publicationEnabled = publication.ready,
+            publicationNotice = publication.notice,
             onCancel = onBack,
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
@@ -553,6 +515,9 @@ internal fun CreateRideFormContent(
     stopField: (@Composable (Int) -> Unit)? = null,
     // RS-02 Б: редактор «Цена до каждой остановки» (умный слот — состояние и сеть у обёртки).
     stopPricesEditor: (@Composable () -> Unit)? = null,
+    publishLabel: String? = null,
+    publicationEnabled: Boolean = true,
+    publicationNotice: (@Composable () -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
@@ -568,6 +533,7 @@ internal fun CreateRideFormContent(
             Text(appText("Маршрут для своих", "Үҙ кешеләрең өсөн маршрут"), fontSize = 24.sp, fontWeight = FontWeight.Bold)
             Text(appText("Укажи путь, места и цену. Контакты откроются после подтверждения.", "Юлды, урындарҙы һәм хаҡты күрһәт. Контакттар раҫланғандан һуң асыла."), color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
+        publicationNotice?.let { notice -> item { notice() } }
         // Чипы популярных направлений (слот): тап заполняет «откуда/куда». Пустой список — ничего не рисует.
         routeChips?.let { chips -> item { chips() } }
         // Поля адреса: если слот дан (реальный экран с гео-подсказками) — рисуем его; иначе (тест/фолбэк) —
@@ -819,10 +785,10 @@ internal fun CreateRideFormContent(
                 Text(it, color = CanonRed, fontSize = 14.sp, lineHeight = 20.sp, modifier = Modifier.padding(bottom = 8.dp))
             }
             AppButton(
-                text = appText("Опубликовать", "Баҫтырыу"),
+                text = publishLabel ?: appText("Опубликовать", "Баҫтырыу"),
                 loading = loading,
                 onClick = onPublish,
-                enabled = !loading && createRideValid(from, to, price),   // маршрут задан + цена в диапазоне
+                enabled = publicationEnabled && !loading && createRideValid(from, to, price),   // маршрут задан + цена в диапазоне
                 modifier = Modifier.testTag("publish_btn"),
             )
         }

@@ -3,6 +3,7 @@ package com.yuldash.app.data
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONObject
 import org.junit.*
 import org.junit.Assert.*
 import org.junit.runner.RunWith
@@ -42,10 +43,10 @@ class BookingCreationResponseTest {
         }
         assertEquals(5, server.requestCount)
     }
-    @Test fun publicationRequiresRealPositiveId() = runBlocking {
-        for (body in listOf("{}", """{"id":0}""", """{"id":-1}""")) {
-            respond(body)
-            assertTrue(ApiClient.publishRide("A", "B", "2030-01-02T10:00:00Z", 2, 750, "").isFailure)
+    @Test fun publicationRequiresRealPositiveId() {
+        for (id in listOf(0, -1, "42", 0.5)) {
+            val body = JSONObject().put("id", id).put("status", "active").put("driver_id", 7)
+            assertTrue(runCatching { RidePublicationOutcome.ownedRide(body, 7) }.isFailure)
         }
     }
 }

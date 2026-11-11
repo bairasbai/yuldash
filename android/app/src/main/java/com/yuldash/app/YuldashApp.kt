@@ -174,10 +174,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import com.yuldash.app.data.OfflineTripSnapshots
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -972,8 +972,10 @@ private fun YuldashAppContent() {
 
     // Поездки — с сервера. Стартуем с демо (мгновенно), при ответе заменяем на серверные.
     // Сервер недоступен (ТСПУ/офлайн) → остаются демо, экран не пустеет.
-    LaunchedEffect(Unit) {
+    var ridesReload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(navigationSession, ridesReload) {
         ApiClient.getRides().onSuccess { dtos ->
+            if (ApiClient.queueSessionGeneration() != navigationSession) return@onSuccess
             // Сервер ОТВЕТИЛ → показываем ровно его список. Пусто = пусто (честный empty-state),
             // а не «оставить демо с числовыми id 1..3», которые book() принял бы за реальные
             // серверные поездки и создал бронь на чужую поездку id=1.
@@ -1291,8 +1293,9 @@ private fun YuldashAppContent() {
             Screen.CreateRide -> CreateRideScreen(
                 prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
                 onBack = { goBack() },
-                onPublish = { ride ->
-                    rides.add(0, ride)
+                onPublish = {
+                    ridesReload++
+                    screenStates.removeState("$screenStateOwner:${Screen.CreateRide.name}")
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
                     if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)
                 }

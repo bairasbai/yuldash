@@ -68,7 +68,8 @@ class ApiClientRideshareTransportBoundaryTest {
         ApiClient.createRequest("Баймак", "Сибай", 1, "regular", false, "", 300)
     }
     @Test fun publishEofDoesNotReplay() = sentOnce {
-        ApiClient.publishRide("Баймак", "Сибай", "2026-10-22T12:00:00+05:00", 2, 300, "")
+        ApiClient.ridePublicationRequest("POST", "/rides/commands/v1", "{}",
+            ApiClient.queueSessionGeneration(), ApiClient.apiBase(), "cmd1_11111111-1111-1111-1111-111111111111")
     }
     @Test fun bargainEofDoesNotReplay() = sentOnce { ApiClient.counterOffer(42, 350, "Синтетический тест") }
     @Test fun sosEofDoesNotReplay() = sentOnce { ApiClient.sos("other", "Synthetic test", bookingId = 42) }

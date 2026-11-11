@@ -246,16 +246,6 @@ object ApiClient {
         bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice, voiceUrl, transcript, assisted, relativeName) }
     }
 
-    fun firePublishRide(
-        fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String,
-        petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
-        smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
-        recurrence: String = "none", category: String = "regular", pickup: String = "",
-        pickupLat: Double? = null, pickupLng: Double? = null, onlyTrusted: Boolean = false,
-    ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng, onlyTrusted = onlyTrusted) }
-    }
-
     fun fireRequestCallback(note: String) {
         bg.launch { requestCallback(note) }
     }
@@ -989,70 +979,6 @@ object ApiClient {
         }
     }
 
-    /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
-    suspend fun publishRide(
-        fromCity: String,
-        toCity: String,
-        departAt: String,
-        seats: Int,
-        price: Int,
-        comment: String,
-        petsAllowed: Boolean = false,
-        childSeat: Boolean = false,
-        womenOnly: Boolean = false,
-        smoking: Boolean = false,
-        baggage: Boolean = false,
-        airConditioner: Boolean = false,
-        recurrence: String = "none",
-        category: String = "regular",
-        pickup: String = "",
-        pickupLat: Double? = null,
-        pickupLng: Double? = null,
-        onlyTrusted: Boolean = false,   // «только для своих» — поездку видят/берут лишь L3
-        receiverName: String = "",   // посылка: кому отдать
-        parcelSize: String = "",     // посылка: габарит/вес
-        pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
-        partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
-        quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
-        waypoints: String = "",     // остановки по пути (названия через " | ")
-        noMinors: Boolean = false,  // не беру пассажиров младше 18 без сопровождения взрослого
-        backMaxTwo: Boolean = false, frontSeatAvailable: Boolean = true,   // опции мест; потолок мест держит сервер
-        stopPrices: List<Int> = emptyList(),   // RS-02 Б: цена до каждой остановки (рубли, порядок waypoints)
-    ): Result<Int> = call(
-        "POST", "/rides",
-        JSONObject()
-            .put("from_city", fromCity)
-            .put("to_city", toCity)
-            .put("depart_at", departAt)
-            .put("seats_total", seats)
-            .put("price", price)
-            .put("stop_prices", JSONArray(stopPrices))
-            .put("category", category)
-            .put("comment", comment)
-            .put("pets_allowed", petsAllowed)
-            .put("child_seat", childSeat)
-            .put("women_only", womenOnly)
-            .put("smoking", smoking)
-            .put("baggage", baggage)
-            .put("air_conditioner", airConditioner)
-            .put("quiet", quiet)
-            .put("no_minors", noMinors)
-            .put("back_max_two", backMaxTwo).put("front_seat_available", frontSeatAvailable)
-            .put("waypoints", waypoints)
-            .put("recurrence", recurrence)
-            .put("pickup", pickup)
-            .put("pickup_lat", pickupLat ?: JSONObject.NULL)
-            .put("pickup_lng", pickupLng ?: JSONObject.NULL)
-            .put("only_trusted", onlyTrusted)
-            .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
-            .put("receiver_name", receiverName)
-            .put("parcel_size", parcelSize)
-            .put("partner_id", partnerId ?: JSONObject.NULL),
-        auth = true,
-    ).mapCatching { response ->
-        response.getInt("id").also { require(it > 0) { "Invalid published ride id" } }
-    }.onSuccess { Analytics.log("publish_ride") }
-
     // ---------- F22: клиники-партнёры (медцентры) ----------
 
     /** Справочник клиник-партнёров (только активные). Опц. фильтр по городу. Публичные данные. */
@@ -1105,6 +1031,11 @@ object ApiClient {
     internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
         call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
             singleAttemptMutation = true, wireBody = body, expectedBase = base)
+
+    internal suspend fun ridePublicationRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
+        call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
+            singleAttemptMutation = true, wireBody = body, expectedBase = base,
+            admitWire = { BookingCommandApi.publicationAllowed(generation) })
 
     private suspend fun createBookingResponse(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
@@ -3609,6 +3540,7 @@ object ApiClient {
         wireBody: String? = null,
         expectedBase: String? = null,
         onDeletionConfirmed: (() -> Unit)? = null,
+        admitWire: (() -> Boolean)? = null,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3652,7 +3584,10 @@ object ApiClient {
                         override fun contentType() = if (json != null) "application/json; charset=utf-8".toMediaType() else null
                         override fun contentLength() = bytes.size.toLong()
                         override fun isOneShot() = true // Also for empty DELETE: 503/408 follow-ups must not resend it.
-                        override fun writeTo(sink: BufferedSink) { sink.write(bytes) }
+                        override fun writeTo(sink: BufferedSink) {
+                            if (admitWire?.invoke() == false) throw IOException("Command session ended before send")
+                            sink.write(bytes)
+                        }
                     }
                     val headers = Headers.Builder().add("Accept", "application/json").apply {
                         idempotencyKey?.let { add("Idempotency-Key", it) }
@@ -3666,6 +3601,7 @@ object ApiClient {
                     }.build()
                     val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
+                    if (admitWire?.invoke() == false) return@withContext staleSession()
                     mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
                     snapshotRead?.status(code)
@@ -3718,7 +3654,7 @@ object ApiClient {
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
                         idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
-                        wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed)
+                        wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed, admitWire = admitWire)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,

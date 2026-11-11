@@ -8,20 +8,20 @@ import org.json.JSONObject
 
 internal object BookingCommandApi {
     private var prefs: SharedPreferences? = null
-    private var confirmedOwner: BookingCommandOwner? = null
+    private var confirmedOwner: CommandOwner? = null
     private var deletingGeneration: Long? = null
     private val store = CommandIntent(
         read = { account -> checkNotNull(prefs).getString(CommandIntent.prefKey(account), null) },
         write = { account, value -> checkNotNull(prefs).edit().putString(CommandIntent.prefKey(account), value).commit() },
     )
 
-    private data class BookingCommandOwner(val generation: Long, val base: String, val userId: Int, val account: String)
+    internal data class CommandOwner(val generation: Long, val base: String, val userId: Int, val account: String)
 
-    fun init(storage: SharedPreferences) { prefs = storage }
+    fun init(storage: SharedPreferences) { prefs = storage; RidePublicationApi.init(storage) }
 
     suspend fun book(rideId: Int, body: JSONObject, expectedGeneration: Long,
                      previousKey: String?, retry: Boolean): Result<BookingCreatedDto> {
-        val owner = bookingCommandOwner(expectedGeneration).getOrElse { return Result.failure(it) }
+        val owner = commandOwner(expectedGeneration).getOrElse { return Result.failure(it) }
         val (snapshot, slot) = withBookingCommands(owner) {
             if (deletingGeneration == owner.generation) throw stale()
             // Reserving or returning a seat advances the public version of the ride.
@@ -74,7 +74,7 @@ internal object BookingCommandApi {
         return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Unknown, slot))
     }
 
-    private suspend fun bookingCommandOwner(generation: Long): Result<BookingCommandOwner> {
+    internal suspend fun commandOwner(generation: Long): Result<CommandOwner> {
         val (base, userId) = withGeneration(generation) {
             ApiClient.apiBase() to (ApiClient.myUserId()?.takeIf { it > 0 } ?: throw stale())
         }.getOrElse { return Result.failure(it) }
@@ -89,7 +89,7 @@ internal object BookingCommandApi {
             require(profile.getInt("id") == userId)
             val created = (profile.opt("created_at") as? String)?.takeIf(String::isNotBlank)
                 ?: throw CommandIntent.Failure(CommandIntent.Problem.Storage)
-            BookingCommandOwner(generation, base, userId, CommandIntent.account(base, userId, created))
+            CommandOwner(generation, base, userId, CommandIntent.account(base, userId, created))
                 .also { confirmedOwner = it }
         }
     }
@@ -102,13 +102,19 @@ internal object BookingCommandApi {
         return result ?: Result.failure(stale())
     }
 
-    private suspend fun <T> withBookingCommands(owner: BookingCommandOwner, action: CommandIntent.() -> T): Result<T> =
+    private suspend fun <T> withBookingCommands(owner: CommandOwner, action: CommandIntent.() -> T): Result<T> =
+        withCommandOwner(owner) { store.action() }
+
+    internal suspend fun <T> withCommandOwner(owner: CommandOwner, action: () -> T): Result<T> =
         withContext(Dispatchers.IO) {
             withGeneration(owner.generation) {
                 if (ApiClient.myUserId() != owner.userId || ApiClient.apiBase() != owner.base) throw stale()
-                store.action()
+                action()
             }
         }
+
+    internal fun publicationAllowed(generation: Long): Boolean =
+        withGeneration(generation) { deletingGeneration != generation }.getOrDefault(false)
 
     suspend fun <T> withDeletionBarrier(generation: Long, delete: suspend (List<String>) -> Result<T>): Result<T> {
         var acquired = false
@@ -123,10 +129,12 @@ internal object BookingCommandApi {
                     confirmedOwner?.takeIf { it.generation == generation && it.userId == id && it.base == base }
                         ?.let { return@withGeneration listOf(it.account) }
                     // Capture only keys present before DELETE. A later account may reuse the numeric ID.
-                    val prefix = CommandIntent.prefKey(CommandIntent.accountPrefix(base, id))
+                    val accountPrefix = CommandIntent.accountPrefix(base, id)
+                    val storagePrefixes = listOf(CommandIntent.prefKey(""), RidePublicationIntent.prefKey(""))
                     runCatching {
-                        prefs?.all?.keys.orEmpty().filter { it.startsWith(prefix) }
-                            .map { it.removePrefix(CommandIntent.prefKey("")) }
+                        prefs?.all?.keys.orEmpty().mapNotNull { key ->
+                            storagePrefixes.firstOrNull { key.startsWith(it + accountPrefix) }?.let(key::removePrefix)
+                        }.distinct()
                     }.getOrDefault(emptyList())
                 }
             }.getOrElse { return Result.failure(it) }
@@ -139,22 +147,27 @@ internal object BookingCommandApi {
     }
 
     /** The caller holds the session lock even when the successful response outlives its generation. */
-    fun purge(accounts: List<String>) { accounts.forEach { runCatching { store.purge(it) } } }
+    fun purge(accounts: List<String>) {
+        accounts.forEach {
+            runCatching { store.purge(it) }
+            RidePublicationApi.purge(it)
+        }
+    }
 
     internal suspend fun savedBookingCommands(generation: Long): Result<List<CommandIntent.Slot>> {
-        val owner = bookingCommandOwner(generation).getOrElse { return Result.failure(it) }
+        val owner = commandOwner(generation).getOrElse { return Result.failure(it) }
         return withBookingCommands(owner) { list(owner.account) }
     }
 
     internal suspend fun reconcileBookingCommand(
         generation: Long, slot: CommandIntent.Slot, close: Boolean,
     ): Result<BookingCommandOutcome> {
-        val owner = bookingCommandOwner(generation).getOrElse { return Result.failure(it) }
+        val owner = commandOwner(generation).getOrElse { return Result.failure(it) }
         return reconcileBookingCommand(owner, slot, close)
     }
 
     private suspend fun reconcileBookingCommand(
-        owner: BookingCommandOwner, slot: CommandIntent.Slot, close: Boolean,
+        owner: CommandOwner, slot: CommandIntent.Slot, close: Boolean,
     ): Result<BookingCommandOutcome> {
         val current = withBookingCommands(owner) { list(owner.account).firstOrNull { it.rideId == slot.rideId } }
             .getOrElse { return Result.failure(it) }

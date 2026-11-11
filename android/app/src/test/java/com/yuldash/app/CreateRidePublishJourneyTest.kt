@@ -7,6 +7,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
@@ -33,7 +34,9 @@ import java.util.concurrent.CopyOnWriteArrayList
 class CreateRidePublishJourneyTest {
     @get:Rule val compose = createComposeRule()
     private val mounted = mutableStateOf(true)
+    private val restoration = StateRestorationTester(compose)
     private val bodies = CopyOnWriteArrayList<String>()
+    private val keys = CopyOnWriteArrayList<String>()
     private val published = CopyOnWriteArrayList<Ride>()
     private lateinit var server: MockWebServer
     private var rejectFirst = false
@@ -57,15 +60,19 @@ class CreateRidePublishJourneyTest {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     requests.add("${request.method} ${request.requestUrl!!.encodedPath}")
-                    if (request.method == "POST" && request.path == "/rides") {
+                    if (request.requestUrl!!.encodedPath == "/me") {
+                        return json("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
+                    }
+                    if (request.method == "POST" && request.path == "/rides/commands/v1") {
+                        keys.add(checkNotNull(request.getHeader("Idempotency-Key")))
                         bodies.add(request.body.readUtf8())
                         return if (rejectFirst && bodies.size == 1) json("""{"detail":"Тестовый временный отказ"}""", 503)
                         else {
                             created = bodies.last()
-                            json("""{"id":42}""", 201)
+                            json(JSONObject(checkNotNull(created)).put("id", 42).put("driver_id", 7).put("status", "active").put("seats_left", 3).toString(), 201)
                         }
                     }
-                    if (request.requestUrl!!.encodedPath == "/driver/rides") {
+                    if (request.requestUrl!!.encodedPath in setOf("/driver/rides", "/rides")) {
                         val record = created?.let { JSONObject(it).put("id", 42).put("seats_left", 3).put("status", "active") }
                         return json("""{"items":[${record ?: ""}]}""")
                     }
@@ -76,7 +83,7 @@ class CreateRidePublishJourneyTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 2000
-        ApiClient.saveToken("local-journey-driver")
+        ApiClient.saveToken("test.eyJzdWIiOiI3In0.signature")
     }
 
     @After fun cleanup() {
@@ -136,21 +143,27 @@ class CreateRidePublishJourneyTest {
         assertTrue(published.isEmpty())
     }
 
-    @Test fun serverRefusalKeepsFormAndRetryPublishesSameEnteredData() {
+    @Test fun lostResponseKeepsRestoredDraftAndRetryUsesExactOriginalRequest() {
         rejectFirst = true
         fillForm()
         publishButton().performClick()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            compose.onAllNodesWithText("Тестовый временный отказ").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithText("Повторить тот же запрос").fetchSemanticsNodes().isNotEmpty()
         }
         assertTrue("Failure must not navigate as success", published.isEmpty())
         assertEquals(1, bodies.size)
+        restoration.emulateSavedInstanceStateRestore()
+        awaitInList("Повторить тот же запрос")
+        list().performScrollToNode(hasContentDescription("Дата и время: 02.01.2030, 09:45"))
+        compose.onNodeWithContentDescription("Дата и время: 02.01.2030, 09:45").assertExists()
         publishButton().assertIsEnabled().performClick()
         awaitPublished()
         assertEquals(2, bodies.size)
         bodies.forEach(::verifyPayload)
-        assertEquals(JSONObject(bodies[0]).toString(), JSONObject(bodies[1]).toString())
+        assertEquals(bodies[0], bodies[1])
+        assertTrue(keys[0].startsWith("cmd1_"))
+        assertEquals(keys[0], keys[1])
         assertEquals(1, published.size)
     }
 
@@ -176,7 +189,7 @@ class CreateRidePublishJourneyTest {
         publishButton().performClick()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            created != null && vm.screen.value == Screen.DriverCabinet &&
+            created != null && vm.screen.value == Screen.DriverCabinet && vm.rides.any { it.id == "42" } &&
                 requests.count { it == "GET /driver/rides" } >= 2
         }
         // Повторный запрос ушёл — но карточка «Опубликована» рисуется по его ответу. Ждём её саму.
@@ -193,7 +206,7 @@ class CreateRidePublishJourneyTest {
     }
 
     private fun fillForm(mount: Boolean = true, language: AppLanguage = AppLanguage.Ru) {
-        if (mount) compose.setContent {
+        if (mount) restoration.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
                 CreateRideScreen(onBack = {}, onPublish = { published.add(it) })
             }
