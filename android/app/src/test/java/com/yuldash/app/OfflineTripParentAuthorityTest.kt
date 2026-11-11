@@ -75,6 +75,9 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
     private lateinit var chain: Chain
     private lateinit var a: Window
     private lateinit var b: Window
+    private val boardingCodeRequested = CountDownLatch(1)
+    private val releaseBoardingCode = CountDownLatch(1)
+    @Volatile private var holdBoardingCode = false
     private val releaseRoles = CountDownLatch(1)
     private val actionHeld = CountDownLatch(1)
     private val releaseAction = CountDownLatch(1)
@@ -104,6 +107,7 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         NavSignals.openInstantChat.value = 0
     }
     @After fun unmountParentUi() {
+        releaseBoardingCode.countDown()
         holdPublicRide = false
         releasePublicRide.countDown()
         holdAReads = false
@@ -133,6 +137,10 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         if (holdPublicRide && request.method == "GET" && path == "/rides/34") {
             heldPublicRide.incrementAndGet()
             check(releasePublicRide.await(40, TimeUnit.SECONDS))
+        }
+        if (holdBoardingCode && request.method == "GET" && path == "/bookings/11/boarding-code") {
+            boardingCodeRequested.countDown()
+            check(releaseBoardingCode.await(40, TimeUnit.SECONDS))
         }
         // Only reads dispatched after positive preparation are delayed. The already-started
         // late POST and every request from the independent B window keep their own controls.
@@ -495,6 +503,52 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
     @Test fun completedPendingBookingOnly() = matrix(Chain.COMPLETED, Loss.PENDING_BOOKING)
     @Test fun completedPendingScreenOnly() = matrix(Chain.COMPLETED, Loss.PENDING_SCREEN)
     @Test fun completedPendingPublicRideOnly() = matrix(Chain.COMPLETED, Loss.PENDING_RIDE)
+
+    @Test fun bookingMeetingDraftSurvivesBoardingCodeLoad() {
+        holdBoardingCode = true
+        try {
+            open(Chain.BOOKING)
+            awaitUi { boardingCodeRequested.count == 0L }
+            val details = requireNotNull(OfflineTripSnapshots.projection(a.id)?.details)
+            val generation = ApiClient.queueSessionGeneration()
+            val loading = compose.onAllNodes(text(a, "Обновляем подтверждение поездки"), useUnmergedTree = true)
+            loading.assertCountEquals(1)
+            scroll(a, hasText("Изменить место посадки"))
+            node(a, "Изменить место посадки").performClick()
+            val editor = hasSetTextAction()
+            awaitUi { compose.onAllNodes(editor).fetchSemanticsNodes().size == 1 }
+            val draft = "booking-code-loading-draft"
+            compose.onNode(editor).performTextReplacement(draft)
+            compose.onNode(editor).assertTextContains(draft)
+            loading.assertCountEquals(1)
+            assertTrue(posts(a).isEmpty())
+
+            releaseBoardingCode.countDown()
+            awaitUi {
+                OfflineTripSnapshots.currentBoardingCode(a.id) == "4821" &&
+                    loading.fetchSemanticsNodes().isEmpty()
+            }
+            assertSame(details, OfflineTripSnapshots.projection(a.id)?.details)
+            assertTrue(OfflineTripSnapshots.freshDetails(details))
+            assertTrue(OfflineTripSnapshots.privateDetails(details))
+            assertEquals(generation, ApiClient.queueSessionGeneration())
+            assertEquals(7, owner().userId)
+            assertEquals(Screen.Booking, a.vm.screen.value)
+            assertEquals(a.id, a.vm.activeBookingId.value)
+            compose.onNode(editor).assertTextContains(draft)
+            compose.onNodeWithText("Готово").assertIsEnabled().performClick()
+            awaitUi { posts(a).size == 1 && compose.onAllNodesWithText("qa-parent-retry-11").fetchSemanticsNodes().isNotEmpty() }
+            val request = posts(a).single()
+            assertEquals("/bookings/11/meeting-point", request.requestUrl!!.encodedPath)
+            assertEquals("Bearer ${jwt(7)}", request.getHeader("Authorization"))
+            val body = JSONObject(request.body.clone().readUtf8())
+            assertEquals(2, body.getInt("base_version"))
+            assertEquals("pickup", body.getString("kind"))
+            assertEquals(draft, body.getJSONObject("point").getString("note"))
+        } finally {
+            releaseBoardingCode.countDown()
+        }
+    }
 
     @Test fun currentBookingAcceptsSuccessfulHttpAndFreshMeetingVersion() {
         open(Chain.BOOKING)

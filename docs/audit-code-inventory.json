@@ -846,7 +846,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "a04b526b38a1a53015edfc7ec2bbc555e782d75103f110c3e6ab2d04d7995c57",
+      "sha256": "1df3dc98047fc5a8f1789d6ec3d566337f4b7b200f4cfe69fcd12c473d26922a",
       "lines": 3537
     },
     {
@@ -2484,8 +2484,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatTerminalHttpTest.kt",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "4d205d415f8716ac1ddcce4702b3ef6c1fa63c38aea63c9c10a30bd92b89ef80",
-      "lines": 389
+      "sha256": "0532c82d333e77a6719801faa1c7cb65ef2478dd8af7b9585f1f39b44b8a749f",
+      "lines": 478
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatUiBoundaryTest.kt",
@@ -2757,8 +2757,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingCompletionDestinationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "e08c9ea19422e406914e7db54eb4253e59bc8c28d4988f474b1200528e6e207a",
-      "lines": 326
+      "sha256": "315e98405669649312b99f6b4dc9f5c972d44888d8997dedaf309124e6e2ddba",
+      "lines": 328
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingConfirmationJourneyTest.kt",
@@ -3205,15 +3205,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/HistoryReceiptNavigationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "26741c842b2963fa17fa7e4dd95b46d16ec968f94faa6d19f4672e146c1b4ca1",
-      "lines": 106
+      "sha256": "fe442d9c138e537c74357296ff2afeed19196cfe5420da6ca1670fc07da1cd6a",
+      "lines": 262
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeBookingNavigationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ada662b484ae0777d985b747a8280ea3e665f57a124e3187abd21bfc277a31ff",
-      "lines": 181
+      "sha256": "bdac106027f92bb684911cdd64d135120dc13426837c5097ddf77fff585bcbb0",
+      "lines": 620
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",
@@ -3618,8 +3618,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/OfflineTripParentAuthorityTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "6ae9473e77d9e2afe6ee43bf6090b17ec1e988f7a5a63d8e0fcc901b385c5719",
-      "lines": 856
+      "sha256": "b89ed7a91ba5e83382f281d6cedefc279f5a77665e81a4952f32b050a51a5bc2",
+      "lines": 910
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/OutboxAutoFlushTest.kt",

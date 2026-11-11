@@ -203,9 +203,11 @@ class BookingCompletionDestinationTest {
         // loaded through ApiClient from a local HTTP fixture (no injected UI callbacks).
         compose.mainClock.autoAdvance = true
         compose.waitUntil(timeoutMillis = 10_000) {
-            compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("Уфа  →  Казань").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("rideshareCompletedHero").assertIsDisplayed()
+        compose.onNodeWithText("Уфа  →  Казань").assertIsDisplayed()
         compose.onNodeWithTag("rideshareCompletedList")
             .performScrollToNode(hasTestTag("rideshareStar4"))
         compose.onNodeWithTag("rideshareStar4").assertIsDisplayed().performClick()

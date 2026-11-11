@@ -335,18 +335,20 @@ class HomeBookingNavigationTest {
         assertEquals(bookingLinkStubRide(42), vm.selectedRide.value)
         assertTrue(records.any { it.first == "GET" && it.second == "/bookings/42/role" && it.third == "Bearer $tokenA" })
         status = "done"
-        repeat(140) {
+        compose.waitUntil(15_000) {
             compose.mainClock.advanceTimeBy(100)
             Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100))
             Snapshot.sendApplyNotifications()
-            Thread.sleep(5)
+            OfflineTripSnapshots.terminal(42)?.status == "done"
         }
-        await {
-            records.any { it.first == "GET" && it.second == "/trips/42/receipt" } &&
-                compose.onAllNodesWithTag("rideshareStar4").fetchSemanticsNodes().isNotEmpty() &&
-                compose.onAllNodesWithText("ReceiptDriver42", substring = true).fetchSemanticsNodes().isNotEmpty()
-        }
-        assertEquals("done", OfflineTripSnapshots.terminal(42)?.status)
+        await { records.any { it.first == "GET" && it.second == "/trips/42/receipt" && it.third == "Bearer $tokenA" } }
+        await { compose.onAllNodesWithText("Рәхмәт, ReceiptDriver42!").fetchSemanticsNodes().isNotEmpty() }
+        val completedList = compose.onNodeWithTag("rideshareCompletedList")
+        completedList.performScrollToNode(hasTestTag("rideshareStar4"))
+        compose.onNodeWithTag("rideshareStar4").assertIsDisplayed()
+        completedList.performScrollToNode(hasText("ReceiptDriver42", substring = true))
+        compose.onAllNodesWithText("ReceiptDriver42", substring = true).onFirst().assertIsDisplayed()
+        completedList.performScrollToNode(hasText("400", substring = true))
         compose.onAllNodesWithText("400", substring = true).onFirst().assertExists()
         compose.onAllNodesWithText("Не получилось загрузить детали. Основные данные поездки сохранены.").assertCountEquals(0)
         assertFalse(records.any { it.second == "/trips/7/receipt" })
