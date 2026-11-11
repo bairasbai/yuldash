@@ -83,7 +83,7 @@
     "infra_resource_config": 406,
     "public_site_promo": 91,
     "pwa_main": 330,
-    "test_support": 1287
+    "test_support": 1288
   },
   "counts_by_block": {
     "B01": 161,
@@ -94,7 +94,7 @@
     "B06": 101,
     "B07": 144,
     "B08": 215,
-    "B09": 742,
+    "B09": 743,
     "B10": 406,
     "B11": 92
   },
@@ -125,8 +125,8 @@
       "path": ".github/workflows/ci.yml",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "c6673507fc3abae5beae054c84608cd6098c0350a65d854d99d50c063f55e299",
-      "lines": 322
+      "sha256": "85fde6df4d1dbc1b11b665eacf4e947cbfcb9ee9b34e8391a2e3223478f83448",
+      "lines": 324
     },
     {
       "path": ".gitignore",
@@ -9684,6 +9684,13 @@
       "lines": 111
     },
     {
+      "path": "backend/tests/test_meeting_cleanup_race_pg.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "e984c0eec99bb0574ff4918c22743cbbfbc0a68fee77e9a7ab16b1cea367bdad",
+      "lines": 141
+    },
+    {
       "path": "backend/tests/test_migrations_match_the_models.py",
       "kind": "test_support",
       "block": "B09",
@@ -12207,8 +12214,8 @@
       "path": "backend/tests/walk/l1_1/test_l1_1_refund_migration.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e4b3ea3674b28ca7870e0fe2b0cd260e59a922ee1ab6d6957fb63f1e1bb8da12",
-      "lines": 282
+      "sha256": "f41dcf93a99d0af9b482f4dba7ae327bc85285d60aba300e248b97bae4c1f73c",
+      "lines": 291
     },
     {
       "path": "backend/tests/walk/l1_1/test_l1_1_refund_race.py",

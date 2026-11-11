@@ -33,7 +33,6 @@ import re
 import subprocess
 import time
 from pathlib import Path
-from urllib.parse import urlparse
 
 import pytest
 import sqlalchemy as sa
@@ -48,7 +47,7 @@ REVISION_FILE = BACKEND / "alembic" / "versions" / "refund_unique_20261002.py"
 PARENT_REVISION = "bv_refresh_recovery"   # ровно down_revision этой ревизии
 INDEX = "uq_ledgerentry_refund"
 
-PG_BASE = os.environ.get("AUDIT_PG_BASE", "postgresql://audit_user@127.0.0.1:55450")
+DEFAULT_PG_BASE = "postgresql://audit_user@127.0.0.1:55450"
 PG_BIN = Path(os.environ.get("AUDIT_PG_BIN", r"C:\Program Files\PostgreSQL\16\bin"))
 
 
@@ -57,10 +56,15 @@ def _tool(name: str) -> str:
     return str(exe) if exe.exists() else name
 
 
-def _conn_args():
-    p = urlparse(PG_BASE)
-    return ["--host", p.hostname or "127.0.0.1", "--port", str(p.port or 5432),
-            "--username", p.username or "postgres", "--no-password"]
+def _pg_target():
+    if os.environ.get("AUDIT_PG_CI_SERVICE") == "1":
+        url = sa.make_url(os.environ["DATABASE_URL"])
+        if (url.get_backend_name() != "postgresql" or url.host not in {"localhost", "127.0.0.1"}
+                or url.database != "yuldash_run"):
+            pytest.fail("ожидалась изолированная база yuldash_run на локальном PostgreSQL")
+        return url, True
+    configured = os.environ.get("AUDIT_PG_BASE")
+    return sa.make_url(configured or DEFAULT_PG_BASE), bool(configured)
 
 
 @pytest.fixture
@@ -70,15 +74,19 @@ def fresh_db():
     если тест упал."""
     name = re.sub(r"[^a-z0-9_]", "_",
                   f"m_refund_{os.getpid()}_{int(time.time() * 1000)}".lower())[:60]
-    args = _conn_args()
+    target, required = _pg_target()
+    args = ["--host", target.host or "127.0.0.1", "--port", str(target.port or 5432),
+            "--username", target.username or "postgres", "--no-password"]
+    env = dict(os.environ, PGPASSWORD=target.password) if target.password is not None else None
     try:
-        subprocess.run([_tool("createdb"), *args, name], check=True,
+        subprocess.run([_tool("createdb"), *args, name], check=True, env=env,
                        capture_output=True, text=True, timeout=30)
-    except (FileNotFoundError, OSError, subprocess.CalledProcessError,
-            subprocess.TimeoutExpired) as e:
-        pytest.skip(f"нет изолированного PostgreSQL на {PG_BASE}: {e}")
-        return
-    url = f"{PG_BASE.rstrip('/')}/{name}"
+    except (OSError, subprocess.CalledProcessError, subprocess.TimeoutExpired) as e:
+        message = f"не удалось создать изолированную тестовую базу PostgreSQL: {e}"
+        if required:
+            pytest.fail(message)
+        pytest.skip(message)
+    url = target.set(database=name).render_as_string(hide_password=False)
     previous = os.environ.get("DATABASE_URL")
     os.environ["DATABASE_URL"] = url
     try:
@@ -88,7 +96,8 @@ def fresh_db():
             os.environ.pop("DATABASE_URL", None)
         else:
             os.environ["DATABASE_URL"] = previous
-        subprocess.run([_tool("dropdb"), *args, "--if-exists", name], capture_output=True)
+        subprocess.run([_tool("dropdb"), *args, "--if-exists", name], check=True, env=env,
+                       capture_output=True, text=True, timeout=30)
 
 
 def _cfg() -> Config:
