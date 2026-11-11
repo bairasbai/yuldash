@@ -178,6 +178,9 @@ internal fun HomeRoute(
             onOpenReceipt = { bookingId ->
                 if (bookingId > 0) openHomeDestination { onOpenReceipt(bookingId) }
             },
+            onOpenRecoveredBooking = { bookingId, completed ->
+                vm.requestBookingDestination(bookingId, ApiClient.myUserId(), completed)
+            },
             onShareRide = { ride ->
                 val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time
                 // Красивая расшариваемая ссылка: откроется в приложении (deep-link) либо покажет

@@ -1324,13 +1324,12 @@ private fun YuldashAppContent() {
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
                 var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
                 val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession)
+                val recovery = rememberBookingRecovery(displayedRide?.id?.toIntOrNull().takeIf { displayedBookingId == null }, displayedSession, ::isDisplayedBookingCurrent)
                 key(displayedRide, displayedBookingId, displayedSession, displayedOwner, displayedRevision) {
                     BookingScreen(
-                    // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
-                    // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
-                    // человек видел карточку выдуманного водителя, а бронь не проходила (id не серверный).
                     ride = selectedRide ?: rides.firstOrNull(),
                     bookingId = activeBookingId,
+                    recovery = recovery, onOpenRecoveredBooking = { vm.requestBookingDestination(it.id, ApiClient.myUserId(), completed = it.status == "done") },
                     isCurrentParent = { isDisplayedBookingUnchanged() },
                     ads = partnerAds,
                     adStats = adStats,
@@ -1399,9 +1398,7 @@ private fun YuldashAppContent() {
                             }
                         } else {
                             val rid = bookingRideIdOrNotify(displayedRide, context, language)
-                            // Блокируем повторное нажатие до ответа на медленной сети.
-                            // Сервер отдельно проверяет явный повтор после потерянного ответа.
-                            if (rid != null && !bookingInFlight && displayedRide != null && selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) && segmentReady(displayedRide, pickupStop, dropoffStop)) {
+                            if (rid != null && !bookingInFlight && recovery.canSubmit && displayedRide != null && selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) && segmentReady(displayedRide, pickupStop, dropoffStop)) {
                                 bookingInFlight = true
                                 appScope.launch {
                                     try {
@@ -1410,8 +1407,8 @@ private fun YuldashAppContent() {
                                             // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
                                             expectedPrice = segmentPriceRub(displayedRide, pickupStop, dropoffStop) ?: displayedRide.price,
                                             expectedTermsVersion = displayedRide.termsVersion,
-                                            // RS-03 А: точки встречи/высадки по желанию.
-                                            meeting = meetPickup, alighting = meetDropoff)
+                                            meeting = meetPickup, alighting = meetDropoff, expectedGeneration = displayedSession,
+                                            previousKey = recovery.slot?.key, retry = recovery.retry)
                                         if (!isDisplayedBookingCurrent()) return@launch
                                         ApiClient.runIfCurrentSession(displayedSession) {
                                             result.onSuccess { booking ->
@@ -1422,17 +1419,13 @@ private fun YuldashAppContent() {
                                                     screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
                                                 }
                                             }.onFailure { e ->
-                                                val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
-                                                    ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
-                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
+                                                recovery.failed(e)
                                                 // Условия уехали (цена/места/маршрут): перечитываем поездку, человек подтверждает уже НОВЫЕ условия (RS-02 В).
-                                                if ((e as? ApiException)?.detailCode in setOf("price_changed", "ride_terms_changed")) appScope.launch {
+                                                if (recovery.rejectionCode in setOf("price_changed", "ride_terms_changed")) appScope.launch {
                                                     ApiClient.getRide(rid).onSuccess { fresh ->
                                                         if (isDisplayedBookingUnchanged()) vm.navigateLocally { selectedRide = fresh.toUiRide().withRouteHints(displayedRide) }
                                                     }
                                                 }
-                                                // Своя бронь уже есть — открываем её (номер пришёл в отказе).
-                                                existingBookingIdOf(e)?.let { id -> vm.navigateLocally { activeBookingId = id; selectedBookingStatus = ""; screen = Screen.Booking } }
                                             }
                                         }
                                     } finally { bookingInFlight = false }
@@ -2481,7 +2474,7 @@ internal fun HomeScreen(
     onTabChange: (HomeTab) -> Unit = {},
     onOpenInstantOrder: () -> Unit = {},
     onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
-    onOpenReceipt: (Int) -> Unit = {}
+    onOpenReceipt: (Int) -> Unit = {}, onOpenRecoveredBooking: (Int, Boolean) -> Unit = { _, _ -> }
 ) {
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
@@ -2527,6 +2520,7 @@ internal fun HomeScreen(
                     onAdClick = onAdClick,
                     onDriverCabinet = gate.guard(onDriverCabinet),
                     onOpenReceipt = gate.guard(onOpenReceipt),
+                    onOpenRecoveredBooking = onOpenRecoveredBooking,
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,

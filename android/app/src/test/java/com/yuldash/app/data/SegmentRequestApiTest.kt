@@ -21,10 +21,14 @@ class SegmentRequestApiTest {
     @After fun cleanup() { ApiClient.testBaseUrl = null; server.shutdown() }
 
     @Test fun bothPublishedNamesAreSentForDirectAndIntermediateSegments() = runBlocking<Unit> {
-        for ((pickup, dropoff) in listOf("Сибай" to "Акъяр", "Ургаза" to "Бурибай")) {
-            server.enqueue(MockResponse().setBody("""{"id":42,"status":"pending"}"""))
-            ApiClient.bookWithStatus(7, 1, pickupStop = pickup, dropoffStop = dropoff).getOrThrow()
-            val request = server.takeRequest(); assertEquals("/bookings", request.path)
+        startBookingCommandSession(server)
+        for ((index, stops) in listOf("Сибай" to "Акъяр", "Ургаза" to "Бурибай").withIndex()) {
+            val (pickup, dropoff) = stops
+            val rideId = 7 + index
+            server.enqueue(bookingCommandResponse(rideId))
+            ApiClient.bookWithStatus(rideId, 1, pickupStop = pickup, dropoffStop = dropoff).getOrThrow()
+            if (index == 0) assertEquals("/me", server.takeRequest().path)
+            val request = server.takeRequest(); assertEquals("/bookings/commands/v1", request.path)
             val body = JSONObject(request.body.readUtf8())
             assertEquals(pickup, body.getString("pickup_stop")); assertEquals(dropoff, body.getString("dropoff_stop"))
         }

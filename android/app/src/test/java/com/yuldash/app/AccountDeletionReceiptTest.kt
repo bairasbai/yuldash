@@ -40,7 +40,8 @@ class AccountDeletionReceiptTest {
                 records+=request
                 if(request.path=="/auth/logout") logoutStarted.countDown()
                 if(request.path=="/me/delete") {started.countDown();if(held) assertTrue(release.await(8,TimeUnit.SECONDS))}
-                return MockResponse().setResponseCode(if(request.path=="/me/delete") status else 200).setBody("{}")
+                return MockResponse().setResponseCode(if(request.path=="/me/delete") status else 200)
+                    .setBody(if (request.path == "/me/delete" && status == 200) """{"ok":true}""" else "{}")
             }
         };start()}
         ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=10000

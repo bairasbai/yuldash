@@ -47,7 +47,7 @@ class ApiClientLateMutationSessionTest {
                             return MockResponse().setResponseCode(504)
                         }
                         return MockResponse().setResponseCode(200).setBody(
-                            if (request.path == "/upload/chat-photo") """{"url":"/uploads/account-A-private.jpg"}""" else "{}",
+                            if (request.path == "/upload/chat-photo") """{"url":"/uploads/account-A-private.jpg"}""" else """{"ok":true}""",
                         )
                     }
                     if (request.path == "/auth/logout" || request.path == "/auth/push/unregister") {

@@ -300,6 +300,7 @@ internal fun RidesScreen(
     // живут в кабинете водителя, и пустой экран обязан уметь туда отправить.
     onDriverCabinet: () -> Unit = {},
     onOpenReceipt: (Int) -> Unit = {},
+    onOpenRecoveredBooking: (Int, Boolean) -> Unit = { _, _ -> },
 ) {
     var selectedStatus by rememberSaveable { mutableStateOf("active") }
     val activeLabel = appText("Активные", "Актив")
@@ -336,6 +337,8 @@ internal fun RidesScreen(
     }
     val historicalOwner by OfflineTripSnapshots.owner.collectAsState()
     val historicalVersion by OfflineTripSnapshots.version.collectAsState()
+    val commandGeneration by ApiClient.sessionChanges.collectAsState()
+    val pendingCommands = rememberPendingBookingCommands(commandGeneration)
     var historical by remember(historicalOwner) { mutableStateOf<List<HistoricalTripSummary>>(emptyList()) }
     LaunchedEffect(bookingsError, historicalAllowed, historicalOwner, historicalVersion, bookingsReload) {
         historical = emptyList()
@@ -374,6 +377,7 @@ internal fun RidesScreen(
             item {
                 Text(appText("Мои поездки", "Минең сәфәрҙәр"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             }
+            pendingBookingItems(pendingCommands) { onOpenRecoveredBooking(it.id, it.status == "done") }
             item {
                 SegmentedTabs(
                     tabs = listOf(activeLabel, historyLabel, allLabel),

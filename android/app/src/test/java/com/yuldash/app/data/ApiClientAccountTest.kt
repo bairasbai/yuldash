@@ -119,7 +119,7 @@ class ApiClientAccountTest {
     fun deleteAccount_postsEmptyBodyToMeDelete() = runBlocking {
         ApiClient.init(androidx.test.core.app.ApplicationProvider.getApplicationContext())
         ApiClient.saveToken("local-account-deletion-test")
-        server.enqueue(json("{}"))
+        server.enqueue(json("""{"ok":true}"""))
         val res = ApiClient.deleteAccount()
         assertTrue(res.isSuccess)
         val recorded = server.takeRequest()

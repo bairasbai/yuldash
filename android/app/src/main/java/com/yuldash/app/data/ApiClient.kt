@@ -305,6 +305,7 @@ object ApiClient {
             )
         }.getOrNull()
         val plain = app.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
+        BookingCommandApi.init(app.getSharedPreferences("yuldash_booking_commands", Context.MODE_PRIVATE))
         // The source marker prevents stale plaintext from replacing a newer
         // encrypted login, and keeps logout authoritative while Keystore is unavailable.
         val selected = runCatching { AuthStorePolicy.resolve(plain, secure) }.getOrNull()
@@ -623,12 +624,16 @@ object ApiClient {
      *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
     suspend fun deleteAccount(expectedGeneration: Long = queueSessionGeneration()): Result<Long> {
         if (!isCurrentSession(expectedGeneration)) return staleSession()
-        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
-        return synchronized(sessionLock) {
-            if (!sameSession(expectedGeneration)) staleSession()
-            else result.map {
-                clearLocalSession()
-                sessionGeneration // Exact post-delete receipt, captured before another login can intervene.
+        return BookingCommandApi.withDeletionBarrier(expectedGeneration) { accounts ->
+            val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = expectedGeneration,
+                singleAttemptMutation = true, onDeletionConfirmed = { synchronized(sessionLock) { BookingCommandApi.purge(accounts) } })
+            synchronized(sessionLock) {
+                if (!sameSession(expectedGeneration)) staleSession()
+                else result.mapCatching {
+                    require(it.opt("ok") == true)
+                    clearLocalSession()
+                    sessionGeneration // Exact post-delete receipt, captured before another login can intervene.
+                }
             }
         }
     }
@@ -1077,8 +1082,7 @@ object ApiClient {
         }
     }
 
-    /** Забронировать поездку. Возвращает id брони.
-     * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
+    /** Забронировать поездку. payMethod/payAmount — договорённость об оплате, не платёж.
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
@@ -1086,19 +1090,21 @@ object ApiClient {
     ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
         .map { it.optInt("id") }
 
-    /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
         expectedPrice: Int? = null, expectedTermsVersion: Long? = null,
         meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting)
-        .mapCatching { response ->
-            val id = response.getInt("id")
-            val status = response.getString("status")
-            require(id > 0 && status in setOf("pending", "confirmed", "onboard")) { "Invalid booking response" }
-            BookingCreatedDto(id, status)
-        }
+        expectedGeneration: Long = queueSessionGeneration(),
+        previousKey: String? = null, retry: Boolean = false,
+    ): Result<BookingCreatedDto> = BookingCommandApi.book(rideId,
+        bookingPayload(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone,
+            frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting),
+        expectedGeneration, previousKey, retry)
+
+    internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
+        call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
+            singleAttemptMutation = true, wireBody = body, expectedBase = base)
 
     private suspend fun createBookingResponse(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
@@ -1115,23 +1121,8 @@ object ApiClient {
         meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
     ): Result<JSONObject> = call(
         "POST", "/bookings",
-        JSONObject().put("ride_id", rideId).put("seats", seats)
-            .put("pay_method", payMethod)
-            .put("pay_amount", payAmount ?: JSONObject.NULL)
-            .apply {
-                if (frontSeat) put("front_seat", true)
-                if (pickupStop != null) put("pickup_stop", pickupStop)
-                if (dropoffStop != null) put("dropoff_stop", dropoffStop)
-                if (expectedPrice != null) put("expected_price", expectedPrice)
-                if (expectedTermsVersion != null) put("expected_terms_version", expectedTermsVersion)
-                if (meeting != null && !meeting.isEmpty) put("meeting", meeting.toJson())
-                if (alighting != null && !alighting.isEmpty) put("alighting", alighting.toJson())
-                if (minorPassenger) {
-                    put("minor_passenger", true)
-                    put("minor_guardian_name", guardianName)
-                    put("minor_guardian_phone", guardianPhone)
-                }
-            },
+        bookingPayload(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone,
+            frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting),
         auth = true,
     ).onSuccess { Analytics.log("booking") }
 
@@ -3615,6 +3606,9 @@ object ApiClient {
         idempotencyKey: String? = null,
         singleAttemptMutation: Boolean = false,
         snapshotRead: SnapshotTransportRead? = SnapshotTransportRead.denialFor(path, expectedGeneration ?: queueSessionGeneration(), auth),
+        wireBody: String? = null,
+        expectedBase: String? = null,
+        onDeletionConfirmed: (() -> Unit)? = null,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3644,7 +3638,7 @@ object ApiClient {
         val backoff = if (retryOnNetwork && testTimeoutMs == null) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
-            if (sessionBound && !sameSession(generation)) return@withContext staleSession()
+            if ((sessionBound && !sameSession(generation)) || (expectedBase != null && expectedBase != BASE)) return@withContext staleSession()
             snapshotRead?.attempt()
             var conn: HttpURLConnection? = null
             var mutationResponse: Response? = null
@@ -3652,9 +3646,10 @@ object ApiClient {
                 val code: Int
                 val text: String
                 if (singleAttemptMutation || rideshareMutation(method, path)) {
-                    val bytes = body?.toString()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
-                    val requestBody = object : RequestBody() {
-                        override fun contentType() = if (body != null) "application/json; charset=utf-8".toMediaType() else null
+                    val json = wireBody ?: body?.toString()
+                    val bytes = json?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+                    val requestBody = if (idempotent) null else object : RequestBody() {
+                        override fun contentType() = if (json != null) "application/json; charset=utf-8".toMediaType() else null
                         override fun contentLength() = bytes.size.toLong()
                         override fun isOneShot() = true // Also for empty DELETE: 503/408 follow-ups must not resend it.
                         override fun writeTo(sink: BufferedSink) { sink.write(bytes) }
@@ -3669,7 +3664,7 @@ object ApiClient {
                             addUnsafeNonAscii("Authorization", bearer)
                         }
                     }.build()
-                    val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
+                    val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
@@ -3700,6 +3695,9 @@ object ApiClient {
                     val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                     text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 }
+                if (onDeletionConfirmed != null && code in 200..299 && runCatching { JSONObject(text).opt("ok") == true }.getOrDefault(false)) {
+                    onDeletionConfirmed()
+                }
                 if (sessionBound && !sameSession(generation)) return@withContext staleSession()
                 return@withContext if (code in 200..299) {
                     val obj = when {
@@ -3719,7 +3717,8 @@ object ApiClient {
                     val refreshed = tryRefresh(usedToken, generation)
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
-                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead)
+                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
+                        wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
