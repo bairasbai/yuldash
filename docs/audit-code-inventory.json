@@ -370,8 +370,8 @@
       "path": "android/app/src/androidTest/java/com/yuldash/app/ReceiptParityInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "c8862b08a54a68b279afac0c96f908bd46464e743d289652b57c43ae6c07ef0c",
-      "lines": 122
+      "sha256": "707ea20ba28ccc4005adae88157137215567770546621f902fc7a74bbd09b98b",
+      "lines": 163
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/RequestResponsesInstrumentedTest.kt",
@@ -405,8 +405,8 @@
       "path": "android/app/src/androidTest/java/com/yuldash/app/RideshareParityInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "4880acd61e6c9ca9fc72a2bad1e038497fce1396a43b1a9bd210ea0f0034e401",
-      "lines": 140
+      "sha256": "532ab6d4cf01e75837bd3c2fc0d164f6a9b1ee24898ff2d90bbc63d6be787a12",
+      "lines": 146
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/RoadsideReplayUiInstrumentedTest.kt",

@@ -55,6 +55,8 @@ class RideshareParityInstrumentedTest {
         val detailsState = mutableStateOf(0)
         var detailsRetryCalls = 0
         val phone = "+70000000001" // Synthetic fixture, never a real account.
+        val contactsAreCurrent = mutableStateOf(false)
+        val contacts = TripContacts(phone, "белая Lada Vesta", "А000АА 00", "Ургаза", null, null)
         InstrumentationRegistry.getInstrumentation().runOnMainSync {
             WindowCompat.getInsetsController(compose.activity.window, compose.activity.window.decorView).apply {
                 isAppearanceLightStatusBars = !dark
@@ -82,7 +84,7 @@ class RideshareParityInstrumentedTest {
                                 stops.value = stops.value.toMutableList().also { it[index] = value }
                             }, endpoints = listOf("Сибай", "Акъяр"))
                         }
-                        ActiveTripContactsCard(TripContacts(phone, "белая Lada Vesta", "А000АА 00", "Ургаза", null, null))
+                        ActiveTripContactsCard(contacts, isCurrent = { contactsAreCurrent.value })
                         RequestRouteOfferChoice(matchedRequest, bind.value, { bind.value = it })
                     }
                 }
@@ -111,8 +113,12 @@ class RideshareParityInstrumentedTest {
         val stopsTitle = if (language == AppLanguage.Ba) "Юл буйындағы туҡталыштар" else "Остановки по пути"
         compose.onNodeWithText(stopsTitle).performScrollTo().assertIsDisplayed()
         capture(language, dark, "stops")
+        compose.onNodeWithText(phone).assertDoesNotExist()
+        compose.runOnIdle { contactsAreCurrent.value = true }
         compose.onNodeWithText(phone).performScrollTo().assertIsDisplayed()
         capture(language, dark, "contacts")
+        compose.runOnIdle { contactsAreCurrent.value = false }
+        compose.onNodeWithText(phone).assertDoesNotExist()
         val ownRide = if (language == AppLanguage.Ba) "Үҙ сәфәремдә урын" else "Место в моём рейсе"
         compose.onNodeWithText(ownRide).performScrollTo().performClick()
         compose.runOnIdle { assertEquals(true, bind.value) }

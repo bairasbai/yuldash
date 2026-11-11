@@ -1,6 +1,9 @@
 package com.yuldash.app
 
+import android.app.Instrumentation
 import android.graphics.Bitmap
+import android.os.SystemClock
+import android.view.Choreographer
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
@@ -36,6 +39,8 @@ import org.json.JSONObject
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /** Independent read-only host of the production receipt summary: native typography, both raw points and own rating.
  * No Application navigation, HTTP, payment or full user journey is supplied/proven by this component matrix. */
@@ -108,13 +113,49 @@ class ReceiptParityInstrumentedTest {
         directory.mkdirs();File(directory,"${language.name}-${if(dark)"dark" else "light"}-narrow-320-font1_3.json").writeText(metrics.toString())
         capture(language,dark,"narrow-320-font1_3")
     }
-    private fun capture(language:AppLanguage,dark:Boolean,state:String) {
-        val instrumentation=InstrumentationRegistry.getInstrumentation();instrumentation.waitForIdleSync()
-        val directory=File(instrumentation.targetContext.getExternalFilesDir(null),"receipt-parity-20261018");directory.mkdirs()
-        val bitmap=instrumentation.uiAutomation.takeScreenshot()
-        File(directory,"${language.name}-${if(dark)"dark" else "light"}-$state.png").outputStream().use{bitmap.compress(Bitmap.CompressFormat.PNG,100,it)}
-        bitmap.recycle()
+    private fun capture(language: AppLanguage, dark: Boolean, state: String) {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        compose.waitForIdle()
+        val directory = File(instrumentation.targetContext.getExternalFilesDir(null), "receipt-parity-20261018")
+        directory.mkdirs()
+        val bitmap = captureRenderedReceipt(instrumentation)
+        try {
+            File(directory, "${language.name}-${if (dark) "dark" else "light"}-$state.png").outputStream().use {
+                check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+            }
+        } finally {
+            bitmap.recycle()
+        }
     }
+
+    private fun captureRenderedReceipt(instrumentation: Instrumentation): Bitmap {
+        val window = compose.activity.window.decorView
+        val deadline = SystemClock.uptimeMillis() + 3_000
+        do {
+            val presented = CountDownLatch(1)
+            instrumentation.runOnMainSync {
+                window.postInvalidateOnAnimation()
+                val choreographer = Choreographer.getInstance()
+                choreographer.postFrameCallback {
+                    choreographer.postFrameCallback { presented.countDown() }
+                }
+            }
+            check(presented.await(1, TimeUnit.SECONDS)) { "The receipt window did not present a frame" }
+            instrumentation.waitForIdleSync()
+            val screenshot = requireNotNull(instrumentation.uiAutomation.takeScreenshot())
+            val bitmap = if (screenshot.config == Bitmap.Config.HARDWARE) {
+                requireNotNull(screenshot.copy(Bitmap.Config.ARGB_8888, false)).also { screenshot.recycle() }
+            } else screenshot
+            val background = bitmap.getPixel(bitmap.width / 2, bitmap.height * 3 / 4)
+            val hasContent = (1..6).any { row -> (1..6).any { column ->
+                bitmap.getPixel(bitmap.width * column / 7, bitmap.height * row / 8) != background
+            } }
+            if (hasContent) return bitmap
+            bitmap.recycle()
+        } while (SystemClock.uptimeMillis() < deadline)
+        error("The receipt screenshot contains no rendered content")
+    }
+
     @Test fun russianLight()=verify(AppLanguage.Ru,false)
     @Test fun russianDark()=verify(AppLanguage.Ru,true)
     @Test fun bashkirLight()=verify(AppLanguage.Ba,false)
