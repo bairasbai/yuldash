@@ -10,7 +10,11 @@ import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
@@ -45,13 +49,18 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
     private fun vm(): YuldashViewModel = YuldashViewModel(SavedStateHandle()).apply {
         activeBookingId.value = 11; selectedRide.value = bookingLinkStubRide(11); screen.value = Screen.ActiveTrip
     }
-    private fun mount(vm: YuldashViewModel) {
-        compose.setContent { CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-            val session = ApiClient.sessionChanges.collectAsState(initial = ApiClient.queueSessionGeneration()).value
-            if (mounted.value) GuardedActiveTripDestination(vm, session, emptyList(), null, false,
-                onBack = {}, onTripEnd = {}, onSos = {}, onSupport = {}, onTrustedContacts = {}, onTripStopped = {},
-                onOpenReceipt = {}, currentReceiptBookingId = { 0 })
-        } }
+    private fun mount(vm: YuldashViewModel, lifecycleOwner: LifecycleOwner? = null) {
+        compose.setContent {
+            CompositionLocalProvider(
+                LocalAppLanguage provides AppLanguage.Ru,
+                LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current),
+            ) {
+                val session = ApiClient.sessionChanges.collectAsState(initial = ApiClient.queueSessionGeneration()).value
+                if (mounted.value) GuardedActiveTripDestination(vm, session, emptyList(), null, false,
+                    onBack = {}, onTripEnd = {}, onSos = {}, onSupport = {}, onTrustedContacts = {}, onTripStopped = {},
+                    onOpenReceipt = {}, currentReceiptBookingId = { 0 })
+            }
+        }
     }
     private fun noPrivate() {
         compose.onAllNodesWithText("4821", substring = true).assertCountEquals(0)
@@ -214,8 +223,17 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
             MockResponse().setResponseCode(409).setBody("{\"detail\":{\"code\":\"qa_retry\",\"ru\":\"QA retry\",\"ba\":\"QA retry\"}}")
             else confirmedResponse(request) }
         warm()
-        val vm = vm(); mount(vm)
-        awaitUi { compose.onAllNodesWithContentDescription("Позвонить").fetchSemanticsNodes().isNotEmpty() }
+        val lifecycleOwner = object : LifecycleOwner {
+            val registry = LifecycleRegistry(this)
+            override val lifecycle: Lifecycle get() = registry
+        }
+        // Keep the destination's startup reads and pause its RESUMED-only periodic role refresh.
+        compose.runOnUiThread { lifecycleOwner.registry.currentState = Lifecycle.State.STARTED }
+        val vm = vm(); mount(vm, lifecycleOwner)
+        awaitUi {
+            compose.onAllNodesWithContentDescription("Позвонить").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("4821", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
         val call = requireNotNull(compose.onNodeWithContentDescription("Позвонить").fetchSemanticsNode().config[SemanticsActions.OnClick].action)
         val application = Shadows.shadowOf(context as Application)
         compose.runOnIdle { call() }
@@ -227,9 +245,27 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
         compose.runOnIdle { edit() }
         awaitUi { compose.onAllNodes(hasSetTextAction()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasSetTextAction()).performTextReplacement("outgoing-draft")
-        compose.onNodeWithText("Готово").performClick()
-        awaitUi { meetingPosts().size == 1 && compose.onAllNodesWithText("QA retry").fetchSemanticsNodes().isNotEmpty() }
+        val submittedDetails = requireNotNull(currentTripPrivateDetails(11))
+        fun awaitSubmitStage(stage: String, reached: () -> Boolean) {
+            try {
+                awaitUi(reached)
+            } catch (timeout: ComposeTimeoutException) {
+                val currentDetails = currentTripPrivateDetails(11)
+                throw AssertionError(
+                    "$stage. Meeting POSTs=${meetingPosts().size}, details present=${currentDetails != null}, " +
+                        "details replaced=${currentDetails != null && currentDetails !== submittedDetails}",
+                    timeout,
+                )
+            }
+        }
+        compose.onNodeWithText("Готово").assertIsEnabled().performClick()
+        awaitSubmitStage("Waiting for the meeting POST") { meetingPosts().isNotEmpty() }
+        assertEquals(1, meetingPosts().size)
         assertEquals(2, JSONObject(meetingPosts().single().body.clone().readUtf8()).getInt("base_version"))
+        awaitSubmitStage("Waiting for the HTTP 409 message and an enabled submit button") {
+            compose.onAllNodesWithText("QA retry").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodes(hasText("Готово") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
         val submit = captureText("Готово")
         val prior = owner()
         val started = mutableListOf<String?>()

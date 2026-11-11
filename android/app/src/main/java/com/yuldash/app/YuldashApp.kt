@@ -1217,7 +1217,11 @@ private fun YuldashAppContent() {
                 // Это убирает «дубль» (раньше Compose-сплэш заново анимировал то же лого поверх системного).
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark))))
                 // Первый запуск → брендовое интро; повтор → быстро в приложение (без второго лого).
-                LaunchedEffect(Unit) { delay(if (splashTarget == Screen.Intro) 60 else 140); screen = splashTarget }
+                LaunchedEffect(Unit) {
+                    delay(if (splashTarget == Screen.Intro) 60 else 140)
+                    // AnimatedContent can retain the outgoing splash after a session change.
+                    if (vm.screen.value == Screen.Splash) screen = splashTarget
+                }
             }
             Screen.Intro -> IntroScreen(onComplete = { screen = Screen.Onboarding })
             Screen.Onboarding -> OnboardingScreen(

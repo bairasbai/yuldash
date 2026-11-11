@@ -6,6 +6,7 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
+import androidx.compose.ui.test.ComposeTimeoutException
 import androidx.compose.ui.test.isRoot
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.lifecycle.SavedStateHandle
@@ -35,6 +36,8 @@ import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.net.InetAddress
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
 @RunWith(RobolectricTestRunner::class)
@@ -52,12 +55,14 @@ class GuestStartupSessionTest {
     private val myRequests = privateRequests.getValue("/requests/mine")
     private val authenticatedMyRequests = AtomicInteger()
     private val authenticatedMeRequests = AtomicInteger()
+    private val releasePrivateRequests = CountDownLatch(1)
     private lateinit var server: MockWebServer
     private lateinit var vm: YuldashViewModel
     private var contentSet = false
     private val originalMotion = CanonMotion.enabled
     @Volatile private var meStatus = 401
     @Volatile private var requestsStatus = 200
+    @Volatile private var holdPrivateRequests = false
 
     @Before fun prepare() {
         val context: Context = ApplicationProvider.getApplicationContext()
@@ -72,7 +77,12 @@ class GuestStartupSessionTest {
                     privateRequests[path]?.incrementAndGet()
                     val authenticated = request.getHeader("Authorization") == "Bearer local-startup-test-account"
                     if (path == "/requests/mine") {
-                        if (authenticated) authenticatedMyRequests.incrementAndGet()
+                        if (authenticated) {
+                            authenticatedMyRequests.incrementAndGet()
+                            if (holdPrivateRequests && !releasePrivateRequests.await(15, TimeUnit.SECONDS)) {
+                                return MockResponse().setResponseCode(504).setBody("{}")
+                            }
+                        }
                         val status = if (authenticated) requestsStatus else 401
                         return MockResponse().setResponseCode(status)
                             .setHeader("Content-Type", "application/json")
@@ -112,6 +122,7 @@ class GuestStartupSessionTest {
     }
 
     @After fun cleanup() {
+        releasePrivateRequests.countDown()
         try {
             if (contentSet) {
                 compose.runOnIdle { mounted.value = false }
@@ -144,16 +155,28 @@ class GuestStartupSessionTest {
         }
     }
 
-    private fun pump() {
-        compose.mainClock.advanceTimeBy(100)
+    private fun pump(timeMs: Long = 100) {
+        compose.mainClock.advanceTimeBy(timeMs)
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         Snapshot.sendApplyNotifications()
         compose.onAllNodes(isRoot()).fetchSemanticsNodes()
         Thread.sleep(10)
     }
 
-    private fun awaitState(condition: () -> Boolean) {
-        compose.waitUntil(10_000) { pump(); condition() }
+    private fun awaitState(phase: String = "Startup", advanceClock: Boolean = true, condition: () -> Boolean) {
+        try {
+            compose.waitUntil(10_000) {
+                if (advanceClock) pump()
+                condition()
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError(
+                "$phase: requests=${myRequests.get()} authenticated=${authenticatedMyRequests.get()} " +
+                    "loggedIn=${ApiClient.isLoggedIn()} expired=${ApiClient.sessionExpired.value} " +
+                    "networkError=${ApiClient.serverUnreachable.value} screen=${vm.screen.value}",
+                failure,
+            )
+        }
     }
 
     @Test fun guestColdStartKeepsOnboardingAndNeverRequestsPrivateData() {
@@ -188,13 +211,61 @@ class GuestStartupSessionTest {
     }
 
     @Test fun privateRequests401StillExpiresAnAuthenticatedSession() {
+        mountForPrivateRequests401()
+        awaitState("Private requests 401") {
+            authenticatedMyRequests.get() > 0 && !ApiClient.isLoggedIn() && vm.screen.value == Screen.Login
+        }
+        assertStableLogin()
+    }
+
+    @Test fun privateRequests401BeforeSplashFinishesKeepsLogin() {
+        val startedAt = compose.mainClock.currentTime
+        mountForPrivateRequests401(holdResponse = true)
+        repeat(2) { pump(16) }
+        awaitState("Authenticated request during Splash", advanceClock = false) { authenticatedMyRequests.get() > 0 }
+        assertEquals(Screen.Splash, vm.screen.value)
+        assertTrue(ApiClient.isLoggedIn())
+
+        releasePrivateRequests.countDown()
+        awaitState("Session expires before the Splash clock moves", advanceClock = false) {
+            ApiClient.sessionExpired.value || vm.screen.value == Screen.Login
+        }
+        repeat(2) { pump(16) }
+        assertTrue("Login must be reached before the 140 ms Splash timer", compose.mainClock.currentTime - startedAt < 140)
+        assertFalse(ApiClient.isLoggedIn())
+        assertEquals(Screen.Login, vm.screen.value)
+        assertStableLogin()
+    }
+
+    @Test fun privateRequests401AfterSplashFinishesKeepsLogin() {
+        mountForPrivateRequests401(holdResponse = true)
+        awaitState("Authenticated Home before the 401") {
+            authenticatedMyRequests.get() > 0 && vm.screen.value == Screen.Home
+        }
+        pump(500)
+        assertEquals(Screen.Home, vm.screen.value)
+        assertTrue(ApiClient.isLoggedIn())
+
+        releasePrivateRequests.countDown()
+        awaitState("Login after late 401") { !ApiClient.isLoggedIn() && vm.screen.value == Screen.Login }
+        assertStableLogin()
+    }
+
+    private fun mountForPrivateRequests401(holdResponse: Boolean = false) {
+        holdPrivateRequests = holdResponse
+        if (holdResponse) {
+            CanonMotion.enabled = true
+            ApiClient.testTimeoutMs = 20_000
+        }
         meStatus = 200
         requestsStatus = 401
         ApiClient.saveToken("local-startup-test-account")
         mount()
-        awaitState {
-            authenticatedMyRequests.get() > 0 && !ApiClient.isLoggedIn() && vm.screen.value == Screen.Login
-        }
+    }
+
+    private fun assertStableLogin() {
+        // Let the 140 ms Splash timer and outgoing transition finish before checking the destination.
+        pump(500)
         compose.runOnIdle {
             assertTrue("The failed private request must belong to the test session", authenticatedMyRequests.get() > 0)
             assertFalse(ApiClient.isLoggedIn())
