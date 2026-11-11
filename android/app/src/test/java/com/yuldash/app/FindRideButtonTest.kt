@@ -5,6 +5,7 @@ import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.isDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -24,6 +25,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.net.URLDecoder
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -59,9 +61,9 @@ class FindRideButtonTest {
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 }
             }
-            start()
+            start(InetAddress.getByName("127.0.0.1"), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testBaseUrl = "http://127.0.0.1:${server.port}"
         ApiClient.testTimeoutMs = 1000
     }
 
@@ -85,6 +87,13 @@ class FindRideButtonTest {
         }
     }
 
+    private fun findPopularRoute() {
+        waitFor("карточка популярного маршрута") {
+            compose.onNodeWithText("Баймаҡ → Сибай").isDisplayed()
+        }
+        compose.onNodeWithText("Найти попутку").performClick()
+    }
+
     @Test fun findRideNarrowsTheFeedToTheRouteAndAllRoutesRestoresIt() {
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
@@ -99,7 +108,7 @@ class FindRideButtonTest {
         assertTrue("до нажатия лента не сужена: ${nearRequests()}", nearRequests().none { "from_city=" in it })
         compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
 
-        compose.onNodeWithText("Найти попутку").performClick()
+        findPopularRoute()
 
         waitFor("лента по маршруту") { nearRequests().any { "from_city=Баймаҡ" in it && "to_city=Сибай" in it } }
         compose.onNodeWithText("Ближайшие поездки").assertIsDisplayed()
@@ -132,7 +141,7 @@ class FindRideButtonTest {
         }
         compose.onAllNodesWithText("Все маршруты").assertCountEquals(0)
 
-        compose.onNodeWithText("Найти попутку").performClick()
+        findPopularRoute()
         waitFor("выбранный популярный маршрут") {
             nearRequests().any { "from_city=Баймаҡ" in it && "to_city=Сибай" in it }
         }

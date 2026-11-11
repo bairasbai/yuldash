@@ -275,19 +275,6 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.platform.testTag
 
-/** Код места показа с сервера → место в приложении. Незнакомое имя (сервер завёл новое,
- *  приложение ещё не знает) → null: такое объявление просто не покажем в этом слоте,
- *  вместо того чтобы уронить разбор всего списка рекламы. */
-private fun adPlacementOf(code: String): AdPlacement? = when (code.trim().lowercase()) {
-    "route" -> AdPlacement.Route
-    "rideslist" -> AdPlacement.RidesList
-    "nearby" -> AdPlacement.Nearby
-    "tripdetails" -> AdPlacement.TripDetails
-    "profile" -> AdPlacement.Profile
-    "help" -> AdPlacement.Help
-    else -> null
-}
-
 /**
  * Погасить ВСЮ живую трансляцию позиции — одной строкой на всех, кто уходит из аккаунта.
  *
@@ -1230,7 +1217,11 @@ private fun YuldashAppContent() {
                 // Это убирает «дубль» (раньше Compose-сплэш заново анимировал то же лого поверх системного).
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(CanonGreenInk, CanonGreenInkDark))))
                 // Первый запуск → брендовое интро; повтор → быстро в приложение (без второго лого).
-                LaunchedEffect(Unit) { delay(if (splashTarget == Screen.Intro) 60 else 140); screen = splashTarget }
+                LaunchedEffect(Unit) {
+                    delay(if (splashTarget == Screen.Intro) 60 else 140)
+                    // AnimatedContent can retain the outgoing splash after a session change.
+                    if (vm.screen.value == Screen.Splash) screen = splashTarget
+                }
             }
             Screen.Intro -> IntroScreen(onComplete = { screen = Screen.Onboarding })
             Screen.Onboarding -> OnboardingScreen(

@@ -28,6 +28,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.TripPassAuthorityFixture
@@ -65,7 +66,7 @@ class ActiveTripDeletionTest {
                         }
                         "/bookings/42/role" -> """{"role":"passenger","status":"$terminalStatus","driver_phase":"departed"}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
-                        "/bookings/42/boarding-code" -> """{"code":""}"""
+                        "/bookings/42/boarding-code" -> """{"code":"5678"}"""
                         "/bookings/42/details" -> """{"booking_id":42,"role":"passenger","status":"$terminalStatus","from_city":"Город А","to_city":"Город Б"}"""
                         "/trips/42/receipt" -> """{"booking_id":42,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Серверный водитель","amount":700,"paid":true}"""
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
@@ -74,9 +75,9 @@ class ActiveTripDeletionTest {
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(canonicalTripBody(request.path, body))
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
         TripPassStore.initStores(plain, secure)
         val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "old").put("pay_method", "negotiate"))
@@ -190,6 +191,8 @@ class ActiveTripDeletionTest {
         openScreen()
         // This label requires the server's departed phase; the initial empty state is insufficient.
         waitForText("Водитель выехал к тебе")
+        // An empty or still pending CODE can withdraw the authority needed to cancel.
+        waitForText("5678")
         assertTrue(requests.contains("GET /bookings/42/role"))
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Отменить поездку"))
         compose.onNodeWithText("Отменить поездку").assertIsDisplayed()

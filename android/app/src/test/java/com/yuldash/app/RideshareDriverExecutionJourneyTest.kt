@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -129,7 +130,7 @@ class RideshareDriverExecutionJourneyTest {
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 compose.waitForIdle()
             }
-            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null) { compose.mainClock.advanceTimeByFrame() }
             if (sessionInstalled) {
                 ApiClient.logout()
             }
@@ -160,13 +161,16 @@ class RideshareDriverExecutionJourneyTest {
         override fun updateThreadContext(context: CoroutineContext): Job? = current.get().also { current.set(context[Job]) }
         override fun restoreThreadContext(context: CoroutineContext, oldState: Job?) { current.set(oldState) }
         fun record() { current.get()?.let { started += it; val caller = it.parent; if (caller == null) missingParent = true else started += caller } }
-        fun awaitCompleted(port: Int?) = runBlocking { withTimeout(5_000) {
+        fun awaitCompleted(port: Int?, advanceFrame: () -> Unit) = runBlocking { withTimeout(5_000) {
             check(!missingParent) { "Owned caller completion unavailable" }
             val lazyClient = ChatSocket::class.java.getDeclaredField("client\$delegate").apply { isAccessible = true }.get(null) as Lazy<*>
             val client = lazyClient.takeIf { it.isInitialized() }?.value as? okhttp3.OkHttpClient
             while (started.any { !it.isCompleted } || (client?.dispatcher?.let { it.runningCalls() + it.queuedCalls() }.orEmpty()
                     .any { it.request().url.host == "127.0.0.1" && it.request().url.port == port })) {
-                Shadows.shadowOf(Looper.getMainLooper()).idle(); delay(10)
+                Snapshot.sendApplyNotifications()
+                advanceFrame()
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                delay(10)
             }
         } }
     }

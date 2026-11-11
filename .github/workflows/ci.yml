@@ -112,6 +112,8 @@ jobs:
         run: PGPASSWORD=yuldash psql -h localhost -U yuldash -d yuldash_test -c "CREATE DATABASE yuldash_run;"
       - name: Run tests on Postgres (FK + реальная гонка брони под FOR UPDATE)
         env:
+          # В этом тестовом сервисе отдельные базы для миграций и гонок обязательны.
+          AUDIT_PG_CI_SERVICE: "1"
           DATABASE_URL: postgresql+psycopg2://yuldash:yuldash@localhost:5432/yuldash_run
         run: python -m pytest tests/ -q --maxfail=25
 

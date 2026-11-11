@@ -33,6 +33,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** Actual YuldashApp/Home/HTTP: historical receipt has its own destination, never an active owner. */
@@ -81,6 +82,8 @@ class HistoryReceiptNavigationTest {
     private fun awaitSnapshotCleanup()=runBlocking {
         withTimeout(5_000) {while(!OfflineTripSnapshots.ensureResetCommitted()) delay(10)}
     }
+    private fun serverOrigin(): String = "http://127.0.0.1:${server.port}"
+
     private fun observeOwnerOrigin(stage:String,captureLogin:Boolean=false) {
         val apiOrigin=snapshotOrigin(ApiClient.apiBase())
         val current=OfflineTripSnapshots.currentOwner()
@@ -88,7 +91,7 @@ class HistoryReceiptNavigationTest {
             loginApiOrigin=apiOrigin
             loginOwnerOrigin=current?.origin
         }
-        val localOrigin=if(::server.isInitialized)snapshotOrigin(server.url("/").toString().trimEnd('/')) else null
+        val localOrigin=if(::server.isInitialized)snapshotOrigin(serverOrigin()) else null
         // Origins stay in RAM for equality checks only. Never print identity/address values.
         println("HISTORY_ORIGIN stage="+stage+" user11="+(ApiClient.myUserId()==11)+
             " ownerPresent="+(current!=null)+" localKnown="+(localOrigin!=null)+
@@ -140,9 +143,10 @@ class HistoryReceiptNavigationTest {
                     }
                     return MockResponse().setResponseCode(if(path=="/instant/orders/active")503 else if(path=="/trips/42/receipt" && !a)404 else 200).setHeader("Content-Type","application/json").setBody(body)
                 }
-            };start()
+            }
+            start(InetAddress.getByName("127.0.0.1"), 0)
         }
-        ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=1000
+        ApiClient.testBaseUrl=serverOrigin();ApiClient.testTimeoutMs=1000
         ApiClient.init(context)
         awaitSnapshotCleanup()
         ApiClient.saveToken(tokenA)

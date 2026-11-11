@@ -12,6 +12,7 @@ import org.junit.Assert.*
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.net.InetAddress
 import java.util.Base64
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
@@ -285,6 +286,7 @@ internal open class SnapshotWiringFixture {
     protected fun requireHealthyWiringFixture() = cleanupGuard.requireHealthy()
     protected val context = ApplicationProvider.getApplicationContext<Context>()
     protected lateinit var server: MockWebServer
+    protected val serverOrigin: String get() = "http://127.0.0.1:${server.port}"
     protected var meta = MemoryDiskPreferences()
     protected var secure = MemoryDiskPreferences()
     protected val metaFault = SnapshotWiringCommitFault()
@@ -303,8 +305,8 @@ internal open class SnapshotWiringFixture {
         handler = ::defaultResponse
         server = MockWebServer().apply { dispatcher = object : Dispatcher() {
             override fun dispatch(request: RecordedRequest): MockResponse { requests += request; return handler(request) }
-        }; start() }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        }; start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0) }
+        ApiClient.testBaseUrl = serverOrigin
         ApiClient.testTimeoutMs = 500
         OfflineTripSnapshots.installForTest(SnapshotPreferencesDisk(metaFault.wrap(meta), secureFault.wrap(secure))) { clock }
         ApiClient.saveToken(jwt(7))

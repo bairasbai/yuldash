@@ -36,6 +36,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.shadows.ShadowToast
 import java.lang.ref.WeakReference
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.LinkedBlockingQueue
 import java.util.concurrent.TimeUnit
@@ -141,10 +142,10 @@ class ActiveTripChatTerminalHttpTest {
                     return MockResponse().setBody(canonicalTripBody(path, body)).setHeader("Content-Type", "application/json")
                 }
             }
-            start()
+            start(InetAddress.getByName("127.0.0.1"), 0)
         }
         ApiClient.resetForTest()
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testBaseUrl = "http://127.0.0.1:${server.port}"
         ApiClient.testTimeoutMs = 10000
         ApiClient.init(context)
         ApiClient.logout()
@@ -199,7 +200,10 @@ class ActiveTripChatTerminalHttpTest {
         val chat = message.javaClass.declaredFields.firstNotNullOf { it.isAccessible = true; it.get(message) as? TripChatState }
         return Callbacks(message, connected, rejected, chat.messagesState, chat.failedIdsState, chat.wsConnectedState)
     }
-    private fun mount(openChat: Boolean = !holdInitialHistory): Callbacks {
+    private fun mount(
+        openChat: Boolean = !holdInitialHistory,
+        initialLifecycle: Lifecycle.State = Lifecycle.State.RESUMED,
+    ): Callbacks {
         val before = listeners()
         val connectivity = context.getSystemService(ConnectivityManager::class.java)
         val callbacksBefore = Shadows.shadowOf(connectivity).networkCallbacks.toSet()
@@ -210,7 +214,7 @@ class ActiveTripChatTerminalHttpTest {
                     onBack = { backs++ }, onTripEnd = { finished++ }, onSos = {})
             }
         }
-        compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
+        compose.runOnIdle { owner.registry.currentState = initialLifecycle }
         waitFor { auth.peek() == tokenA && requests.any { it.first == "GET /bookings/42/messages" } &&
             compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
         assertEquals(tokenA, auth.poll())
@@ -258,7 +262,9 @@ class ActiveTripChatTerminalHttpTest {
         holdInitialHistory = true; historyCode = code
         val preparedDetails = requireNotNull(OfflineTripSnapshots.projection(42)?.details)
         assertTrue(OfflineTripSnapshots.freshDetails(preparedDetails))
-        val cb = mount(false)
+        // The setup already read ROLE and DETAILS through HTTP. Keep the chat STARTED,
+        // with normal polling paused, until terminal() resumes it for a real ROLE read.
+        val cb = mount(openChat = false, initialLifecycle = Lifecycle.State.STARTED)
         waitFor { historyHeld.count == 0L }
         // DETAILS already came from real preparation and is reused; CODE still needs its own
         // normal HTTP read before terminal. Do not demand a duplicate DETAILS just for timing.

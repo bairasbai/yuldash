@@ -685,7 +685,7 @@ internal fun BookingScreen(
             }
             // RS-03 Б: смена/предложение места и отзыв — у живой брони пассажира.
             if (details != null && bookingId != null) {
-                item {
+                item(key = "booking-meeting-$bookingId") {
                     PassengerMeetingPoints(currentOwnBookingDetails(details), isCurrentParent = ::isBookingDisplayCurrent) { detailsReload++ }
                 }
             }
@@ -1044,7 +1044,7 @@ internal fun PayAgreementBlock(
                     }
                 }
                 if (summaryAmount != null) {
-                    Text("$summaryAmount ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(kopToRub(rideshareRubToKop(summaryAmount)), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }

@@ -31,6 +31,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -195,9 +196,9 @@ class ActiveTripPassengerContactsTest {
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 45000
     }
 
@@ -397,14 +398,7 @@ class ActiveTripPassengerContactsTest {
         scrollTo(pickup)
         compose.onNodeWithText(pickup).assertIsDisplayed()
         // Тот же офлайн-паспорт, что пишет экран брони: на трассе без связи номер и точка на месте.
-        compose.waitUntil(15000) {
-            settle()
-            TripPassStore.load(context, 42)?.driverPhone == phone
-        }
-        val saved = requireNotNull(TripPassStore.load(context, 42))
-        assertEquals("А123ВС 102", saved.driverPlate)
-        assertEquals(pickup, saved.pickup)
-        assertEquals("5678", saved.boardingCode)
+        awaitCompletePassport()
         assertEquals("Второй запрос кода ради паспорта не нужен", 1,
             requests.count { it == "GET /bookings/42/boarding-code" })
     }

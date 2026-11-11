@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -50,6 +51,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -124,8 +126,8 @@ class SosExpiredLoginReturnTest {
                 }
             }
         }
-        server.start()
-        ownBase = server.url("/").toString().trimEnd('/')
+        server.start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
+        ownBase = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/')
         ApiClient.testBaseUrl = ownBase
         ApiClient.testTimeoutMs = 1_000
         apiInitAttempted = true
@@ -148,7 +150,7 @@ class SosExpiredLoginReturnTest {
             compose.runOnIdle { mounted.value = false }
             compose.waitForIdle()
             owner.viewModelStore.clear()
-            requestJobs.awaitCompleted()
+            requestJobs.awaitCompleted { compose.mainClock.advanceTimeByFrame() }
             cleanupGuard.requireHealthy()
             check(ownBase == null || ApiClient.testBaseUrl == ownBase)
             check(if (traceInstalled) ApiClient.testTrace === ownTrace else ApiClient.testTrace == null)
@@ -188,9 +190,11 @@ class SosExpiredLoginReturnTest {
             if (isSos) { check(sos == null); sos = transport to caller; sosGeneration = ApiClient.queueSessionGeneration() }
         }
         fun sosCompleted(): Boolean = !unavailable && sos?.let { it.first.isCompleted && it.second.isCompleted } == true
-        fun awaitCompleted() = runBlocking { withTimeout(5_000) {
+        fun awaitCompleted(advanceFrame: () -> Unit) = runBlocking { withTimeout(5_000) {
             check(!unavailable) { "Owned API caller completion unavailable" }
             while (reads.any { !it.first.isCompleted || !it.second.isCompleted }) {
+                Snapshot.sendApplyNotifications()
+                advanceFrame()
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 delay(10)
             }

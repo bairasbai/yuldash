@@ -30,6 +30,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -123,9 +124,11 @@ class CompletedNavigationRestorationTest {
                     }
                     return json(body)
                 }
-            };start()
+            }
+            start(InetAddress.getByName("127.0.0.1"), 0)
         }
-        ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=60000
+        ApiClient.testBaseUrl = "http://127.0.0.1:${server.port}"
+        ApiClient.testTimeoutMs = 60000
         ApiClient.init(context);ApiClient.logout();awaitSnapshotCleanup();ApiClient.saveToken(tokenA)
         assertEquals(11,OfflineTripSnapshots.currentOwner()?.userId)
         assertFalse("Initial login must not invent live authority",OfflineTripSnapshots.allowsLive(42))
@@ -177,12 +180,19 @@ class CompletedNavigationRestorationTest {
         }
         await {compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()};pump()
     }
+    @Suppress("DEPRECATION")
+    private fun completedList(): SemanticsNodeInteraction {
+        val hidden = SemanticsMatcher.keyIsDefined(SemanticsProperties.InvisibleToUser)
+        val list = hasTestTag("rideshareCompletedList") and !hidden and !hasAnyAncestor(hidden)
+        await { compose.onAllNodes(list, useUnmergedTree = true).fetchSemanticsNodes().size == 1 }
+        return compose.onNode(list, useUnmergedTree = true)
+    }
     private fun tag(value:String):SemanticsNodeInteraction {
-        if(value!="rideshareRatingSubmit") compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasTestTag(value))
+        if(value!="rideshareRatingSubmit") completedList().performScrollToNode(hasTestTag(value))
         return compose.onNodeWithTag(value)
     }
     private fun text(value:String):SemanticsNodeInteraction {
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText(value));return compose.onNodeWithText(value)
+        completedList().performScrollToNode(hasText(value));return compose.onNodeWithText(value)
     }
     private fun draft() {
         tag("rideshareStar4").performClick();text("Приехал вовремя").performClick();text("Добавить пару слов").performClick()

@@ -38,6 +38,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.io.File
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -111,9 +112,9 @@ class LegacySavedStateCompatibilityTest {
                     }
                     return MockResponse().setHeader("Content-Type","application/json").setBody(body).setResponseCode(if(path=="/instant/orders/active")503 else 200)
                 }
-            };start()
+            };start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl=server.url("/").toString().trimEnd('/');ApiClient.testTimeoutMs=1000
+        ApiClient.testBaseUrl=server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/');ApiClient.testTimeoutMs=1000
         ApiClient.init(context);ApiClient.logout();awaitSnapshotCleanup()
         ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.signature")
         assertEquals(11,OfflineTripSnapshots.currentOwner()?.userId)
@@ -417,8 +418,15 @@ class LegacySavedStateCompatibilityTest {
                 " terminal="+(OfflineTripSnapshots.terminal(42)!=null),failure)
         }
         assertTrue(records.any {it.second=="/bookings/42/role"})
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
-        compose.onNodeWithText("Квитанция").assertIsDisplayed().assertIsEnabled()
+        compose.waitUntil(12000) {
+            Snapshot.sendApplyNotifications()
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            runCatching {
+                compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
+                compose.onNodeWithText("Квитанция").assertIsDisplayed().assertIsEnabled()
+            }.isSuccess
+        }
         receiptClick=compose.onNodeWithText("Квитанция").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         val checkCallback = {
             compose.runOnIdle {

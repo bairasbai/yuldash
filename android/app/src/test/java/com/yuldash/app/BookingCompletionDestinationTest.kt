@@ -146,7 +146,7 @@ class BookingCompletionDestinationTest {
             }
             DeepLink.pendingCompletedBookingId.value = null
             owner.viewModelStore.clear()
-            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null) { compose.mainClock.advanceTimeByFrame() }
             if (sessionInstalled) ApiClient.logout()
             finishOfflineWriteFixture02(cleanupGuard) {
                 check(ApiClient.testTrace == null || ApiClient.testTrace === ownTrace)
@@ -203,9 +203,11 @@ class BookingCompletionDestinationTest {
         // loaded through ApiClient from a local HTTP fixture (no injected UI callbacks).
         compose.mainClock.autoAdvance = true
         compose.waitUntil(timeoutMillis = 10_000) {
-            compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithText("Уфа  →  Казань").fetchSemanticsNodes().isNotEmpty()
         }
         compose.onNodeWithTag("rideshareCompletedHero").assertIsDisplayed()
+        compose.onNodeWithText("Уфа  →  Казань").assertIsDisplayed()
         compose.onNodeWithTag("rideshareCompletedList")
             .performScrollToNode(hasTestTag("rideshareStar4"))
         compose.onNodeWithTag("rideshareStar4").assertIsDisplayed().performClick()
@@ -305,7 +307,7 @@ class BookingCompletionDestinationTest {
             }
         }
 
-        fun awaitCompleted(port: Int?) = runBlocking {
+        fun awaitCompleted(port: Int?, advanceFrame: () -> Unit) = runBlocking {
             withTimeout(5_000) {
                 check(!missingParent) { "Owned caller completion unavailable" }
                 val field = ChatSocket::class.java.getDeclaredField("client\$delegate")
@@ -315,6 +317,8 @@ class BookingCompletionDestinationTest {
                 while (started.any { !it.isCompleted } || client?.dispatcher?.let {
                         it.runningCalls() + it.queuedCalls()
                     }.orEmpty().any { it.request().url.host == "127.0.0.1" && it.request().url.port == port }) {
+                    Snapshot.sendApplyNotifications()
+                    advanceFrame()
                     org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                     delay(10)
                 }

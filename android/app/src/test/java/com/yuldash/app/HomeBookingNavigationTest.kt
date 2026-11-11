@@ -14,7 +14,11 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.v2.createComposeRule
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
@@ -152,11 +156,15 @@ class HomeBookingNavigationTest {
     private fun json(body:String,code:Int=200)=MockResponse().setResponseCode(code).setHeader("Content-Type","application/json").setBody(body)
     private fun pump(ms:Long=500) { repeat((ms/100).toInt()) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); Snapshot.sendApplyNotifications(); Thread.sleep(10) }; compose.waitForIdle() }
     private fun await(check:()->Boolean)=compose.waitUntil(15000) { compose.mainClock.advanceTimeBy(100); Shadows.shadowOf(Looper.getMainLooper()).idle(); Snapshot.sendApplyNotifications(); check() }
-    private fun mount(saver: StateRestorationTester? = null) {
+    private fun mount(saver: StateRestorationTester? = null, lifecycleOwner: LifecycleOwner? = null) {
         contentSet = true
         compose.mainClock.autoAdvance = false
         val body: @androidx.compose.runtime.Composable () -> Unit = {
-            if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get(), LocalPoolingNativeMapEnabled provides false) {
+            if (mounted.value) CompositionLocalProvider(
+                LocalViewModelStoreOwner provides actor.get(),
+                LocalPoolingNativeMapEnabled provides false,
+                LocalLifecycleOwner provides (lifecycleOwner ?: LocalLifecycleOwner.current),
+            ) {
                 YuldashTheme { YuldashApp() }
             }
         }
@@ -189,8 +197,8 @@ class HomeBookingNavigationTest {
         compose.onNodeWithText("Поехать").performClick(); pump()
         assertEquals(Screen.Booking,vm.screen.value); assertEquals("7",vm.selectedRide.value?.id)
     }
-    private fun openExisting() {
-        existing=true; mount(); click("Поездки"); click(if(status=="pending") "Подробнее" else "Открыть поездку")
+    private fun openExisting(lifecycleOwner: LifecycleOwner? = null) {
+        existing=true; mount(lifecycleOwner = lifecycleOwner); click("Поездки"); click(if(status=="pending") "Подробнее" else "Открыть поездку")
         await { vm.activeBookingId.value == 42 && vm.pendingBookingNavigation.value == null }
         assertEquals(42,vm.activeBookingId.value)
     }
@@ -328,25 +336,38 @@ class HomeBookingNavigationTest {
     @Test fun homeConfirmedTripAndBackKeepRidesTab() { status="confirmed"; openExisting(); await { vm.screen.value == Screen.ActiveTrip && vm.activeTrip.value?.id == "7" }; assertEquals(Screen.ActiveTrip,vm.screen.value); assertEquals(bookingLinkStubRide(42),vm.selectedRide.value); assertEquals("7",vm.activeTrip.value?.id); back(); assertEquals(Screen.Home,vm.screen.value); assertEquals(HomeTab.Rides,vm.startHomeTab.value) }
 
     @Test fun myTripsWithDifferentBookingAndRideIdsAcceptRemoteReceiptAndShowRating() {
+        val tripLifecycle = object : LifecycleOwner {
+            val registry = LifecycleRegistry(this)
+            override val lifecycle: Lifecycle get() = registry
+        }
+        compose.runOnIdle { tripLifecycle.registry.currentState = Lifecycle.State.STARTED }
         status = "confirmed"
-        openExisting()
-        await { vm.screen.value == Screen.ActiveTrip && vm.activeTrip.value?.id == "7" }
+        openExisting(tripLifecycle)
+        await {
+            vm.screen.value == Screen.ActiveTrip && vm.activeTrip.value?.id == "7" &&
+                OfflineTripSnapshots.projection(42)?.details?.status == "confirmed"
+        }
         assertEquals(42, vm.activeBookingId.value)
         assertEquals(bookingLinkStubRide(42), vm.selectedRide.value)
-        assertTrue(records.any { it.first == "GET" && it.second == "/bookings/42/role" && it.third == "Bearer $tokenA" })
-        status = "done"
-        repeat(140) {
-            compose.mainClock.advanceTimeBy(100)
-            Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofMillis(100))
-            Snapshot.sendApplyNotifications()
-            Thread.sleep(5)
+        val roleRead = Triple("GET", "/bookings/42/role", "Bearer $tokenA")
+        val initialRoleReads = records.count { it == roleRead }
+        assertTrue("Navigation must read the authorized role", initialRoleReads > 0)
+
+        // Resuming the real screen triggers a fresh role request without a wall-clock poll delay.
+        compose.runOnIdle {
+            status = "done"
+            tripLifecycle.registry.currentState = Lifecycle.State.RESUMED
         }
-        await {
-            records.any { it.first == "GET" && it.second == "/trips/42/receipt" } &&
-                compose.onAllNodesWithTag("rideshareStar4").fetchSemanticsNodes().isNotEmpty() &&
-                compose.onAllNodesWithText("ReceiptDriver42", substring = true).fetchSemanticsNodes().isNotEmpty()
-        }
-        assertEquals("done", OfflineTripSnapshots.terminal(42)?.status)
+        await { records.count { it == roleRead } > initialRoleReads }
+        await { OfflineTripSnapshots.terminal(42)?.status == "done" }
+        await { records.any { it.first == "GET" && it.second == "/trips/42/receipt" && it.third == "Bearer $tokenA" } }
+        await { compose.onAllNodesWithText("Рәхмәт, ReceiptDriver42!").fetchSemanticsNodes().isNotEmpty() }
+        val completedList = compose.onNodeWithTag("rideshareCompletedList")
+        completedList.performScrollToNode(hasTestTag("rideshareStar4"))
+        compose.onNodeWithTag("rideshareStar4").assertIsDisplayed()
+        completedList.performScrollToNode(hasText("ReceiptDriver42", substring = true))
+        compose.onAllNodesWithText("ReceiptDriver42", substring = true).onFirst().assertIsDisplayed()
+        completedList.performScrollToNode(hasText("400", substring = true))
         compose.onAllNodesWithText("400", substring = true).onFirst().assertExists()
         compose.onAllNodesWithText("Не получилось загрузить детали. Основные данные поездки сохранены.").assertCountEquals(0)
         assertFalse(records.any { it.second == "/trips/7/receipt" })

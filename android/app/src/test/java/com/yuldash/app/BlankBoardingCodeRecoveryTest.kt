@@ -57,7 +57,7 @@ internal class BlankBoardingCodeRecoveryTest {
         private val scheduledDeparture = java.time.Instant.now().plusSeconds(TimeUnit.DAYS.toSeconds(1)).toString()
         val appContext get() = context
         val records get() = requests
-        val origin get() = server.url("/").toString().trimEnd('/')
+        val origin get() = serverOrigin
         fun use(handler: (RecordedRequest) -> MockResponse) { this.handler = handler }
         fun currentDetails() = detailsJson(id = 11, status = "confirmed", marker = PRIVATE_POINT).apply {
             put("ride_id", 33)

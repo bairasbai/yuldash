@@ -38,8 +38,9 @@ internal fun finishOfflineWriteFixture02(guard: SnapshotWiringCleanupGuard, clea
                 }
             }
         }
-    }.isSuccess
-    guard.runCleanup(drained, cleanup)
+    }.exceptionOrNull()
+    if (drained != null) poisonOfflinePassportFixture03(guard, drained)
+    guard.runCleanup(true, cleanup)
 }
 
 /** Narrow participant transport for the four passport-precondition fixtures; grants only via HTTP. */
@@ -147,6 +148,7 @@ internal fun offlinePassportRaw03(bookingId: Int): String? = synchronized(TripPa
 
 /** A cleanup exception permanently blocks this loaded class and emits the root runner's abort marker. */
 internal fun poisonOfflinePassportFixture03(guard: SnapshotWiringCleanupGuard, failure: Throwable): Nothing {
+    if (failure is AssertionError && failure.message == SnapshotWiringCleanupGuard.POISON_MARKER) throw failure
     try {
         guard.runCleanup(false) {}
     } catch (blocked: AssertionError) {

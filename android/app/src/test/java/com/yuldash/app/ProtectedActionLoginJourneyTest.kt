@@ -23,6 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** PATH-01: real protected action, login form and HTTP; no injected successful login. */
@@ -66,9 +67,9 @@ class ProtectedActionLoginJourneyTest {
                     }
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testBaseUrl = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1_000
         ApiClient.init(context)
         ApiClient.logout()
@@ -105,6 +106,10 @@ class ProtectedActionLoginJourneyTest {
         compose.waitUntil(15_000) { settle(); vm.screen.value == Screen.Login }
         assertFalse(ApiClient.isLoggedIn())
         assertFalse(requests.any { it.first == "GET /places/saved" })
+        compose.waitUntil(15_000) {
+            settle()
+            compose.onAllNodesWithTag(TAG_LOGIN_TELEGRAM_BTN).fetchSemanticsNodes().size == 1
+        }
         compose.onNodeWithTag(TAG_LOGIN_TELEGRAM_BTN).performScrollTo().performClick()
         awaitText("Код из Telegram")
         compose.onNodeWithText("Код из Telegram").performTextInput("123456")

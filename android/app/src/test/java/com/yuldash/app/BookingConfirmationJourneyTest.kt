@@ -28,6 +28,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 @RunWith(RobolectricTestRunner::class)
@@ -100,9 +101,9 @@ class BookingConfirmationJourneyTest {
                     return response(path, body)
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
         vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -222,7 +223,13 @@ class BookingConfirmationJourneyTest {
         compose.onNodeWithText("Завершить").performClick()
         waitForText("Поездка завершена")
         assertEquals("пассажир сам посадку не отмечает", listOf("arrived", "done"), tripStatuses.toList())
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasTestTag("rideshareStar5"))
+        compose.waitUntil(15000) {
+            settle()
+            runCatching {
+                compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasTestTag("rideshareStar5"))
+                compose.onNodeWithTag("rideshareStar5").assertIsDisplayed().assertIsEnabled()
+            }.isSuccess
+        }
         compose.onNodeWithTag("rideshareStar5").performClick()
         // Выбор звезды и включение кнопки — разные кадры; не отправляем на ещё выключенную кнопку.
         compose.waitUntil(15000) {

@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 204,
+    "android_main": 207,
     "backend_main": 109,
     "infra_resource_config": 406,
     "public_site_promo": 91,
     "pwa_main": 330,
-    "test_support": 1287
+    "test_support": 1296
   },
   "counts_by_block": {
-    "B01": 161,
+    "B01": 165,
     "B02": 302,
     "B03": 123,
     "B04": 80,
-    "B05": 61,
-    "B06": 101,
+    "B05": 62,
+    "B06": 102,
     "B07": 144,
-    "B08": 215,
-    "B09": 742,
+    "B08": 216,
+    "B09": 747,
     "B10": 406,
     "B11": 92
   },
@@ -125,8 +125,8 @@
       "path": ".github/workflows/ci.yml",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "c6673507fc3abae5beae054c84608cd6098c0350a65d854d99d50c063f55e299",
-      "lines": 322
+      "sha256": "85fde6df4d1dbc1b11b665eacf4e947cbfcb9ee9b34e8391a2e3223478f83448",
+      "lines": 324
     },
     {
       "path": ".gitignore",
@@ -398,7 +398,7 @@
       "path": "android/app/src/androidTest/java/com/yuldash/app/RideshareCompletedInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "76ef0b9c9306832cd9ea02a20194fc121ba0b5dc4fa0d704ea71f7c34d54586d",
+      "sha256": "b5d99c0d1fe5290fd7c1c3481a817b2e8ee47d5fd0656e8394237cae8a32f734",
       "lines": 162
     },
     {
@@ -846,8 +846,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "e6039609c97c3353d4a7d5cd05a29f595dac431cde57fe3ba3b9b9ce5ea70d3c",
-      "lines": 3494
+      "sha256": "1df3dc98047fc5a8f1789d6ec3d566337f4b7b200f4cfe69fcd12c473d26922a",
+      "lines": 3537
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingDecisionCards.kt",
@@ -904,6 +904,13 @@
       "block": "B03",
       "sha256": "3f71b189eb142d90603fba19b69b1b27f9d7f054b3fb5bef9f6b2753f183a1e2",
       "lines": 643
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/ChatEmptyState.kt",
+      "kind": "android_main",
+      "block": "B05",
+      "sha256": "4a970db0424ba653c5bf505a9e6fb7cc9fea27e6c4af0899fe0610a23ce92ce3",
+      "lines": 76
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ClinicRidesScreen.kt",
@@ -1270,6 +1277,13 @@
       "lines": 141
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt",
+      "kind": "android_main",
+      "block": "B01",
+      "sha256": "c9692e9340671ccaf40c03a9000dd0b4af967e7956b3c6a367422f6957210cf9",
+      "lines": 154
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/OutboxAutoFlush.kt",
       "kind": "android_main",
       "block": "B01",
@@ -1296,6 +1310,13 @@
       "block": "B04",
       "sha256": "bbcdcd18565032ed67120304c45ebb1db651003f0f2ded201eec40ffaac7e8b1",
       "lines": 3032
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/PartnerAdPlacement.kt",
+      "kind": "android_main",
+      "block": "B06",
+      "sha256": "f48da828eb6efb0b88e3ac2d3f8319199c7473dd0a3c2acbae026b34ec5f8a36",
+      "lines": 14
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PartnerCabinetScreen.kt",
@@ -1427,8 +1448,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "17229c0b0bd4a34e346b22d3d7ec6944c6cee1604dad4f630fdb3d7b5a826adf",
-      "lines": 3252
+      "sha256": "ce543cec2ed08427f711620f166ce19cc9e2cf3f805f641eaf21784c6d2bf283",
+      "lines": 3228
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
@@ -1833,8 +1854,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "a8a01051d36519857bcdfaf49aed1a5cc86a4df21afadbbf602750fdb1b097b7",
-      "lines": 2779
+      "sha256": "ad0c557acc4b43ff0ab8e80ab5f7deb62016e7aebfae55db82e47e1a08317a31",
+      "lines": 2790
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -2435,8 +2456,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeLoadTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "10bb37c2c5ce03356993a9c3bd8f620c5fcb1b5428b0e7d39b78212602044449",
-      "lines": 115
+      "sha256": "1747ec6e2e7fa127de41fbe992925cfa45db2cad0f725722f3e00572b517d533",
+      "lines": 320
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripBoardingCodeRetryBoundaryTest.kt",
@@ -2463,8 +2484,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatTerminalHttpTest.kt",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "4d205d415f8716ac1ddcce4702b3ef6c1fa63c38aea63c9c10a30bd92b89ef80",
-      "lines": 389
+      "sha256": "0532c82d333e77a6719801faa1c7cb65ef2478dd8af7b9585f1f39b44b8a749f",
+      "lines": 478
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripChatUiBoundaryTest.kt",
@@ -2477,8 +2498,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripDeletionTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "24e3bc064eb5af8b9d73eddbe2537333dd7513b3b4470ebe6fe4a2d03920430d",
-      "lines": 253
+      "sha256": "b337f7cd803d5aac56e95d7118a2b4fdad94a42633630ea8e89c11afe1310fd8",
+      "lines": 308
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripLateTerminalTest.kt",
@@ -2491,15 +2512,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripOfflineHonestyTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "7b8f21ff06f1e5dfa54cb7056a3765cb9f8ba252ed4c1f65e73acd5145f8e91f",
-      "lines": 228
+      "sha256": "b77c5b6856b18cb374aee06a13343b8625bf0a70ca3beb7d3c38cadcc6975201",
+      "lines": 342
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerContactsTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "414e73e80dde1ccf323d24f190a137c5ff441a5bacdd6dfd1dc72ec98f684acd",
-      "lines": 497
+      "sha256": "f9f5efce6926cc58883b93911884731c9e386ab1f3e85862022ceeadbf1ed8b4",
+      "lines": 975
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",
@@ -2652,8 +2673,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta07DriverFinishTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "71fd3cfdd81b7a86bbfcc140fee67ac7371f2cc9d63286ef95bcc82d7f18e2f2",
-      "lines": 163
+      "sha256": "ab22ea505a33d1594361d83b62e18b5eebaa32d92c5acc2c11e114934579fc48",
+      "lines": 252
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta08ScheduledPayloadTest.kt",
@@ -2682,6 +2703,13 @@
       "block": "B09",
       "sha256": "19b2cd7900b4883afc56dfd465caf39996db5fce0807671c8d45761946110ed1",
       "lines": 433
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/BlankBoardingCodeRecoveryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "a72629c19a04a9af35a3a8eb29ee789ebb822a2839318d829e6d064f13b6399c",
+      "lines": 514
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BoardingCodeRulesTest.kt",
@@ -2729,15 +2757,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingCompletionDestinationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "86d60385ddad3c57b0f4f7e58fe578265c6b408b0dd41a630ecc31066600efc5",
-      "lines": 237
+      "sha256": "315e98405669649312b99f6b4dc9f5c972d44888d8997dedaf309124e6e2ddba",
+      "lines": 328
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingConfirmationJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "139f619b662ab9ab54fc6c1fbd02d59bdb45c56b236e368b448ed410d2c3cae9",
-      "lines": 391
+      "sha256": "1b181ac13ef713f5002a830069c15f34d012af95ace1e0e961a29fea7445ccfb",
+      "lines": 442
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingDecisionBarNarrowTest.kt",
@@ -2778,8 +2806,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingNotificationFlowTest.kt",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "f275d5a94115916f122038513519038457a02c7bb1cfccdfcdf6cd30089a3081",
-      "lines": 236
+      "sha256": "701b82ce0dcd90dcfb545705b66f1afc408ac3d925e30b65e84d81902e5b4e02",
+      "lines": 242
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingNotificationRestorationTest.kt",
@@ -2792,8 +2820,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflinePaymentJourneyTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "cbc56f83b2dbd27c1001b27f9c1fd8b70f1f1e592ba6b7a7b0c521949616c553",
-      "lines": 307
+      "sha256": "3dae61e40bb5c4f28edebaefb61fc6e9e533ada3264a5eda2283c4ee98f0d33c",
+      "lines": 650
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflineSaveTest.kt",
@@ -2848,8 +2876,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "594eb07b0a216b2f555a9a3785bf939c76f5b2d4f6c139768a4eb29fc0c9d406",
-      "lines": 487
+      "sha256": "a138a8804848f1cc99eeab0d861685e90c370c23a8cc668729817a374761ab88",
+      "lines": 699
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CanonScaleTest.kt",
@@ -2883,8 +2911,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CompletedNavigationRestorationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "d9d1589f95150f7792d7cc597ce7e897bf4431451d2ccb4755ebc31721415926",
-      "lines": 195
+      "sha256": "cc2aaa7de9f112050e39731a814aa0218e0316cb288f7d289a78b41602ada771",
+      "lines": 454
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ContrastGuardTest.kt",
@@ -3128,8 +3156,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/FindRideButtonTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "36f9a15fdc5bdf8b1991904106e0fb472af42df89193ee31415217d2e2ed4a59",
-      "lines": 149
+      "sha256": "b8e342433518702a337aa90e8b72c3b4db6bc9cc0c20908f6283180a3705a2ef",
+      "lines": 158
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ForceUpdateAccessibilityTest.kt",
@@ -3160,6 +3188,13 @@
       "lines": 152
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/GuestStartupSessionTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "e2573f61f6d90c9690e5fb38fbeb748d83a6f331b84a069e2b8e09d51c334dac",
+      "lines": 288
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/HelpersEdgeTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -3177,15 +3212,15 @@
       "path": "android/app/src/test/java/com/yuldash/app/HistoryReceiptNavigationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "26741c842b2963fa17fa7e4dd95b46d16ec968f94faa6d19f4672e146c1b4ca1",
-      "lines": 106
+      "sha256": "fe442d9c138e537c74357296ff2afeed19196cfe5420da6ca1670fc07da1cd6a",
+      "lines": 262
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeBookingNavigationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ada662b484ae0777d985b747a8280ea3e665f57a124e3187abd21bfc277a31ff",
-      "lines": 181
+      "sha256": "515d3b3d03ac8ddecc48e58b6ff7079977933f4f1a3e15a2bd977673177e574d",
+      "lines": 639
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",
@@ -3345,8 +3380,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/LegacySavedStateCompatibilityTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "3a98d0cd4662138f6014d37d76db50ff8fe18920f03e96d8c24efe1316563069",
-      "lines": 357
+      "sha256": "68abac0f187e93383d5a769bf56139b0f89570264806be12ad389b92fbe8f06d",
+      "lines": 522
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LinePromiseIsHonestTest.kt",
@@ -3587,6 +3622,20 @@
       "lines": 82
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/OfflineTripParentAuthorityTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "b89ed7a91ba5e83382f281d6cedefc279f5a77665e81a4952f32b050a51a5bc2",
+      "lines": 910
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/OfflineTripRestoreWiringTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "7aba691614b4231a4336a674f99f83f6609bac30808232f423531bddedffc1eb",
+      "lines": 365
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/OutboxAutoFlushTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -3688,8 +3737,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/PendingNotificationFlowTest.kt",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "ccfc6ea351c139da176c490dda422412eae6dac9d31ac202853652de653940ef",
-      "lines": 176
+      "sha256": "66dabc15c4777adc050c1d613abdaf930de6e09753822ef770a9f2006be3a962",
+      "lines": 182
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PendingNotificationRestorationTest.kt",
@@ -3807,8 +3856,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ProtectedActionLoginJourneyTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "7336cd7a5667b198b7d6ecab69ba02dae01878a4c530eca69331c78fbebd16dd",
-      "lines": 166
+      "sha256": "064ea0363f4efc20124ed08ae9be883a740bc5610e5116a507c1454f16195ffc",
+      "lines": 171
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PublicRideActivityOwnershipTest.kt",
@@ -4045,8 +4094,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareDriverExecutionJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "d7a1c0a9bcef60a63d8f9a82115d9dc063a85525dd0d12474583aa8c59f0979d",
-      "lines": 182
+      "sha256": "3776e9b4350ec2c4aef102475eccf1f1922589c035ca2caad44d93cfe505e8be",
+      "lines": 278
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareRatingReopenTest.kt",
@@ -4248,8 +4297,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/SosExpiredLoginReturnTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "48544be73665b670c47affde150cf16b310271e202dd73fbb26624090c7248fd",
-      "lines": 139
+      "sha256": "789b5cef3a8ec2bcbd3c211ed5552254f6d8fba9fd6be63aff3746e66df7712c",
+      "lines": 357
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SosLocationFreshnessTest.kt",
@@ -5176,6 +5225,20 @@
       "lines": 280
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/JvmAndroidKeyStoreFixture.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "fdabbd95fcff43604c0223900167572edb6cd46f678a632fbadff34864c8c494",
+      "lines": 176
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/JvmEncryptedPreferencesTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "7246c870d2823493d69c6ab3b096f25348b512362a0ec1ed03d3b59386a48d21",
+      "lines": 192
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/LegacyOfflineOwnerTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -5237,6 +5300,13 @@
       "block": "B01",
       "sha256": "6dca4753475195799adc2eec4611d7222484e3f0df85c2f4e17519fa6347028f",
       "lines": 111
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/OfflineWriteFixtureSupport02.kt",
+      "kind": "test_support",
+      "block": "B08",
+      "sha256": "082deee545bd48b6bcf82105befc008edc78b1680a1ad6280ff9cd0b0749c79f",
+      "lines": 159
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/OfflineWriteRollbackFailureTest.kt",
@@ -5314,6 +5384,13 @@
       "block": "B02",
       "sha256": "57c6988405690e51e58f490fa10faf6443f8173b6225975df90be4d45777fd00",
       "lines": 101
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/SnapshotTransportWiringTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "a39e24a2480bf126550543b85383527f756a6258476c6e12d9c9f8444705910f",
+      "lines": 395
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/SosRetryIntentTest.kt",
@@ -9684,6 +9761,13 @@
       "lines": 111
     },
     {
+      "path": "backend/tests/test_meeting_cleanup_race_pg.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "e984c0eec99bb0574ff4918c22743cbbfbc0a68fee77e9a7ab16b1cea367bdad",
+      "lines": 141
+    },
+    {
       "path": "backend/tests/test_migrations_match_the_models.py",
       "kind": "test_support",
       "block": "B09",
@@ -11794,8 +11878,8 @@
       "path": "backend/tests/test_the_second_brain_cannot_be_silently_emptied.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "13241e8cc81a0d5481ccadf8e7feef0fde0a2614baa92c7d79614d45833941aa",
-      "lines": 76
+      "sha256": "db9a612b314bff984dcb27bc36b96b7f2ff570d625fbc91b49ba40955a24a84c",
+      "lines": 90
     },
     {
       "path": "backend/tests/test_the_shield_actually_shields.py",
@@ -12207,8 +12291,8 @@
       "path": "backend/tests/walk/l1_1/test_l1_1_refund_migration.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e4b3ea3674b28ca7870e0fe2b0cd260e59a922ee1ab6d6957fb63f1e1bb8da12",
-      "lines": 282
+      "sha256": "f41dcf93a99d0af9b482f4dba7ae327bc85285d60aba300e248b97bae4c1f73c",
+      "lines": 291
     },
     {
       "path": "backend/tests/walk/l1_1/test_l1_1_refund_race.py",
