@@ -20,7 +20,7 @@ const modules = {
   "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'}); export const useLocation=()=>({state:globalThis.__ridePath.locationState});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru,t:k=>k});`,
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed,status:globalThis.__ridePath.authed?"authed":"guest"});`,
-  bookings: `export const createBooking=body=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body)};`,
+  bookings: `export const createBooking=(body,signal)=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body,signal)};`,
   rides: `export const fetchRide=(id,signal)=>globalThis.__ridePath.fetchRide(id,signal);`,
   client: `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__ridePath.generation??"same-session";`,
   ownBookings: `export const useOwnBooking=()=>null,useRefreshOwnBookings=()=>()=>{};`,
@@ -226,3 +226,43 @@ assert.equal(byName(tree,"DropoffStopChoice").props.picked,null,"B must choose a
 assert(all(tree).filter(n=>n.type?.name==="MeetingPointPicker").every(n=>n.props.value===null));
 assert.equal(h.calls.length,0);assert.equal(button(tree).props.disabled,true);
 console.log("PASS GUEST10 mounted sheet clears both stops and precise points at the account boundary");
+
+// Новая бронь: ждём фактический ответ сервера, затем открываем экран по его статусу.
+for (const [status, destination] of [["pending", "/booking/92"], ["confirmed", "/trip/92"], ["onboard", "/trip/92"]]) {
+  h.reset(); h.authed = true; h.generation = "booking-owner";
+  let reply; let closed = 0;
+  h.booking = () => new Promise(resolve => { reply = resolve; });
+  tree = render(Sheet, { ride, onClose() { closed++; } });
+  const cleanup = runEffects();
+  const request = button(tree).props.onClick();
+  assert.equal(h.calls.length, 1, `${status}: нажатие отправляет одну бронь`);
+  assert.equal(h.routes.length, 0, `${status}: до ответа нет перехода`);
+  assert.equal(closed, 0, `${status}: до ответа шторка остаётся открытой`);
+  reply({ id: 92, status }); await request;
+  assert.deepEqual(h.routes, [[destination]], `${status}: открывается экран фактического статуса брони`);
+  assert.equal(closed, 1, `${status}: успех закрывает шторку один раз`);
+  cleanup();
+}
+console.log('✓ Новая бронь: pending открывает детали с отменой; confirmed/onboard открывают поездку после ответа');
+
+// Ответ старого входа или уже закрытой шторки не должен открывать ожидающую бронь.
+for (const boundary of ["account", "unmount"]) {
+  h.reset(); h.authed = true; h.generation = "booking-owner";
+  let reply; let signal; let closed = 0;
+  h.booking = (_body, requestSignal) => {
+    signal = requestSignal;
+    return new Promise(resolve => { reply = resolve; });
+  };
+  tree = render(Sheet, { ride, onClose() { closed++; } });
+  const cleanup = runEffects();
+  const request = button(tree).props.onClick();
+  assert.equal(h.calls.length, 1);
+  assert.equal(signal.aborted, false);
+  if (boundary === "account") h.generation = "another-owner";
+  else { cleanup(); assert.equal(signal.aborted, true, 'Уход со страницы прерывает запрос'); }
+  reply({ id: 93, status: "pending" }); await request;
+  assert.equal(h.routes.length, 0, `${boundary}: поздний ответ не открывает чужую/закрытую бронь`);
+  assert.equal(closed, 0, `${boundary}: поздний ответ не вызывает закрытие шторки`);
+  if (boundary === "account") cleanup();
+}
+console.log('✓ Поздняя pending-бронь: смена входа и прерванный запрос не вызывают переход');

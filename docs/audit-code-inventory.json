@@ -82,8 +82,8 @@
     "backend_main": 109,
     "infra_resource_config": 406,
     "public_site_promo": 91,
-    "pwa_main": 329,
-    "test_support": 1286
+    "pwa_main": 330,
+    "test_support": 1287
   },
   "counts_by_block": {
     "B01": 161,
@@ -94,7 +94,7 @@
     "B06": 101,
     "B07": 144,
     "B08": 215,
-    "B09": 740,
+    "B09": 742,
     "B10": 406,
     "B11": 92
   },
@@ -14262,6 +14262,13 @@
       "lines": 31
     },
     {
+      "path": "webapp/src/components/MeetingPointPicker.tsx",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "41a6048e5689d3898d4c3d9b7900a67c757124d303c562c5fe865c17d4bb0d2d",
+      "lines": 162
+    },
+    {
       "path": "webapp/src/components/ModeSwitch.tsx",
       "kind": "pwa_main",
       "block": "B09",
@@ -14510,8 +14517,8 @@
       "path": "webapp/src/components/RideSheet.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "cf157852fd9e2758e5f70ec817d9cd3e6cd4784da6fc13796b1b8232fe56e703",
-      "lines": 380
+      "sha256": "b910fe8294b73de350049226e3fa4972b9abe74a735fa58d6a8d2746686f32c5",
+      "lines": 433
     },
     {
       "path": "webapp/src/components/RoadsideHelp.tsx",
@@ -16530,6 +16537,13 @@
       "lines": 66
     },
     {
+      "path": "webapp/tests/meeting-point-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "aad4c05ebe1ef5ea533e16c6da654da5ba99fa0aeae8df806a4ef7629669fece",
+      "lines": 329
+    },
+    {
       "path": "webapp/tests/motion-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -16813,8 +16827,8 @@
       "path": "webapp/tests/ride-booking-path-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "6978674acc60a6b21a862722c1af301990fb09e33dc8b4caa4bf9f5f7aee2871",
-      "lines": 181
+      "sha256": "632ab19a192500a03bada44caf22ae4e44a4cec8aa1c5287cc59ac000769ce58",
+      "lines": 268
     },
     {
       "path": "webapp/tests/rideshare-local-regression-test.mjs",

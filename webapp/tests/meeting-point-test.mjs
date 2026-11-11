@@ -165,6 +165,60 @@ await test('пояснение без ориентира сохраняется 
   assert.deepEqual(value,{lat:52.7,lng:58.6,note:'новые ворота'});
 });
 
+await test('старая карта не меняет выбранное место после закрытия, очистки, смены города или выбора ориентира', async () => {
+  const coordinate = { lat: 52.7, lng: 58.6 };
+  const map = tree => all(tree).find(n => n.type === 'ymap');
+  for (const action of ['hide-map', 'close-picker', 'done', 'clear', 'city', 'landmark']) {
+    h.reset();
+    let value = { ...coordinate, note: 'у ворот' };
+    let changes = 0;
+    const onChange = next => { value = next; changes++; };
+    const props = (city = 'Уфа') => ({ city, title: 'Место', value, onChange });
+    click(render(Picker, props()), 'Место');
+    render(Picker, props());
+    const cleanup = await effects();
+    click(render(Picker, props()), 'На карте');
+    const tree = render(Picker, props());
+    const moveOldMap = map(tree).props.onCenterChange;
+    switch (action) {
+      case 'hide-map': click(tree, 'На карте'); break;
+      case 'close-picker': click(tree, 'Место'); break;
+      case 'done': click(tree, 'Готово'); break;
+      case 'clear': click(tree, 'Убрать место'); break;
+      case 'city': render(Picker, props('Сибай')); break;
+      case 'landmark': click(tree, 'у мечети Уфа'); break;
+    }
+    const expectedChanges = changes;
+    moveOldMap({ lat: 54.7, lng: 55.9 });
+    assert.equal(changes, expectedChanges, action);
+    if (action === 'clear') assert.deepEqual(value, { clear: true });
+    if (action === 'landmark') assert.deepEqual(value, { landmark_id: 7, note: 'у ворот' });
+    const nextCity = action === 'city' ? 'Сибай' : 'Уфа';
+    if (action === 'city') {
+      cleanup();
+      render(Picker, props(nextCity));
+      await effects();
+      assert.equal(value, null);
+    }
+    let nextTree = render(Picker, props(nextCity));
+    assert.equal(map(nextTree), undefined, action);
+    if (['close-picker', 'done', 'clear'].includes(action)) {
+      click(nextTree, 'Место');
+      nextTree = render(Picker, props(nextCity));
+      assert.equal(map(nextTree), undefined, action);
+    }
+    click(nextTree, 'На карте');
+    const moveNewMap = map(render(Picker, props(nextCity))).props.onCenterChange;
+    const changesAfterReopen = changes;
+    moveOldMap({ lat: 54.7, lng: 55.9 });
+    assert.equal(changes, changesAfterReopen, action);
+    moveNewMap(coordinate);
+    assert.equal(changes, changesAfterReopen + 1, action);
+    assert.equal(value.lat, coordinate.lat);
+    assert.equal(value.lng, coordinate.lng);
+  }
+});
+
 const details={role:'passenger',status:'confirmed',booking_id:73,meeting_version:4,from_city:'Уфа',to_city:'Сибай',meet_lat:54.7,meet_lng:55.9};
 await test('до посадки меняются обе точки, в машине только высадка', async () => {
   for (const status of ['pending','confirmed','onboard']) {

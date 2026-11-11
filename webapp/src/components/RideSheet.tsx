@@ -2,7 +2,7 @@ import { rideDriverRating } from "../utils/rideDriverRating";
 // ================================================================
 //  Нижняя шторка с деталями поездки + бронирование.
 //  Открывается тапом по поездке на витрине (Home). Гость → на вход.
-//  Бронь: POST /bookings → переход на активную поездку /trip/{id}.
+//  Бронь: POST /bookings → pending открывает /booking/{id}, иначе /trip/{id}.
 //  «Закрыть», затемнение и Esc уводят шторку вниз (useSheetExit); бронь и «Открыть поездку»
 //  закрывают её сразу — их движение — переход на экран поездки, ждать нечего.
 // ================================================================
@@ -169,7 +169,7 @@ export default function RideSheet({
       refreshOwnBookings();
       track("booking_done");
       onClose();
-      navigate(`/trip/${b.id}`);
+      navigate(`${b.status === "pending" ? "/booking" : "/trip"}/${b.id}`);
     } catch (e) {
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       // 409 «у тебя уже есть бронь» (другое число мест, остановка, подросток): сервер ответил, сеть есть —
