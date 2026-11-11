@@ -156,10 +156,7 @@ class CreateRidePublishJourneyTest {
         rejectFirst = true
         fillForm()
         publishButton().performClick()
-        compose.waitUntil(15000) {
-            Shadows.shadowOf(Looper.getMainLooper()).idle()
-            compose.onAllNodesWithText("Повторить тот же запрос").fetchSemanticsNodes().isNotEmpty()
-        }
+        awaitInList("Повторить тот же запрос")
         assertTrue("Failure must not navigate as success", published.isEmpty())
         assertEquals(1, bodies.size)
         restoration.emulateSavedInstanceStateRestore()
