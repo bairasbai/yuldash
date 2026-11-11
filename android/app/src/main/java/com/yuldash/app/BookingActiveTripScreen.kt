@@ -1044,7 +1044,7 @@ internal fun PayAgreementBlock(
                     }
                 }
                 if (summaryAmount != null) {
-                    Text("$summaryAmount ₽", color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
+                    Text(kopToRub(rideshareRubToKop(summaryAmount)), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                 }
             }
         }

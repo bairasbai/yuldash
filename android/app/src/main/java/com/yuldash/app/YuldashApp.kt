@@ -275,19 +275,6 @@ import kotlinx.coroutines.flow.mapNotNull
 import kotlinx.coroutines.isActive
 import androidx.compose.ui.platform.testTag
 
-/** Код места показа с сервера → место в приложении. Незнакомое имя (сервер завёл новое,
- *  приложение ещё не знает) → null: такое объявление просто не покажем в этом слоте,
- *  вместо того чтобы уронить разбор всего списка рекламы. */
-private fun adPlacementOf(code: String): AdPlacement? = when (code.trim().lowercase()) {
-    "route" -> AdPlacement.Route
-    "rideslist" -> AdPlacement.RidesList
-    "nearby" -> AdPlacement.Nearby
-    "tripdetails" -> AdPlacement.TripDetails
-    "profile" -> AdPlacement.Profile
-    "help" -> AdPlacement.Help
-    else -> null
-}
-
 /**
  * Погасить ВСЮ живую трансляцию позиции — одной строкой на всех, кто уходит из аккаунта.
  *

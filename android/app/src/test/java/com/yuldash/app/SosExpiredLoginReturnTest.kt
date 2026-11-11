@@ -50,6 +50,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -124,8 +125,8 @@ class SosExpiredLoginReturnTest {
                 }
             }
         }
-        server.start()
-        ownBase = server.url("/").toString().trimEnd('/')
+        server.start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
+        ownBase = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/')
         ApiClient.testBaseUrl = ownBase
         ApiClient.testTimeoutMs = 1_000
         apiInitAttempted = true

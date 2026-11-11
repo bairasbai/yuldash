@@ -26,6 +26,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
@@ -75,9 +76,9 @@ class BookingNotificationFlowTest {
                         else -> """{"items":[],"code":"","role":"passenger"}"""
                     })
                 }
-            }; start()
+            }; start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/'); ApiClient.testTimeoutMs = 60000; ApiClient.saveToken(token11)
+        ApiClient.testBaseUrl = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'); ApiClient.testTimeoutMs = 60000; ApiClient.saveToken(token11)
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE).edit().putBoolean("onboarding_completed", true).commit()
         DeepLink.pendingCompletedBookingId.value = null; DeepLink.pendingBookingChatId.value = null;
         vm = ViewModelProvider(actor.get())[YuldashViewModel::class.java]
@@ -93,7 +94,12 @@ class BookingNotificationFlowTest {
         compose.mainClock.autoAdvance = false
         compose.setContent { if (mounted.value) CompositionLocalProvider(LocalViewModelStoreOwner provides actor.get()) { YuldashTheme { YuldashApp() } } }
         await { compose.onAllNodesWithTag("rideshareCompletedHero").fetchSemanticsNodes().isNotEmpty() }; pump()
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
+        await {
+            runCatching {
+                compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
+                compose.onNodeWithText("Квитанция").assertIsDisplayed().assertIsEnabled()
+            }.isSuccess
+        }
         compose.onNodeWithText("Квитанция").performClick()
         await { records.any { it.first == "/trips/42/receipt" } }; pump()
     }

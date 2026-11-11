@@ -4,6 +4,7 @@ import android.app.Application
 import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -23,6 +24,8 @@ import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.SnapshotRoute
 import com.yuldash.app.data.OfflinePassportFixture03
+import com.yuldash.app.data.JvmAndroidKeyStoreFixture
+import androidx.security.crypto.EncryptedSharedPreferences
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.SnapshotWiringCleanupGuard
 import com.yuldash.app.data.TripPassAuthorityFixture
@@ -30,6 +33,9 @@ import com.yuldash.app.data.awaitOfflineWriteSnapshotReset02
 import com.yuldash.app.data.finishOfflineWriteFixture02
 import com.yuldash.app.data.poisonOfflinePassportFixture03
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.ThreadContextElement
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -63,6 +69,7 @@ class BookingOfflinePaymentJourneyTest {
     private var serverStartAttempted = false
     private var apiInitAttempted = false
     private lateinit var passportFixture: OfflinePassportFixture03
+    private lateinit var cryptoFixture: JvmAndroidKeyStoreFixture
     private val vm = YuldashViewModel(SavedStateHandle())
     private val context = ApplicationProvider.getApplicationContext<Context>()
     private var plain = MemoryDiskPreferences()
@@ -90,6 +97,7 @@ class BookingOfflinePaymentJourneyTest {
     @Before fun prepare() {
         cleanupGuard.requireHealthy()
         check(ApiClient.testTrace == null)
+        cryptoFixture = JvmAndroidKeyStoreFixture.install()
         passportFixture = OfflinePassportFixture03(context)
         passportFixture.prepareClock()
         server = MockWebServer().apply {
@@ -140,6 +148,7 @@ class BookingOfflinePaymentJourneyTest {
         ApiClient.init(context)
         ApiClient.logout()
         ApiClient.init(context)
+        assertEncryptedAuthBacking()
         awaitOfflineWriteSnapshotReset02()
         finishOfflineWriteFixture02(cleanupGuard) {}
         ApiClient.saveToken(TripPassAuthorityFixture.jwt(7))
@@ -156,6 +165,7 @@ class BookingOfflinePaymentJourneyTest {
     }
 
     @After fun cleanup() {
+        var firstCleanupFailure: Throwable? = null
         try {
             cleanupGuard.requireHealthy()
             release.countDown()
@@ -168,7 +178,7 @@ class BookingOfflinePaymentJourneyTest {
                 settle()
                 compose.waitForIdle()
             }
-            requestJobs.awaitCompleted()
+            requestJobs.awaitCompleted { compose.mainClock.advanceTimeByFrame() }
             offline = false
             secure.failWriteOf = null
             if (apiInitAttempted) ApiClient.logout()
@@ -182,9 +192,16 @@ class BookingOfflinePaymentJourneyTest {
                 if (::passportFixture.isInitialized) passportFixture.restoreClock()
             }
         } catch (failure: Throwable) {
+            firstCleanupFailure = failure
             poisonOfflinePassportFixture03(cleanupGuard, failure)
         } finally {
             if (ApiClient.testTrace === ownTrace) ApiClient.testTrace = null
+            if (::cryptoFixture.isInitialized) {
+                try { cryptoFixture.close() } catch (failure: Throwable) {
+                    firstCleanupFailure?.let(failure::addSuppressed)
+                    poisonOfflinePassportFixture03(cleanupGuard, failure)
+                }
+            }
         }
     }
 
@@ -221,14 +238,29 @@ class BookingOfflinePaymentJourneyTest {
                 details.transport.isCompleted && code.transport.isCompleted && details.caller.isCompleted &&
                 !details.transport.isCancelled && !code.transport.isCancelled && !details.caller.isCancelled
         }
-        fun awaitCompleted() = runBlocking {
-            withTimeout(5_000) {
-                // ApiClient GET uses synchronous HttpURLConnection; its IO Job includes disconnect.
-                while (reads.any { !it.transport.isCompleted || !it.caller.isCompleted }) {
-                    Shadows.shadowOf(Looper.getMainLooper()).idle()
-                    Snapshot.sendApplyNotifications()
-                    delay(10)
+        fun awaitCompleted(progress: () -> Unit) = runBlocking {
+            try {
+                withTimeout(5_000) {
+                    // ApiClient GET uses synchronous HttpURLConnection; its IO Job includes disconnect.
+                    while (reads.any { !it.transport.isCompleted || !it.caller.isCompleted }) {
+                        Shadows.shadowOf(Looper.getMainLooper()).idle()
+                        Snapshot.sendApplyNotifications()
+                        progress()
+                        delay(10)
+                    }
                 }
+            } catch (failure: kotlinx.coroutines.TimeoutCancellationException) {
+                // Failure metadata only; never inspect bodies/tokens or mutate the observed jobs.
+                runCatching {
+                    println("PAYMENT_CLEANUP_PENDING_READS " + org.json.JSONArray(reads.map { read ->
+                        JSONObject().put("path", read.path).put("phase", read.phase)
+                            .put("callerClass", read.caller.javaClass.name)
+                            .put("callerCompleted", read.caller.isCompleted).put("callerCancelled", read.caller.isCancelled)
+                            .put("transportClass", read.transport.javaClass.name)
+                            .put("transportCompleted", read.transport.isCompleted).put("transportCancelled", read.transport.isCancelled)
+                    }))
+                }
+                throw failure
             }
         }
     }
@@ -316,6 +348,21 @@ class BookingOfflinePaymentJourneyTest {
         assertNotNull(OfflineTripSnapshots.warmFallback(42))
     }
 
+    /** Preparation checks only: no repository open, payload read or authority grant. */
+    private fun assertEncryptedAuthBacking() {
+        val secure = requireNotNull(ApiClient::class.java.getDeclaredField("secureAuthPrefs")
+            .apply { isAccessible = true }.get(ApiClient))
+        assertEquals(EncryptedSharedPreferences::class.java, secure.javaClass)
+        assertSame(secure, ApiClient::class.java.getDeclaredField("prefs").apply { isAccessible = true }.get(ApiClient))
+    }
+    private fun assertCanonicalEncryptedBacking() {
+        val repository = requireNotNull(OfflineTripSnapshots::class.java.getDeclaredField("repository")
+            .apply { isAccessible = true }.get(OfflineTripSnapshots))
+        val disk = repository.javaClass.getDeclaredField("disk").apply { isAccessible = true }.get(repository)
+        assertTrue(disk is com.yuldash.app.data.SnapshotPreferencesDisk)
+        val secure = requireNotNull(disk.javaClass.getDeclaredField("secure").apply { isAccessible = true }.get(disk))
+        assertEquals(EncryptedSharedPreferences::class.java, secure.javaClass)
+    }
     /** Own HTTP only; may run before a fault or for B while A remains held, never under fault. */
     private fun positivePass(user: Int): TripPass {
         passportFixture.assertOriginalBacking()
@@ -329,6 +376,7 @@ class BookingOfflinePaymentJourneyTest {
                 assertTrue(ApiClient.getBoardingCode(42).getOrThrow().isNotBlank())
                 requireNotNull(OfflineTripSnapshots.privatePass(42))
             }
+            assertCanonicalEncryptedBacking()
             assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"),
                 preparationRequests.drop(before))
             assertTrue(OfflineTripSnapshots.matchesPass(actual))
@@ -347,6 +395,7 @@ class BookingOfflinePaymentJourneyTest {
         mount(language)
         waitFor { requestJobs.initialBookingCompleted() && TripPassStore.load(context, 42)?.boardingCode == "4821" &&
             compose.onAllNodesWithText(if (language == AppLanguage.Ba) "Сәфәр раҫланыуын яңыртабыҙ" else "Обновляем подтверждение поездки").fetchSemanticsNodes().isEmpty() }
+        assertCanonicalEncryptedBacking()
         val openLabel = if (language == AppLanguage.Ba) "Сәфәрҙе асыу" else "Открыть поездку"
         compose.onNodeWithText(openLabel).assertIsDisplayed()
         // Warm preference reopen only: process authority stays alive; this is not a new PID.
@@ -407,6 +456,61 @@ class BookingOfflinePaymentJourneyTest {
         assertFalse(requests.any { it.startsWith("POST ") })
     }
 
+    /** Actual effect cancellation must unwind its caller on the clock owned by this Compose rule. */
+    @Test fun cleanupWaitCompletesCancelledCallerOnComposeClock() {
+        val previousAutoAdvance = compose.mainClock.autoAdvance
+        val afterDetails = CountDownLatch(1)
+        mounted.value = true
+        contentSet = true
+        try {
+            compose.setContent {
+                CompositionLocalProvider(LocalLifecycleOwner provides owner) {
+                    if (mounted.value) LaunchedEffect(Unit) {
+                        try {
+                            ApiClient.getBookingDetails(42).getOrThrow()
+                            afterDetails.countDown()
+                            awaitCancellation()
+                        } finally {
+                            withContext(NonCancellable) { delay(50) }
+                        }
+                    }
+                }
+            }
+            compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
+            waitFor { afterDetails.count == 0L && requestJobs.reads.size == 1 &&
+                requestJobs.reads.single().phase == 2 && requestJobs.reads.single().transport.isCompleted }
+            val read = requestJobs.reads.single()
+            assertEquals("/bookings/42/details", read.path)
+            assertFalse(read.transport.isCancelled)
+            assertFalse(read.caller.isCompleted)
+            assertFalse(read.caller.isCancelled)
+            compose.mainClock.autoAdvance = false
+            compose.runOnUiThread {
+                mounted.value = false
+                owner.registry.currentState = Lifecycle.State.DESTROYED
+            }
+            Snapshot.sendApplyNotifications()
+            compose.mainClock.advanceTimeByFrame()
+            assertTrue(read.transport.isCompleted)
+            assertTrue(read.caller.isCancelled)
+            assertFalse("The real 50 ms unwind must still await the paused Compose clock", read.caller.isCompleted)
+            // The old awaiter times out here. Teardown progression below cannot turn that into PASS.
+            requestJobs.awaitCompleted { compose.mainClock.advanceTimeByFrame() }
+            assertTrue(read.transport.isCompleted && read.caller.isCompleted)
+        } finally {
+            try {
+                compose.mainClock.autoAdvance = true
+                compose.runOnUiThread {
+                    mounted.value = false
+                    if (owner.registry.currentState.isAtLeast(Lifecycle.State.CREATED))
+                        owner.registry.currentState = Lifecycle.State.DESTROYED
+                }
+                Snapshot.sendApplyNotifications()
+                // Release only this test's real NonCancellable delay, after the measured await returned/threw.
+                compose.mainClock.advanceTimeBy(100)
+            } finally { compose.mainClock.autoAdvance = previousAutoAdvance }
+        }
+    }
     @Test fun cashAgreementSurvivesConfirmedSaveAndOfflineRu() = journey(AppLanguage.Ru, "cash", 400, "400 ₽ · Наличными")
     @Test fun cashAgreementSurvivesConfirmedSaveAndOfflineBa() = journey(AppLanguage.Ba, "cash", 400, "400 ₽ · Наличный менән")
     @Test fun explicitZeroSurvivesOfflineRu() = journey(AppLanguage.Ru, "cash", 0, "0 ₽ · Наличными")
@@ -460,10 +564,11 @@ class BookingOfflinePaymentJourneyTest {
         }
         assertAHeld()
         val generationA = ApiClient.queueSessionGeneration()
-        compose.runOnIdle {
-            ApiClient.logout()
-            ApiClient.saveToken(TripPassAuthorityFixture.jwt(8))
-        }
+        compose.runOnIdle { ApiClient.logout() }
+        assertAHeld()
+        awaitOfflineWriteSnapshotReset02()
+        assertAHeld()
+        compose.runOnIdle { ApiClient.saveToken(TripPassAuthorityFixture.jwt(8)) }
         assertNotEquals(generationA, ApiClient.queueSessionGeneration())
         assertAHeld()
         plain = MemoryDiskPreferences(); secure = MemoryDiskPreferences()

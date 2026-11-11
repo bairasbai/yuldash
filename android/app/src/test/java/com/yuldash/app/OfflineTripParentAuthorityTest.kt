@@ -91,6 +91,7 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
     private var otherDetails: BookingDetailsDto? = null
     private var otherHistory: TripReceiptDto? = null
     private var otherReads = emptyList<String>()
+    private val warmMounted = mutableStateOf(false)
 
     @Before fun setupParentUi() {
         ApiClient.testTimeoutMs = 45000
@@ -109,6 +110,10 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         releaseAReads.countDown()
         releaseAction.countDown()
         releaseRoles.countDown()
+        if (warmMounted.value) {
+            compose.runOnIdle { warmMounted.value = false }
+            compose.waitForIdle()
+        }
         if (::a.isInitialized) {
             compose.runOnIdle { a.mounted.value = false; b.mounted.value = false }
             compose.waitForIdle()
@@ -727,4 +732,125 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
     @Test fun receiptDisposedCallbackCannotNavigate() = deniedReceiptCallback("disposed")
     @Test fun receiptOldHistoryInstanceCannotNavigate() = deniedReceiptCallback("oldHistory")
     @Test fun receiptForeignRootIdCannotNavigate() = deniedReceiptCallback("foreignRootId")
+
+    /** Renderer guards use the existing actual-HTTP fixture; storage durability is tested separately. */
+    private fun warmPaymentProof(method: String = "cash", amount: Int? = 0): Pair<TripPass, OfflineTripSnapshotMode> = runBlocking {
+        handler = { request -> when (request.requestUrl!!.encodedPath) {
+            "/bookings/11/details" -> MockResponse().setBody(detailsJson(11, status = "confirmed").apply {
+                remove("onboard_at")
+                put("pay_method", method)
+                put("pay_amount", amount ?: JSONObject.NULL)
+            }.toString())
+            "/bookings/11/role" -> MockResponse().setBody(roleJson(status = "confirmed").apply { remove("onboard_at") }.toString())
+            else -> defaultResponse(request)
+        } }
+        warm()
+        val pass = requireNotNull(OfflineTripSnapshots.privatePass(11))
+        assertTrue(OfflineTripSnapshots.matchesPass(pass))
+        assertEquals(method, pass.payMethod)
+        assertEquals(amount, pass.payAmount)
+        pass to OfflineTripSnapshotMode(requireNotNull(OfflineTripSnapshots.load(owner(), 11)), 1)
+    }
+    private fun mountWarmPayment(mode: OfflineTripSnapshotMode, parent: () -> Boolean = { true }, expectedText: String = "0 ₽ · Наличными") {
+        warmMounted.value = true
+        compose.setContent {
+            YuldashTheme {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                    if (warmMounted.value) OfflineActiveTripSnapshot(mode, parent, onRetry = {}, onBack = {})
+                }
+            }
+        }
+        awaitUi { compose.onAllNodesWithText(expectedText).fetchSemanticsNodes().isNotEmpty() }
+    }
+    private fun warmScroll(value: String) {
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText(value))
+        compose.onNodeWithText(value).assertIsDisplayed()
+    }
+    private fun noWarmContacts(pass: TripPass) {
+        listOf(pass.driverPhone, pass.driverName, pass.driverCar, pass.driverPlate, pass.boardingCode,
+            pass.meetNote, pass.meetLandmarkRu, pass.meetLandmarkBa,
+            "Паспорт поездки", "Позвонить", "Открыть точку на карте", "Связь и встреча", "Код посадки")
+            .filter(String::isNotBlank).distinct().forEach { marker ->
+                compose.onAllNodes(hasText(marker, substring = true), useUnmergedTree = true).assertCountEquals(0)
+            }
+    }
+    @Suppress("DEPRECATION")
+    private fun noWarmPayment() {
+        listOf("0 ₽", "Наличными", "Как договорились платить").forEach { marker ->
+            compose.onAllNodes(hasText(marker, substring = true), useUnmergedTree = true).fetchSemanticsNodes().forEach { node ->
+                assertTrue("Warm payment remained accessible: $marker",
+                    generateSequence(node) { it.parent }.any { it.config.contains(SemanticsProperties.InvisibleToUser) })
+            }
+        }
+    }
+    @Test fun warmPaymentZeroShowsReadonlyAgreementWithoutContactsOrActions() {
+        val (pass, mode) = warmPaymentProof()
+        mountWarmPayment(mode)
+        warmScroll("0 ₽ · Наличными")
+        warmScroll("Как договорились платить")
+        compose.onNodeWithText("Наличными").assertIsDisplayed()
+        compose.onNodeWithText("0 ₽").assertIsDisplayed()
+        noWarmContacts(pass)
+        assertFalse(requests.any { it.method == "POST" })
+    }
+    @Test fun warmPaymentDisappearsWhenParentLeaves() {
+        val (pass, mode) = warmPaymentProof()
+        val parent = mutableStateOf(true)
+        mountWarmPayment(mode, { parent.value })
+        warmScroll("0 ₽ · Наличными")
+        warmScroll("Как договорились платить")
+        compose.runOnIdle {
+            parent.value = false
+            assertTrue("This case removes only the parent, not the private permission", OfflineTripSnapshots.matchesPass(pass))
+        }
+        settle()
+        noWarmPayment()
+        noWarmContacts(pass)
+        assertFalse(requests.any { it.method == "POST" })
+    }
+    private fun denyWarmPayment(kind: String) {
+        val (pass, mode) = warmPaymentProof()
+        mountWarmPayment(mode)
+        warmScroll("0 ₽ · Наличными")
+        warmScroll("Как договорились платить")
+        noWarmContacts(pass)
+        when (kind) {
+            "owner" -> compose.runOnIdle { ApiClient.saveToken(jwt(8)) }
+            "terminal" -> runBlocking {
+                handler = { request -> if (request.path == "/bookings/11/role")
+                    MockResponse().setBody(roleJson(status = "done").toString()) else defaultResponse(request) }
+                assertEquals("done", ApiClient.getTripStateForNavigation(11).result.getOrThrow().status)
+            }
+            "expiry" -> {
+                val expired = 1000 + OfflineTripSnapshotPolicy.MAX_AGE_MS
+                clock = SnapshotClock(3, expired, expired, expired)
+            }
+            else -> error("Unknown warm payment denial")
+        }
+        assertFalse(OfflineTripSnapshots.matchesPass(pass))
+        settle()
+        noWarmPayment()
+        noWarmContacts(pass)
+    }
+    @Test fun warmPaymentDisappearsAfterOwnerChange() = denyWarmPayment("owner")
+    @Test fun warmPaymentDisappearsAfterTerminal() = denyWarmPayment("terminal")
+    @Test fun warmPaymentDisappearsAfterExpiry() = denyWarmPayment("expiry")
+    @Test fun coldSnapshotBytesDoNotMountWarmPayment() {
+        val (pass, mode) = warmPaymentProof()
+        val namespace = owner().namespace
+        reopenAuthority()
+        assertNotNull("The test must retain persisted snapshot candidate bytes", secure.getString(namespace, null))
+        assertNull(OfflineTripSnapshots.privatePass(11))
+        assertFalse(OfflineTripSnapshots.matchesPass(pass))
+        mountWarmPayment(mode, expectedText = "Сохранённые данные устарели или недоступны")
+        noWarmPayment()
+        noWarmContacts(pass)
+    }
+    @Test fun unknownWarmPaymentMethodIsNotInventedAsNegotiate() {
+        val (pass, mode) = warmPaymentProof(method = "future_payment")
+        mountWarmPayment(mode, expectedText = "Уфа → Сибай")
+        noWarmPayment()
+        noWarmContacts(pass)
+        compose.onAllNodesWithText("Договоримся").assertCountEquals(0)
+    }
 }

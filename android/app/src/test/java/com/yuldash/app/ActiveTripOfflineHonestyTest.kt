@@ -5,7 +5,6 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -207,7 +206,7 @@ class ActiveTripOfflineHonestyTest {
     private fun knownCompletion(language: AppLanguage) {
         mount(language, knownTerminalTripHint(42, "done", "driver"))
         val completed = if (language == AppLanguage.Ru) "Поездка завершена" else "Сәфәр тамамланды"
-        val retry = if (language == AppLanguage.Ru) "Повторить" else "Ҡабатлау"
+        val receipt = if (language == AppLanguage.Ru) "Квитанция" else "Сәфәр квитанцияһы"
         awaitText(completed)
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
@@ -223,11 +222,11 @@ class ActiveTripOfflineHonestyTest {
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
             requests.count { it == "GET /trips/42/receipt" } >= 2 &&
-                compose.onAllNodesWithText(retry).fetchSemanticsNodes().isEmpty()
+                runCatching {
+                    compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText(receipt))
+                    compose.onNodeWithText(receipt).assertIsDisplayed()
+                }.isSuccess
         }
-        val receipt = if (language == AppLanguage.Ru) "Квитанция" else "Сәфәр квитанцияһы"
-        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText(receipt))
         compose.onNodeWithText(receipt).performClick()
         assertEquals(42, openedReceipt)
         assertNoInventedActiveTrip()

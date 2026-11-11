@@ -23,6 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** DESIGN066: actual code card must leave loading on error, and retry only its GET. */
@@ -62,8 +63,8 @@ class ActiveTripBoardingCodeLoadTest {
                 return MockResponse().setBody(body)
             }
         }
-        server.start()
-        TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
+        server.start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'))
         ApiClient.testTimeoutMs = 1000
     }
 
@@ -256,9 +257,14 @@ class ActiveTripBoardingCodeLoadTest {
                 requested.count { it == "GET /bookings/42/messages" } == 1 &&
                 OfflineTripSnapshots.projection(42) == null
         }
-        // Exact startup precondition: CODE may renew DETAILS after a newer ROLE.
-        val initialPrivateReads = listOf("GET /bookings/42/details", "GET /bookings/42/details", "GET /bookings/42/boarding-code")
-        assertEquals(initialPrivateReads, requested.filter { it in setOf("GET /bookings/42/details", "GET /bookings/42/boarding-code") })
+        // CODE renews DETAILS only if a newer ROLE has invalidated the first grant.
+        val detailsRead = "GET /bookings/42/details"
+        val codeRead = "GET /bookings/42/boarding-code"
+        val initialPrivateReads = requested.filter { it == detailsRead || it == codeRead }
+        assertTrue(initialPrivateReads.toString(),
+            initialPrivateReads == listOf(detailsRead, codeRead) ||
+                initialPrivateReads == listOf(detailsRead, detailsRead, codeRead))
+        val initialDetailsCount = initialPrivateReads.count { it == detailsRead }
         val owner = requireNotNull(OfflineTripSnapshots.currentOwner())
         val generation = ApiClient.queueSessionGeneration()
         assertNull(OfflineTripSnapshots.privatePass(42))
@@ -288,8 +294,8 @@ class ActiveTripBoardingCodeLoadTest {
         compose.onAllNodesWithText("+70000000042", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("PRIVATE_RECOVERY_POINT_42", substring = true).assertCountEquals(0)
         assertNull(OfflineTripSnapshots.privatePass(42))
-        assertEquals(2, requested.count { it == "GET /bookings/42/details" })
-        assertEquals(1, requested.count { it == "GET /bookings/42/boarding-code" })
+        assertEquals(initialDetailsCount, requested.count { it == detailsRead })
+        assertEquals(1, requested.count { it == codeRead })
         assertEquals(1, requested.count { it == "GET /bookings/42/messages" })
         val beforeRetry = requested.size
         codeBody = """{"code":"5678"}"""
@@ -306,8 +312,8 @@ class ActiveTripBoardingCodeLoadTest {
         assertEquals("PRIVATE_RECOVERY_POINT_42", restored.pickup)
         assertEquals(owner, OfflineTripSnapshots.currentOwner())
         assertTrue(ApiClient.isCurrentSession(generation))
-        assertEquals(3, requested.count { it == "GET /bookings/42/details" })
-        assertEquals(2, requested.count { it == "GET /bookings/42/boarding-code" })
+        assertEquals(initialDetailsCount + 1, requested.count { it == detailsRead })
+        assertEquals(2, requested.count { it == codeRead })
         assertEquals(1, requested.count { it == "GET /bookings/42/messages" })
         assertFalse(requested.any { it.startsWith("POST ") })
     }

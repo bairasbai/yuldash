@@ -23,6 +23,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 
 /** PATH-01: real protected action, login form and HTTP; no injected successful login. */
@@ -66,9 +67,9 @@ class ProtectedActionLoginJourneyTest {
                     }
                 }
             }
-            start()
+            start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
-        ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
+        ApiClient.testBaseUrl = server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1_000
         ApiClient.init(context)
         ApiClient.logout()
