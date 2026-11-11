@@ -2820,8 +2820,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflinePaymentJourneyTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "016d3da6115fa92d4e373013539cee7fe80f89543280b786ce4bbd2e3c9d9a32",
-      "lines": 649
+      "sha256": "3dae61e40bb5c4f28edebaefb61fc6e9e533ada3264a5eda2283c4ee98f0d33c",
+      "lines": 650
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflineSaveTest.kt",
@@ -2911,8 +2911,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CompletedNavigationRestorationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "d9d1589f95150f7792d7cc597ce7e897bf4431451d2ccb4755ebc31721415926",
-      "lines": 195
+      "sha256": "cc2aaa7de9f112050e39731a814aa0218e0316cb288f7d289a78b41602ada771",
+      "lines": 454
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ContrastGuardTest.kt",
@@ -3156,8 +3156,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/FindRideButtonTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "36f9a15fdc5bdf8b1991904106e0fb472af42df89193ee31415217d2e2ed4a59",
-      "lines": 149
+      "sha256": "b8e342433518702a337aa90e8b72c3b4db6bc9cc0c20908f6283180a3705a2ef",
+      "lines": 158
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ForceUpdateAccessibilityTest.kt",
@@ -3842,8 +3842,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ProtectedActionLoginJourneyTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "29f7393ae08060276b745fdd52029154f0062839c36e76c739ed4ac671fd0705",
-      "lines": 167
+      "sha256": "064ea0363f4efc20124ed08ae9be883a740bc5610e5116a507c1454f16195ffc",
+      "lines": 171
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PublicRideActivityOwnershipTest.kt",

@@ -339,11 +339,12 @@ class BookingOfflinePaymentJourneyTest {
     private fun awaitOfflineBanner(language: AppLanguage) {
         val banner = if (language == AppLanguage.Ba) "Һуңғы һаҡланған хәлде күрһәтәбеҙ. Ул үҙгәргән булыуы мөмкин."
             else "Показываем последнее сохранённое состояние. Оно могло измениться."
+        val bannerNode = compose.onNodeWithText(banner)
+        val routeNode = compose.onNodeWithText("Город А → Город Б")
         waitFor { ApiClient.serverUnreachable.value && requests.contains("GET /bookings/42/role") &&
-            vm.offlineTripSnapshot.value != null &&
-            compose.onAllNodesWithText(banner).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText(banner).assertIsDisplayed()
-        compose.onNodeWithText("Город А → Город Б").assertIsDisplayed()
+            vm.offlineTripSnapshot.value != null && bannerNode.isDisplayed() && routeNode.isDisplayed() }
+        bannerNode.assertIsDisplayed()
+        routeNode.assertIsDisplayed()
         assertNull(vm.activeTrip.value)
         assertNotNull(OfflineTripSnapshots.warmFallback(42))
     }
