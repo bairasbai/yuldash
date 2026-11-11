@@ -545,24 +545,13 @@ def _retry_after_booking_race(session, ride, user, body, pickup_stop, entry, mee
     return None
 
 
+@router.post("/bookings/commands/v1", response_model=meeting_points.BookingPublicOut,
+             dependencies=[Depends(idempotency.require_wire_command)])
 @router.post("/bookings", response_model=meeting_points.BookingPublicOut)
 def book(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session),
          keyed_body: idempotency.KeyedBody = None):
     if keyed_body is None:
         return _book(body, user, session)
-    return _book_with_command(body, user, session, keyed_body)
-
-
-@router.post("/bookings/commands/v1", response_model=meeting_points.BookingPublicOut)
-def book_command_v1(body: BookIn, user: User = Depends(current_user), session: Session = Depends(get_session),
-                    keyed_body: idempotency.KeyedBody = None):
-    if keyed_body is None or not keyed_body.key.startswith(idempotency.KEY_PREFIX):
-        raise herr(422, "Не получилось распознать действие. Обнови приложение.",
-                   "Ғәмәлде танып булманы. Ҡушымтаны яңырт.", code="idempotency_key_invalid")
-    return _book_with_command(body, user, session, keyed_body)
-
-
-def _book_with_command(body: BookIn, user: User, session: Session, keyed_body: idempotency.CommandInput):
     command = keyed_body.command(idempotency.Scope.BOOKING_CREATE, body.ride_id, body)
     return idempotency.execute(session, user.id, command, lambda: _book(body, user, session, keyed=True))
 
@@ -1253,6 +1242,8 @@ def _distance_to_stop_km(session: Session, ride: Ride, place) -> Optional[float]
     return meters / 1000.0 if meters is not None else None
 
 
+@router.post("/bookings/{booking_id}/commands/v1/driver-status",
+             dependencies=[Depends(idempotency.require_wire_command)])
 @router.post("/bookings/{booking_id}/driver-status")
 def driver_status(booking_id: int, body: DriverStatusIn, user: User = Depends(current_user),
                   session: Session = Depends(get_session), keyed_body: idempotency.KeyedBody = None):
@@ -1754,6 +1745,8 @@ def _booking_out(session: Session, booking: Booking, ride: Ride, viewer_id: int)
     return meeting_points.booking_public_dto(session, booking, ride, viewer_id)
 
 
+@router.post("/bookings/{booking_id}/commands/v1/confirm", response_model=meeting_points.BookingPublicOut,
+             dependencies=[Depends(idempotency.require_wire_command_without_body)])
 @router.post("/bookings/{booking_id}/confirm", response_model=meeting_points.BookingPublicOut)
 def confirm_booking(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session),
                     idempotency_key: idempotency.IdempotencyKey = None):
@@ -1887,6 +1880,8 @@ def preview_booking_cancel(booking_id: int, user: User = Depends(current_user), 
     return _cancel_preview(booking, ride, user.id, utcnow())
 
 
+@router.post("/bookings/{booking_id}/commands/v1/cancel", response_model=meeting_points.BookingPublicOut,
+             dependencies=[Depends(idempotency.require_wire_command)])
 @router.post("/bookings/{booking_id}/cancel", response_model=meeting_points.BookingPublicOut)
 def cancel_booking(booking_id: int, background: BackgroundTasks, body: Optional[CancelIn] = None,
                    user: User = Depends(current_user), session: Session = Depends(get_session),
@@ -2154,6 +2149,8 @@ def _no_show_needs_arriving_refusal() -> HTTPException:
     })
 
 
+@router.post("/bookings/{booking_id}/commands/v1/no-show", response_model=meeting_points.BookingPublicOut,
+             dependencies=[Depends(idempotency.require_wire_command_without_body)])
 @router.post("/bookings/{booking_id}/no-show", response_model=meeting_points.BookingPublicOut)
 def mark_no_show(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session),
                  idempotency_key: idempotency.IdempotencyKey = None):

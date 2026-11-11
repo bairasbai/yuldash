@@ -220,6 +220,8 @@ def seat_cap(back_max_two: bool, front_seat_available: bool) -> int:
     return 2 + (1 if front_seat_available else 0)
 
 
+@router.post("/rides/commands/v1", response_model=RideOut,
+             dependencies=[Depends(idempotency.require_wire_command)])
 @router.post("/rides", response_model=Ride)
 def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session),
                 keyed_body: idempotency.KeyedBody = None):
@@ -1365,6 +1367,8 @@ def _live_bookings(session: Session, ride_id: int) -> list:
     ).with_for_update().execution_options(populate_existing=True)).all()
 
 
+@router.post("/rides/{ride_id}/commands/v1/cancel", response_model=RideOut,
+             dependencies=[Depends(idempotency.require_wire_command_without_body)])
 @router.post("/rides/{ride_id}/cancel", response_model=RideOut)
 def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(current_user),
                  session: Session = Depends(get_session), idempotency_key: idempotency.IdempotencyKey = None):
@@ -1471,6 +1475,8 @@ def _notify_ride_cancelled(session: Session, ride: Ride, affected: list[Booking]
         )
 
 
+@router.post("/rides/{ride_id}/commands/v1/complete", response_model=RideOut,
+             dependencies=[Depends(idempotency.require_wire_command_without_body)])
 @router.post("/rides/{ride_id}/complete", response_model=RideOut)
 def complete_ride(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session),
                   idempotency_key: idempotency.IdempotencyKey = None):

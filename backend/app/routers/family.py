@@ -445,6 +445,8 @@ def _boarding_undo_open_refusal(undo_left: int, status: str) -> HTTPException:
     })
 
 
+@router.post("/bookings/{booking_id}/commands/v1/trip-status", response_model=meeting_points.BookingPublicOut,
+             dependencies=[Depends(idempotency.require_wire_command)])
 @router.post("/bookings/{booking_id}/trip-status", response_model=List[TripShare])
 def set_trip_status(booking_id: int, body: TripStatusIn, user: User = Depends(current_user),
                     session: Session = Depends(get_session), keyed_body: idempotency.KeyedBody = None):

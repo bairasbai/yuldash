@@ -45,10 +45,14 @@ class Scope(str, Enum):
         return self.value.split(".", 1)[0]
 
 
+def _invalid_key() -> HTTPException:
+    return herr(422, "Не получилось распознать действие. Обнови приложение.",
+                "Ғәмәлде танып булманы. Ҡушымтаны яңырт.", code="idempotency_key_invalid")
+
+
 def validate_key(key: str) -> str:
     if not _KEY.fullmatch(key):
-        raise herr(422, "Не получилось распознать действие. Обнови приложение.",
-                   "Ғәмәлде танып булманы. Ҡушымтаны яңырт.", code="idempotency_key_invalid")
+        raise _invalid_key()
     return key
 
 
@@ -103,6 +107,17 @@ async def command_input(request: Request, idempotency_key: IdempotencyKey = None
 
 
 KeyedBody = Annotated[CommandInput | None, Depends(command_input)]
+
+
+async def require_wire_command(value: KeyedBody) -> CommandInput:
+    if value is None or not value.key.startswith(KEY_PREFIX):
+        raise _invalid_key()
+    return value
+
+
+async def require_wire_command_without_body(value: Annotated[CommandInput, Depends(require_wire_command)]) -> None:
+    if value.wire_body is not None:
+        raise _invalid_payload()
 
 
 @dataclass(frozen=True)
