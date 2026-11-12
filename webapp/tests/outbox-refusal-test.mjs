@@ -12,7 +12,7 @@ let serial = 0, passed = 0, failed = 0;
 async function check(name, fn) {
   globalThis.indexedDB = new IDBFactory(); const storage = new Map();
   globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) };
-  const api = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text + '\n//' + serial++).toString('base64')); api.setSession('A', 'refresh-A');
+  const api = await import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text + '\n//' + serial++).toString('base64')); await api.setSession('A', 'refresh-A');
   try { await fn(api); passed++; console.log('✓ ' + name); } catch (e) { failed++; console.log('FAIL ' + name + ': ' + e.message); }
 }
 const TOO_EARLY = { ru: 'Рано: «Я выехал» можно нажать за час до выезда — иначе пассажир получит «Водитель выехал» раньше времени.', ba: 'Иртә: «Сыҡтым»ға сығыуға бер сәғәт ҡалғас ҡына баҫып була.', code: 'departed_too_early' };
@@ -80,9 +80,9 @@ await check('отказ принадлежит входу: после выход
   await api.enqueue(42, 'driver_status', 'departed');
   globalThis.fetch = refuse(409, { ru: 'Нельзя', ba: 'Ярамай' });
   await api.flushOutbox(); assert.equal(api.getOutboxRefusals().length, 1);
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   assert.deepEqual(api.getOutboxRefusals(), [], 'чужой отказ новому человеку не показываем');
-  api.setSession('A', 'refresh-A'); // другая сессия того же человека — всё равно новое поколение
+  await api.setSession('A', 'refresh-A'); // другая сессия того же человека — всё равно новое поколение
   assert.deepEqual(api.getOutboxRefusals(), []);
   await api.enqueue(43, 'driver_status', 'departed'); await api.flushOutbox();
   assert.equal(api.getOutboxRefusals().length, 1);

@@ -8,7 +8,7 @@ let serial=0,passed=0,failed=0;
 const response=(status,body={})=>new Response(JSON.stringify(body),{status});
 async function check(name,fn){
  globalThis.indexedDB=new IDBFactory();const storage=new Map();globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
- const api=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));api.setSession('A','refresh-A');api.setRefreshHandler(api.refreshSession);
+ const api=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));await api.setSession('A','refresh-A');api.setRefreshHandler(api.refreshSession);
  let cleared=0;const cleanup=[];api.setUnauthorizedHandler(()=>{cleared++;cleanup.push(api.clearOutbox());});
  try{await fn({api,cleared:()=>cleared,cleanup});passed++;console.log('✓ '+name);}catch(e){failed++;console.log('FAIL '+name+': '+e.message);}
 }
@@ -34,7 +34,7 @@ await check('parallel 401 requests share failed refresh and allow later recovery
 await check('late refresh failure cannot alter replacement account',async({api,cleared})=>{
  let release,started;const held=new Promise(r=>release=r),ready=new Promise(r=>started=r);
  globalThis.fetch=async url=>{if(!String(url).includes('/auth/refresh'))return response(401);started();await held;return response(503);};
- const pending=api.apiGet('/private').catch(e=>e);await ready;api.setSession('B','refresh-B');release();await pending;
+ const pending=api.apiGet('/private').catch(e=>e);await ready;await api.setSession('B','refresh-B');release();await pending;
  assert.equal(api.getToken(),'B');assert.equal(api.getRefreshToken(),'refresh-B');assert.equal(cleared(),0);
 });
 // Живой канал точки (refreshRejectedToken, приёмка PR155): тот же общий полёт, что у запросов после 401.

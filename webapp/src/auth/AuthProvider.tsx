@@ -13,6 +13,7 @@ import {
   getToken,
   getSessionGeneration,
   setSession,
+  revokeCurrentTripPasses,
   setRefreshHandler,
   setUnauthorizedHandler,
 } from "../api/client";
@@ -169,10 +170,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   const login = useCallback((access: string, refresh: string, me: Me) => {
     const generation = getSessionGeneration(), epoch = sessionEpoch();
-    return sessionMutation(permit => {
+    return sessionMutation(async permit => {
       if (epoch !== sessionEpoch() || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
       try {
-        setSession(access, refresh, permit);
+        await setSession(access, refresh, permit);
         syncPersonalSession(getSessionGeneration());
       } catch (error) { setUser(null); setStatus("guest"); throw error; }
       confirmStorageSession(getSessionGeneration()); setUser(me); setStatus("authed");
@@ -183,6 +184,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const logout = useCallback(async () => {
     const generation = getSessionGeneration();
     if (storageFenced()) { setUser(null); setStatus("guest"); return; }
+    await sessionMutation(permit => {
+      if (generation === getSessionGeneration()) return revokeCurrentTripPasses(permit);
+    });
+    if (generation !== getSessionGeneration()) return;
     // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
     // Иначе на общем телефоне следующий вошедший получал бы чужие уведомления.
     try {
@@ -197,9 +202,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       /* нет сети / уже протух — всё равно чистим локально */
     }
     if (generation !== getSessionGeneration()) return;
-    try { await sessionMutation(permit => {
+    try { await sessionMutation(async permit => {
       if (generation !== getSessionGeneration()) return;
-      setSession(null, null, permit); setUser(null); setStatus("guest"); clearSessionData();
+      await setSession(null, null, permit);
+      setUser(null); setStatus("guest"); clearSessionData();
     }); } catch (error) { if (!storageFenced()) throw error; }
   }, []);
 

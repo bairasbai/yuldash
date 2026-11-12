@@ -133,7 +133,7 @@ export async function refreshSession(): Promise<boolean> {
     if (generation !== getSessionGeneration()) return false;
     // A delayed replay of R1 must not overwrite an already completed R2 -> R3.
     if (getRefreshToken() !== rt) return true;
-    const rotated = await rotateSession(pair.access_token, pair.refresh_token, generation);
+    const rotated = await rotateSession(pair.access_token, pair.refresh_token, generation, rt);
     if (rotated) await clearRefreshRotationId(generation, rt).catch(() => {});
     return rotated;
   } catch (error) {

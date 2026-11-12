@@ -53,9 +53,9 @@ import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { beginDriverClick, finishDriverClick } from "../utils/driverActions";
 import { driverRideRemains, rideShareTerminal } from "../utils/driverRideShare";
 import { requestRidingFocus, rideShareHandoff } from "../utils/rideShareStore";
-import { clearTripPassBoardingCode, dropTripPass, restoreConfirmedTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
 import { sosPath } from "../utils/sosLink";
-import { loadOfflineTripPass, saveVerifiedTripPass } from "../utils/offlineTripPass";
+import { readOfflineTrip } from "../utils/offlineTripPass";
+import { useStoredTripData } from "../utils/useStoredTripData";
 import OfflineTripPass from "../components/OfflineTripPass";
 import { OfflineCancellationHelp } from "../components/OfflineTripFallback";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
@@ -72,7 +72,6 @@ import { isStaleBoardingAfterUndo, isConfirmedBoardingUndo, sameBoardingTimestam
 import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
-import { loadInTransitCancel, rememberInTransitCancel } from "../utils/inTransitCancel";
 import { IconStar, IconPhone, IconWarn, IconCheck, IconCar, IconWallet, IconClose } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel, pluralRu } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
@@ -161,12 +160,9 @@ export default function ActiveTripScreen() {
   const [details, setDetails] = useState<BookingDetails | null>(null);
   const [trip, setTrip] = useState<TripState | null>(null);
   const [code, setCode] = useState<string | null>(null);
-  /**
-   * Офлайн-паспорт: снимок брони, сохранённый локально. Нужен ровно там, где сети нет —
-   * у машины на ночной трассе. Читаем СРАЗУ, до всякой загрузки: если сервер не ответит,
-   * человеку всё равно есть что показать.
-   */
-  const [pass, setPass] = useState<TripPass | null>(() => loadOfflineTripPass(bookingId));
+  const readPass = useCallback(() => readOfflineTrip(bookingId), [bookingId]);
+  const savedTrip = useStoredTripData(true, readPass, false);
+  const detailsLifetime = useRef<AbortController | null>(null);
   const [driverLoc, setDriverLoc] = useState<GeoPoint | null>(null);
   const [rated, setRated] = useState(false);
   const [winterAskForId, setWinterAskForId] = useState<number | null>(null);
@@ -217,8 +213,6 @@ export default function ActiveTripScreen() {
       const base = keep && rawDetailsRef.current ? rawDetailsRef.current : current;
       return base ? cancelledDetails(base, keep || base.cancelled_in_transit === true) : base;
     });
-    dropTripPass(bookingId, sessionGeneration);
-    setPass(null);
     setCode(null);
     setDriverLoc(null);
   }, [bookingId, sessionGeneration]);
@@ -233,15 +227,12 @@ export default function ActiveTripScreen() {
     const undo = currentStatus === "onboard" && incoming.status === "confirmed" && isConfirmedBoardingUndo(current, incoming);
     if (!shouldApplyBookingDetails(currentStatus, incoming.status) && !undo) return false;
     if (incoming.status === "confirmed" && incoming.boarding_undo_confirmed_id) {
-      const blocked = tripPassStage(bookingId, sessionGeneration) === "onboard";
-      if (!restoreConfirmedTripPass(bookingId, sessionGeneration, current, incoming, getSessionGeneration)) return false;
-      if (undo || blocked) {
+      if (undo) {
         boardingSeqRef.current += 1;
         detailsStatusRef.current = "confirmed";
         if (rawDetailsRef.current) rawDetailsRef.current = { ...rawDetailsRef.current, status: "confirmed", onboard_at: null };
         setDetails(previous => previous ? { ...previous, status: "confirmed", onboard_at: null } : previous);
         setCode(null);
-        setPass(loadOfflineTripPass(bookingId));
       }
     }
     if (incoming.status === "onboard" && sameBoardingTimestamp(incoming.onboard_at, incoming.onboard_at) &&
@@ -265,40 +256,10 @@ export default function ActiveTripScreen() {
         applyCancelledState(inTransitRef.current);
         return;
       }
-      if (d.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration, d.onboard_at);
-      if (isTerminalBookingStatus(d.status)) {
-        if (d.role === "driver") rideShareTerminal(bookingId);
-        dropTripPass(bookingId, sessionGeneration);
-        setPass(null);
-      } else if (d.contact_unlocked) {
-        setPass((previous) => {
-          const snapshot = {
-            bookingId,
-            fromCity: d.from_city,
-            toCity: d.to_city,
-            departAt: d.depart_at,
-            driverName: d.driver_name,
-            driverCar: d.driver_car,
-            driverPlate: d.driver_plate ?? "",
-            driverPhone: d.driver_phone,
-            boardingCode: d.role === "passenger" && d.status === "confirmed" && previous?.bookingId === bookingId &&
-              previous.ownerId === user?.id && previous.sessionGeneration === sessionGeneration
-              ? previous.boardingCode
-              : "",
-            pickup: d.pickup,
-            pickupStop: d.pickup_stop,
-            dropoffStop: d.dropoff_stop,
-            rideHasStops: d.ride_has_stops,
-            price: d.pay_amount ?? d.price,
-            payMethod: d.pay_method,
-            seats: d.seats,
-          };
-          saveVerifiedTripPass(snapshot, user?.id, sessionGeneration);
-          return { ...snapshot, ownerId: user?.id, sessionGeneration, savedAt: Date.now() };
-        });
-      }
+      if (d.status === "onboard" || isTerminalBookingStatus(d.status)) setCode(null);
+      if (d.role === "driver" && isTerminalBookingStatus(d.status)) rideShareTerminal(bookingId);
     },
-    [acceptBoardingSnapshot, applyCancelledState, bookingId, user?.id, sessionGeneration]
+    [acceptBoardingSnapshot, applyCancelledState, bookingId]
   );
 
   // ---- Загрузка деталей ----
@@ -310,7 +271,7 @@ export default function ActiveTripScreen() {
       }
       const boardingSeq = boardingSeqRef.current;
       setStatus("loading");
-      fetchBookingDetails(bookingId, signal)
+      fetchBookingDetails(bookingId, signal, true)
         .then((d) => {
           if (boardingSeq !== boardingSeqRef.current || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
           applyBookingDetails(d);
@@ -331,7 +292,7 @@ export default function ActiveTripScreen() {
     detailsSyncBusyRef.current = true;
     lastDetailsAtRef.current = Date.now();
     try {
-      const fresh = await fetchBookingDetails(bookingId);
+      const fresh = await fetchBookingDetails(bookingId, detailsLifetime.current?.signal, true);
       if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current) return;
       applyBookingDetails(fresh);
     } catch {
@@ -342,6 +303,8 @@ export default function ActiveTripScreen() {
   }, [applyBookingDetails, bookingId, sessionGeneration]);
 
   useEffect(() => {
+    const lifetime = new AbortController();
+    detailsLifetime.current = lifetime;
     tripRef.current = null;
     boardingSnapshotRef.current = null;
     detailsStatusRef.current = null;
@@ -350,7 +313,7 @@ export default function ActiveTripScreen() {
     inTransitDetailsAskedRef.current = false;
     detailsSyncBusyRef.current = false;
     lastDetailsAtRef.current = Date.now();
-    setPass(loadOfflineTripPass(bookingId));
+    return () => lifetime.abort();
   }, [bookingId]);
 
   useEffect(() => {
@@ -383,16 +346,9 @@ export default function ActiveTripScreen() {
         if (fresh.cancelled_in_transit === true) inTransitRef.current = true;
         tripRef.current = fresh;
         setTrip(fresh);
-        if (fresh.status === "onboard") {
-          clearTripPassBoardingCode(bookingId, sessionGeneration, fresh.onboard_at);
-          setPass((previous) => previous?.bookingId === bookingId && previous.boardingCode
-            ? { ...previous, boardingCode: "" }
-            : previous);
-        }
+        if (fresh.status === "onboard") setCode(null);
         if (isTerminalBookingStatus(fresh.status)) {
           if (fresh.role === "driver") rideShareTerminal(bookingId);
-          dropTripPass(bookingId, sessionGeneration);
-          setPass(null);
           setCode(null);
           setDriverLoc(null);
           if (fresh.status === "cancelled") applyCancelledState(inTransitRef.current);
@@ -435,7 +391,7 @@ export default function ActiveTripScreen() {
       if (current.status === "onboard" && result.status === "onboard" && !sameBoardingTimestamp(current.onboard_at, result.onboard_at)) return;
       if (!acceptBoardingSnapshot(result)) return;
       boardingSeqRef.current += 1;
-      if (result.status === "onboard") clearTripPassBoardingCode(bookingId, sessionGeneration, result.onboard_at);
+      if (result.status === "onboard") setCode(null);
       const next = { ...current, ...result };
       tripRef.current = next;
       setTrip(next);
@@ -443,30 +399,11 @@ export default function ActiveTripScreen() {
     [acceptBoardingSnapshot, tickTrip, bookingId, sessionGeneration]
   );
 
-  useEffect(() => {
-    const changed = (event: StorageEvent) => {
-      if (event.key !== null && !event.key.startsWith(`yuldash.tripPass.${bookingId}.`)) return;
-      try {
-        const stage = tripPassStage(bookingId, sessionGeneration);
-        if (stage === "confirmed") return;
-        setCode(null);
-        setPass(stage === "terminal" ? null : loadOfflineTripPass(bookingId));
-      } catch {
-        setCode(null);
-        setPass(null);
-      }
-    };
-    if (typeof window === "undefined") return;
-    window.addEventListener("storage", changed);
-    return () => window.removeEventListener("storage", changed);
-  }, [bookingId, sessionGeneration]);
-
   const st = trip?.status ?? details?.status;
   const active = st === "confirmed" || st === "onboard";
 
-  let savedStage: "confirmed" | "onboard" | "terminal" = "terminal";
-  try { savedStage = tripPassStage(bookingId, sessionGeneration); } catch { /* no safe saved state */ }
-  const needsBoardingCode = details?.role === "passenger" && st === "confirmed" && savedStage === "confirmed";
+  const needsBoardingCode = details?.role === "passenger" && st === "confirmed" &&
+    (savedTrip?.status === "confirmed" || typeof indexedDB === "undefined");
 
   // Отменили, когда пассажир был в машине: экран не прячет помощь (CancelledInTransitCard) и не
   // показывает ничего от живой поездки — ни чата с водителем, ни карты (приёмка PR207, №1).
@@ -474,11 +411,7 @@ export default function ActiveTripScreen() {
     (trip?.cancelled_in_transit === true || details?.cancelled_in_transit === true || inTransitRef.current);
   const inTransitCar = details ? [details.driver_car_color, details.driver_car].filter(Boolean).join(" ") : "";
   const inTransitPlate = details?.driver_plate ?? "";
-  // Вкладка помнит эту отмену (без телефона): вернулся с SOS, а сети нет — помощь на месте.
-  useEffect(() => {
-    if (inTransitCancel) rememberInTransitCancel(bookingId, user?.id, sessionGeneration);
-  }, [inTransitCancel, bookingId, user?.id, sessionGeneration]);
-  const savedInTransit = status === "ready" ? null : loadInTransitCancel(bookingId, user?.id);
+  const savedInTransit = status !== "ready" && savedTrip?.cancelledInTransit === true;
 
   // ---- Код нужен пассажиру до посадки, не после неё ----
   useEffect(() => {
@@ -486,30 +419,21 @@ export default function ActiveTripScreen() {
       setCode(null);
       return;
     }
-    let alive = true;
+    const request = new AbortController();
     const boardingSeq = boardingSeqRef.current;
-    fetchBoardingCode(bookingId)
-      .then((r) => {
-        if (!alive || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current ||
-          tripPassStage(bookingId, sessionGeneration) !== "confirmed" ||
+    fetchBoardingCode(bookingId, request.signal)
+      .then(async (r) => {
+        const latest = await readOfflineTrip(bookingId);
+        if (request.signal.aborted || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current ||
+          (typeof indexedDB !== "undefined" && latest?.status !== "confirmed") ||
           !shouldApplyBookingDetails(tripRef.current?.status, "confirmed") ||
           !shouldApplyBookingDetails(detailsStatusRef.current, "confirmed")) return;
         setCode(r.code);
-        // Код приходит отдельным запросом — дописываем его в уже сохранённый снимок.
-        // Без этого офлайн-паспорт показывал бы всё, кроме того, что называют вслух.
-        setPass((prev) => {
-          if (!prev || prev.bookingId !== bookingId || !r.code) return prev;
-          const next = { ...prev, boardingCode: r.code };
-          saveVerifiedTripPass(next, user?.id, sessionGeneration);
-          return next;
-        });
       })
       .catch(() => {
         /* нет кода — не критично */
       });
-    return () => {
-      alive = false;
-    };
+    return () => request.abort();
   }, [bookingId, needsBoardingCode, user?.id, sessionGeneration]);
 
   // ---- Live-точка водителя (WS) — только пока активна и только пассажиру ----
@@ -599,12 +523,6 @@ export default function ActiveTripScreen() {
           ? { ...current, pay_method: agreement.pay_method, pay_amount: agreement.pay_amount ?? current.pay_amount }
           : current
       );
-      setPass((current) => {
-        if (!current) return current;
-        const next = { ...current, price: agreement.pay_amount ?? current.price, payMethod: agreement.pay_method };
-        saveVerifiedTripPass(next, user?.id, sessionGeneration);
-        return next;
-      });
       setPayNote(appText("Записали. Вторая сторона это видит.", "Яҙҙыҡ. Икенсе яҡ быны күрә."));
     } catch (e) {
       setPayNote(
@@ -764,8 +682,7 @@ export default function ActiveTripScreen() {
         {/* Сервер не ответил — но если поездку уже открывали, снимок брони лежит рядом.
             Сверяют машину как раз там, где связи нет: перевал, ночная трасса, обочина
             у выезда из села. Пустой экран в этот момент — худшее, что можно показать. */}
-        {!savedInTransit && pass && savedStage !== "terminal"
-          ? <OfflineTripPass pass={savedStage === "onboard" ? { ...pass, boardingCode: "" } : pass} /> : null}
+        {!savedInTransit && savedTrip?.pass ? <OfflineTripPass pass={savedTrip.pass} /> : null}
         <ErrorState onRetry={() => load()} />
       </>
     );

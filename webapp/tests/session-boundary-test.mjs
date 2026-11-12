@@ -37,18 +37,18 @@ async function check(name, run) {
   try { await run(await environment()); console.log(`PASS ${name}`); }
   catch (error) { failed++; console.error(`FAIL ${name}\n${error.stack}`); }
 }
-function switchToB(api) {
-  api.setSession(null, null);
-  api.setSession('B', 'refresh-B');
+async function switchToB(api) {
+  await api.setSession(null, null);
+  await api.setSession('B', 'refresh-B');
 }
 
 await check('old unauthorized response cannot clear the new account', async api => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
   api.setRefreshHandler(null);
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const result = api.apiGet('/private').then(value => ({ value }), error => ({ error }));
-  switchToB(api);
+  await switchToB(api);
   pending.resolve(response(401));
   await result;
   assert.equal(api.getToken(), 'B');
@@ -58,9 +58,9 @@ await check('old unauthorized response cannot clear the new account', async api 
 await check('old refresh success cannot replace a new account', async api => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const result = api.refreshSession();
-  switchToB(api);
+  await switchToB(api);
   pending.resolve(response(200, { access_token: 'A-new', refresh_token: 'refresh-A-new' }));
   assert.equal(await result, false);
   assert.equal(api.getToken(), 'B');
@@ -76,9 +76,9 @@ await check('old mutation is never replayed with the new accounts credentials', 
     return Promise.resolve(response(200, url.endsWith('/auth/refresh')
       ? { access_token: 'B-new', refresh_token: 'refresh-B-new' } : { ok: true }));
   };
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const result = api.apiPost('/me/delete', {}).then(value => ({ value }), error => ({ error }));
-  switchToB(api);
+  await switchToB(api);
   pending.resolve(response(401));
   await result;
   assert.deepEqual(calls.map(call => [call.path, call.auth]), [['/me/delete', 'Bearer A']]);
@@ -88,9 +88,9 @@ await check('old mutation is never replayed with the new accounts credentials', 
 await check('old protected success is rejected after account change', async api => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const result = api.apiGet('/trusted-contacts').then(value => ({ value }), error => ({ error }));
-  switchToB(api);
+  await switchToB(api);
   pending.resolve(response(200, { private: 'account-A' }));
   assert.ok((await result).error, 'Private result of account A escaped to a new session');
 });
@@ -100,10 +100,10 @@ await check('session boundary is checked after asynchronous JSON decoding', asyn
   const body = deferred();
   globalThis.fetch = async () => ({ status: 200, ok: true,
     json: () => { readingBody.resolve(); return body.promise; } });
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const result = api.apiGet('/private').then(value => ({ value }), error => ({ error }));
   await readingBody.promise;
-  switchToB(api);
+  await switchToB(api);
   body.resolve({ private: 'account-A' });
   assert.ok((await result).error, 'Account changed while the old body was being decoded');
 });
@@ -111,9 +111,9 @@ await check('session boundary is checked after asynchronous JSON decoding', asyn
 await check('old failed unauthenticated refresh cannot clear the new session', async api => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const result = api.refreshSession();
-  switchToB(api);
+  await switchToB(api);
   pending.resolve(response(401));
   assert.equal(await result, false);
   assert.equal(api.getToken(), 'B');
@@ -122,7 +122,7 @@ await check('old failed unauthenticated refresh cannot clear the new session', a
 
 await check('auth false failure cannot log out an existing session', async api => {
   globalThis.fetch = async () => response(401);
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   await api.apiPost('/auth/verify', { code: 'invalid' }, { auth: false }).catch(() => {});
   assert.equal(api.getToken(), 'B');
   assert.equal(api.getRefreshToken(), 'refresh-B');
@@ -135,7 +135,7 @@ await check('ordinary refresh still rotates tokens and retries its request', asy
     if (url.endsWith('/auth/refresh')) return response(200, { access_token: 'A-new', refresh_token: 'refresh-A-new' });
     return init.headers.Authorization === 'Bearer A' ? response(401) : response(200, { ok: true });
   };
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   assert.deepEqual(await api.apiGet('/private'), { ok: true });
   assert.equal(api.getToken(), 'A-new');
   assert.equal(api.getRefreshToken(), 'refresh-A-new');
@@ -156,7 +156,7 @@ await check('parallel unauthorized requests share one refresh', async api => {
     if (init.headers.Authorization === 'Bearer A') { oldRequests++; return response(401); }
     return response(200, { ok: true });
   };
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const first = api.apiGet('/first');
   const second = api.apiGet('/second');
   await refreshStarted.promise;
@@ -179,7 +179,7 @@ await check('late parallel 401 uses the already rotated token without another re
     if (url.endsWith('/slow') && init.headers.Authorization === 'Bearer A') return late401.promise;
     return init.headers.Authorization === 'Bearer A' ? response(401) : response(200, { ok: true });
   };
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const slow = api.apiGet('/slow');
   assert.deepEqual(await api.apiGet('/fast'), { ok: true });
   late401.resolve(response(401));
@@ -204,10 +204,10 @@ await check('old refresh finishing cannot replace or clear a new sessions in-fli
     }
     return init.headers.Authorization === 'Bearer B-new' ? response(200, { ok: true }) : response(401);
   };
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const old = api.apiGet('/old').then(value => ({ value }), error => ({ error }));
   await startedA.promise;
-  switchToB(api);
+  await switchToB(api);
   const firstB = api.apiGet('/new');
   await startedB.promise;
   responseA.resolve(response(200, { access_token: 'A-new', refresh_token: 'refresh-A-new' }));
@@ -225,10 +225,10 @@ await check('old refresh finishing cannot replace or clear a new sessions in-fli
 await check('direct setToken account changes invalidate an old request even if token is reused', async api => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   const old = api.apiGet('/old').then(value => ({ value }), error => ({ error }));
-  api.setToken(null);
-  api.setToken('A');
+  await api.setToken(null);
+  await api.setToken('A');
   pending.resolve(response(200, { private: 'old-session' }));
   assert.ok((await old).error, 'Token equality is not sufficient after logout and re-login');
   assert.equal(api.getToken(), 'A');

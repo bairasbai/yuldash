@@ -10,6 +10,7 @@ import {
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const screen = readFileSync(join(HERE, "../src/screens/ActiveTripScreen.tsx"), "utf8");
+const bookingApi = readFileSync(join(HERE, "../src/api/bookings.ts"), "utf8");
 
 let bad = 0;
 const check = (ok, label) => {
@@ -37,7 +38,7 @@ check(
 );
 check(
   screen.includes("if (isTerminalBookingStatus(fresh.status))") &&
-    screen.includes("dropTripPass(bookingId, sessionGeneration)"),
+    bookingApi.includes("await observeTripPass(owner, id, state, revision, undefined, signal)"),
   "done/cancelled из /role сразу очищает TripPass"
 );
 check(

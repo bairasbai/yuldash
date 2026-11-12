@@ -4,10 +4,13 @@
 //  Это не набор: его импортируют наборы паритета (отмена с причиной, «Завершить?», точка водителя).
 // ================================================================
 import { bundleComponent, langMock, mount } from "./shallow-harness.mjs";
+import { IDBFactory } from "fake-indexeddb";
 import { passengerDecisionStoreStub, passengerDecisionStub } from "./booking-command-stub.mjs";
 
 const CLIENT = `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}
 export const getSessionGeneration=()=>globalThis.__at.generation;
+export const getAccountSession=()=>({generation:getSessionGeneration(),userId:globalThis.__at.userId});
+export const isAccountSession=owner=>owner.generation===getSessionGeneration()&&owner.userId===globalThis.__at.userId;
 export const getToken=()=>"tok";
 export const apiGet=async(p)=>globalThis.__at.get(p);
 export const apiPost=async(p,b)=>globalThis.__at.post(p,b);`;
@@ -21,9 +24,12 @@ export const apiPost=async(p,b)=>globalThis.__at.post(p,b);`;
  *   intercept?:(path:string, at:any)=>any, userId?:number}} o
  */
 export async function openActiveTrip({ lang = "ru", role = "passenger", status = "confirmed", phase = "", cancel, details = {}, trip = {},
-  intercept, userId = 1 } = {}) {
+  intercept, userId = 1, tripStorage = new IDBFactory() } = {}) {
+  globalThis.indexedDB = tripStorage;
+  globalThis.window ??= new EventTarget();
+  globalThis.document ??= new EventTarget();
   const Screen = await bundleComponent("src/screens/ActiveTripScreen.tsx", {
-    real: ["/api/bookings", "/utils/tripLocationShare", "/utils/tripDetailsSync.js", "/utils/inTransitCancel", "/components/PassengerCancellation"],
+    real: ["/api/bookings", "/utils/tripLocationShare", "/utils/tripDetailsSync.js", "/utils/offlineTripPass", "/utils/useStoredTripData", "/components/PassengerCancellation"],
     mocks: {
       "react-router-dom": `export const useNavigate=()=>p=>globalThis.__at.nav.push(p);export const useParams=()=>({id:"42"});`,
       "/auth/AuthProvider": `export const useAuth=()=>({user:{id:globalThis.__at.userId}});`,
@@ -93,6 +99,23 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
   });
   const h = mount(Screen);
   h.render();
-  await h.settle();
-  return { h, at };
+  await h.settle(50);
+  return { h, at, tripStorage };
+}
+
+export async function readTripFixture(storage, generation = "A", id = 42) {
+  const db = await new Promise((resolve, reject) => {
+    const request = storage.open("yuldash-trip-passes-v1", 1);
+    request.onerror = () => reject(request.error);
+    request.onupgradeneeded = () => request.result.createObjectStore("sessions");
+    request.onsuccess = () => resolve(request.result);
+  });
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction("sessions", "readonly");
+      const request = tx.objectStore("sessions").get(generation);
+      tx.onabort = () => reject(tx.error);
+      tx.oncomplete = () => resolve(request.result?.trips?.get(id) ?? null);
+    });
+  } finally { db.close(); }
 }

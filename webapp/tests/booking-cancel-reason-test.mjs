@@ -17,7 +17,7 @@ const api = await build({
   plugins: [{ name: "client", setup(b) {
     b.onResolve({ filter: /\/client$/ }, () => ({ path: "client", namespace: "c" }));
     b.onLoad({ filter: /.*/, namespace: "c" }, () => ({
-      contents: `export const getSessionGeneration=()=>"A";export const getToken=()=>"test-token";export const apiGet=async()=>null;export const apiPost=async(p,b)=>{globalThis.__posts.push([p,b]);return{status:"cancelled"}};`,
+      contents: `export const getAccountSession=()=>null,isAccountSession=()=>false;export const getSessionGeneration=()=>"A";export const getToken=()=>"test-token";export const apiGet=async()=>null;export const apiPost=async(p,b)=>{globalThis.__posts.push([p,b]);return{status:"cancelled"}};`,
       loader: "js",
     }));
   } }],

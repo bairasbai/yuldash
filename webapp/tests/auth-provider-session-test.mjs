@@ -19,7 +19,7 @@ const mocks = {
   client: `const h=globalThis.__authProviderSession;
     export const getToken=()=>h.token,getSessionGeneration=()=>h.generation;
     export const setSession=(token,refresh)=>{if(h.sessionFailure){h.token=null;throw Error('session storage unavailable');}h.token=token;h.refresh=refresh;h.generation++;};
-    export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
+    export const revokeCurrentTripPasses=()=>{}; export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderSession;
     export const fetchMe=()=>{const request=h.makeDeferred();h.requests.push(request);return request.promise;};
     export const refreshSession=async()=>true;
@@ -38,36 +38,36 @@ function reset(){delete globalThis.caches;Object.assign(h,{states:[],refs:[],cal
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
-function loginB(){render().login('B','refresh-B',B);}
+function loginB(){return render().login('B','refresh-B',B);}
 function assertB(){const value=render();assert.equal(h.token,'B','B token must survive');assert.equal(value.status,'authed','B must stay authenticated');assert.equal(value.user?.id,202,'B must keep its own profile');}
 async function readyA(){mount();h.requests[0].resolve(A);await flush();assert.equal(render().user.id,101);}
 let failed=0,total=0;
 async function test(label,fn){total++;try{await fn();console.log('PASS '+label);}catch(e){failed++;console.error('FAIL '+label+': '+e.message);}finally{for(const fn of h.cleanups??[])fn?.();}}
 
 await test('startup success from A cannot replace login B',async()=>{
-  mount();loginB();h.requests[0].resolve(A);await flush();assertB();
+  mount();await loginB();h.requests[0].resolve(A);await flush();assertB();
 });
 await test('failed local login closes A UI and ignores late startup A',async()=>{
-  mount();h.sessionFailure=true;assert.throws(loginB);assert.equal(render().status,'guest');assert.equal(render().user,null);
+  mount();h.sessionFailure=true;await assert.rejects(loginB);assert.equal(render().status,'guest');assert.equal(render().user,null);
   h.requests[0].resolve(A);await flush();assert.equal(render().status,'guest');assert.equal(render().user,null);
 });
 await test('failed local login ignores late manual refresh A',async()=>{
-  await readyA();const pending=render().refresh();h.sessionFailure=true;assert.throws(loginB);
+  await readyA();const pending=render().refresh();h.sessionFailure=true;await assert.rejects(loginB);
   h.requests[1].resolve(A);await pending;assert.equal(render().status,'guest');assert.equal(render().user,null);
 });
 await test('startup rejected request from A cannot make B a guest',async()=>{
-  mount();loginB();h.requests[0].reject(new Error('session changed / old request failed'));await flush();assertB();
+  mount();await loginB();h.requests[0].reject(new Error('session changed / old request failed'));await flush();assertB();
 });
 await test('late manual profile refresh cannot replace B',async()=>{
-  await readyA();const refresh=render().refresh();loginB();h.requests[1].resolve(A);await refresh;assertB();
+  await readyA();const refresh=render().refresh();await loginB();h.requests[1].resolve(A);await refresh;assertB();
 });
 await test('logout waiting for push removal cannot logout or clear B',async()=>{
-  await readyA();const logout=render().logout();loginB();h.disable.resolve();h.serverLogout.resolve({ok:true});await logout;
+  await readyA();const logout=render().logout();await loginB();h.disable.resolve();h.serverLogout.resolve({ok:true});await logout;
   assert.deepEqual(h.logoutBearers,[],'Old logout must not send logoutServer with B bearer');assertB();assert.deepEqual(h.clears,[],'B local data must not be cleared');
 });
 await test('logout waiting for server response cannot clear B',async()=>{
   await readyA();h.disable.resolve();const logout=render().logout();await flush();assert.deepEqual(h.logoutBearers,['A']);
-  loginB();h.serverLogout.resolve({ok:true});await logout;assertB();assert.deepEqual(h.clears,[]);
+  await loginB();h.serverLogout.resolve({ok:true});await logout;assertB();assert.deepEqual(h.clears,[]);
 });
 await test('normal startup refresh and logout still work',async()=>{
   await readyA();const refresh=render().refresh();h.requests[1].resolve({...A,name:'Updated A'});await refresh;assert.equal(render().user.name,'Updated A');
@@ -91,7 +91,7 @@ await test('deferred cache enumeration from logout A cannot delete B caches',asy
   await readyA();const keys=deferred(),deleted=[];
   globalThis.caches={keys:()=>keys.promise,delete:async key=>{deleted.push(key);return true;}};
   h.disable.resolve();h.serverLogout.resolve({ok:true});await render().logout();
-  loginB();keys.resolve(['runtime-personal']);await flush();
+  await loginB();keys.resolve(['runtime-personal']);await flush();
   assertB();assert.deepEqual(deleted,[],'Delayed cache cleanup must not delete the new session cache');
 });
 console.log(`AuthProvider: ${total-failed} passed, ${failed} failed`);

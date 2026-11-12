@@ -24,7 +24,7 @@ const Sheet = (
     [/\/auth\/AuthProvider$/, `export const useAuth = () => ({ isAuthed: globalThis.__rideExit.authed });`],
     [/\/features$/, `const f = { rides: true, parcels: true, ready: true }; export const useFeatures = () => f, getFeatures = () => f;`],
     [/\/ComingSoon$/, `export default "ComingSoon";`],
-    [/\/api\/client$/, `export class ApiError extends Error {} export const getSessionGeneration = () => "same";`],
+    [/\/api\/client$/, `export class ApiError extends Error {} export const getAccountSession=()=>null,isAccountSession=()=>false; export const getSessionGeneration = () => "same";`],
     [/\/booking\/OwnBookingsProvider$/, `export const useOwnBooking = () => globalThis.__rideExit.own; export const useRefreshOwnBookings = () => () => {};`],
     [/\/api\/bookingCommands$/, bookingCommandStub(`export const createBooking = (body) => (globalThis.__rideExit.calls.push(body), globalThis.__rideExit.booking(body));`)],
     [/\/analytics$/, `export const track = () => {};`],

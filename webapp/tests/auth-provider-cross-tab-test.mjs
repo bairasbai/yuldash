@@ -19,7 +19,7 @@ const mocks = {
   client: `const h=globalThis.__authProviderCrossTab;
     export const getToken=()=>h.token,getSessionGeneration=()=>String(h.generation);
     export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation++;};
-    export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
+    export const revokeCurrentTripPasses=()=>{}; export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderCrossTab;
     export const fetchMe=()=>{const request=h.makeDeferred();request.token=h.token;h.requests.push(request);return request.promise;};
     export const refreshSession=async()=>true;
@@ -38,7 +38,7 @@ function reset(){delete globalThis.caches;globalThis.window=new EventTarget();gl
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
-function loginB(){render().login('B','refresh-B',B);}
+function loginB(){return render().login('B','refresh-B',B);}
 function assertB(){const value=render();assert.equal(h.token,'B','B token must survive');assert.equal(value.status,'authed','B must stay authenticated');assert.equal(value.user?.id,202,'B must keep its own profile');}
 async function readyA(){mount();h.requests[0].resolve(A);await flush();assert.equal(render().user.id,101);}
 let failed=0,total=0;
@@ -104,7 +104,7 @@ await test('storage clear event removes old authenticated UI',async()=>{
   assert.equal(render().user,null);assert.equal(render().status,'guest');
 });
 await test('queued obsolete session event cannot reset current profile',async()=>{
-  await readyA();loginB();const requestCount=h.requests.length;
+  await readyA();await loginB();const requestCount=h.requests.length;
   const event=new Event('storage');Object.assign(event,{key:'yuldash.session',newValue:'obsolete-session',oldValue:'older-session',storageArea:localStorage});window.dispatchEvent(event);
   await flush();assertUser(202);assert.equal(h.requests.length,requestCount,'Obsolete event must not reload current profile');
 });
@@ -120,7 +120,7 @@ await test('manual retry restores unavailable profile',async()=>{
  mount();h.requests[0].reject(new Error('offline'));await flush();render().retrySession();assert.equal(h.requests.length,2);h.requests[1].resolve(A);await flush();assertUser(101);
 });
 await test('old retry marker cannot reload or hide a newly logged-in account',async()=>{
- mount();h.requests[0].reject(new Error('offline'));await flush();loginB();window.dispatchEvent(new Event('online'));assert.equal(h.requests.length,1);assertB();
+ mount();h.requests[0].reject(new Error('offline'));await flush();await loginB();window.dispatchEvent(new Event('online'));assert.equal(h.requests.length,1);assertB();
 });
 console.log(`AuthProvider cross-tab: ${total-failed} passed, ${failed} failed`);
 if(failed)process.exitCode=1;

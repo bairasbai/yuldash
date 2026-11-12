@@ -16,7 +16,7 @@ async function check(name, run) {
   const storage = new Map();
   globalThis.localStorage = { getItem: k => storage.get(k) ?? null, setItem: (k, v) => storage.set(k, String(v)), removeItem: k => storage.delete(k) };
   Object.defineProperty(globalThis, 'navigator', { configurable: true, value: {} });
-  const api = await instance(); api.setSession('A', 'R');
+  const api = await instance(); await api.setSession('A', 'R');
   try { await run(api); passed++; console.log('PASS ' + name); } catch (e) { failed++; console.log('FAIL ' + name + ': ' + e.message); }
 }
 for (const failure of ['network', '503', 'malformed']) await check('reload retains committed nonce after ' + failure, async api => {
@@ -44,7 +44,7 @@ await check('late previous account success cannot change replacement session or 
   let release, start;
   const held = new Promise(r => release = r), ready = new Promise(r => start = r);
   globalThis.fetch = async () => { start(); await held; return response(200, pair); };
-  const pending = api.refreshSession(); await ready; api.setSession('B', 'RB');
+  const pending = api.refreshSession(); await ready; await api.setSession('B', 'RB');
   let bodyB;
   globalThis.fetch = async (_, init) => { bodyB = JSON.parse(init.body); throw new TypeError('offline'); };
   await assert.rejects(api.refreshSession()); release(); assert.equal(await pending, false);
@@ -73,7 +73,7 @@ await check('confirmed success and definitive rejection discard the old intent',
 await check('logout clears a failed rotation intent', async api => {
   globalThis.fetch = async () => { throw new TypeError('offline'); };
   await assert.rejects(api.refreshSession()); assert.equal((await intents()).length, 1);
-  api.setSession(null, null);
+  await api.setSession(null, null);
   for (let i = 0; i < 20 && (await intents()).length; i++) await new Promise(setImmediate);
   assert.deepEqual(await intents(), []);
 });

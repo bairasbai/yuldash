@@ -1,4 +1,6 @@
 import { getLanguage } from "../i18n/languagePreference";
+import { revokeTripPassGeneration } from "../utils/tripPassStore";
+import type { TripPassOwner } from "../utils/tripPass";
 import { sessionMutation, assertSessionPermit, storageFenceEnabled, storageFenced, quarantineGeneration, rememberSession, storageOperation, reportStorageFailure, type SessionWritePermit } from "../utils/storageHealth";
 // ================================================================
 //  Базовый HTTP-клиент Юлдаша.
@@ -124,8 +126,35 @@ function writeToken(token: string | null): void {
 function writeRefresh(token: string | null): void {
   storageOperation(() => token ? localStorage.setItem(REFRESH_KEY, token) : localStorage.removeItem(REFRESH_KEY));
 }
+function currentTripRevocation(permit: SessionWritePermit) {
+  permitted(permit);
+  const rawGeneration = () => storageOperation(() => localStorage.getItem(SESSION_KEY) ?? "");
+  const generation = rawGeneration();
+  const current = () => { permitted(permit); return rawGeneration() === generation; };
+  const completed = revokeTripPassGeneration(generation, current)?.catch(error => {
+    if (current()) reportStorageFailure();
+    throw error;
+  });
+  return { current, completed };
+}
+
+export function revokeCurrentTripPasses(permit: SessionWritePermit): void | Promise<void> {
+  return currentTripRevocation(permit).completed;
+}
+
+function afterTripRevocation(permit: SessionWritePermit, publish: () => void): void | Promise<void> {
+  const { current, completed } = currentTripRevocation(permit);
+  const commit = () => {
+    if (!current()) throw new Error("Session changed during trip revocation");
+    publish();
+  };
+  return completed ? completed.then(commit) : commit();
+}
+
 export function setToken(token: string | null): void | Promise<void> {
-  return sessionMutation(permit => { permitted(permit); writeToken(null); markNewSession(); writeToken(token); markNewSession(); });
+  return sessionMutation(permit => afterTripRevocation(permit, () => {
+    writeToken(null); markNewSession(); writeToken(token); markNewSession();
+  }));
 }
 export function getRefreshToken(): string | null { return readCredential(REFRESH_KEY); }
 export function setRefreshToken(token: string | null): void | Promise<void> {
@@ -133,16 +162,17 @@ export function setRefreshToken(token: string | null): void | Promise<void> {
 }
 /** Only an active lock capability may bypass the publication queue. */
 export function setSession(access: string | null, refresh?: string | null, permit?: SessionWritePermit): void | Promise<void> {
-  const commit = (p: SessionWritePermit) => {
-    permitted(p); writeToken(null); writeRefresh(null); markNewSession();
+  const commit = (p: SessionWritePermit) => afterTripRevocation(p, () => {
+    writeToken(null); writeRefresh(null); markNewSession();
     writeRefresh(refresh ?? null); writeToken(access); markNewSession();
-  };
+  });
   return permit ? commit(permit) : sessionMutation(commit);
 }
-export function rotateSession(access: string, refresh: string, generation: string): boolean | Promise<boolean> {
+export function rotateSession(access: string, refresh: string, generation: string, previousRefresh?: string): boolean | Promise<boolean> {
   return sessionMutation(permit => {
     permitted(permit);
     if (generation !== getSessionGeneration() || !access || !refresh) return false;
+    if (previousRefresh !== undefined && getRefreshToken() !== previousRefresh) return true;
     writeToken(access); writeRefresh(refresh); return true;
   });
 }
@@ -209,12 +239,29 @@ export function refreshRejectedToken(rejected: string): Promise<boolean> {
   return runRefresh(getSessionGeneration(), rejected);
 }
 
-function tokenMatchesUser(token: string | null, userId: number): boolean {
-  if (!token) return false;
+function tokenSubject(token: string | null): string | undefined {
+  if (!token) return;
   try {
     const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    return JSON.parse(atob(payload)).sub === String(userId);
-  } catch { return false; }
+    const subject = JSON.parse(atob(payload)).sub;
+    return typeof subject === "string" ? subject : undefined;
+  } catch { return undefined; }
+}
+
+function tokenMatchesUser(token: string | null, userId: number): boolean {
+  return tokenSubject(token) === String(userId);
+}
+
+export function getAccountSession(): TripPassOwner | null {
+  try {
+    const generation = getSessionGeneration();
+    const subject = tokenSubject(getToken());
+    const userId = Number(subject);
+    if (generation && Number.isSafeInteger(userId) && userId > 0 && String(userId) === subject) {
+      return { generation, userId };
+    }
+  } catch { /* Offline access requires readable credentials. */ }
+  return null;
 }
 
 export function isAccountSession(owner: { generation: string; userId: number }): boolean {
@@ -377,9 +424,10 @@ async function request<T>(
       if (refreshed) return request<T>(path, { ...init, _retried: true, _generation });
     }
     if (auth) {
-      await sessionMutation(permit => {
+      await sessionMutation(async permit => {
         checkSession();
-        try { setSession(null, null, permit); } finally { onUnauthorized?.(); }
+        await setSession(null, null, permit);
+        onUnauthorized?.();
       });
     }
     throw new ApiError(
@@ -414,9 +462,9 @@ async function request<T>(
 
 export function apiGet<T>(
   path: string,
-  opts?: { auth?: boolean; signal?: AbortSignal; onResponse?: (response: Response) => void }
+  opts?: { auth?: boolean; signal?: AbortSignal; onResponse?: (response: Response) => void; _generation?: string }
 ): Promise<T> {
-  return request<T>(path, { method: "GET", auth: opts?.auth, signal: opts?.signal, onResponse: opts?.onResponse });
+  return request<T>(path, { method: "GET", ...opts });
 }
 
 export function apiPost<T>(

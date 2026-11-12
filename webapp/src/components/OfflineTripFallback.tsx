@@ -1,10 +1,9 @@
-import { useEffect, useState } from "react";
+import { useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
-import { getToken } from "../api/client";
 import { useLang } from "../i18n/lang";
-import { loadOfflineTripPass } from "../utils/offlineTripPass";
-import { hasOfflineInTransitCancel } from "../utils/inTransitCancel";
+import { readOfflineTrip } from "../utils/offlineTripPass";
+import { useStoredTripData } from "../utils/useStoredTripData";
 import OfflineTripPass from "./OfflineTripPass";
 
 /** General help only: no vehicle/contact snapshot, chat, code or mutation is mounted here. */
@@ -24,22 +23,10 @@ export function OfflineCancellationHelp(_props: { bookingId: number }) {
 export default function OfflineTripFallback() {
   const { id } = useParams();
   const { status } = useAuth();
-  const [, redraw] = useState(0);
-  useEffect(() => {
-    const changed = () => redraw(value => value + 1);
-    window.addEventListener("online", changed);
-    window.addEventListener("offline", changed);
-    window.addEventListener("storage", changed);
-    return () => {
-      window.removeEventListener("online", changed);
-      window.removeEventListener("offline", changed);
-      window.removeEventListener("storage", changed);
-    };
-  }, []);
-  if (status !== "unavailable" || navigator.onLine !== false) return null;
-  try { if (!getToken()) return null; } catch { return null; }
   const bookingId = Number(id);
-  if (hasOfflineInTransitCancel(bookingId)) return <OfflineCancellationHelp bookingId={bookingId} />;
-  const pass = loadOfflineTripPass(bookingId);
-  return pass ? <OfflineTripPass pass={pass} /> : null;
+  const read = useCallback(async () => navigator.onLine === false ? readOfflineTrip(bookingId) : null, [bookingId]);
+  const saved = useStoredTripData(status === "unavailable", read);
+  if (navigator.onLine !== false || !saved) return null;
+  if (saved.cancelledInTransit) return <OfflineCancellationHelp bookingId={bookingId} />;
+  return saved.pass ? <OfflineTripPass pass={saved.pass} /> : null;
 }

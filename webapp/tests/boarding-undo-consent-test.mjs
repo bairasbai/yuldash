@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { build } from "esbuild";
+import { IDBFactory } from "fake-indexeddb";
 import { fileURLToPath } from "node:url";
 import { bundleComponent, button, checker, langMock, mount, text } from "./shallow-harness.mjs";
 
@@ -104,90 +105,153 @@ await t.test("два клика до перерисовки отправляют
   assert.deepEqual(seen, [h.result]); view.unmount();
 });
 
+const storeBundle = await build({
+  stdin: {
+    contents: "export * from './src/utils/offlineTripPass'; export * from './src/utils/tripPassStore';",
+    resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts",
+  },
+  bundle: true, write: false, platform: "node", format: "esm",
+  define: { "import.meta.env": "{}" },
+});
+const moduleUrl = "data:text/javascript;base64," + Buffer.from(storeBundle.outputFiles[0].text).toString("base64");
+let reloads = 0;
+const reloadStore = () => import(moduleUrl + "#reload-" + ++reloads);
+const owner = { userId: 7, generation: "owner-1" };
+const pass = {
+  bookingId: 42, rideId: 4, fromCity: "Сибай", toCity: "Акъяр", departAt: "2026-10-24T12:00:00Z",
+  driverName: "QA", driverCar: "QA", driverPlate: "QA", driverPhone: "synthetic", pickup: "QA",
+  pickupStop: "Ургаза", dropoffStop: "Бурибай", rideHasStops: true, price: 300, seats: 1,
+};
+const stamp = "2026-10-24T12:00:00.123456Z";
+const consentReceipt = { status: "confirmed", boarding_undo_confirmed_id: "receipt-1", boarding_undo_onboard_at: stamp };
+const view = store => store.readOfflineTrip(42);
+const board = (store, at = stamp) => store.observeTripPass(owner, 42, { status: "onboard", onboard_at: at }, undefined);
+async function undo(store, receipt = consentReceipt) {
+  const revision = await store.readTripPassRevision(owner, 42);
+  await store.observeTripPass(owner, 42, receipt, revision);
+}
+async function setCode(store, code) {
+  await store.saveTripPassCode(owner, 42, await store.readTripPassRevision(owner, 42), code);
+}
 async function withPassStore(check) {
-  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage"), values = new Map();
-  const h = { generation: "owner-1", hook: null };
-  Object.defineProperty(globalThis, "localStorage", { configurable: true, value: {
-    getItem: key => values.get(key) ?? null,
-    setItem: (key, value) => { values.set(key, String(value)); h.hook?.(key); },
-    removeItem: key => values.delete(key), key: index => [...values.keys()][index] ?? null,
-    get length() { return values.size; },
-  } });
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
+  const oldFactory = globalThis.indexedDB;
+  const h = { generation: owner.generation, changeDuringWrite: false };
+  const token = "test." + Buffer.from(JSON.stringify({ sub: "7" })).toString("base64url") + ".test";
+  globalThis.localStorage = { getItem: key => key === "yuldash.session" ? h.generation : key === "yuldash.token" ? token : null };
+  const factory = new IDBFactory();
+  globalThis.indexedDB = {
+    open(...args) {
+      const request = factory.open(...args);
+      request.addEventListener("success", () => {
+        const db = request.result, start = db.transaction.bind(db);
+        db.transaction = (...options) => {
+          const tx = start(...options);
+          if (h.changeDuringWrite && options[1] === "readwrite") queueMicrotask(() => { h.generation = "owner-2"; });
+          return tx;
+        };
+      });
+      return request;
+    },
+  };
   try {
-    const result = await build({ entryPoints: [fileURLToPath(new URL("../src/utils/tripPass.ts", import.meta.url))], bundle: true, write: false, platform: "node", format: "esm" });
-    const moduleUrl = "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64");
-    const store = await import(moduleUrl); let reload = 0;
-    h.reload = () => import(moduleUrl + '#reload-' + ++reload);
-    const pass = { bookingId: 42, ownerId: 7, sessionGeneration: h.generation, fromCity: "Сибай", toCity: "Акъяр", departAt: "2026-10-24T12:00:00Z", driverName: "QA", driverCar: "QA", driverPlate: "QA", driverPhone: "synthetic", boardingCode: "1234", pickup: "QA", pickupStop: "Ургаза", dropoffStop: "Бурибай", rideHasStops: true, price: 300, seats: 1 };
-    store.saveTripPass(pass);
-    await check(store, h, pass);
+    const store = await reloadStore();
+    await store.observeTripPass(owner, 42, { status: "confirmed" }, null, pass);
+    await setCode(store, "1234");
+    await check(store, h);
   } finally {
     if (previous) Object.defineProperty(globalThis, "localStorage", previous); else delete globalThis.localStorage;
+    if (oldFactory) globalThis.indexedDB = oldFactory; else delete globalThis.indexedDB;
   }
 }
-const stamp = "2026-10-24T12:00:00.123456Z";
-const currentBoarding = { status: "onboard", onboard_at: stamp };
-const consentReceipt = { status: "confirmed", onboard_at: null, boarding_undo_confirmed_id: "receipt-1", boarding_undo_onboard_at: stamp };
-await t.test("хранилище снимает только исходный флаг посадки, код приходит заново, обе точки остаются", async () => withPassStore((store, h, pass) => {
-  store.clearTripPassBoardingCode(42, h.generation, stamp);
-  assert.equal(store.tripPassStage(42, h.generation), "onboard");
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, currentBoarding, consentReceipt, () => h.generation), true);
-  assert.equal(store.loadTripPass(42).boardingCode, "", "used code is never restored from the old snapshot");
-  store.saveTripPass({ ...pass, boardingCode: "5678" });
-  assert.equal(store.loadTripPass(42).boardingCode, "5678");
-  assert.equal(store.loadTripPass(42).pickupStop, "Ургаза"); assert.equal(store.loadTripPass(42).dropoffStop, "Бурибай");
+
+await t.test("хранилище снимает только исходный флаг посадки, код приходит заново, обе точки остаются", async () => withPassStore(async store => {
+  await board(store);
+  assert.equal((await view(store)).status, "onboard");
+  await undo(store);
+  assert.equal((await view(store)).pass.boardingCode, "", "used code is never restored from the old snapshot");
+  await setCode(store, "5678");
+  const { pass } = await view(store);
+  assert.equal(pass.boardingCode, "5678");
+  assert.equal(pass.pickupStop, "Ургаза");
+  assert.equal(pass.dropoffStop, "Бурибай");
 }));
-await t.test("свежая квитанция после перезагрузки находит исходную посадку в хранилище", async () => withPassStore((store, h) => {
-  store.clearTripPassBoardingCode(42, h.generation, stamp);
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, consentReceipt, () => h.generation), true);
-  assert.equal(store.tripPassStage(42, h.generation), "confirmed");
+await t.test("свежая квитанция после перезагрузки находит исходную посадку в хранилище", async () => withPassStore(async store => {
+  await board(store);
+  const restarted = await reloadStore();
+  await undo(restarted);
+  assert.equal((await view(restarted)).status, "confirmed");
 }));
-await t.test("чужая микросекунда, новая посадка и терминал не сбрасываются старой квитанцией", async () => withPassStore((store, h) => {
-  store.clearTripPassBoardingCode(42, h.generation, stamp);
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, currentBoarding, { ...consentReceipt, boarding_undo_onboard_at: "2026-10-24T12:00:00.123455Z" }, () => h.generation), false);
+await t.test("чужая микросекунда, новая посадка и терминал не сбрасываются старой квитанцией", async () => withPassStore(async store => {
+  await board(store);
+  await undo(store, { ...consentReceipt, boarding_undo_onboard_at: "2026-10-24T12:00:00.123455Z" });
+  assert.equal((await view(store)).status, "onboard");
+  await board(store, "2026-10-24T12:00:00.123457Z");
+  await undo(store);
+  assert.equal((await view(store)).status, "onboard");
+  await store.finishTripPass(owner, 42);
+  await undo(store);
+  assert.equal((await view(store)).status, "terminal");
+  assert.equal((await view(store)).pass, null);
+}));
+await t.test("смена входа перед квитанцией и во время записи не открывает код другой сессии", async () => withPassStore(async (store, h) => {
+  await board(store);
+  const revision = await store.readTripPassRevision(owner, 42);
+  h.generation = "owner-2";
+  await store.observeTripPass(owner, 42, consentReceipt, revision);
+  assert.equal((await view(store)).pass, null);
+  h.generation = owner.generation;
+  h.changeDuringWrite = true;
+  await store.observeTripPass(owner, 42, consentReceipt, revision);
+  h.generation = owner.generation;
+  assert.equal((await view(store)).status, "onboard");
+  assert.equal((await view(store)).pass.boardingCode, "");
+}));
+for (const reload of [false, true]) await t.test("посадка B замещает A, свежий код после квитанции B (reload=" + reload + ")", async () => withPassStore(async store => {
   const newer = "2026-10-24T12:00:00.123457Z";
-  store.clearTripPassBoardingCode(42, h.generation, newer);
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, currentBoarding, consentReceipt, () => h.generation), false);
-  assert.equal(store.tripPassStage(42, h.generation), "onboard");
-  store.dropTripPass(42, h.generation);
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, consentReceipt, () => h.generation), false);
-  assert.equal(store.tripPassStage(42, h.generation), "terminal"); assert.equal(store.loadTripPass(42), null);
+  await board(store);
+  await board(store, newer);
+  if (reload) store = await reloadStore();
+  await undo(store, { ...consentReceipt, boarding_undo_confirmed_id: "receipt-B", boarding_undo_onboard_at: newer });
+  assert.equal((await view(store)).status, "confirmed");
+  await setCode(store, "5678");
+  const { pass } = await view(store);
+  assert.equal(pass.boardingCode, "5678");
+  assert.equal(pass.pickupStop, "Ургаза");
+  assert.equal(pass.dropoffStop, "Бурибай");
 }));
-await t.test("смена входа перед квитанцией и во время записи не открывает код другой сессии", async () => withPassStore((store, h) => {
-  const owner = h.generation; store.clearTripPassBoardingCode(42, owner, stamp); h.generation = "owner-2";
-  assert.equal(store.restoreConfirmedTripPass(42, owner, currentBoarding, consentReceipt, () => h.generation), false);
-  h.generation = owner; h.hook = () => { h.hook = null; h.generation = "owner-2"; };
-  assert.equal(store.restoreConfirmedTripPass(42, owner, currentBoarding, consentReceipt, () => h.generation), false);
-  assert.equal(store.loadTripPass(42).boardingCode, "");
+await t.test("дубликат B в другом UTC формате не мешает квитанции B, новая C остаётся закрытой для B", async () => withPassStore(async store => {
+  const newer = "2026-10-24T12:00:00.123457Z", newest = "2026-10-24T12:00:00.123458Z";
+  await board(store);
+  await board(store, newer);
+  await board(store, newer.replace("Z", "+00:00"));
+  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: "receipt-B", boarding_undo_onboard_at: newer };
+  await undo(store, receiptB);
+  assert.equal((await view(store)).status, "confirmed");
+  await board(store, newest);
+  store = await reloadStore();
+  await undo(store, receiptB);
+  assert.equal((await view(store)).status, "onboard");
+  await undo(store, { ...receiptB, boarding_undo_confirmed_id: "receipt-C", boarding_undo_onboard_at: newest });
+  assert.equal((await view(store)).status, "confirmed");
 }));
-for (const reload of [false, true]) await t.test(`посадка B замещает пропущенную квитанцию A; квитанция B возвращает код (reload=${reload})`, async () => withPassStore(async (store, h, pass) => {
-  const newer = '2026-10-24T12:00:00.123457Z';
-  store.clearTripPassBoardingCode(42, h.generation, stamp); store.clearTripPassBoardingCode(42, h.generation, newer);
-  if (reload) store = await h.reload();
-  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer };
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, reload ? null : { status: 'onboard', onboard_at: newer }, receiptB, () => h.generation), true);
-  assert.equal(store.tripPassStage(42, h.generation), 'confirmed'); store.saveTripPass({ ...pass, boardingCode: '5678' });
-  assert.equal(store.loadTripPass(42).boardingCode, '5678'); assert.equal(store.loadTripPass(42).pickupStop, 'Ургаза'); assert.equal(store.loadTripPass(42).dropoffStop, 'Бурибай');
+for (const invalid of [undefined, "invalid-epoch"]) await t.test("квитанция без валидной эпохи не открывает последнюю посадку: " + String(invalid), async () => withPassStore(async store => {
+  await board(store);
+  await undo(store, { ...consentReceipt, boarding_undo_onboard_at: invalid });
+  assert.equal((await view(store)).status, "onboard");
+  assert.equal((await view(store)).pass.boardingCode, "");
 }));
-await t.test('дубликат B в другом UTC формате не мешает квитанции B, но новая C остаётся закрытой для B', async () => withPassStore(async (store, h) => {
-  const newer = '2026-10-24T12:00:00.123457Z', newest = '2026-10-24T12:00:00.123458Z';
-  store.clearTripPassBoardingCode(42, h.generation, stamp); store.clearTripPassBoardingCode(42, h.generation, newer); store.clearTripPassBoardingCode(42, h.generation, newer.replace('Z', '+00:00'));
-  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer };
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, receiptB, () => h.generation), true);
-  store.clearTripPassBoardingCode(42, h.generation, newest); store = await h.reload();
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, receiptB, () => h.generation), false); assert.equal(store.tripPassStage(42, h.generation), 'onboard');
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, { ...receiptB, boarding_undo_confirmed_id: 'receipt-C', boarding_undo_onboard_at: newest }, () => h.generation), true);
+for (const malformed of ["unknown-epoch", "%ZZ", ""]) await t.test("битая сохранённая эпоха оставляет код закрытым: " + malformed, async () => withPassStore(async store => {
+  await board(store);
+  await store.editTripRecords(owner, () => true, rows => {
+    const trips = new Map(rows);
+    trips.set(42, { ...trips.get(42), onboardAt: malformed });
+    return { result: true, trips };
+  }, false);
+  const restarted = await reloadStore();
+  await undo(restarted);
+  assert.equal((await view(restarted)).status, "onboard");
+  assert.equal((await view(restarted)).pass.boardingCode, "");
 }));
-for (const invalid of [undefined, 'invalid-epoch']) await t.test('квитанция без валидной эпохи не открывает последнюю посадку: ' + String(invalid), async () => withPassStore((store, h) => {
-  store.clearTripPassBoardingCode(42, h.generation, stamp);
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, currentBoarding, { ...consentReceipt, boarding_undo_onboard_at: invalid }, () => h.generation), false);
-  assert.equal(store.tripPassStage(42, h.generation), 'onboard'); assert.equal(store.loadTripPass(42).boardingCode, '');
-}));
-for (const invalidMarker of ['unknown-epoch', '%ZZ', '']) await t.test('битый сохранённый маркер оставляет код закрытым: ' + invalidMarker, async () => withPassStore(async (store, h) => {
-  const newer = '2026-10-24T12:00:00.123457Z'; store.clearTripPassBoardingCode(42, h.generation, newer);
-  localStorage.setItem(`yuldash.tripPass.42.onboard.${h.generation}.${invalidMarker}`, '1'); store = await h.reload();
-  const receiptB = { ...consentReceipt, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer };
-  assert.equal(store.restoreConfirmedTripPass(42, h.generation, null, receiptB, () => h.generation), false);
-  assert.equal(store.tripPassStage(42, h.generation), 'onboard'); assert.equal(store.loadTripPass(42).boardingCode, '');
-}));
+
 t.done();

@@ -6,7 +6,7 @@ import { IDBFactory } from "fake-indexeddb";
 
 const compiled = await build({
   stdin: {
-    contents: "export * from './src/api/bookingDecisions';export * from './src/utils/bookingCommandStore';export { tripPassStage } from './src/utils/tripPass';",
+    contents: "export * from './src/api/bookingDecisions';export * from './src/utils/bookingCommandStore';export { readOfflineTrip } from './src/utils/offlineTripPass';",
     resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts",
   },
   bundle: true, write: false, format: "esm", platform: "node",
@@ -160,6 +160,11 @@ globalThis.fetch = async (url, init) => {
   const [saved] = await api.readDriverDecisions(owner);
   assert.equal(saved.reason, "found_other");
   if (passengerPosts.length === 1) throw new TypeError("response lost");
+  const open = indexedDB.open.bind(indexedDB);
+  indexedDB.open = (name, ...args) => {
+    if (name === "yuldash-trip-passes-v1") throw new Error("trip storage full");
+    return open(name, ...args);
+  };
   return reply(passengerRow);
 };
 const shown = await api.preparePassengerCancellation(owner, 21, "confirmed", signal());
@@ -168,12 +173,12 @@ assert.equal(passengerPosts.length, 0);
 await assert.rejects(api.cancelPassengerBooking(owner, shown, "found_other", signal()), { kind: "pending" });
 const passengerRestarted = await fresh();
 const [savedPassenger] = await passengerRestarted.readDriverDecisions(owner);
-const persist = globalThis.localStorage.setItem;
-globalThis.localStorage.setItem = () => { throw new Error("storage full"); };
+const persist = indexedDB.open.bind(indexedDB);
+assert.equal((await passengerRestarted.readOfflineTrip(21)).status, "held");
 await assert.rejects(passengerRestarted.repeatDriverDecision(owner, savedPassenger, signal()), { kind: "storage" });
 assert.deepEqual(passengerPosts[0], passengerPosts[1]);
 assert.equal((await passengerRestarted.readDriverDecisions(owner))[0].state, "unknown");
-globalThis.localStorage.setItem = persist;
+indexedDB.open = persist;
 globalThis.fetch = async (url, init) => {
   assert.equal(new URL(url).pathname, "/command-intents/" + savedPassenger.key);
   assert.equal(init.method, "GET");
@@ -181,7 +186,7 @@ globalThis.fetch = async (url, init) => {
 };
 const recovered = await passengerRestarted.checkDriverDecision(owner, savedPassenger, false, signal());
 assert.equal(recovered.booking?.contact_then_cancel, true);
-assert.equal(passengerRestarted.tripPassStage(21, owner.generation), "terminal");
+assert.equal((await passengerRestarted.readOfflineTrip(21)).status, "terminal");
 assert.equal((await passengerRestarted.readDriverDecisions(owner))[0].state, "applied");
 console.log("PASS passenger consents to preview before POST, repeat preserves reason and terms, terminal passport fence precedes settlement");
 
@@ -214,6 +219,6 @@ const beforeDeletion = await api.preparePassengerCancellation(owner, 21, "pendin
 await assert.rejects(api.cancelPassengerBooking(owner, beforeDeletion, "", signal()), { kind: "pending" });
 const [lost] = await api.readDriverDecisions(owner);
 assert.deepEqual(await api.checkDriverDecision(owner, lost, false, signal()), { state: "applied", booking: null });
-assert.equal(api.tripPassStage(21, owner.generation), "terminal");
+assert.equal((await api.readOfflineTrip(21)).status, "terminal");
 assert.equal((await api.readDriverDecisions(owner))[0].state, "applied");
 console.log("PASS disappeared passenger booking closes the offline passport without inventing a booking status");

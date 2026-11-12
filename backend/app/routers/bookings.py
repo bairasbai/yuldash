@@ -2295,6 +2295,7 @@ def my_bookings(
             "price": b.price,
             "status": b.status.value if hasattr(b.status, "value") else b.status,
             "boarding_code": b.boarding_code,
+            "onboard_at": b.onboard_at,
             "pay_method": b.pay_method.value if hasattr(b.pay_method, "value") else b.pay_method,
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),

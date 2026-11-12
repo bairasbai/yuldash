@@ -32,6 +32,7 @@ const ALL_SUITES = [
   { test: "multiseat-booking-test", src: null, out: null, bundle: false },
   { test: "storage-boundary-test", src: null, out: null, bundle: false },
   { test: "theme-durability-test", src: null, out: null, bundle: false },
+  { test: "trip-pass-durability-test", src: null, out: null, bundle: false },
   { test: "update-banner-test", src: null, out: null, bundle: false },
   { test: "full-offline-trip-test", src: null, out: null, bundle: false },
   { test: "boarding-code-contrast-test", src: null, out: null, bundle: false },

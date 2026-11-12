@@ -1,4 +1,4 @@
-import { setSession } from "../api/client";
+import { revokeCurrentTripPasses, setSession } from "../api/client";
 import { closeOutboxStore } from "./outboxStore";
 import { resetOutboxMemory } from "./outbox";
 import { clearSessionCaches } from "./sessionCaches";
@@ -31,6 +31,8 @@ export function recoverStorage(): Promise<void> {
     if (storageOperation(() => !!localStorage.getItem("yuldash.token")) && isNewSessionCommit(owner)) {
       finishStorageRecovery(owner); return; // A cannot purge an already committed B.
     }
+    await revokeCurrentTripPasses(permit);
+    if (!active()) throw new Error("Recovery superseded");
     resetOutboxMemory();
     storageOperation(() => { purge(localStorage, true); purge(sessionStorage, false); });
     await closeOutboxStore(); if (!active()) throw new Error("Recovery superseded");

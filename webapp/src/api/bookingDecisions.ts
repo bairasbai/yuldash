@@ -1,7 +1,7 @@
 import { ApiError, apiCommand } from "./client";
 import { CANCEL_REASONS, type BookingRow, type CancelReason } from "./bookings";
 import { commandFingerprint } from "../utils/commandFingerprint";
-import { dropTripPass } from "../utils/tripPass";
+import { finishTripPass, holdTripPassCancellation, releaseTripPassCancellation } from "../utils/offlineTripPass";
 import {
   isCurrentBookingOwner, readDriverDecisions, reserveDriverDecision, resolveDriverDecision,
   type BookingCommandOwner, type BookingDecision, type BookingDecisionAction,
@@ -49,10 +49,18 @@ function requestBody(decision: Pick<BookingDecision, "action" | "termsKey" | "re
 }
 
 async function settleDecision(owner: BookingCommandOwner, decision: BookingDecision, result: BookingDecisionOutcome) {
-  if (decision.action === "passenger_cancel" && result.state === "applied" &&
-      (result.booking === null || result.booking.status === "done" || result.booking.status === "cancelled")) {
+  if (!isCurrentBookingOwner(owner)) throw new BookingDecisionProblem("stale");
+  try {
+    if (result.state === "applied" && (result.booking?.status === "done" || result.booking?.status === "cancelled" ||
+        (decision.action === "passenger_cancel" && result.booking === null))) {
+      if (!await finishTripPass(owner, decision.bookingId)) throw new BookingDecisionProblem("storage");
+    } else if (decision.action === "passenger_cancel" && (result.state === "rejected" || result.state === "closed_no_effect")) {
+      if (!await releaseTripPassCancellation(owner, decision.bookingId, decision.key)) throw new BookingDecisionProblem("storage");
+    }
+  } catch (error) {
     if (!isCurrentBookingOwner(owner)) throw new BookingDecisionProblem("stale");
-    if (!dropTripPass(decision.bookingId, owner.generation)) throw new BookingDecisionProblem("storage");
+    if (error instanceof BookingDecisionProblem) throw error;
+    throw new BookingDecisionProblem("storage");
   }
   if (!await resolveDriverDecision(owner, decision, result.state === "unseen" ? "unknown" : result.state)) {
     throw new BookingDecisionProblem("stale");
@@ -97,6 +105,11 @@ async function sendDecision(
 ): Promise<BookingDecisionOutcome> {
   const snap = await commandFingerprint(scopeOf(decision.action), decision.bookingId, requestBody(decision));
   if (snap.payloadHash !== decision.hash) throw new BookingDecisionProblem("storage");
+  if (decision.action === "passenger_cancel") {
+    const held = await holdTripPassCancellation(owner, decision.bookingId, decision.key).catch(() => false);
+    if (!held) throw new BookingDecisionProblem(isCurrentBookingOwner(owner) ? "storage" : "stale");
+    signal.throwIfAborted();
+  }
   const path = "/bookings/" + decision.bookingId + "/commands/v1/" + (decision.action === "confirm" ? "confirm" : "cancel");
   let booking: BookingState;
   try {

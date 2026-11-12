@@ -219,7 +219,7 @@ await t.test("настоящий кабинет: первый NoShow до GPS-с
 });
 for(const remains of [true,false])await t.test(`настоящий ActiveTrip: Завершить при remains=${remains} сохраняет правильный переход`,async()=>{
  const scene={owner:"A",status:"onboard",phases:[],order:[],nav:[],handoff:0,focus:0,remains};globalThis.__finishGrant=scene;
- const client=`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__finishGrant.owner;export const getToken=()=>"test-token";export const apiPost=async()=>({});
+ const client=`export class ApiError extends Error{};export const getAccountSession=()=>null,isAccountSession=()=>false;export const getSessionGeneration=()=>globalThis.__finishGrant.owner;export const getToken=()=>"test-token";export const apiPost=async()=>({});
   export const apiGet=async path=>{const f=globalThis.__finishGrant;if(path.endsWith("/details"))return {booking_id:42,ride_id:7,role:"driver",status:f.status,from_city:"Сибай",to_city:"Уфа",depart_at:"2030-01-01T10:00:00",seats:1,price:700,driver_name:"Водитель",passenger_name:"Айгуль",pay_method:"cash"};
    if(path.endsWith("/role"))return {role:"driver",status:f.status,driver_phase:"departed"};if(path.endsWith("/boarding-code"))return {code:"1234"};throw new Error("synthetic absent "+path);};`;
  const View=await bundleComponent("src/screens/ActiveTripScreen.tsx",{real:["/api/bookings","/utils/boardingUndo","/utils/tripLocationShare","/utils/tripDetailsSync.js","/utils/inTransitCancel"],mocks:{
@@ -247,7 +247,7 @@ await t.test("настоящие API/проводка/шина: queued status н
       b.onResolve({filter:/\/api\/chat$/},()=>({path:"chat",namespace:"fake"}));
       b.onResolve({filter:/\/tripLocationShare$/},()=>({path:"transport",namespace:"fake"}));
       b.onResolve({filter:/outboxStore$/},()=>({path:"queue",namespace:"fake"}));
-      b.onLoad({filter:/.*/,namespace:"fake"},a=>({loader:"js",contents:a.path==="client"?`export const API_BASE="https://api.example.test";export const getSessionGeneration=()=>globalThis.__grantWire.generation;export const getToken=()=>"tok";export const refreshRejectedToken=async()=>true;
+      b.onLoad({filter:/.*/,namespace:"fake"},a=>({loader:"js",contents:a.path==="client"?`export const API_BASE="https://api.example.test";export const getAccountSession=()=>null,isAccountSession=()=>false;export const getSessionGeneration=()=>globalThis.__grantWire.generation;export const getToken=()=>"tok";export const refreshRejectedToken=async()=>true;
         export const apiGet=async path=>{globalThis.__grantWire.gets.push(path);return globalThis.__grantWire.rows;};export const apiPost=async(p,b)=>{globalThis.__grantWire.requests.push([p,b]);return {ok:true};};export const apiDelete=async()=>({});export const apiUpload=async()=>({});export class ApiError extends Error{};`
         :a.path==="chat"?`export const wsBase=()=>"wss://api.example.test";export const sendMessageRest=async()=>({});`
         :a.path==="queue"?`export const insertAction=async(a,active)=>{if(active())globalThis.__grantWire.queue.push(a);};export const listActions=async(s,active)=>active()?globalThis.__grantWire.queue.filter(a=>a.session===s):[];export const removeAction=async(a,active)=>{if(active())globalThis.__grantWire.queue=globalThis.__grantWire.queue.filter(b=>b.id!==a.id);};export const clearActions=async()=>{globalThis.__grantWire.queue=[];};`
@@ -305,6 +305,7 @@ async function wholeRideTerminalRig(){
    b.onLoad({filter:/.*/,namespace:"whole-ride-mock"},a=>({loader:"js",contents:a.path==="chat"?`export const wsBase=()=>"wss://api.example.test";`:
     `const r=globalThis.__wholeRideTerminal;
      export let API_BASE=r.origin;export const setOrigin=value=>{API_BASE=value;r.origin=value;};
+     export const getAccountSession=()=>null,isAccountSession=()=>false;
      export const getSessionGeneration=()=>r.owner;export const getToken=()=>r.token;
      export const refreshRejectedToken=async()=>{r.token+="-refreshed";return true;};
      export const apiGet=async path=>{r.gets.push(path);if(path!=="/driver/bookings")throw new Error("unexpected GET "+path);if(r.rowsGate)await r.rowsGate.promise;return structuredClone(r.rows);};

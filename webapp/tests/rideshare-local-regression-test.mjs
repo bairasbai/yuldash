@@ -1,6 +1,9 @@
 // Actual production components; only React hooks, leaf widgets and network are controlled.
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
+import { fileURLToPath } from 'node:url';
+import { isDeepStrictEqual } from 'node:util';
+import { IDBFactory } from 'fake-indexeddb';
 import { build, transform } from 'esbuild';
 import { GPS } from './gps-grant-fixture.mjs';
 
@@ -14,13 +17,101 @@ Object.defineProperty(globalThis, 'localStorage', { configurable: true, value: {
   setItem: (key, value) => { if (h.failPassWrites) throw Error('storage unavailable'); passValues.set(key, value); },
   removeItem: key => passValues.delete(key),
 } });
-const passModule = await build({ entryPoints: [new URL('../src/utils/tripPass.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], bundle: true, write: false, format: 'esm', platform: 'node' });
-h.passStorage = await import('data:text/javascript;base64,' + Buffer.from(passModule.outputFiles[0].text).toString('base64'));
-const ownedPassModule = await build({ entryPoints: [new URL('../src/utils/offlineTripPass.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], bundle: true, write: false, format: 'esm', platform: 'node', plugins: [{ name: 'session-boundary', setup(b) {
-  b.onResolve({ filter: /api\/client$/ }, () => ({ path: 'client', namespace: 'session' }));
-  b.onLoad({ filter: /.*/, namespace: 'session' }, () => ({ contents: `export const getToken=()=>'fixture',getSessionGeneration=()=>globalThis.__rideshareLocal.generation,isAccountSession=({generation,userId})=>generation===getSessionGeneration()&&userId===globalThis.__rideshareLocal.userId;` }));
-} }] });
-h.ownedPassStorage = await import('data:text/javascript;base64,' + Buffer.from(ownedPassModule.outputFiles[0].text).toString('base64'));
+h.http = {
+  async details(id) {
+    h.requests.push("details");
+    if (h.detailsError) throw new h.ApiError(0);
+    const held = h.detailsHolds.shift();
+    if (held) { h.detailsHeldRequests.push(id); return held.promise; }
+    return { ...(h.detailsById.get(id) ?? h.details) };
+  },
+  async role(id) {
+    h.requests.push("state");
+    if (h.tripError) throw new h.ApiError(0);
+    const held = h.tripHolds.shift();
+    if (held) { h.tripHeldRequests.push(id); return held.promise; }
+    return { ...(h.tripById.get(id) ?? h.trip) };
+  },
+  async code(id) {
+    h.requests.push("code");
+    h.codeRequests.push(id);
+    return h.codeHolds.get(id)?.promise ?? { code: "4931" };
+  },
+};
+const passModule = await build({
+  stdin: {
+    contents: `export * from "./src/utils/offlineTripPass"; export * from "./src/utils/tripPassStore";
+      export {fetchBookingDetails,fetchTripState,fetchBoardingCode} from "./src/api/bookings";`,
+    resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts",
+  },
+  bundle: true, write: false, format: "esm", platform: "node",
+  plugins: [{ name: "controlled-trip-transport", setup(b) {
+    b.onResolve({ filter: /^(\.\/client|\.\.\/api\/client)$/ }, () => ({ path: "client", namespace: "boundary" }));
+    b.onResolve({ filter: /^\.\/storageHealth$/ }, () => ({ path: "storage", namespace: "boundary" }));
+    b.onLoad({ filter: /.*/, namespace: "boundary" }, ({ path }) => ({ contents: path === "client" ? `
+      const h=globalThis.__rideshareLocal;
+      export const getSessionGeneration=()=>h.generation,getAccountSession=()=>({userId:h.userId,generation:h.generation}),
+        isAccountSession=owner=>owner.generation===h.generation&&owner.userId===h.userId;
+      export const apiGet=async(path, options)=>{
+        const [,,id,route]=path.split("/");
+        const result=await h.http[route==="boarding-code"?"code":route](Number(id));
+        options?.signal?.throwIfAborted();
+        if(options?._generation&&options._generation!==h.generation)throw new h.ApiError(409);
+        return result;
+      };
+      export const apiPost=()=>{throw Error("Unexpected POST in read transport");};
+    ` : `
+      const h=globalThis.__rideshareLocal;
+      export const offlineStorageTrusted=()=>!h.diskFenced,reportStorageFailure=()=>{h.diskFenced=true;};
+    ` }));
+  } }],
+});
+h.passStorage = await import("data:text/javascript;base64," + Buffer.from(passModule.outputFiles[0].text).toString("base64"));
+const tripOwner = () => ({ userId: h.userId, generation: h.generation });
+async function seedPass(value) {
+  const owner = tripOwner(), revision = await h.passStorage.readTripPassRevision(owner, value.bookingId);
+  await h.passStorage.observeTripPass(owner, value.bookingId, { status: "confirmed" }, revision, value);
+  await h.passStorage.saveTripPassCode(owner, value.bookingId, revision, value.boardingCode);
+}
+function passFixture() {
+  const factory = new IDBFactory();
+  globalThis.indexedDB = {
+    open(...args) {
+      const request = factory.open(...args);
+      request.addEventListener("success", () => {
+        const db = request.result, start = db.transaction.bind(db);
+        db.transaction = (...options) => {
+          const tx = start(...options);
+          if (options[1] !== "readwrite") return tx;
+          if (h.failPassWrites) {
+            queueMicrotask(() => tx.abort());
+            return tx;
+          }
+          const objectStore = tx.objectStore.bind(tx);
+          tx.objectStore = (...names) => {
+            const store = objectStore(...names), put = store.put.bind(store);
+            store.put = (row, generation) => {
+              tx.addEventListener("complete", () => {
+                if (generation !== h.generation) return;
+                const trips = row.trips ?? new Map(), passes = new Map();
+                for (const [id, record] of trips) if (record.pass) {
+                  passes.set(id, record.pass);
+                  if (!isDeepStrictEqual(h.passes.get(id), record.pass)) h.passWrites.push(record.pass);
+                }
+                h.records = trips;
+                h.passes = passes;
+              });
+              return put(row, generation);
+            };
+            return store;
+          };
+          return tx;
+        };
+      });
+      return request;
+    },
+  };
+}
 h.detailsSync = await import('../src/utils/tripDetailsSync.js');
 class ApiError extends Error { constructor(status, message = '') { super(message); this.status = status; } }
 h.ApiError = ApiError;
@@ -34,21 +125,20 @@ const definitions = {
   useLang: `()=>({lang:h.lang,appText:(ru,ba)=>{if(!ba)throw Error('missing Bashkir: '+ru);return h.lang==='ba'?ba:ru}})`,
   useParams: `()=>({id:String(h.bookingId)})`, useNavigate: `()=>p=>h.navigation.push(p)`, useAuth: `()=>({user:{id:h.userId}})`,
   getSessionGeneration: `()=>h.generation`, getToken: `()=>"fixture"`, refreshRejectedToken: `async()=>false`, ApiError: `h.ApiError`,
-  fetchBookingDetails: `async id=>{h.requests.push('details');if(h.detailsError)throw new h.ApiError(0);const held=h.detailsHolds.shift();if(held){h.detailsHeldRequests.push(id);return held.promise}return {...(h.detailsById.get(id)??h.details)}}`,
-  fetchTripState: `async id=>{h.requests.push('state');if(h.tripError)throw new h.ApiError(0);const held=h.tripHolds.shift();if(held){h.tripHeldRequests.push(id);return held.promise}return {...(h.tripById.get(id)??h.trip)}}`,
-  fetchBoardingCode: `id=>{h.requests.push('code');h.codeRequests.push(id);return h.codeHolds.get(id)?.promise??Promise.resolve({code:'4931'})}`,
+  fetchBookingDetails: `(...args)=>h.passStorage.fetchBookingDetails(...args)`,
+  fetchTripState: `(...args)=>h.passStorage.fetchTripState(...args)`,
+  fetchBoardingCode: `(...args)=>h.passStorage.fetchBoardingCode(...args)`,
   fetchBookingShares: `async()=>{h.requests.push('shares');if(h.sharesError)throw new h.ApiError(h.sharesError);return h.shares}`,
   fetchTrustedContacts: `async()=>h.contacts`, shareBooking: `async()=>{h.requests.push('create-share');return {}}`,
   setTripStatus: `async(id,status)=>{h.sent.push([id,status]);if(h.sendError!==null)throw new h.ApiError(h.sendError);if(status==='done')h.trip.status='done';h.details.status=h.trip.status;return h.shares??[]}`,
   // Посадку отмечает водитель (решение 17.10.2026): ответы его «Сел» / «Отменить».
   FileIncidentCard: `'FileIncidentCard'`,
   DriverBoardedDispute: `'DriverBoardedDispute'`,
-  markBoarded: `async id=>{h.boarded.push(id);const result={ok:true,status:'onboard',onboard_at:h.boardingAt,boarding_undo_sec:300};Object.assign(h.trip,result);Object.assign(h.details,result);const held=h.markHolds.shift();if(held){h.markHeldRequests.push(id);await held.promise;}return h.markReplyTransform? h.markReplyTransform({...result}):result}`,
+  markBoarded: `async id=>{const owner={userId:h.userId,generation:h.generation};h.boarded.push(id);const result={ok:true,status:'onboard',onboard_at:h.boardingAt,boarding_undo_sec:300};Object.assign(h.trip,result);Object.assign(h.details,result);const held=h.markHolds.shift();if(held){h.markHeldRequests.push(id);await held.promise;}const reply=h.markReplyTransform?h.markReplyTransform({...result}):result;await h.passStorage.observeTripPass(owner,id,reply,undefined);return reply}`,
   undoBoarded: `async id=>{h.unboarded.push(id);const result={ok:true,status:'onboard',onboard_at:h.trip.onboard_at,boarding_undo_sec:0,boarding_undo_pending:true,boarding_undo_request_id:'undo-'+id,boarding_undo_wait_sec:120};Object.assign(h.trip,result);Object.assign(h.details,result);return result}`,
-  respondBoardingUndo: `async(...args)=>{h.undoResponses.push(args);const held=h.undoResponseHolds.shift();if(held)return held.promise;const [id,requestId,confirm]=args;const original=h.trip.onboard_at;const result=confirm?{ok:true,status:'confirmed',onboard_at:null,boarding_undo_pending:false,boarding_undo_request_id:null,boarding_undo_wait_sec:0,boarding_undo_confirmed_id:requestId,boarding_undo_onboard_at:original}:{ok:true,status:'onboard',onboard_at:original,boarding_undo_pending:false,boarding_undo_request_id:null,boarding_undo_wait_sec:0};Object.assign(h.trip,result);Object.assign(h.details,result);return result}`,
+  respondBoardingUndo: `async(...args)=>{const [id,requestId,confirm]=args;const owner={userId:h.userId,generation:h.generation};const revision=await h.passStorage.readTripPassRevision(owner,id);h.undoResponses.push(args);const held=h.undoResponseHolds.shift();if(held){const reply=await held.promise;await h.passStorage.observeTripPass(owner,id,reply,revision);return reply;}const original=h.trip.onboard_at;const result=confirm?{ok:true,status:'confirmed',onboard_at:null,boarding_undo_pending:false,boarding_undo_request_id:null,boarding_undo_wait_sec:0,boarding_undo_confirmed_id:requestId,boarding_undo_onboard_at:original}:{ok:true,status:'onboard',onboard_at:original,boarding_undo_pending:false,boarding_undo_request_id:null,boarding_undo_wait_sec:0};Object.assign(h.trip,result);Object.assign(h.details,result);await h.passStorage.observeTripPass(owner,id,result,revision);return result}`,
   isConfirmedBoardingUndo: `(...args)=>h.matchesBoardingUndo(...args)`,
   PassengerBoardingUndo: `props=>{h.undoProps=props;return h.components.PassengerBoardingUndo(props)}`,
-  restoreConfirmedTripPass: `(...args)=>h.passStorage.restoreConfirmedTripPass(...args)`,
   sameBoardingTimestamp: `(...args)=>h.sameBoardingTimestamp(...args)`,
   isStaleBoardingAfterUndo: `(...args)=>h.isStaleBoardingAfterUndo(...args)`,
   usePassengerCancellation: `options=>h.passengerCancellation(options)`,
@@ -56,16 +146,15 @@ const definitions = {
   isCurrentBookingOwner: `owner=>owner.userId===h.userId&&owner.generation===h.generation`,
   readDriverDecisions: `async()=>[]`,
   preparePassengerCancellation: `async(owner,bookingId,status)=>({owner,bookingId,status,consequence:"early",termsKey:"a".repeat(64)})`,
-  cancelPassengerBooking: `async(_owner,terms,reason)=>{h.cancelCalls.push([terms.bookingId,reason]);h.trip.status="cancelled";h.details.status="cancelled";if(h.failRoleAfterCancel)h.tripError=true;return {state:"applied",booking:{...h.cancelResult}}}`,
+  cancelPassengerBooking: `async(owner,terms,reason)=>{h.cancelCalls.push([terms.bookingId,reason]);await h.passStorage.finishTripPass(owner,terms.bookingId);h.trip.status="cancelled";h.details.status="cancelled";if(h.failRoleAfterCancel)h.tripError=true;return {state:"applied",booking:{...h.cancelResult}}}`,
   CANCEL_REASONS: `[]`,
   useRefreshOwnBookings: `()=>()=>{h.refreshOwnCalls++}`,
   enqueue: `async(...v)=>h.queued.push(v)`,
   fetchReceipt: `async()=>({...h.receipt})`, fetchBookingTip: `async()=>{h.requests.push('tip');return {already_thanked:false,money:{sbp:'+79990000000',name:'Test'}}}`,
   thankBooking: `async id=>h.thanks.push(id)`,
-  loadTripPass: `id=>h.passStorage.loadTripPass(id)`, saveVerifiedTripPass: `(p,owner,generation)=>{const snapshot=structuredClone(p);h.passWrites.push(snapshot);h.ownedPassStorage.saveVerifiedTripPass(snapshot,owner,generation);h.passes.set(p.bookingId,{...snapshot,savedAt:Date.now()})}`, dropTripPass: `id=>{h.passStorage.dropTripPass(id);h.passes.delete(id)}`,
-  clearTripPassBoardingCode: `(...args)=>h.passStorage.clearTripPassBoardingCode(...args)`,
-  tripPassStage: `(...args)=>h.passStorage.tripPassStage(...args)`,
-  loadOfflineTripPass: `id=>h.ownedPassStorage.loadOfflineTripPass(id)`,
+  readOfflineTrip: `id=>h.passStorage.readOfflineTrip(id)`,
+  useStoredTripData: `(...args)=>h.useStoredTripData(...args)`,
+  subscribeTripPassChanges: `listener=>h.passStorage.subscribeTripPassChanges(listener)`,
   isTerminalBookingStatus: `s=>s==='done'||s==='cancelled'`,
   shouldApplyBookingDetails: `(...args)=>h.detailsSync.shouldApplyBookingDetails(...args)`, shouldRefreshBookingDetails: `(...args)=>h.detailsSync.shouldRefreshBookingDetails(...args)`,
   reconcilePaymentDraft: `(draft)=>draft`, useRouteWeather: `()=>null`,
@@ -106,6 +195,7 @@ h.sameBoardingTimestamp = await compile('utils/boardingUndo.ts', 'sameBoardingTi
 h.isStaleBoardingAfterUndo = await compile('utils/boardingUndo.ts', 'isStaleBoardingAfterUndo');
 h.components.DriverLocationShare = await compile('components/DriverLocationShare.tsx');
 h.passengerCancellation = await compile('components/PassengerCancellation.tsx', 'usePassengerCancellation');
+h.useStoredTripData = await compile('utils/useStoredTripData.ts', 'useStoredTripData');
 h.driverTransit = await compile('utils/tripLocationShare.ts', 'driverInTransit');
 const Active = await compile('screens/ActiveTripScreen.tsx');
 const Receipt = await compile('screens/TripReceiptScreen.tsx');
@@ -129,7 +219,10 @@ function reset({ role = 'passenger', status = 'confirmed', lang = 'ru', shares =
   for (const instance of h.instances?.values() ?? []) dispose(instance);
   h.gps?.stop();
   passValues.clear();
-  Object.assign(h, { markHolds: [], markHeldRequests: [], markReplyTransform: null, boardingAt: BOARDING_AT, undoResponses: [], undoResponseHolds: [], userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], passes: new Map(), passWrites: [], stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
+  globalThis.window = new EventTarget();
+  globalThis.document = new EventTarget();
+  passFixture();
+  Object.assign(h, { markHolds: [], markHeldRequests: [], markReplyTransform: null, boardingAt: BOARDING_AT, undoResponses: [], undoResponseHolds: [], userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], records: new Map(), passes: new Map(), passWrites: [], diskFenced: false, stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
     details: { booking_id: 42, ride_id: 7, role, status, from_city: 'Уфа', to_city: 'Сибай', depart_at: '2026-10-15T10:00:00Z', contact_unlocked: true, driver_name: 'QA Driver', driver_car: 'QA Car', driver_plate: 'QA001', driver_phone: '+79990000000', pickup: 'QA Pickup', price: 300, pay_method: 'cash', seats: 1 },
     trip: { role, status, onboard_at: status === 'onboard' ? BOARDING_AT : null, driver_phase: 'arriving', arrival_verified: true, peer_id: role === 'driver' ? 7 : 3, boarding_undo_sec: 0 },
     receipt: { role, booking_id: 42, from_city: 'Уфа', to_city: 'Сибай', amount: 300, paid: false, pay_method: 'cash' },
@@ -165,9 +258,24 @@ function render(Component, props = {}) {
   for (const effect of h.effects) effect();
   return h.tree;
 }
-async function settle(Component, props = {}) { for (let i = 0; i < 10; i++) { render(Component, props); await new Promise(setImmediate); if (!h.dirty) return h.tree; } throw Error('render did not settle'); }
+async function settle(Component, props = {}) {
+  for (let i = 0, quiet = 0; i < 140; i++) {
+    if (i === 0 || h.dirty) { render(Component, props); quiet = 0; }
+    await new Promise(setImmediate);
+    if (!h.dirty && ++quiet >= 24) return h.tree;
+  }
+  throw Error('render did not settle');
+}
+async function until(predicate) {
+  for (let i = 0; i < 100; i++) {
+    if (predicate()) return;
+    await new Promise(setImmediate);
+  }
+  throw Error('Expected request did not start');
+}
 const Empty = () => null;
-const storedPass = id => h.passStorage.loadTripPass(id);
+const storedPass = id => h.passes.get(id) ?? null;
+const storedStage = id => h.records.get(id)?.status ?? 'confirmed';
 let failed = 0, count = 0;
 async function test(name, fn) { count++; try { await fn(); console.log('✓ ' + name); } catch (e) { failed++; console.error('✗ ' + name + ': ' + e.message); } }
 for (const lang of ['ru', 'ba']) {
@@ -289,7 +397,7 @@ await test('passenger consent: a poll started before confirmation cannot restore
   reset({ status: 'onboard' }); Object.assign(h.trip, { boarding_undo_pending: true, boarding_undo_request_id: 'undo-42', boarding_undo_wait_sec: 120 });
   await settle(Active); const oldOnboard = { ...h.trip };
   let release; h.tripHolds.push({ promise: new Promise(resolve => { release = resolve; }) });
-  const stale = h.interval(); assert.deepEqual(h.tripHeldRequests, [42]);
+  const stale = h.interval(); await until(()=>h.tripHeldRequests.length>0); assert.deepEqual(h.tripHeldRequests, [42]);
   await button('Я ещё не сел').props.onClick(); await settle(Active);
   assert.equal(h.trip.status, 'confirmed'); assert.ok(text(h.tree).includes('Водитель отметит посадку'));
   release(oldOnboard); await stale; await settle(Active);
@@ -321,7 +429,7 @@ for (const terminal of ['done', 'cancelled']) await test('a delayed consent rece
   reset({ status: 'onboard' }); await settle(Active);
   const receipt = { ...h.trip, status: 'confirmed', boarding_undo_confirmed_id: 'undo-42', boarding_undo_onboard_at: BOARDING_AT };
   let release; h.tripHolds.push({ promise: new Promise(resolve => { release = resolve; }) });
-  const stale = h.interval(); assert.deepEqual(h.tripHeldRequests, [42]);
+  const stale = h.interval(); await until(()=>h.tripHeldRequests.length>0); assert.deepEqual(h.tripHeldRequests, [42]);
   h.trip.status = terminal; h.details.status = terminal; await h.interval(); await settle(Active);
   release(receipt); await stale; await settle(Active);
   assert.ok(!text(h.tree).includes('Водитель отметит посадку'), 'old receipt reopened terminal trip ' + terminal);
@@ -332,7 +440,7 @@ await test('passenger-approved correction restores the boarding code and both st
   await driverMarksBoarding(); assert.equal(storedPass(42).boardingCode, '');
   Object.assign(h.trip, { boarding_undo_pending: true, boarding_undo_request_id: 'undo-42', boarding_undo_wait_sec: 120 }); await h.interval(); await settle(Active);
   const before = h.codeRequests.length; button('Я ещё не сел').props.onClick(); await settle(Active);
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed'); assert.ok(text(h.tree).includes('4931'));
+  assert.equal(storedStage(42), 'confirmed'); assert.ok(text(h.tree).includes('4931'));
   assert.equal(h.codeRequests.length, before + 1); assert.equal(storedPass(42).boardingCode, '4931');
   assert.equal(storedPass(42).pickupStop, 'Ургаза'); assert.equal(storedPass(42).dropoffStop, 'Бурибай');
   await settle(Empty); h.detailsError = true; h.tripError = true; await settle(Active);
@@ -340,12 +448,12 @@ await test('passenger-approved correction restores the boarding code and both st
 });
 for (const source of ['role', 'reload-details']) await test(source + ': server consent receipt reopens the saved original boarding code', async () => {
   reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT }); await settle(Active);
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'onboard');
+  assert.equal(storedStage(42), 'onboard');
   const receipt = { status: 'confirmed', onboard_at: null, boarding_undo_confirmed_id: 'undo-42', boarding_undo_onboard_at: BOARDING_AT };
   Object.assign(h.trip, receipt); Object.assign(h.details, receipt);
   if (source === 'role') { await h.interval(); await settle(Active); }
   else { await settle(Empty); await settle(Active); }
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed'); assert.ok(text(h.tree).includes('4931'));
+  assert.equal(storedStage(42), 'confirmed'); assert.ok(text(h.tree).includes('4931'));
 });
 for (const replyEpoch of ['original', 'missing', 'invalid']) await test('held mark after remote passenger consent cannot reboard the old trip (' + replyEpoch + ' epoch), but a new boarding can', async () => {
   reset({ role: 'driver' }); await settle(Active);
@@ -361,19 +469,19 @@ for (const replyEpoch of ['original', 'missing', 'invalid']) await test('held ma
   assert.equal(h.trip.status, 'confirmed', 'the server stayed confirmed');
   assert.ok(buttonWith('Пассажир сел'), 'old mark reply reboarded UI after passenger-approved undo');
   assert.ok(!text(h.tree).includes('Пассажир в машине'));
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed');
+  assert.equal(storedStage(42), 'confirmed');
   h.markReplyTransform = null; h.boardingAt = '2026-10-24T12:00:00.123457Z';
   buttonWith('Пассажир сел').props.onClick(); await settle(Active);
   assert.equal(h.trip.status, 'onboard'); assert.equal(h.trip.onboard_at, h.boardingAt);
   assert.ok(text(h.tree).includes('Пассажир в машине'), 'a genuinely different boarding must remain possible');
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'onboard');
+  assert.equal(storedStage(42), 'onboard');
 });
 await test('an onboard details request started before consent cannot erase the newly restored boarding code', async () => {
   reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT }); Object.assign(h.trip, { boarding_undo_pending: true, boarding_undo_request_id: 'undo-42', boarding_undo_wait_sec: 120 }); await settle(Active);
   const staleDetails = { ...h.details }; let release; h.detailsHolds.push({ promise: new Promise(done => { release = done; }) });
   const realNow = Date.now;
   try { const due = realNow() + h.detailsSync.DETAILS_REFRESH_MS + 1; Date.now = () => due; await h.interval(); } finally { Date.now = realNow; }
-  assert.deepEqual(h.detailsHeldRequests, [42]); button('Я ещё не сел').props.onClick(); await settle(Active);
+  await until(()=>h.detailsHeldRequests.length>0); assert.deepEqual(h.detailsHeldRequests, [42]); button('Я ещё не сел').props.onClick(); await settle(Active);
   assert.equal(storedPass(42).boardingCode, '4931'); const writes = h.passWrites.length;
   release(staleDetails); await new Promise(setImmediate); await settle(Active);
   assert.equal(storedPass(42).boardingCode, '4931', 'old onboard details erased the code restored by passenger consent');
@@ -388,7 +496,7 @@ await test('held «I am in the car» reply and its callback cannot replace a new
   const oldReply = { status: 'onboard', onboard_at: BOARDING_AT, boarding_undo_pending: false };
   resolve(oldReply); await new Promise(setImmediate); await settle(Active); staleCallback(oldReply); await settle(Active);
   assert.equal(h.undoProps.terms.onboard_at, newer); assert.ok(text(h.tree).includes('Водитель отметил посадку'));
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'onboard'); assert.equal(storedPass(42).boardingCode, '');
+  assert.equal(storedStage(42), 'onboard'); assert.equal(storedPass(42).boardingCode, '');
 });
 await test('overlapping role polls keep boarding B after a held boarding A reply, then accept the real receipt B', async () => {
   reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT });
@@ -405,7 +513,7 @@ await test('overlapping role polls keep boarding B after a held boarding A reply
   assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-B'); assert.equal(h.undoProps.terms.boarding_undo_wait_sec, 80);
   const receiptB = { status: 'confirmed', onboard_at: null, boarding_undo_confirmed_id: 'receipt-B', boarding_undo_onboard_at: newer, boarding_undo_pending: false, boarding_undo_request_id: null };
   Object.assign(h.trip, receiptB); Object.assign(h.details, receiptB); await h.interval(); await settle(Active);
-  assert.ok(text(h.tree).includes('Водитель отметит посадку')); assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed'); assert.equal(storedPass(42).boardingCode, '4931');
+  assert.ok(text(h.tree).includes('Водитель отметит посадку')); assert.equal(storedStage(42), 'confirmed'); assert.equal(storedPass(42).boardingCode, '4931');
 });
 for (const oldEpoch of [BOARDING_AT, undefined, 'not-a-boarding']) await test('a fresh role callback cannot replace a known newer epoch with ' + String(oldEpoch), async () => {
   reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT }); await settle(Active);
@@ -415,7 +523,7 @@ for (const oldEpoch of [BOARDING_AT, undefined, 'not-a-boarding']) await test('a
   h.tripHolds.push({ promise: Promise.resolve({ ...h.trip, onboard_at: oldEpoch, boarding_undo_pending: false, boarding_undo_request_id: 'stale-request', boarding_undo_wait_sec: 0, boarding_undo_sec: 300 }) });
   await h.interval(); await settle(Active);
   assert.equal(h.undoProps.terms.onboard_at, newer); assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-B');
-  assert.equal(h.undoProps.terms.boarding_undo_pending, true); assert.equal(h.undoProps.terms.boarding_undo_wait_sec, 80); assert.equal(h.passStorage.tripPassStage(42, 'A'), 'onboard');
+  assert.equal(h.undoProps.terms.boarding_undo_pending, true); assert.equal(h.undoProps.terms.boarding_undo_wait_sec, 80); assert.equal(storedStage(42), 'onboard');
 });
 await test('duplicate epoch B still updates its terms, while new C rejects receipt B and accepts receipt C', async () => {
   reset({ status: 'onboard' }); Object.assign(h.details, { onboard_at: BOARDING_AT }); await settle(Active);
@@ -430,7 +538,7 @@ await test('duplicate epoch B still updates its terms, while new C rejects recei
   assert.equal(h.undoProps.terms.onboard_at, newest); assert.equal(h.undoProps.terms.boarding_undo_request_id, 'request-C');
   const receiptC = { ...receiptB, boarding_undo_confirmed_id: 'receipt-C', boarding_undo_onboard_at: newest };
   Object.assign(h.trip, receiptC); Object.assign(h.details, receiptC); await h.interval(); await settle(Active);
-  assert.ok(text(h.tree).includes('Водитель отметит посадку')); assert.equal(h.passStorage.tripPassStage(42, 'A'), 'confirmed');
+  assert.ok(text(h.tree).includes('Водитель отметит посадку')); assert.equal(storedStage(42), 'confirmed');
 });
 await test('done without a shared link reaches the completed booking UI', async () => {
   reset({ status: 'onboard' }); await settle(Active); assert.ok(button('Поездка завершена'));
@@ -573,17 +681,20 @@ for (const status of ['done', 'cancelled']) await test(`${status} still removes 
 });
 await test('boarding one booking does not change the other booking passport', async () => {
   reset(); await settle(Active);
-  h.passStorage.saveTripPass({ ...storedPass(42), bookingId: 43, boardingCode: '435435' });
+  await seedPass({ ...storedPass(42), bookingId: 43, boardingCode: '435435' });
   const other = structuredClone(storedPass(43));
   await driverMarksBoarding();
   assert.deepEqual(storedPass(43), other);
 });
-await test('unwritable storage removes only the used-code snapshot instead of leaving a reusable code', async () => {
+await test('unwritable storage hides the used code and aborts without altering a different booking', async () => {
   reset(); await settle(Active);
-  h.passStorage.saveTripPass({ ...storedPass(42), bookingId: 43, boardingCode: '435435' });
+  await seedPass({ ...storedPass(42), bookingId: 43, boardingCode: '435435' });
   const other = structuredClone(storedPass(43)); h.failPassWrites = true; h.detailsError = true;
   h.trip.status = 'onboard'; await h.interval(); await settle(Active);
-  assert.equal(storedPass(42), null); assert.deepEqual(storedPass(43), other);
+  assert(h.diskFenced);
+  assert.equal(await h.passStorage.readOfflineTrip(42), null);
+  assert.equal(codeCards().length, 0);
+  assert.deepEqual(storedPass(43), other);
 });
 
 for (const observed of [
@@ -593,7 +704,7 @@ for (const observed of [
   reset({ lang: observed.lang }); await settle(Active);
   const confirmedReply = { ...h.trip }; let release;
   h.tripHolds.push({ promise: new Promise(resolve => { release = resolve; }) });
-  const staleTick = h.interval(); assert.deepEqual(h.tripHeldRequests, [42]);
+  const staleTick = h.interval(); await until(()=>h.tripHeldRequests.length>0); assert.deepEqual(h.tripHeldRequests, [42]);
   h.trip.status = observed.status; h.detailsError = true;
   await h.interval(); await settle(Active);
   const before = structuredClone(storedPass(42)), codes = h.codeRequests.length;
@@ -612,7 +723,10 @@ await test('verified B cannot see A cached pass after details fails', async () =
   assert.ok(!text(h.tree).includes('QA Driver'));assert.equal(codeCards().length,0);
 });
 await test('verified session cannot promote a legacy unbound cached pass on details failure', async () => {
-  reset();await settle(Active);await settle(Empty);const legacy=storedPass(42);delete legacy.ownerId;delete legacy.sessionGeneration;delete legacy.ownershipId;passValues.set('yuldash.tripPass.42',JSON.stringify(legacy));
+  reset();await settle(Active);await settle(Empty);
+  const { ownerId, sessionGeneration, ...legacy } = storedPass(42);
+  passFixture(); h.records.clear(); h.passes.clear();
+  passValues.set('yuldash.tripPass.42',JSON.stringify(legacy));
   h.detailsError=true;h.tripError=true;await settle(Active);assert.ok(!text(h.tree).includes('QA Driver'));assert.equal(codeCards().length,0);
 });
 
@@ -627,8 +741,8 @@ function assertCancelledPrivacy() {
   for (const value of ['QA Car', 'QA001', 'PRIVATE COLOR', 'PRIVATE MEETING', 'PRIVATE GUARDIAN']) {
     assert.ok(!text(h.tree).includes(value), 'после отмены скрыто: ' + value);
   }
-  assert.equal(storedPass(42), null); assert.equal(h.ownedPassStorage.loadOfflineTripPass(42), null);
-  assert.equal(h.passStorage.tripPassStage(42, 'A'), 'terminal'); assert.equal(codeCards().length, 0);
+  assert.equal(storedPass(42), null);
+  assert.equal(storedStage(42), 'terminal'); assert.equal(codeCards().length, 0);
   assert.ok(all(h.tree).filter(n => n.type === 'YandexMap').every(n => n.props.me === null), 'на карте нет последней живой точки');
   assert.ok(h.locationConnections.every(c => c.closed), 'приём точки закрыт');
   assert.ok(h.locationShares.every(s => s.stopped), 'реальный DriverLocationShare вызвал stop своего отправителя');
@@ -677,7 +791,7 @@ for (const lang of ['ru', 'ba']) for (const role of ['passenger', 'driver']) {
       Date.now = () => due;
       await h.interval();
     } finally { Date.now = realNow; }
-    assert.deepEqual(h.detailsHeldRequests, [42], 'задержанный GET настоящего экрана действительно начался');
+    await until(()=>h.detailsHeldRequests.length>0); assert.deepEqual(h.detailsHeldRequests, [42], 'задержанный GET настоящего экрана действительно начался');
     h.detailsError = true; h.trip.status = 'cancelled';
     await h.interval(); await settle(Active); assertCancelledPrivacy();
     const writes = h.passWrites.length;

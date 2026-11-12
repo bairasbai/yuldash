@@ -22,7 +22,8 @@
 // ================================================================
 import assert from "node:assert/strict";
 import { ROOT, all, bundleComponent, button, checker, langMock, mount, ofType, text } from "./shallow-harness.mjs";
-import { openActiveTrip } from "./active-trip-fixture.mjs";
+import { openActiveTrip, readTripFixture } from "./active-trip-fixture.mjs";
+import { IDBFactory } from "fake-indexeddb";
 import { build } from "esbuild";
 
 const t = checker();
@@ -53,28 +54,20 @@ const tick = async (h) => { await h.calls("useVisibleInterval").at(-1)[1](); awa
 const detailsGets = (at) => at.gets.filter((p) => p === "/bookings/42/details").length;
 const NO_NET = () => { throw new Error("нет сети"); };
 
-// A retained caller must carry the generation it observed, never borrow the next account's.
-await t.test("старый callback A не перезаписывает маркер отмены нового входа B", async () => {
-  session.clear();
-  globalThis.__citMarkerGeneration = "marker-A";
-  const compiled = await build({entryPoints:[ROOT+"src/utils/inTransitCancel.ts"],bundle:true,write:false,format:"esm",platform:"node",plugins:[{
-    name:"marker-session-boundary",setup(b){
-      b.onResolve({filter:/api\/client$/},()=>({path:"client",namespace:"marker"}));
-      b.onLoad({filter:/.*/,namespace:"marker"},()=>({contents:'export const getSessionGeneration=()=>globalThis.__citMarkerGeneration;',loader:"js"}));
-    }
-  }]});
-  const marker = await import("data:text/javascript;base64,"+Buffer.from(compiled.outputFiles[0].text).toString("base64"));
-  const expectedA = globalThis.__citMarkerGeneration;
-  const retainedA = () => marker.rememberInTransitCancel(42,1,expectedA);
-  retainedA();assert.equal(JSON.parse(session.get("yuldash.inTransit.42")).generation,expectedA,"current A must be able to store its own fact");
-  session.clear();globalThis.__citMarkerGeneration = "marker-B";
-  marker.rememberInTransitCancel(42,2,"marker-B");
-  const ownB = session.get("yuldash.inTransit.42");assert.equal(JSON.parse(ownB).owner,2);
-  retainedA();
-  assert.equal(session.get("yuldash.inTransit.42"),ownB,"late A must not stamp owner A into generation B or overwrite B");
-  session.clear();retainedA();assert.equal(session.size,0,"late A cannot create a marker when B has none");
-  globalThis.__citMarkerGeneration = "marker-A";
-  marker.rememberInTransitCancel(42,1);assert.equal(session.size,0,"missing expected generation must fail closed");
+// A retained reply must carry the account it observed.
+await t.test("старый ответ A не создаёт отметку отмены для нового входа B", async () => {
+  let release;
+  const delayed = new Promise(resolve => { release = resolve; });
+  const tripStorage = new IDBFactory();
+  const old = await openActiveTrip({ tripStorage, intercept: path => path.endsWith("/details") ? delayed : undefined });
+  assert(old.at.gets.includes("/bookings/42/details"));
+  const next = await openActiveTrip({ tripStorage, userId: 2, intercept: NO_NET });
+  release({ ...old.at.details, ...IN_TRANSIT });
+  await next.h.settle(50);
+  assert.notEqual((await readTripFixture(tripStorage))?.status, "terminal");
+  assert(!ofType(next.h.tree, "OfflineCancellationHelp").length);
+  old.h.unmount();
+  next.h.unmount();
 });
 // ---------------------------------------------------------------- экран поездки
 await t.test("экран поездки: отменили в пути — карточка помощи с машиной и госномером, без телефона", async () => {
@@ -90,7 +83,7 @@ await t.test("экран поездки: отменили в пути — кар
 });
 
 await t.test("экран открыт «в пути» — отмена пришла опросом: машина и номер остаются, телефон пропадает", async () => {
-  const { h, at } = await openActiveTrip({ status: "onboard",
+  const { h, at, tripStorage } = await openActiveTrip({ status: "onboard",
     details: { driver_car: "Лада Веста", driver_car_color: "серая", driver_plate: "М555ОР102" } });
   assert.ok(JSON.stringify(h.tree).includes("tel:+79990000000"), "в пути телефон водителя виден");
   assert.equal(card(h.tree), undefined);
@@ -105,7 +98,9 @@ await t.test("экран открыт «в пути» — отмена приш�
   assert.equal(c.props.car, "серая Лада Веста");
   assert.equal(c.props.plate, "М555ОР102");
   assert.ok(!JSON.stringify(h.tree).includes("tel:"), "телефон водителя остался после отмены");
-  assert.ok(h.calls("dropTripPass").length > 0, "офлайн-паспорт с телефоном удаляется, как при любой отмене");
+  const stored = await readTripFixture(tripStorage);
+  assert.equal(stored.status, "terminal");
+  assert.equal(stored.pass, undefined, "офлайн-паспорт с телефоном удаляется, как при любой отмене");
 });
 
 await t.test("обычная отмена — как раньше: карточки нет, машина и номер стёрты", async () => {
@@ -188,13 +183,13 @@ await t.test("признак только в /role, а машины в дета�
 // ---------------------------------------------------------------- №3: вкладка помнит отмену в пути
 await t.test("SOS и назад без сети — только общая помощь, машина и госномер требуют живого допуска", async () => {
   session.clear();
-  const first = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT });
+  const tripStorage = new IDBFactory();
+  const first = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, tripStorage });
   assert.ok(card(first.h.tree)); first.h.unmount();
-  assert.deepEqual([...session.keys()], ["yuldash.inTransit.42"]);
-  const marker = JSON.parse(session.get("yuldash.inTransit.42"));
-  assert.deepEqual(Object.keys(marker).sort(), ["at", "generation", "owner"]);
-  assert.equal(marker.owner, 1); assert.equal(marker.generation, "A"); assert(Number.isFinite(marker.at));
-  const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, intercept: NO_NET });
+  const marker = await readTripFixture(tripStorage);
+  assert.deepEqual(Object.keys(marker).sort(), ["cancelledInTransitAt", "status"]);
+  assert(Number.isFinite(marker.cancelledInTransitAt));
+  const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, intercept: NO_NET, tripStorage });
   const help = ofType(h.tree, "OfflineCancellationHelp")[0];
   assert.ok(help, "без сети общая помощь должна остаться"); assert.equal(help.props.bookingId, 42);
   assert.equal(card(h.tree), undefined, "без живых данных нельзя выдать приватную машину за проверенную");
@@ -204,23 +199,27 @@ await t.test("SOS и назад без сети — только общая по
 
 await t.test("вернулся, а ответ сервера ещё идёт — сразу экран помощи, а не заглушка загрузки", async () => {
   session.clear();
-  (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT })).h.unmount();
-  const { h } = await openActiveTrip({ intercept: () => new Promise(() => {}) });
+  const tripStorage = new IDBFactory();
+  (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, tripStorage })).h.unmount();
+  const { h } = await openActiveTrip({ intercept: () => new Promise(() => {}), tripStorage });
   assert.equal(ofType(h.tree, "OfflineCancellationHelp")[0]?.props.bookingId, 42, "пока грузимся, общая помощь остаётся");
   assert.equal(ofType(h.tree, "LoadingList").length, 0);
 });
 
 await t.test("другой вход в той же вкладке чужую отмену в пути не видит", async () => {
   session.clear();
-  (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT })).h.unmount();
-  const { h } = await openActiveTrip({ userId: 2, intercept: NO_NET });
+  const tripStorage = new IDBFactory();
+  (await openActiveTrip({ status: "cancelled", details: IN_TRANSIT, trip: TRIP_IN_TRANSIT, tripStorage })).h.unmount();
+  const { h } = await openActiveTrip({ userId: 2, intercept: NO_NET, tripStorage });
   assert.equal(card(h.tree), undefined, "чужая машина и госномер на экране другого человека");
   assert.ok(!JSON.stringify(h.tree).includes("М555ОР102"));
 });
 
 await t.test("обычная отмена вкладке не запоминается", async () => {
   session.clear();
-  (await openActiveTrip({ status: "cancelled", details: DETAILS_NO_FLAG, trip: TRIP_NO_FLAG })).h.unmount();
+  const { h, tripStorage } = await openActiveTrip({ status: "cancelled", details: DETAILS_NO_FLAG, trip: TRIP_NO_FLAG });
+  h.unmount();
+  assert.deepEqual(await readTripFixture(tripStorage), { status: "terminal" });
   assert.equal(session.size, 0);
 });
 

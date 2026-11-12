@@ -5,6 +5,7 @@
 //  (/driver/earnings). Точные пути/поля — из этих роутеров.
 // ================================================================
 import { driverStep, emitDriverRideTerminal } from "../utils/driverActions";
+import { finishTripPassRide, observeTripPass } from "../utils/offlineTripPass";
 import { apiGet, apiPost, apiDelete, apiUpload } from "./client";
 import * as client from "./client";
 import type { Ride, RideCategory } from "./rides";
@@ -129,8 +130,13 @@ export function setDriverStatus(
   bookingId: number,
   status: DriverPhase
 ): Promise<{ ok?: boolean; status?: string }> {
-  return driverStep(bookingId, status === "done", () =>
-    apiPost<{ ok?: boolean; status?: string }>(`/bookings/${bookingId}/driver-status`, { status }));
+  const owner = client.getAccountSession();
+  return driverStep(bookingId, status === "done", async () => {
+    const result = await apiPost<{ ok?: boolean; status?: string }>(
+      `/bookings/${bookingId}/driver-status`, { status }, { _generation: owner?.generation });
+    if (result.status === "done") await observeTripPass(owner, bookingId, { status: "done" }, undefined);
+    return result;
+  });
 }
 
 /** Завершить весь рейс (все брони разом) — POST /rides/{id}/complete. */
@@ -139,13 +145,17 @@ export function completeRide(rideId: number): Promise<Ride> {
 }
 
 /** Владелец запроса неизменен во время сети; token refresh той же session его не меняет. */
-async function terminalRide<T>(rideId: number, request: () => Promise<T>): Promise<T> {
+async function terminalRide(rideId: number, request: () => Promise<Ride>): Promise<Ride> {
+  const account = client.getAccountSession();
   const session = client.getSessionGeneration();
   const base = String(client.API_BASE ?? "");
   let origin = base;
   try { origin = new URL(base, typeof location !== "undefined" ? location.href : undefined).origin; } catch { /* как у driverRideShare */ }
   const owner = JSON.stringify([origin, session]);
   const result = await request();
+  if (result.id === rideId && (result.status === "done" || result.status === "cancelled")) {
+    await finishTripPassRide(account, rideId);
+  }
   // До resolve API и обновления кабинета: held GET и старый holder не сохраняют разрешение.
   emitDriverRideTerminal(rideId, owner);
   return result;
