@@ -178,15 +178,16 @@ export function releaseRidePublication(owner: BookingCommandOwner, command: Ride
 }
 
 
-export type DriverDecisionAction = "confirm" | "decline";
-export interface DriverDecision extends CommandSlot {
+export type BookingDecisionAction = "confirm" | "decline" | "passenger_cancel";
+export interface BookingDecision extends CommandSlot {
   bookingId: number;
-  action: DriverDecisionAction;
+  action: BookingDecisionAction;
   termsKey?: string;
+  reason?: string;
 }
 
 function driverDecisionTransaction<T>(
-  owner: BookingCommandOwner, edit: (rows: DriverDecision[]) => Edit<T, DriverDecision>,
+  owner: BookingCommandOwner, edit: (rows: BookingDecision[]) => Edit<T, BookingDecision>,
   requireCurrent = true,
 ): Promise<T> {
   return transaction(owner, edit, requireCurrent, JSON.stringify(["booking.driver_decision", owner.namespace]));
@@ -197,9 +198,9 @@ export function readDriverDecisions(owner: BookingCommandOwner) {
 }
 
 export function reserveDriverDecision(
-  owner: BookingCommandOwner, bookingId: number, action: DriverDecisionAction, hash: string,
-  previousKey: string | undefined, termsKey?: string,
-): Promise<DriverDecision | undefined> {
+  owner: BookingCommandOwner, bookingId: number, action: BookingDecisionAction, hash: string,
+  previousKey: string | undefined, termsKey?: string, reason?: string,
+): Promise<BookingDecision | undefined> {
   return driverDecisionTransaction(owner, rows => {
     const prior = rows.find(row => row.bookingId === bookingId);
     if (prior?.state === "unknown" || prior?.key !== previousKey) return { result: undefined };
@@ -209,15 +210,15 @@ export function reserveDriverDecision(
       if (evict < 0) return { result: undefined };
       updated.splice(evict, 1);
     }
-    const decision: DriverDecision = {
+    const decision: BookingDecision = {
       key: COMMAND_KEY_PREFIX + crypto.randomUUID(), hash, createdAt: Date.now(), state: "unknown",
-      bookingId, action, ...(termsKey === undefined ? {} : { termsKey }),
+      bookingId, action, ...(termsKey === undefined ? {} : { termsKey }), ...(reason === undefined ? {} : { reason }),
     };
     return { result: decision, updated: [...updated, decision] };
   });
 }
 
-export function resolveDriverDecision(owner: BookingCommandOwner, decision: DriverDecision, state: State) {
+export function resolveDriverDecision(owner: BookingCommandOwner, decision: BookingDecision, state: State) {
   return driverDecisionTransaction(owner, rows => {
     const current = rows.find(row => row.bookingId === decision.bookingId);
     if (current?.key !== decision.key) return { result: false };

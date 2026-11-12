@@ -30,6 +30,7 @@ const definitions = {
   useRef: `v=>{const c=h.current,i=c.i++;return c.values[i]??={current:v}}`,
   useEffect: `(fn,deps)=>{const c=h.current,i=c.i++,old=c.values[i];if(!old||!deps||deps.some((v,j)=>!Object.is(v,old.deps?.[j]))){c.values[i]={deps,cleanup:old?.cleanup};h.effects.push(()=>{old?.cleanup?.();c.values[i].cleanup=fn()})}}`,
   useCallback: `(fn,deps)=>{const c=h.current,i=c.i++,old=c.values[i];if(!old||deps.some((v,j)=>!Object.is(v,old.deps[j])))c.values[i]={fn,deps};return c.values[i].fn}`,
+  useMemo: `(fn,deps)=>{const c=h.current,i=c.i++,old=c.values[i];if(!old||deps.some((v,j)=>!Object.is(v,old.deps[j])))c.values[i]={value:fn(),deps};return c.values[i].value}`,
   useLang: `()=>({lang:h.lang,appText:(ru,ba)=>{if(!ba)throw Error('missing Bashkir: '+ru);return h.lang==='ba'?ba:ru}})`,
   useParams: `()=>({id:String(h.bookingId)})`, useNavigate: `()=>p=>h.navigation.push(p)`, useAuth: `()=>({user:{id:h.userId}})`,
   getSessionGeneration: `()=>h.generation`, getToken: `()=>"fixture"`, refreshRejectedToken: `async()=>false`, ApiError: `h.ApiError`,
@@ -50,7 +51,12 @@ const definitions = {
   restoreConfirmedTripPass: `(...args)=>h.passStorage.restoreConfirmedTripPass(...args)`,
   sameBoardingTimestamp: `(...args)=>h.sameBoardingTimestamp(...args)`,
   isStaleBoardingAfterUndo: `(...args)=>h.isStaleBoardingAfterUndo(...args)`,
-  cancelBooking: `async(id,reason)=>{h.cancelCalls.push([id,reason]);h.trip.status="cancelled";h.details.status="cancelled";if(h.failRoleAfterCancel)h.tripError=true;return {...h.cancelResult}}`,
+  usePassengerCancellation: `options=>h.passengerCancellation(options)`,
+  bookingCommandOwner: `(user,generation)=>user?{userId:user.id,generation,namespace:String(user.id)}:null`,
+  isCurrentBookingOwner: `owner=>owner.userId===h.userId&&owner.generation===h.generation`,
+  readDriverDecisions: `async()=>[]`,
+  preparePassengerCancellation: `async(owner,bookingId,status)=>({owner,bookingId,status,consequence:"early",termsKey:"a".repeat(64)})`,
+  cancelPassengerBooking: `async(_owner,terms,reason)=>{h.cancelCalls.push([terms.bookingId,reason]);h.trip.status="cancelled";h.details.status="cancelled";if(h.failRoleAfterCancel)h.tripError=true;return {state:"applied",booking:{...h.cancelResult}}}`,
   CANCEL_REASONS: `[]`,
   useRefreshOwnBookings: `()=>()=>{h.refreshOwnCalls++}`,
   enqueue: `async(...v)=>h.queued.push(v)`,
@@ -99,6 +105,7 @@ h.matchesBoardingUndo = await compile('utils/boardingUndo.ts', 'isConfirmedBoard
 h.sameBoardingTimestamp = await compile('utils/boardingUndo.ts', 'sameBoardingTimestamp');
 h.isStaleBoardingAfterUndo = await compile('utils/boardingUndo.ts', 'isStaleBoardingAfterUndo');
 h.components.DriverLocationShare = await compile('components/DriverLocationShare.tsx');
+h.passengerCancellation = await compile('components/PassengerCancellation.tsx', 'usePassengerCancellation');
 h.driverTransit = await compile('utils/tripLocationShare.ts', 'driverInTransit');
 const Active = await compile('screens/ActiveTripScreen.tsx');
 const Receipt = await compile('screens/TripReceiptScreen.tsx');

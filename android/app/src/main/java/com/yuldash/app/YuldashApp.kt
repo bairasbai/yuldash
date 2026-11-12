@@ -1342,32 +1342,11 @@ private fun YuldashAppContent() {
                     onAdClick = ::trackAdClick,
                     canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
                     bookingStatus = selectedBookingStatus, onBookingStatusChange = { selectedBookingStatus = it },
-                    // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
-                    // уходит уведомление — этим занимается сервер.
-                    onCancelBooking = {
-                        if (displayedBookingId != null && isDisplayedBookingCurrent() && !bookingInFlight) {
-                            bookingInFlight = true
-                            appScope.launch {
-                                try {
-                                    if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.cancelBooking(displayedBookingId)
-                                    if (!isDisplayedBookingCurrent()) return@launch
-                                    ApiClient.runIfCurrentSession(displayedSession) {
-                                        result.onSuccess {
-                                            vm.navigateLocally {
-                                                selectedBookingStatus = "cancelled"
-                                                activeBookingId = null
-                                                openHome(HomeTab.Rides)
-                                            }
-                                        }.onFailure {
-                                            val текст = if (language == AppLanguage.Ba)
-                                                "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
-                                            else "Не получилось отменить. Проверь сеть и повтори."
-                                            Toast.makeText(context, serverSaid(it, текст), Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                } finally { bookingInFlight = false }
-                            }
+                    onPassengerCancelled = {
+                        if (isDisplayedBookingCurrent()) vm.navigateLocally {
+                            selectedBookingStatus = "cancelled"
+                            activeBookingId = null
+                            openHome(HomeTab.Rides)
                         }
                     },
                     onFindAnotherRide = { openHome(HomeTab.Rides) },

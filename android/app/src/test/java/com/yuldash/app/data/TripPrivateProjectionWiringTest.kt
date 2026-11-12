@@ -66,7 +66,7 @@ internal class TripPrivateProjectionWiringTest : SnapshotWiringFixture() {
     @Test fun acceptedTerminalClosesAllLivePrivateAndLateSaveButKeepsOwnReceiptHistory() = runBlocking {
         warm()
         val pass = requireNotNull(OfflineTripSnapshots.privatePass(11))
-        assertTrue(ApiClient.cancelBooking(11).isSuccess)
+        assertTrue(cancelPassengerOnStand().isSuccess)
         assertFalse(OfflineTripSnapshots.allowsLive(11)); assertNull(TripPassStore.load(context, 11))
         assertFalse(TripPassStore.save(context, pass)); assertNull(OfflineTripSnapshots.load(owner(), 11))
         val receipt = ApiClient.getTripReceipt(11).getOrThrow()

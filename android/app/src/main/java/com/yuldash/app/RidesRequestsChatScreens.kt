@@ -339,6 +339,7 @@ internal fun RidesScreen(
     val historicalVersion by OfflineTripSnapshots.version.collectAsState()
     val commandGeneration by ApiClient.sessionChanges.collectAsState()
     val pendingCommands = rememberPendingBookingCommands(commandGeneration)
+    val passengerCancellation = rememberPassengerCancellation(commandGeneration) { bookingsReload++ }
     var historical by remember(historicalOwner) { mutableStateOf<List<HistoricalTripSummary>>(emptyList()) }
     LaunchedEffect(bookingsError, historicalAllowed, historicalOwner, historicalVersion, bookingsReload) {
         historical = emptyList()
@@ -378,6 +379,7 @@ internal fun RidesScreen(
                 Text(appText("Мои поездки", "Минең сәфәрҙәр"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             }
             pendingBookingItems(pendingCommands) { onOpenRecoveredBooking(it.id, it.status == "done") }
+            passengerCancellation.content?.let { content -> item(key = "passenger-cancellation") { content() } }
             item {
                 SegmentedTabs(
                     tabs = listOf(activeLabel, historyLabel, allLabel),

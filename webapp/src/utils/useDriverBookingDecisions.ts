@@ -1,22 +1,22 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ApiError } from "../api/client";
 import {
-  checkDriverDecision, decideDriverBooking, DriverDecisionProblem, repeatDriverDecision,
-  type DriverDecisionOutcome,
-} from "../api/driverBookingDecisions";
+  checkDriverDecision, decideDriverBooking, BookingDecisionProblem, repeatDriverDecision,
+  type BookingDecisionOutcome,
+} from "../api/bookingDecisions";
 import { useLang } from "../i18n/lang";
 import {
   isCurrentBookingOwner, readDriverDecisions,
-  type BookingCommandOwner, type DriverDecision, type DriverDecisionAction,
+  type BookingCommandOwner, type BookingDecision, type BookingDecisionAction,
 } from "../utils/bookingCommandStore";
 
-type Notice = { result: DriverDecisionOutcome; language: string }
+type Notice = { result: BookingDecisionOutcome; language: string }
   | { error: unknown; language: string }
   | { noOwner: true };
 
 export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onResult: () => void) {
   const { appText, lang } = useLang();
-  const [pending, setPending] = useState<DriverDecision[]>([]);
+  const [pending, setPending] = useState<BookingDecision[]>([]);
   const [busy, setBusy] = useState(false);
   const [loadError, setLoadError] = useState(false);
   const [reload, setReload] = useState(0);
@@ -29,7 +29,7 @@ export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onR
     try {
       const rows = await readDriverDecisions(owner);
       if (!signal.aborted && isCurrentBookingOwner(owner)) {
-        setPending(rows.filter(row => row.state === "unknown"));
+        setPending(rows.filter(row => row.state === "unknown" && row.action !== "passenger_cancel"));
         setLoadError(false);
       }
     } catch {
@@ -52,7 +52,7 @@ export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onR
     };
   }, [owner, readPending, reload]);
 
-  function resultMessage(outcome: DriverDecisionOutcome, useServerText: boolean): string {
+  function resultMessage(outcome: BookingDecisionOutcome, useServerText: boolean): string {
     if (useServerText && outcome.state !== "applied" && outcome.original?.message) return outcome.original.message;
     switch (outcome.state) {
       case "unseen": return appText("Решение пока неизвестно. Его можно повторить или закрыть.", "Ҡарар әлегә билдәһеҙ. Уны ҡабатларға йәки ябырға мөмкин.");
@@ -78,7 +78,7 @@ export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onR
     const useServerText = current.language === lang;
     if ("result" in current) return resultMessage(current.result, useServerText);
     const error = current.error;
-    if (error instanceof DriverDecisionProblem) {
+    if (error instanceof BookingDecisionProblem) {
       switch (error.kind) {
         case "changed": return appText("Статус брони изменился. Проверь список.", "Бронь торошо үҙгәрҙе. Исемлекте тикшер.");
         case "expired": return appText("Срок повтора истёк. Проверь или закрой запрос.", "Ҡабатлау ваҡыты үтте. Һорауҙы тикшер йәки яп.");
@@ -89,7 +89,7 @@ export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onR
       : appText("Не удалось проверить решение. Попробуй ещё раз.", "Ҡарарҙы тикшереп булманы. Тағы ҡабатла.");
   }
 
-  async function run(action: (current: BookingCommandOwner, signal: AbortSignal) => Promise<DriverDecisionOutcome>) {
+  async function run(action: (current: BookingCommandOwner, signal: AbortSignal) => Promise<BookingDecisionOutcome>) {
     if (operation.current) return;
     if (!owner || !isCurrentBookingOwner(owner)) {
       setNotice({ noOwner: true });
@@ -111,7 +111,7 @@ export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onR
     } catch (error) {
       if (!active()) return;
       setNotice({ error, language: lang });
-      if (error instanceof DriverDecisionProblem && error.kind === "changed") onResult();
+      if (error instanceof BookingDecisionProblem && error.kind === "changed") onResult();
     } finally {
       if (active()) {
         await readPending(lifetime.signal);
@@ -128,8 +128,9 @@ export function useDriverBookingDecisions(owner: BookingCommandOwner | null, onR
     note: sameOwner ? noticeMessage(notice) : "",
     loadError: sameOwner && loadError,
     retryLoad: () => setReload(n => n + 1),
-    answer: (id: number, action: DriverDecisionAction) => run((o, signal) => decideDriverBooking(o, id, action, signal)),
-    check: (decision: DriverDecision, close = false) => run((o, signal) => checkDriverDecision(o, decision, close, signal)),
-    repeat: (decision: DriverDecision) => run((o, signal) => repeatDriverDecision(o, decision, signal)),
+    answer: (id: number, action: Exclude<BookingDecisionAction, "passenger_cancel">) =>
+      run((o, signal) => decideDriverBooking(o, id, action, signal)),
+    check: (decision: BookingDecision, close = false) => run((o, signal) => checkDriverDecision(o, decision, close, signal)),
+    repeat: (decision: BookingDecision) => run((o, signal) => repeatDriverDecision(o, decision, signal)),
   };
 }

@@ -30,8 +30,6 @@ import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { MeetingActions } from "../components/MeetingActions";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
-  CANCEL_REASONS,
-  cancelBooking,
   fetchBookingDetails,
   fetchTripState,
   fetchBoardingCode,
@@ -42,20 +40,19 @@ import {
   type BoardingUndoTerms,
   type BookingDetails,
   type BookingStatus,
-  type CancelReason,
   type TripState,
 } from "../api/bookings";
 import { openTripLocation } from "../api/chat";
 import { winterCheck, winterCheckOk } from "../api/safety";
 import RoadsideHelp from "../components/RoadsideHelp";
 import AlertDialog from "../components/AlertDialog";
+import { usePassengerCancellation } from "../components/PassengerCancellation";
 import DriverLocationShare from "../components/DriverLocationShare";
 import { driverInTransit } from "../utils/tripLocationShare";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { beginDriverClick, finishDriverClick } from "../utils/driverActions";
 import { driverRideRemains, rideShareTerminal } from "../utils/driverRideShare";
 import { requestRidingFocus, rideShareHandoff } from "../utils/rideShareStore";
-import { track } from "../analytics";
 import { clearTripPassBoardingCode, dropTripPass, restoreConfirmedTripPass, tripPassStage, type TripPass } from "../utils/tripPass";
 import { sosPath } from "../utils/sosLink";
 import { loadOfflineTripPass, saveVerifiedTripPass } from "../utils/offlineTripPass";
@@ -187,10 +184,6 @@ export default function ActiveTripScreen() {
   const [confirmFinish, setConfirmFinish] = useState(false);
   // Отмена подтверждённой поездки пассажиром: окно с причиной (по желанию), как в Android.
   const refreshOwnBookings = useRefreshOwnBookings();
-  const [cancelOpen, setCancelOpen] = useState(false);
-  const [cancelReason, setCancelReason] = useState<CancelReason>("");
-  const [cancelBusy, setCancelBusy] = useState(false);
-  const [cancelNote, setCancelNote] = useState("");
   // Договорённость об оплате — правит любая сторона, видят оба.
   const [payDraft, setPayDraft] = useState<PaymentDraft>({ bookingId, payMethod: "cash", payAmount: "", dirty: false });
   const { payMethod, payAmount } = payDraft;
@@ -683,51 +676,6 @@ export default function ActiveTripScreen() {
     }
   }
 
-  /**
-   * Пассажир отменяет подтверждённую поездку (Android BookingActiveTripScreen.kt).
-   * Сервер ответил не «cancelled» — значит, поездку уже завершили, пока окно было открыто:
-   * говорить «отменено» нельзя, показываем правду и перечитываем статус.
-   */
-  async function cancelTrip() {
-    if (!bookingId || cancelBusy) return;
-    const generation = getSessionGeneration();
-    const currentSession = () => generation === getSessionGeneration() && currentBookingIdRef.current === bookingId;
-    setCancelBusy(true);
-    setCancelNote("");
-    try {
-      const res = await cancelBooking(bookingId, cancelReason);
-      if (!currentSession()) return;
-      setCancelOpen(false);
-      if (res.status !== "cancelled") {
-        setCancelNote(
-          appText("Поездка уже завершена — отменить её нельзя.", "Сәфәр тамамланған инде — уны кире алып булмай.")
-        );
-      } else {
-        applyCancelledState();
-        refreshOwnBookings();
-        track("booking_cancel");
-        // B8-8: телефон или чат уже открывались — мягко напоминаем про защиту в приложении.
-        setCancelNote(
-          res.contact_then_cancel
-            ? appText(
-                "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
-                "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚"
-              )
-            : appText("Поездка отменена", "Сәфәр кире алынды")
-        );
-      }
-      await tickTrip();
-      void syncBookingDetails();
-    } catch (e) {
-      if (!currentSession()) return;
-      setCancelNote(
-        e instanceof ApiError && e.message ? e.message : appText("Не удалось отменить", "Кире алып булманы")
-      );
-    } finally {
-      if (currentSession()) setCancelBusy(false);
-    }
-  }
-
   async function winterAnswerOk() {
     if (winterAnswerBusy) return;
     setWinterAnswerBusy(true);
@@ -789,6 +737,17 @@ export default function ActiveTripScreen() {
   const savedInTransitCard = savedInTransit && (
     <OfflineCancellationHelp bookingId={bookingId} />
   );
+  const passengerCancellation = usePassengerCancellation({
+    bookingId, enabled: details?.role === "passenger",
+    status: st === "confirmed" ? "confirmed" : undefined,
+    onChanged: result => {
+      if (result?.state === "applied" && result.booking?.status === "cancelled") applyCancelledState();
+      refreshOwnBookings();
+      void tickTrip();
+      void syncBookingDetails();
+    },
+  });
+
   if (status === "loading") {
     return (
       <>
@@ -1201,65 +1160,12 @@ export default function ActiveTripScreen() {
         <ShareTripCard bookingId={bookingId} showStatuses bookingStatus={st} onStatusChange={tickTrip} />
       )}
 
-      {/* Отменить подтверждённую поездку — только пассажиру и только до посадки (Android:
-          bookingStatus == "confirmed"). «В пути» отмены нет: человек уже в машине. */}
-      {details.role === "passenger" && st === "confirmed" && (
-        <div className="trip-cancel">
-          <button
-            type="button"
-            className="trip-cancel__btn"
-            onClick={() => {
-              setCancelReason("");
-              setCancelOpen(true);
-            }}
-            disabled={cancelBusy}
-          >
+      {details.role === "passenger" && st === "confirmed" && <div className="trip-cancel">
+          <button type="button" className="trip-cancel__btn" onClick={passengerCancellation?.open} disabled={passengerCancellation?.disabled}>
             <IconClose size={18} /> {appText("Отменить поездку", "Сәфәрҙе кире алыу")}
           </button>
-          <p className="trip-cancel__note">
-            {appText(
-              "Отмена бесплатна до начала поездки — место вернётся в поездку.",
-              "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."
-            )}
-          </p>
-        </div>
-      )}
-      {cancelNote && (
-        <div className="notice" role="status">
-          {cancelNote}
-        </div>
-      )}
-      {cancelOpen && (
-        <AlertDialog
-          title={appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")}
-          text={appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай.")}
-          onClose={() => {
-            if (!cancelBusy) setCancelOpen(false);
-          }}
-          confirm={{ label: appText("Да, отменить", "Эйе, кире алырға"), tone: "danger", busy: cancelBusy, onClick: () => void cancelTrip() }}
-          dismiss={{ label: appText("Назад", "Артҡа"), onClick: () => setCancelOpen(false), disabled: cancelBusy }}
-        >
-          <div className="adlg__reasons" role="group" aria-label={appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):")}>
-            <p className="adlg__reasons-label">{appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):")}</p>
-            {CANCEL_REASONS.map((r) => {
-              const on = cancelReason === r.code;
-              return (
-                <button
-                  key={r.code}
-                  type="button"
-                  className={"adlg__reason" + (on ? " is-on" : "")}
-                  aria-pressed={on}
-                  disabled={cancelBusy}
-                  onClick={() => setCancelReason(on ? "" : r.code)}
-                >
-                  <span>{appText(r.ru, r.ba)}</span>
-                  {on && <IconCheck size={18} />}
-                </button>
-              );
-            })}
-          </div>
-        </AlertDialog>
-      )}
+      </div>}
+      {passengerCancellation?.content}
 
       {/* «Застряли» — ступень мягче SOS: машина не едет, но никто не в опасности.
           Зимой между сёлами это самая частая беда, а красную кнопку в такой ситуации

@@ -2313,30 +2313,6 @@ object ApiClient {
     /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку.
      *  Возврат: contact_then_cancel (B8-8) — отмена после открытия телефона/чата →
      *  UI показывает мягкий баннер «заверши поездку в приложении». */
-    /** Итог отмены брони. `cancelled = false` значит сервер отменять отказался. */
-    data class CancelResultDto(val cancelled: Boolean, val contactThenCancel: Boolean, val status: String)
-
-    /**
-     * Отменить бронь.
-     *
-     * ВАЖНО про `cancelled`. Сервер на попытку отменить УЖЕ ЗАВЕРШЁННУЮ поездку отвечает 200
-     * и возвращает бронь как есть, ничего не меняя (bookings.py: статусы cancelled и done
-     * пропускаются). Это верно для данных, но для экрана — ловушка: раньше клиент читал из
-     * ответа только `contact_then_cancel`, статус выбрасывал и на любой успех радостно писал
-     * «Поездка отменена», стирал офлайн-паспорт поездки и закрывал экран.
-     *
-     * Попасть туда просто: пассажир держит открытым экран, водитель тем временем завершает
-     * поездку, у пассажира на экране всё ещё «подтверждена» — и кнопка «Отменить» на месте.
-     * Человек получал сообщение о том, чего не произошло, и терял телефон водителя из паспорта
-     * по состоявшейся поездке.
-     *
-     * Поэтому отдаём наверх настоящий статус: экран сам решает, что показать.
-     */
-    suspend fun cancelBooking(bookingId: Int, reason: String = "", expectedGeneration: Long = queueSessionGeneration()): Result<CancelResultDto> =
-        OfflineTripSnapshotHooks.cancel(bookingId, expectedGeneration) { generation ->
-            call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason), auth = true, expectedGeneration = generation) }
-            .onSuccess { if (it.cancelled) Analytics.log("booking_cancel") }
-
     // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
     suspend fun markNoShow(bookingId: Int): Result<Unit> =
         OfflineTripSnapshotHooks.bookingTerminal(bookingId) { generation ->

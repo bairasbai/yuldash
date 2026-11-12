@@ -1,6 +1,6 @@
 // Real provider, cards, sheet and trip/booking callers. Browser, hooks and HTTP boundaries are controlled.
 import assert from "node:assert/strict";
-import { bookingCommandStub } from "./booking-command-stub.mjs";
+import { bookingCommandStub, passengerDecisionStoreStub, passengerDecisionStub } from "./booking-command-stub.mjs";
 import { build } from "esbuild";
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -26,6 +26,8 @@ const mocks = {
   lang: `export const useLang=()=>({lang:globalThis.__ownBookingsHarness.lang,appText:(ru,ba)=>globalThis.__ownBookingsHarness.lang==="ba"?ba:ru});`,
   client: `export const getSessionGeneration=()=>globalThis.__ownBookingsHarness.generation;export class ApiError extends Error{}`,
   commands: bookingCommandStub(`export const createBooking=body=>{const h=globalThis.__ownBookingsHarness;h.posts.push(body);return h.book(body);};`),
+  decisionStore: passengerDecisionStoreStub,
+  decisions: passengerDecisionStub('id=>{const h=globalThis.__ownBookingsHarness;h.cancels.push(id);return h.cancel(id);}'),
   bookings: `const h=()=>globalThis.__ownBookingsHarness;
     export const fetchMyBookings=signal=>{const req={...h().makeDeferred(),signal,generation:h().generation,userId:h().auth.user?.id};h().requests.push(req);return req.promise;};
     export const cancelBooking=id=>{h().cancels.push(id);return h().cancel(id);};
@@ -74,6 +76,7 @@ const mocks = {
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
 const suffixes = {
+  "/api/bookingDecisions":"decisions", "/utils/bookingCommandStore":"decisionStore",
   "/api/client":"client", "/api/bookings":"bookings", "/api/bookingCommands":"commands", "/api/geo":"geo", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
   "/features":"features", "/ComingSoon":"soon",
   "/analytics":"analytics", "/cabinetUi":"cabinet", "/Icons":"icons", "/components/States":"states",
@@ -253,7 +256,7 @@ await check("successful cancellation invalidates own front reservation",async h=
 await check("failed cancellation retains own list and uses existing error",async h=>{
   h.mode="cancel";pendingDetails(h);await ready(h);h.cancel=async()=>{throw new Error("offline");};cancel(h).props.onClick();await settle(h);
   yes(h).props.onClick();await settle(h);
-  assert.equal(h.requests.length,1);assert.equal(probe(h).booking.id,73);assert.ok(text(h.tree).includes("Не получилось отменить"));
+  assert.equal(h.requests.length,1);assert.equal(probe(h).booking.id,73);assert.ok(text(h.tree).includes("Результат отмены пока неизвестен"));
 });
 await check("focus retries once; unmount aborts and ignores held response",async h=>{
   await ready(h);for(const fn of h.listeners.get("focus"))fn();await settle(h);assert.equal(h.requests.length,2);

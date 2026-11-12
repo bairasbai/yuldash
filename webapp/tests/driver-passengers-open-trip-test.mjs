@@ -214,8 +214,8 @@ async function openCabinet(lang, action = "confirm", secondPending = false, fixt
   const mocks = { "/i18n/lang": langMock(lang), "/api/bookings": CABINET_BOOKINGS, "/api/client": CABINET_CLIENT };
   const Cabinet = await bundleComponent("src/screens/DriverCabinetScreen.tsx", { real: ["/utils/format", "/utils/rideCancelWarning", "/utils/useDriverBookingDecisions"], mocks: {
     "/utils/bookingCommandStore": `export const bookingCommandOwner=(user,generation)=>({userId:user.id,generation});export const readDriverDecisions=async()=>[];export const isCurrentBookingOwner=()=>true;`,
-    "/api/driverBookingDecisions": `import { confirmBooking, cancelBooking } from "../api/bookings";
-      export class DriverDecisionProblem extends Error {}
+    "/api/bookingDecisions": `import { confirmBooking, cancelBooking } from "../api/bookings";
+      export class BookingDecisionProblem extends Error {}
       export const checkDriverDecision=async()=>({state:"unseen"});export const repeatDriverDecision=checkDriverDecision;
       export async function decideDriverBooking(owner,id,action) {
         if(action==="confirm") await confirmBooking(id);else await cancelBooking(id);

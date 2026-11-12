@@ -171,15 +171,6 @@ internal object OfflineTripSnapshotHooks {
         val ticket = OfflineTripSnapshots.ticket()?.takeIf { it.owner.generation == generation }
         return request(generation).map { if (it.optString("status") in setOf("done", "cancelled")) OfflineTripSnapshots.close(ticket, rideId, true) }
     }
-    suspend fun cancel(bookingId: Int, generation: Long, request: suspend (Long) -> Result<JSONObject>): Result<ApiClient.CancelResultDto> {
-        if (!ApiClient.isCurrentSession(generation)) return ApiClient.staleSession()
-        val ticket = OfflineTripSnapshots.ticket()?.takeIf { it.owner.generation == generation }
-        return request(generation).map { body ->
-            val status = body.optString("status")
-            if (status in setOf("done", "cancelled")) OfflineTripSnapshots.terminal(ticket, bookingId, status)
-            ApiClient.CancelResultDto(status == "cancelled", body.optBoolean("contact_then_cancel"), status)
-        }
-    }
 }
 
 /** Acceptance of one exact ROLE payload; never a LIVE/private permit or a reusable terminal flag. */

@@ -19,6 +19,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const h = (globalThis.__bookingLink = {});
 globalThis.document ??= { visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
 const mocks = {
+  cancellation: `export const usePassengerCancellation=()=>({disabled:false,open:()=>{globalThis.__bookingLink.cancelled++}});`,
   react: `const h=globalThis.__bookingLink;
  export function useState(v){const x=h.inst,i=x.i++;if(!(i in x.values))x.values[i]=typeof v==='function'?v():v;return[x.values[i],v=>{x.values[i]=typeof v==='function'?v(x.values[i]):v}];}
  export const useCallback=fn=>fn;
@@ -45,6 +46,7 @@ const result = await build({
   plugins: [{ name: "booking-link", setup(b) {
     b.onResolve({ filter: /.*/ }, (a) => {
       const p = a.path;
+      if (p.endsWith("/components/PassengerCancellation")) return { path: "cancellation", namespace: "mock" };
       const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/utils/useVisibleInterval") ? "interval" : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/api/bookings") ? "bookings" : p.endsWith("/components/States") ? "states" : p.endsWith("/components/YandexMap") ? "map" : p.endsWith("/ConsentsScreen") ? "header" : p.endsWith("/components/StatusPill") ? "pill" : p.endsWith("/components/Icons") ? "icons" : p.endsWith("/utils/format") ? "format" : p.endsWith("/components/PartnerAd") ? "ads" : p.endsWith("/api/client") ? "client" : p.endsWith("/analytics") ? "analytics" : p.endsWith("/booking/OwnBookingsProvider") ? "own" : null;
       return k ? { path: k, namespace: "mock" } : null;
     });

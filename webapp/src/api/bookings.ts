@@ -289,16 +289,6 @@ export const CANCEL_REASONS = [
 
 export type CancelReason = (typeof CANCEL_REASONS)[number]["code"] | "";
 
-/**
- * Отменить бронь — POST /bookings/{id}/cancel {reason}. Как Android ApiClient.cancelBooking:
- * тело уходит всегда, причина — код из CANCEL_REASONS или пусто. Ответ — строка брони: если
- * статус в ней не `cancelled`, сервер отменять отказался (поездку уже завершили, пока окно было
- * открыто), и говорить «отменено» нельзя.
- */
-export function cancelBooking(id: number, reason: CancelReason = ""): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/cancel`, { reason });
-}
-
 /** Зафиксировать договорённость об оплате (способ/сумма). */
 export function setPayAgreement(
   id: number,

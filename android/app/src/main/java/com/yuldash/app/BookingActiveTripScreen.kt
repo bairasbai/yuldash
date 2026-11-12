@@ -311,7 +311,8 @@ internal fun BookingScreen(
     // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
     bookingStatus: String = "",
     onBookingStatusChange: (String) -> Unit = {},   // свежий статус из деталей брони (подтвердили, пока экран открыт)
-    onCancelBooking: () -> Unit = {},
+    onCancelBooking: (() -> Unit)? = null,
+    onPassengerCancelled: () -> Unit = {},
     onFindAnotherRide: () -> Unit = {}, onSos: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt); SOS — отмена в пути (CancelledInTransit.kt)
     pickupStop: String? = ride?.let(::initialPickupStop), onPickupStopChange: (String) -> Unit = {},
     dropoffStop: String? = ride?.let(::initialDropoffStop), onDropoffStopChange: (String) -> Unit = {},
@@ -462,6 +463,12 @@ internal fun BookingScreen(
     // Ждёт ответа водителя — тихо сверяемся с сервером, пока экран на виду: пуш может не дойти, а
     // подтверждение открывает телефон и точку встречи (приёмка 18.10). Сменился статус — полная загрузка.
     BookingPendingRefresh(bookingId, bookingPending, details?.status, detailsSession) { detailsReload++ }
+    val passengerCancellation = if (bookingId != null && onCancelBooking == null) {
+        rememberPassengerCancellation(detailsSession, bookingId, "pending".takeIf { bookingPending },
+            isCurrent = ::isBookingDisplayCurrent) { result ->
+            if (result?.bookingStatus == "cancelled") onPassengerCancelled() else detailsReload++
+        }
+    } else null
     val bookingCancelled = bookingId != null && normalizedBookingStatus == "cancelled"
     var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
     // RS-02 А: решение о брони — по СВОЕМУ участку, а не по всему пути (трое до Ургазы
@@ -480,7 +487,8 @@ internal fun BookingScreen(
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
     val primaryEnabled = if (bookingId == null) recovery?.canSubmit != false && canCreateBooking && canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)
-        else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip)
+        else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip) &&
+            !(bookingPending && passengerCancellation?.blocked == true)
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
         bookingPending -> Icons.Default.Close
@@ -488,7 +496,7 @@ internal fun BookingScreen(
         primaryEnabled -> Icons.Default.EventSeat
         else -> Icons.Default.Schedule
     }
-    if (showCancelConfirmation) {
+    if (showCancelConfirmation && onCancelBooking != null) {
         AlertDialog(
             onDismissRequest = { showCancelConfirmation = false },
             title = { Text(appText("Отменить бронь?", "Бронде кире алырғамы?")) },
@@ -536,7 +544,8 @@ internal fun BookingScreen(
                 onPrimary = {
                     if (bookingBusy || (bookingId == null && (selectedSeats !in 1..segmentSeats || rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop)))) return@BookingDecisionBar
                     when {
-                        bookingPending -> showCancelConfirmation = true
+                        bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
+                            else showCancelConfirmation = true
                         bookingCancelled -> onFindAnotherRide()
                         else -> onConfirmRide(
                             payMethod,
@@ -577,6 +586,7 @@ internal fun BookingScreen(
                     }
                 }
             }
+            passengerCancellation?.content?.let { content -> item(key = "passenger-cancellation") { content() } }
             if (bookingPending) {
                 item {
                     InfoCard(
@@ -1571,6 +1581,23 @@ internal fun ActiveTripContent(
         chat.loadInitialHistory(id, requestedHistoryTick)
     }
     ActiveTripDetailsRefresh(tripDetails, ::isTripDetailsCurrent, ::loadTripDetails)
+    val contactCancelMsg = appText(
+        "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+        "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
+    )
+    val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
+    val passengerTripCancellation = if (bookingId != null && role == "passenger") {
+        rememberPassengerCancellation(tripSession, bookingId,
+            "confirmed".takeIf { activeTripShowsCancel(role, hasBooking = true, bookingStatus = bookingStatus) },
+            isCurrent = ::isTripSessionCurrent) { result ->
+            val status = result?.bookingStatus
+            if (status != null) acceptBookingStatus(status)
+            if (status == "cancelled") {
+                val message = if (result?.contactThenCancel == true) contactCancelMsg else cancelOkMsg
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            } else if (status != "done") tripDetails.retry()
+        }
+    } else null
 
     // Начальный код и его повтор — один независимый запрос, без истории/деталей/изменений поездки.
     val privateDetailsReady = authorityRevision.let { currentTripPrivateDetails(bookingId)?.role in setOf("driver", "passenger") }
@@ -2190,94 +2217,33 @@ internal fun ActiveTripContent(
             if (bookingId == null || bookingStatusAllowsBoarding(bookingStatus)) item {
                 ShareTripRow(onClick = { showShare = true }, modifier = Modifier.appearIn(3))
             }
+            passengerTripCancellation?.content?.let { content -> item(key = "passenger-cancellation") { content() } }
             if (activeTripShowsCancel(role, hasBooking = bookingId != null, bookingStatus = bookingStatus)) item {
-                var showCancel by remember { mutableStateOf(false) }
-                var cancelReason by remember { mutableStateOf("") }   // код причины отмены (по желанию пассажира)
-                val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
-                // B8-8: отмена после открытия телефона/чата — мягкое напоминание (не обвиняем).
-                val contactCancelMsg = appText(
-                    "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
-                    "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
-                )
-                val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
-                // Экран отстал: поездку уже завершили, пока диалог был открыт.
-                val cancelTooLateMsg = appText(
-                    "Поездка уже завершена — отменить её нельзя.",
-                    "Сәфәр тамамланған инде — уны кире алып булмай.",
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedButton(
-                        onClick = { if (isTripChatActive()) showCancel = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CanonRed)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed)
-                        Spacer(Modifier.width(8.dp))
-                        Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
-                    }
-                    Text(appText("Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                var closeLocalTrip by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = {
+                        if (!isTripChatActive()) return@OutlinedButton
+                        if (bookingId == null) closeLocalTrip = true else passengerTripCancellation?.open()
+                    },
+                    enabled = passengerTripCancellation?.blocked != true,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, CanonRed)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed)
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
                 }
-                if (showCancel) {
-                    AlertDialog(
-                        onDismissRequest = { showCancel = false },
-                        title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай."))
-                                Text(appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):"), color = CanonMuted, fontSize = 12.sp)
-                                listOf(
-                                    "plans_changed" to appText("Планы поменялись", "Пландар үҙгәрҙе"),
-                                    "found_other" to appText("Нашёл другой вариант", "Башҡа юл таптым"),
-                                    "driver_no_response" to appText("Водитель не отвечает", "Йөрөтөүсе яуап бирмәй"),
-                                ).forEach { (code, label) ->
-                                    val on = cancelReason == code
-                                    Text(
-                                        label,
-                                        color = if (on) CanonGreen2 else CanonText,
-                                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 14.sp,
-                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                            .clickable { if (isTripChatActive()) cancelReason = if (on) "" else code }
-                                            .background(if (on) CanonMint else Color.Transparent)
-                                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                                    )
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                if (!isTripChatActive()) return@TextButton
-                                showCancel = false
-                                bookingId?.let { id ->
-                                    voiceScope.launch {
-                                        if (!isTripChatActive()) return@launch
-                                        ApiClient.cancelBooking(id, cancelReason, expectedGeneration = tripSession)
-                                            .onSuccess { res ->
-                                                if (!isTripSessionCurrent()) return@onSuccess
-                                                if (!res.cancelled) {
-                                                    // Сервер отменять отказался — поездка уже завершена (или отменена
-                                                    // раньше). Экран у пассажира просто отстал: водитель нажал
-                                                    // «доехали», пока диалог был открыт. Врать «отменено» нельзя,
-                                                    // Локальную копию очистит общий обработчик конечного статуса.
-                                                    Toast.makeText(context, cancelTooLateMsg, Toast.LENGTH_LONG).show()
-                                                    acceptBookingStatus(res.status.ifBlank { bookingStatus })
-                                                    return@onSuccess
-                                                }
-                                                // Leave only after durable cleanup was accepted; failure offers retry.
-                                                bookingStatus = "cancelled"
-                                                // B8-8: телефон/чат уже открывались → мягко напоминаем про защиту в приложении.
-                                                val msg = if (res.contactThenCancel) contactCancelMsg else cancelOkMsg
-                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                            }
-                                            .onFailure { if (isTripSessionCurrent()) Toast.makeText(context, serverSaid(it, cancelFailMsg), Toast.LENGTH_LONG).show() }
-                                    }
-                                } ?: onTripEnd()
-                            }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
-                        },
-                        dismissButton = { TextButton(onClick = { showCancel = false }) { Text(appText("Назад", "Артҡа")) } }
-                    )
-                }
+                if (closeLocalTrip) AlertDialog(
+                    onDismissRequest = { closeLocalTrip = false },
+                    title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
+                    confirmButton = {
+                        TextButton(onClick = { closeLocalTrip = false; if (isTripChatActive()) onTripEnd() }) {
+                            Text(appText("Да, отменить", "Эйе, кире алырға"))
+                        }
+                    },
+                    dismissButton = { TextButton(onClick = { closeLocalTrip = false }) { Text(appText("Назад", "Артҡа")) } },
+                )
             }
             // Чат по поездке — карточкой: последнее сообщение и новые. Сама переписка — отдельным
             // экраном (TripChatScreen): там строка ввода прибита к низу, как в мессенджерах.

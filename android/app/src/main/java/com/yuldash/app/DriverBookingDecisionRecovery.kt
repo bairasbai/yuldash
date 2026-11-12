@@ -13,11 +13,11 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.CommandIntent
-import com.yuldash.app.data.DriverBookingDecisionApi
-import com.yuldash.app.data.DriverDecisionAction
-import com.yuldash.app.data.DriverDecisionFailure
-import com.yuldash.app.data.DriverDecisionOutcome
-import com.yuldash.app.data.DriverDecision
+import com.yuldash.app.data.BookingDecisionApi
+import com.yuldash.app.data.BookingDecisionAction
+import com.yuldash.app.data.BookingDecisionFailure
+import com.yuldash.app.data.BookingDecisionOutcome
+import com.yuldash.app.data.BookingDecision
 import com.yuldash.app.data.OfflineTripSnapshots
 import kotlinx.coroutines.launch
 
@@ -32,23 +32,23 @@ internal data class DriverDecisionUi(
 internal fun rememberDriverDecisionRecovery(generation: Long, onResult: () -> Unit): DriverDecisionUi {
     val scope = rememberCoroutineScope()
     val language = LocalAppLanguage.current
-    var pending by remember(generation) { mutableStateOf<List<DriverDecision>>(emptyList()) }
+    var pending by remember(generation) { mutableStateOf<List<BookingDecision>>(emptyList()) }
     var busy by remember(generation) { mutableStateOf(false) }
     var loadFailed by remember(generation) { mutableStateOf(false) }
     var reload by remember(generation) { mutableIntStateOf(0) }
-    var outcome by remember(generation) { mutableStateOf<DriverDecisionOutcome?>(null) }
+    var outcome by remember(generation) { mutableStateOf<BookingDecisionOutcome?>(null) }
     var failure by remember(generation) { mutableStateOf<Throwable?>(null) }
     var replyLanguage by remember(generation) { mutableStateOf(language) }
 
     suspend fun refresh() {
-        val saved = DriverBookingDecisionApi.pending(generation)
+        val saved = BookingDecisionApi.pending(generation)
         if (!ApiClient.isCurrentSession(generation)) return
         saved.onSuccess { pending = it; loadFailed = false }.onFailure { loadFailed = true }
     }
 
     LaunchedEffect(generation, reload) { refresh() }
 
-    fun run(id: Int, request: suspend () -> Result<DriverDecisionOutcome>) {
+    fun run(id: Int, request: suspend () -> Result<BookingDecisionOutcome>) {
         if (busy || !ApiClient.isCurrentSession(generation)) return
         busy = true
         outcome = null
@@ -67,7 +67,7 @@ internal fun rememberDriverDecisionRecovery(generation: Long, onResult: () -> Un
                     if (it.state != CommandIntent.State.Unknown) onResult()
                 }.onFailure {
                     failure = it
-                    if ((it as? DriverDecisionFailure)?.problem == CommandIntent.Problem.Changed) onResult()
+                    if ((it as? BookingDecisionFailure)?.problem == CommandIntent.Problem.Changed) onResult()
                 }
                 refresh()
             } finally {
@@ -86,18 +86,18 @@ internal fun rememberDriverDecisionRecovery(generation: Long, onResult: () -> Un
                     }
                 }
                 pending.forEach { decision ->
-                    val label = if (decision.action == DriverDecisionAction.Confirm) {
+                    val label = if (decision.action == BookingDecisionAction.Confirm) {
                         appText("Подтверждение брони", "Бронды раҫлау")
                     } else appText("Отклонение брони", "Бронды кире ҡағыу")
                     Text("$label №${decision.bookingId}", style = CanonBodyStrong)
                     TextButton(enabled = !busy, onClick = { run(decision.bookingId) {
-                        DriverBookingDecisionApi.check(generation, decision, close = false)
+                        BookingDecisionApi.check(generation, decision, close = false)
                     } }) { Text(appText("Проверить запрос", "Һорауҙы тикшереү")) }
                     TextButton(enabled = !busy, onClick = { run(decision.bookingId) {
-                        DriverBookingDecisionApi.repeat(generation, decision)
+                        BookingDecisionApi.repeat(generation, decision)
                     } }) { Text(appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")) }
                     TextButton(enabled = !busy, onClick = { run(decision.bookingId) {
-                        DriverBookingDecisionApi.check(generation, decision, close = true)
+                        BookingDecisionApi.check(generation, decision, close = true)
                     } }) { Text(appText("Закрыть запрос", "Һорауҙы ябыу")) }
                 }
                 val useServerText = LocalAppLanguage.current == replyLanguage
@@ -108,14 +108,14 @@ internal fun rememberDriverDecisionRecovery(generation: Long, onResult: () -> Un
     } else null
     return DriverDecisionUi(
         blocked = { id -> busy || pending.any { it.bookingId == id } },
-        confirm = { id -> run(id) { DriverBookingDecisionApi.decide(generation, id, DriverDecisionAction.Confirm) } },
-        decline = { id -> run(id) { DriverBookingDecisionApi.decide(generation, id, DriverDecisionAction.Decline) } },
+        confirm = { id -> run(id) { BookingDecisionApi.decide(generation, id, BookingDecisionAction.Confirm) } },
+        decline = { id -> run(id) { BookingDecisionApi.decide(generation, id, BookingDecisionAction.Decline) } },
         recovery = recovery,
     )
 }
 
 @Composable
-private fun driverDecisionMessage(result: DriverDecisionOutcome, useServerText: Boolean): String = when (result.state) {
+private fun driverDecisionMessage(result: BookingDecisionOutcome, useServerText: Boolean): String = when (result.state) {
     CommandIntent.State.Unknown -> appText("Решение пока неизвестно. Его можно повторить или закрыть.", "Ҡарар әлегә билдәһеҙ. Уны ҡабатларға йәки ябырға мөмкин.")
     CommandIntent.State.Closed -> appText("Запрос закрыт. Можно ответить заново.", "Һорау ябылды. Яңынан яуап бирергә мөмкин.")
     CommandIntent.State.Rejected -> result.rejectionMessage?.takeIf { useServerText }
@@ -133,7 +133,7 @@ private fun driverDecisionMessage(result: DriverDecisionOutcome, useServerText: 
 
 @Composable
 private fun driverDecisionError(error: Throwable, useServerText: Boolean): String {
-    val failure = error as? DriverDecisionFailure
+    val failure = error as? BookingDecisionFailure
     return when (failure?.problem) {
         CommandIntent.Problem.Changed -> appText("Статус брони изменился. Проверь список.", "Бронь торошо үҙгәрҙе. Исемлекте тикшер.")
         CommandIntent.Problem.Expired -> appText("Срок повтора истёк. Проверь или закрой запрос.", "Ҡабатлау ваҡыты үтте. Һорауҙы тикшер йәки яп.")

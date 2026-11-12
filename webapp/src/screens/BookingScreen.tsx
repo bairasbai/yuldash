@@ -17,7 +17,6 @@ import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import {
   fetchBookingDetails,
-  cancelBooking,
   type BookingDetails,
 } from "../api/bookings";
 import { LoadingList, ErrorState } from "../components/States";
@@ -27,10 +26,8 @@ import { StatusPill } from "../components/StatusPill";
 import { IconArrow, IconPhone, IconPin, IconCheck, IconLock } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { PartnerAdSlot } from "../components/PartnerAd";
-import AlertDialog from "../components/AlertDialog";
+import { usePassengerCancellation } from "../components/PassengerCancellation";
 
-import { ApiError } from "../api/client";
-import { track } from "../analytics";
 import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { bookingLinkPath } from "../utils/bookingLink";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
@@ -45,15 +42,9 @@ export default function BookingScreen() {
 
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [d, setD] = useState<BookingDetails | null>(null);
-  const [cancelling, setCancelling] = useState(false);
-  /** Открыто окно «Отменить бронь?». */
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  /** Отмена не прошла — сказать обязательно: иначе место так и числится занятым. */
-  const [cancelNote, setCancelNote] = useState("");
   const requestVersion = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
-  const latest = useRef({ bookingId, status, d, cancelling });
-  latest.current = { bookingId, status, d, cancelling };
+  const latest = useRef({ bookingId, status, d, cancelling: false });
 
   const abortRequest = useCallback(() => {
     requestVersion.current++;
@@ -62,15 +53,17 @@ export default function BookingScreen() {
   }, []);
 
   const load = useCallback(
-    (signal?: AbortSignal) => {
+    (signal?: AbortSignal, keepVisible = false) => {
       if (!bookingId) {
         setStatus("error");
         return;
       }
       abortRequest();
       const version = requestVersion.current;
-      setStatus("loading");
-      setD(null);
+      if (!keepVisible) {
+        setStatus("loading");
+        setD(null);
+      }
       fetchBookingDetails(bookingId, signal)
         .then((res) => {
           if (signal?.aborted || version !== requestVersion.current) return;
@@ -79,7 +72,7 @@ export default function BookingScreen() {
         })
         .catch((e) => {
           if (signal?.aborted || version !== requestVersion.current || e?.name === "AbortError") return;
-          setStatus("error");
+          if (!keepVisible) setStatus("error");
         });
     },
     [bookingId, abortRequest]
@@ -91,6 +84,21 @@ export default function BookingScreen() {
     return () => { ac.abort(); abortRequest(); };
   }, [load]);
 
+  const passengerCancellation = usePassengerCancellation({
+    bookingId, enabled: d?.role === "passenger",
+    status: status === "ready" && d?.status === "pending" ? "pending" : undefined,
+    onSendingStart: abortRequest,
+    onChanged: result => {
+      if (result?.state === "applied" && result.booking?.status === "cancelled") {
+        setD(current => current?.booking_id === bookingId && current.status === "pending"
+          ? { ...current, status: "cancelled" } : current);
+      }
+      refreshOwnBookings();
+      load(undefined, true);
+    },
+  });
+  const cancelling = passengerCancellation?.sending === true;
+  latest.current = { bookingId, status, d, cancelling };
   const pending = status === "ready" && d?.status === "pending" && d.booking_id === bookingId && !cancelling;
   const refreshPending = useCallback(() => {
     const current = latest.current;
@@ -114,34 +122,6 @@ export default function BookingScreen() {
     document.addEventListener("visibilitychange", onVisibility);
     return () => { document.removeEventListener("visibilitychange", onVisibility); abortRequest(); };
   }, [bookingId, pending, abortRequest]);
-
-  async function onCancel() {
-    if (!bookingId || cancelling) return;
-    setConfirmCancel(false);
-    abortRequest();
-    setCancelling(true);
-    setCancelNote("");
-    try {
-      await cancelBooking(bookingId);
-      refreshOwnBookings();
-      track("booking_cancel");
-      load();
-    } catch (e) {
-      // Раньше тут было «покажем при перезагрузке» — но перезагрузка идёт только
-      // при успехе. Человек видел ту же бронь и не понимал: отменилась или нет.
-      // А водитель тем временем держит для него место.
-      setCancelNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText(
-              "Не получилось отменить бронь. Проверь связь и попробуй ещё раз.",
-              "Бронде кире алып булманы. Бәйләнеште тикшереп ҡабатла."
-            )
-      );
-    } finally {
-      setCancelling(false);
-    }
-  }
 
   // Водитель по ссылке на бронь — не на пассажирскую «Бронь» с «Отменить бронь». Пассажир, которого
   // высадили в пути (`cancelled_in_transit`, 23.10.2026), — на экран поездки: там SOS, «Застряли» и машина.
@@ -278,39 +258,15 @@ export default function BookingScreen() {
               >
                 {appText("Открыть поездку", "Сәфәрҙе асырға")}
               </button>
-              {/* Пока водитель решает — бронь можно снять. Подтверждённую отменяют на экране
-                  поездки (с причиной), а «в пути» не отменяют вовсе. */}
-              {d.role === "passenger" && d.status === "pending" && (
-                <button
-                  type="button"
-                  className="logout-btn"
-                  onClick={() => setConfirmCancel(true)}
-                  disabled={cancelling}
-                >
-                  {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронде кире алырға")}
-                </button>
-              )}
-              {cancelNote && (
-                <div className="notice" role="status">
-                  {cancelNote}
-                </div>
-              )}
             </>
           )}
 
-          {confirmCancel && (
-            <AlertDialog
-              title={appText("Отменить бронь?", "Бронде кире алырғамы?")}
-              text={appText(
-                "Место освободится, а водитель получит уведомление.",
-                "Урын бушаясаҡ, ә йөрөтөүсе хәбәр аласаҡ."
-              )}
-              onClose={() => setConfirmCancel(false)}
-              confirm={{ label: appText("Да, отменить", "Эйе, кире алырға"), tone: "danger", onClick: () => void onCancel() }}
-              dismiss={{ label: appText("Оставить бронь", "Бронде ҡалдырырға"), onClick: () => setConfirmCancel(false) }}
-            />
-          )}
-
+          {d.role === "passenger" && d.status === "pending" && <button
+            type="button" className="logout-btn" onClick={passengerCancellation?.open} disabled={passengerCancellation?.disabled || cancelling}
+          >
+            {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронде кире алырға")}
+          </button>}
+          {passengerCancellation?.content}
           <PartnerAdSlot placement="tripDetails" />
         </div>
       )}

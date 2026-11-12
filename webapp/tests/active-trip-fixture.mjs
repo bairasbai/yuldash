@@ -4,6 +4,7 @@
 //  Это не набор: его импортируют наборы паритета (отмена с причиной, «Завершить?», точка водителя).
 // ================================================================
 import { bundleComponent, langMock, mount } from "./shallow-harness.mjs";
+import { passengerDecisionStoreStub, passengerDecisionStub } from "./booking-command-stub.mjs";
 
 const CLIENT = `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}
 export const getSessionGeneration=()=>globalThis.__at.generation;
@@ -22,12 +23,15 @@ export const apiPost=async(p,b)=>globalThis.__at.post(p,b);`;
 export async function openActiveTrip({ lang = "ru", role = "passenger", status = "confirmed", phase = "", cancel, details = {}, trip = {},
   intercept, userId = 1 } = {}) {
   const Screen = await bundleComponent("src/screens/ActiveTripScreen.tsx", {
-    real: ["/api/bookings", "/utils/tripLocationShare", "/utils/tripDetailsSync.js", "/utils/inTransitCancel"],
+    real: ["/api/bookings", "/utils/tripLocationShare", "/utils/tripDetailsSync.js", "/utils/inTransitCancel", "/components/PassengerCancellation"],
     mocks: {
       "react-router-dom": `export const useNavigate=()=>p=>globalThis.__at.nav.push(p);export const useParams=()=>({id:"42"});`,
       "/auth/AuthProvider": `export const useAuth=()=>({user:{id:globalThis.__at.userId}});`,
       "/i18n/lang": langMock(lang),
       "/api/client": CLIENT,
+      "/AlertDialog": `export default "AlertDialog";`,
+      "/utils/bookingCommandStore": passengerDecisionStoreStub,
+      "/api/bookingDecisions": passengerDecisionStub('(id, reason, terms) => globalThis.__at.post("/bookings/" + id + "/commands/v1/cancel", {reason,expected_terms_key:terms})'),
       "./client": CLIENT,
       "/api/chat": `export const openTripLocation=(id)=>{globalThis.__at.locOpened.push(id);return{close(){}}};`,
       "/booking/OwnBookingsProvider": `export const useRefreshOwnBookings=()=>()=>{globalThis.__at.refreshed++;};`,
@@ -76,7 +80,7 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
     },
     async post(p, b) {
       at.posts.push([p, b]);
-      if (p === "/bookings/42/cancel") {
+      if (p === "/bookings/42/commands/v1/cancel") {
         const res = cancel ? await cancel(b) : { id: 42, status: "cancelled", contact_then_cancel: true };
         if (res.status) {
           at.details.status = res.status;

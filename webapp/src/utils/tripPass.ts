@@ -208,11 +208,15 @@ export function restoreConfirmedTripPass(bookingId: number, generation: string,
  * Держать его дольше нельзя — это телефон живого человека и код посадки,
  * которые после поездки не нужны никому.
  */
-export function dropTripPass(bookingId: number, generation?: string): void {
+export function dropTripPass(bookingId: number, generation?: string): boolean {
   rememberStage(bookingId, generation, "terminal");
+  let marked = false;
   try {
     const ownerGeneration = generation || loadTripPass(bookingId)?.sessionGeneration;
-    if (ownerGeneration) storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "terminal"), "1"));
+    if (ownerGeneration) {
+      storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "terminal"), "1"));
+      marked = true;
+    }
   } catch {
     /* Still try removing the private snapshot if a stage marker cannot be stored. */
   }
@@ -222,4 +226,5 @@ export function dropTripPass(bookingId: number, generation?: string): void {
   } catch {
     /* не критично */
   }
+  return marked;
 }
