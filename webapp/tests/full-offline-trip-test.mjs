@@ -73,6 +73,16 @@ if (!process.argv.includes('--gate-only')) {
    assert(!values.has(key));
    assert.equal(loadOfflineTripPass(42),null);
  });
+ await test('F07-repeated-terminal-list-does-not-rewrite-markers',async()=>{
+   const history=Array.from({length:1000},(_,i)=>({id:i+1,status:'done'}));
+   save();
+   await readList(()=>history);
+   assert.equal(loadOfflineTripPass(42),null);
+   let writes=0;
+   h.setHook=()=>{writes++;};
+   await readList(()=>history);
+   assert.equal(writes,0);
+ });
  await test('F07-list-keeps-active-and-absent',async()=>{
    save();
    await readList(()=>[{id:42,status:'confirmed'},{id:9,status:'cancelled'}]);

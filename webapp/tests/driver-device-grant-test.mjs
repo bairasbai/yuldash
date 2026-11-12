@@ -219,7 +219,7 @@ await t.test("настоящий кабинет: первый NoShow до GPS-с
 });
 for(const remains of [true,false])await t.test(`настоящий ActiveTrip: Завершить при remains=${remains} сохраняет правильный переход`,async()=>{
  const scene={owner:"A",status:"onboard",phases:[],order:[],nav:[],handoff:0,focus:0,remains};globalThis.__finishGrant=scene;
- const client=`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__finishGrant.owner;export const apiPost=async()=>({});
+ const client=`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__finishGrant.owner;export const getToken=()=>"test-token";export const apiPost=async()=>({});
   export const apiGet=async path=>{const f=globalThis.__finishGrant;if(path.endsWith("/details"))return {booking_id:42,ride_id:7,role:"driver",status:f.status,from_city:"Сибай",to_city:"Уфа",depart_at:"2030-01-01T10:00:00",seats:1,price:700,driver_name:"Водитель",passenger_name:"Айгуль",pay_method:"cash"};
    if(path.endsWith("/role"))return {role:"driver",status:f.status,driver_phase:"departed"};if(path.endsWith("/boarding-code"))return {code:"1234"};throw new Error("synthetic absent "+path);};`;
  const View=await bundleComponent("src/screens/ActiveTripScreen.tsx",{real:["/api/bookings","/utils/boardingUndo","/utils/tripLocationShare","/utils/tripDetailsSync.js","/utils/inTransitCancel"],mocks:{

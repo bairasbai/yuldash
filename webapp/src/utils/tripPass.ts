@@ -214,15 +214,22 @@ export function dropTripPass(bookingId: number, generation?: string): boolean {
   try {
     const ownerGeneration = generation || loadTripPass(bookingId)?.sessionGeneration;
     if (ownerGeneration) {
-      storageOperation(() => localStorage.setItem(STAGE_KEY(bookingId, ownerGeneration, "terminal"), "1"));
+      const marker = STAGE_KEY(bookingId, ownerGeneration, "terminal");
+      storageOperation(() => {
+        if (localStorage.getItem(marker) !== "1") localStorage.setItem(marker, "1");
+      });
       marked = true;
     }
   } catch {
     /* Still try removing the private snapshot if a stage marker cannot be stored. */
   }
   try {
-    storageOperation(() => localStorage.removeItem(KEY(bookingId)));
-    storageOperation(() => localStorage.removeItem(`${KEY(bookingId)}.owner`));
+    storageOperation(() => {
+      const snapshot = KEY(bookingId);
+      const owner = `${snapshot}.owner`;
+      if (localStorage.getItem(snapshot) !== null) localStorage.removeItem(snapshot);
+      if (localStorage.getItem(owner) !== null) localStorage.removeItem(owner);
+    });
   } catch {
     /* не критично */
   }
