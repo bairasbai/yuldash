@@ -1,5 +1,4 @@
 import { setSession } from "../api/client";
-import { setDeviceLanguage } from "../i18n/languagePreference";
 import { closeOutboxStore } from "./outboxStore";
 import { resetOutboxMemory } from "./outbox";
 import { clearSessionCaches } from "./sessionCaches";
@@ -23,7 +22,7 @@ function deleteDatabase(name: string): Promise<void> {
   });
 }
 /** A UI timeout must not release this lock or cancel its still-running delete. */
-export function recoverStorage(language?: "ru" | "ba"): Promise<void> {
+export function recoverStorage(): Promise<void> {
   if (flight) return flight;
   flight = Promise.resolve().then(() => storageRecoveryMutation(async permit => {
     if (!probeStorage()) throw new Error("Storage unavailable");
@@ -40,7 +39,6 @@ export function recoverStorage(language?: "ru" | "ba"): Promise<void> {
     }
     await clearSessionCaches(active); if (!active()) throw new Error("Recovery superseded");
     await setSession(null, null, permit);
-    if (language) await setDeviceLanguage(language);
     finishStorageRecovery(rawGeneration());
   })).then(() => {}).finally(() => { flight = null; });
   return flight;

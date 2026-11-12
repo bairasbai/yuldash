@@ -1,6 +1,7 @@
 import { Component, useState, type ReactNode } from "react";
 import { activateStorageFence, probeStorage, reportStorageFailure, storageFenced, subscribeStorageFailure } from "../utils/storageHealth";
 import { recoverStorage } from "../utils/storageRecovery";
+import { saveLanguage } from "../i18n/languagePreference";
 import { resetOutboxMemory } from "../utils/outbox";
 import { IconShield } from "./Icons";
 
@@ -55,7 +56,11 @@ export default class StorageBoundary extends Component<{ children: ReactNode }, 
     window.removeEventListener("focus", this.check); document.removeEventListener("visibilitychange", this.check);
     document.removeEventListener("pointerdown", this.check, true); document.removeEventListener("keydown", this.check, true);
   }
-  private retry = async (language?: "ru" | "ba") => { await recoverStorage(language); this.setState(state => ({ blocked: false, error: null, version: state.version + 1 })); };
+  private retry = async (language?: "ru" | "ba") => {
+    await recoverStorage();
+    if (language) void saveLanguage(language);
+    this.setState(state => ({ blocked: false, error: null, version: state.version + 1 }));
+  };
   render() {
     // Keep ordinary application failures visible to normal diagnostics, not a false storage warning.
     if (this.state.error && !storageFenced() && probeStorage(false)) throw this.state.error;

@@ -4,13 +4,11 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useRef,
-  useState,
   useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { dict, type DictKey, type Lang, type Pair } from "./dict";
-import { getLanguage, setDeviceLanguage, subscribeLanguage } from "./languagePreference";
+import { getLanguage, getLanguageSaveStatus, saveLanguage, subscribeLanguage, subscribeLanguageSaveStatus } from "./languagePreference";
 import { getToken } from "../api/client";
 import { updateMe } from "../api/auth";
 
@@ -29,8 +27,7 @@ const Ctx = createContext<LangCtx | null>(null);
 
 export function LangProvider({ children }: { children: ReactNode }) {
   const lang = useSyncExternalStore(subscribeLanguage, getLanguage);
-  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "failed">("idle");
-  const saving = useRef(false);
+  const saveStatus = useSyncExternalStore(subscribeLanguageSaveStatus, getLanguageSaveStatus);
 
   useEffect(() => {
     // Сервер использует язык профиля для уведомлений.
@@ -41,37 +38,21 @@ export function LangProvider({ children }: { children: ReactNode }) {
     }
   }, [lang]);
 
-  const setLang = useCallback(async (next: Lang) => {
-    if (saving.current) return false;
-    saving.current = true;
-    setSaveStatus("saving");
-    try {
-      await setDeviceLanguage(next);
-      setSaveStatus("idle");
-      return true;
-    } catch {
-      setSaveStatus("failed");
-      return false;
-    } finally {
-      saving.current = false;
-    }
-  }, []);
-
   const toggle = useCallback(() => {
-    void setLang(getLanguage() === "ru" ? "ba" : "ru");
-  }, [setLang]);
+    void saveLanguage(getLanguage() === "ru" ? "ba" : "ru");
+  }, []);
 
   const value = useMemo<LangCtx>(() => {
     const idx = lang === "ba" ? 1 : 0;
     return {
       lang,
-      setLang,
+      setLang: saveLanguage,
       toggle,
       t: (key) => dict[key][idx],
       appText: (ru, ba) => (lang === "ba" ? ba : ru),
       pick: (pair) => pair[idx],
     };
-  }, [lang, setLang, toggle]);
+  }, [lang, toggle]);
 
   return (
     <Ctx.Provider value={value}>

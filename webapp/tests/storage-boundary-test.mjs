@@ -24,7 +24,7 @@ function setup(){
 }
 async function load(){
  const extra=baseline?[{name:'real-before-stage',setup(b){b.onLoad({filter:/webapp[\\/]src[\\/](api[\\/]client|utils[\\/]tripPass)\.ts$/},a=>{const relative=a.path.slice(a.path.replaceAll('\\','/').indexOf('/webapp/')+1).replaceAll('\\','/');return {contents:fs.readFileSync(old+relative,'utf8'),loader:'ts'};});}}]:[];
- const result=await build({stdin:{contents:`export * from './src/utils/storageHealth';export * from './src/api/client';export * from './src/utils/tripPass';export * from './src/utils/offlineTripPass';export * from './src/utils/storageRecovery';export * from './src/utils/outbox';export {default as Boundary} from './src/components/StorageBoundary';`,resolveDir:root,loader:'ts'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',define:{'import.meta.env':'{"BASE_URL":"/","VITE_API_BASE":"http://qa.api"}'},footer:{js:'// isolated-document-'+serial++},plugins:extra});
+ const result=await build({stdin:{contents:`export * from './src/utils/storageHealth';export * from './src/api/client';export * from './src/utils/tripPass';export * from './src/utils/offlineTripPass';export * from './src/utils/storageRecovery';export * from './src/utils/outbox';export * from './src/i18n/languagePreference';export {default as Boundary} from './src/components/StorageBoundary';`,resolveDir:root,loader:'ts'},bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',define:{'import.meta.env':'{"BASE_URL":"/","VITE_API_BASE":"http://qa.api"}'},footer:{js:'// isolated-document-'+serial++},plugins:extra});
  return import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
 }
 const pass={bookingId:42,fromCity:'QA from',toCity:'QA to',departAt:'2026-10-16T18:00:00Z',driverName:'QA Driver',driverCar:'QA Car',driverPlate:'QA001',driverPhone:'+79990000000',boardingCode:'4931',pickup:'QA pickup',price:300,seats:1};
@@ -54,5 +54,22 @@ await test('S20 ordinary app failure is not presented as storage failure',async(
 await test('S21 direct failure notification survives storage healing before global error',async(h,m)=>{const b=new m.Boundary({children:'PRIVATE'});b.setState=patch=>Object.assign(b.state,patch);h.all=true;m.getToken();h.all=false;const event=new Event('unhandledrejection',{cancelable:true});b.asyncError(event);assert(b.state.blocked);assert(event.defaultPrevented);});
 for(const [i,name] of ['yuldash-outbox-v1','yuldash-refresh-intents'].entries())await test(`S${22+i} B cannot publish during pending ${name} deletion`,async(h,m)=>{m.reportStorageFailure();h.holdAt='delete:'+name;h.held=deferred();const recovery=m.recoverStorage();while(!h.started)await flush();let settled=false;const waiting=Promise.resolve(m.setSession('B','RB')).finally(()=>settled=true);const error=waiting.catch(e=>e);await flush();assert.equal(settled,false);h.held.resolve();await recovery;assert(await error instanceof Error);await m.setSession('B','RB');assert.equal(m.getToken(),'B');});
 await test('S24 closing a pending queue connection retains the same recovery lock',async(h,m)=>{h.holdAt='open';h.held=deferred();const old=m.enqueue(42,'message','old','held-open').catch(e=>e);while(!h.started)await flush();m.reportStorageFailure();m.resetOutboxMemory();const recovery=m.recoverStorage();await flush();let settled=false;const waiting=Promise.resolve(m.setSession('B','RB')).finally(()=>settled=true);const error=waiting.catch(e=>e);await flush();assert.equal(settled,false);h.held.resolve();assert(await old instanceof Error);h.holdAt=null;await recovery;assert(await error instanceof Error);});
+await test('S25 language write failure leaves completed recovery open',async(h,m)=>{
+ const open=globalThis.indexedDB.open.bind(globalThis.indexedDB);
+ globalThis.indexedDB.open=(name,...args)=>{
+   if(name==='yuldash-device-language-v1')throw Error('Language database unavailable');
+   return open(name,...args);
+ };
+ const boundary=new m.Boundary({children:null});
+ boundary.setState=update=>{boundary.state={...boundary.state,...update(boundary.state)};};
+ m.reportStorageFailure();
+ await boundary.retry('ru');
+ await flush();
+ assert.equal(boundary.state.blocked,false);
+ assert.equal(m.storageFenced(),false);
+ assert.equal(m.getLanguage(),'ba');
+ assert.equal(m.getLanguageSaveStatus(),'failed');
+ assert.equal(h.local.has('yuldash.token'),false);
+});
 }
 console.log(`Storage boundary: ${passed} passed, ${failed} failed`);if(failed)process.exitCode=1;
