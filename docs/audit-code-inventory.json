@@ -2848,8 +2848,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflinePaymentJourneyTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "3dae61e40bb5c4f28edebaefb61fc6e9e533ada3264a5eda2283c4ee98f0d33c",
-      "lines": 650
+      "sha256": "757ed80d7acef0f35ea9d49805f52866ab3b223f609c8bb6e511c35ee46acf95",
+      "lines": 652
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflineSaveTest.kt",
