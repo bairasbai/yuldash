@@ -201,3 +201,19 @@ const laterOwner = api.bookingCommandOwner(user, "generation-b");
 await assert.rejects(api.cancelPassengerBooking(laterOwner, approved, "", signal()), { kind: "stale" });
 assert.equal(forbiddenWrites, 0);
 console.log("PASS changed booking stage and session invalidate the passenger consent without a write");
+
+reset();
+globalThis.fetch = async (url, init) => {
+  const path = new URL(url).pathname;
+  if (path.endsWith("/role")) return reply({ role: "passenger" });
+  if (path.endsWith("/cancel-preview")) return reply({ booking_status: "pending", consequence: "early", terms_key: terms });
+  if (init.method === "POST") throw new TypeError("response lost");
+  return reply({ ...receipt, current: null, result_code: "idempotency_result_gone" });
+};
+const beforeDeletion = await api.preparePassengerCancellation(owner, 21, "pending", signal());
+await assert.rejects(api.cancelPassengerBooking(owner, beforeDeletion, "", signal()), { kind: "pending" });
+const [lost] = await api.readDriverDecisions(owner);
+assert.deepEqual(await api.checkDriverDecision(owner, lost, false, signal()), { state: "applied", booking: null });
+assert.equal(api.tripPassStage(21, owner.generation), "terminal");
+assert.equal((await api.readDriverDecisions(owner))[0].state, "applied");
+console.log("PASS disappeared passenger booking closes the offline passport without inventing a booking status");

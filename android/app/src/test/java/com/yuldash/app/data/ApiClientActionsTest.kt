@@ -1,5 +1,8 @@
 package com.yuldash.app.data
 
+import android.content.Context
+import androidx.test.core.app.ApplicationProvider
+
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
