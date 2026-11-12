@@ -4,6 +4,7 @@ import { fileURLToPath } from 'node:url';
 const root = fileURLToPath(new URL('../', import.meta.url));
 const h = globalThis.__fullOfflineTrip = { status: 'unavailable', lang: 'ru' };
 const values = new Map();
+const tokenFor=id=>"test."+Buffer.from(JSON.stringify({sub:String(id)})).toString("base64url")+".test";
 globalThis.localStorage = {
   getItem(k) { h.getHook?.(k); if (h.readFail) throw Error('disk unavailable'); return values.get(k) ?? null; },
   setItem(k,v) { if (h.writeFail || k === h.failKey) throw Error('disk full'); values.set(k,String(v)); h.setHook?.(k); },
@@ -12,31 +13,34 @@ globalThis.localStorage = {
 };
 globalThis.sessionStorage = { ...localStorage, get length() { return values.size; } };
 globalThis.window = new EventTarget();
+globalThis.document = new EventTarget();
 Object.defineProperty(globalThis, 'navigator', { configurable: true, value: { onLine: false } });
 const mocks = {
-  react: `const h=globalThis.__fullOfflineTrip;export const useState=v=>[typeof v==='function'?v():v,()=>h.renders++];export const useEffect=fn=>{h.cleanup.push(fn())};`,
+  react: `const h=globalThis.__fullOfflineTrip;export const useState=v=>{if(h.splashStateIndex==null)return[typeof v==='function'?v():v,()=>h.renders++];const i=h.splashStateIndex++;if(!(i in h.splashStates))h.splashStates[i]=typeof v==='function'?v():v;return[h.splashStates[i],next=>{h.splashStates[i]=typeof next==='function'?next(h.splashStates[i]):next;}];};export const useEffect=fn=>{h.cleanup.push(fn())};`,
   'react/jsx-runtime': `export const jsx=(type,props)=>({type,props}),jsxs=jsx,Fragment='fragment';`,
-  'react-router-dom': `export const useParams=()=>({id:String(globalThis.__fullOfflineTrip.bookingId)}),useLocation=()=>({pathname:'/trip/42'}),Navigate='Navigate';`,
+  'react-router-dom': `export const useParams=()=>({id:String(globalThis.__fullOfflineTrip.bookingId)}),useLocation=()=>({pathname:'/trip/42'}),useNavigate=()=>path=>globalThis.__fullOfflineTrip.navigation.push(path),Navigate='Navigate';`,
   auth: `export const useAuth=()=>({status:globalThis.__fullOfflineTrip.status,retrySession:()=>globalThis.__fullOfflineTrip.retries++});`,
   lang: `export const useLang=()=>({lang:globalThis.__fullOfflineTrip.lang,appText:(ru,ba)=>globalThis.__fullOfflineTrip.lang==='ba'?ba:ru});`,
-  client: `export const getToken=()=>localStorage.getItem('yuldash.token'),getSessionGeneration=()=>localStorage.getItem('yuldash.session')??'';`,
+  flags: `export const flags={onboarded:()=>true};`,
+  analytics: `export const trackOnce=()=>{};`,
+  navigation: `export const scheduleSplashNavigation=()=>()=>{};`,
 };
 async function compile(entry) {
  const result=await build({entryPoints:[root+entry],bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',define:{'import.meta.env':'{}'},plugins:[{name:'controlled-boundaries',setup(b){
-  b.onResolve({filter:/.*/},a=>{const p=a.path,k=Object.hasOwn(mocks,p)?p:p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/i18n/lang')?'lang':p.endsWith('/api/client')?'client':null;return k?{path:k,namespace:'boundary'}:null;});
+  b.onResolve({filter:/.*/},a=>{const p=a.path,k=Object.hasOwn(mocks,p)?p:p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/i18n/lang')?'lang':p.endsWith('/flags')?'flags':p.endsWith('/analytics')?'analytics':p.endsWith('/utils/splashTarget')?'navigation':null;return k?{path:k,namespace:'boundary'}:null;});
   b.onLoad({filter:/.*/,namespace:'boundary'},a=>({contents:mocks[a.path],loader:'js'}));
  }}]});return import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
 }
 const {default:RequireAuth}=await compile('src/components/RequireAuth.tsx');
 let failed=0,total=0;
 async function test(id,fn){total++;try{reset();await fn();console.log('PASS '+id);}catch(e){failed++;console.error('FAIL '+id+': '+e.message);}finally{for(const fn of h.cleanup)fn?.();}}
-function reset(){values.clear();Object.assign(h,{bookingId:42,status:'unavailable',lang:'ru',readFail:false,writeFail:false,failKey:null,getHook:null,setHook:null,renders:0,retries:0,cleanup:[]});navigator.onLine=false;values.set('yuldash.token','local-fixture-token');values.set('yuldash.session','session-A');}
+function reset(){values.clear();Object.assign(h,{bookingId:42,status:'unavailable',lang:'ru',readFail:false,writeFail:false,failKey:null,getHook:null,setHook:null,renders:0,retries:0,cleanup:[],splashStates:[],splashStateIndex:null,navigation:[]});navigator.onLine=false;values.set('yuldash.token',tokenFor(7));values.set('yuldash.session','session-A');}
 const expand=n=>Array.isArray(n)?n.map(expand):n&&typeof n==='object'?typeof n.type==='function'?expand(n.type(n.props)):{...n,props:{...n.props,children:expand(n.props?.children)}}:n;
 const text=n=>n==null||n===false?'':Array.isArray(n)?n.map(text).join(''):typeof n==='object'?text(n.props?.children):String(n);
 for(const lang of ['ru','ba'])await test('F07-gate-'+lang,()=>{h.lang=lang;const t=text(expand(RequireAuth({children:'PRIVATE',unavailableContent:'SAVED ONLY'})));assert(t.includes('SAVED ONLY'));assert(!t.includes('PRIVATE'));});
 // Initial RED runs just the existing auth gate; later runs exercise the new production loader/UI too.
 if (!process.argv.includes('--gate-only')) {
- const {saveVerifiedTripPass,loadOfflineTripPass}=await compile('src/utils/offlineTripPass.ts');
+ const {saveVerifiedTripPass,loadOfflineTripPass,listOfflineTripOptions}=await compile('src/utils/offlineTripPass.ts');
  const {default:Fallback}=await compile('src/components/OfflineTripFallback.tsx');
  const {default:PassCard}=await compile('src/components/OfflineTripPass.tsx');
  const {clearTripPassBoardingCode,dropTripPass}=await compile('src/utils/tripPass.ts');
@@ -94,7 +98,7 @@ if (!process.argv.includes('--gate-only')) {
    save();
    const late=readList(()=>{
      values.set('yuldash.session','session-B');
-     values.set('yuldash.token','fixture-b');
+     values.set('yuldash.token',tokenFor(8));
      saveVerifiedTripPass({...pass,driverName:'B'},8,'session-B');
      return [{id:42,status:'cancelled'}];
    });
@@ -104,7 +108,7 @@ if (!process.argv.includes('--gate-only')) {
  await test('F07-token-rotation-keeps-list-terminal-result',async()=>{
    save();
    await readList(()=>{
-     values.set('yuldash.token','rotated-a');
+     values.set('yuldash.token',tokenFor(7)+'-rotated');
      return [{id:42,status:'done'}];
    });
    assert.equal(loadOfflineTripPass(42),null);
@@ -127,6 +131,90 @@ if (!process.argv.includes('--gate-only')) {
    },request.signal),error=>error.name==='AbortError');
    assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');
  });
+
+ const {default:Splash}=await compile('src/screens/SplashScreen.tsx');
+ const showSplash=()=>{
+   h.splashStateIndex=0;
+   return expand(Splash());
+ };
+ const findButton=(tree,label)=>{
+   if(Array.isArray(tree)) return tree.map(node=>findButton(node,label)).find(Boolean);
+   if(!tree || typeof tree!=='object') return;
+   if(tree.type==='button' && text(tree)===label) return tree;
+   return findButton(tree.props?.children,label);
+ };
+ await test('START-offline-only-owned-choices',()=>{
+   save();
+   assert.deepEqual(listOfflineTripOptions(),{generation:'session-A',trips:[{
+     bookingId:42,fromCity:pass.fromCity,toCity:pass.toCity,departAt:pass.departAt
+   }]});
+   const splash=showSplash();
+   assert(findButton(splash,'Открыть сохранённую поездку'));
+   assert(!text(splash).includes(pass.fromCity));
+   assert(!text(splash).includes(pass.boardingCode));
+   findButton(splash,'Открыть сохранённую поездку').props.onClick();
+   assert.deepEqual(h.navigation,['/trip/42']);
+ });
+ await test('START-online-unavailable-has-only-retry',()=>{
+   save();navigator.onLine=true;
+   const splash=showSplash();
+   assert(findButton(splash,'Повторить'));
+   assert(!findButton(splash,'Открыть сохранённую поездку'));
+ });
+ await test('START-multiple-shows-route-only-after-expanding',()=>{
+   save();
+   saveVerifiedTripPass({...pass,bookingId:43,fromCity:'Кумертау'},7,'session-A');
+   const collapsed=showSplash();
+   const toggle=findButton(collapsed,'Сохранённые поездки');
+   assert(toggle && !toggle.props['aria-expanded']);
+   assert(!text(collapsed).includes(pass.fromCity));
+   toggle.props.onClick();
+   const expanded=showSplash(), rendered=text(expanded);
+   assert(rendered.includes('Кумертау → Сибай') && rendered.includes('Уфа → Сибай'));
+   for(const privateValue of [pass.driverPhone,pass.boardingCode,pass.pickup,pass.driverPlate]) assert(!rendered.includes(privateValue));
+ });
+ await test('START-stale-click-cannot-open-after-cancellation',()=>{
+   save();
+   const action=findButton(showSplash(),'Открыть сохранённую поездку');
+   dropTripPass(42,'session-A');
+   action.props.onClick();
+   assert.deepEqual(h.navigation,[]);
+   assert.deepEqual(listOfflineTripOptions()?.trips,[]);
+ });
+ await test('START-stale-click-cannot-open-after-network-recovery',()=>{
+   save();
+   const action=findButton(showSplash(),'Открыть сохранённую поездку');
+   navigator.onLine=true;
+   action.props.onClick();
+   assert.deepEqual(h.navigation,[]);
+ });
+ await test('START-cannot-discover-another-account-even-with-paired-snapshot',()=>{
+   save();
+   values.set('yuldash.token',tokenFor(8));
+   assert.equal(loadOfflineTripPass(42),null);
+   assert.deepEqual(listOfflineTripOptions()?.trips,[]);
+   assert(!findButton(showSplash(),'Открыть сохранённую поездку'));
+ });
+ await test('START-same-owner-new-session-does-not-reuse-old-choice',()=>{
+   save();
+   const action=findButton(showSplash(),'Открыть сохранённую поездку');
+   values.set('yuldash.session','session-B');
+   saveVerifiedTripPass(pass,7,'session-B');
+   action.props.onClick();
+   assert.deepEqual(h.navigation,[]);
+   assert(findButton(showSplash(),'Открыть сохранённую поездку'));
+ });
+ await test('START-ignores-trip-with-in-transit-cancellation',()=>{
+   save();
+   cancellation.rememberInTransitCancel(42,7,'session-A');
+   assert.deepEqual(listOfflineTripOptions()?.trips,[]);
+ });
+ await test('START-list-closes-if-session-changes-during-enumeration',()=>{
+   save();
+   h.getHook=k=>{if(k===owner){h.getHook=null;values.set('yuldash.session','session-B');}};
+   assert.equal(listOfflineTripOptions(),null);
+ });
+
  await test('F07-store-own',()=>{save();assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');assert.equal(loadOfflineTripPass(42)?.ownerId,7);});
  for(const [id,mutate] of [
   ['legacy',()=>edit(key,p=>{delete p.ownerId;delete p.sessionGeneration;return p;})],
@@ -144,13 +232,13 @@ if (!process.argv.includes('--gate-only')) {
  await test('F07-no-pass',()=>assert.equal(loadOfflineTripPass(42),null));
  await test('F07-invalid-route',()=>{save();for(const id of [0,-1,NaN,Infinity,42.5])assert.equal(loadOfflineTripPass(id),null);});
  await test('F07-late-A-save-preserves-B',()=>{save();values.set('yuldash.session','session-B');const before=[...values];saveVerifiedTripPass({...pass,driverName:'LATE A'},7,'session-A');assert.deepEqual([...values],before);assert.equal(loadOfflineTripPass(42),null);});
- await test('F07-new-B-cannot-retag-A',()=>{save();values.set('yuldash.session','session-B');saveVerifiedTripPass({...pass,bookingId:43},8,'session-B');assert.equal(loadOfflineTripPass(42),null);assert.equal(loadOfflineTripPass(43)?.ownerId,8);});
+ await test('F07-new-B-cannot-retag-A',()=>{save();values.set('yuldash.session','session-B');values.set('yuldash.token',tokenFor(8));saveVerifiedTripPass({...pass,bookingId:43},8,'session-B');assert.equal(loadOfflineTripPass(42),null);assert.equal(loadOfflineTripPass(43)?.ownerId,8);});
  await test('F07-invalid-save-owner',()=>{for(const id of [undefined,0,-1,NaN,1.5])saveVerifiedTripPass(pass,id,'session-A');assert.equal(values.has(key),false);});
  await test('F07-storage-write-failure',()=>{h.writeFail=true;assert.doesNotThrow(save);assert.equal(loadOfflineTripPass(42),null);});
  await test('F07-marker-write-failure',()=>{h.failKey=owner;save();assert(values.has(key));assert.equal(loadOfflineTripPass(42),null);});
  await test('F07-new-pass-old-marker-mismatch',()=>{save();h.failKey=owner;saveVerifiedTripPass({...pass,boardingCode:'NEW'},7,'session-A');assert.equal(loadOfflineTripPass(42),null);});
  await test('F07-failed-pass-write-preserves-prior-complete-pair',()=>{save();const before=[...values];h.failKey=key;saveVerifiedTripPass({...pass,boardingCode:'NEW'},7,'session-A');assert.deepEqual([...values],before);assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');});
- for(const boundary of [key,owner])await test('F07-interleaved-B-during-'+boundary,()=>{h.setHook=k=>{if(k!==boundary)return;h.setHook=null;values.set('yuldash.session','session-B');saveVerifiedTripPass({...pass,driverName:'B'},8,'session-B');};save();assert.equal(loadOfflineTripPass(42)?.ownerId,8);assert.equal(loadOfflineTripPass(42)?.driverName,'B');});
+ for(const boundary of [key,owner])await test('F07-interleaved-B-during-'+boundary,()=>{h.setHook=k=>{if(k!==boundary)return;h.setHook=null;values.set('yuldash.session','session-B');values.set('yuldash.token',tokenFor(8));saveVerifiedTripPass({...pass,driverName:'B'},8,'session-B');};save();assert.equal(loadOfflineTripPass(42)?.ownerId,8);assert.equal(loadOfflineTripPass(42)?.driverName,'B');});
  await test('F07-token-disappears-during-read',()=>{save();h.getHook=k=>{if(k===owner){h.getHook=null;values.delete('yuldash.token');}};assert.equal(loadOfflineTripPass(42),null);});
  await test('F07-same-owner-new-login-still-closed',()=>{save();values.set('yuldash.session','new-login-of-same-user');assert.equal(loadOfflineTripPass(42),null);});
  await test('F07-onboard-code-stays-cleared',()=>{save();clearTripPassBoardingCode(42);assert.equal(loadOfflineTripPass(42)?.boardingCode,'');assert.equal(loadOfflineTripPass(42)?.driverPlate,'QA001');});

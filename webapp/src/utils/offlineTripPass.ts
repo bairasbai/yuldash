@@ -1,5 +1,6 @@
 import { storageOperation, offlineStorageTrusted } from "./storageHealth";
-import { getSessionGeneration, getToken } from "../api/client";
+import { getSessionGeneration, getToken, isAccountSession } from "../api/client";
+import { hasOfflineInTransitCancel } from "./inTransitCancel";
 import { tripPassStage, type TripPass } from "./tripPass";
 
 const passKey = (id: number) => `yuldash.tripPass.${id}`;
@@ -51,11 +52,39 @@ export function loadOfflineTripPass(bookingId: number): TripPass | null {
     if (pass.payMethod !== undefined && !["cash", "sbp", "negotiate"].includes(pass.payMethod)) return null;
     if ([pass.pickupStop, pass.dropoffStop].some(value => value != null && typeof value !== "string") ||
       (pass.rideHasStops !== undefined && typeof pass.rideHasStops !== "boolean")) return null;
-    if (getToken() !== token || getSessionGeneration() !== generation ||
+    if (!isAccountSession({ userId: pass.ownerId, generation }) || getToken() !== token || getSessionGeneration() !== generation ||
       storageOperation(() => localStorage.getItem(ownerKey(bookingId))) !== ownerRaw || storageOperation(() => localStorage.getItem(passKey(bookingId))) !== raw) return null;
     const stage = tripPassStage(bookingId, generation);
-    if (stage === "terminal") return null;
+    if (stage === "terminal" || getToken() !== token || getSessionGeneration() !== generation) return null;
     return stage === "onboard" ? { ...pass, boardingCode: "" } : pass;
+  } catch {
+    return null;
+  }
+}
+
+export type OfflineTripOption = Pick<TripPass, "bookingId" | "fromCity" | "toCity" | "departAt">;
+
+/** The start screen gets only selection metadata from snapshots it can actually open. */
+export function listOfflineTripOptions(): { generation: string; trips: OfflineTripOption[] } | null {
+  if (!offlineStorageTrusted()) return null;
+  try {
+    const token = getToken(), generation = getSessionGeneration();
+    if (!token || !generation) return null;
+    const keys = storageOperation(() => Array.from({ length: localStorage.length }, (_, i) => localStorage.key(i)));
+    const trips: Array<OfflineTripOption & { savedAt: number }> = [];
+    for (const key of keys) {
+      const match = key?.match(/^yuldash\.tripPass\.([1-9]\d*)$/);
+      if (!match) continue;
+      const id = Number(match[1]);
+      if (!positiveId(id) || hasOfflineInTransitCancel(id)) continue;
+      const pass = loadOfflineTripPass(id);
+      if (!pass || pass.sessionGeneration !== generation) continue;
+      const { bookingId, fromCity, toCity, departAt, savedAt } = pass;
+      trips.push({ bookingId, fromCity, toCity, departAt, savedAt });
+    }
+    if (getToken() !== token || getSessionGeneration() !== generation || !offlineStorageTrusted()) return null;
+    trips.sort((a, b) => b.savedAt - a.savedAt || b.bookingId - a.bookingId);
+    return { generation, trips: trips.map(({ bookingId, fromCity, toCity, departAt }) => ({ bookingId, fromCity, toCity, departAt })) };
   } catch {
     return null;
   }

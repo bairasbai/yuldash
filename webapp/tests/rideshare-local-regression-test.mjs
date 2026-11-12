@@ -18,7 +18,7 @@ const passModule = await build({ entryPoints: [new URL('../src/utils/tripPass.ts
 h.passStorage = await import('data:text/javascript;base64,' + Buffer.from(passModule.outputFiles[0].text).toString('base64'));
 const ownedPassModule = await build({ entryPoints: [new URL('../src/utils/offlineTripPass.ts', import.meta.url).pathname.replace(/^\/(\w:)/, '$1')], bundle: true, write: false, format: 'esm', platform: 'node', plugins: [{ name: 'session-boundary', setup(b) {
   b.onResolve({ filter: /api\/client$/ }, () => ({ path: 'client', namespace: 'session' }));
-  b.onLoad({ filter: /.*/, namespace: 'session' }, () => ({ contents: `export const getToken=()=>'fixture',getSessionGeneration=()=>globalThis.__rideshareLocal.generation;` }));
+  b.onLoad({ filter: /.*/, namespace: 'session' }, () => ({ contents: `export const getToken=()=>'fixture',getSessionGeneration=()=>globalThis.__rideshareLocal.generation,isAccountSession=({generation,userId})=>generation===getSessionGeneration()&&userId===globalThis.__rideshareLocal.userId;` }));
 } }] });
 h.ownedPassStorage = await import('data:text/javascript;base64,' + Buffer.from(ownedPassModule.outputFiles[0].text).toString('base64'));
 h.detailsSync = await import('../src/utils/tripDetailsSync.js');

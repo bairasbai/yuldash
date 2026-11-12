@@ -769,6 +769,24 @@
   outline: 2px solid var(--on-accent);
   outline-offset: 4px;
 }
+
+.splash__trip-options {
+  display: grid;
+  gap: var(--space-sm);
+  inline-size: min(100%, 24rem);
+}
+.splash__trip-options button {
+  display: grid;
+  justify-items: center;
+  align-content: center;
+  gap: var(--space-xs);
+  padding-block: var(--space-sm);
+  overflow-wrap: anywhere;
+}
+.splash__trip-options small {
+  font-size: var(--font-caption);
+}
+
 @keyframes floaty {
   0%, 100% {
     transform: translateY(0);
