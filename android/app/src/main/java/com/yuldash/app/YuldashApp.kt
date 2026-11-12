@@ -76,6 +76,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -254,6 +255,7 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
@@ -641,6 +643,7 @@ private fun YuldashAppContent() {
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
     // Отличает два запроса того же public id: старый callback не управляет новой ошибкой.
     var publicLinkAttempt by remember { mutableIntStateOf(0) }
+    var failedPublicRecovery by remember { mutableStateOf<(() -> Boolean)?>(null) }
     LaunchedEffect(navigationRevision) {
         if (failedRideLink != null && failedCompletedRevision != null && failedCompletedRevision != vm.privateNavigationRevision) {
             failedRideLink = null
@@ -677,6 +680,7 @@ private fun YuldashAppContent() {
         val requestedAttempt = ++publicLinkAttempt
         failedRideLink = null
         failedBookingDestination = null
+        failedPublicRecovery = null
         val result = ApiClient.getRide(rideId)
         // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
         ApiClient.runIfUnchangedSession(requestedSession) {
@@ -694,6 +698,11 @@ private fun YuldashAppContent() {
                 rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
                 failedBookingDestination = null
                 failedCompletedRevision = requestedRevision
+                failedPublicRecovery = {
+                    ApiClient.isCurrentSession(requestedSession) && vm.screen.value == requestedScreen &&
+                        vm.privateNavigationRevision == requestedRevision && publicLinkAttempt == requestedAttempt &&
+                        failedRideLink == rideId
+                }
                 failedRideLink = rideId
             }
         }
@@ -705,16 +714,27 @@ private fun YuldashAppContent() {
         val failedKind = failedBookingDestination
         val failedOwner = failedCompletedOwner
         val failedRevision = if (failedKind == null) failedCompletedRevision ?: vm.privateNavigationRevision else failedCompletedRevision
-        val failedSession = ApiClient.queueSessionGeneration()
+        val failedSession = navigationSession
         val failedScreen = screen
         val failedPublicAttempt = publicLinkAttempt
+        val publicFailureGuard = failedPublicRecovery
         fun isDisplayedFailureCurrent() = appScope.isActive && failedRideLink == rideId && failedBookingDestination == failedKind &&
             vm.screen.value == failedScreen && (if (failedKind == null)
                 vm.privateNavigationRevision == failedRevision && publicLinkAttempt == failedPublicAttempt
             else failedCompletedRevision == failedRevision)
+        fun isPublicRecoveryCurrent() = failedKind == null && isDisplayedFailureCurrent() &&
+            failedPublicRecovery === publicFailureGuard && publicFailureGuard?.invoke() == true &&
+            ApiClient.isCurrentSession(failedSession) && vm.pendingPublicRideNavigation.value == null &&
+            vm.pendingBookingNavigation.value == null && vm.pendingScreenNavigation.value == null
+        val linkRecovery = if (isPublicRecoveryCurrent()) key(rideId, failedPublicAttempt, failedSession) {
+            rememberBookingRecovery(rideId, failedSession, ::isPublicRecoveryCurrent)
+        } else null
         fun closeDisplayedFailure() {
             ApiClient.runIfUnchangedSession(failedSession) {
-                if (isDisplayedFailureCurrent()) failedRideLink = null
+                if (isDisplayedFailureCurrent()) {
+                    if (failedKind == null) failedPublicRecovery = null
+                    failedRideLink = null
+                }
             }
         }
         val tagPrefix = if (failedKind == null) "rideLink" else "bookingLink"
@@ -729,9 +749,22 @@ private fun YuldashAppContent() {
             title = { Text(if (rideLinkUnavailable)
                 appText("Поездка недоступна", "Сәфәрҙе асып булмай")
             else appText("Не получилось открыть поездку", "Сәфәрҙе асып булманы")) },
-            text = { Text(if (rideLinkUnavailable)
-                appText("Поездка удалена или доступ к ней закрыт.", "Сәфәр юйылған йәки уға инеү рөхсәте юҡ.")
-            else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла.")) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                    Text(if (rideLinkUnavailable)
+                        appText("Поездка удалена или доступ к ней закрыт.", "Сәфәр юйылған йәки уға инеү рөхсәте юҡ.")
+                    else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла."))
+                    if (linkRecovery?.slot != null || linkRecovery?.problem != null) {
+                        BookingRecoveryActions(checkNotNull(linkRecovery), busy = bookingInFlight,
+                            isCurrent = ::isPublicRecoveryCurrent, onOpen = { booking ->
+                                if (isPublicRecoveryCurrent()) {
+                                    closeDisplayedFailure()
+                                    vm.requestBookingDestination(booking.id, ApiClient.myUserId(), completed = booking.status == "done")
+                                }
+                            })
+                    }
+                }
+            },
             confirmButton = {
                 if (rideLinkUnavailable) {
                     TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { closeDisplayedFailure() }) {
@@ -1327,12 +1360,44 @@ private fun YuldashAppContent() {
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
                 var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
                 val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession)
-                val recovery = rememberBookingRecovery(displayedRide?.id?.toIntOrNull().takeIf { displayedBookingId == null }, displayedSession, ::isDisplayedBookingCurrent)
+                val recovery = key(displayedRevision) {
+                    rememberBookingRecovery(displayedRide?.id?.toIntOrNull().takeIf { displayedBookingId == null },
+                        displayedSession, ::isDisplayedBookingCurrent)
+                }
+                var refreshBookingTerms by remember(displayedRevision) { mutableIntStateOf(0) }
+                LaunchedEffect(recovery, recovery.needsFreshTerms, recovery.loading, refreshBookingTerms) {
+                    val ride = displayedRide ?: return@LaunchedEffect
+                    val rideId = ride.id.toIntOrNull() ?: return@LaunchedEffect
+                    if (!recovery.needsFreshTerms || recovery.loading || !isDisplayedBookingCurrent()) return@LaunchedEffect
+                    recovery.refreshingTerms = true
+                    try {
+                        ApiClient.getRide(rideId).onSuccess { fresh ->
+                            if (isActive && isDisplayedBookingCurrent()) ApiClient.runIfCurrentSession(displayedSession) {
+                                if (isDisplayedBookingCurrent()) {
+                                    val updatedRide = fresh.toUiRide().withRouteHints(ride)
+                                    if (routePlaces(ride) != routePlaces(updatedRide)) {
+                                        meetingDraft.meeting = null
+                                        meetingDraft.alighting = null
+                                        if (!segmentReady(updatedRide, meetingDraft.pickup, meetingDraft.dropoff)) {
+                                            meetingDraft.pickup = initialPickupStop(updatedRide)
+                                            meetingDraft.dropoff = initialDropoffStop(updatedRide)
+                                        }
+                                    }
+                                    selectedRide = updatedRide
+                                    recovery.freshTermsShown()
+                                }
+                            }
+                        }
+                    } finally {
+                        recovery.refreshingTerms = false
+                    }
+                }
                 key(displayedRide, displayedBookingId, displayedSession, displayedOwner, displayedRevision) {
                     BookingScreen(
                     ride = selectedRide ?: rides.firstOrNull(),
                     bookingId = activeBookingId,
                     recovery = recovery, onOpenRecoveredBooking = { vm.requestBookingDestination(it.id, ApiClient.myUserId(), completed = it.status == "done") },
+                    onRefreshBookingTerms = { refreshBookingTerms++ },
                     isCurrentParent = { isDisplayedBookingUnchanged() },
                     ads = partnerAds,
                     adStats = adStats,
@@ -1380,17 +1445,26 @@ private fun YuldashAppContent() {
                             }
                         } else {
                             val rid = bookingRideIdOrNotify(displayedRide, context, language)
-                            if (rid != null && !bookingInFlight && recovery.canSubmit && displayedRide != null && selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) && segmentReady(displayedRide, pickupStop, dropoffStop)) {
+                            val original = recovery.preparedRetry?.takeIf { it.rideId == rid }
+                            if (rid != null && !bookingInFlight && recovery.canSubmit && displayedRide != null &&
+                                !rideCategoryClosed(displayedRide.category) && (original != null ||
+                                    (selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) &&
+                                        segmentReady(displayedRide, pickupStop, dropoffStop)))) {
                                 bookingInFlight = true
                                 appScope.launch {
                                     try {
                                         if (!isDisplayedBookingCurrent()) return@launch
-                                        val result = ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop,
+                                        var prepared: PreparedBookingRequest? = null
+                                        val result = if (original != null) {
+                                            BookingCommandApi.repeatPrepared(
+                                                rid, original.wireBody, displayedSession, original.key)
+                                        } else ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop,
                                             // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
                                             expectedPrice = segmentPriceRub(displayedRide, pickupStop, dropoffStop) ?: displayedRide.price,
                                             expectedTermsVersion = displayedRide.termsVersion,
                                             meeting = meetPickup, alighting = meetDropoff, expectedGeneration = displayedSession,
-                                            previousKey = recovery.slot?.key, retry = recovery.retry)
+                                            previousKey = recovery.slot?.key, retry = recovery.retry,
+                                            onPrepared = { key, body -> prepared = PreparedBookingRequest(rid, key, body) })
                                         if (!isDisplayedBookingCurrent()) return@launch
                                         ApiClient.runIfCurrentSession(displayedSession) {
                                             result.onSuccess { booking ->
@@ -1401,13 +1475,7 @@ private fun YuldashAppContent() {
                                                     screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
                                                 }
                                             }.onFailure { e ->
-                                                recovery.failed(e)
-                                                // Условия уехали (цена/места/маршрут): перечитываем поездку, человек подтверждает уже НОВЫЕ условия (RS-02 В).
-                                                if (recovery.rejectionCode in setOf("price_changed", "ride_terms_changed")) appScope.launch {
-                                                    ApiClient.getRide(rid).onSuccess { fresh ->
-                                                        if (isDisplayedBookingUnchanged()) vm.navigateLocally { selectedRide = fresh.toUiRide().withRouteHints(displayedRide) }
-                                                    }
-                                                }
+                                                recovery.failed(e, prepared)
                                             }
                                         }
                                     } finally { bookingInFlight = false }

@@ -78,16 +78,16 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 207,
+    "android_main": 209,
     "backend_main": 109,
     "infra_resource_config": 407,
     "public_site_promo": 91,
     "pwa_main": 334,
-    "test_support": 1304
+    "test_support": 1305
   },
   "counts_by_block": {
     "B01": 169,
-    "B02": 308,
+    "B02": 311,
     "B03": 123,
     "B04": 80,
     "B05": 62,
@@ -846,8 +846,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "1df3dc98047fc5a8f1789d6ec3d566337f4b7b200f4cfe69fcd12c473d26922a",
-      "lines": 3537
+      "sha256": "aa69311f0d5745af8f9c764803fa67f0f1bffece608a67bd8ac0d0c1dfdc8d1d",
+      "lines": 3516
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "194b52d9086a0a737adefbc9faf128a63c3bc8c7ae4f6d189302a526ef5734ec",
+      "lines": 267
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingDecisionCards.kt",
@@ -1854,8 +1861,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "ad0c557acc4b43ff0ab8e80ab5f7deb62016e7aebfae55db82e47e1a08317a31",
-      "lines": 2790
+      "sha256": "d8055d1100ede449707638f1be06732c01e17c3b65c4484c9ef3e6a21533daf6",
+      "lines": 2834
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1882,8 +1889,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "dbb889691080c3245c5955d08311a1a5bbacb0befe7a3f5a3d7b2a67d113f8a8",
-      "lines": 7822
+      "sha256": "0d5eda61efe3e7bd4629e733ead77091c43b860deb3e1fc995d2020123e14ddd",
+      "lines": 7819
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1898,6 +1905,13 @@
       "block": "B09",
       "sha256": "02d2fdf9f19b3cb52fbaa56a5b4ed28db75aa5e27f7fcdec74b98dc509e6e079",
       "lines": 92
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/BookingCommandApi.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "c6a50bfa11b313d265ea7e3101f61240af5777d73805f7b7a9e949c7d47c0ff6",
+      "lines": 238
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/BookingDtos.kt",
@@ -5174,6 +5188,13 @@
       "block": "B09",
       "sha256": "b3361cfc71aea96d6f9695dcb2f6c4080788de7a4ef392f5acf3054356c3aef6",
       "lines": 85
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/BookingCommandApiTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "3c4f1fd7f31d18ec30313d17c22fbd98a07843b20b7d4366bd3bf1b1cb19ebfb",
+      "lines": 230
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/BookingCreationResponseTest.kt",

@@ -1,5 +1,7 @@
 package com.yuldash.app.data
 
+import com.yuldash.app.BookingRecoveryState
+import com.yuldash.app.PreparedBookingRequest
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.CountDownLatch
 import kotlinx.coroutines.Dispatchers
@@ -85,6 +87,53 @@ class BookingCommandApiTest {
         assertEquals("/command-intents/${saved.key}/close", close.path)
         assertEquals(saved.hash, JSONObject(close.body.readUtf8()).getString("payload_hash"))
         assertEquals(CommandIntent.State.Closed, slot().state)
+    }
+
+    @Test fun preparedRetryReusesItsBodyAndCannotAttachAnotherFormToTheKey() = runBlocking {
+        var prepared: PreparedBookingRequest? = null
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        val failure = ApiClient.bookWithStatus(73, 2, pickupStop = "Өфө", dropoffStop = "Мәләүез",
+            expectedTermsVersion = 4, onPrepared = { key, body -> prepared = PreparedBookingRequest(73, key, body) })
+            .exceptionOrNull() as CommandIntent.Failure
+        assertEquals("/me", request().path)
+        val sent = request()
+        val original = checkNotNull(prepared)
+        val recovery = BookingRecoveryState(generation())
+        recovery.failed(failure, original)
+        assertSame(original, recovery.preparedRetry)
+        assertEquals(original.key, sent.getHeader("Idempotency-Key"))
+        assertEquals(original.wireBody, sent.body.readUtf8())
+
+        val conflict = ApiClient.bookWithStatus(73, 1, pickupStop = "Сибай",
+            onPrepared = { _, _ -> fail("Another form cannot prepare an existing key") })
+        assertTrue(conflict.isFailure)
+        assertEquals(2, server.requestCount)
+        val otherForm = BookingRecoveryState(generation())
+        otherForm.failed(checkNotNull(conflict.exceptionOrNull()))
+        assertNull(otherForm.preparedRetry)
+        otherForm.failed(failure, PreparedBookingRequest(73, "different-key", original.wireBody))
+        assertNull(otherForm.preparedRetry)
+
+        server.enqueue(bookingCommandResponse(73, "pending"))
+        assertEquals("pending", BookingCommandApi.repeatPrepared(73, original.wireBody, generation(), original.key)
+            .getOrThrow().status)
+        val repeated = request()
+        assertEquals(original.key, repeated.getHeader("Idempotency-Key"))
+        assertEquals(original.wireBody, repeated.body.readUtf8())
+        recovery.apply(BookingCommandOutcome(CommandIntent.State.Applied))
+        assertNull(recovery.preparedRetry)
+
+        val staleTerms = BookingRecoveryState(generation())
+        staleTerms.failed(failure, original)
+        staleTerms.apply(BookingCommandOutcome(CommandIntent.State.Rejected, rejectionCode = "ride_terms_changed"))
+        assertFalse(staleTerms.canSubmit)
+        assertNull(staleTerms.preparedRetry)
+        val reopened = BookingRecoveryState(generation())
+        reopened.slot = failure.slot?.copy(state = CommandIntent.State.Rejected)
+        reopened.apply(BookingCommandOutcome(CommandIntent.State.Rejected, rejectionCode = "price_changed"))
+        assertFalse(reopened.canSubmit)
+        reopened.freshTermsShown()
+        assertTrue(reopened.canSubmit)
     }
 
     @Test fun deletionConfirmationPurgesOriginalAccountEvenWhenAnotherLogsIn() = runBlocking {

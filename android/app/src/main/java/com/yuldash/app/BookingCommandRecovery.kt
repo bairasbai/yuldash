@@ -25,6 +25,9 @@ import com.yuldash.app.data.BookingCommandOutcome
 import com.yuldash.app.data.BookingCreatedDto
 import com.yuldash.app.data.CommandIntent
 import kotlinx.coroutines.launch
+import org.json.JSONObject
+
+internal class PreparedBookingRequest(val rideId: Int, val key: String, val wireBody: String)
 
 internal class BookingRecoveryState(val generation: Long) {
     var slot by mutableStateOf<CommandIntent.Slot?>(null)
@@ -32,26 +35,59 @@ internal class BookingRecoveryState(val generation: Long) {
     var outcome by mutableStateOf<BookingCommandOutcome?>(null)
     var problem by mutableStateOf<CommandIntent.Problem?>(null)
     var rejectionCode by mutableStateOf<String?>(null)
+    var needsFreshTerms by mutableStateOf(false)
+        private set
+    var refreshingTerms by mutableStateOf(false)
     private var existingBooking by mutableStateOf<BookingCreatedDto?>(null)
+    private var preparedRequest by mutableStateOf<PreparedBookingRequest?>(null)
     val knownBooking: BookingCreatedDto? get() = outcome?.booking ?: existingBooking
     val retry: Boolean get() = slot?.state == CommandIntent.State.Unknown
-    val canSubmit: Boolean get() = !loading && knownBooking?.status.let { it == null || it == "cancelled" }
+    val preparedRetry: PreparedBookingRequest? get() =
+        preparedRequest?.takeIf { retry && slot?.key == it.key && slot?.rideId == it.rideId }
+    val canSubmit: Boolean get() = !loading && !needsFreshTerms && knownBooking?.status.let { it == null || it == "cancelled" }
 
     fun apply(result: BookingCommandOutcome) {
+        if (result.state == CommandIntent.State.Rejected) requireFreshTerms(result.rejectionCode)
         outcome = result
         problem = null
         slot = slot?.copy(state = result.state)
+        if (!retry) preparedRequest = null
     }
 
-    fun failed(error: Throwable) {
+    fun failed(error: Throwable, prepared: PreparedBookingRequest? = null) {
         if (error !is CommandIntent.Failure) {
             problem = CommandIntent.Problem.Unknown
             return
         }
-        if (error.slot != null) slot = error.slot
+        val failedSlot = error.slot
+        if (failedSlot != null || error.problem == CommandIntent.Problem.Superseded) slot = failedSlot
+        if (error.problem == CommandIntent.Problem.Superseded) {
+            existingBooking = null
+            outcome = null
+        }
         problem = error.problem
         rejectionCode = error.rejectionCode
+        if (error.problem == CommandIntent.Problem.Rejected) requireFreshTerms(error.rejectionCode)
+        // Only the form that prepared this key can retain its body, and only in memory.
+        if (error.problem == CommandIntent.Problem.Unknown && prepared != null && failedSlot != null &&
+            failedSlot.key == prepared.key && failedSlot.rideId == prepared.rideId && retry) {
+            preparedRequest = prepared
+        } else if (error.problem != CommandIntent.Problem.Unknown || preparedRetry == null) {
+            preparedRequest = null
+        }
         if (error.existingBooking != null) existingBooking = error.existingBooking
+    }
+
+    private fun requireFreshTerms(code: String?) {
+        if (code == "price_changed" || code == "ride_terms_changed") requireFreshTerms()
+    }
+
+    fun requireFreshTerms() {
+        needsFreshTerms = true
+    }
+
+    fun freshTermsShown() {
+        needsFreshTerms = false
     }
 }
 
@@ -73,8 +109,13 @@ internal fun rememberBookingRecovery(rideId: Int?, generation: Long, current: ()
             if (!currentScreen()) return@LaunchedEffect
             state.slot = saved
             if (saved?.state in setOf(CommandIntent.State.Unknown, CommandIntent.State.Applied, CommandIntent.State.Rejected)) {
-                val result = BookingCommandApi.reconcileBookingCommand(generation, checkNotNull(saved), close = false)
-                if (currentScreen()) result.onSuccess(state::apply).onFailure(state::failed)
+                val command = checkNotNull(saved)
+                val result = BookingCommandApi.reconcileBookingCommand(generation, command, close = false)
+                if (currentScreen()) result.onSuccess(state::apply).onFailure {
+                    state.failed(it)
+                    // An unverified refusal can still be about stale price or route terms.
+                    if (command.state == CommandIntent.State.Rejected) state.requireFreshTerms()
+                }
             }
         } finally { state.loading = false }
     }
@@ -84,19 +125,31 @@ internal fun rememberBookingRecovery(rideId: Int?, generation: Long, current: ()
 @Composable
 internal fun BookingRecoveryActions(
     state: BookingRecoveryState, busy: Boolean, onOpen: (BookingCreatedDto) -> Unit,
+    isCurrent: () -> Boolean = { true },
+    onRefreshTerms: (() -> Unit)? = null,
     afterCheck: suspend (BookingCommandOutcome?) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
+    val current by rememberUpdatedState(isCurrent)
     val slot = state.slot
+    val prepared = state.preparedRetry
+    val originalSelection = remember(prepared) {
+        prepared?.let {
+            val payload = JSONObject(it.wireBody)
+            val stops = listOf(payload.optString("pickup_stop"), payload.optString("dropoff_stop"))
+            payload.optInt("seats") to stops.filter(String::isNotBlank).joinToString(" → ")
+        }
+    }
+    fun active() = current() && ApiClient.isCurrentSession(state.generation)
     fun check(close: Boolean) {
-        if (slot == null || state.loading || busy || !ApiClient.isCurrentSession(state.generation)) return
+        if (slot == null || state.loading || busy || !active()) return
         state.loading = true
         scope.launch {
             try {
                 val result = BookingCommandApi.reconcileBookingCommand(state.generation, slot, close)
-                    .onSuccess { if (ApiClient.isCurrentSession(state.generation)) state.apply(it) }
-                    .onFailure { if (ApiClient.isCurrentSession(state.generation)) state.problem = CommandIntent.Problem.Unknown }
-                if (ApiClient.isCurrentSession(state.generation)) afterCheck(result.getOrNull())
+                    .onSuccess { if (active()) state.apply(it) }
+                    .onFailure { if (active()) state.failed(it) }
+                if (active()) afterCheck(result.getOrNull())
             } finally { state.loading = false }
         }
     }
@@ -113,8 +166,18 @@ internal fun BookingRecoveryActions(
                 else -> null
             }
             if (message != null) Text(message, color = CanonText, style = CanonBody)
+            if (state.needsFreshTerms && onRefreshTerms != null) {
+                TextButton(onClick = { if (active()) onRefreshTerms() },
+                    modifier = Modifier.heightIn(min = 48.dp), enabled = !busy && !state.refreshingTerms) {
+                    Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen, style = CanonBody)
+                }
+            }
+            originalSelection?.let { (seats, route) ->
+                if (route.isNotBlank()) Text(route, color = CanonText, style = CanonBody)
+                Text(appText("Количество мест", "Урындар һаны") + " · " + seats, color = CanonText, style = CanonBody)
+            }
             state.knownBooking?.let { booking ->
-                TextButton(onClick = { ApiClient.runIfCurrentSession(state.generation) { onOpen(booking) } },
+                TextButton(onClick = { ApiClient.runIfCurrentSession(state.generation) { if (active()) onOpen(booking) } },
                     modifier = Modifier.heightIn(min = 48.dp), enabled = !busy && !state.loading) {
                     Text(appText("Открыть бронь", "Бронде асыу"), color = CanonGreen, style = CanonBody)
                 }

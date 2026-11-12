@@ -321,6 +321,7 @@ internal fun BookingScreen(
     meetPickup: MeetingPointInput? = null, onMeetPickupChange: (MeetingPointInput) -> Unit = {},
     meetDropoff: MeetingPointInput? = null, onMeetDropoffChange: (MeetingPointInput) -> Unit = {},
     recovery: BookingRecoveryState? = null, onOpenRecoveredBooking: (com.yuldash.app.data.BookingCreatedDto) -> Unit = {},
+    onRefreshBookingTerms: (() -> Unit)? = null,
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -475,8 +476,10 @@ internal fun BookingScreen(
     // не закрывают Булату Ургаза→Акъяр: seats_left=0, а на его звене места есть).
     val segmentSeats = bookableSeats(displayRide, pickupStop, dropoffStop)
     val canCreateBooking = bookingId == null && segmentSeats > 0
+    val canRepeatOriginal = bookingId == null && recovery?.preparedRetry != null
     val primaryLabel = when {
         bookingId == null && recovery?.knownBooking?.status?.let { it != "cancelled" } == true -> appText("Бронь найдена", "Бронь табылды")
+        canRepeatOriginal -> appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
         bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")
         bookingId == null && recovery?.retry == true -> appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
         bookingId == null && recovery?.outcome?.booking?.status == "cancelled" -> appText("Забронировать снова", "Яңынан бронларға")
@@ -486,7 +489,8 @@ internal fun BookingScreen(
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = if (bookingId == null) recovery?.canSubmit != false && canCreateBooking && canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)
+    val primaryEnabled = if (bookingId == null) !bookingBusy && recovery?.canSubmit != false &&
+        (canRepeatOriginal || (canCreateBooking && canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)))
         else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip) &&
             !(bookingPending && passengerCancellation?.blocked == true)
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
@@ -542,7 +546,7 @@ internal fun BookingScreen(
                 primaryIcon = primaryIcon,
                 onMessage = onMessage,
                 onPrimary = {
-                    if (bookingBusy || (bookingId == null && (selectedSeats !in 1..segmentSeats || rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop)))) return@BookingDecisionBar
+                    if (bookingBusy || (bookingId == null && (!primaryEnabled || rideCategoryClosed(ride.category)))) return@BookingDecisionBar
                     when {
                         bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
                             else showCancelConfirmation = true
@@ -675,11 +679,16 @@ internal fun BookingScreen(
                     )
                 }
             }
-            if (bookingId == null && recovery != null) item { BookingRecoveryActions(recovery, bookingBusy, onOpenRecoveredBooking) }
-            pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
-            bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
+            if (bookingId == null && recovery != null) item {
+                BookingRecoveryActions(recovery, bookingBusy, onOpenRecoveredBooking,
+                    isCurrent = ::isBookingDisplayCurrent, onRefreshTerms = onRefreshBookingTerms)
+            }
+            if (!canRepeatOriginal) {
+                pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
+                bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
+            }
             // RS-03 А: точное место по желанию — только при создании брони (смена потом — RS-03 Б).
-            if (ride != null && bookingId == null) {
+            if (ride != null && bookingId == null && !canRepeatOriginal) {
                 item {
                     BookingMeetingPoints(displayRide, pickupStop, dropoffStop,
                         meetPickup, onMeetPickupChange, meetDropoff, onMeetDropoffChange,
@@ -729,7 +738,7 @@ internal fun BookingScreen(
                     )
                 }
             }
-            item {
+            if (!canRepeatOriginal) item {
                 PayAgreementBlock(
                     editable = bookingId == null,
                     method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
@@ -739,8 +748,8 @@ internal fun BookingScreen(
                     onAmount = { payAmountText = it },
                 )
             }
-            frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)   // переднее место; ниже подросток: до брони форма со взрослым, после — пометка
-            if (bookingId == null) {
+            if (!canRepeatOriginal) frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)
+            if (bookingId == null && !canRepeatOriginal) {
                 item {
                     if (!ride.noMinors) {
                         MinorPassengerBlock(

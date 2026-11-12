@@ -1023,10 +1023,11 @@ object ApiClient {
         meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
         expectedGeneration: Long = queueSessionGeneration(),
         previousKey: String? = null, retry: Boolean = false,
+        onPrepared: ((String, String) -> Unit)? = null,
     ): Result<BookingCreatedDto> = BookingCommandApi.book(rideId,
         bookingPayload(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone,
             frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting),
-        expectedGeneration, previousKey, retry)
+        expectedGeneration, previousKey, retry, onPrepared)
 
     internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null, blockDuringDeletion: Boolean = false): Result<JSONObject> =
         call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,

@@ -24,7 +24,8 @@ internal object BookingCommandApi {
     }
 
     suspend fun book(rideId: Int, body: JSONObject, expectedGeneration: Long,
-                     previousKey: String?, retry: Boolean): Result<BookingCreatedDto> {
+                     previousKey: String?, retry: Boolean,
+                     onPrepared: ((String, String) -> Unit)? = null): Result<BookingCreatedDto> {
         val owner = commandOwner(expectedGeneration).getOrElse { return Result.failure(it) }
         val (snapshot, slot) = withBookingCommands(owner) {
             if (deletingGeneration == owner.generation) throw stale()
@@ -38,7 +39,9 @@ internal object BookingCommandApi {
             val snapshot = bookingCommandSnapshot(rideId, body, originalTerms)
             snapshot to prepare(owner.account, rideId, snapshot.payloadHash, previousKey, retry, currentTerms)
         }.getOrElse { return Result.failure(it) }
-        val response = ApiClient.bookingCommandRequest("POST", BookingCommandOutcome.PATH, snapshot.wireBody,
+        val wireBody = checkNotNull(snapshot.wireBody)
+        onPrepared?.invoke(slot.key, wireBody)
+        val response = ApiClient.bookingCommandRequest("POST", BookingCommandOutcome.PATH, wireBody,
             owner.generation, owner.base, slot.key)
             .mapCatching { BookingCommandOutcome.booking(it, rideId, owner.userId) }
         val booking = response.getOrNull()
@@ -77,6 +80,10 @@ internal object BookingCommandApi {
         }
         return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Unknown, slot))
     }
+
+    suspend fun repeatPrepared(
+        rideId: Int, wireBody: String, generation: Long, key: String,
+    ): Result<BookingCreatedDto> = book(rideId, JSONObject(wireBody), generation, key, retry = true)
 
     internal suspend fun commandOwner(generation: Long): Result<CommandOwner> {
         val (base, userId) = withGeneration(generation) {
