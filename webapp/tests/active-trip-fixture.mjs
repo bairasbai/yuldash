@@ -105,7 +105,7 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
 
 export async function readTripFixture(storage, generation = "A", id = 42) {
   const db = await new Promise((resolve, reject) => {
-    const request = storage.open("yuldash-trip-passes-v1", 1);
+    const request = storage.open("yuldash-trip-passes-v1");
     request.onerror = () => reject(request.error);
     request.onupgradeneeded = () => request.result.createObjectStore("sessions");
     request.onsuccess = () => resolve(request.result);

@@ -1,6 +1,7 @@
 import { Component, useState, type ReactNode } from "react";
 import { activateStorageFence, probeStorage, reportStorageFailure, storageFenced, subscribeStorageFailure } from "../utils/storageHealth";
 import { recoverStorage } from "../utils/storageRecovery";
+import { initializeSessionStorage } from "../api/client";
 import { saveLanguage } from "../i18n/languagePreference";
 import { resetOutboxMemory } from "../utils/outbox";
 import { IconShield } from "./Icons";
@@ -32,11 +33,11 @@ function StorageUnavailable({ retry }: { retry: (language?: "ru" | "ba") => Prom
   </main>;
 }
 
-export default class StorageBoundary extends Component<{ children: ReactNode }, { blocked: boolean; error: unknown; version: number }> {
+export default class StorageBoundary extends Component<{ children: ReactNode }, { blocked: boolean; error: unknown; version: number; initialized: boolean }> {
   private unsubscribe?: () => void;
   constructor(props: { children: ReactNode }) {
     super(props); activateStorageFence();
-    this.state = { blocked: !probeStorage(), error: null, version: 0 };
+    this.state = { blocked: !probeStorage(), error: null, version: 0, initialized: false };
   }
   static getDerivedStateFromError(error: unknown) { return { error, blocked: true }; }
   componentDidCatch() { reportStorageFailure(); resetOutboxMemory(); }
@@ -47,23 +48,26 @@ export default class StorageBoundary extends Component<{ children: ReactNode }, 
   };
   componentDidMount() {
     this.unsubscribe = subscribeStorageFailure(this.failed);
+    if (!this.state.blocked) void initializeSessionStorage().then(() => {
+      if (this.unsubscribe) this.setState({ initialized: true });
+    }).catch(() => { if (this.unsubscribe) this.failed(); });
     window.addEventListener("error", this.asyncError); window.addEventListener("unhandledrejection", this.asyncError);
     window.addEventListener("focus", this.check); document.addEventListener("visibilitychange", this.check);
     document.addEventListener("pointerdown", this.check, true); document.addEventListener("keydown", this.check, true);
   }
   componentWillUnmount() {
-    this.unsubscribe?.(); window.removeEventListener("error", this.asyncError); window.removeEventListener("unhandledrejection", this.asyncError);
+    this.unsubscribe?.(); this.unsubscribe = undefined; window.removeEventListener("error", this.asyncError); window.removeEventListener("unhandledrejection", this.asyncError);
     window.removeEventListener("focus", this.check); document.removeEventListener("visibilitychange", this.check);
     document.removeEventListener("pointerdown", this.check, true); document.removeEventListener("keydown", this.check, true);
   }
   private retry = async (language?: "ru" | "ba") => {
     await recoverStorage();
     if (language) void saveLanguage(language);
-    this.setState(state => ({ blocked: false, error: null, version: state.version + 1 }));
+    this.setState(state => ({ blocked: false, error: null, version: state.version + 1, initialized: true }));
   };
   render() {
     // Keep ordinary application failures visible to normal diagnostics, not a false storage warning.
     if (this.state.error && !storageFenced() && probeStorage(false)) throw this.state.error;
-    return this.state.blocked || storageFenced() ? <StorageUnavailable retry={this.retry} /> : <div key={this.state.version} style={{ display: "contents" }}>{this.props.children}</div>;
+    return this.state.blocked || storageFenced() ? <StorageUnavailable retry={this.retry} /> : !this.state.initialized ? null : <div key={this.state.version} style={{ display: "contents" }}>{this.props.children}</div>;
   }
 }

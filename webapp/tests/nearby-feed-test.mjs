@@ -130,7 +130,7 @@ await test("порция не больше потолка сервера (200) �
 });
 
 await test("fetchRidesNear шлёт эти параметры настоящим запросом, с токеном", async ({ m, calls }) => {
-  m.setSession("tok-A", "refresh-A");
+  await m.setSession("tok-A", "refresh-A");
   await m.fetchRidesNear({ conditions: ["pets", "child"], verified_only: true, from_cities: ["Сибай"], to_cities: ["Уфа"], date: "2026-10-17", limit: 30 });
   assert.equal(calls.length, 1);
   const url = new URL(calls[0].url);

@@ -121,7 +121,7 @@ await check('token refresh preserves the current flush and remaining actions', a
   await env.api.enqueue(42, 'message', 'A2');
   const flushing = env.api.flushOutbox();
   await until(() => env.calls.length === 1);
-  assert.equal(env.api.rotateSession('A-new', 'refresh-A-new', env.api.getSessionGeneration()), true);
+  assert.equal(await env.api.rotateSession('A-new', 'refresh-A-new', env.api.getSessionGeneration()), true);
   pending.resolve(ok());
   assert.equal(await flushing, true);
   assert.deepEqual(env.calls.map(call => [call.auth, call.body.text]), [['Bearer A', 'A1'], ['Bearer A-new', 'A2']]);

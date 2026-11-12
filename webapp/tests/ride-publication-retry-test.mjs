@@ -6,7 +6,7 @@ import { IDBFactory } from "fake-indexeddb";
 
 const compiled = await build({
   stdin: {
-    contents: "export * from './src/api/ridePublication';export * from './src/utils/bookingCommandStore';",
+    contents: "export {initializeSessionStorage,setSession,reconcileSession,rotateSession} from './src/api/client';export * from './src/api/ridePublication';export * from './src/utils/bookingCommandStore';",
     resolveDir: fileURLToPath(new URL("../", import.meta.url)),
     loader: "ts",
   },
@@ -19,8 +19,9 @@ const [first, second] = await Promise.all([load("first tab"), load("second tab")
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 globalThis.indexedDB = new IDBFactory();
 const token = id => "header." + Buffer.from(JSON.stringify({ sub: String(id) })).toString("base64url") + ".sig";
-const values = new Map([["yuldash.session", "session-a"], ["yuldash.token", token(7)]]);
+const values = new Map([["yuldash.session", "session-a"], ["yuldash.token", token(7)], ["yuldash.refresh", "fixture-refresh"]]);
 globalThis.localStorage = { getItem: key => values.get(key) ?? null };
+await Promise.all([first.initializeSessionStorage(), second.initializeSessionStorage()]);
 const owner = first.bookingCommandOwner({ id: 7, created_at: "2026-01-01T10:00:00Z" }, "session-a");
 const signal = () => new AbortController().signal;
 const form = {
@@ -107,14 +108,13 @@ await assert.rejects(send(second, { revision: next.key, retry: next }), error =>
 assert.equal(posts.length, 3);
 console.log("PASS closed request cannot be sent again");
 
-values.set("yuldash.session", "session-b");
-values.set("yuldash.token", token(9));
-const other = second.bookingCommandOwner({ id: 9, created_at: "2026-01-02T10:00:00Z" }, "session-b");
+const generationB = await second.setSession(token(9), "fixture-refresh-B");
+const other = second.bookingCommandOwner({ id: 9, created_at: "2026-01-02T10:00:00Z" }, generationB);
 assert.equal(await pendingIn(second, other), undefined);
 await assert.rejects(first.checkRidePublication(owner, next, false, signal()));
 await first.purgeBookingCommands(owner);
-values.set("yuldash.session", "session-a-again");
-values.set("yuldash.token", token(7));
-const signedBack = first.bookingCommandOwner({ id: 7, created_at: "2026-01-01T10:00:00Z" }, "session-a-again");
+await first.reconcileSession();
+const signedBackGeneration = await first.setSession(token(7), "fixture-refresh-A2");
+const signedBack = first.bookingCommandOwner({ id: 7, created_at: "2026-01-01T10:00:00Z" }, signedBackGeneration);
 assert.deepEqual(await first.readPublicationSlot(signedBack), { revision: null, command: undefined });
 console.log("PASS isolation and deletion of account publication data");

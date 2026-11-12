@@ -9,7 +9,7 @@ async function environment(){
  globalThis.indexedDB=new IDBFactory();const storage=new Map();
  globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
  globalThis.window={addEventListener(){},removeEventListener(){}};
- const load=()=>import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));
+ const load=async()=>{const instance=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));await instance.initializeSessionStorage();return instance;};
  const api=await load(),calls=[];globalThis.fetch=async(u,i)=>{calls.push(JSON.parse(i.body));return new Response('{}');};await api.setSession('A','refresh-A');
  return {api,load,storage,calls};
 }

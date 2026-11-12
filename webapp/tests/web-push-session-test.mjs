@@ -1,3 +1,4 @@
+import { IDBFactory } from 'fake-indexeddb';
 // Actual Web Push orchestration and HTTP client, with browser/network boundaries controlled.
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -14,6 +15,7 @@ const ok = () => new Response('{}', { status: 200 });
 let serial = 0;
 let failed = 0;
 async function environment() {
+  globalThis.indexedDB = new IDBFactory();
   const store = new Map();
   globalThis.localStorage = { getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
   const env = { calls: [], browserUnsubscribes: 0 };
@@ -38,7 +40,7 @@ async function environment() {
   env.api = await import('data:text/javascript;base64,' + Buffer.from(source).toString('base64'));
   return env;
 }
-function changeToB(api) { api.setSession(null, null); api.setSession('B', 'refresh-B'); }
+async function changeToB(api) { await api.setSession(null, null); await api.setSession('B', 'refresh-B'); }
 async function check(name, run) {
   try { await run(await environment()); console.log(`PASS ${name}`); }
   catch (error) { failed++; console.error(`FAIL ${name}\n${error.stack}`); }
@@ -47,9 +49,9 @@ async function check(name, run) {
 await check('permission completion from A cannot subscribe account B', async env => {
   const permission = deferred();
   Notification.requestPermission = () => permission.promise;
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const enabling = env.api.enableWebPush();
-  changeToB(env.api);
+  await changeToB(env.api);
   permission.resolve('granted');
   assert.equal(await enabling, 'error');
   assert.deepEqual(env.calls, []);
@@ -59,9 +61,9 @@ await check('permission completion from A cannot subscribe account B', async env
 await check('old registration lookup cannot unsubscribe account B', async env => {
   const lookup = deferred();
   navigator.serviceWorker.getRegistration = () => lookup.promise;
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const disabling = env.api.disableWebPush();
-  changeToB(env.api);
+  await changeToB(env.api);
   lookup.resolve(env.registration);
   await disabling;
   assert.deepEqual(env.calls, []);
@@ -75,10 +77,10 @@ await check('old enable result cannot erase the new accounts enabled flag', asyn
     if (call.auth === 'Bearer A') { oldStarted.resolve(); return oldResponse.promise; }
     return Promise.resolve(ok());
   };
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const enablingA = env.api.enableWebPush();
   await oldStarted.promise;
-  changeToB(env.api);
+  await changeToB(env.api);
   assert.equal(await env.api.enableWebPush(), 'ok');
   assert.equal(env.api.isWebPushEnabled(), true);
   oldResponse.resolve(ok());
@@ -93,10 +95,10 @@ await check('old disable response cannot cancel the subscription adopted by B', 
     if (call.auth === 'Bearer A') { oldStarted.resolve(); return oldResponse.promise; }
     return Promise.resolve(ok());
   };
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const disablingA = env.api.disableWebPush();
   await oldStarted.promise;
-  changeToB(env.api);
+  await changeToB(env.api);
   assert.equal(await env.api.enableWebPush(), 'ok');
   oldResponse.resolve(ok());
   await disablingA;
@@ -105,7 +107,7 @@ await check('old disable response cannot cancel the subscription adopted by B', 
 });
 
 await check('normal enable registers the current subscription and enabled flag', async env => {
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   assert.equal(await env.api.enableWebPush(), 'ok');
   assert.equal(env.api.isWebPushEnabled(), true);
   assert.deepEqual(env.calls.map(c => [c.path, c.auth]), [['/push/web/subscribe', 'Bearer A']]);
@@ -113,7 +115,7 @@ await check('normal enable registers the current subscription and enabled flag',
 });
 
 await check('normal disable revokes server and browser subscription', async env => {
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   assert.equal(await env.api.enableWebPush(), 'ok');
   await env.api.disableWebPush();
   assert.equal(env.api.isWebPushEnabled(), false);
@@ -137,10 +139,10 @@ for (const stage of ['ready', 'getSubscription', 'subscribe']) {
       env.registration.pushManager.getSubscription = async () => null;
       env.registration.pushManager.subscribe = () => { started.resolve(); return pending.promise; };
     }
-    env.api.setSession('A', 'refresh-A');
+    await env.api.setSession('A', 'refresh-A');
     const enabling = env.api.enableWebPush();
     await started.promise;
-    changeToB(env.api);
+    await changeToB(env.api);
     pending.resolve(stage === 'ready' ? env.registration : env.subscription);
     assert.equal(await enabling, 'error');
     assert.deepEqual(env.calls, []);
@@ -152,10 +154,10 @@ await check('disable session guard after subscription lookup', async env => {
   const pending = deferred();
   const started = deferred();
   env.registration.pushManager.getSubscription = () => { started.resolve(); return pending.promise; };
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const disabling = env.api.disableWebPush();
   await started.promise;
-  changeToB(env.api);
+  await changeToB(env.api);
   pending.resolve(env.subscription);
   await disabling;
   assert.deepEqual(env.calls, []);
@@ -165,9 +167,9 @@ await check('disable session guard after subscription lookup', async env => {
 await check('rejected old permission request preserves the new enabled flag', async env => {
   const pending = deferred();
   Notification.requestPermission = () => pending.promise;
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const enablingA = env.api.enableWebPush();
-  changeToB(env.api);
+  await changeToB(env.api);
   Notification.requestPermission = async () => 'granted';
   assert.equal(await env.api.enableWebPush(), 'ok');
   pending.reject(new Error('Old browser request rejected'));
@@ -182,10 +184,10 @@ await check('rejected old network request preserves the new enabled flag', async
     if (call.auth === 'Bearer A') { started.resolve(); return pending.promise; }
     return Promise.resolve(ok());
   };
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   const enablingA = env.api.enableWebPush();
   await started.promise;
-  changeToB(env.api);
+  await changeToB(env.api);
   assert.equal(await env.api.enableWebPush(), 'ok');
   pending.reject(new Error('Old network request rejected'));
   assert.equal(await enablingA, 'error');

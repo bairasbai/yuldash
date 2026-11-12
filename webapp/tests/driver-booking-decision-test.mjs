@@ -6,7 +6,7 @@ import { IDBFactory } from "fake-indexeddb";
 
 const compiled = await build({
   stdin: {
-    contents: "export * from './src/api/bookingDecisions';export * from './src/utils/bookingCommandStore';export { readOfflineTrip } from './src/utils/offlineTripPass';",
+    contents: "export {initializeSessionStorage,setSession,reconcileSession,rotateSession} from './src/api/client';export * from './src/api/bookingDecisions';export * from './src/utils/bookingCommandStore';export { readOfflineTrip } from './src/utils/offlineTripPass';",
     resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts",
   },
   bundle: true, write: false, format: "esm", platform: "node",
@@ -15,28 +15,29 @@ const compiled = await build({
 let imports = 0;
 const fresh = () => import("data:text/javascript;base64," +
   Buffer.from(compiled.outputFiles[0].text + "\n// " + imports++).toString("base64"));
-const api = await fresh();
+let api;
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 const user = { id: 7, created_at: "2026-01-01T10:00:00Z" };
 const token = id => "header." + Buffer.from(JSON.stringify({ sub: String(id) })).toString("base64url") + ".sig";
 const signal = () => new AbortController().signal;
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status });
-const owner = api.bookingCommandOwner(user, "generation-a");
+let owner;
 const row = { id: 21, ride_id: 4, passenger_id: 8, status: "cancelled", declined: false };
 const unseen = { state: "unseen", scope: null, ref_kind: null, ref_id: null, current: null };
 const terminal = (scope, state) => ({ scope, state, ref_id: null, ref_kind: null, current: null });
-function reset() {
+async function reset() {
   globalThis.indexedDB = new IDBFactory();
-  const values = new Map([["yuldash.session", "generation-a"], ["yuldash.token", token(7)]]);
+  const values = new Map([["yuldash.session", "generation-a"], ["yuldash.token", token(7)], ["yuldash.refresh", "fixture-refresh"]]);
   globalThis.localStorage = {
     getItem: key => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
     removeItem: key => values.delete(key),
   };
-  return values;
+  api = await fresh(); await api.initializeSessionStorage();
+  owner = api.bookingCommandOwner(user, "generation-a");
 }
 
-reset();
+await reset();
 let key;
 let writes = 0;
 globalThis.fetch = async (url, init) => {
@@ -56,7 +57,7 @@ globalThis.fetch = async (url, init) => {
   return reply(row);
 };
 await assert.rejects(api.decideDriverBooking(owner, 21, "confirm", signal()), { kind: "pending" });
-const restarted = await fresh();
+const restarted = await fresh(); await restarted.initializeSessionStorage();
 const [decision] = await restarted.readDriverDecisions(owner);
 assert.equal((await restarted.decideDriverBooking(owner, 21, "decline", signal())).state, "unseen");
 assert.equal(writes, 1);
@@ -64,7 +65,7 @@ assert.deepEqual(await restarted.repeatDriverDecision(owner, decision, signal())
 assert.equal(writes, 2);
 console.log("PASS saved before POST, confirm without a body, conflicting action only reads, exact repeat after reload");
 
-reset();
+await reset();
 const terms = "a".repeat(64);
 const attempts = [];
 globalThis.fetch = async (url, init) => {
@@ -100,7 +101,7 @@ globalThis.fetch = async (url, init) => {
 await assert.rejects(api.decideDriverBooking(owner, 21, "decline", signal()), { kind: "changed" });
 console.log("PASS decline is bound to pending terms, change refuses and never posts with refreshed terms");
 
-reset();
+await reset();
 let declineWire;
 globalThis.fetch = async (url, init) => {
   const path = new URL(url).pathname;
@@ -111,7 +112,7 @@ globalThis.fetch = async (url, init) => {
   throw new TypeError("response lost");
 };
 await assert.rejects(api.decideDriverBooking(owner, 21, "decline", signal()), { kind: "pending" });
-const declineRestarted = await fresh();
+const declineRestarted = await fresh(); await declineRestarted.initializeSessionStorage();
 const [lostDecline] = await declineRestarted.readDriverDecisions(owner);
 globalThis.fetch = async (url, init) => {
   assert.equal(new URL(url).pathname, "/bookings/21/commands/v1/cancel");
@@ -122,7 +123,7 @@ globalThis.fetch = async (url, init) => {
 assert.equal((await declineRestarted.repeatDriverDecision(owner, lostDecline, signal())).booking?.declined, true);
 console.log("PASS decline repeat after reload uses identical key and body without reading new terms");
 
-const values = reset();
+await reset();
 let closeBody;
 globalThis.fetch = async (url, init) => {
   if (new URL(url).pathname.endsWith("/close")) {
@@ -136,16 +137,14 @@ const [beforeClose] = await api.readDriverDecisions(owner);
 assert.equal((await api.checkDriverDecision(owner, beforeClose, true, signal())).state, "closed_no_effect");
 assert.deepEqual(closeBody, { scope: "booking.confirm", target_id: 21, payload_hash: beforeClose.hash });
 await assert.rejects(api.repeatDriverDecision(owner, beforeClose, signal()), { kind: "stale" });
-values.set("yuldash.session", "generation-b");
-values.set("yuldash.token", token(9));
+await api.setSession(token(9), "fixture-refresh-B");
 await assert.rejects(api.decideDriverBooking(owner, 21, "confirm", signal()));
 await api.purgeBookingCommands(owner);
-values.set("yuldash.session", "generation-a");
-values.set("yuldash.token", token(7));
-assert.deepEqual(await api.readDriverDecisions(owner), []);
+const signedBack = await api.setSession(token(7), "fixture-refresh-A2");
+assert.deepEqual(await api.readDriverDecisions(api.bookingCommandOwner(user, signedBack)), []);
 console.log("PASS closed intent cannot replay, session switch blocks old owner, deletion purges decision");
 
-reset();
+await reset();
 const passengerPosts = [];
 const passengerRow = { ...row, passenger_id: owner.userId, contact_then_cancel: true };
 const receipt = { state: "applied", scope: "booking.cancel", ref_kind: "booking", ref_id: 21, current: passengerRow };
@@ -162,8 +161,15 @@ globalThis.fetch = async (url, init) => {
   if (passengerPosts.length === 1) throw new TypeError("response lost");
   const open = indexedDB.open.bind(indexedDB);
   indexedDB.open = (name, ...args) => {
-    if (name === "yuldash-trip-passes-v1") throw new Error("trip storage full");
-    return open(name, ...args);
+    const request = open(name, ...args);
+    if (name === "yuldash-trip-passes-v1") request.addEventListener("success", () => {
+      const db = request.result, transaction = db.transaction.bind(db);
+      db.transaction = (stores, ...options) => {
+        if (stores === "sessions" && options[0] === "readwrite") throw new Error("trip storage full");
+        return transaction(stores, ...options);
+      };
+    });
+    return request;
   };
   return reply(passengerRow);
 };
@@ -171,7 +177,7 @@ const shown = await api.preparePassengerCancellation(owner, 21, "confirmed", sig
 assert.equal(shown.consequence, "late");
 assert.equal(passengerPosts.length, 0);
 await assert.rejects(api.cancelPassengerBooking(owner, shown, "found_other", signal()), { kind: "pending" });
-const passengerRestarted = await fresh();
+const passengerRestarted = await fresh(); await passengerRestarted.initializeSessionStorage();
 const [savedPassenger] = await passengerRestarted.readDriverDecisions(owner);
 const persist = indexedDB.open.bind(indexedDB);
 assert.equal((await passengerRestarted.readOfflineTrip(21)).status, "held");
@@ -190,7 +196,7 @@ assert.equal((await passengerRestarted.readOfflineTrip(21)).status, "terminal");
 assert.equal((await passengerRestarted.readDriverDecisions(owner))[0].state, "applied");
 console.log("PASS passenger consents to preview before POST, repeat preserves reason and terms, terminal passport fence precedes settlement");
 
-const switched = reset();
+await reset();
 let forbiddenWrites = 0;
 globalThis.fetch = async (url, init) => {
   const path = new URL(url).pathname;
@@ -201,13 +207,13 @@ globalThis.fetch = async (url, init) => {
 };
 await assert.rejects(api.preparePassengerCancellation(owner, 21, "pending", signal()), { kind: "changed" });
 const approved = await api.preparePassengerCancellation(owner, 21, "confirmed", signal());
-switched.set("yuldash.session", "generation-b");
-const laterOwner = api.bookingCommandOwner(user, "generation-b");
+const switched = await api.setSession(token(7), "fixture-refresh-A2");
+const laterOwner = api.bookingCommandOwner(user, switched);
 await assert.rejects(api.cancelPassengerBooking(laterOwner, approved, "", signal()), { kind: "stale" });
 assert.equal(forbiddenWrites, 0);
 console.log("PASS changed booking stage and session invalidate the passenger consent without a write");
 
-reset();
+await reset();
 globalThis.fetch = async (url, init) => {
   const path = new URL(url).pathname;
   if (path.endsWith("/role")) return reply({ role: "passenger" });

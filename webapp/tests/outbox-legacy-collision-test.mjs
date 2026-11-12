@@ -8,7 +8,7 @@ let serial=0,passed=0;
 async function check(name,fn){
  globalThis.indexedDB=new IDBFactory();const store=new Map();globalThis.localStorage={getItem:k=>store.get(k)??null,setItem:(k,v)=>store.set(k,String(v)),removeItem:k=>store.delete(k)};
  const load=()=>import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));
- const api=await load();api.setSession('A','refresh-A');
+ const api=await load();await api.setSession('A','refresh-A');
  const base={id:1234,session:api.getSessionGeneration(),kind:'message',createdAt:1234,bookingId:42};
  const first={...base,payload:'first'},second={...base,payload:'second'};
  const save=rows=>store.set('yuldash.outbox',JSON.stringify(rows));

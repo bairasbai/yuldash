@@ -5,6 +5,7 @@
 // ================================================================
 import {
   ApiError,
+  API_BASE,
   apiAccountDeletion,
   apiGet,
   apiPost,
@@ -14,6 +15,7 @@ import {
   clearRefreshRotationId,
   getSessionGeneration,
   rotateSession,
+  reconcileSession,
 } from "./client";
 import { cacheLoginMethods, cachedLoginMethods, normalizeLoginMethods, type LoginMethod } from "../utils/loginMethods";
 
@@ -114,10 +116,13 @@ export function verifySmsCode(
 /** Обновить пару токенов по refresh (ротация: старый гасится). */
 export async function refreshSession(): Promise<boolean> {
   const generation = getSessionGeneration();
+  await reconcileSession();
+  if (generation !== getSessionGeneration()) return false;
   const rt = getRefreshToken();
   if (!rt) return false;
   try {
     const rotationId = await getRefreshRotationId(generation, rt);
+    await reconcileSession();
     if (generation !== getSessionGeneration()) return false;
     if (getRefreshToken() !== rt) return true; // Another tab already renewed this session.
     if (!rotationId) return false;
@@ -137,6 +142,7 @@ export async function refreshSession(): Promise<boolean> {
     if (rotated) await clearRefreshRotationId(generation, rt).catch(() => {});
     return rotated;
   } catch (error) {
+    await reconcileSession();
     if (generation !== getSessionGeneration()) return false;
     if (getRefreshToken() !== rt) return true;
     if (error instanceof ApiError && [401, 403].includes(error.status)) {
@@ -179,8 +185,11 @@ export function uploadProfilePhoto(file: File, signal?: AbortSignal): Promise<{ 
 }
 
 /** POST /auth/logout — гасит сессию на сервере (best-effort). */
-export function logoutServer(): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/auth/logout");
+export async function logoutServer(access: string): Promise<void> {
+  await fetch(API_BASE + "/auth/logout", {
+    method: "POST", headers: { Authorization: "Bearer " + access }, keepalive: true,
+    redirect: "error", cache: "no-store",
+  });
 }
 
 /** POST /me/delete — необратимое удаление аккаунта и всех персональных данных

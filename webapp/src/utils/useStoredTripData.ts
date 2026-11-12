@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { getSessionGeneration } from "../api/client";
+import { isSessionStorageSignal } from "./sessionCredentials";
 import { subscribeTripPassChanges } from "./tripPassStore";
 
 /** Recheck the current generation on every asynchronous read and browser boundary. */
@@ -28,7 +29,7 @@ export function useStoredTripData<T extends { generation: string; expiresAt?: nu
       });
     };
     const storageChanged = (event: StorageEvent) => {
-      if (event.key === null || event.key === "yuldash.session" || event.key === "yuldash.token") refresh();
+      if (isSessionStorageSignal(event.key)) refresh();
     };
     const unsubscribe = subscribeTripPassChanges(refresh);
     window.addEventListener("focus", refresh);

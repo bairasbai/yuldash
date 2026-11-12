@@ -12,7 +12,7 @@ const load=tag=>import('data:text/javascript;base64,'+Buffer.from(outputFiles[0]
 const a=await load('tab-a'),b=await load('tab-b');
 let release;const gate=new Promise(r=>release=r),calls=[];
 globalThis.fetch=async(url,init)=>{calls.push({auth:init.headers.Authorization,body:JSON.parse(init.body)});await gate;return new Response('{}');};
-a.setSession('A','refresh-A');await a.enqueue(42,'message','one message');
+await a.setSession('A','refresh-A');await b.initializeSessionStorage();await a.enqueue(42,'message','one message');
 const first=a.flushOutbox(),second=b.flushOutbox();
 await until(() => calls.length === 1);
 try { assert.equal(calls.length,1,'Tabs sent the same action concurrently'); }

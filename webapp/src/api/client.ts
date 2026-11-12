@@ -1,7 +1,11 @@
 import { getLanguage } from "../i18n/languagePreference";
-import { revokeTripPassGeneration } from "../utils/tripPassStore";
+export { initializeSessionStorage, reconcileSession } from "../utils/sessionCredentials";
 import type { TripPassOwner } from "../utils/tripPass";
-import { sessionMutation, assertSessionPermit, storageFenceEnabled, storageFenced, quarantineGeneration, rememberSession, storageOperation, reportStorageFailure, type SessionWritePermit } from "../utils/storageHealth";
+import {
+  cachedSession, initializeSessionStorage, newSessionGeneration, persistSession, reconcileSession,
+} from "../utils/sessionCredentials";
+import { sessionMutation, assertSessionPermit, storageFenceEnabled, storageFenced, quarantineGeneration,
+  storageOperation, reportStorageFailure, type SessionWritePermit } from "../utils/storageHealth";
 // ================================================================
 //  Базовый HTTP-клиент Юлдаша.
 //  Точка правды для API base и токена.
@@ -12,9 +16,6 @@ export const API_BASE = (
   import.meta.env.VITE_API_BASE ?? "https://yulbash.ru"
 ).replace(/\/+$/, "");
 
-const TOKEN_KEY = "yuldash.token";
-const REFRESH_KEY = "yuldash.refresh";
-const SESSION_KEY = "yuldash.session";
 
 // A committed intent survives a lost response/reload. IndexedDB serializes
 // creation across tabs even when Web Locks is unavailable.
@@ -23,7 +24,7 @@ async function refreshIntentTransaction<T>(work: (store: IDBObjectStore, done: (
     const request = storageOperation(() => indexedDB.open("yuldash-refresh-intents", 1));
     let blocked = false;
     request.onupgradeneeded = () => request.result.createObjectStore("intents");
-    request.onerror = () => { reportStorageFailure(); reject(request.error); };
+    request.onerror = () => { reportStorageFailure(false); reject(request.error); };
     request.onblocked = () => { blocked = true; reject(new Error("Refresh storage blocked")); };
     request.onsuccess = () => {
       if (blocked) request.result.close();
@@ -31,7 +32,7 @@ async function refreshIntentTransaction<T>(work: (store: IDBObjectStore, done: (
     };
   });
   return new Promise<T>((resolve, reject) => {
-    const tx = db.transaction("intents", "readwrite");
+    const tx = db.transaction("intents", "readwrite", { durability: "strict" });
     let result: T;
     tx.oncomplete = () => { db.close(); resolve(result); };
     tx.onabort = () => { db.close(); reject(tx.error ?? new Error("Refresh storage aborted")); };
@@ -63,24 +64,21 @@ export function clearRefreshRotationId(generation: string, refresh: string): Pro
   return refreshIntentTransaction((store, done) => { store.delete([generation, refresh]); done(undefined); });
 }
 
-function discardPreviousRefreshIntents(): void {
+function discardRefreshIntentsFor(generation: string): void {
   try { void Promise.resolve(sessionMutation(() => refreshIntentTransaction<void>((store, done) => {
     const request = store.openCursor();
     request.onsuccess = () => {
       const cursor = request.result;
       if (!cursor) { done(undefined); return; }
-      // Read the current owner here: delayed cleanup from A must preserve B.
-      if (!Array.isArray(cursor.key) || cursor.key[0] !== getSessionGeneration()) cursor.delete();
+      if (Array.isArray(cursor.key) && cursor.key[0] === generation) cursor.delete();
       cursor.continue();
     };
-  }))).catch(() => { /* Cleanup can retry at the next session boundary. */ }); } catch { /* Already quarantined. */ }
+  }))).catch(() => { /* Expired intent does not authorize a refresh. */ }); } catch { /* Already quarantined. */ }
 }
 
 /** Вход/выход меняет поколение, тихое продление токенов — нет. */
 export function getSessionGeneration(): string {
-  if (storageFenced()) return quarantineGeneration();
-  try { const generation = storageOperation(() => localStorage.getItem(SESSION_KEY) ?? ""); rememberSession(generation); return generation; }
-  catch (error) { if (storageFenceEnabled()) return quarantineGeneration(); throw error; }
+  return storageFenced() ? quarantineGeneration() : cachedSession()?.generation ?? "";
 }
 
 /**
@@ -107,73 +105,39 @@ export function isOwnApiUrl(url: string): boolean {
   }
 }
 
-function readCredential(key: string): string | null {
-  if (storageFenced()) return null;
-  try { return storageOperation(() => localStorage.getItem(key)); }
-  catch (error) { if (storageFenceEnabled()) return null; throw error; }
-}
-export function getToken(): string | null { return readCredential(TOKEN_KEY); }
-function permitted(permit: SessionWritePermit): void { if (storageFenceEnabled()) assertSessionPermit(permit); }
-function markNewSession(): void {
-  const generation = typeof crypto !== "undefined" && "randomUUID" in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`;
-  storageOperation(() => localStorage.setItem(SESSION_KEY, generation));
-  rememberSession(generation);
-  if (!storageFenced()) discardPreviousRefreshIntents();
-}
-function writeToken(token: string | null): void {
-  storageOperation(() => token ? localStorage.setItem(TOKEN_KEY, token) : localStorage.removeItem(TOKEN_KEY));
-}
-function writeRefresh(token: string | null): void {
-  storageOperation(() => token ? localStorage.setItem(REFRESH_KEY, token) : localStorage.removeItem(REFRESH_KEY));
-}
-function currentTripRevocation(permit: SessionWritePermit) {
-  permitted(permit);
-  const rawGeneration = () => storageOperation(() => localStorage.getItem(SESSION_KEY) ?? "");
-  const generation = rawGeneration();
-  const current = () => { permitted(permit); return rawGeneration() === generation; };
-  const completed = revokeTripPassGeneration(generation, current)?.catch(error => {
-    if (current()) reportStorageFailure();
-    throw error;
-  });
-  return { current, completed };
+export function getToken(): string | null { return cachedSession()?.access ?? null; }
+export function getRefreshToken(): string | null { return cachedSession()?.refresh ?? null; }
+
+function permitted(permit: SessionWritePermit): void {
+  if (storageFenceEnabled()) assertSessionPermit(permit);
 }
 
-export function revokeCurrentTripPasses(permit: SessionWritePermit): void | Promise<void> {
-  return currentTripRevocation(permit).completed;
-}
-
-function afterTripRevocation(permit: SessionWritePermit, publish: () => void): void | Promise<void> {
-  const { current, completed } = currentTripRevocation(permit);
-  const commit = () => {
-    if (!current()) throw new Error("Session changed during trip revocation");
-    publish();
-  };
-  return completed ? completed.then(commit) : commit();
-}
-
-export function setToken(token: string | null): void | Promise<void> {
-  return sessionMutation(permit => afterTripRevocation(permit, () => {
-    writeToken(null); markNewSession(); writeToken(token); markNewSession();
-  }));
-}
-export function getRefreshToken(): string | null { return readCredential(REFRESH_KEY); }
-export function setRefreshToken(token: string | null): void | Promise<void> {
-  return sessionMutation(permit => { permitted(permit); writeRefresh(token); });
-}
 /** Only an active lock capability may bypass the publication queue. */
-export function setSession(access: string | null, refresh?: string | null, permit?: SessionWritePermit): void | Promise<void> {
-  const commit = (p: SessionWritePermit) => afterTripRevocation(p, () => {
-    writeToken(null); writeRefresh(null); markNewSession();
-    writeRefresh(refresh ?? null); writeToken(access); markNewSession();
-  });
-  return permit ? commit(permit) : sessionMutation(commit);
+export function setSession(
+  access: string | null, refresh?: string | null, permit?: SessionWritePermit, expectedGeneration?: string,
+): Promise<string | null> {
+  const commit = async (active: SessionWritePermit) => {
+    permitted(active);
+    const previous = expectedGeneration ?? (await initializeSessionStorage()).generation;
+    const generation = newSessionGeneration();
+    const result = await persistSession(previous, { generation, access, refresh: access ? refresh ?? null : null }, () => permitted(active));
+    if (!result.applied) return null;
+    if (!storageFenced()) discardRefreshIntentsFor(previous);
+    return generation;
+  };
+  return Promise.resolve(permit ? commit(permit) : sessionMutation(commit));
 }
-export function rotateSession(access: string, refresh: string, generation: string, previousRefresh?: string): boolean | Promise<boolean> {
-  return sessionMutation(permit => {
+
+export async function rotateSession(access: string, refresh: string, generation: string, previousRefresh = getRefreshToken()): Promise<boolean> {
+  return sessionMutation(async permit => {
     permitted(permit);
-    if (generation !== getSessionGeneration() || !access || !refresh) return false;
-    if (previousRefresh !== undefined && getRefreshToken() !== previousRefresh) return true;
-    writeToken(access); writeRefresh(refresh); return true;
+    await reconcileSession();
+    const previous = cachedSession();
+    if (!previous || previous.generation !== generation || !access || !refresh) return false;
+    if (previous.refresh !== previousRefresh) return true;
+    const result = await persistSession(generation, { generation, access, refresh }, () => permitted(permit), previous);
+    return result.current.generation === generation &&
+      (result.applied || result.current.refresh !== previousRefresh);
   });
 }
 
@@ -197,7 +161,7 @@ export function setUnauthorizedHandler(fn: (() => void) | null): void {
 
 // ---- Тихое обновление access-токена по refresh (access живёт минуты) ----
 // Слой авторизации регистрирует функцию: она дергает /auth/refresh, кладёт новую
-// пару в localStorage и возвращает true при успехе. Здесь мы её только вызываем.
+// подтверждённую пару и возвращает true при успехе. Здесь мы её только вызываем.
 let refreshHandler: (() => Promise<boolean>) | null = null;
 export function setRefreshHandler(fn: (() => Promise<boolean>) | null): void {
   refreshHandler = fn;
@@ -209,6 +173,7 @@ function runRefresh(generation: string, staleToken: string | null): Promise<bool
   if (!refreshInFlight || refreshInFlight.generation !== generation) {
     const flight = { generation, promise: Promise.resolve(false) };
     const refresh = async () => {
+      await reconcileSession();
       if (generation !== getSessionGeneration()) return false;
       if (getToken() !== staleToken) return true;
       return refreshHandler ? refreshHandler() : false;
@@ -390,8 +355,10 @@ async function request<T>(
       throw new ApiError(409, genericByStatus(409, isBashkir()));
     }
   };
+  if (auth) await reconcileSession();
   checkSession();
-  const sentToken = getToken();
+  const sent = cachedSession();
+  const sentToken = sent?.access ?? null;
   if (_userId !== undefined && !tokenMatchesUser(sentToken, _userId)) {
     throw new ApiError(409, genericByStatus(409, isBashkir()));
   }
@@ -410,10 +377,12 @@ async function request<T>(
     // это «Failed to fetch» (Chrome), «Load failed» (Safari) — английский технический
     // текст, который экраны показывают человеку как есть (`e.message`, 146 мест).
     // Кладём сразу человеческую фразу на его языке.
+    if (auth) await reconcileSession();
     checkSession();
     throw new ApiError(0, genericByStatus(0, isBashkir()));
   }
 
+  if (auth && (!res.ok || res.status === 204)) await reconcileSession();
   if (!_deletionConfirmation || !res.ok) checkSession();
 
   if (res.status === 401) {
@@ -423,12 +392,22 @@ async function request<T>(
       checkSession();
       if (refreshed) return request<T>(path, { ...init, _retried: true, _generation });
     }
-    if (auth) {
-      await sessionMutation(async permit => {
+    if (auth && sent) {
+      const current = await sessionMutation(async permit => {
         checkSession();
-        await setSession(null, null, permit);
-        onUnauthorized?.();
+        const cleared = await persistSession(
+          _generation, { generation: newSessionGeneration(), access: null, refresh: null },
+          () => permitted(permit), sent,
+        );
+        if (cleared.applied) {
+          discardRefreshIntentsFor(_generation);
+          onUnauthorized?.();
+        }
+        return cleared.current;
       });
+      if (!_retried && current.generation === _generation && current.access && current.access !== sentToken) {
+        return request<T>(path, { ...init, _retried: true, _generation });
+      }
     }
     throw new ApiError(
       401,
@@ -455,6 +434,7 @@ async function request<T>(
 
   if (res.status === 204) return undefined as T;
   const body = await res.json();
+  if (auth) await reconcileSession();
   if (!_deletionConfirmation) checkSession();
   onResponse?.(res);
   return body as T;

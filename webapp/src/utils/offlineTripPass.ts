@@ -1,4 +1,5 @@
 import { getAccountSession, isAccountSession } from "../api/client";
+import { reconcileSession } from "./sessionCredentials";
 import { offlineStorageTrusted, reportStorageFailure } from "./storageHealth";
 import { serverDate } from "./serverTime";
 import { sameBoardingTimestamp } from "./boardingUndo";
@@ -213,6 +214,7 @@ export async function readOfflineTrip(bookingId: number): Promise<OfflineTripVie
   if (!positiveTripId(bookingId) || !owner || !currentOwner(owner)) return null;
   try {
     const rows = await readTripRecords(owner, () => currentOwner(owner));
+    await reconcileSession();
     if (!rows || !currentOwner(owner)) return null;
     const record = rows.get(bookingId);
     const cancelledAt = record?.status === "terminal" ? record.cancelledInTransitAt : undefined;
@@ -239,6 +241,7 @@ export async function listOfflineTripOptions(): Promise<OfflineTripOptions | nul
   if (!owner || !currentOwner(owner)) return null;
   try {
     const rows = await readTripRecords(owner, () => currentOwner(owner));
+    await reconcileSession();
     if (!rows || !currentOwner(owner)) return null;
     const trips: Array<OfflineTripOption & { savedAt: number }> = [];
     for (const [id, record] of rows) {

@@ -8,7 +8,7 @@ import { IDBFactory } from "fake-indexeddb";
 const root = fileURLToPath(new URL("../", import.meta.url));
 const compiled = await build({
   stdin: {
-    contents: "export * from './src/api/bookingCommands';export * from './src/utils/bookingCommandStore';export * from './src/utils/commandFingerprint';export {deleteAccount} from './src/api/auth';",
+    contents: "export {initializeSessionStorage,setSession,reconcileSession,rotateSession} from './src/api/client';export * from './src/api/bookingCommands';export * from './src/utils/bookingCommandStore';export * from './src/utils/commandFingerprint';export {deleteAccount} from './src/api/auth';",
     resolveDir: root, loader: "ts",
   },
   bundle: true, write: false, format: "esm", platform: "node",
@@ -17,7 +17,7 @@ const compiled = await build({
 let imports = 0;
 const freshModule = () => import("data:text/javascript;base64," +
   Buffer.from(compiled.outputFiles[0].text + "\n// " + imports++).toString("base64"));
-const api = await freshModule();
+let api, restarted;
 Object.defineProperty(globalThis, "crypto", { value: webcrypto, configurable: true });
 const user = { id: 7, created_at: "2026-01-01T10:00:00Z" };
 const other = { id: 9, created_at: "2026-01-01T10:01:00Z" };
@@ -29,16 +29,17 @@ const booking = { id: 21, ride_id: 12, passenger_id: user.id, status: "pending" 
 const receipt = (state, current = null) => ({
   state, scope: state === "unseen" ? null : "booking.create", ref_id: current?.id ?? null, current,
 });
-const restore = () => {
+const restore = async () => {
   globalThis.indexedDB = new IDBFactory();
-  const values = new Map([["yuldash.session", "generation-a"], ["yuldash.token", token(user.id)]]);
+  const values = new Map([["yuldash.session", "generation-a"], ["yuldash.token", token(user.id)], ["yuldash.refresh", "fixture-refresh"]]);
   globalThis.localStorage = { getItem: key => values.get(key) ?? null };
-  return values;
+  api = await freshModule(); await api.initializeSessionStorage();
+  restarted = await freshModule(); await restarted.initializeSessionStorage();
 };
 const ownerA = () => api.bookingCommandOwner(user, "generation-a");
 const problem = kind => error => error instanceof api.BookingCommandProblem && error.kind === kind;
 
-restore();
+await restore();
 const keys = [];
 globalThis.fetch = async (url, options) => {
   assert.equal(new URL(url).origin, "https://booking.test");
@@ -56,7 +57,7 @@ globalThis.fetch = async (url, options) => {
   return reply(receipt("applied", { ...booking, status: "cancelled" }));
 };
 await assert.rejects(api.createBooking(body, signal(), ownerA()), problem("unknown"));
-const restarted = await freshModule();
+restarted = await freshModule(); await restarted.initializeSessionStorage();
 const saved = await restarted.readBookingCommand(ownerA(), body.ride_id);
 assert.equal(saved.state, "unknown");
 assert.equal(Object.hasOwn(saved, "body"), false);
@@ -68,7 +69,7 @@ assert.deepEqual(keys, [saved.key]);
 assert.equal((await api.readBookingCommand(ownerA(), body.ride_id)).state, "applied");
 console.log("PASS saved before fetch, lost reply, restart and current server result");
 
-restore();
+await restore();
 let posts = 0;
 let firstKey;
 globalThis.fetch = async (url, options) => {
@@ -94,7 +95,7 @@ assert.equal(posts, 2);
 console.log("PASS two tabs, old server 404 and manual retry with the same key");
 
 for (const originalVersion of [0, undefined]) {
-  restore();
+  await restore();
   const requests = [];
   globalThis.fetch = async (url, options) => {
     assert.equal(new URL(url).pathname, "/bookings/commands/v1");
@@ -113,7 +114,7 @@ for (const originalVersion of [0, undefined]) {
   assert.deepEqual(requests[0], requests[1]);
   assert.equal(refreshed.expected_terms_version, 2);
 }
-restore();
+await restore();
 const legacyBody = { ...body, expected_terms_version: 0 };
 const legacyHash = await api.commandFingerprint("booking.create", body.ride_id, legacyBody);
 const legacy = (await api.reserveBookingCommand(ownerA(), body.ride_id, legacyHash.payloadHash)).command;
@@ -123,7 +124,7 @@ await assert.rejects(api.createBooking({ ...legacyBody, expected_terms_version: 
   problem("changed"));
 console.log("PASS replay keeps the exact original terms after seat changes and rejects edited bookings");
 
-const credentials = restore();
+await restore();
 let releasePost;
 let began;
 const postStarted = new Promise(resolve => { began = resolve; });
@@ -148,20 +149,18 @@ const pending = await api.readBookingCommand(ownerA(), body.ride_id);
 assert.equal((await api.reconcileBookingCommand(ownerA(), pending, true, signal())).state, "closed_no_effect");
 releasePost();
 await capturedLate;
-credentials.set("yuldash.token", token(other.id)); // Token changes before the next session generation is visible.
+const generationB = await api.setSession(token(other.id), "fixture-refresh-B");
 globalThis.fetch = () => assert.fail("must not send an old action with new account credentials");
 await assert.rejects(api.createBooking(body, signal(), ownerA(), { ...pending, state: "closed_no_effect" }), problem("storage"));
-credentials.set("yuldash.session", "generation-b");
-assert.equal(await api.readBookingCommand(api.bookingCommandOwner(other, "generation-b"), body.ride_id), undefined);
+assert.equal(await api.readBookingCommand(api.bookingCommandOwner(other, generationB), body.ride_id), undefined);
 await api.purgeBookingCommands(ownerA());
-credentials.set("yuldash.session", "generation-a2");
-credentials.set("yuldash.token", token(user.id));
-const nextOwner = api.bookingCommandOwner(user, "generation-a2");
+const generationA2 = await api.setSession(token(user.id), "fixture-refresh-A2");
+const nextOwner = api.bookingCommandOwner(user, generationA2);
 assert.equal(await api.readBookingCommand(nextOwner, body.ride_id), undefined);
 assert.equal(await api.resolveBookingCommand(nextOwner, pending, "applied"), false);
 console.log("PASS close wins race, captured account token, purge and stale response");
 
-restore();
+await restore();
 const originalNow = Date.now;
 try {
   Date.now = () => 1000;
@@ -182,16 +181,15 @@ try {
 }
 console.log("PASS capacity keeps unknown commands and storage failure prevents fetch");
 
-const deletionCredentials = restore();
-deletionCredentials.set("yuldash.token", token(other.id));
+await restore();
+await api.setSession(token(other.id), "fixture-refresh-B");
 globalThis.fetch = () => assert.fail("cannot delete under a new account token");
 await assert.rejects(api.deleteAccount(ownerA()), error => error.status === 409);
-deletionCredentials.set("yuldash.token", token(user.id));
+await restore();
 globalThis.fetch = async (url, options) => {
   assert.equal(new URL(url).pathname, "/me/delete");
   assert.equal(options.headers.Authorization, `Bearer ${token(user.id)}`);
-  deletionCredentials.set("yuldash.token", token(other.id));
-  deletionCredentials.set("yuldash.session", "generation-b");
+  await api.setSession(token(other.id), "fixture-refresh-B");
   return reply({ ok: true });
 };
 assert.deepEqual(await api.deleteAccount(ownerA()), { ok: true });

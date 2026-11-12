@@ -56,16 +56,17 @@ await check('old 401 in tab A cannot clear the session installed by tab B', asyn
 });
 
 await check('old mutation in tab A cannot replay with credentials installed by tab B', async ({ a, b }) => {
-  const pending = deferred();
+  const pending = deferred(), sent = deferred();
   const calls = [];
   globalThis.fetch = (url, init) => {
     calls.push({ path: new URL(url).pathname, auth: init.headers.Authorization });
-    if (calls.length === 1) return pending.promise;
+    if (calls.length === 1) { sent.resolve(); return pending.promise; }
     return Promise.resolve(response(200, url.endsWith('/auth/refresh')
       ? { access_token: 'B-new', refresh_token: 'refresh-B-new' } : { ok: true }));
   };
   await a.setSession('A', 'refresh-A');
   const result = a.apiPost('/me/delete', {}).catch(error => error);
+  await sent.promise;
   await newAccountInOtherTab(b);
   pending.resolve(response(401));
   await result;
@@ -113,6 +114,7 @@ await check('same-account refresh in another tab preserves an earlier successful
     ? Promise.resolve(response(200, { access_token: 'A-new', refresh_token: 'refresh-A-new' }))
     : pending.promise;
   await a.setSession('A', 'refresh-A');
+  await b.initializeSessionStorage();
   const result = a.apiGet('/private');
   assert.equal(await b.refreshSession(), true);
   pending.resolve(response(200, { private: 'A' }));
@@ -156,6 +158,7 @@ for (const secondStartsLater of [false, true]) {
         ? response(200, { ok: true }) : response(401));
     };
     await a.setSession('A', 'refresh-A');
+    await b.initializeSessionStorage();
     const first = a.apiGet('/first').then(value => ({ value }), error => ({ error }));
     if (secondStartsLater) await refreshStarted.promise;
     const second = b.apiGet('/second').then(value => ({ value }), error => ({ error }));

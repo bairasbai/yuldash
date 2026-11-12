@@ -112,6 +112,14 @@ const storeBundle = await build({
   },
   bundle: true, write: false, platform: "node", format: "esm",
   define: { "import.meta.env": "{}" },
+  plugins: [{ name: "trip-store-owner-fixture", setup(b) {
+    b.onResolve({ filter: /api\/client$/ }, () => ({ path: "owner", namespace: "fixture" }));
+    b.onLoad({ filter: /.*/, namespace: "fixture" }, () => ({ contents: [
+      "export const getAccountSession=()=>({userId:7,generation:globalThis.__boardingStore.generation});",
+      "export const isAccountSession=owner=>owner.userId===7&&owner.generation===globalThis.__boardingStore.generation;",
+      "export const reconcileSession=async()=>{};",
+    ].join("\n") }));
+  } }],
 });
 const moduleUrl = "data:text/javascript;base64," + Buffer.from(storeBundle.outputFiles[0].text).toString("base64");
 let reloads = 0;
@@ -136,7 +144,7 @@ async function setCode(store, code) {
 async function withPassStore(check) {
   const previous = Object.getOwnPropertyDescriptor(globalThis, "localStorage");
   const oldFactory = globalThis.indexedDB;
-  const h = { generation: owner.generation, changeDuringWrite: false };
+  const h = globalThis.__boardingStore = { generation: owner.generation, changeDuringWrite: false };
   const token = "test." + Buffer.from(JSON.stringify({ sub: "7" })).toString("base64url") + ".test";
   globalThis.localStorage = { getItem: key => key === "yuldash.session" ? h.generation : key === "yuldash.token" ? token : null };
   const factory = new IDBFactory();

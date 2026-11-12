@@ -222,13 +222,13 @@ await check('old refresh finishing cannot replace or clear a new sessions in-fli
   assert.equal(api.getToken(), 'B-new');
 });
 
-await check('direct setToken account changes invalidate an old request even if token is reused', async api => {
+await check('durable account changes invalidate an old request even if token is reused', async api => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
   await api.setSession('A', 'refresh-A');
   const old = api.apiGet('/old').then(value => ({ value }), error => ({ error }));
-  await api.setToken(null);
-  await api.setToken('A');
+  await api.setSession(null, null);
+  await api.setSession('A', 'refresh-A');
   pending.resolve(response(200, { private: 'old-session' }));
   assert.ok((await old).error, 'Token equality is not sufficient after logout and re-login');
   assert.equal(api.getToken(), 'A');

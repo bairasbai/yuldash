@@ -1,3 +1,4 @@
+import { IDBFactory } from 'fake-indexeddb';
 // Production voice button / chat parent / HTTP adapters; controlled hooks, microphone and fetch.
 // Commit/lost ACK below is a fetch fixture, not a claim about SQL or a real browser microphone.
 import assert from 'node:assert/strict';
@@ -29,7 +30,7 @@ async function bundle(contents, mocks, resolveDir = ROOT + 'src') {
   return import('data:text/javascript;base64,' + Buffer.from(result.outputFiles[0].text).toString('base64'));
 }
 const basic = { react: hooks, 'react/jsx-runtime': jsx, '../i18n/lang': lang, './Icons': iconModule };
-const buttonModule = await bundle(`export{ChatVoiceButton}from'./components/ChatVoice';export{getSessionGeneration,apiUpload}from'./api/client';export{uploadVoice}from'./api/voice';`, basic);
+const buttonModule = await bundle(`export{ChatVoiceButton}from'./components/ChatVoice';export{getSessionGeneration,apiUpload,initializeSessionStorage,reconcileSession}from'./api/client';export{uploadVoice}from'./api/voice';`, basic);
 const screenSource = await readFile(new URL('../src/screens/TripChatScreen.tsx', import.meta.url), 'utf8');
 const parentMocks = { ...basic, '../components/Icons': iconModule };
 for (const [, clause, path] of screenSource.matchAll(/import\s+([\s\S]*?)\s+from\s+"([^"]+)";/g)) {
@@ -42,7 +43,7 @@ export const outboxCount=()=>0,watchOutbox=()=>()=>{},subscribeOutbox=()=>()=>{}
 export const acknowledgeMessage=async()=>{},enqueue=async()=>{h.voiceQueueAttempts++;},isPermanentRejection=()=>false;`;
 parentMocks['../utils/tripChat.js'] = `export const NO_MARK=0,getSeen=()=>0,setSeen=()=>0,isNearBottom=()=>true,newestId=()=>0,unreadCount=()=>0,viewportBox=()=>({});`;
 parentMocks['../components/ChatVoice'] = `export function ChatVoiceButton(){return null;}export function VoiceBubble(){return null;}`;
-const parentModule = await bundle(screenSource + '\nexport {TripChat as TestChat};export{setRefreshHandler,rotateSession}from"../api/client";', parentMocks, ROOT + 'src/screens');
+const parentModule = await bundle(screenSource + '\nexport {TripChat as TestChat};export{setRefreshHandler,rotateSession,initializeSessionStorage,reconcileSession,setSession,getSessionGeneration}from"../api/client";', parentMocks, ROOT + 'src/screens');
 
 class Store {
   map = new Map(); get length() { return this.map.size; } key(index) { return [...this.map.keys()][index] ?? null; }
@@ -54,14 +55,16 @@ function unmount() {
   for (const cleanup of h.instance.cleanup) cleanup?.();
   h.instance = null;
 }
-function reset({ lang = 'ru' } = {}) {
+globalThis.indexedDB = new IDBFactory();
+async function reset({ lang = 'ru' } = {}) {
   unmount();
   Object.assign(h, { instance: null, current: null, effects: [], dirty: true, lang, bookingId: 42, myId: 7,
     keys: 0, voiceQueueAttempts: 0, requests: [], posts: [], rows: [], receipts: new Map(), streams: [], recorders: [], mics: [], sent: [], problems: [], timers: new Map(), timerId: 0, dropAck: false, failHistory: false, historyRows: null,
     onSend: async url => { h.sent.push(url); }, postHold: null, uploadHold: null, emitOnTrackStop: false, callbacksAtTrackStop: 0, reject401: 0, recorderMime: 'audio/webm' });
   parentModule.setRefreshHandler(null);
   globalThis.localStorage = new Store(); globalThis.sessionStorage = new Store();
-  localStorage.setItem('yuldash.session', 'A'); localStorage.setItem('yuldash.token', 'synthetic-A');
+  h.generation = await parentModule.setSession('synthetic-A', 'synthetic-refresh-A');
+  await buttonModule.initializeSessionStorage(); await buttonModule.reconcileSession();
   globalThis.location = { href: 'https://voice.synthetic.invalid/trip/42/chat' };
   globalThis.document = { body: { style: { overflow: '' } }, visibilityState: 'visible', addEventListener() {}, removeEventListener() {} };
   globalThis.window = { setInterval: fn => { const id = ++h.timerId; h.timers.set(id, fn); return id; }, clearInterval: id => h.timers.delete(id),
@@ -97,7 +100,7 @@ function reset({ lang = 'ru' } = {}) {
   };
 }
 const reply = (body, status = 200) => new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
-function changeOwner(owner = 'B') { localStorage.setItem('yuldash.session', owner); localStorage.setItem('yuldash.token', 'synthetic-' + owner); }
+async function changeOwner(owner = 'B') { await parentModule.setSession('synthetic-' + owner, 'synthetic-refresh-' + owner); await buttonModule.reconcileSession(); }
 function render(kind = h.kind ?? 'button') {
   h.kind = kind;
   if (!h.instance) h.instance = { slots: [], cleanup: [], cursor: 0, live: true };
@@ -106,7 +109,7 @@ function render(kind = h.kind ?? 'button') {
   for (const effect of h.effects.splice(0)) effect();
   return h.tree;
 }
-async function settle() { for (let i = 0; i < 35; i++) { await Promise.resolve(); if (h.dirty && h.instance?.live) render(); } }
+async function settle() { for (let i = 0; i < 35; i++) { await new Promise(setImmediate); if (h.dirty && h.instance?.live) render(); } }
 const nodes = tree => !tree || typeof tree !== 'object' ? [] : [tree, ...[tree.props?.children].flat(Infinity).flatMap(nodes)];
 const text = tree => typeof tree === 'string' ? tree : [tree?.props?.children].flat(Infinity).map(child => typeof child === 'object' ? text(child) : typeof child === 'string' ? child : '').join(' ');
 const voiceParent = () => nodes(h.tree).find(node => node.type?.name === 'ChatVoiceButton');
@@ -123,14 +126,14 @@ async function record() {
 }
 let passed = 0, failed = 0;
 async function check(name, run, options) {
-  reset(options);
+  await reset(options);
   try { await run(); passed++; console.log('✓ ' + name); }
   catch (error) { failed++; console.error('FAIL ' + name + ': ' + error.stack); }
   finally { unmount(); }
 }
 
 await check('held microphone permission cannot start a recorder or upload under replacement owner', async () => {
-  render().props.onClick(); changeOwner(); const value = stream(); h.mics[0].resolve(value); await settle();
+  render().props.onClick(); await changeOwner(); const value = stream(); h.mics[0].resolve(value); await settle();
   assert.equal(h.recorders.length, 0); assert.equal(value.stopped, 1); assert.equal(h.requests.length, 0);
 });
 await check('held microphone permission after unmount stops the newly returned stream', async () => {
@@ -141,7 +144,7 @@ await check('synchronous double click while permission is pending asks for micro
   const click = render().props.onClick; click(); click(); assert.equal(h.mics.length, 1);
 });
 await check('retained recorder callback cannot upload A recording with B credentials', async () => {
-  const { mr } = await record(); const callback = mr.onstop; changeOwner(); await callback(); await settle();
+  const { mr } = await record(); const callback = mr.onstop; await changeOwner(); await callback(); await settle();
   assert.equal(h.requests.filter(request => request.path === '/voice').length, 0); assert.equal(h.sent.length, 0);
 });
 await check('unmount detaches recorder callbacks before stopping tracks', async () => {
@@ -150,7 +153,7 @@ await check('unmount detaches recorder callbacks before stopping tracks', async 
 });
 await check('upload completion after owner change cannot send or report a problem into another owner', async () => {
   const { mr } = await record(); h.uploadHold = deferred(); const pending = mr.onstop(); await settle();
-  changeOwner(); h.uploadHold.resolve(reply({ url: '/voice/private-A.webm' })); await pending; await settle();
+  await changeOwner(); h.uploadHold.resolve(reply({ url: '/voice/private-A.webm' })); await pending; await settle();
   assert.equal(h.sent.length, 0); assert.equal(h.problems.filter(Boolean).length, 0);
 });
 await check('button remains busy until parent message POST has finished', async () => {
@@ -182,7 +185,7 @@ for (const [mime, filename] of [['audio/webm;codecs=opus', 'voice.webm'], ['audi
   });
 }
 await check('voice upload adapter rejects an explicitly stale owner before any HTTP', async () => {
-  changeOwner();
+  await changeOwner();
   await assert.rejects(buttonModule.uploadVoice(new Blob(['x'.repeat(1800)]), 'voice.webm', undefined, 'A'));
   assert.equal(h.requests.length, 0);
 });
@@ -238,18 +241,17 @@ await check('unknown voice disables a new recording and cannot be overwritten by
 });
 await check('real HTTP401 refresh retains the original voice key, target, asset and owner generation', async () => {
   render('parent'); await settle(); h.reject401 = 1; let refreshes = 0;
-  localStorage.setItem('yuldash.refresh', 'synthetic-refresh-A');
   parentModule.setRefreshHandler(async () => {
-    refreshes++; assert.equal(await parentModule.rotateSession('synthetic-A-renewed', 'synthetic-refresh-renewed', 'A'), true); return true;
+    refreshes++; assert.equal(await parentModule.rotateSession('synthetic-A-renewed', 'synthetic-refresh-renewed', h.generation), true); return true;
   });
   await voiceParent().props.onSend('/voice/refresh.webm'); await settle();
   assert.equal(refreshes, 1); assert.equal(h.posts.length, 2); assert.equal(h.rows.length, 1);
   assert.ok(h.posts[0].key); assert.equal(h.posts[0].key, h.posts[1].key);
   assert.deepEqual(h.posts[0].body, h.posts[1].body); assert.equal(h.posts[0].path, h.posts[1].path);
-  assert.equal(h.posts[1].owner, 'Bearer synthetic-A-renewed'); assert.equal(localStorage.getItem('yuldash.session'), 'A');
+  assert.equal(h.posts[1].owner, 'Bearer synthetic-A-renewed'); assert.equal(parentModule.getSessionGeneration(), h.generation);
 });
 await check('retained parent callback after account change sends no voice under B', async () => {
-  render('parent'); await settle(); const callback = voiceParent().props.onSend; changeOwner();
+  render('parent'); await settle(); const callback = voiceParent().props.onSend; await changeOwner();
   await callback('/voice/private-A.webm'); await settle(); assert.equal(h.posts.length, 0);
 });
 await check('retained parent callback after unmount sends no message', async () => {

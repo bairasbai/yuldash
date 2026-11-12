@@ -18,27 +18,28 @@ const mocks = {
   'react/jsx-runtime': `export const jsx=(type,props)=>({type,props}),jsxs=jsx;`,
   client: `const h=globalThis.__authProviderCrossTab;
     export const getToken=()=>h.token,getSessionGeneration=()=>String(h.generation);
-    export const setSession=(token,refresh)=>{h.token=token;h.refresh=refresh;h.generation++;};
-    export const revokeCurrentTripPasses=()=>{}; export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
+    export const setSession=(token,refresh,_permit,expected)=>{if(h.sessionFailure)throw Error('session storage unavailable');if(expected!==String(h.generation))return null;h.token=token;h.refresh=refresh;h.generation++;return String(h.generation);};
+    export const reconcileSession=()=>h.reconcileGate?.promise??Promise.resolve(); export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderCrossTab;
     export const fetchMe=()=>{const request=h.makeDeferred();request.token=h.token;h.requests.push(request);return request.promise;};
     export const refreshSession=async()=>true;
-    export const logoutServer=()=>{h.logoutBearers.push(h.token);return h.serverLogout.promise;};`,
-  push: `export const disableWebPush=()=>globalThis.__authProviderCrossTab.disable.promise;`,
+    export const logoutServer=access=>{h.logoutBearers.push(access);return h.serverLogout.promise;};`,
+  push: `export const disableLocalPushAfterLogout=()=>globalThis.__authProviderCrossTab.disable.promise;`,
+  credentials: `export const subscribeSessionChanges=listener=>{globalThis.__authProviderCrossTab.sessionChanged=listener;return()=>{};};`,
   outbox: `export const clearOutbox=()=>globalThis.__authProviderCrossTab.clears.push('outbox');`,
   drafts: `export const clearAllDrafts=()=>globalThis.__authProviderCrossTab.clears.push('drafts');`,
   privacy: `export const syncPersonalSession=()=>{}; export const clearPersonalLocal=()=>globalThis.__authProviderCrossTab.clears.push('personal');`,
 };
 const result = await build({entryPoints:[root+'src/auth/AuthProvider.tsx'],bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',plugins:[{name:'provider-boundary',setup(b){
-  b.onResolve({filter:/.*/},a=>{const p=a.path;const k=Object.hasOwn(mocks,p)?p:p.endsWith('/api/client')?'client':p.endsWith('/api/auth')?'auth':p.endsWith('/push/webPush')?'push':p.endsWith('/utils/outbox')?'outbox':p.endsWith('/utils/formDraft')?'drafts':p.endsWith('/utils/privacy')?'privacy':null;return k?{path:k,namespace:'boundary'}:null;});
+  b.onResolve({filter:/.*/},a=>{const p=a.path;const k=Object.hasOwn(mocks,p)?p:p.endsWith('/api/client')?'client':p.endsWith('/api/auth')?'auth':p.endsWith('/push/webPush')?'push':p.endsWith('/utils/sessionCredentials')?'credentials':p.endsWith('/utils/outbox')?'outbox':p.endsWith('/utils/formDraft')?'drafts':p.endsWith('/utils/privacy')?'privacy':null;return k?{path:k,namespace:'boundary'}:null;});
   b.onLoad({filter:/.*/,namespace:'boundary'},a=>({contents:mocks[a.path],loader:'js'}));
 }}]});
 const {AuthProvider} = await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
-function reset(){delete globalThis.caches;globalThis.window=new EventTarget();globalThis.localStorage={getItem:key=>key==='yuldash.token'?h.token:key==='yuldash.session'?String(h.generation):null};Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[]});}
+function reset(){delete globalThis.caches;globalThis.window=new EventTarget();globalThis.localStorage={getItem:key=>key==='yuldash.token'?h.token:key==='yuldash.session'?String(h.generation):null};Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[],reconcileGate:null});}
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
-function loginB(){return render().login('B','refresh-B',B);}
+function loginB(){return render().login('B','refresh-B',B,String(h.generation));}
 function assertB(){const value=render();assert.equal(h.token,'B','B token must survive');assert.equal(value.status,'authed','B must stay authenticated');assert.equal(value.user?.id,202,'B must keep its own profile');}
 async function readyA(){mount();h.requests[0].resolve(A);await flush();assert.equal(render().user.id,101);}
 let failed=0,total=0;
@@ -46,10 +47,8 @@ async function test(label,fn){total++;try{await fn();console.log('PASS '+label);
 
 // External tab has already committed shared storage before the browser emits storage.
 function externalSession(token, generation) {
-  const oldValue=String(h.generation);h.token=token;h.generation=generation;
-  const event=new Event('storage');
-  Object.assign(event,{key:'yuldash.session',oldValue,newValue:String(generation),storageArea:localStorage});
-  window.dispatchEvent(event);
+  h.token=token;h.generation=generation;
+  h.sessionChanged();
 }
 function requireRequest(token) {
   const request=h.requests.findLast(r=>r.token===token);
@@ -67,10 +66,10 @@ await test('external logout immediately removes authenticated A UI',async()=>{
   await readyA();externalSession(null,2);
   const v=render();assert.equal(v.user,null,'External logout must remove A profile');assert.equal(v.status,'guest');assert.equal(v.isAuthed,false);
 });
-await test('partial external login removes A UI even when generation write failed',async()=>{
-  await readyA();h.token=null;
+await test('unconfirmed legacy removal leaves the current authenticated UI intact',async()=>{
+  await readyA();
   const event=new Event('storage');Object.assign(event,{key:'yuldash.token',newValue:null,oldValue:'A',storageArea:localStorage});window.dispatchEvent(event);
-  assert.equal(render().status,'guest');assert.equal(render().user,null);assert.equal(render().isAuthed,false);
+  assertUser(101);
 });
 await test('obsolete access removal cannot hide committed B profile',async()=>{
   await readyA();externalSession('B',2);requireRequest('B').resolve(B);await flush();
@@ -94,13 +93,12 @@ await test('same-session token refresh storage event preserves A UI',async()=>{
   await flush();assertUser(101);assert.equal(h.requests.length,1,'Token rotation in same session must not restart profile');
 });
 await test('logout already waiting from A must not send logout as external B',async()=>{
-  await readyA();const pending=render().logout();externalSession('B',2);
+  await readyA();h.reconcileGate=deferred();const pending=render().logout();externalSession('B',2);h.reconcileGate.resolve();
   h.disable.resolve();h.serverLogout.resolve({ok:true});await pending;
   assert.deepEqual(h.logoutBearers,[],'Old logout continuation must not act as B');assert.equal(h.token,'B');assert.deepEqual(h.clears,[]);
 });
-await test('storage clear event removes old authenticated UI',async()=>{
-  await readyA();h.token=null;h.generation='';
-  const event=new Event('storage');Object.assign(event,{key:null,newValue:null,oldValue:null,storageArea:localStorage});window.dispatchEvent(event);
+await test('a committed guest record removes old authenticated UI',async()=>{
+  await readyA();externalSession(null,2);
   assert.equal(render().user,null);assert.equal(render().status,'guest');
 });
 await test('queued obsolete session event cannot reset current profile',async()=>{
@@ -110,10 +108,10 @@ await test('queued obsolete session event cannot reset current profile',async()=
 });
 await test('startup outage is unavailable, then online restores account without login',async()=>{
  mount();h.requests[0].reject(new Error('offline'));await flush();assert.equal(render().status,'unavailable');assert.equal(render().user,null);assert.equal(h.token,'A');assert.deepEqual(h.clears,[]);
- window.dispatchEvent(new Event('online'));assert.equal(h.requests.length,2);assert.equal(render().status,'loading');h.requests[1].resolve(A);await flush();assertUser(101);
+ window.dispatchEvent(new Event('online'));await flush();assert.equal(h.requests.length,2);assert.equal(render().status,'loading');h.requests[1].resolve(A);await flush();assertUser(101);
 });
 await test('retry events do not duplicate pending requests or reload verified profile',async()=>{
- mount();h.requests[0].reject(new Error('503'));await flush();window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('online'));assert.equal(h.requests.length,2);
+ mount();h.requests[0].reject(new Error('503'));await flush();window.dispatchEvent(new Event('focus'));window.dispatchEvent(new Event('online'));await flush();assert.equal(h.requests.length,2);
  h.requests[1].resolve(A);await flush();window.dispatchEvent(new Event('focus'));assert.equal(h.requests.length,2);assertUser(101);
 });
 await test('manual retry restores unavailable profile',async()=>{

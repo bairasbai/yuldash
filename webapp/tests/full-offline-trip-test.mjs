@@ -1,12 +1,13 @@
 import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { IDBFactory } from "fake-indexeddb";
+import { IDBFactory, IDBObjectStore } from "fake-indexeddb";
 import { all, bundleComponent, checker, mount, text } from "./shallow-harness.mjs";
 
 const h = globalThis.__fullOfflineTrip = {};
 const t = checker();
 const mocks = {
+  "/api/client": "const h=globalThis.__fullOfflineTrip; export const getSessionGeneration=()=>h.api.getSessionGeneration(),getAccountSession=()=>h.api.getAccountSession(),isAccountSession=owner=>h.api.isAccountSession(owner),reconcileSession=()=>h.api.reconcileSession();",
   "react-router-dom": `export const useParams=()=>({id:String(globalThis.__fullOfflineTrip.bookingId)}),
     useLocation=()=>({pathname:"/trip/42"}),useNavigate=()=>path=>globalThis.__fullOfflineTrip.navigation.push(path),Navigate="Navigate";`,
   "/AuthProvider": `export const useAuth=()=>({status:globalThis.__fullOfflineTrip.status,retrySession:()=>globalThis.__fullOfflineTrip.retries++});`,
@@ -17,7 +18,7 @@ const mocks = {
   "/splashTarget": `export const scheduleSplashNavigation=()=>()=>{};`,
 };
 const define = { "import.meta.env": JSON.stringify({ VITE_API_BASE: "https://trip.test" }) };
-const real = ["/offlineTripPass", "/useStoredTripData", "/client", "/format"];
+const real = ["/offlineTripPass", "/useStoredTripData", "/format"];
 const component = (entry, exportName) => bundleComponent(entry, { mocks, real, define, exportName });
 const RequireAuth = await component("src/components/RequireAuth.tsx");
 const Fallback = await component("src/components/OfflineTripFallback.tsx");
@@ -32,7 +33,8 @@ const result = await build({
   },
   bundle: true, write: false, format: "esm", platform: "node", define,
 });
-const api = await import("data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64"));
+const bundle = "data:text/javascript;base64," + Buffer.from(result.outputFiles[0].text).toString("base64");
+let api, instance = 0;
 
 const id = 42, owner = { userId: 7, generation: "session-A" };
 const legacy = "yuldash.tripPass.42";
@@ -43,17 +45,18 @@ const snapshot = {
 };
 const token = id => "test." + Buffer.from(JSON.stringify({ sub: String(id) })).toString("base64url") + ".test";
 const values = new Map();
-function putSession(owner) {
+function putLegacySession(owner) {
   values.set("yuldash.token", token(owner.userId));
   values.set("yuldash.session", owner.generation);
+  values.set("yuldash.refresh", "fixture-refresh");
 }
 function reset() {
   values.clear();
-  putSession(owner);
-  Object.assign(h, { bookingId: id, status: "unavailable", lang: "ru", navigation: [], retries: 0, views: [], readFail: false, failKey: null });
+  putLegacySession(owner);
+  Object.assign(h, { bookingId: id, status: "unavailable", lang: "ru", navigation: [], retries: 0, views: [] });
   globalThis.localStorage = {
-    getItem(k) { if (h.readFail) throw Error("storage read failed"); return values.get(k) ?? null; },
-    setItem(k,v) { if (h.failKey === k) throw Error("storage write failed"); values.set(k,String(v)); },
+    getItem: k => values.get(k) ?? null,
+    setItem: (k,v) => values.set(k,String(v)),
     removeItem: k => values.delete(k), key: i => [...values.keys()][i] ?? null,
     get length() { return values.size; },
   };
@@ -66,6 +69,8 @@ function reset() {
 function test(name, run) {
   return t.test(name, async () => {
     reset();
+    api = h.api = await import(bundle + "#" + ++instance);
+    await api.initializeSessionStorage();
     try { await run(); } finally { h.views.forEach(view => view.unmount()); }
   });
 }
@@ -85,7 +90,7 @@ const button = (view, label) => all(view.tree).find(node => node.type === "butto
   (typeof label === "function" ? label(text(node)) : text(node) === label));
 const childPass = view => all(view.tree).find(node => node.type === "OfflineTripPass")?.props.pass;
 const flush = async () => { for (let i = 0; i < 30; i++) await new Promise(setImmediate); };
-const tabChanged = () => window.dispatchEvent(Object.assign(new Event("storage"), { key: "yuldash.session" }));
+const tabChanged = () => window.dispatchEvent(Object.assign(new Event("storage"), { key: "yuldash.auth.changed" }));
 async function changeRow(change) {
   await api.editTripRecords(owner, () => true, rows => {
     const trips = new Map(rows);
@@ -132,31 +137,28 @@ await test("F07 list keeps active or absent, while token rotation permits termin
   await readList(() => [{ id, status: "confirmed" }]);
   await readList(() => []);
   assert.equal((await read()).boardingCode, "4931");
-  await readList(() => {
-    values.set("yuldash.token", token(7) + "-rotated");
+  await readList(async () => {
+    await api.rotateSession(token(7) + "-rotated", "rotated-refresh", owner.generation);
     return [{ id, status: "done" }];
   });
   assert.equal(await read(), null);
 });
 await test("F07 late list cannot touch a new account", async () => {
   await save();
-  const b = { userId: 8, generation: "session-B" };
   await assert.rejects(readList(async () => {
-    putSession(b);
+    const b = { userId: 8, generation: await api.setSession(token(8), "fixture-refresh-B") };
     await save({ ...snapshot, driverName: "QA B" }, b);
     return [{ id, status: "cancelled" }];
   }), error => error.status === 409);
   assert.equal((await read()).driverName, "QA B");
 });
-for (const change of ["missing token", "aborted request"]) await test("F07 list closes on " + change, async () => {
+await test("F07 aborted list preserves an active card", async () => {
   await save();
   const request = new AbortController();
   await assert.rejects(readList(() => {
-    if (change === "missing token") values.delete("yuldash.token");
-    else request.abort();
+    request.abort();
     return [{ id, status: "done" }];
   }, request.signal), error => error.name === "AbortError");
-  putSession(owner);
   assert.equal((await read()).boardingCode, "4931");
 });
 
@@ -222,16 +224,16 @@ for (const change of ["cancel", "online", "new session"]) await test("START stal
   const selected = button(view, "Открыть сохранённую поездку");
   if (change === "cancel") await api.finishTripPass(owner, id);
   if (change === "online") navigator.onLine = true;
-  if (change === "new session") putSession({ ...owner, generation: "session-B" });
+  if (change === "new session") await api.setSession(token(7), "fixture-refresh-B");
   selected.props.onClick();
   await flush();
   assert.deepEqual(h.navigation, []);
 });
 await test("START ownership mismatch closes both discovery and the card", async () => {
   await save();
-  putSession({ ...owner, userId: 8 });
+  await api.setSession(token(8), "fixture-refresh-B");
   assert.equal(await read(), null);
-  assert.equal(await api.listOfflineTripOptions(), null);
+  assert.deepEqual((await api.listOfflineTripOptions()).trips, []);
   assert(!button(await viewOf(Splash), "Открыть сохранённую поездку"));
 });
 await test("START terminal in-transit booking cannot be discovered", async () => {
@@ -254,25 +256,27 @@ for (const [field, value] of [
   await changeRow(row => ({ ...row, pass: { ...row.pass, [field]: value } }));
   assert.equal(await read(), null);
 });
-for (const key of ["yuldash.token", "yuldash.session"]) await test("F07 absent credential " + key, async () => {
+await test("F07 committed guest cannot open the old card", async () => {
   await save();
-  values.delete(key);
+  await api.setSession(null, null);
   assert.equal(await read(), null);
 });
-await test("F07 unavailable credentials and unavailable IndexedDB do not expose a pass", async () => {
+await test("F07 unavailable IndexedDB does not expose a pass", async () => {
   await save();
-  h.readFail = true;
-  assert.equal(await read(), null);
-  h.readFail = false;
   indexedDB.open = () => { throw Error("disk denied"); };
   assert.equal(await read(), null);
 });
-for (const failKey of ["yuldash.session", "yuldash.refresh", "yuldash.token"]) await test("F07 partial publication cannot bring back prior credentials' pass " + failKey, async () => {
+await test("F07 failed publication preserves the previous pair and card together", async () => {
   await save();
-  h.failKey = failKey;
-  await assert.rejects(api.setSession(token(8), "refresh-B"));
-  putSession(owner);
-  assert.equal(await read(), null);
+  const put = IDBObjectStore.prototype.put;
+  IDBObjectStore.prototype.put = function (...args) {
+    if (this.name === "credentials") throw Error("fixture write denied");
+    return put.apply(this, args);
+  };
+  try { await assert.rejects(api.setSession(token(8), "refresh-B")); }
+  finally { IDBObjectStore.prototype.put = put; }
+  assert.equal(api.getSessionGeneration(), owner.generation);
+  assert.equal((await read()).boardingCode, "4931");
 });
 await test("F07 logout clears legacy snapshots and preserves device language", async () => {
   await save();
@@ -305,7 +309,7 @@ for (const event of ["storage", "online"]) await test("F07 visible card rechecks
   const view = await viewOf(Fallback);
   assert(childPass(view));
   if (event === "storage") {
-    putSession({ ...owner, generation: "session-B" });
+    await api.setSession(token(7), "fixture-refresh-B");
     tabChanged();
   } else {
     navigator.onLine = true;
@@ -346,8 +350,8 @@ for (const kind of ["expired", "future", "other login", "no token"]) await test(
   await api.observeTripPass(owner, id, { status: "cancelled", role: "passenger", cancelled_in_transit: true, cancelled_in_transit_at: new Date().toISOString() }, undefined);
   if (kind === "expired") await changeRow(row => ({ ...row, cancelledInTransitAt: Date.now() - api.IN_TRANSIT_MARKER_TTL_MS - 1 }));
   if (kind === "future") await changeRow(row => ({ ...row, cancelledInTransitAt: Date.now() + 10000 }));
-  if (kind === "other login") putSession({ ...owner, generation: "session-B" });
-  if (kind === "no token") values.delete("yuldash.token");
+  if (kind === "other login") await api.setSession(token(7), "fixture-refresh-B");
+  if (kind === "no token") await api.setSession(null, null);
   assert.equal((await viewOf(Fallback)).tree, null);
 });
 

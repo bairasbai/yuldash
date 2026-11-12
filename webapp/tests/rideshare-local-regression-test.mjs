@@ -63,6 +63,7 @@ const passModule = await build({
     ` : `
       const h=globalThis.__rideshareLocal;
       export const offlineStorageTrusted=()=>!h.diskFenced,reportStorageFailure=()=>{h.diskFenced=true;};
+      export const canImportLegacyDuringRecovery=()=>false,rememberSession=()=>{},sessionEpoch=()=>0,storageFenced=()=>!!h.diskFenced;
     ` }));
   } }],
 });

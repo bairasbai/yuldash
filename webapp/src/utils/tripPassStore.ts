@@ -1,7 +1,8 @@
 import type { TripPassOwner, TripPassRecord } from "./tripPass";
 
 const DATABASE = "yuldash-trip-passes-v1";
-const STORE = "sessions";
+export const TRIP_STORE = "sessions";
+export const AUTH_STORE = "credentials";
 const CHANNEL = "yuldash-trip-pass-changes";
 
 type TripRecords = ReadonlyMap<number, TripPassRecord>;
@@ -27,7 +28,7 @@ export function subscribeTripPassChanges(listener: () => void): () => void {
   };
 }
 
-function publishChange(): void {
+export function publishTripPassChange(): void {
   listeners.forEach(notify => {
     try { notify(); } catch { /* Rendering cannot change a committed write. */ }
   });
@@ -41,11 +42,15 @@ function publishChange(): void {
   } catch { /* The next focus or navigation reads the durable state directly. */ }
 }
 
-function openDatabase(): Promise<IDBDatabase> {
+export function openTripDatabase(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
-    const request = indexedDB.open(DATABASE, 1);
+    const request = indexedDB.open(DATABASE, 2);
     let blocked = false;
-    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    request.onupgradeneeded = event => {
+      const db = request.result;
+      if (event.oldVersion === 0) db.createObjectStore(TRIP_STORE);
+      if (event.oldVersion < 2) db.createObjectStore(AUTH_STORE);
+    };
     request.onerror = () => reject(request.error);
     request.onblocked = () => {
       blocked = true;
@@ -69,20 +74,20 @@ async function access<Result>(
   edit: (row: SessionRow | undefined) => Edit<Result>,
 ): Promise<Result> {
   if (!current()) throw new Error("Trip session changed");
-  const db = await openDatabase();
+  const db = await openTripDatabase();
   try {
     return await new Promise<Result>((resolve, reject) => {
       if (!current()) throw new Error("Trip session changed");
       const tx = mode === "readwrite"
-        ? db.transaction(STORE, mode, { durability: "strict" })
-        : db.transaction(STORE, mode);
-      const store = tx.objectStore(STORE);
+        ? db.transaction(TRIP_STORE, mode, { durability: "strict" })
+        : db.transaction(TRIP_STORE, mode);
+      const store = tx.objectStore(TRIP_STORE);
       let result: Result;
       let changed = false;
       tx.onabort = () => reject(tx.error ?? new Error("Trip pass transaction aborted"));
       tx.oncomplete = () => {
         try {
-          if (changed) publishChange();
+          if (changed) publishTripPassChange();
           if (!current()) throw new Error("Trip session changed");
           resolve(result);
         } catch (error) { reject(error); }

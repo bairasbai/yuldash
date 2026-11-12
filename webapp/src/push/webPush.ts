@@ -169,3 +169,14 @@ export async function disableWebPush(): Promise<void> {
     /* мягко: флаг уже снят, подписка протухнет сама */
   }
 }
+
+/** Logout revokes the old account on the server and also drops this browser subscription. */
+export async function disableLocalPushAfterLogout(guestGeneration: string): Promise<void> {
+  setWebPushEnabled(false);
+  if (!pushSupported()) return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (guestGeneration === getSessionGeneration()) await subscription?.unsubscribe();
+  } catch { /* Local sign-out is already saved. */ }
+}

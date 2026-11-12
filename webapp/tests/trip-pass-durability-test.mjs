@@ -15,7 +15,11 @@ const built = await build({
 });
 const bundle = "data:text/javascript;base64," + Buffer.from(built.outputFiles[0].text).toString("base64");
 let instance = 0;
-const fresh = () => import(bundle + "#" + ++instance);
+const fresh = async () => {
+  const api = await import(bundle + "#" + ++instance);
+  await api.initializeSessionStorage();
+  return api;
+};
 const token = id => "test." + Buffer.from(JSON.stringify({ sub: String(id) })).toString("base64url") + ".test";
 const booking = 42, rideId = 17, owner = { userId: 7, generation: "A" };
 const boardA = "2026-10-24T12:00:00.123456Z", boardB = "2026-10-24T12:00:00.123457Z";
@@ -50,13 +54,13 @@ function reset() {
   const h = { values, installSession, durability: [], abortNextWrite: false, pause: null, denyRead: false };
   globalThis.indexedDB = {
     open(name, ...args) {
-      if (name === "yuldash-trip-passes-v1" && h.denyRead) throw new Error("test storage unavailable");
       const request = factory.open(name, ...args);
       if (name !== "yuldash-trip-passes-v1") return request;
       request.addEventListener("success", () => {
         const db = request.result;
         const start = db.transaction.bind(db);
         db.transaction = (...args) => {
+          if (args[0] === "sessions" && h.denyRead) throw new Error("trip storage unavailable");
           const tx = start(...args);
           const mode = args[1];
           if (mode === "readwrite") h.durability.push(args[2]?.durability);
@@ -299,14 +303,14 @@ await test("session credentials are published only after the old generation is d
   await completed.promise;
   assert.equal(api.getSessionGeneration(), "A");
   assert.equal(api.getToken(), token(7));
-  assert.equal((await state(await fresh())), null);
+  assert.equal((await state(await fresh()))?.pass ?? null, null);
   gate.resolve();
   await next;
   assert.equal(api.getAccountSession().userId, 8);
   h.installSession(7, "A"); // Simulate rollback of the browser's localStorage credentials.
-  assert.equal((await state(await fresh())), null);
+  assert.equal((await state(await fresh()))?.pass ?? null, null);
   await save(api);
-  assert.equal((await state(api)), null);
+  assert.equal((await state(api))?.pass ?? null, null);
 });
 
 await test("a read captured before an account switch cannot return the old pass", async (api, h) => {
@@ -315,10 +319,11 @@ await test("a read captured before an account switch cannot return the old pass"
   h.pause = { mode: "readonly", gate, completed };
   const reading = state(api);
   await completed.promise;
-  h.installSession(8, "B");
+  const other = await fresh();
+  const generation = await other.setSession(token(8), "refresh-B");
   gate.resolve();
   assert.equal(await reading, null);
-  const actor = { userId: 8, generation: "B" };
+  const actor = { userId: 8, generation };
   await save(api, actor, { ...snapshot, driverName: "QA B" });
   assert.equal((await state(api)).pass.driverName, "QA B");
 });

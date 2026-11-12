@@ -7,9 +7,9 @@ let serial = 0, passed = 0, failed = 0;
 const response = (status, body = {}) => new Response(JSON.stringify(body), { status });
 const pair = { access_token: 'A2', refresh_token: 'R2' };
 const instance = () => import('data:text/javascript;base64,' + Buffer.from(outputFiles[0].text + '\n//' + serial++).toString('base64'));
-async function intents() {
+async function intents(keys = false) {
   const db = await new Promise((resolve, reject) => { const r = indexedDB.open('yuldash-refresh-intents', 1); r.onsuccess = () => resolve(r.result); r.onerror = () => reject(r.error); });
-  return new Promise((resolve, reject) => { const tx = db.transaction('intents'), r = tx.objectStore('intents').getAll(); tx.oncomplete = () => { db.close(); resolve(r.result); }; tx.onabort = () => { db.close(); reject(tx.error); }; });
+  return new Promise((resolve, reject) => { const tx = db.transaction('intents'), r = keys ? tx.objectStore('intents').getAllKeys() : tx.objectStore('intents').getAll(); tx.oncomplete = () => { db.close(); resolve(r.result); }; tx.onabort = () => { db.close(); reject(tx.error); }; });
 }
 async function check(name, run) {
   globalThis.indexedDB = new IDBFactory();
@@ -23,12 +23,12 @@ for (const failure of ['network', '503', 'malformed']) await check('reload retai
   let first;
   globalThis.fetch = async (_, init) => { first = JSON.parse(init.body); if (failure === 'network') throw new TypeError('offline'); return failure === '503' ? response(503) : response(200, {}); };
   await assert.rejects(api.refreshSession()); assert.match(first.rotation_id ?? '', /^[a-f0-9]{64}$/);
-  const reloaded = await instance();
+  const reloaded = await instance(); await reloaded.initializeSessionStorage();
   globalThis.fetch = async (_, init) => { assert.deepEqual(JSON.parse(init.body), first); return response(200, pair); };
-  assert.equal(await reloaded.refreshSession(), true); assert.equal(api.getRefreshToken(), 'R2');
+  assert.equal(await reloaded.refreshSession(), true); await api.reconcileSession(); assert.equal(api.getRefreshToken(), 'R2');
 });
 await check('two tabs without Web Locks use the same persisted nonce', async api => {
-  const other = await instance(), bodies = []; let release;
+  const other = await instance(), bodies = []; await other.initializeSessionStorage(); let release;
   const barrier = new Promise(r => release = r);
   globalThis.fetch = async (_, init) => { bodies.push(JSON.parse(init.body)); if (bodies.length === 2) release(); await barrier; return response(200, pair); };
   await Promise.all([api.refreshSession(), other.refreshSession()]);
@@ -77,8 +77,45 @@ await check('logout clears a failed rotation intent', async api => {
   for (let i = 0; i < 20 && (await intents()).length; i++) await new Promise(setImmediate);
   assert.deepEqual(await intents(), []);
 });
+await check('delayed cleanup of A never deletes a committed refresh intent of B', async api => {
+  globalThis.fetch = async () => { throw new TypeError('fixture offline'); };
+  await assert.rejects(api.refreshSession());
+  const oldGeneration = api.getSessionGeneration();
+  const original = indexedDB.open.bind(indexedDB);
+  let paused = true, resume, opened;
+  const waiting = new Promise(resolve => { opened = resolve; });
+  indexedDB.open = (name, ...args) => {
+    const request = original(name, ...args);
+    if (!paused || name !== 'yuldash-refresh-intents') return request;
+    paused = false;
+    return new Proxy(request, {
+      set(target, key, value) {
+        if (key === 'onsuccess') {
+          target.onsuccess = event => { resume = () => value.call(target, event); opened(); };
+        } else target[key] = value;
+        return true;
+      },
+      get(target, key) { return Reflect.get(target, key, target); },
+    });
+  };
+  try {
+    await api.setSession(null, null);
+    await waiting;
+    const other = await instance(); await other.initializeSessionStorage();
+    const nextGeneration = await other.setSession('B', 'RB');
+    await assert.rejects(other.refreshSession());
+    assert((await intents(true)).some(([generation]) => generation === nextGeneration));
+    resume();
+    for (let i = 0; i < 30 && (await intents(true)).some(([generation]) => generation === oldGeneration); i++) {
+      await new Promise(setImmediate);
+    }
+    assert.deepEqual(await intents(true), [[nextGeneration, 'RB']]);
+  } finally {
+    indexedDB.open = original;
+  }
+});
 await check('late R1 response cannot roll back a newer R2 to R3 rotation', async api => {
-  const other = await instance(); let release, start;
+  const other = await instance(); await other.initializeSessionStorage(); let release, start;
   const held = new Promise(r => release = r), ready = new Promise(r => start = r); let calls = 0;
   globalThis.fetch = async (_, init) => {
     const body = JSON.parse(init.body); calls++;
