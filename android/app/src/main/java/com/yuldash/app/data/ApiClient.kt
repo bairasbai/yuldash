@@ -1582,14 +1582,19 @@ object ApiClient {
 
     /** Мои брони со сводкой поездки (маршрут/водитель/статус) — для экрана «Мои поездки».
      *  Старый сервер вернёт только id/seats/status → поля сводки пустые, экран это переживает. */
-    suspend fun getMyBookingsDetailed(): Result<List<BookingMineDto>> =
-        call("GET", "/bookings/mine", null, auth = true).map { obj ->
+    suspend fun getMyBookingsDetailed(): Result<List<BookingMineDto>> {
+        val generation = queueSessionGeneration()
+        val ticket = OfflineTripSnapshots.ticket()?.takeIf { it.owner.generation == generation }
+        return call("GET", "/bookings/mine", null, auth = true, expectedGeneration = generation).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                parseBookingMineDto(o)
-            }
+            (0 until arr.length()).map { i -> parseBookingMineDto(arr.getJSONObject(i)) }
+        }.onSuccess { bookings ->
+            val closed = bookings.asSequence()
+                .filter { it.id > 0 && (it.status == "cancelled" || it.status == "done") }
+                .map { it.id }.toSet()
+            OfflineTripSnapshots.closeListedTerminalBookings(ticket, closed)
         }
+    }
 
     suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,

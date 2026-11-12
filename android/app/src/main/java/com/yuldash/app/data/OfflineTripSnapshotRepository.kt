@@ -9,6 +9,7 @@ import java.util.concurrent.atomic.AtomicReference
 
 /** Disk methods report confirmed commits. A false result may have changed dirty memory. */
 internal interface SnapshotDisk {
+    val canReadPayload: Boolean get() = true
     fun read(namespace: String): String?
     fun write(namespace: String, value: String): Boolean
     fun barrier(key: String): String?
@@ -252,10 +253,21 @@ internal class OfflineTripSnapshotRepository(
         authority.invalidate(ticket, bookingId)
         return writer.withLock { if (!valid(ticket)) SnapshotPersistence.STALE else blockDisk(ticket.owner, bookingId) }
     }
+    /** null means the owned document could not be read, not that it has no matching records. */
+    suspend fun storedBookings(ticket: SnapshotTicket, bookingIds: Set<Int>): Set<Int>? = writer.withLock {
+        if (!valid(ticket)) return@withLock emptySet()
+        if (!disk.canReadPayload) return@withLock null
+        runCatching {
+            val records = root(ticket.owner).getJSONObject("records")
+            bookingIds.filterTo(mutableSetOf()) { records.has(it.toString()) }
+        }.getOrNull()
+    }
+
     suspend fun close(ticket: SnapshotTicket, id: Int, ride: Boolean = false): SnapshotPersistence {
         // This must precede waiting for a paused old writer, as well as both disk writes.
         if (!valid(ticket) || !authority.close(ticket, id, ride)) return SnapshotPersistence.STALE
         return writer.withLock {
+            if (!valid(ticket)) return@withLock SnapshotPersistence.STALE
             val owner = ticket.owner
             val blocked = runCatching { disk.setBarrier(owner.barrier(if (ride) "ride" else "booking", id), "closed") }.getOrDefault(false)
             val saved = runCatching {

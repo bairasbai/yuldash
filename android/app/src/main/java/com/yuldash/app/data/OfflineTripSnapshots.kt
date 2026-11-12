@@ -441,14 +441,33 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         }
         return closeWithPersistence(ticket, bookingId, false)
     }
+    /** The passenger list can close a known terminal booking. It cannot grant trip authority. */
+    suspend fun closeListedTerminalBookings(ticket: SnapshotTicket?, bookingIds: Set<Int>) {
+        if (ticket == null || bookingIds.isEmpty()) return
+        val memoryIds = synchronized(this) {
+            if (!gate.current(ticket) || !current(ticket.owner)) return
+            val known = bookingIds.filter { it in live || it in details || it in warmFallbacks || it in driverCodes }
+            bookingIds.forEach { gate.close(ticket, it) }
+            changed()
+            known
+        }
+        withContext(NonCancellable + Dispatchers.IO) {
+            val storedIds = diskAccess.withLock {
+                val store = repo(ticket.owner) ?: return@withLock emptySet()
+                store.storedBookings(ticket, bookingIds) ?: bookingIds
+            }
+            for (id in storedIds + memoryIds) closeBookingWithPersistence(ticket, id)
+        }
+    }
+
     override suspend fun close(ticket: SnapshotTicket?, bookingId: Int) { close(ticket, bookingId, false) }
     suspend fun closeBookingWithPersistence(ticket: SnapshotTicket?, bookingId: Int): SnapshotPersistence =
         closeWithPersistence(ticket, bookingId, false)
     suspend fun close(ticket: SnapshotTicket?, id: Int, ride: Boolean) { closeWithPersistence(ticket, id, ride) }
     private suspend fun closeWithPersistence(ticket: SnapshotTicket?, id: Int, ride: Boolean): SnapshotPersistence {
         ticket ?: return SnapshotPersistence.STALE
-        if (!gate.close(ticket, id, ride)) return SnapshotPersistence.STALE
         synchronized(this) {
+            if (!current(ticket.owner) || !gate.close(ticket, id, ride)) return SnapshotPersistence.STALE
             if (ride) {
                 driverCodes.entries.removeAll { it.value.projection.owner == ticket.owner && it.value.projection.details.rideId == id }
                 details.filterValues { it.owner == ticket.owner && it.details.rideId == id }.keys.toList().forEach { details.remove(it) }

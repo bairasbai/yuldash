@@ -35,6 +35,77 @@ internal class SnapshotTransportWiringTest : SnapshotWiringFixture() {
         assertEquals("4821", ApiClient.getBoardingCode(11).getOrThrow())
         assertTrue(requests.filter { it.path?.startsWith("/bookings/") == true }.all { it.getHeader("Authorization") == "Bearer ${jwt(7)}" })
     }
+    @Test fun ownBookingListClosesOnlyExplicitTerminalCopiesAcrossProcessReopen() = runBlocking {
+        warm()
+        for (id in 12..14) ApiClient.getBookingDetails(id).getOrThrow()
+        reopenAuthority()
+        assertEquals(setOf(11, 12, 13, 14), OfflineTripSnapshots.historicalSummaries().map { it.bookingId }.toSet())
+        handler = { request ->
+            if (request.path == "/bookings/mine") MockResponse().setBody(
+                """{"items":[{"id":11,"status":"cancelled"},{"id":12,"status":"confirmed"},{"id":13,"status":"done"},{"id":99,"status":"done"}]}"""
+            ) else defaultResponse(request)
+        }
+
+        assertEquals(listOf("cancelled", "confirmed", "done", "done"),
+            ApiClient.getMyBookingsDetailed().getOrThrow().map { it.status })
+        reopenAuthority()
+        assertEquals(setOf(12, 14), OfflineTripSnapshots.historicalSummaries().map { it.bookingId }.toSet())
+        assertFalse(OfflineTripSnapshots.allowsLive(11))
+        assertFalse(OfflineTripSnapshots.allowsLive(12))
+        val disk = SnapshotPreferencesDisk(meta, secure)
+        assertNull(disk.barrier(owner().barrier("booking", 99)))
+        val saved = disk.read(owner().namespace)
+        ApiClient.getMyBookingsDetailed().getOrThrow()
+        assertEquals(saved, disk.read(owner().namespace))
+    }
+
+    @Test fun ownTerminalListPersistsBarrierWhileEncryptedPayloadIsUnavailable() = runBlocking {
+        warm()
+        val previous = owner()
+        OfflineTripSnapshots.installForTest(SnapshotPreferencesDisk(meta, null)) { clock }
+        OfflineTripSnapshots.activate(previous.userId, previous.scope, previous.generation)
+        handler = { request ->
+            if (request.path == "/bookings/mine")
+                MockResponse().setBody("""{"items":[{"id":11,"status":"cancelled"}]}""")
+            else defaultResponse(request)
+        }
+
+        assertEquals("cancelled", ApiClient.getMyBookingsDetailed().getOrThrow().single().status)
+        assertEquals("closed", SnapshotPreferencesDisk(meta, null).barrier(previous.barrier("booking", 11)))
+        reopenAuthority()
+        assertTrue(OfflineTripSnapshots.historicalSummaries().isEmpty())
+    }
+
+    @Test fun heldOldBookingListCannotCloseTheNewOwnersCopyOfTheSameId() = runBlocking {
+        warm()
+        val held = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        handler = { request ->
+            if (request.path == "/bookings/mine" && request.getHeader("Authorization") == "Bearer " + jwt(7)) {
+                held.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                MockResponse().setBody("""{"items":[{"id":11,"status":"cancelled"}]}""")
+            } else defaultResponse(request)
+        }
+        ApiClient.testTimeoutMs = 8000
+        val oldList = async(Dispatchers.IO) { ApiClient.getMyBookingsDetailed() }
+        try {
+            assertTrue(held.await(10, TimeUnit.SECONDS))
+            ApiClient.saveToken(jwt(8))
+            val fresh = ApiClient.getBookingDetails(11).getOrThrow()
+            assertTrue(OfflineTripSnapshots.privateDetails(fresh))
+            release.countDown()
+            assertTrue(oldList.await().isFailure)
+            assertTrue(OfflineTripSnapshots.privateDetails(fresh))
+            reopenAuthority()
+            assertEquals(8, owner().userId)
+            assertEquals(11, OfflineTripSnapshots.historicalSummaries().single().bookingId)
+        } finally {
+            release.countDown()
+        }
+    }
+
+
     @Test fun observed401WithBrokenBodyRevokesBeforeRefreshAndNeverFallsBack() = runBlocking {
         warm()
         val previous = owner()
