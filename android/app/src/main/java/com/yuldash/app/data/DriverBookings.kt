@@ -52,8 +52,11 @@ internal fun DriverBookingDto.observeBoardingUndo(nowElapsedMs: Long, previous: 
 
 internal fun DriverBookingDto.boardingUndoSecondsAt(nowElapsedMs: Long): Int {
     val deadline = boardingUndoDeadlineElapsedMs ?: return boardingUndoSec
-    return ((deadline - nowElapsedMs).coerceAtLeast(0) + 999L).div(1_000L).toInt()
+    return boardingUndoSecondsUntil(deadline, nowElapsedMs)
 }
+
+internal fun boardingUndoSecondsUntil(deadlineElapsedMs: Long, nowElapsedMs: Long): Int =
+    ((deadlineElapsedMs - nowElapsedMs).coerceAtLeast(0) + 999L).div(1_000L).toInt()
 
 internal fun DriverBookingDto.applyBoardingResult(result: BoardingResult, nowElapsedMs: Long): DriverBookingDto {
     if (status !in setOf("confirmed", "onboard") || result.status !in setOf("confirmed", "onboard")) return this

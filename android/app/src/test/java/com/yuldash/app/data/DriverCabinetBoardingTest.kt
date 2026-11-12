@@ -1,7 +1,10 @@
 package com.yuldash.app.data
 
+import com.yuldash.app.DriverCabinetBoardingActions
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class DriverCabinetBoardingTest {
@@ -43,6 +46,18 @@ class DriverCabinetBoardingTest {
 
         assertSame(current, current.applyBoardingResult(result(firstBoarding), nowElapsedMs = 75_000))
         assertSame(cancelled, cancelled.applyBoardingResult(result(nextBoarding), nowElapsedMs = 75_000))
+    }
+
+    @Test fun scrollingDoesNotStartASecondOperationForTheSameBooking() {
+        val cabinet = DriverCabinetBoardingActions()
+        assertTrue(cabinet.start(1))
+        assertFalse(cabinet.start(1))
+        assertTrue(cabinet.start(2))
+
+        cabinet.finish(1)
+
+        assertTrue(cabinet.start(1))
+        assertTrue(cabinet.isPending(2))
     }
 
     private fun result(onboardAt: String) =

@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Pin
 import androidx.compose.animation.animateContentSize
+import android.os.SystemClock
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
@@ -57,9 +58,27 @@ import com.yuldash.app.data.BoardingResult
 import com.yuldash.app.data.NoShowTerms
 import com.yuldash.app.data.afterRefusal
 import com.yuldash.app.data.TripReceiptDto
+import com.yuldash.app.data.boardingUndoSecondsUntil
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+
+/** Один запрос посадки или её исправления на бронь, даже если строку прокрутили за экран. */
+internal class DriverCabinetBoardingActions {
+    private var pending by mutableStateOf(emptySet<Int>())
+
+    fun isPending(bookingId: Int): Boolean = bookingId in pending
+
+    fun start(bookingId: Int): Boolean {
+        if (isPending(bookingId)) return false
+        pending = pending + bookingId
+        return true
+    }
+
+    fun finish(bookingId: Int) {
+        pending = pending - bookingId
+    }
+}
 
 // Посадку отмечает ВОДИТЕЛЬ (решение Александра 17.10.2026). Раньше пассажир сам жал «Я сел» —
 // за 30 минут до выезда и без всякой проверки: нажать можно было из дома, чтобы водитель уже не
@@ -103,6 +122,8 @@ internal fun DriverBoardingControls(
     boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
     boardingScope: CoroutineScope? = null,
     boardingOwner: Long = ApiClient.queueSessionGeneration(),
+    boardingActions: DriverCabinetBoardingActions? = null,
+    boardingUndoDeadlineElapsedMs: Long? = null,
     onBoardingResult: ((BoardingResult) -> Unit)? = null,
 ) {
     val rowScope = rememberCoroutineScope()
@@ -130,21 +151,25 @@ internal fun DriverBoardingControls(
                 noShowAt = noShowAt,
                 noShowNeedsArriving = noShowNeedsArriving,
                 arrivingOpensAt = arrivingOpensAt,
-                marking = marking,
+                marking = marking || boardingActions?.isPending(bookingId) == true,
                 onMark = {
-                    if (!marking) {
+                    if (!marking && boardingActions?.start(bookingId) != false) {
                         marking = true
                         val gpsTicket = gpsAction.begin(bookingId)
                         scope.launch {
-                            BoardingApi.markBoarded(bookingId, boardingOwner)
-                                .also { gpsAction.finish(gpsTicket, it.isSuccess) }
-                                .onSuccess(::applyBoarding)
-                                .onFailure { e ->
-                                    if (ApiClient.isCurrentSession(boardingOwner)) {
-                                        Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                            try {
+                                BoardingApi.markBoarded(bookingId, boardingOwner)
+                                    .also { gpsAction.finish(gpsTicket, it.isSuccess) }
+                                    .onSuccess(::applyBoarding)
+                                    .onFailure { e ->
+                                        if (ApiClient.isCurrentSession(boardingOwner)) {
+                                            Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                        }
                                     }
-                                }
-                            marking = false
+                            } finally {
+                                marking = false
+                                boardingActions?.finish(bookingId)
+                            }
                         }
                     }
                 },
@@ -158,6 +183,8 @@ internal fun DriverBoardingControls(
                 undoTerms = boardingUndo,
                 boardingScope = boardingScope,
                 boardingOwner = boardingOwner,
+                boardingActions = boardingActions,
+                boardingUndoDeadlineElapsedMs = boardingUndoDeadlineElapsedMs,
                 afterWindow = { BoardedDisputeBlock(bookingId, passengerId, passengerName) },
             )
             "no_show" -> NoShowSentNote()
@@ -278,19 +305,22 @@ internal fun BoardingInCarRow(
     undoTerms: BoardingUndoTerms = BoardingUndoTerms(),
     boardingScope: CoroutineScope? = null,
     boardingOwner: Long = ApiClient.queueSessionGeneration(),
+    boardingActions: DriverCabinetBoardingActions? = null,
+    boardingUndoDeadlineElapsedMs: Long? = null,
     afterWindow: @Composable () -> Unit = {},
 ) {
     val rowScope = rememberCoroutineScope()
     val scope = boardingScope ?: rowScope
     val ctx = LocalContext.current
-    var left by remember(bookingId, undoSec) { mutableIntStateOf(undoSec) }
+    var left by remember(bookingId, undoSec, boardingUndoDeadlineElapsedMs) { mutableIntStateOf(undoSec) }
     var requested by remember(bookingId, undoTerms.pending, undoTerms.onboardAt) { mutableStateOf(undoTerms.pending) }
     var undoing by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не получилось отменить. Проверь сеть.", "Кире алып булманы. Селтәрҙе тикшер.")
-    LaunchedEffect(bookingId, left) {
+    LaunchedEffect(bookingId, left, boardingUndoDeadlineElapsedMs) {
         if (left > 0) {
             delay(1_000)
-            left -= 1
+            left = boardingUndoDeadlineElapsedMs?.let { boardingUndoSecondsUntil(it, SystemClock.elapsedRealtime()) }
+                ?: (left - 1)
         }
     }
     val clock = boardingUndoClock(left)
@@ -309,28 +339,32 @@ internal fun BoardingInCarRow(
             AnimatedVisibility(visible = left > 0 && !requested) {
                 TextButton(
                     onClick = {
-                        if (!undoing) {
+                        if (!undoing && boardingActions?.start(bookingId) != false) {
                             undoing = true
                             scope.launch {
-                                BoardingApi.undoBoarded(bookingId, boardingOwner)
-                                    .onSuccess {
-                                        if (ApiClient.isCurrentSession(boardingOwner)) {
-                                            requested = it.undo.pending
-                                            onUndone(it)
+                                try {
+                                    BoardingApi.undoBoarded(bookingId, boardingOwner)
+                                        .onSuccess {
+                                            if (ApiClient.isCurrentSession(boardingOwner)) {
+                                                requested = it.undo.pending
+                                                onUndone(it)
+                                            }
                                         }
-                                    }
-                                    .onFailure { e ->
-                                        // 409 — окно вышло или поездка ушла вперёд: дальше только разбор.
-                                        if (ApiClient.isCurrentSession(boardingOwner)) {
-                                            if (e is ApiException && e.status == 409) left = 0
-                                            Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                        .onFailure { e ->
+                                            // 409 — окно вышло или поездка ушла вперёд: дальше только разбор.
+                                            if (ApiClient.isCurrentSession(boardingOwner)) {
+                                                if (e is ApiException && e.status == 409) left = 0
+                                                Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                            }
                                         }
-                                    }
-                                undoing = false
+                                } finally {
+                                    undoing = false
+                                    boardingActions?.finish(bookingId)
+                                }
                             }
                         }
                     },
-                    enabled = !undoing,
+                    enabled = !undoing && boardingActions?.isPending(bookingId) != true,
                     modifier = Modifier.heightIn(min = 48.dp),
                 ) {
                     Text(

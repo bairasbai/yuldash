@@ -2959,6 +2959,7 @@ internal fun DriverCabinetContent(
     val ridesDone = archive.count { it.status == "done" }
     val passengersServed = archive.filter { it.status == "done" }.sumOf { it.seatsBooked ?: (it.seatsTotal - it.seatsLeft).coerceAtLeast(0) }
     // F1: подтверждение отмены — отмена каскадно снимает брони пассажиров, случайный тап недопустим.
+    val boardingActions = remember(boardingOwner) { DriverCabinetBoardingActions() }
     var cancelTarget by remember { mutableStateOf<Ride?>(null) }
     cancelTarget?.let { target ->
         AlertDialog(
@@ -3295,6 +3296,8 @@ internal fun DriverCabinetContent(
                             noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving,
                             arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo,
                             boardingScope = boardingScope, boardingOwner = boardingOwner,
+                            boardingActions = boardingActions,
+                            boardingUndoDeadlineElapsedMs = b.boardingUndoDeadlineElapsedMs,
                             onBoardingResult = onBoardingResult?.let { apply -> { result -> apply(b.bookingId, result) } },
                         )
                         DriverRideShareButton(b.bookingId, b.rideId)
