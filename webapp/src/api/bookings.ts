@@ -5,7 +5,9 @@
 //  подтверждения), следит за live-статусом, показывает код посадки,
 //  оценивает завершённую поездку. Квитанция — GET /trips/{id}/receipt.
 // ================================================================
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPost, getSessionGeneration, getToken } from "./client";
+import { reportStorageFailure, sessionMutation } from "../utils/storageHealth";
+import { dropTripPass } from "../utils/tripPass";
 import { driverStep, emitDriverAction } from "../utils/driverActions";
 
 export type BookingStatus =
@@ -271,8 +273,38 @@ export function fetchBoardingCode(
   return apiGet<{ code: string }>(`/bookings/${id}/boarding-code`, { signal });
 }
 
-export function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]> {
-  return apiGet<MyBooking[]>("/bookings/mine", { signal });
+export async function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]> {
+  const generation = getSessionGeneration();
+  const rows = await apiGet<MyBooking[]>("/bookings/mine", { signal });
+  const terminal = rows.filter(row => (row.status === "cancelled" || row.status === "done") &&
+    Number.isSafeInteger(row.id) && row.id > 0);
+  if (terminal.length === 0 || !generation) return rows;
+
+  const requireCurrentSession = () => {
+    if (signal?.aborted || generation !== getSessionGeneration() || !getToken()) {
+      throw new DOMException("Booking list superseded", "AbortError");
+    }
+  };
+  requireCurrentSession();
+  if (!generation || !getToken()) return rows;
+  try {
+    await sessionMutation(() => {
+      for (const { id } of terminal) {
+        requireCurrentSession();
+        if (!getToken()) return;
+        // Mark terminal even before a snapshot exists: confirmed details may still be in flight.
+        if (!dropTripPass(id, generation)) {
+          reportStorageFailure();
+          return;
+        }
+      }
+    });
+  } catch (error) {
+    if (error instanceof DOMException && error.name === "AbortError") throw error;
+    if (generation === getSessionGeneration()) reportStorageFailure();
+  }
+  requireCurrentSession();
+  return rows;
 }
 
 /**

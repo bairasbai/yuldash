@@ -47,6 +47,76 @@ if (!process.argv.includes('--gate-only')) {
  const save=()=>saveVerifiedTripPass(pass,7,'session-A');
  const edit=(key,fn)=>values.set(key,JSON.stringify(fn(JSON.parse(values.get(key)))));
  const key='yuldash.tripPass.42',owner='yuldash.tripPass.42.owner';
+ const {fetchMyBookings}=await compile('src/api/bookings.ts');
+ async function readList(reply, signal) {
+   const originalFetch = globalThis.fetch;
+   globalThis.fetch = async () => {
+     const rows = await reply();
+     return new Response(JSON.stringify(rows), { status: 200 });
+   };
+   try { return await fetchMyBookings(signal); }
+   finally { globalThis.fetch = originalFetch; }
+ }
+ for (const status of ['cancelled','done']) await test('F07-list-retires-'+status,async()=>{
+   save();
+   const rows=[{id:42,status}];
+   assert.deepEqual(await readList(()=>rows),rows);
+   assert(!values.has(key));
+   assert(!values.has(owner));
+   assert.equal(loadOfflineTripPass(42),null);
+   save();
+   assert(!values.has(key),'Late confirmed details must not recreate a terminal pass');
+ });
+ await test('F07-list-terminal-before-first-save',async()=>{
+   await readList(()=>[{id:42,status:'cancelled'}]);
+   save();
+   assert(!values.has(key));
+   assert.equal(loadOfflineTripPass(42),null);
+ });
+ await test('F07-list-keeps-active-and-absent',async()=>{
+   save();
+   await readList(()=>[{id:42,status:'confirmed'},{id:9,status:'cancelled'}]);
+   assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');
+   await readList(()=>[]);
+   assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');
+ });
+ await test('F07-late-list-does-not-change-next-session',async()=>{
+   save();
+   const late=readList(()=>{
+     values.set('yuldash.session','session-B');
+     values.set('yuldash.token','fixture-b');
+     saveVerifiedTripPass({...pass,driverName:'B'},8,'session-B');
+     return [{id:42,status:'cancelled'}];
+   });
+   await assert.rejects(late,error=>error.status===409);
+   assert.equal(loadOfflineTripPass(42)?.driverName,'B');
+ });
+ await test('F07-token-rotation-keeps-list-terminal-result',async()=>{
+   save();
+   await readList(()=>{
+     values.set('yuldash.token','rotated-a');
+     return [{id:42,status:'done'}];
+   });
+   assert.equal(loadOfflineTripPass(42),null);
+ });
+ await test('F07-credentials-removed-before-list-result',async()=>{
+   save();
+   await assert.rejects(readList(()=>{
+     values.delete('yuldash.token');
+     return [{id:42,status:'done'}];
+   }),error=>error.name==='AbortError');
+   assert(values.has(key));
+   assert.equal(loadOfflineTripPass(42),null);
+ });
+ await test('F07-aborted-list-leaves-pass',async()=>{
+   save();
+   const request=new AbortController();
+   await assert.rejects(readList(()=>{
+     request.abort();
+     return [{id:42,status:'done'}];
+   },request.signal),error=>error.name==='AbortError');
+   assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');
+ });
  await test('F07-store-own',()=>{save();assert.equal(loadOfflineTripPass(42)?.boardingCode,'4931');assert.equal(loadOfflineTripPass(42)?.ownerId,7);});
  for(const [id,mutate] of [
   ['legacy',()=>edit(key,p=>{delete p.ownerId;delete p.sessionGeneration;return p;})],
