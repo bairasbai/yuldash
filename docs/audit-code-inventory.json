@@ -3254,8 +3254,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/HomeBookingNavigationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "515d3b3d03ac8ddecc48e58b6ff7079977933f4f1a3e15a2bd977673177e574d",
-      "lines": 639
+      "sha256": "f2dbcc9c2272ad0e56b5d9330d885f8772642353cac31ef96700cae6843685fe",
+      "lines": 666
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",
