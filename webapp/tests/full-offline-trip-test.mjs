@@ -140,7 +140,7 @@ if (!process.argv.includes('--gate-only')) {
  const findButton=(tree,label)=>{
    if(Array.isArray(tree)) return tree.map(node=>findButton(node,label)).find(Boolean);
    if(!tree || typeof tree!=='object') return;
-   if(tree.type==='button' && text(tree)===label) return tree;
+   if(tree.type==='button' && (typeof label==='function'?label(text(tree)):text(tree)===label)) return tree;
    return findButton(tree.props?.children,label);
  };
  await test('START-offline-only-owned-choices',()=>{
@@ -172,6 +172,23 @@ if (!process.argv.includes('--gate-only')) {
    const expanded=showSplash(), rendered=text(expanded);
    assert(rendered.includes('Кумертау → Сибай') && rendered.includes('Уфа → Сибай'));
    for(const privateValue of [pass.driverPhone,pass.boardingCode,pass.pickup,pass.driverPlate]) assert(!rendered.includes(privateValue));
+   const selected=findButton(expanded,label=>label.startsWith('Кумертау → Сибай') && /\d{2}:\d{2}/.test(label));
+   assert(selected,'Selection includes the route and time');
+   selected.props.onClick();
+   assert.deepEqual(h.navigation,['/trip/43']);
+   window.dispatchEvent(new Event('online'));
+   assert(!findButton(showSplash(),'Сохранённые поездки').props['aria-expanded']);
+ });
+ for(const [id,change] of [['route',{fromCity:'  '}],['time',{departAt:'broken'}]])await test('START-damaged-'+id+'-omitted',()=>{
+   save();
+   edit(key,p=>({...p,...change}));
+   assert.deepEqual(listOfflineTripOptions()?.trips,[]);
+ });
+ await test('START-missing-time-retains-existing-copy',()=>{
+   saveVerifiedTripPass({...pass,departAt:''},7,'session-A');
+   saveVerifiedTripPass({...pass,bookingId:43,fromCity:'Кумертау'},7,'session-A');
+   findButton(showSplash(),'Сохранённые поездки').props.onClick();
+   assert(text(showSplash()).includes('Время уточняется'));
  });
  await test('START-stale-click-cannot-open-after-cancellation',()=>{
    save();

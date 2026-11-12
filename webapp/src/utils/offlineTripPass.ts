@@ -1,6 +1,7 @@
 import { storageOperation, offlineStorageTrusted } from "./storageHealth";
 import { getSessionGeneration, getToken, isAccountSession } from "../api/client";
 import { hasOfflineInTransitCancel } from "./inTransitCancel";
+import { serverDate } from "./serverTime";
 import { tripPassStage, type TripPass } from "./tripPass";
 
 const passKey = (id: number) => `yuldash.tripPass.${id}`;
@@ -78,7 +79,8 @@ export function listOfflineTripOptions(): { generation: string; trips: OfflineTr
       const id = Number(match[1]);
       if (!positiveId(id) || hasOfflineInTransitCancel(id)) continue;
       const pass = loadOfflineTripPass(id);
-      if (!pass || pass.sessionGeneration !== generation) continue;
+      if (!pass || pass.sessionGeneration !== generation || !pass.fromCity.trim() || !pass.toCity.trim() ||
+        (pass.departAt && !serverDate(pass.departAt))) continue;
       const { bookingId, fromCity, toCity, departAt, savedAt } = pass;
       trips.push({ bookingId, fromCity, toCity, departAt, savedAt });
     }

@@ -84,7 +84,7 @@ export default function SplashScreen() {
             <div className="splash__trip-options" role="group" aria-label={savedTrips}>
               {trips.map(trip => (
                 <button type="button" key={trip.bookingId} onClick={() => openSavedTrip(trip.bookingId)}>
-                  <span>{[trip.fromCity, trip.toCity].filter(Boolean).join(" → ") || openSaved}</span>
+                  <span>{trip.fromCity} → {trip.toCity}</span>
                   <small>{formatWhen(trip.departAt, lang !== "ba")}</small>
                 </button>
               ))}
