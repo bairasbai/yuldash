@@ -171,4 +171,23 @@ await test("an empty startup does not prevent later migration of a readable lega
   assert.equal(next.getTheme(), "dark");
   assert(!fixture.values.has("yuldash.theme"));
 });
+for (const chooseNew of [false, true]) {
+  await test(chooseNew ? "a late startup read cannot overwrite a new selection" : "a late startup read still restores the saved theme", async () => {
+    const fixture = setup("dark");
+    const initial = await fresh();
+    await initial.restoreTheme();
+    assert(!fixture.values.has("yuldash.theme"));
+    const next = await fresh();
+    const gate = fixture.completeGate = deferred();
+    const arrived = fixture.completionArrived = deferred();
+    const startup = next.restoreTheme();
+    await arrived.promise;
+    await startup;
+    assert.equal(mode(), undefined);
+    if (chooseNew) await next.setTheme("light");
+    gate.resolve();
+    await new Promise(setImmediate);
+    assert.equal(mode(), chooseNew ? "light" : "dark");
+  });
+}
 console.log(passed + " theme durability checks passed");

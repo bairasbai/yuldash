@@ -81,6 +81,7 @@ async function accessTheme(selected?: ThemeMode): Promise<ThemeMode> {
 }
 
 let currentMode: ThemeMode = "system";
+let selectionRevision = 0;
 let pendingWrite: Promise<void> = Promise.resolve();
 const listeners = new Set<() => void>();
 
@@ -88,21 +89,34 @@ export function getTheme(): ThemeMode {
   return currentMode;
 }
 
-/** Apply the device preference before mounting the app, including cold offline starts. */
+function publishTheme(mode: ThemeMode): void {
+  currentMode = mode;
+  applyTheme();
+  listeners.forEach(listener => listener());
+}
+
+/** Apply the device preference before mounting the app when the local store is ready. */
 export async function restoreTheme(): Promise<void> {
   const fallback = legacyTheme() ?? "system";
+  const revision = selectionRevision;
+  const reading = accessTheme();
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
-    const deadline = new Promise<ThemeMode>(resolve => {
-      timer = setTimeout(() => resolve(fallback), STARTUP_READ_LIMIT_MS);
+    const deadline = new Promise<null>(resolve => {
+      timer = setTimeout(() => resolve(null), STARTUP_READ_LIMIT_MS);
     });
-    currentMode = await Promise.race([accessTheme(), deadline]);
+    const saved = await Promise.race([reading, deadline]);
+    if (revision === selectionRevision) publishTheme(saved ?? fallback);
+    if (saved === null) {
+      void reading.then(mode => {
+        if (revision === selectionRevision) publishTheme(mode);
+      }).catch(() => { /* Startup is already using the fallback. */ });
+    }
   } catch {
-    currentMode = fallback;
+    if (revision === selectionRevision) publishTheme(fallback);
   } finally {
     clearTimeout(timer);
   }
-  applyTheme();
 }
 
 export function applyTheme(mode: ThemeMode = currentMode): void {
@@ -112,10 +126,9 @@ export function applyTheme(mode: ThemeMode = currentMode): void {
 }
 
 export function setTheme(mode: ThemeMode): Promise<void> {
+  selectionRevision++;
   const change = pendingWrite.then(async () => {
-    currentMode = await accessTheme(mode);
-    applyTheme();
-    listeners.forEach(listener => listener());
+    publishTheme(await accessTheme(mode));
   });
   pendingWrite = change.catch(() => { /* A failed selection does not prevent the next one. */ });
   return change;
@@ -126,6 +139,7 @@ export function useTheme(): [ThemeMode, (mode: ThemeMode) => Promise<void>] {
   useEffect(() => {
     const update = () => setMode(getTheme());
     listeners.add(update);
+    update();
     return () => { listeners.delete(update); };
   }, []);
   return [mode, setTheme];
