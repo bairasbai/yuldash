@@ -272,6 +272,10 @@ import androidx.compose.material.icons.filled.Redeem
 import androidx.compose.material.icons.filled.Storefront
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.BoardingResult
+import com.yuldash.app.data.applyBoardingResult
+import com.yuldash.app.data.boardingUndoSecondsAt
+import com.yuldash.app.data.observeBoardingUndo
 import com.yuldash.app.data.MyAdDto
 import com.yuldash.app.data.MyAdStatsDto
 import com.yuldash.app.data.AdPackageDto
@@ -285,6 +289,7 @@ import com.yuldash.app.data.RequestDto
 import com.yuldash.app.data.NotifDto
 import com.yuldash.app.data.AdDto
 import com.yuldash.app.ui.theme.YuldashTheme
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -1468,7 +1473,13 @@ internal fun DriverCabinetScreen(
             // 401 (не вошёл) → это не сеть, показываем обычное «пусто». Иначе — ошибка сети + «Повторить».
             .onFailure { e -> ridesError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
         ridesLoading = false
-        ApiClient.getDriverBookings(expectedGeneration = meetingSession).onSuccess { driverBookings = it }
+        val bookingRevision = bookingsReload
+        ApiClient.getDriverBookings(expectedGeneration = meetingSession).onSuccess { rows ->
+            if (bookingRevision != bookingsReload || !ApiClient.isCurrentSession(meetingSession)) return@onSuccess
+            val now = SystemClock.elapsedRealtime()
+            val previous = driverBookings.associateBy { it.bookingId }
+            driverBookings = rows.map { it.observeBoardingUndo(now, previous[it.bookingId]) }
+        }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess {
             online = it.online; onlineLoaded = true
@@ -1605,6 +1616,17 @@ internal fun DriverCabinetScreen(
             ridesLoading = ridesLoading,
             onRetryRides = { ridesReload++ },
             driverBookings = driverBookings,
+            boardingScope = rateScope,
+            boardingOwner = meetingSession,
+            onBoardingResult = { bookingId, result ->
+                if (ApiClient.isCurrentSession(meetingSession)) {
+                    val now = SystemClock.elapsedRealtime()
+                    driverBookings = driverBookings.map { booking ->
+                        if (booking.bookingId == bookingId) booking.applyBoardingResult(result, now) else booking
+                    }
+                    bookingsReload++
+                }
+            },
             ratingText = driverRating?.let { String.format(java.util.Locale.US, "%.1f", it) } ?: "—",
             meetingAnswers = meetingAnswers,
             onAnswerMeeting = { bid, pid, ver, accept ->
@@ -2869,6 +2891,9 @@ internal fun DriverCabinetContent(
     ridesLoading: Boolean = false,         // true → идёт первая загрузка → скелетон (не «пусто»)
     onRetryRides: () -> Unit = {},
     driverBookings: List<com.yuldash.app.data.DriverBookingDto>,
+    boardingScope: CoroutineScope? = null,
+    boardingOwner: Long = ApiClient.queueSessionGeneration(),
+    onBoardingResult: ((Int, BoardingResult) -> Unit)? = null,
     ratingText: String,
     onToggleOnline: (Boolean) -> Unit,
     // (bookingId, звёзды, обратный вызов «ушло/не ушло») — карточка должна знать исход,
@@ -3264,7 +3289,14 @@ internal fun DriverCabinetContent(
                         DriverMeetingAnswerRow(b, meetingAnswers, onAnswerMeeting)
                         AppButton(text = appText("Открыть поездку", "Сәфәрҙе асыу"), onClick = { onOpenTrip(b.bookingId) })
                         // Посадку отмечает водитель: «Сел» рядом с «Не пришёл» (срок от сервера; на поездке с остановками сначала «Подъезжаю»), «в пути» — «Отменить» 5 минут, потом разбор (RideshareBoarding.kt).
-                        DriverBoardingControls(b.bookingId, b.status, b.boardingUndoSec, passengerId = b.passengerId, passengerName = b.passengerName, noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving, arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo)
+                        DriverBoardingControls(
+                            b.bookingId, b.status, b.boardingUndoSecondsAt(SystemClock.elapsedRealtime()),
+                            passengerId = b.passengerId, passengerName = b.passengerName,
+                            noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving,
+                            arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo,
+                            boardingScope = boardingScope, boardingOwner = boardingOwner,
+                            onBoardingResult = onBoardingResult?.let { apply -> { result -> apply(b.bookingId, result) } },
+                        )
                         DriverRideShareButton(b.bookingId, b.rideId)
                     }
                 }

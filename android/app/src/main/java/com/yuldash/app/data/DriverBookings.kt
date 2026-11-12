@@ -39,7 +39,30 @@ data class DriverBookingDto(
     val meetingProposal: MeetingProposalDto? = null, val meetingVersion: Int = 0,
     val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
     val noShowWaitSec: Int = 0,
+    val boardingUndoDeadlineElapsedMs: Long? = null,
 )
+
+internal fun DriverBookingDto.observeBoardingUndo(nowElapsedMs: Long, previous: DriverBookingDto?): DriverBookingDto {
+    if (status != "onboard") return copy(boardingUndoDeadlineElapsedMs = null)
+    val deadline = nowElapsedMs + boardingUndoSec * 1_000L
+    val previousDeadline = previous?.boardingUndoDeadlineElapsedMs
+    val sameBoarding = sameBoardingTimestamp(boardingUndo.onboardAt, previous?.boardingUndo?.onboardAt)
+    return copy(boardingUndoDeadlineElapsedMs = if (sameBoarding && previousDeadline != null) minOf(deadline, previousDeadline) else deadline)
+}
+
+internal fun DriverBookingDto.boardingUndoSecondsAt(nowElapsedMs: Long): Int {
+    val deadline = boardingUndoDeadlineElapsedMs ?: return boardingUndoSec
+    return ((deadline - nowElapsedMs).coerceAtLeast(0) + 999L).div(1_000L).toInt()
+}
+
+internal fun DriverBookingDto.applyBoardingResult(result: BoardingResult, nowElapsedMs: Long): DriverBookingDto {
+    if (status !in setOf("confirmed", "onboard") || result.status !in setOf("confirmed", "onboard")) return this
+    val knownBoarding = boardingUndo.onboardAt
+    val resultBoarding = result.undo.onboardAt ?: result.undo.sourceOnboardAt
+    if (knownBoarding != null && !sameBoardingTimestamp(knownBoarding, resultBoarding)) return this
+    return copy(status = result.status, boardingUndoSec = result.undoSec, boardingUndo = result.undo)
+        .observeBoardingUndo(nowElapsedMs, previous = this)
+}
 
 /** Бронь глазами водителя. */
 internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {

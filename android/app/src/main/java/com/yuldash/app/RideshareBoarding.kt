@@ -49,6 +49,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.filled.Pin
 import androidx.compose.animation.animateContentSize
+import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
 import com.yuldash.app.data.BoardingUndoTerms
@@ -56,6 +57,7 @@ import com.yuldash.app.data.BoardingResult
 import com.yuldash.app.data.NoShowTerms
 import com.yuldash.app.data.afterRefusal
 import com.yuldash.app.data.TripReceiptDto
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -99,14 +101,28 @@ internal fun DriverBoardingControls(
     // С какого момента можно нажать «Подъезжаю» (`arriving_opens_at`: за 30 минут до выезда); null — старый сервер.
     arrivingOpensAt: String? = null,
     boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
+    boardingScope: CoroutineScope? = null,
+    boardingOwner: Long = ApiClient.queueSessionGeneration(),
+    onBoardingResult: ((BoardingResult) -> Unit)? = null,
 ) {
-    val scope = rememberCoroutineScope()
+    val rowScope = rememberCoroutineScope()
+    val scope = boardingScope ?: rowScope
     val ctx = LocalContext.current
     var shown by remember(bookingId, bookingStatus) { mutableStateOf(bookingStatus) }
     var undoSec by remember(bookingId, bookingStatus, boardingUndoSec) { mutableIntStateOf(boardingUndoSec) }
     val gpsAction = rememberDriverGpsAction(bookingId)
     var marking by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
+    fun applyBoarding(result: BoardingResult) {
+        if (!ApiClient.isCurrentSession(boardingOwner)) return
+        val status = result.status.ifBlank { "onboard" }
+        if (onBoardingResult == null) {
+            shown = status
+            undoSec = result.undoSec
+        } else {
+            onBoardingResult(result.copy(status = status))
+        }
+    }
     AnimatedContent(targetState = shown, modifier = modifier.fillMaxWidth(), label = "driverBoarding") { state ->
         when (state) {
             "confirmed" -> ConfirmedPassengerControls(
@@ -120,21 +136,28 @@ internal fun DriverBoardingControls(
                         marking = true
                         val gpsTicket = gpsAction.begin(bookingId)
                         scope.launch {
-                            BoardingApi.markBoarded(bookingId)
+                            BoardingApi.markBoarded(bookingId, boardingOwner)
                                 .also { gpsAction.finish(gpsTicket, it.isSuccess) }
-                                .onSuccess { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }
-                                .onFailure { e -> Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show() }
+                                .onSuccess(::applyBoarding)
+                                .onFailure { e ->
+                                    if (ApiClient.isCurrentSession(boardingOwner)) {
+                                        Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                    }
+                                }
                             marking = false
                         }
                     }
                 },
                 onNoShowSent = { shown = "no_show" },
-                onBoarded = { sec -> undoSec = sec; shown = "onboard" },
+                onBoarded = { sec -> applyBoarding(BoardingResult("onboard", sec)) },
             )
             "onboard" -> BoardingInCarRow(
                 bookingId = bookingId,
                 undoSec = undoSec,
-                onUndone = { r -> undoSec = r.undoSec; shown = r.status.ifBlank { "onboard" } }, undoTerms = boardingUndo,
+                onUndone = ::applyBoarding,
+                undoTerms = boardingUndo,
+                boardingScope = boardingScope,
+                boardingOwner = boardingOwner,
                 afterWindow = { BoardedDisputeBlock(bookingId, passengerId, passengerName) },
             )
             "no_show" -> NoShowSentNote()
@@ -253,9 +276,12 @@ internal fun BoardingInCarRow(
     onUndone: (BoardingResult) -> Unit,
     modifier: Modifier = Modifier,
     undoTerms: BoardingUndoTerms = BoardingUndoTerms(),
+    boardingScope: CoroutineScope? = null,
+    boardingOwner: Long = ApiClient.queueSessionGeneration(),
     afterWindow: @Composable () -> Unit = {},
 ) {
-    val scope = rememberCoroutineScope()
+    val rowScope = rememberCoroutineScope()
+    val scope = boardingScope ?: rowScope
     val ctx = LocalContext.current
     var left by remember(bookingId, undoSec) { mutableIntStateOf(undoSec) }
     var requested by remember(bookingId, undoTerms.pending, undoTerms.onboardAt) { mutableStateOf(undoTerms.pending) }
@@ -286,12 +312,19 @@ internal fun BoardingInCarRow(
                         if (!undoing) {
                             undoing = true
                             scope.launch {
-                                BoardingApi.undoBoarded(bookingId)
-                                    .onSuccess { requested = it.undo.pending; onUndone(it) }
+                                BoardingApi.undoBoarded(bookingId, boardingOwner)
+                                    .onSuccess {
+                                        if (ApiClient.isCurrentSession(boardingOwner)) {
+                                            requested = it.undo.pending
+                                            onUndone(it)
+                                        }
+                                    }
                                     .onFailure { e ->
                                         // 409 — окно вышло или поездка ушла вперёд: дальше только разбор.
-                                        if (e is ApiException && e.status == 409) left = 0
-                                        Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                        if (ApiClient.isCurrentSession(boardingOwner)) {
+                                            if (e is ApiException && e.status == 409) left = 0
+                                            Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                        }
                                     }
                                 undoing = false
                             }
