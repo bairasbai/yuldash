@@ -155,6 +155,7 @@ function Shell() {
   /** Чат поездки занимает весь экран: плавающим подсказкам над строкой ввода там не место. */
   const inTripChat = /^\/trip\/[^/]+\/chat\/?$/.test(pathname);
   const inPublicationForm = Boolean(matchPath("/request", pathname) || matchPath("/create-ride", pathname));
+  const inProfileOrTrustedContacts = Boolean(matchPath("/profile", pathname) || matchPath("/trusted", pathname));
 
   useEffect(() => {
     if (status !== "authed" || user?.role !== "driver") {
@@ -184,7 +185,7 @@ function Shell() {
           <Outlet />
         </Suspense>
       </main>
-      <InstallPrompt hidden={inTripChat || inPublicationForm} />
+      <InstallPrompt hidden={inTripChat || inPublicationForm || inProfileOrTrustedContacts} />
       {showBottomNav && <BottomNav debtBadge={debtBadge} />}
     </div>
   );
