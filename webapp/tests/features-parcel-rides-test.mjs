@@ -29,13 +29,13 @@ mocks["../api/client"]="export class ApiError extends Error{}export const getSes
 mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";
 mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const rubLabel=()=>'';export const pluralRu=(n,one)=>one;";
 mocks["../components/WeatherWarningCard"]="export default function Weather(){return null;}export const useRouteWeather=()=>null;";
-mocks["../utils/seatOptions"]="export const SEATS_DEFAULT=4;export const clampSeats=n=>n;export const seatCap=()=>4;";
 mocks["../components/ComingSoon"]="export default function ComingSoon(){return null;}";
 mocks["./ComingSoon"]=mocks["../components/ComingSoon"];
 // Уход шторки — настоящий (useSheetExit): ему хватает useState/useRef/useEffect подменённого React,
 // а портал в <body> отдаёт разметку как есть.
 delete mocks["./useSheetExit"];
 delete mocks["../utils/pickupStops"];
+delete mocks["../utils/seatOptions"];
 delete mocks["../components/StopSuggestField"];
 mocks["../api/geo"] = "export const searchSettlements=async()=>[];";
 mocks["react-dom"]="export const createPortal=node=>node;";

@@ -18,7 +18,7 @@ import type { BookingRow, MeetingPointInput } from "../api/bookings";
 import { BookingCommandProblem, bookingCommandOwner, createBooking, readBookingCommand,
   reconcileBookingCommand, type BookingCommand } from "../api/bookingCommands";
 import { bookingRefusalMessage } from "../utils/bookingCommandLabels";
-import { rememberGuestBookingDraft, type GuestBookingSelection } from "../utils/guestBookingDraft";
+import { rememberGuestBookingDraft, type GuestBookingOptions, type GuestBookingSelection } from "../utils/guestBookingDraft";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
 import { fetchRide } from "../api/rides";
@@ -27,7 +27,8 @@ import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
-import { initialSegment, keepDropoffAfterPickup, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
+import { frontSeatState } from "../utils/seatOptions";
+import { initialSegment, keepDropoffAfterPickup, routePlaces, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 import { MeetingPointPicker } from "./MeetingPointPicker";
 
@@ -35,10 +36,14 @@ export default function RideSheet({
   ride,
   onClose,
   initialSelection,
+  initialGuestOptions,
+  initialRouteChanged = false,
 }: {
   ride: Ride;
   onClose: () => void;
   initialSelection?: GuestBookingSelection | null;
+  initialGuestOptions?: GuestBookingOptions;
+  initialRouteChanged?: boolean;
 }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -76,11 +81,11 @@ export default function RideSheet({
    * не отвечает никто, а водитель узнаёт о подростке, только когда тот сядет в машину.
    * Правило держит сервер — мы просто спрашиваем заранее, чтобы бронь не отлетела.
    */
-  const [minor, setMinor] = useState(false);
+  const [minor, setMinor] = useState(initialGuestOptions?.minor ?? false);
   const [guardName, setGuardName] = useState("");
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
-  const [frontSeat, setFrontSeat] = useState(false);
+  const [frontSeat, setFrontSeat] = useState(initialGuestOptions?.frontSeat ?? false);
   const acceptedSelection = initialSelection && segmentReady(ride, initialSelection.pickupStop, initialSelection.dropoffStop) ? initialSelection : null;
   const [seats, setSeats] = useState(acceptedSelection?.seats ?? 1);
   const [pickupStop, setPickupStop] = useState<string | null>(() => acceptedSelection?.pickupStop ?? initialSegment(ride).pickup);
@@ -91,10 +96,16 @@ export default function RideSheet({
   const selectionOwner = useRef(`${ownerGeneration}:${ride.id}`);
   const mounted = useRef(true);
   const bookingAbort = useRef<AbortController | null>(null);
-  const pickupReady = segmentReady(ride, pickupStop, dropoffStop);
+  const [reviewedRoute, setReviewedRoute] = useState(() => initialRouteChanged ? null : JSON.stringify(routePlaces(ride)));
   // RS-02 А/Б: условия обновились после 409 (цена/места изменились) — показываем и шлём свежие.
   const [freshRide, setFreshRide] = useState<Ride | null>(null);
   const eff = freshRide ?? ride;
+  const route = JSON.stringify(routePlaces(eff));
+  const routeReviewRequired = reviewedRoute !== route;
+  const pickupReady = segmentReady(eff, pickupStop, dropoffStop);
+  const frontSeatConflict = frontSeat && frontSeatState(eff) !== "free";
+  const minorConflict = minor && eff.no_minors === true;
+  const choiceConflict = frontSeatConflict || minorConflict;
   const available = seatsOnSpan(eff, pickupStop, dropoffStop) ?? eff.seats_left;
   const perSeat = segmentPriceRub(eff, pickupStop, dropoffStop) ?? eff.price;
   useEffect(() => {
@@ -107,6 +118,7 @@ export default function RideSheet({
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
       setSeats(1); setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
+      setReviewedRoute(JSON.stringify(routePlaces(ride)));
       setCommand(undefined); setRecoveredBooking(null); setRestoringCommand(false);
     }
     return () => { mounted.current = false; bookingAbort.current?.abort(); };
@@ -144,7 +156,7 @@ export default function RideSheet({
   }
 
   function updateRideTerms(code?: string | null, signal?: AbortSignal) {
-    if (code !== "price_changed" && code !== "ride_terms_changed") return;
+    if (code !== "price_changed" && code !== "ride_terms_changed" && code !== "front_seat_taken") return;
     void fetchRide(ride.id, signal).then(fresh => {
       if (mounted.current && !signal?.aborted && ownerGeneration === getSessionGeneration() &&
           selectionOwner.current === `${ownerGeneration}:${ride.id}`) setFreshRide(fresh);
@@ -206,7 +218,9 @@ export default function RideSheet({
         selectionOwner.current !== `${ownerGeneration}:${ride.id}` || (restoringCommand && !ownBooking)) return;
     if (!isAuthed) {
       const guestBookingNonce = authStatus === "guest"
-        ? rememberGuestBookingDraft(ride.id, { seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff }, ownerGeneration)
+        ? rememberGuestBookingDraft(ride.id, {
+          seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor,
+        }, ownerGeneration)
         : undefined;
       // All guest choices travel only inside the bounded, one-use draft, never independently in history.
       navigate("/login", { state: { from: "/rides/" + ride.id, guestBooking: true,
@@ -219,7 +233,7 @@ export default function RideSheet({
       return;
     }
     if (recoveredBooking && !canRebook) { openBooking(recoveredBooking); return; }
-    if (parcelCategory && !getFeatures().parcels) return;
+    if ((!retry && (choiceConflict || routeReviewRequired)) || (parcelCategory && !getFeatures().parcels)) return;
     if (!pickupReady) {
       setError(appText("Выбери места посадки и высадки, чтобы забронировать.", "Бронлау өсөн ултырыу һәм төшөү урындарын һайла."));
       return;
@@ -306,11 +320,11 @@ export default function RideSheet({
         {parcelCategory && !features.parcels && !ownBooking && !unresolved && !bookingInFlight.current ? <ComingSoon kind="delivery" variant="inline" /> : <>
         <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
         <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
-          <span>{ride.from_city}</span>
+          <span>{eff.from_city}</span>
           <span className="ride-card__arrow">
             <IconArrow size={20} />
           </span>
-          <span>{ride.to_city}</span>
+          <span>{eff.to_city}</span>
         </div>
 
         <div className="ride-card__meta" style={{ marginTop: 12 }}>
@@ -336,25 +350,46 @@ export default function RideSheet({
               {appText("Детское кресло", "Бала урыны")}
             </span>
           )}
-          <SeatBadges ride={ride} ownBooking={ownBooking} />
+          <SeatBadges ride={eff} ownBooking={ownBooking} />
         </div>
 
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
         {ownBooking
           ? <BookingSegmentNote pickupStop={ownBooking.pickup_stop} dropoffStop={ownBooking.dropoff_stop} rideHasStops={ownBooking.ride_has_stops} from={ride.from_city} to={ride.to_city} />
           : <>
-            <PickupStopChoice ride={ride} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setDropoffStop(current => keepDropoffAfterPickup(ride, place, current)); setError(null); }} />
-            <DropoffStopChoice ride={ride} pickup={pickupStop} picked={dropoffStop} disabled={busy} onPick={place => { setDropoffStop(place); setError(null); }} />
+            <PickupStopChoice ride={eff} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setDropoffStop(current => keepDropoffAfterPickup(eff, place, current)); setError(null); }} />
+            <DropoffStopChoice ride={eff} pickup={pickupStop} picked={dropoffStop} disabled={busy} onPick={place => { setDropoffStop(place); setError(null); }} />
+            {routeReviewRequired && !unresolved && (
+              <div className="sheet__note">
+                <p role="status">{appText("Маршрут изменился. Проверь остановки и число мест.",
+                  "Маршрут үҙгәрҙе. Туҡталыштарҙы һәм урындар һанын тикшер.")}</p>
+                <button type="button" className="btn-ghost" disabled={busy} onClick={() => {
+                  if (!pickupReady) {
+                    const segment = initialSegment(withoutRideMatch(eff));
+                    setPickupStop(segment.pickup);
+                    setDropoffStop(segment.dropoff);
+                  }
+                  setMeetPickup(null);
+                  setMeetDropoff(null);
+                  setReviewedRoute(route);
+                  setError(null);
+                }}>
+                  {appText("Подтвердить новый маршрут", "Яңы маршрутты раҫлау")}
+                </button>
+              </div>
+            )}
+            {!routeReviewRequired && <>
             {/* RS-03 А: точное место по желанию — водитель увидит после подтверждения. */}
             <MeetingPointPicker
-              city={pickupStop || ride.from_city}
+              city={pickupStop || eff.from_city}
               title={appText("Где тебя забрать?", "Һине ҡайҙан алырға?")}
               value={meetPickup} disabled={busy} onChange={setMeetPickup} />
             <MeetingPointPicker
-              city={dropoffStop || ride.to_city}
+              city={dropoffStop || eff.to_city}
               title={appText("Где тебя высадить?", "Һине ҡайҙа төшөрөргә?")}
               value={meetDropoff} disabled={busy} onChange={setMeetDropoff} />
             <p className="sheet__note">{appText("Водитель увидит, где тебя забрать и высадить.", "Йөрөтөүсе һине ҡайҙан алырға һәм ҡайҙа төшөрөргә икәнен күрер.")}</p>
+            </>}
           </>}
 
         <div className="sheet__driver">
@@ -422,7 +457,7 @@ export default function RideSheet({
         </>}
 
         <FrontSeatChoice
-          ride={ride}
+          ride={eff}
           ownBooking={ownBooking}
           checked={frontSeat}
           onChange={(v) => {
@@ -430,17 +465,31 @@ export default function RideSheet({
             setError(null);
           }}
         />
+        {!ownBooking && !unresolved && frontSeatConflict && (
+          <button type="button" className="btn-ghost" onClick={() => { setFrontSeat(false); setError(null); }}>
+            {appText("Выбрать место сзади", "Арттағы урынды һайлау")}
+          </button>
+        )}
 
         {/* Подросток за рулём чужой машины — отдельный разговор, а не галочка мелким шрифтом.
             Водитель, который таких не берёт, сказал это заранее: тогда мы не предлагаем
             отметку вовсе и объясняем почему — иначе бронь отлетит уже после нажатия. */}
-        {ride.no_minors ? (
-          <p className="sheet__note">
-            {appText(
-              "Водитель не берёт пассажиров младше 18 без взрослого рядом.",
-              "Йөрөтөүсе оло кешеһеҙ 18-ҙән кесе юлсыларҙы алмай."
+        {eff.no_minors ? (
+          <>
+            <p className="sheet__note">
+              {appText(
+                "Водитель не берёт пассажиров младше 18 без взрослого рядом.",
+                "Йөрөтөүсе оло кешеһеҙ 18-ҙән кесе юлсыларҙы алмай."
+              )}
+            </p>
+            {!ownBooking && !unresolved && minorConflict && (
+              <button type="button" className="btn-ghost" onClick={() => {
+                setMinor(false); setGuardName(""); setGuardPhone(""); setError(null);
+              }}>
+                {appText("Поедет взрослый", "Оло кеше бара")}
+              </button>
             )}
-          </p>
+          </>
         ) : (
           <>
             <label className="list-row list-row--check" style={{ marginTop: 8 }}>
@@ -461,12 +510,19 @@ export default function RideSheet({
                 checked={minor}
                 onChange={(e) => {
                   setMinor(e.target.checked);
+                  if (!e.target.checked) { setGuardName(""); setGuardPhone(""); }
                   setError(null);
                 }}
                 aria-label={appText("Пассажир младше 18", "Юлсы 18-ҙән кесе")}
               />
             </label>
-            {minor && (
+            {minor && !isAuthed && (
+              <p className="sheet__note">
+                {appText("Имя и телефон взрослого понадобятся после входа.",
+                  "Оло кешенең исеме һәм телефоны ингәндән һуң кәрәк буласаҡ.")}
+              </p>
+            )}
+            {minor && isAuthed && (
               <>
                 <label className="field">
                   <span className="field__label">{appText("Взрослый: имя", "Оло кеше: исеме")}</span>
@@ -524,7 +580,8 @@ export default function RideSheet({
           className="btn-primary sheet__cta"
           onClick={() => book(unresolved && !ownBooking)}
           disabled={busy || (isAuthed && !ownBooking && (restoringCommand ||
-            ((!recoveredBooking || canRebook) && (!pickupReady || seats < 1 || seats > available))))}
+            ((!recoveredBooking || canRebook) && (!pickupReady || seats < 1 || seats > available ||
+              (!unresolved && (choiceConflict || routeReviewRequired))))))}
         >
           {(busy || (restoringCommand && !ownBooking))
             ? (unresolved || restoringCommand) ? appText("Проверяем запрос…", "Һорауҙы тикшерәбеҙ…") : appText("Бронируем…", "Бронлайбыҙ…")

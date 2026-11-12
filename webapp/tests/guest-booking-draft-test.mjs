@@ -37,10 +37,15 @@ await test("G10-seats-and-both-user-points-once",()=>{
   assert.equal(values.size,0);
 });
 await test("G10-guardian-and-arbitrary-fields-never-carried",()=>{
-  const nonce=remember({...selection,guardianPhone:"not-a-real-number",token:"never-copy"});
+  const options={...selection,frontSeat:true,minor:true};
+  const nonce=remember({...options,guardianName:"Fixture Adult",guardianPhone:"not-a-real-number",token:"never-copy"});
   const raw=values.get(pending);assert(!raw.includes("guardian"));assert(!raw.includes("token"));
-  publish(nonce);assert.deepEqual(draft.consumeGuestBookingDraft(nonce,42,"login-B"),selection);
+  publish(nonce);assert.deepEqual(draft.consumeGuestBookingDraft(nonce,42,"login-B"),options);
 });
+for(const flags of [{frontSeat:"true"},{minor:1},{minor:null}])await test(
+  "G10-invalid-option-flags-"+JSON.stringify(flags),
+  ()=>assert.equal(remember({...selection,...flags}),undefined)
+);
 await test("G10-wrong-nonce-preserves-current-intent",()=>{
   const nonce=remember();assert.equal(draft.claimGuestBookingDraft("wrong-nonce","guest-A"),null);
   assert(values.has(pending));assert(draft.claimGuestBookingDraft(nonce,"guest-A"));
@@ -165,9 +170,11 @@ await test("G10-expired-restoration-cannot-fall-back-to-both-history-stops",asyn
   view.unmount();await Promise.resolve();
 });
 for(const route of ["Сибай | Акъяр","Акъяр"])await test("G10-changed-fresh-route-rejects-entire-old-span-"+route,async()=>{
-  const nonce=remember();publish(nonce);
+  const nonce=remember({...selection,minor:true,frontSeat:true});publish(nonce);
   const view=await mountedDetail({guestBooking:true,guestBookingNonce:nonce},async()=>({...freshRide,waypoints:route}));await view.settle();
   assert.equal(sheet(view).props.initialSelection,null,"old qty/precise points must not bind to a different span");
+  assert.deepEqual(sheet(view).props.initialGuestOptions,{minor:true,frontSeat:true});
+  assert.equal(sheet(view).props.initialRouteChanged,true);
   assert(!values.has(restore));view.unmount();await Promise.resolve();
 });
 await test("G10-normal-authenticated-search-keeps-own-both-stops",async()=>{

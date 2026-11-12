@@ -82,12 +82,12 @@
     "backend_main": 109,
     "infra_resource_config": 407,
     "public_site_promo": 91,
-    "pwa_main": 331,
-    "test_support": 1300
+    "pwa_main": 332,
+    "test_support": 1301
   },
   "counts_by_block": {
     "B01": 169,
-    "B02": 302,
+    "B02": 304,
     "B03": 123,
     "B04": 80,
     "B05": 62,
@@ -14622,8 +14622,8 @@
       "path": "webapp/src/components/RideSheet.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "b910fe8294b73de350049226e3fa4972b9abe74a735fa58d6a8d2746686f32c5",
-      "lines": 433
+      "sha256": "fca23f45fcab80a843f44df3786953b5f4beb375b3d2f9b4184ea149f80d75b5",
+      "lines": 610
     },
     {
       "path": "webapp/src/components/RoadsideHelp.tsx",
@@ -15560,8 +15560,8 @@
       "path": "webapp/src/screens/RideDetailScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "ebab1cc3dc885429c2357d75e3bc339ecbfa99716a00b1650c3c85b5d25f858e",
-      "lines": 55
+      "sha256": "400abcdea50a4293b5fe4bae324f3a730ee72c0874c609aa39eaee2673a85550",
+      "lines": 95
     },
     {
       "path": "webapp/src/screens/RidesScreen.tsx",
@@ -15863,6 +15863,13 @@
       "block": "B09",
       "sha256": "39e66fd56492129369b03daec88d7677246a39dd58d305ca011b870a53e0a1e9",
       "lines": 141
+    },
+    {
+      "path": "webapp/src/utils/guestBookingDraft.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "e8652b00dd5b406e9de265a12306036eece44dcfc7109c88680874e72b108c2e",
+      "lines": 132
     },
     {
       "path": "webapp/src/utils/inTransitCancel.ts",
@@ -16554,8 +16561,8 @@
       "path": "webapp/tests/features-parcel-rides-test.mjs",
       "kind": "test_support",
       "block": "B04",
-      "sha256": "20a79ae3e7adc7f824581269c77f1a51198aa627ed418a690cb46a488677e806",
-      "lines": 79
+      "sha256": "d262a1dbba339f983ca0cb94841ddd87e65f4e84563a61348282e4a7522e9105",
+      "lines": 83
     },
     {
       "path": "webapp/tests/features-test.mjs",
@@ -16605,6 +16612,13 @@
       "block": "B09",
       "sha256": "fbc87dbeb18074373a6948426cd6e6f25f530a555d9f1ac40ba185fe24d19bc4",
       "lines": 154
+    },
+    {
+      "path": "webapp/tests/guest-booking-draft-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "cf37e1e31302619cc69140937151e808072b0482e512c1e0a274a350c0e1e304",
+      "lines": 207
     },
     {
       "path": "webapp/tests/intro-behavior-test.mjs",

@@ -25,7 +25,7 @@ export default function RideDetailScreen() {
   const [loadedOwner, setLoadedOwner] = useState(ownerGeneration);
   const requestVersion = useRef(0);
   const restored = useRef<{ rideId: number; owner: string; nonce: unknown; selection: GuestBookingSelection | null } | null>(null);
-  const [initialSelection, setInitialSelection] = useState<GuestBookingSelection | null>(null);
+  const [restoredSelection, setRestoredSelection] = useState<GuestBookingSelection | null>(null);
   const guestNonce = (location.state as { guestBookingNonce?: unknown } | null)?.guestBookingNonce;
   const guestBooking = (location.state as { guestBooking?: unknown } | null)?.guestBooking === true || guestNonce !== undefined;
   const guestRouteActive = useRef({ active: false, nonce: guestNonce });
@@ -46,7 +46,7 @@ export default function RideDetailScreen() {
     if (owner !== getSessionGeneration()) return;
     setStatus("loading");
     setRide(null);
-    setInitialSelection(null);
+    setRestoredSelection(null);
     setLoadedOwner(owner);
     if (!Number.isSafeInteger(rideId) || rideId <= 0) { setStatus("error"); return; }
     fetchRide(rideId, signal).then(value => {
@@ -54,10 +54,7 @@ export default function RideDetailScreen() {
       if (!restored.current || restored.current.rideId !== rideId || restored.current.owner !== owner || restored.current.nonce !== guestNonce) {
         restored.current = { rideId, owner, nonce: guestNonce, selection: consumeGuestBookingDraft(guestNonce, rideId, owner) };
       }
-      const selection = restored.current.selection;
-      // The published route may have changed during login: reject the entire stale span.
-      const accepted = selection && segmentReady(value, selection.pickupStop, selection.dropoffStop) ? selection : null;
-      setInitialSelection(accepted);
+      setRestoredSelection(restored.current.selection);
       // A guest nonce can never fall back to reusable history metadata after consume/expiry.
       setRide(guestBooking ? value : preserveRideMatch(value, location.state, owner));
       setStatus("ready");
@@ -77,13 +74,21 @@ export default function RideDetailScreen() {
   const close = () => navigate("/map");
   const currentOwner = loadedOwner === ownerGeneration;
   const available = ride && (!ride.status || ride.status === "active") && ride.seats_left > 0;
+  // A changed route invalidates the old span and its points, while the passenger and seat choices still apply.
+  const initialSelection = ride && restoredSelection &&
+    segmentReady(ride, restoredSelection.pickupStop, restoredSelection.dropoffStop) ? restoredSelection : null;
+  const initialGuestOptions = restoredSelection ? {
+    minor: restoredSelection.minor, frontSeat: restoredSelection.frontSeat,
+  } : undefined;
   return <>
     <ScreenHeader title={appText("Поездка", "Сәфәр")} />
     {(!currentOwner || status === "loading") && <LoadingList count={1} />}
     {currentOwner && status === "error" && <ErrorState onRetry={() => load()} />}
     {currentOwner && status === "gone" && <p role="status" className="sheet__note">{appText("Поездка недоступна", "Сәфәрҙе асып булмай")}</p>}
     {currentOwner && status === "ready" && ride && (available
-      ? <RideSheet key={ownerGeneration + ":" + ride.id} ride={ride} onClose={close} initialSelection={initialSelection} />
+      ? <RideSheet key={ownerGeneration + ":" + ride.id} ride={ride} onClose={close}
+          initialSelection={initialSelection} initialGuestOptions={initialGuestOptions}
+          initialRouteChanged={restoredSelection !== null && initialSelection === null} />
       : <p role="status" className="sheet__note">{appText("Поездка больше недоступна для бронирования.", "Сәфәрҙе бүтән бронлап булмай.")}</p>)}
     <button type="button" className="btn-ghost" onClick={close}>{appText("К поездкам", "Сәфәрҙәргә")}</button>
   </>;
