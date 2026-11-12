@@ -17,6 +17,7 @@ import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.junit.After
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -28,6 +29,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.net.URLDecoder
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Лента «Ближайшие поездки» целиком: «только проверенные» по умолчанию и «Показать» на один поиск
@@ -45,6 +48,7 @@ class NearbyVerifiedOnlyMapTest {
     @get:Rule val compose = createComposeRule()
     private val requests = CopyOnWriteArrayList<String>()
     private lateinit var server: MockWebServer
+    @Volatile private var delayedDate: CountDownLatch? = null
     private val ctx: Context get() = ApplicationProvider.getApplicationContext()
 
     private val hint = "Есть 2 поездки непроверенных водителей — показать?"
@@ -65,6 +69,11 @@ class NearbyVerifiedOnlyMapTest {
                     if (path == "/popular-routes") return MockResponse().setHeader("Content-Type", "application/json")
                         .setBody("""{"items":[{"from_city":"Баймаҡ","to_city":"Сибай","count":5}]}""")
                     if (!path.startsWith("/rides/near")) return MockResponse().setResponseCode(404).setBody("{}")
+                    if ("date=" in path) delayedDate?.let { gate ->
+                        gate.await(10, TimeUnit.SECONDS)
+                        return MockResponse().setHeader("Content-Type", "application/json")
+                            .setBody("""{"items":[],"count":0}""")
+                    }
                     val body = if ("verified_only=true" in path) """{"items":[],"count":0,"hidden_unverified":2}"""
                     else """{"items":[${ride(41)},${ride(42)}],"count":2}"""
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
@@ -142,5 +151,29 @@ class NearbyVerifiedOnlyMapTest {
         waitFor("первая лента") { nearRequests().isNotEmpty() }
         assertTrue("сам выключил — фильтр не должен вернуться: ${nearRequests()}", nearRequests().none { "verified_only" in it })
         assertTrue("подсказки нет — фильтр выключен", compose.onAllNodesWithText(hint).fetchSemanticsNodes().isEmpty())
+    }
+
+    @Test fun oldRideDisappearsWhileNewDateIsStillLoading() {
+        AppPrefs.setVerifiedOnly(ctx, false)
+        ApiClient.testTimeoutMs = 12_000
+        val gate = CountDownLatch(1)
+        delayedDate = gate
+        fun oldRideVisible() = compose.onAllNodesWithText("750 ₽", substring = true).fetchSemanticsNodes().isNotEmpty()
+        try {
+            mount()
+            waitFor("карточка прежней выдачи") { oldRideVisible() }
+            compose.onNodeWithText("Когда").performSemanticsAction(SemanticsActions.OnClick)
+            waitFor("шторка даты") { compose.onAllNodesWithText("Завтра").fetchSemanticsNodes().isNotEmpty() }
+            compose.onNodeWithText("Завтра").performSemanticsAction(SemanticsActions.OnClick)
+            waitFor("сервер получил новую дату") { nearRequests().any { "date=" in it } }
+            assertFalse("До ответа по новой дате видна старая поездка", oldRideVisible())
+            assertFalse("До ответа по новой дате виден старый счётчик",
+                compose.onAllNodesWithText("2 рядом").fetchSemanticsNodes().isNotEmpty())
+        } finally {
+            gate.countDown()
+        }
+        waitFor("пустой результат по новой дате") {
+            compose.onAllNodesWithText("Сбросить фильтры").fetchSemanticsNodes().isNotEmpty()
+        }
     }
 }

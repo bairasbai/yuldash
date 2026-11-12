@@ -1217,8 +1217,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MapScreen.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "42ebd5ff4d9d0b1e7151a70273cf523f85f7b2bfb9fa832f440fd791657b916b",
-      "lines": 2204
+      "sha256": "f058583ec30cf9683e009f60e902a1a2976005b672bfc36ccd91d5a5f4c3c4ec",
+      "lines": 2225
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MeetingPointPicker.kt",
@@ -1280,22 +1280,22 @@
       "path": "android/app/src/main/java/com/yuldash/app/NearbyFeedSearch.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "8efbf4c73fc5623b12ad00e2ffd2142d2407fd5819e57cfa6e5abe7e76de5682",
-      "lines": 110
+      "sha256": "87341ef36ca74bf1942897fd420e2cd92dcd9790733a69f3bf3dae8877d3d7db",
+      "lines": 114
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyFiltersPanel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "736b762e48a01a20f50af9de363b74794fc61f7213ef4c96f29a65cae2c0fe31",
-      "lines": 260
+      "sha256": "78178bf605130f08add7dfbd1956a9ad43d8800d714816f4317711a834e4739b",
+      "lines": 261
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyVerifiedOnly.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "93571445741f1ee01c7bb3613ae8340db8187acfe016bef2f9f1592267fe06b3",
-      "lines": 141
+      "sha256": "d063646b61293abd337bb9fd34cdbcde67b65024c6640ece389534d10231dfde",
+      "lines": 137
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt",
@@ -3604,8 +3604,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/NearbyConditionsServerSideTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "503a7ccd275a37fbacbe618e6bcc5653f76f1f3b67c33b342752430ddfa278f4",
-      "lines": 155
+      "sha256": "8e7a522c587530e8500bcee90ad70f6072c9ece1073ecf2a49d156f5fd939f23",
+      "lines": 184
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/NearbyFiltersPanelTest.kt",
@@ -3618,8 +3618,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/NearbyVerifiedOnlyMapTest.kt",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "7f70e422dc8ba051dc014749f6a92347ec3ab01006e0430a80bb91d4257f6f7b",
-      "lines": 146
+      "sha256": "d4c18b3d56cee627b1567066811d72fa984f19f76bb12fc4baf6e9d022c1336c",
+      "lines": 179
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/NearbyVerifiedOnlyTest.kt",

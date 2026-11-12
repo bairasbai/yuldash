@@ -65,7 +65,7 @@ class NearbyConditionsServerSideTest {
         assertTrue(
             "первая поездка должна обновить города, даже если водитель ещё не проверен",
             src.contains("reloadKey = nearbyReload,") &&
-                src.contains("hasNearbyRides = nearby.isNotEmpty() || verified.hidden > 0,"),
+                src.contains("hasNearbyRides = nearbyResult?.page?.let { it.items.isNotEmpty() || it.hiddenUnverified > 0 } == true,"),
         )
     }
 
@@ -81,7 +81,7 @@ class NearbyConditionsServerSideTest {
         assertTrue("нет чипа «Когда»", src.contains("NearbyWhenChip(dateFilter, { dateFilter = it }, chipTouch)"))
         assertTrue(
             "чип «Фильтры» не получает условия, «только проверенные» или счёт поездок",
-            src.contains("NearbyConditionsChip(prefFilter, { prefFilter = it }, verifiedOnly, nearbyTotal, chipTouch)"),
+            src.contains("NearbyConditionsChip(prefFilter, { prefFilter = it }, verifiedOnly, nearbyFilterCount, chipTouch)"),
         )
         assertTrue(
             "ряд фильтров прячется, когда рядом пусто, — до города «Откуда» не добраться",
@@ -101,10 +101,12 @@ class NearbyConditionsServerSideTest {
         )
         // Решение лида 17.10.2026: позиция меняется сама, пока человек едет, — это не его выбор.
         assertFalse("позиция снова в поиске — человек в автобусе увидит «нет сети» вместо списка", "userLat" in searchLine || "userLng" in searchLine)
-        assertTrue("лента не помнит, для какого поиска пришёл список", src.contains("nearbyError = false; nearbyFor = search }"))
+        assertTrue("лента не помнит, для какого поиска пришёл список", src.contains("NearbyFeedResult(search, it)"))
+        assertTrue("прежняя выдача видна до ответа по новому поиску", src.contains("nearbyResult?.takeIf { it.search == search }"))
         assertTrue(
             "сбой сети не сверяет поиск — старый список остаётся под новым фильтром",
-            src.contains(".onFailure { if (nearbyDropsOnFailure(nearbyFor, search)) { nearby = emptyList(); nearbyTotal = 0 }; nearbyError = true }"),
+            src.contains("nearbyResult?.takeUnless { nearbyDropsOnFailure(it.search, search) }?.page") &&
+                src.contains("NearbyPage(emptyList(), 0), failed = true)"),
         )
         assertTrue(
             "сдвиг позиции (или «Показать» непроверенных) больше не обновляет ленту — список «рядом» устареет",
