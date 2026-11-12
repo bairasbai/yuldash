@@ -126,9 +126,10 @@ export function applyTheme(mode: ThemeMode = currentMode): void {
 }
 
 export function setTheme(mode: ThemeMode): Promise<void> {
-  selectionRevision++;
   const change = pendingWrite.then(async () => {
-    publishTheme(await accessTheme(mode));
+    const saved = await accessTheme(mode);
+    selectionRevision++;
+    publishTheme(saved);
   });
   pendingWrite = change.catch(() => { /* A failed selection does not prevent the next one. */ });
   return change;

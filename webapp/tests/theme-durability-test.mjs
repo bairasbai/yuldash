@@ -190,4 +190,21 @@ for (const chooseNew of [false, true]) {
     assert.equal(mode(), chooseNew ? "light" : "dark");
   });
 }
+await test("a failed new selection does not suppress a late saved choice", async () => {
+  const fixture = setup("dark");
+  const initial = await fresh();
+  await initial.restoreTheme();
+  const next = await fresh();
+  const gate = fixture.completeGate = deferred();
+  const arrived = fixture.completionArrived = deferred();
+  const startup = next.restoreTheme();
+  await arrived.promise;
+  await startup;
+  assert.equal(mode(), undefined);
+  fixture.abortNext = true;
+  await assert.rejects(next.setTheme("light"));
+  gate.resolve();
+  await new Promise(setImmediate);
+  assert.equal(mode(), "dark");
+});
 console.log(passed + " theme durability checks passed");
