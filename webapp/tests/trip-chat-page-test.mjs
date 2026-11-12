@@ -198,7 +198,7 @@ check(/ResizeObserver/.test(screenCode), "клавиатура/фото поме
     "подсказка «Установи на экран» не лежит поверх строки ввода"
   );
   check(
-    app.includes('const inPublicationForm = /^\\/(?:request|create-ride)\\/?$/.test(pathname)'),
+    app.includes('matchPath("/request", pathname) || matchPath("/create-ride", pathname)'),
     "подсказка установки скрыта на формах заявки и публикации рейса"
   );
   check(/tchat-card__write\s*\{[^}]*min-height:\s*48px/.test(block), "тач-цель ≥ 48px: «Написать»");

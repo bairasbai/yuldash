@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { matchPath, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import BottomNav from "./components/BottomNav";
 import ActiveTaxiBar from "./components/ActiveTaxiBar";
 import InstallPrompt from "./components/InstallPrompt";
@@ -154,7 +154,7 @@ function Shell() {
   const showBottomNav = onMainTab && !taxiOrderOnScreen;
   /** Чат поездки занимает весь экран: плавающим подсказкам над строкой ввода там не место. */
   const inTripChat = /^\/trip\/[^/]+\/chat\/?$/.test(pathname);
-  const inPublicationForm = /^\/(?:request|create-ride)\/?$/.test(pathname);
+  const inPublicationForm = Boolean(matchPath("/request", pathname) || matchPath("/create-ride", pathname));
 
   useEffect(() => {
     if (status !== "authed" || user?.role !== "driver") {
