@@ -208,7 +208,7 @@ export default function OnboardingScreen() {
     <button
       type="button"
       className={"login-lang__chip" + (lang === code ? " is-active" : "")}
-      onClick={() => setLang(code)}
+      onClick={() => void setLang(code)}
       aria-label={appText(`Сменить язык: ${label}`, `Телде алмаштырыу: ${label}`)}
     >
       {label}

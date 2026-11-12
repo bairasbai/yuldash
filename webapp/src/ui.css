@@ -66,6 +66,24 @@
 }
 
 /* ---- Переключатель языка ---- */
+.language-save-status {
+  position: fixed;
+  z-index: 60;
+  inset-inline: var(--space-lg);
+  inset-block-start: calc(env(safe-area-inset-top) + var(--space-lg));
+  width: fit-content;
+  max-width: calc(100% - 2 * var(--space-lg));
+  margin: 0 auto;
+  padding: var(--space-sm) var(--space-md);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-field);
+  background: var(--surface);
+  color: var(--text);
+  font-size: var(--font-caption);
+  text-align: center;
+  pointer-events: none;
+}
+
 .lang-toggle {
   flex: none;
   display: inline-flex;

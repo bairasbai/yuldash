@@ -1,3 +1,4 @@
+import { getLanguage } from "../i18n/languagePreference";
 import { sessionMutation, assertSessionPermit, storageFenceEnabled, storageFenced, quarantineGeneration, rememberSession, storageOperation, reportStorageFailure, type SessionWritePermit } from "../utils/storageHealth";
 // ================================================================
 //  Базовый HTTP-клиент Юлдаша.
@@ -220,13 +221,9 @@ export function isAccountSession(owner: { generation: string; userId: number }):
   return owner.generation === getSessionGeneration() && tokenMatchesUser(getToken(), owner.userId);
 }
 
-/** Язык интерфейса для текстов ошибок. Читаем из того же места, что и i18n. */
+/** Язык интерфейса для текстов ошибок. */
 function isBashkir(): boolean {
-  try {
-    return localStorage.getItem("yuldash.lang") === "ba";
-  } catch {
-    return false;
-  }
+  return getLanguage() === "ba";
 }
 
 /** Общая фраза, когда сервер не прислал понятного текста. */

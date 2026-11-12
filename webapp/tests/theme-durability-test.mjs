@@ -4,7 +4,11 @@ import { IDBFactory } from "fake-indexeddb";
 import { fileURLToPath } from "node:url";
 
 const output = await build({
-  entryPoints: [fileURLToPath(new URL("../src/theme.ts", import.meta.url))],
+  stdin: {
+    contents: 'export * from "./theme"; export * from "./i18n/languagePreference";',
+    resolveDir: fileURLToPath(new URL("../src/", import.meta.url)),
+    loader: "ts",
+  },
   bundle: true, write: false, platform: "node", format: "esm",
   plugins: [{
     name: "react-hooks-boundary",
@@ -25,15 +29,15 @@ const deferred = () => {
   return { resolve, promise };
 };
 
-function setup(legacy) {
+function setup(legacy, legacyKey = "yuldash.theme") {
   const values = new Map();
-  if (legacy !== undefined) values.set("yuldash.theme", legacy);
+  if (legacy !== undefined) values.set(legacyKey, legacy);
   globalThis.localStorage = {
     getItem: key => values.get(key) ?? null,
     setItem: (key, value) => values.set(key, value),
     removeItem: key => values.delete(key),
   };
-  globalThis.document = { documentElement: { dataset: {} } };
+  globalThis.document = { documentElement: { dataset: {}, lang: "ru" } };
   const factory = new IDBFactory();
   const fixture = { values, durability: [], completeGate: null, completionArrived: null, abortNext: false };
   globalThis.indexedDB = {
@@ -207,4 +211,61 @@ await test("a failed new selection does not suppress a late saved choice", async
   await new Promise(setImmediate);
   assert.equal(mode(), "dark");
 });
-console.log(passed + " theme durability checks passed");
+await test("a legacy Bashkir choice survives migration and a stale mirror", async () => {
+  const fixture = setup("ba", "yuldash.lang");
+  const first = await fresh();
+  assert.equal(first.getLanguage(), "ba");
+  await first.restoreLanguage();
+  assert.equal(document.documentElement.lang, "ba");
+  assert(!fixture.values.has("yuldash.lang"));
+  fixture.values.set("yuldash.lang", "ru");
+  const next = await fresh();
+  await next.restoreLanguage();
+  assert.equal(next.getLanguage(), "ba");
+  assert.equal(document.documentElement.lang, "ba");
+});
+
+await test("an aborted language selection keeps the old locale and a retry commits before displaying", async () => {
+  const fixture = setup("ru", "yuldash.lang");
+  const app = await fresh();
+  await app.restoreLanguage();
+  fixture.abortNext = true;
+  await assert.rejects(app.setDeviceLanguage("ba"));
+  assert.equal(app.getLanguage(), "ru");
+  assert.equal(document.documentElement.lang, "ru");
+  const gate = fixture.completeGate = deferred();
+  const arrived = fixture.completionArrived = deferred();
+  const change = app.setDeviceLanguage("ba");
+  await arrived.promise;
+  assert.equal(app.getLanguage(), "ru");
+  assert.equal(document.documentElement.lang, "ru");
+  gate.resolve();
+  await change;
+  assert.equal(app.getLanguage(), "ba");
+  assert.equal(document.documentElement.lang, "ba");
+  const reloaded = await fresh();
+  await reloaded.restoreLanguage();
+  assert.equal(reloaded.getLanguage(), "ba");
+  await reloaded.setDeviceLanguage("ru");
+  const again = await fresh();
+  await again.restoreLanguage();
+  assert.equal(again.getLanguage(), "ru");
+  assert(fixture.durability.every(value => value === "strict"));
+});
+
+await test("the two preferences restore together and keep independent choices", async () => {
+  const fixture = setup("ba", "yuldash.lang");
+  fixture.values.set("yuldash.theme", "light");
+  const app = await fresh();
+  await Promise.all([app.restoreTheme(), app.restoreLanguage()]);
+  await app.setTheme("dark");
+  assert.equal(app.getLanguage(), "ba");
+  await app.setDeviceLanguage("ru");
+  assert.equal(mode(), "dark");
+  const reloaded = await fresh();
+  await Promise.all([reloaded.restoreTheme(), reloaded.restoreLanguage()]);
+  assert.equal(mode(), "dark");
+  assert.equal(document.documentElement.lang, "ru");
+});
+
+console.log(passed + " device preference durability checks passed");

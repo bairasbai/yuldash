@@ -1,6 +1,6 @@
 // ================================================================
 //  Настройки → /settings (RequireAuth). Управление приложением:
-//   • Язык РУС/БАШ — переиспользует механизм useLang (localStorage);
+//   • Язык РУС/БАШ — переиспользует механизм useLang;
 //   • Тема светлая/тёмная/системная — точка правды src/theme.ts;
 //   • Размер текста — точка правды src/fontScale.ts (тот же хук, без дублей);
 //   • Уведомления / звуки — локальные флаги (src/uiPrefs.ts);
@@ -203,7 +203,7 @@ export default function SettingsScreen() {
           icon={<IconGlobe size={24} />}
           title={appText("Язык", "Тел")}
           subtitle={lang === "ba" ? "Башҡортса" : "Русский"}
-          onClick={() => setLang(lang === "ba" ? "ru" : "ba")}
+          onClick={() => void setLang(lang === "ba" ? "ru" : "ba")}
         />
         <SettingsNavRow
           icon={<IconMap size={24} />}
