@@ -83,11 +83,11 @@
     "infra_resource_config": 407,
     "public_site_promo": 91,
     "pwa_main": 334,
-    "test_support": 1306
+    "test_support": 1307
   },
   "counts_by_block": {
     "B01": 169,
-    "B02": 313,
+    "B02": 314,
     "B03": 123,
     "B04": 80,
     "B05": 62,
@@ -1406,8 +1406,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4e559a7c9d7ee8d0794c9ac52781bc6d655b4f4c08a8cee8db1bf7908c0e8bd2",
-      "lines": 4713
+      "sha256": "21c55426fdf9035045fbe96cb98c1eaa7d43d5de7e5fba48051f5dd0a4b6aea7",
+      "lines": 4773
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1476,8 +1476,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "dcbe4fd835c7a165ae397f8827b03b7739695e958e7f9c3541b72945e9d3daad",
-      "lines": 506
+      "sha256": "aa6d8de39c2a811bc43ce824dc31e56a2b2730642121768307353ba02bf5f714",
+      "lines": 588
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
@@ -1966,8 +1966,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "547e4104997786fa67cef8a727f907598fee1f6126ad5737bca82d9139880d28",
-      "lines": 50
+      "sha256": "3a3f354c241a492fc266afb6e790cb40f80e2ab8eb82e75c854a9df3a21b2950",
+      "lines": 105
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
@@ -5251,6 +5251,13 @@
       "block": "B01",
       "sha256": "e25703c265979b30a76f42b878789be2b1c99a8bf26eebfd732901f28acc4b26",
       "lines": 164
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/DriverCabinetBoardingTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "824862d9671e31ae614b5c6a3bdaf27bcadd896f13b4abb4af2860a319d152cf",
+      "lines": 65
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/GeocoderAndNetworkTest.kt",
