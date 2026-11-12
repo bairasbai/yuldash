@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 209,
+    "android_main": 211,
     "backend_main": 109,
     "infra_resource_config": 407,
     "public_site_promo": 91,
     "pwa_main": 334,
-    "test_support": 1305
+    "test_support": 1306
   },
   "counts_by_block": {
     "B01": 169,
-    "B02": 311,
+    "B02": 313,
     "B03": 123,
     "B04": 80,
     "B05": 62,
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 749,
+    "B09": 750,
     "B10": 407,
     "B11": 92
   },
@@ -846,8 +846,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "aa69311f0d5745af8f9c764803fa67f0f1bffece608a67bd8ac0d0c1dfdc8d1d",
-      "lines": 3516
+      "sha256": "e347bb23de574fefb41c973288e666db1ecd194be1e1093909a89c36d71586ff",
+      "lines": 3555
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
@@ -1123,6 +1123,13 @@
       "lines": 570
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/GuestBookingDraft.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "29a1931a886cc4e46e9cd2d565f500f24f8f907d5768da0843985acadc5e4e02",
+      "lines": 69
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/IncomeCalculatorScreen.kt",
       "kind": "android_main",
       "block": "B07",
@@ -1168,8 +1175,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/LoginScreen.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "733439d6e73633d7c2788ff1007d5b54875227588fd3f1b9b1e091d5e7ce8cf3",
-      "lines": 1330
+      "sha256": "0775f6dd34e06ea9107cce02f796b9023fe0c2862f2a0ad9e914e5a95f8beb88",
+      "lines": 1315
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
@@ -1212,6 +1219,13 @@
       "block": "B06",
       "sha256": "42ebd5ff4d9d0b1e7151a70273cf523f85f7b2bfb9fa832f440fd791657b916b",
       "lines": 2204
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/MeetingPointPicker.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "c27412d77318ebd73c366b7cfed98ee0a8178da5656482a9906ad78f78e1b66d",
+      "lines": 331
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MobilityUi.kt",
@@ -1861,8 +1875,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "008ed675d9c1aaa0e0015a9c310cde4851a8d85eaa1f944835b4db31f89ae34b",
-      "lines": 2842
+      "sha256": "8d5100a72631ea5ff4213a8297cad3f702f5cb0d28183adb711934fcf6b460f4",
+      "lines": 2925
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1875,8 +1889,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "e01f04cc919cf10e0dc236b541c04d8e6d399efcc2468d9e7909a9c4794d3d09",
-      "lines": 467
+      "sha256": "403684a56436a19ce08c2a23567d7fec2e72c88c3d539ad021cdd24e0fc04db9",
+      "lines": 490
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -1889,8 +1903,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "0d5eda61efe3e7bd4629e733ead77091c43b860deb3e1fc995d2020123e14ddd",
-      "lines": 7819
+      "sha256": "857ff6b0767807ac059fc1cc6ed346fac8870cff27cc2616172d8de750f992a2",
+      "lines": 7833
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -3200,6 +3214,13 @@
       "block": "B01",
       "sha256": "577df17f6cf5a75501c16e819fc88d01ed5d70b3ca6892a46e305f87a67881d8",
       "lines": 152
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/GuestBookingDraftTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "896706ad6484e5b5321feb7131addd272f49762dcf1893a27aa489b7c0084d46",
+      "lines": 56
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/GuestStartupSessionTest.kt",

@@ -368,6 +368,25 @@ private fun YuldashAppContent() {
     var language by vm.language
     // Сохраняем только запрошенный экран, без данных прежнего аккаунта или автодействия.
     var destinationAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Screen?>("destinationAfterLogin")) { mutableStateOf<Screen?>(null) }
+    var guestBookingLogin by vm.guestBookingLogin
+    var pendingGuestBooking by vm.pendingGuestBooking
+    var failedGuestBooking by vm.failedGuestBooking
+    var openGuestBooking by vm.openGuestBooking
+    LaunchedEffect(screen, navigationRevision, navigationSession) {
+        guestBookingLogin?.let {
+            if (screen != Screen.Login || navigationRevision != it.revision ||
+                navigationSession !in it.generation..it.generation + 1) guestBookingLogin = null
+        }
+        pendingGuestBooking?.let {
+            if (navigationSession != it.generation || vm.pendingPublicRideNavigation.value != it.destination) pendingGuestBooking = null
+        }
+        failedGuestBooking?.let {
+            if (screen != it.screen || navigationRevision != it.revision || navigationSession != it.generation) failedGuestBooking = null
+        }
+        openGuestBooking?.let {
+            if (screen != Screen.Booking || navigationRevision != it.revision || navigationSession != it.generation) openGuestBooking = null
+        }
+    }
     // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
     // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
     val persistedLanguage = remember(context) { AppPrefs.language(context) }
@@ -677,25 +696,35 @@ private fun YuldashAppContent() {
         val requestedScreen = screen
         val requestedRevision = vm.privateNavigationRevision
         val requestedSession = ApiClient.queueSessionGeneration()
+        val guestBooking = pendingGuestBooking?.takeIf { it.destination == publicDestination && it.generation == requestedSession }
         val requestedAttempt = ++publicLinkAttempt
         failedRideLink = null
         failedBookingDestination = null
         failedPublicRecovery = null
-        val result = ApiClient.getRide(rideId)
+        failedGuestBooking = null
+        val result = ApiClient.getRide(rideId, expectedGeneration = requestedSession)
         // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
         ApiClient.runIfUnchangedSession(requestedSession) {
             if (!isActive || vm.pendingPublicRideNavigation.value != publicDestination || vm.screen.value != requestedScreen ||
                 vm.privateNavigationRevision != requestedRevision || publicLinkAttempt != requestedAttempt) return@runIfUnchangedSession
             vm.clearPendingPublicRide()
+            if (guestBooking != null) pendingGuestBooking = null
             result.onSuccess { dto ->
                 vm.navigateLocally {
-                    selectedRide = dto.toUiRide().withRouteHints(selectedRide)
+                    val freshRide = dto.toUiRide()
+                    selectedRide = if (guestBooking == null) freshRide.withRouteHints(selectedRide) else freshRide
                     activeBookingId = null
                     selectedBookingStatus = ""
+                    if (guestBooking != null && ApiClient.isCurrentSession(requestedSession) && freshRide.id.toIntOrNull() == rideId) {
+                        openGuestBooking = OpenGuestBooking(rideId, requestedSession, vm.privateNavigationRevision, guestBooking.draft.restore(freshRide))
+                    }
                     screen = Screen.Booking
                 }
             }.onFailure { error ->
                 rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
+                if (guestBooking != null && !rideLinkUnavailable && ApiClient.isCurrentSession(requestedSession)) {
+                    failedGuestBooking = FailedGuestBooking(guestBooking.draft, requestedSession, requestedRevision, requestedScreen)
+                }
                 failedBookingDestination = null
                 failedCompletedRevision = requestedRevision
                 failedPublicRecovery = {
@@ -733,6 +762,7 @@ private fun YuldashAppContent() {
             ApiClient.runIfUnchangedSession(failedSession) {
                 if (isDisplayedFailureCurrent()) {
                     if (failedKind == null) failedPublicRecovery = null
+                    if (failedKind == null) failedGuestBooking = null
                     failedRideLink = null
                 }
             }
@@ -791,7 +821,18 @@ private fun YuldashAppContent() {
                             if (!isDisplayedFailureCurrent() || vm.pendingPublicRideNavigation.value != null ||
                                 vm.pendingBookingNavigation.value != null || vm.pendingScreenNavigation.value != null) return@runIfUnchangedSession
                             publicLinkAttempt++
+                            val guestRetry = failedGuestBooking?.takeIf {
+                                it.draft.rideId == rideId && it.generation == failedSession &&
+                                    it.revision == failedRevision && it.screen == failedScreen &&
+                                    ApiClient.isCurrentSession(failedSession)
+                            }
                             vm.requestPublicRide(rideId)
+                            if (guestRetry != null) {
+                                pendingGuestBooking = PendingGuestBooking(
+                                    guestRetry.draft, failedSession, checkNotNull(vm.pendingPublicRideNavigation.value),
+                                )
+                            }
+                            failedGuestBooking = null
                             failedRideLink = null
                         }
                     }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
@@ -1274,17 +1315,36 @@ private fun YuldashAppContent() {
                 }
             )
             Screen.Login -> {
+                val loginRevision = navigationRevision
+                val guestLogin = guestBookingLogin?.takeIf { it.revision == loginRevision && vm.screen.value == Screen.Login }
                 LoginScreen(
                     currentLanguage = language,
                     onToggleLanguage = {
                         language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                     },
-                    onContinue = {
+                    onCancel = if (guestLogin != null) {
+                        {
+                            if (vm.screen.value == Screen.Login && vm.privateNavigationRevision == loginRevision) {
+                                guestBookingLogin = null
+                                vm.requestPublicRide(guestLogin.draft.rideId)
+                            }
+                        }
+                    } else null,
+                    onContinue = { generation ->
+                        if (vm.screen.value != Screen.Login || vm.privateNavigationRevision != loginRevision ||
+                            !ApiClient.isCurrentSession(generation)) return@LoginScreen
                         sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
                         prefs.markOnboardingCompleted()   // вошёл по ссылке, минуя вводные, — после перезапуска их не показываем
                         val destination = destinationAfterLogin
                         destinationAfterLogin = null
-                        if (destination != null) {
+                        val guestBooking = guestLogin?.takeIf { guestBookingLogin == it && it.generation + 1 == generation }
+                        guestBookingLogin = null
+                        if (guestBooking != null) {
+                            openHome(startHomeTab)
+                            vm.requestPublicRide(guestBooking.draft.rideId)
+                            val publicRide = checkNotNull(vm.pendingPublicRideNavigation.value)
+                            pendingGuestBooking = PendingGuestBooking(guestBooking.draft, generation, publicRide)
+                        } else if (destination != null) {
                             if (destination == Screen.Home) openHome(startHomeTab) else screen = destination
                         } else if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
                             startHomeTab = HomeTab.Profile   // назад из кабинета водителя → профиль
@@ -1356,10 +1416,24 @@ private fun YuldashAppContent() {
                     OfflineTripSnapshots.currentOwner() == displayedOwner && vm.pendingBookingNavigation.value == null &&
                     vm.pendingScreenNavigation.value == null && vm.pendingPublicRideNavigation.value == null
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
-                key("booking-draft-v2", displayedOwner, displayedSession, displayedBookingId, displayedRide?.id) {
-                var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
-                var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
-                val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession)
+                val guestChoices = openGuestBooking?.takeIf {
+                    it.rideId == displayedRide?.id?.toIntOrNull() && it.generation == displayedSession &&
+                        it.revision == displayedRevision && displayedBookingId == null
+                }?.choices
+                val guestForm = displayedBookingId == null && !ApiClient.isLoggedIn()
+                key("booking-draft-v2", displayedOwner, displayedSession, displayedBookingId, displayedRide?.id, guestChoices) {
+                var frontSeat by remember(displayedRide?.id) { mutableStateOf(guestChoices?.front == true) }
+                var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(guestChoices?.seats ?: 1) }
+                val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession, guestChoices)
+                val needsGuestReview = guestChoices?.review != null
+                if (guestChoices?.review != null) {
+                    GuestBookingReviewDialog(guestChoices.review,
+                        onReview = {
+                            if (isDisplayedBookingCurrent()) openGuestBooking = openGuestBooking?.copy(choices = guestChoices.copy(review = null))
+                        },
+                        onBack = { if (isDisplayedBookingCurrent()) vm.navigateLocally { openHome(HomeTab.Rides) } },
+                    )
+                }
                 val recovery = key(displayedRevision) {
                     rememberBookingRecovery(displayedRide?.id?.toIntOrNull().takeIf { displayedBookingId == null },
                         displayedSession, ::isDisplayedBookingCurrent)
@@ -1418,24 +1492,33 @@ private fun YuldashAppContent() {
                     onSos = { openSos(bookingId = activeBookingId ?: 0) },   // отменили в пути: SOS с бронью, как на экране поездки
                     frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
                     selectedSeats = selectedSeats, onSeatsChange = { if (!bookingInFlight) selectedSeats = it },
-                    bookingBusy = bookingInFlight,
+                    bookingBusy = bookingInFlight || needsGuestReview,
                     pickupStop = meetingDraft.pickup, onPickupStopChange = meetingDraft::selectPickup,
                     dropoffStop = meetingDraft.dropoff, onDropoffStopChange = meetingDraft::selectDropoff,
                     meetPickup = meetingDraft.meeting, onMeetPickupChange = { meetingDraft.meeting = it },
                     meetDropoff = meetingDraft.alighting, onMeetDropoffChange = { meetingDraft.alighting = it },
+                    initialMinor = guestChoices?.minor == true,
+                    onGuestBooking = if (guestForm) guest@{ minor ->
+                        val ride = displayedRide ?: return@guest
+                        val rideId = ride.id.toIntOrNull()?.takeIf { it > 0 } ?: return@guest
+                        ApiClient.runIfUnchangedSession(displayedSession) {
+                            if (isDisplayedBookingUnchanged() && !ApiClient.isLoggedIn()) {
+                                val draft = GuestBookingDraft(rideId, ride.termsVersion, routePlaces(ride),
+                                    meetingDraft.pickup, meetingDraft.dropoff, selectedSeats, frontSeat, minor)
+                                vm.navigateLocally {
+                                    destinationAfterLogin = null
+                                    guestBookingLogin = GuestBookingLogin(draft, displayedSession, vm.privateNavigationRevision)
+                                    screen = Screen.Login
+                                }
+                            }
+                        }
+                    } else null,
                     onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
                         val pickupStop = meetingDraft.pickup
                         val dropoffStop = meetingDraft.dropoff
                         val meetPickup = meetingDraft.meeting
                         val meetDropoff = meetingDraft.alighting
-                        if (!isDisplayedBookingUnchanged()) return@BookingScreen
-                        if (!ApiClient.isLoggedIn()) {
-                            ApiClient.runIfUnchangedSession(displayedSession) {
-                                if (isDisplayedBookingUnchanged()) vm.navigateLocally { openProtectedScreen(Screen.Booking) }
-                            }
-                            return@BookingScreen
-                        }
-                        if (!isDisplayedBookingCurrent()) return@BookingScreen
+                        if (needsGuestReview || !isDisplayedBookingCurrent()) return@BookingScreen
                         if (displayedBookingId != null) {
                             ApiClient.runIfCurrentSession(displayedSession) {
                                 if (isDisplayedBookingCurrent()) vm.navigateLocally {

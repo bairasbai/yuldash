@@ -704,7 +704,13 @@ object ApiClient {
         call("POST", "/auth/request-code", JSONObject().put("phone", phone), auth = false).map { }
 
     /** Проверить код. При успехе сохраняем токен и возвращаем JSON юзера. */
-    suspend fun verifyCode(phone: String, code: String, name: String): Result<JSONObject> {
+    suspend fun verifyCode(phone: String, code: String, name: String): Result<JSONObject> =
+        verifySmsLogin(phone, code, name).map { it.userResponse }
+
+    internal suspend fun verifyCodeSession(phone: String, code: String, name: String): Result<Long> =
+        verifySmsLogin(phone, code, name).map { it.generation }
+
+    private suspend fun verifySmsLogin(phone: String, code: String, name: String): Result<CommittedLogin> {
         val generation = requestSession().generation
         val result = call("POST", "/auth/verify",
             JSONObject().put("phone", phone).put("code", code).put("name", name),
@@ -761,7 +767,9 @@ object ApiClient {
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
 
-    private fun commitAuth(obj: JSONObject, generation: Long, fallbackName: String? = null): Result<JSONObject> =
+    private data class CommittedLogin(val userResponse: JSONObject, val generation: Long)
+
+    private fun commitAuth(obj: JSONObject, generation: Long, fallbackName: String? = null): Result<CommittedLogin> =
         synchronized(sessionLock) {
             if (!sameSession(generation)) return@synchronized staleSession()
             val access = obj.optString("access_token").takeIf { it.isNotBlank() }
@@ -786,7 +794,7 @@ object ApiClient {
             userRole = role
             OfflineTripSnapshotHooks.newSession(myUserId(), snapshotScope, sessionGeneration)
             mutableSessionChanges.value = sessionGeneration
-            Result.success(obj)
+            Result.success(CommittedLogin(obj, sessionGeneration))
         }
     private fun persistNewSession(write: (android.content.SharedPreferences.Editor) -> Unit): Boolean {
         val selected = prefs ?: return OfflineTripSnapshotHooks.authWriteResult(appCtx == null) // Calls without init exist only in isolated unit tests.
@@ -808,7 +816,13 @@ object ApiClient {
             .onSuccess { Analytics.log("login_start", mapOf("method" to "telegram")) }   // старт входа → видно отвал «начал, но не дошёл до кода»
 
     /** Проверка 6-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
-    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> {
+    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> =
+        verifyTelegramLogin(requestId, code).map { it.userResponse }
+
+    internal suspend fun tgVerifySession(requestId: String, code: String): Result<Long> =
+        verifyTelegramLogin(requestId, code).map { it.generation }
+
+    private suspend fun verifyTelegramLogin(requestId: String, code: String): Result<CommittedLogin> {
         val generation = requestSession().generation
         val result = call("POST", "/auth/tg/verify",
             JSONObject().put("request_id", requestId).put("code", code),
@@ -842,8 +856,8 @@ object ApiClient {
         }
 
     /** Одна поездка по id — публичная витрина (без ПДн). Для deep-link yulbash.ru/r/{id}. */
-    suspend fun getRide(id: Int): Result<RideDto> =
-        call("GET", "/rides/$id", null, auth = true).map { it.toRideDto() }
+    suspend fun getRide(id: Int, expectedGeneration: Long? = null): Result<RideDto> =
+        call("GET", "/rides/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toRideDto() }
 
     /**
      * Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).

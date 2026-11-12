@@ -322,6 +322,8 @@ internal fun BookingScreen(
     meetDropoff: MeetingPointInput? = null, onMeetDropoffChange: (MeetingPointInput) -> Unit = {},
     recovery: BookingRecoveryState? = null, onOpenRecoveredBooking: (com.yuldash.app.data.BookingCreatedDto) -> Unit = {},
     onRefreshBookingTerms: (() -> Unit)? = null,
+    initialMinor: Boolean = false,
+    onGuestBooking: ((Boolean) -> Unit)? = null,
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
@@ -345,7 +347,7 @@ internal fun BookingScreen(
     var payAmountText by rememberBookingPayAmount(ride, bookingId, selectedSeats,
         perSeat = segmentPriceRub(ride, pickupStop, dropoffStop) ?: ride.price)
     // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
-    var minorPassenger by remember { mutableStateOf(false) }
+    var minorPassenger by remember(initialMinor) { mutableStateOf(initialMinor) }
     var guardianName by remember { mutableStateOf("") }
     var guardianPhone by remember { mutableStateOf("") }
     var detailsLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
@@ -477,6 +479,8 @@ internal fun BookingScreen(
     val segmentSeats = bookableSeats(displayRide, pickupStop, dropoffStop)
     val canCreateBooking = bookingId == null && segmentSeats > 0
     val canRepeatOriginal = bookingId == null && recovery?.preparedRetry != null
+    val requiredContactsReady = onGuestBooking != null || !minorPassenger ||
+        (guardianName.isNotBlank() && guardianPhone.isNotBlank())
     val primaryLabel = when {
         bookingId == null && recovery?.knownBooking?.status?.let { it != "cancelled" } == true -> appText("Бронь найдена", "Бронь табылды")
         canRepeatOriginal -> appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
@@ -490,7 +494,8 @@ internal fun BookingScreen(
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
     val primaryEnabled = if (bookingId == null) !bookingBusy && recovery?.canSubmit != false &&
-        (canRepeatOriginal || (canCreateBooking && canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)))
+        (canRepeatOriginal || (canCreateBooking && requiredContactsReady &&
+            canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)))
         else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip) &&
             !(bookingPending && passengerCancellation?.blocked == true)
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
@@ -551,6 +556,7 @@ internal fun BookingScreen(
                         bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
                             else showCancelConfirmation = true
                         bookingCancelled -> onFindAnotherRide()
+                        onGuestBooking != null -> onGuestBooking(minorPassenger)
                         else -> onConfirmRide(
                             payMethod,
                             payAmountText.trim().toIntOrNull(),
@@ -688,7 +694,7 @@ internal fun BookingScreen(
                 bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
             }
             // RS-03 А: точное место по желанию — только при создании брони (смена потом — RS-03 Б).
-            if (ride != null && bookingId == null && !canRepeatOriginal) {
+            if (ride != null && bookingId == null && !canRepeatOriginal && onGuestBooking == null) {
                 item {
                     BookingMeetingPoints(displayRide, pickupStop, dropoffStop,
                         meetPickup, onMeetPickupChange, meetDropoff, onMeetDropoffChange,
@@ -759,6 +765,7 @@ internal fun BookingScreen(
                             onChecked = { minorPassenger = it },
                             onName = { guardianName = it },
                             onPhone = { guardianPhone = it },
+                            showContacts = onGuestBooking == null,
                         )
                     } else {
                         InfoCard(
@@ -3204,6 +3211,7 @@ internal fun MinorPassengerBlock(
     onName: (String) -> Unit,
     onPhone: (String) -> Unit,
     modifier: Modifier = Modifier,
+    showContacts: Boolean = true,
 ) {
     Surface(modifier = modifier.fillMaxWidth(), color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3213,7 +3221,7 @@ internal fun MinorPassengerBlock(
                 appText("Водитель увидит это до подтверждения", "Йөрөтөүсе быны раҫлауға тиклем күрер"),
                 checked,
             ) { onChecked(it) }
-            AnimatedVisibility(visible = checked) {
+            AnimatedVisibility(visible = checked && showContacts) {
                 Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         appText("Кто из взрослых отвечает за поездку. Водителю будет кому позвонить.",
@@ -3233,8 +3241,39 @@ internal fun MinorPassengerBlock(
                     )
                 }
             }
+            if (checked && !showContacts) {
+                Text(
+                    appText("Имя и телефон взрослого понадобятся после входа.",
+                        "Оло кешенең исеме һәм телефоны ингәндән һуң кәрәк буласаҡ."),
+                    color = CanonMuted, style = CanonCaption, modifier = Modifier.padding(horizontal = CanonSpace.md),
+                )
+            }
         }
     }
+}
+
+@Composable
+internal fun GuestBookingReviewDialog(review: GuestBookingReview, onReview: () -> Unit, onBack: () -> Unit) {
+    val changes = listOfNotNull(
+        if (review.routeChanged) appText("Маршрут изменился. Проверь остановки и число мест.",
+            "Маршрут үҙгәрҙе. Туҡталыштарҙы һәм урындар һанын тикшер.") else null,
+        if (review.frontUnavailable) appText("Переднее место недоступно. Продолжай, если подходит место сзади.",
+            "Алғы урын буш түгел. Арттағы урын тура килһә, дауам ит.") else null,
+        if (review.minorsUnavailable) appText("Водитель берёт только 18+. Продолжай, если поедет взрослый.",
+            "Йөрөтөүсе тик 18+ ала. Оло кеше барһа, дауам ит.") else null,
+        if (review.termsChanged) appText("Проверь актуальные условия поездки.", "Сәфәрҙең хәҙерге шарттарын тикшер.") else null,
+    )
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text(appText("Условия поездки изменились", "Сәфәр шарттары үҙгәрҙе")) },
+        text = { Text(changes.joinToString("\n")) },
+        confirmButton = {
+            TextButton(onClick = onReview) { Text(appText("Проверить и продолжить", "Тикшереп дауам итергә")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onBack) { Text(appText("Найти другую поездку", "Башҡа сәфәр табыу")) }
+        },
+    )
 }
 
 /**
