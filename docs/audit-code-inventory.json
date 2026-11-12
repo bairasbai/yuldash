@@ -13915,8 +13915,8 @@
       "path": "webapp/src/App.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "b482669915835d63c1dbd73ff562d55b84c26ed9d6c807d33a73618e2361f6d2",
-      "lines": 1050
+      "sha256": "51992739672bbe2a672759ab40df31d5f9998b5d0e6869e6378ca60a48be17e2",
+      "lines": 1053
     },
     {
       "path": "webapp/src/analytics.ts",
@@ -14405,7 +14405,7 @@
       "path": "webapp/src/components/InstallPrompt.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "0e2af1af9f683b1ee30c7aaadc68553354950414cf15908bf9836c98e6811a26",
+      "sha256": "cba0839015994625c7bf9ab422ca095483f3136594235e9babc887df7713fee3",
       "lines": 104
     },
     {
@@ -17240,8 +17240,8 @@
       "path": "webapp/tests/trip-chat-page-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "9d47a008eb7a9b5001ad3204b67f209d63c699ecec8d81e3dafc869fe2be810b",
-      "lines": 257
+      "sha256": "500cf077b3e0ba8b5110f9d2cd3813c8a18bacd9a4f19e11ab1be86a1ace6670",
+      "lines": 261
     },
     {
       "path": "webapp/tests/trip-chat-test.mjs",

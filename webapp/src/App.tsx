@@ -154,6 +154,7 @@ function Shell() {
   const showBottomNav = onMainTab && !taxiOrderOnScreen;
   /** Чат поездки занимает весь экран: плавающим подсказкам над строкой ввода там не место. */
   const inTripChat = /^\/trip\/[^/]+\/chat\/?$/.test(pathname);
+  const inPublicationForm = /^\/(?:request|create-ride)\/?$/.test(pathname);
 
   useEffect(() => {
     if (status !== "authed" || user?.role !== "driver") {
@@ -183,7 +184,7 @@ function Shell() {
           <Outlet />
         </Suspense>
       </main>
-      <InstallPrompt hidden={inTripChat} />
+      <InstallPrompt hidden={inTripChat || inPublicationForm} />
       {showBottomNav && <BottomNav debtBadge={debtBadge} />}
     </div>
   );

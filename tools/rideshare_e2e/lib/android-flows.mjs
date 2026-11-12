@@ -263,9 +263,15 @@ export async function publishRide({ from, to, stops = [], hh, mm, day = null, se
   for (const s of stops) {
     await A.scrollTap("Добавить остановку");
     await sleep(600);
-    const nodes = A.dump();
-    const empties = nodes.filter((n) => n.class === "android.widget.EditText" && n.text === "");
-    const target = empties.sort((a, b) => b.box[1] - a.box[1])[0];
+    const [, height] = A.screenSize();
+    let target;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const emptyFields = A.dump().filter(n => n.class === "android.widget.EditText" && n.text === "");
+      target = emptyFields.sort((a, b) => b.box[1] - a.box[1])[0];
+      if (target && target.box[3] < height * 0.72) break;
+      await A.swipeUp(0.18);
+    }
+    if (!target || target.box[3] >= height * 0.72) throw new Error("Stop field has no room for suggestions");
     A.tapXY(...A.center(target)); await sleep(400);
     A.typeText(s);
     await sleep(1800);
