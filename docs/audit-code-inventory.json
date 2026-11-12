@@ -82,19 +82,19 @@
     "backend_main": 109,
     "infra_resource_config": 407,
     "public_site_promo": 91,
-    "pwa_main": 332,
-    "test_support": 1301
+    "pwa_main": 334,
+    "test_support": 1304
   },
   "counts_by_block": {
     "B01": 169,
-    "B02": 304,
+    "B02": 308,
     "B03": 123,
     "B04": 80,
     "B05": 62,
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 748,
+    "B09": 749,
     "B10": 407,
     "B11": 92
   },
@@ -7146,8 +7146,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "76bad3c9ecc092cb0320302fac32f6ffb0ed497a9d20c02e709dfcdabd46cb65",
-      "lines": 1961
+      "sha256": "53d01c335a195208d4156dc6b71da47a52aa3d855a51d5a8b90d61c1e0b366a0",
+      "lines": 2476
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -8772,6 +8772,13 @@
       "block": "B08",
       "sha256": "cc3081c86bc7101aaae659119416688f5aa1d8345271b4261b1e9c0efb1af078",
       "lines": 211
+    },
+    {
+      "path": "backend/tests/test_command_idempotency.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "71a16bd52e5755378cecf3760fcc8a305a1101a3a84143e91afa5ee58791046e",
+      "lines": 539
     },
     {
       "path": "backend/tests/test_commission_promise_matches_reality.py",
@@ -13898,6 +13905,13 @@
       "lines": 238
     },
     {
+      "path": "webapp/src/api/bookingCommands.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "e6299a216cd0d2a711b14ae5a79de57b60a7e1f8aa37db6aac4b2313e9e05b51",
+      "lines": 134
+    },
+    {
       "path": "webapp/src/api/bookings.ts",
       "kind": "pwa_main",
       "block": "B02",
@@ -14190,6 +14204,13 @@
       "block": "B09",
       "sha256": "a8d3da54c279df738b3d532784b5c3bc77dc7b043b31e94d71d9458a19decbe6",
       "lines": 105
+    },
+    {
+      "path": "webapp/src/components/BookingCommandRecovery.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "28d24e2e116272b80115c2609a915d96aa50714c015cd30cff89fb86fc7a52ca",
+      "lines": 102
     },
     {
       "path": "webapp/src/components/BottomNav.tsx",
@@ -14622,8 +14643,8 @@
       "path": "webapp/src/components/RideSheet.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "fca23f45fcab80a843f44df3786953b5f4beb375b3d2f9b4184ea149f80d75b5",
-      "lines": 610
+      "sha256": "a765a9c8654e77c645ac2bee155189cd06c4c7be36b0ebfc8ccc8f5043b151bf",
+      "lines": 631
     },
     {
       "path": "webapp/src/components/RoadsideHelp.tsx",
@@ -15560,8 +15581,8 @@
       "path": "webapp/src/screens/RideDetailScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "400abcdea50a4293b5fe4bae324f3a730ee72c0874c609aa39eaee2673a85550",
-      "lines": 95
+      "sha256": "a0c3429f1f61f43ac679e504e0b00b67b0ef2a506c9cd87b5d925909f5c099d3",
+      "lines": 99
     },
     {
       "path": "webapp/src/screens/RidesScreen.tsx",
@@ -16250,6 +16271,20 @@
       "lines": 244
     },
     {
+      "path": "webapp/tests/booking-command-retry-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "4db433966685b817e42b9509de17ebd13e16fed88b88283747e860074d0a6aac",
+      "lines": 203
+    },
+    {
+      "path": "webapp/tests/booking-command-stub.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "765f58d32a074662b0dc3bb4096d9b9503bb54bf0d7d8bad1a5f69ed642cdc52",
+      "lines": 32
+    },
+    {
       "path": "webapp/tests/booking-link-driver-test.mjs",
       "kind": "test_support",
       "block": "B02",
@@ -16680,8 +16715,8 @@
       "path": "webapp/tests/multiseat-booking-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "dd10d498cdeb53d60d44925f4200c2028ed34641714440d688e4f3b05d3de718",
-      "lines": 82
+      "sha256": "f60183e77b81eb2b86c7b16750e090acb6cba8d27015fe7ab6fcddd578074811",
+      "lines": 136
     },
     {
       "path": "webapp/tests/nearby-cities-test.mjs",
@@ -16953,8 +16988,8 @@
       "path": "webapp/tests/ride-booking-path-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "632ab19a192500a03bada44caf22ae4e44a4cec8aa1c5287cc59ac000769ce58",
-      "lines": 268
+      "sha256": "751ef7b6fae7d1ba002d2840f1bf158caf00bacc3e861213436ad68f0fad9271",
+      "lines": 277
     },
     {
       "path": "webapp/tests/rideshare-local-regression-test.mjs",

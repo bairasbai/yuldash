@@ -46,19 +46,21 @@ async function sendBookingCommand(
 export async function createBooking(
   body: CreateBookingInput, signal: AbortSignal,
   owner: BookingCommandOwner | null, prior?: BookingCommand, retry = false,
+  onPrepared?: (key: string, input: CreateBookingInput) => void,
 ): Promise<BookingRow> {
   if (!owner) throw new BookingCommandProblem("storage");
   let command: BookingCommand;
   let wireBody: string;
+  let preparedInput: CreateBookingInput;
   try {
     const current = retry ? await readBookingCommand(owner, body.ride_id) : undefined;
     if (retry && (!current || current.key !== prior?.key || current.state !== "unknown")) {
       throw new BookingCommandProblem("unknown", current);
     }
     // The ride's public version can move when this very request reserves a seat.
-    const outgoing = current?.expectedTermsVersion === undefined ? body
+    preparedInput = current?.expectedTermsVersion === undefined ? body
       : { ...body, expected_terms_version: current.expectedTermsVersion ?? undefined };
-    const snapshot = await commandFingerprint(BOOKING_COMMAND_SCOPE, body.ride_id, outgoing);
+    const snapshot = await commandFingerprint(BOOKING_COMMAND_SCOPE, body.ride_id, preparedInput);
     if (snapshot.wireBody === undefined) throw new Error("Missing booking body");
     wireBody = snapshot.wireBody;
     if (current) {
@@ -79,6 +81,7 @@ export async function createBooking(
   }
   try {
     if (signal.aborted) throw new Error("Booking request interrupted");
+    onPrepared?.(command.key, preparedInput);
     return await sendBookingCommand(owner, command, wireBody, signal);
   } catch (error) {
     let result: Outcome | undefined;

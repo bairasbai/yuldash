@@ -15,7 +15,11 @@ for (const lang of ["ru", "ba"]) {
     "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
     "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__multi.own,useRefreshOwnBookings=()=>()=>{globalThis.__multi.refreshed++;};`,
     "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v),pluralRu=(n,a,b,c)=>[a,b,c][n%10===1&&n%100!==11?0:n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?1:2];`,
-    "/api/bookingCommands": bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__multi.sent.push({body,signal});return globalThis.__multi.send?.()??Promise.resolve({id:55});};`),
+    "/api/bookingCommands": bookingCommandStub(`export const createBooking=(body,signal,_owner,command,retry,onPrepared)=>{
+      const state=globalThis.__multi;
+      state.sent.push({body,signal,command,retry});
+      return state.send?.({body,onPrepared,BookingCommandProblem})??Promise.resolve({id:55});
+    };`),
   } });
   const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; h.refreshed = 0; };
   const selector = s => all(s.tree).find(n => n.type === "select");
@@ -41,6 +45,49 @@ for (const lang of ["ru", "ba"]) {
     assert.ok(all(s.tree).some(n => n.props.className === "auth__error"));
     h.send = undefined; await cta(s).props.onClick();
     assert.deepEqual(h.sent[0].body, h.sent[1].body); assert.equal(h.sent[1].body.seats, 2);
+    s.unmount();
+  });
+  await t.test(`${lang}: прежний запрос можно повторить при изменении остановок и мест`, async () => {
+    reset();
+    const command = { state: "unknown", key: "first-command", rideId: ride.id };
+    h.send = ({ body, onPrepared, BookingCommandProblem }) => {
+      onPrepared(command.key, body);
+      return Promise.reject(new BookingCommandProblem("unknown", command));
+    };
+    const s = mount(Sheet, {
+      ride: { ...ride, waypoints: "Сибай | Акъяр", terms_version: 1 },
+      initialSelection: { seats: 2, pickupStop: "Сибай", dropoffStop: "Акъяр" },
+      onClose() {},
+    });
+    s.render();
+    await cta(s).props.onClick(); await s.settle();
+    s.props = { ...s.props, ride: { ...ride, seats_left: 1, terms_version: 2 } };
+    s.render(); await s.settle();
+    assert.equal(selector(s), undefined, "while replaying, the original seat count cannot be edited");
+    assert.equal(cta(s).props.disabled, false);
+    h.send = undefined; await cta(s).props.onClick();
+    assert.equal(h.sent.length, 2);
+    assert.equal(h.sent[1].retry, true);
+    assert.equal(h.sent[1].command.key, command.key);
+    assert.deepEqual(h.sent[1].body, h.sent[0].body);
+    assert.equal(h.sent[1].body.seats, 2);
+    assert.equal(h.sent[1].body.pickup_stop, "Сибай");
+    assert.equal(h.sent[1].body.dropoff_stop, "Акъяр");
+    s.unmount();
+  });
+  await t.test(`${lang}: ключ из другой вкладки не связывается с этой формой`, async () => {
+    reset();
+    h.send = ({ BookingCommandProblem }) =>
+      Promise.reject(new BookingCommandProblem("unknown", { state: "unknown", key: "other-tab", rideId: ride.id }));
+    const s = mount(Sheet, { ride, onClose() {} });
+    s.render();
+    await cta(s).props.onClick(); await s.settle();
+    assert.ok(selector(s), "the current form is not shown as the original request");
+    s.props = { ...s.props, ride: { ...ride, seats_left: 0 } };
+    s.render();
+    assert.equal(cta(s).props.disabled, true);
+    await cta(s).props.onClick();
+    assert.equal(h.sent.length, 1);
     s.unmount();
   });
   await t.test(`${lang}: ноль мест запрещает запрос, известная бронь открывается без нового выбора`, async () => {

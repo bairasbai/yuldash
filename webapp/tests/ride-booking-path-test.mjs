@@ -18,7 +18,7 @@ const modules = {
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props)=>({type,props:props??{}}); export const jsxs=jsx;`,
   // Шторка рисуется в <body> через портал (useSheetExit): в наборе портал отдаёт разметку как есть.
   "react-dom": `export const createPortal=(node)=>node;`,
-  "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:'42'}); export const useLocation=()=>({state:globalThis.__ridePath.locationState});`,
+  "react-router-dom": `export const Link='a'; export const useNavigate=()=> (...args)=>globalThis.__ridePath.routes.push(args); export const useParams=()=>({id:globalThis.__ridePath.routeId??'42'}); export const useLocation=()=>({state:globalThis.__ridePath.locationState});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru,t:k=>k});`,
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed,status:globalThis.__ridePath.authed?"authed":"guest"});`,
   commands: bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body,signal)};`),
@@ -29,6 +29,7 @@ const modules = {
   soon: `export default ()=>null;`,
   analytics: `export const track=()=>{};`,
   states: `export const LoadingList='loading'; export const ErrorState='retry';`,
+  recovery: `export const BookingCommandRecovery='recovery';`,
   // RS-03 А: карта и справочник ориентиров — вне сети, пикер работает и без них.
   ymap: `export default 'ymap';`,
   geo: `export const fetchPickupPoints=async()=>[]; export const fetchDistricts=async()=>[]; export const fetchPopularRoutes=async()=>[]; export const fetchSettlements=async()=>[];`,
@@ -39,7 +40,7 @@ async function component(path) {
     plugins:[{name:"local-ui",setup(b){
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;
-        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookingCommands')?'commands':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null;
+        const key=Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookingCommands')?'commands':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('/components/BookingCommandRecovery')?'recovery':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null;
         return key?{path:key,namespace:'mock'}:null;
       });
       b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:modules[args.path],loader:'js'}));
@@ -100,13 +101,20 @@ tree=render(Detail);assert.ok(all(tree).some(n=>n.props.ride?.id===42),'Прям
 h.reset();h.fetchRide=async()=>{throw new Error('offline')};
 render(Detail);runEffects();await new Promise(setImmediate);tree=render(Detail);
 const retry=all(tree).find(n=>n.type==='retry');assert.ok(retry,'Загрузка имеет видимую ошибку');
+assert.equal(all(tree).find(n=>n.type==='recovery')?.props.rideId,42,'Проверка относится к этой поездке даже при ошибке загрузки');
 h.fetchRide=async()=>ride;retry.props.onRetry();await new Promise(setImmediate);
 assert.ok(all(render(Detail)).some(n=>n.props.ride?.id===42),'Повтор восстанавливает детали');
 for(const unavailable of [{...ride,seats_left:0},{...ride,status:'cancelled'}]){
   h.reset();h.fetchRide=async()=>unavailable;render(Detail);runEffects();await new Promise(setImmediate);
   tree=render(Detail);assert.ok(!all(tree).some(n=>n.props.ride),'Закрытая/полная поездка не предлагает бронь');
   assert.ok(all(tree).some(n=>n.props.role==='status'));
+  assert.equal(all(tree).find(n=>n.type==='recovery')?.props.rideId,42,'Закрытая поездка оставляет проверку исходного запроса');
 }
+h.routeId='43';
+tree=render(Detail);
+assert.ok(all(tree).some(n=>n.type==='loading'));
+assert.ok(!all(tree).some(n=>n.type==='recovery'),'При смене адреса старая проверка скрывается до загрузки другой поездки');
+h.routeId=undefined;
 h.reset();let deliver;h.fetchRide=()=>new Promise(r=>deliver=r);
 render(Detail);const cleanup=runEffects();cleanup();deliver(ride);await new Promise(setImmediate);
 assert.equal(h.states[0],null,'Ответ после ухода со страницы не меняет выбор');

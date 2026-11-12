@@ -11,7 +11,7 @@ from sqlmodel import Session, select
 
 from app import idempotency
 from app.db import engine
-from app.models import Block, Booking, CommandReceipt, Ride, SafetyProfile, TextFlag, UserRole
+from app.models import Block, Booking, CommandReceipt, Ride, RideCategory, SafetyProfile, TextFlag, UserRole
 from app.routers import bookings, rides
 from app.timeutil import utcnow
 from test_booking_multiseat_retry import _snapshot
@@ -278,6 +278,50 @@ def test_rejected_terms_are_saved_and_transient_rate_limit_is_not(client, case, 
         assert _post(client, passenger, new_payload, key=retry_key).status_code == 429
     assert _get(client, passenger, key=retry_key).json()["state"] == "unseen"
     assert _post(client, passenger, new_payload, key=retry_key).status_code == 200
+
+
+def test_changed_booking_route_is_rejected_before_resolving_removed_stops(client, case):
+    _, passenger, ride_id = case
+    with Session(engine) as session:
+        ride = session.get(Ride, ride_id)
+        ride.waypoints = "Стерлитамак | Салават"
+        ride.terms_version += 1
+        old_version = ride.terms_version
+        session.commit()
+    payload = {"ride_id": ride_id, "seats": 2, "expected_terms_version": old_version,
+               "pickup_stop": "Стерлитамак", "dropoff_stop": "Салават"}
+    key = f"cmd1_{KEY}"
+    assert _get(client, passenger, key=key).json()["state"] == "unseen"
+    with Session(engine) as session:
+        ride = session.get(Ride, ride_id)
+        ride.waypoints = ""
+        ride.terms_version += 1
+        session.commit()
+
+    headers = {**passenger["auth"], "Idempotency-Key": key}
+    for _ in range(2):
+        reply = client.post("/bookings/commands/v1", headers=headers, json=payload)
+        assert reply.status_code == 409, reply.text
+        assert reply.json()["detail"]["code"] == "ride_terms_changed"
+    view = _get(client, passenger, key=key).json()
+    assert view["state"] == "rejected" and view["result_code"] == "ride_terms_changed"
+    assert view["current"] is None
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
+
+
+def test_disabled_parcels_are_blocked_before_versioned_booking_terms(client, case, monkeypatch):
+    _, passenger, ride_id = case
+    with Session(engine) as session:
+        session.get(Ride, ride_id).category = RideCategory.parcel
+        session.commit()
+    monkeypatch.setattr(bookings.settings, "parcels_enabled", False)
+    payload = {"ride_id": ride_id, "seats": 1, "expected_terms_version": 999}
+    key = f"cmd1_{KEY}"
+    headers = {**passenger["auth"], "Idempotency-Key": key}
+    reply = client.post("/bookings/commands/v1", headers=headers, json=payload)
+    assert reply.status_code == 403, reply.text
+    assert _get(client, passenger, key=key).json()["state"] == "unseen"
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
 
 
 def test_front_seat_refusal_cannot_take_seat_that_later_opens(client, case, user_factory):

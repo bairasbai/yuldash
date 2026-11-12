@@ -5,17 +5,23 @@ import { useLang } from "../i18n/lang";
 import { getSessionGeneration } from "../api/client";
 import { reconcileBookingCommand } from "../api/bookingCommands";
 import { bookingRefusalMessage } from "../utils/bookingCommandLabels";
-import { bookingCommandOwner, isCurrentBookingOwner, readPendingBookingCommands,
+import { bookingCommandOwner, isCurrentBookingOwner, readBookingCommand, readPendingBookingCommands,
   type BookingCommand, type BookingCommandOwner } from "../utils/bookingCommandStore";
 
-export function BookingCommandRecovery() {
+export function BookingCommandRecovery({ rideId }: { rideId?: number }) {
   const { user, isAuthed } = useAuth();
   const generation = getSessionGeneration();
   const owner = isAuthed ? bookingCommandOwner(user, generation) : null;
-  return owner ? <Recovery key={owner.namespace + generation} owner={owner} /> : null;
+  return owner ? <Recovery key={JSON.stringify([owner.namespace, generation, rideId])} owner={owner} rideId={rideId} /> : null;
 }
 
-function Recovery({ owner }: { owner: BookingCommandOwner }) {
+async function readRequests(owner: BookingCommandOwner, rideId?: number): Promise<BookingCommand[]> {
+  if (rideId === undefined) return readPendingBookingCommands(owner);
+  const row = await readBookingCommand(owner, rideId);
+  return row?.state === "unknown" ? [row] : [];
+}
+
+function Recovery({ owner, rideId }: { owner: BookingCommandOwner; rideId?: number }) {
   const { appText } = useLang();
   const navigate = useNavigate();
   const [rows, setRows] = useState<BookingCommand[]>([]);
@@ -25,11 +31,11 @@ function Recovery({ owner }: { owner: BookingCommandOwner }) {
 
   useEffect(() => {
     let live = true;
-    void readPendingBookingCommands(owner).then(result => {
+    void readRequests(owner, rideId).then(result => {
       if (live && isCurrentBookingOwner(owner)) setRows(result);
     }).catch(() => {});
     return () => { live = false; action.current?.abort(); };
-  }, [owner.namespace, owner.generation]);
+  }, [owner.namespace, owner.generation, rideId]);
 
   async function check(command: BookingCommand, close: boolean) {
     if (action.current || !isCurrentBookingOwner(owner)) return;
@@ -58,7 +64,7 @@ function Recovery({ owner }: { owner: BookingCommandOwner }) {
       }
     } catch {
       if (active()) {
-        const current = await readPendingBookingCommands(owner).catch(() => null);
+        const current = await readRequests(owner, rideId).catch(() => null);
         if (active()) {
           if (current) setRows(current);
           setMessage(current && !current.some(row => row.key === command.key)

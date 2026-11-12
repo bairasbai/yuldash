@@ -563,6 +563,12 @@ def _booking_result(session, booking, ride, user_id, keyed):
     return meeting_points.booking_public_dto(session, booking, ride, user_id)
 
 
+def _require_current_booking_terms(ride: Ride, expected_version: int | None) -> None:
+    if expected_version is not None and ride.terms_version != expected_version:
+        raise herr(409, "Условия поездки изменились — посмотри новые и забронируй ещё раз",
+                   "Сәфәр шарттары үҙгәрҙе — яңыларын ҡара ла тағы бронла", code="ride_terms_changed")
+
+
 def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
     ensure_active(session, user.id, refresh=not keyed)
     # Потолок на ТЕМП бронирования. Каждая бронь будит водителя пушем, и отмена будит второй
@@ -622,13 +628,20 @@ def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
     # последовательные — фильтр в списке ничего не гарантирует.
     if getattr(ride, "women_only", False):
         guard_women_only(user, msg=MSG_WOMEN_ONLY_RIDE)
+    # A new keyed request for an old route must leave a final refusal, even when
+    # its former stops cannot be resolved against the current route.
+    existing = _active_booking(session, ride.id, user.id) if keyed else None
+    if keyed and existing is None:
+        guard_delivery_ride(ride.category)
+        _require_current_booking_terms(ride, body.expected_terms_version)
     # Где садится — разбираем ДО списания мест и до повтора (18.10.2026): незнакомое место — 400,
     # мест не тронули.
     entry = snapshot_cached()
     pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, entry)
     # Защита от дубля: один пассажир не бронирует одну поездку повторно (двойной тап / повторный заход).
     # Идемпотентно — возвращаем существующую активную бронь, мест не списываем заново.
-    existing = _active_booking(session, ride.id, user.id)
+    if not keyed:
+        existing = _active_booking(session, ride.id, user.id)
     effective_pickup = existing.pickup_stop if existing and body.pickup_stop is None else pickup_stop
     dropoff_stop = _resolve_dropoff_stop(ride, body.dropoff_stop, effective_pickup, entry)
     # RS-03 А: точное место встречи/высадки — после разбора остановок, до списания мест.
@@ -646,9 +659,7 @@ def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
         if not ride or ride.status != RideStatus.active:
             raise herr(400, "Поездку уже отменили или она уехала — посмотри другие в ленте",
                        "Сәфәр кире алынған йәки киткән — таҫмала башҡаларын ҡара")
-        if body.expected_terms_version is not None and ride.terms_version != body.expected_terms_version:
-            raise herr(409, "Условия поездки изменились — посмотри новые и забронируй ещё раз",
-                       "Сәфәр шарттары үҙгәрҙе — яңыларын ҡара ла тағы бронла", code="ride_terms_changed")
+        _require_current_booking_terms(ride, body.expected_terms_version)
         # Остановки той же правки рейса — точки и цены ниже считаются уже по свежей строке.
         entry = snapshot_cached()
         pickup_stop = _resolve_pickup_stop(ride, body.pickup_stop, entry)
@@ -665,12 +676,9 @@ def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
     if existing:
         repeat = _booking_retry(existing, body, pickup_stop, dropoff_stop, meet, alight)
         return _booking_result(session, repeat, ride, user.id, keyed)
-    guard_delivery_ride(ride.category)
-    # Условия, которые человек видел перед бронью (RS-02 А): версия не сошлась — без резерва,
-    # пусть посмотрит новые и подтвердит осознанно. Под тем же замком строки поездки.
-    if body.expected_terms_version is not None and ride.terms_version != body.expected_terms_version:
-        raise herr(409, "Условия поездки изменились — посмотри новые и забронируй ещё раз",
-                   "Сәфәр шарттары үҙгәрҙе — яңыларын ҡара ла тағы бронла", code="ride_terms_changed")
+    if not keyed:
+        guard_delivery_ride(ride.category)
+        _require_current_booking_terms(ride, body.expected_terms_version)
     # RS-02 Б: цена за место на СВОЁМ участке, которую человек видел перед бронью, — сверяем
     # с актуальной под тем же замком, до любого списания мест.
     seg_price = ride_seats.segment_price(ride, pickup_stop, dropoff_stop)

@@ -80,12 +80,15 @@ globalThis.fetch = async (url, options) => {
   if (posts === 1) return reply({ detail: "Old instance" }, 404);
   return reply(booking);
 };
+const prepared = [];
+const onPrepared = (key, input) => prepared.push({ key, input });
 const tabs = await Promise.allSettled([
-  api.createBooking(body, signal(), ownerA()),
-  restarted.createBooking(body, signal(), ownerA()),
+  api.createBooking(body, signal(), ownerA(), undefined, false, onPrepared),
+  restarted.createBooking(body, signal(), ownerA(), undefined, false, onPrepared),
 ]);
 assert.ok(tabs.every(result => result.status === "rejected" && result.reason.kind === "unknown"));
 assert.equal(posts, 1, "only the reserving tab sends the first POST");
+assert.deepEqual(prepared, [{ key: firstKey, input: body }], "the other tab did not prepare a send for its form");
 const after404 = await api.readBookingCommand(ownerA(), body.ride_id);
 assert.equal(after404.key, firstKey);
 await assert.rejects(api.createBooking({ ...body, seats: 3 }, signal(), ownerA(), after404, true), problem("changed"));
@@ -107,11 +110,15 @@ for (const originalVersion of [0, undefined]) {
   const savedTerms = await restarted.readBookingCommand(ownerA(), body.ride_id);
   assert.equal(savedTerms.expectedTermsVersion, originalVersion ?? null);
   const refreshed = { ...body, expected_terms_version: 2 };
-  await assert.rejects(restarted.createBooking({ ...refreshed, seats: 3 }, signal(), ownerA(), savedTerms, true),
+  const snapshots = [];
+  const capture = (key, input) => snapshots.push({ key, input });
+  await assert.rejects(restarted.createBooking({ ...refreshed, seats: 3 }, signal(), ownerA(), savedTerms, true, capture),
     error => error.kind === "changed");
   assert.equal(requests.length, 1);
-  assert.equal((await restarted.createBooking(refreshed, signal(), ownerA(), savedTerms, true)).status, "cancelled");
+  assert.deepEqual(snapshots, []);
+  assert.equal((await restarted.createBooking(refreshed, signal(), ownerA(), savedTerms, true, capture)).status, "cancelled");
   assert.deepEqual(requests[0], requests[1]);
+  assert.deepEqual(snapshots, [{ key: savedTerms.key, input: { ...body, expected_terms_version: originalVersion } }]);
   assert.equal(refreshed.expected_terms_version, 2);
 }
 await restore();
