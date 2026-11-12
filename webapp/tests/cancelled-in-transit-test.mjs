@@ -415,7 +415,8 @@ async function dropRideText(lang, bookings) {
       "react-router-dom": `export const useNavigate=()=>p=>{};`,
       "/features": `export const useFeatures=()=>({rides:true,taxi:false,courier:false,parcels:false,ads:false,business:false,ready:true});`,
       "/i18n/lang": langMock(lang),
-      "/api/client": `export class ApiError extends Error{}`,
+      "/api/client": `export class ApiError extends Error{} export const getSessionGeneration=()=>"cabinet";`,
+      "/utils/useDriverBookingDecisions": `export const useDriverBookingDecisions=()=>({pending:[],busy:false,note:"",loadError:false});`,
       "/api/driver": `export const fetchDriverStatus=async()=>({online:false,docs_status:"verified",gender:""});
         export const fetchDriverRides=async()=>[${JSON.stringify(RIDE)}];export const fetchMySchedules=async()=>[];
         export const setDriverOnline=async()=>({});export const setDriverGender=async()=>({});export const setTipsSbp=async()=>({});

@@ -79,7 +79,8 @@ for (const taxi of [false, true]) {
 const DRIVER = {
   "react-router-dom": ROUTER,
   "/i18n/lang": langMock("ru"),
-  "/api/client": `export class ApiError extends Error{}`,
+  "/api/client": `export class ApiError extends Error{} export const getSessionGeneration=()=>"cabinet";`,
+      "/utils/useDriverBookingDecisions": `export const useDriverBookingDecisions=()=>({pending:[],busy:false,note:"",loadError:false});`,
   "/api/driver": `export const fetchDriverStatus=async()=>({online:false,docs_status:"verified",gender:""});
     export const fetchDriverRides=async()=>[];export const fetchMySchedules=async()=>[];
     export const setDriverOnline=async()=>({});export const setDriverGender=async()=>({});export const setTipsSbp=async()=>({});

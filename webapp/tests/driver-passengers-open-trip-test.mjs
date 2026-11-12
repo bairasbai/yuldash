@@ -196,7 +196,7 @@ const CABINET_DRIVER = `import { ApiError } from "../api/client";
     globalThis.__cabRides=globalThis.__cabRides.map(r=>r.id===id?{...r,status}:r);
     globalThis.__cabRows=globalThis.__cabRows.map(r=>r.ride_id!==id?r:{...r,status:status==="done"&&r.status==="pending"?"cancelled":status});return {};};
   export const cancelRide=async id=>change("drop",id,"cancelled");export const completeRide=async id=>change("finish",id,"done");`;
-const CABINET_CLIENT = `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`;
+const CABINET_CLIENT = `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}} export const getSessionGeneration=()=>"cabinet";`;
 const cabSettle = async h => { globalThis.__sh = h.state; await h.settle(); };
 const pendingCard = (tree, id) => all(tree).find(n => n.key === id && n.props.className === "act-card");
 const rideCard = (tree, id) => all(tree).find(n => n.key === id && n.props.className === "driver-ride");
@@ -212,7 +212,15 @@ async function openCabinet(lang, action = "confirm", secondPending = false, fixt
   globalThis.__cabReads = 0; globalThis.__cabWrites = []; globalThis.__cabFail = ""; globalThis.__cabRoutes = [];
   globalThis.__cabRideReads = 0; globalThis.__cabHoldRides = false; globalThis.__cabRidesFail = false; globalThis.__cabRideLoads = [];
   const mocks = { "/i18n/lang": langMock(lang), "/api/bookings": CABINET_BOOKINGS, "/api/client": CABINET_CLIENT };
-  const Cabinet = await bundleComponent("src/screens/DriverCabinetScreen.tsx", { real: ["/utils/format", "/utils/rideCancelWarning"], mocks: {
+  const Cabinet = await bundleComponent("src/screens/DriverCabinetScreen.tsx", { real: ["/utils/format", "/utils/rideCancelWarning", "/utils/useDriverBookingDecisions"], mocks: {
+    "/utils/bookingCommandStore": `export const bookingCommandOwner=(user,generation)=>({userId:user.id,generation});export const readDriverDecisions=async()=>[];export const isCurrentBookingOwner=()=>true;`,
+    "/api/driverBookingDecisions": `import { confirmBooking, cancelBooking } from "../api/bookings";
+      export class DriverDecisionProblem extends Error {}
+      export const checkDriverDecision=async()=>({state:"unseen"});export const repeatDriverDecision=checkDriverDecision;
+      export async function decideDriverBooking(owner,id,action) {
+        if(action==="confirm") await confirmBooking(id);else await cancelBooking(id);
+        return {state:"applied",booking:{id,status:action==="confirm"?"confirmed":"cancelled",declined:action==="decline"}};
+      }`,
     ...mocks, "/api/driver": CABINET_DRIVER,
     "react-router-dom": `export const useNavigate=()=>path=>globalThis.__cabRoutes.push(path);`,
     "/auth/AuthProvider": `export const useAuth=()=>({user:{id:1,rating:4.8}});`,

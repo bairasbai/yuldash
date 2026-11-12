@@ -177,10 +177,60 @@ export function releaseRidePublication(owner: BookingCommandOwner, command: Ride
   });
 }
 
+
+export type DriverDecisionAction = "confirm" | "decline";
+export interface DriverDecision extends CommandSlot {
+  bookingId: number;
+  action: DriverDecisionAction;
+  termsKey?: string;
+}
+
+function driverDecisionTransaction<T>(
+  owner: BookingCommandOwner, edit: (rows: DriverDecision[]) => Edit<T, DriverDecision>,
+  requireCurrent = true,
+): Promise<T> {
+  return transaction(owner, edit, requireCurrent, JSON.stringify(["booking.driver_decision", owner.namespace]));
+}
+
+export function readDriverDecisions(owner: BookingCommandOwner) {
+  return driverDecisionTransaction(owner, rows => ({ result: rows }));
+}
+
+export function reserveDriverDecision(
+  owner: BookingCommandOwner, bookingId: number, action: DriverDecisionAction, hash: string,
+  previousKey: string | undefined, termsKey?: string,
+): Promise<DriverDecision | undefined> {
+  return driverDecisionTransaction(owner, rows => {
+    const prior = rows.find(row => row.bookingId === bookingId);
+    if (prior?.state === "unknown" || prior?.key !== previousKey) return { result: undefined };
+    const updated = rows.filter(row => row !== prior);
+    if (updated.length >= MAX_SLOTS) {
+      const evict = updated.findIndex(row => row.state !== "unknown");
+      if (evict < 0) return { result: undefined };
+      updated.splice(evict, 1);
+    }
+    const decision: DriverDecision = {
+      key: COMMAND_KEY_PREFIX + crypto.randomUUID(), hash, createdAt: Date.now(), state: "unknown",
+      bookingId, action, ...(termsKey === undefined ? {} : { termsKey }),
+    };
+    return { result: decision, updated: [...updated, decision] };
+  });
+}
+
+export function resolveDriverDecision(owner: BookingCommandOwner, decision: DriverDecision, state: State) {
+  return driverDecisionTransaction(owner, rows => {
+    const current = rows.find(row => row.bookingId === decision.bookingId);
+    if (current?.key !== decision.key) return { result: false };
+    if (current.state !== "unknown" || state === "unknown") return { result: current.state === state };
+    return { result: true, updated: rows.map(row => row === current ? { ...row, state } : row) };
+  });
+}
+
 /** Call only after deleting the account and publishing the logged-out generation. */
 export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<void> {
   await Promise.all([
     transaction(owner, () => ({ result: undefined, updated: null }), false),
     publicationTransaction(owner, () => ({ result: undefined, updated: null }), false),
+    driverDecisionTransaction(owner, () => ({ result: undefined, updated: null }), false),
   ]);
 }

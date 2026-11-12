@@ -17,7 +17,11 @@ internal object BookingCommandApi {
 
     internal data class CommandOwner(val generation: Long, val base: String, val userId: Int, val account: String)
 
-    fun init(storage: SharedPreferences) { prefs = storage; RidePublicationApi.init(storage) }
+    fun init(storage: SharedPreferences) {
+        prefs = storage
+        RidePublicationApi.init(storage)
+        DriverBookingDecisionApi.init(storage)
+    }
 
     suspend fun book(rideId: Int, body: JSONObject, expectedGeneration: Long,
                      previousKey: String?, retry: Boolean): Result<BookingCreatedDto> {
@@ -130,7 +134,7 @@ internal object BookingCommandApi {
                         ?.let { return@withGeneration listOf(it.account) }
                     // Capture only keys present before DELETE. A later account may reuse the numeric ID.
                     val accountPrefix = CommandIntent.accountPrefix(base, id)
-                    val storagePrefixes = listOf(CommandIntent.prefKey(""), RidePublicationIntent.prefKey(""))
+                    val storagePrefixes = listOf(CommandIntent.prefKey(""), RidePublicationIntent.prefKey(""), DriverDecisionStore.prefKey(""))
                     runCatching {
                         prefs?.all?.keys.orEmpty().mapNotNull { key ->
                             storagePrefixes.firstOrNull { key.startsWith(it + accountPrefix) }?.let(key::removePrefix)
@@ -151,6 +155,7 @@ internal object BookingCommandApi {
         accounts.forEach {
             runCatching { store.purge(it) }
             RidePublicationApi.purge(it)
+            DriverBookingDecisionApi.purge(it)
         }
     }
 

@@ -304,7 +304,6 @@ class ApiClientEndpointContractTest {
         Ep("revokeInstantShare", "DELETE", "/instant/orders/1/share/1") { ApiClient.revokeInstantShare(orderId = 1, shareId = 1) },
         Ep("getDriverPublic", "GET", "/drivers/1/public") { ApiClient.getDriverPublic(driverId = 1) },
         Ep("markNoShow", "POST", "/bookings/1/no-show") { ApiClient.markNoShow(bookingId = 1) },
-        Ep("confirmBooking", "POST", "/bookings/1/confirm") { ApiClient.confirmBooking(bookingId = 1) },
         Ep("cancelRide", "POST", "/rides/1/cancel") { ApiClient.cancelRide(rideId = 1) },
         Ep("completeRide", "POST", "/rides/1/complete") { ApiClient.completeRide(rideId = 1) },
         Ep("editRide", "POST", "/rides/1/edit") { ApiClient.editRide(rideId = 1) },

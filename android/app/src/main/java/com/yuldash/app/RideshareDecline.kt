@@ -8,6 +8,7 @@ import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -29,14 +30,17 @@ internal fun DeclineBookingButton(
     passengerName: String,
     onDecline: () -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
 ) {
     var asking by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) asking = false }
     OutlinedButton(
         onClick = { asking = true },
+        enabled = enabled,
         modifier = modifier.heightIn(min = 48.dp),
         shape = CanonFieldShape,
     ) { Text(appText("Отклонить", "Кире ҡағыу"), color = CanonRed, fontWeight = FontWeight.Bold) }
-    if (!asking) return
+    if (!asking || !enabled) return
     val who = passengerName.ifBlank { appText("Пассажир", "Пассажир") }
     AlertDialog(
         onDismissRequest = { asking = false },

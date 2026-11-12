@@ -1028,9 +1028,10 @@ object ApiClient {
             frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting),
         expectedGeneration, previousKey, retry)
 
-    internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
+    internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null, blockDuringDeletion: Boolean = false): Result<JSONObject> =
         call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
-            singleAttemptMutation = true, wireBody = body, expectedBase = base)
+            singleAttemptMutation = true, wireBody = body, expectedBase = base,
+            admitWire = if (blockDuringDeletion) ({ BookingCommandApi.publicationAllowed(generation) }) else null)
 
     internal suspend fun ridePublicationRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
         call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
@@ -2341,10 +2342,6 @@ object ApiClient {
         OfflineTripSnapshotHooks.bookingTerminal(bookingId) { generation ->
             call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true, expectedGeneration = generation) }
             .onSuccess { Analytics.log("booking_no_show") }
-
-    /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
-    suspend fun confirmBooking(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/confirm", JSONObject(), auth = true).map { }
 
     // ---------- Boost (поднятие объявления, оплата) ----------
 

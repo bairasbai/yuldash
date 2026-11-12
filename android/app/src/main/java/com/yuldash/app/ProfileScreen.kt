@@ -1397,10 +1397,10 @@ internal fun DriverCabinetScreen(
     var ridesLoading by remember { mutableStateOf(true) }   // первая загрузка → скелетон вместо ложного «пусто»
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
-    val meetingSession = ApiClient.queueSessionGeneration()
+    val meetingSession by ApiClient.sessionChanges.collectAsState()
     val meetingAnswers = remember(meetingSession) { DriverMeetingAnswerState { meetingSession == ApiClient.queueSessionGeneration() } }
     val meetingAnswerFailed = appText("Не получилось отправить ответ. Повтори попытку.", "Яуапты ебәреп булманы. Ҡабатлап ҡара.")
-    var driverBookings by remember { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
+    var driverBookings by remember(meetingSession) { mutableStateOf<List<com.yuldash.app.data.DriverBookingDto>>(emptyList()) }
     var driverRating by remember { mutableStateOf<Double?>(null) }
     var online by remember { mutableStateOf(false) }
     var onlineLoaded by remember { mutableStateOf(false) }   // статус пришёл с сервера → можно синкать фоновый сервис
@@ -1455,19 +1455,20 @@ internal fun DriverCabinetScreen(
     // забирает и женские поездки у неё же как у пассажирки. Молча так делать нельзя — спрашиваем.
     var confirmWomanOff by remember { mutableStateOf(false) }
     var bookingsReload by remember { mutableStateOf(0) }   // F2: bump после подтверждения/отклонения брони
+    val bookingDecision = rememberDriverDecisionRecovery(meetingSession) { bookingsReload++ }
     var ridesReload by remember { mutableStateOf(0) }   // F1: bump после отмены/завершения → список свежий
     // Обновление жестом. Кабинет — рабочее место водителя: тут ждут новую бронь, снятие долга,
     // ответ по заявке. Всё это меняет ДРУГАЯ сторона, а экран грузился один раз за вход —
     // единственным способом увидеть свежее было выйти и зайти обратно.
     var refreshing by remember { mutableStateOf(false) }
-    LaunchedEffect(bookingsReload, ridesReload) {
+    LaunchedEffect(bookingsReload, ridesReload, meetingSession) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides()
             .onSuccess { driverRides = it.map { dto -> dto.toUiRide() }; ridesError = false }
             // 401 (не вошёл) → это не сеть, показываем обычное «пусто». Иначе — ошибка сети + «Повторить».
             .onFailure { e -> ridesError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
         ridesLoading = false
-        ApiClient.getDriverBookings().onSuccess { driverBookings = it }
+        ApiClient.getDriverBookings(expectedGeneration = meetingSession).onSuccess { driverBookings = it }
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess {
             online = it.online; onlineLoaded = true
@@ -1501,11 +1502,7 @@ internal fun DriverCabinetScreen(
     val debtPaidErrMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
     val thanksMsg = appText("Спасибо за оценку", "Баһа өсөн рәхмәт")
     val rateFailMsg = appText("Не получилось оценить", "Баһалап булманы")
-    val bookingConfirmedMsg = appText("Бронь подтверждена — пассажиру открыты телефон и точка сбора", "Бронь раҫланды — пассажирға телефон һәм йыйылыу урыны асылды")
-    val bookingRejectedMsg = appText("Бронь отклонена", "Бронь кире ҡағылды")
     // Экран отстал: бронь уже завершена или снята. Врать «отклонена» нельзя.
-    val bookingTooLateMsg = appText("Бронь уже закрыта — отклонять нечего", "Бронь ябылған инде — кире ҡағырға бер нәмә юҡ")
-    val bookingActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
     val rideCancelledMsg = appText("Поездка снята. Пассажиры уведомлены.", "Сәфәр алынды. Пассажирҙар хәбәрҙар ителде.")
     val rideDoneMsg = appText("Рейс завершён. Хорошей дороги домой!", "Рейс тамамланды. Юлың уң булһын!")
     val rideActionFailMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Сетте тикшереп ҡабатла.")
@@ -1715,28 +1712,10 @@ internal fun DriverCabinetScreen(
             archiveLoading = archiveLoading,
             archiveError = archiveError,
             onRetryArchive = { loadArchive() },
-            // F2: подтвердить/отклонить бронь — ждём сервер, потом обновляем списки.
-            onConfirmBooking = { bookingId ->
-                rateScope.launch {
-                    ApiClient.confirmBooking(bookingId)
-                        .onSuccess { Toast.makeText(ctx, bookingConfirmedMsg, Toast.LENGTH_LONG).show(); bookingsReload++ }
-                        .onFailure { Toast.makeText(ctx, serverSaid(it, bookingActionFailMsg), Toast.LENGTH_LONG).show() }
-                }
-            },
-            onRejectBooking = { bookingId ->
-                rateScope.launch {
-                    ApiClient.cancelBooking(bookingId)
-                        // Сервер отказался снимать уже завершённую бронь (вернул её как есть) —
-                        // говорим об этом честно, а не «отклонено». Список всё равно перечитываем:
-                        // экран отстал от сервера, и это как раз повод освежить.
-                        .onSuccess {
-                            val msg = if (it.cancelled) bookingRejectedMsg else bookingTooLateMsg
-                            Toast.makeText(ctx, msg, Toast.LENGTH_SHORT).show()
-                            bookingsReload++
-                        }
-                        .onFailure { Toast.makeText(ctx, serverSaid(it, bookingActionFailMsg), Toast.LENGTH_LONG).show() }
-                }
-            },
+            onConfirmBooking = bookingDecision.confirm,
+            onRejectBooking = bookingDecision.decline,
+            bookingDecisionBlocked = bookingDecision.blocked,
+            bookingDecisionRecovery = bookingDecision.recovery,
             // F1: отмена/завершение рейса — ждём сервер, потом обновляем список (bump ridesReload).
             onCancelRide = { rideId ->
                 rateScope.launch {
@@ -2909,6 +2888,8 @@ internal fun DriverCabinetContent(
     onRetryArchive: () -> Unit = {},
     onConfirmBooking: (Int) -> Unit = {},   // F2: подтвердить бронь (id) — пассажиру откроются телефон/точка
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
+    bookingDecisionBlocked: (Int) -> Boolean = { false },
+    bookingDecisionRecovery: (@Composable () -> Unit)? = null,
     // RS-03 Б: ответ водителя на предложение места (bookingId, proposalId, версия, принять?).
     onAnswerMeeting: (Int, String, Int, Boolean) -> Unit = { _, _, _, _ -> },
     meetingAnswers: DriverMeetingAnswerState? = null,
@@ -3207,6 +3188,7 @@ internal fun DriverCabinetContent(
         }
         // F2: брони, ждущие подтверждения водителя. Пока не подтвердишь — пассажир не видит
         // твой телефон и точку сбора, а live-гео не подключится. Главная кнопка кабинета.
+        bookingDecisionRecovery?.let { recovery -> item(key = "booking-decision-recovery") { recovery() } }
         val pendingBookings = driverBookings.filter { it.status == "pending" }
         if (pendingBookings.isNotEmpty()) {
             item {
@@ -3251,11 +3233,12 @@ internal fun DriverCabinetContent(
                         Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                             Button(
                                 onClick = { onConfirmBooking(b.bookingId) },
+                                enabled = !bookingDecisionBlocked(b.bookingId),
                                 modifier = Modifier.weight(1f).heightIn(min = 48.dp),   // как «Отклонить» рядом — пара одной высоты
                                 shape = RoundedCornerShape(14.dp),
                                 colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2)
                             ) { Text(appText("Подтвердить", "Раҫлау"), fontWeight = FontWeight.Bold) }
-                            DeclineBookingButton(b.passengerName, { onRejectBooking(b.bookingId) }, Modifier.weight(1f))   // сперва «Отклонить бронь?»
+                            DeclineBookingButton(b.passengerName, { onRejectBooking(b.bookingId) }, Modifier.weight(1f), enabled = !bookingDecisionBlocked(b.bookingId))   // сперва «Отклонить бронь?»
                         }
                     }
                 }
