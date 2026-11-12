@@ -175,8 +175,11 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # --- ОСТАЛЬНЫЕ таблицы со ссылкой на пользователя (аудит 2026-08-08) ---
         # Раньше их тут не было, и проверка «не осталось следов» по ним ничего не значила.
         # Список держит самопроверка ниже: забудешь новую таблицу — тест покраснеет.
+        login_id = f"{uid:064x}"
+        s.add(M.AuthSession(id=login_id, user_id=uid, logout_hashes=["a" * 64]))
+        s.flush()
         s.add(M.RefreshToken(user_id=uid, token_hash="hash-of-refresh",
-                             expires_at=utcnow() + timedelta(days=30)))
+                             auth_session_id=login_id, expires_at=utcnow() + timedelta(days=30)))
         s.add(M.CommandReceipt(user_id=uid, request_key="account-delete-fixture",
                                scope="ride.create", payload_hash="0" * 64,
                                state="closed_no_effect", result_code="idempotency_closed_no_effect"))
@@ -184,6 +187,7 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # Подписка браузера на уведомления — то же, что FCM-токен, но для веб-версии.
         s.add(M.WebPushSubscription(
             user_id=uid, endpoint=f"https://push.example/{uid}", p256dh="k", auth="a",
+            auth_session_id=login_id, binding_id="a" * 32,
         ))
         s.add(M.DriverProfile(user_id=uid, car_make="Lada", car_number="А001АА102"))
         s.add(M.SavedPlace(user_id=uid, label="Дом", address="Уфа, Ленина 1"))

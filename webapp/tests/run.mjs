@@ -31,6 +31,7 @@ const ALL_SUITES = [
   { test: "ride-rating-count-test", src: null, out: null, bundle: false },
   { test: "multiseat-booking-test", src: null, out: null, bundle: false },
   { test: "session-record-test", src: null, out: null, bundle: false },
+  { test: "scoped-logout-test", src: null, out: null, bundle: false },
   { test: "storage-boundary-test", src: null, out: null, bundle: false },
   { test: "theme-durability-test", src: null, out: null, bundle: false },
   { test: "trip-pass-durability-test", src: null, out: null, bundle: false },

@@ -1,5 +1,5 @@
 import {
-  initializeSessionRecord, readSessionRecord, replaceSessionRecord,
+  initializeSessionRecord, notifyPushScopeChanged, readSessionRecord, replaceSessionRecord,
   type SessionCredentials, type SessionRecord,
 } from "./sessionRecord";
 import { publishTripPassChange } from "./tripPassStore";
@@ -123,7 +123,10 @@ export async function persistSession(
     const confirmed = accept(result.current, !result.applied);
     if (result.applied) {
       notifyOtherTabs(result.current.revision);
-      if (generation !== result.current.generation) publishTripPassChange();
+      if (generation !== result.current.generation) {
+        publishTripPassChange();
+        notifyPushScopeChanged();
+      }
     }
     return { applied: result.applied && confirmed.revision === result.current.revision, current: confirmed };
   } catch (error) {
@@ -134,7 +137,9 @@ export async function persistSession(
 
 export async function sessionForRecovery(): Promise<SessionRecord> {
   const legacy = canImportLegacyDuringRecovery() ? readLegacy : () => undefined;
+  const previous = current?.generation;
   current = await initializeSessionRecord(newSessionGeneration(), legacy, true);
+  if (previous !== current.generation) notifyPushScopeChanged();
   discardLegacy();
   return current;
 }

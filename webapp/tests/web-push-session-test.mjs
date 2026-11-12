@@ -2,10 +2,12 @@ import { IDBFactory } from 'fake-indexeddb';
 // Actual Web Push orchestration and HTTP client, with browser/network boundaries controlled.
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
+import { readFileSync } from 'node:fs';
+import { runInNewContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const bundle = await build({
-  stdin: { contents: "export * from './src/api/client'; export * from './src/push/webPush';",
+  stdin: { contents: "export * from './src/api/client'; export * from './src/push/webPush'; export * from './src/utils/sessionRecord';",
     resolveDir: fileURLToPath(new URL('../', import.meta.url)), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   define: { 'import.meta.env': '{"VITE_VAPID_PUBLIC_KEY":"AQID"}' },
@@ -21,7 +23,10 @@ async function environment() {
   const env = { calls: [], browserUnsubscribes: 0 };
   const sub = { endpoint: 'https://push.invalid/local-only', toJSON: () => ({ keys: { p256dh: 'synthetic', auth: 'synthetic' } }),
     unsubscribe: async () => { env.browserUnsubscribes++; return true; } };
-  const registration = { pushManager: { getSubscription: async () => sub, subscribe: async () => sub } };
+  const registration = {
+    active: { postMessage: (message, ports) => { if (message.type === "supports-session-push") ports[0].postMessage(true); } },
+    pushManager: { getSubscription: async () => sub, subscribe: async () => sub },
+  };
   globalThis.Notification = { permission: 'granted', requestPermission: async () => 'granted' };
   globalThis.PushManager = { supportedContentEncodings: ['aes128gcm'] };
   const nav = { userAgent: 'local-test', platform: 'test', maxTouchPoints: 0,
@@ -192,6 +197,167 @@ await check('rejected old network request preserves the new enabled flag', async
   pending.reject(new Error('Old network request rejected'));
   assert.equal(await enablingA, 'error');
   assert.equal(env.api.isWebPushEnabled(), true);
+});
+
+const scopedAccess = sid => "fixture." + Buffer.from(JSON.stringify({ sub: "42", sid })).toString("base64url") + ".fixture";
+const idA = "a".repeat(64), idB = "b".repeat(64);
+const bindA = "1".repeat(32), bindB = "2".repeat(32);
+const bindingReply = id => Response.json({ ok: true, binding_id: id });
+
+function worker(locks = { request: async (_name, fn) => fn() }) {
+  const handlers = new Map(), notifications = [], targets = [];
+  const self = {
+    navigator: { locks },
+    location: { origin: "https://pwa.invalid" },
+    addEventListener: (type, fn) => handlers.set(type, fn),
+    registration: {
+      async showNotification(title, options) {
+        notifications.push({ title, ...options, closed: false, close() { this.closed = true; } });
+      },
+      async getNotifications(options) {
+        return notifications.filter(n => !n.closed && (!options || options.tag === n.tag));
+      },
+    },
+    clients: { matchAll: async () => [], openWindow: async url => { targets.push(url); } },
+  };
+  runInNewContext(readFileSync(new URL("../public/push-sw.js", import.meta.url), "utf8"), {
+    self, indexedDB, URL, atob,
+  });
+  return {
+    notifications, targets,
+    async dispatch(type, detail = {}) {
+      let done;
+      handlers.get(type)({ ...detail, waitUntil: promise => { done = promise; } });
+      await done;
+    },
+  };
+}
+
+await check("current signed-in browser displays its notification and opens only its own URL", async env => {
+  const sw = worker();
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  const saved = await env.api.readWebPushBinding();
+  assert.equal(saved.sessionId, idA);
+  assert.equal(saved.bindingId, bindA);
+  assert.equal(JSON.parse(env.calls[0].body).session_bound, true);
+  for (const target of ["/rides/17", "https://outside.invalid/rides/17", "//outside.invalid/rides/17"]) {
+    await sw.dispatch("push", { data: { json: () => ({
+      title: "Booking", body: "Details", url: target, tag: "trip", session_id: idA, binding_id: bindA,
+    }) } });
+    const shown = sw.notifications.at(-1);
+    assert.equal(shown.body, "Details");
+    await sw.dispatch("notificationclick", { notification: shown });
+  }
+  assert.deepEqual(sw.targets, ["https://pwa.invalid/rides/17", "/", "/"]);
+});
+
+await check("after account replacement, queued and already shown old pushes hide trip details", async env => {
+  const sw = worker();
+  const dataA = { data: { json: () => ({
+    title: "Account A", body: "Old trip", url: "/rides/17", session_id: idA, binding_id: bindA,
+  }) } };
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  await sw.dispatch("push", dataA);
+  const old = sw.notifications[0];
+  assert.equal(old.body, "Old trip");
+  await env.api.setSession(null, null);
+  await env.api.setSession(scopedAccess(idB), "refresh-B");
+  await sw.dispatch("message", { data: { type: "auth-scope-changed" } });
+  assert.equal(old.closed, true);
+  await sw.dispatch("notificationclick", { notification: old });
+  assert.equal(sw.targets.at(-1), "/");
+  await sw.dispatch("push", dataA);
+  assert.equal(sw.notifications.at(-1).body, undefined);
+  assert.equal(sw.notifications.at(-1).data.url, "/");
+  assert.equal(sw.notifications.at(-1).data.binding_id, undefined);
+
+  env.reply = async () => bindingReply(bindB);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  assert.equal(JSON.parse(env.calls.at(-1).body).expected_binding_id, bindA);
+  await sw.dispatch("push", { data: { json: () => ({
+    title: "Account B", body: "New trip", url: "/rides/29", session_id: idB, binding_id: bindB,
+  }) } });
+  assert.equal(sw.notifications.at(-1).body, "New trip");
+  await sw.dispatch("push", dataA);
+  assert.equal(sw.notifications.at(-1).body, undefined);
+});
+
+await check("completed old logout can remove a binding before the browser reuses its endpoint", async env => {
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  await env.api.setSession(null, null);
+  await env.api.setSession(scopedAccess(idB), "refresh-B");
+  env.reply = async call => JSON.parse(call.body).expected_binding_id
+    ? new Response("old binding removed", { status: 409 })
+    : bindingReply(bindB);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  assert.deepEqual(env.calls.slice(-2).map(call => JSON.parse(call.body).expected_binding_id), [bindA, undefined]);
+  await env.api.disableWebPush();
+  assert.equal(JSON.parse(env.calls.at(-1).body).expected_binding_id, bindB);
+  assert.equal(await env.api.readWebPushBinding(), undefined);
+  assert.equal(env.browserUnsubscribes, 1);
+});
+
+await check("notification click waits for a pending logout under the same browser lock", async env => {
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  const signOut = deferred();
+  const lockEntered = deferred();
+  const sw = worker({ request: async (name, run) => {
+    assert.equal(name, "yuldash-session-write");
+    lockEntered.resolve();
+    await signOut.promise;
+    return run();
+  } });
+  const notification = { data: { session_id: idA, binding_id: bindA, url: "/rides/17" }, close() {} };
+  const clicked = sw.dispatch("notificationclick", { notification });
+  await lockEntered.promise;
+  assert.deepEqual(sw.targets, []);
+  await env.api.setSession(null, null);
+  signOut.resolve();
+  await clicked;
+  assert.deepEqual(sw.targets, ["/"]);
+});
+
+await check("old active worker cannot register a scoped subscription", async env => {
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.registration.active = null;
+  assert.equal(await env.api.enableWebPush(), "error");
+  assert.equal(env.api.isWebPushEnabled(), false);
+  assert.deepEqual(env.calls, []);
+});
+
+await check("worker without browser locks shows only the app name and opens its start page", async env => {
+  const sw = worker(null);
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  await sw.dispatch("push", { data: { json: () => ({
+    body: "Private", url: "/rides/17", session_id: idA, binding_id: bindA,
+  }) } });
+  assert.equal(sw.notifications.at(-1).body, undefined);
+  await sw.dispatch("notificationclick", { notification: {
+    data: { session_id: idA, binding_id: bindA, url: "/rides/17" }, close() {},
+  } });
+  assert.deepEqual(sw.targets, ["/"]);
+});
+
+await check("notification with missing storage or old payload exposes no private body", async env => {
+  const sw = worker();
+  await sw.dispatch("push", { data: { json: () => ({ title: "Private", body: "Private", url: "/rides/5" }) } });
+  assert.equal(sw.notifications.at(-1).body, undefined);
+  assert.equal(sw.notifications.at(-1).data.url, "/");
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok", "worker must not create an empty database before the app");
+  await sw.dispatch("push", { data: { json: () => { throw Error("invalid JSON"); } } });
+  assert.equal(sw.notifications.at(-1).body, undefined);
 });
 
 console.log(`Web Push session cases: ${serial - failed} passed, ${failed} failed`);

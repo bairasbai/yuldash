@@ -48,9 +48,19 @@ export function serializeSubscription(sub: PushSubscription): WebPushSubscriptio
  * Отправить подписку на сервер. Требует авторизации (Bearer) — подписка
  * привязывается к аккаунту. 404/405 → PushBackendMissing (мягко).
  */
-export async function sendWebPushSubscription(sub: PushSubscription): Promise<void> {
+export async function sendWebPushSubscription(
+  sub: PushSubscription, scope?: { expectedBindingId?: string },
+): Promise<string | undefined> {
   try {
-    await apiPost<{ ok: boolean }>("/push/web/subscribe", serializeSubscription(sub));
+    const response = await apiPost<{ ok: boolean; binding_id?: string }>("/push/web/subscribe", {
+      ...serializeSubscription(sub),
+      ...(scope ? { session_bound: true, expected_binding_id: scope.expectedBindingId } : {}),
+    });
+    const bindingId = response?.binding_id;
+    if (scope && (typeof bindingId !== "string" || !/^[0-9a-f]{32}$/.test(bindingId))) {
+      throw new PushBackendMissing();
+    }
+    return bindingId;
   } catch (e) {
     if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
       throw new PushBackendMissing();
@@ -77,8 +87,9 @@ export function unregisterPush(token: string): Promise<{ ok: boolean }> {
  *
  * Идемпотентно, ошибки глотаем: выход из аккаунта не должен падать из-за пуша.
  */
-export function unsubscribeWebPush(endpoint: string): Promise<{ ok: boolean }> {
-  return apiPost<{ ok: boolean }>("/push/web/unsubscribe", { endpoint }).catch(() => ({
-    ok: false,
-  }));
+export function unsubscribeWebPush(endpoint: string, bindingId?: string): Promise<{ ok: boolean }> {
+  return apiPost<{ ok: boolean }>("/push/web/unsubscribe", {
+    endpoint,
+    ...(bindingId ? { session_bound: true, expected_binding_id: bindingId } : {}),
+  }).catch(() => ({ ok: false }));
 }

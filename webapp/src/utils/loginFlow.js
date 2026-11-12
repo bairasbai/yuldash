@@ -58,7 +58,7 @@ export function createLoginFlow(deps) {
   const saveAndContinue = async (op, pair, method, name = "") => {
     if (!current(op)) return;
     try {
-      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user, op.generation);
+      const publication = deps.login(pair.access_token, pair.refresh_token, pair.user, op.generation, pair.logout_token);
       const syncGeneration = publication && typeof publication.then === "function" ? null : generation();
       const committed = await publication;
       const publishedGeneration = typeof committed === "string" ? committed : syncGeneration;

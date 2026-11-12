@@ -45,7 +45,7 @@ from .models import (
     DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
-    Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
+    AuthSession, Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
     RideStatus,
     RouteWatch, SafetyProfile, SavedPlace, SosEvent, SupportMessage, SupportTicket,
     CarPhotoCheck, PreTripCheck, TaxiApplication, TaxiWorkDay, TextFlag, TgAuth, Trust, TripShare, TrustedContact,
@@ -769,6 +769,7 @@ def delete_user_account(session: Session, user: User) -> None:
     # Без этой строки человек удалял аккаунт, а пуши на его телефон продолжали приходить.
     session.execute(delete(WebPushSubscription).where(WebPushSubscription.user_id == uid))
     session.execute(delete(RefreshToken).where(RefreshToken.user_id == uid))
+    session.execute(delete(AuthSession).where(AuthSession.user_id == uid))
     if phone:
         session.execute(delete(OtpCode).where(OtpCode.phone == phone))
         session.execute(delete(WaitlistEntry).where(WaitlistEntry.phone == phone))

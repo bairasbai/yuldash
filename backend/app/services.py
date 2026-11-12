@@ -18,7 +18,7 @@ import threading
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import case, delete
+from sqlalchemy import case, delete, or_
 from sqlmodel import Session, select
 
 from .config import settings
@@ -30,8 +30,8 @@ from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
 from .models import (
-    Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
-    Notification, PickupPoint, Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
+    AuthSession, Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
+    Notification, PickupPoint, Rating, RefreshToken, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
     User, UserRole, WebPushSubscription,
 )
 from .schemas import RideOut
@@ -578,26 +578,35 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         log.warning(f"[WEBPUSH] библиотека недоступна: {e}")
         return
 
-    subs = session.exec(
-        select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
-    ).all()
+    now = utcnow()
+    live_refresh = select(RefreshToken.id).where(
+        RefreshToken.auth_session_id == AuthSession.id, RefreshToken.revoked.is_(False), RefreshToken.expires_at > now,
+    ).exists()
+    active_logins = select(AuthSession.id).where(
+        AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None),
+        or_(AuthSession.access_expires_at > now, live_refresh),
+    )
+    subs = session.exec(select(WebPushSubscription).where(
+        WebPushSubscription.user_id == user_id,
+        or_(WebPushSubscription.auth_session_id.is_(None), WebPushSubscription.auth_session_id.in_(active_logins)),
+    )).all()
     if not subs:
         return
 
     tag_parts = [str((data or {}).get("type") or (data or {}).get("ref_kind") or ""),
                  str((data or {}).get("id") or (data or {}).get("ref_id") or "")]
     tag = "-".join([x for x in tag_parts if x])
-    payload = json.dumps({
-        "title": title,
-        "body": body,
-        # Тег склеивает повторы об одном событии в одно уведомление: пять сообщений
-        # в чате не должны превращаться в пять плашек на экране.
-        "tag": tag or None,
-        "url": _web_push_url(data),
-    }, ensure_ascii=False)
-
-    dead: list[str] = []
+    message = {"title": title, "body": body, "tag": tag or None, "url": _web_push_url(data)}
+    dead = []
     for s in subs:
+        if s.auth_session_id and not s.binding_id:
+            continue
+        # A worker from before scoped push may still be active during a PWA update.
+        if s.auth_session_id:
+            content = {**message, "session_id": s.auth_session_id, "binding_id": s.binding_id}
+        else:
+            content = {"title": "Юлдаш", "tag": "yuldash", "url": "/"}
+        payload = json.dumps(content, ensure_ascii=False)
         try:
             webpush(
                 subscription_info={
@@ -613,7 +622,7 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         except WebPushException as e:  # noqa: PERF203
             code = getattr(getattr(e, "response", None), "status_code", 0)
             if code in (404, 410):
-                dead.append(s.endpoint)
+                dead.append((s.id, s.endpoint, s.binding_id))
             else:
                 # Адрес пуш-сервиса в лог НЕ пишем: по нему можно слать уведомления человеку.
                 log.warning(f"[WEBPUSH] отправка не прошла, код {code}")
@@ -624,7 +633,11 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         # В ОТДЕЛЬНОЙ сессии — по той же причине, что и у FCM: commit в переданную session
         # сбросил бы ORM-объекты вызывающего.
         with Session(engine) as s2:
-            s2.execute(delete(WebPushSubscription).where(WebPushSubscription.endpoint.in_(dead)))
+            for row_id, endpoint, binding_id in dead:
+                s2.execute(delete(WebPushSubscription).where(
+                    WebPushSubscription.id == row_id, WebPushSubscription.endpoint == endpoint,
+                    WebPushSubscription.binding_id == binding_id,
+                ))
             s2.commit()
 
 

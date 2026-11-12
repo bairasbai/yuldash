@@ -7,6 +7,7 @@ import hashlib
 import uuid
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Query, Request
+from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel, Field
 from sqlalchemy import delete, func, or_, text, update
 from sqlalchemy.exc import IntegrityError
@@ -29,8 +30,8 @@ from ..models import (
     WebPushSubscription,
 )
 from ..security import (
-    current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
-    revoke_all_refresh, rotate_refresh, lock_refresh_user,
+    bearer, current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
+    revoke_all_refresh, revoke_auth_session, rotate_refresh, lock_refresh_user, lock_authenticated_user,
 )
 from ..services import (
     find_user_by_phone, guard_own_media_url, send_sms, set_driver_docs_verdict,
@@ -1375,19 +1376,29 @@ def update_me(body: MeUpdateIn, user: User = Depends(current_user), session: Ses
 
 
 @router.post("/me/delete")
-def delete_me(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def delete_me(cred: HTTPAuthorizationCredentials = Depends(bearer), session: Session = Depends(get_session)):
     """Необратимое удаление аккаунта и ВСЕХ персональных данных пользователя (152-ФЗ,
     право на удаление). Каскад по всем таблицам — в app/account.py. После — токен 401.
 
     Сначала — честные гейты (409 с объяснением): нельзя уйти с неоплаченной комиссией,
     посреди поездки или с чужой посылкой в руках (см. guard_can_delete)."""
+    user, _ = lock_authenticated_user(cred, session)
     guard_can_delete(session, user)
     delete_user_account(session, user)
     return {"ok": True}
 
 
+@router.post("/auth/logout/session")
+def logout_session(cred: HTTPAuthorizationCredentials = Depends(bearer),
+                   session: Session = Depends(get_session)):
+    """Закрывает один вход по отдельному ключу отзыва, включая отложенный выход."""
+    if not revoke_auth_session(session, cred.credentials):
+        raise herr(401, "Сессия недоступна.", "Сеансҡа инеп булмай.", code="auth_session_unavailable")
+    return {"ok": True}
+
+
 @router.post("/auth/logout")
-def logout(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def logout(cred: HTTPAuthorizationCredentials = Depends(bearer), session: Session = Depends(get_session)):
     """Выход со всех устройств: гасим access, все refresh-токены И приём уведомлений.
 
     Про уведомления (аудит 2026-08-08, волна 147). Раньше выход гасил ключи входа, но запись
@@ -1399,18 +1410,12 @@ def logout(user: User = Depends(current_user), session: Session = Depends(get_se
     трубку отцовской и слал его уведомления на экран, который теперь смотрит сын. А кнопка
     называется «Выйти со всех устройств» — значит должна выходить и здесь.
     """
-    user = lock_refresh_user(session, user.id)
-    if user is None:
-        raise HTTPException(401, "Unauthorized")
+    user, _ = lock_authenticated_user(cred, session)
     user.tokens_valid_from = utcnow()
     session.add(user)
     revoke_all_refresh(session, user.id, commit=False)
-    for строка in session.exec(select(DeviceToken).where(DeviceToken.user_id == user.id)).all():
-        session.delete(строка)
-    for строка in session.exec(
-        select(WebPushSubscription).where(WebPushSubscription.user_id == user.id)
-    ).all():
-        session.delete(строка)
+    session.execute(delete(DeviceToken).where(DeviceToken.user_id == user.id))
+    session.execute(delete(WebPushSubscription).where(WebPushSubscription.user_id == user.id))
     session.commit()
     return {"ok": True}
 
@@ -1489,95 +1494,82 @@ class WebPushSubIn(BaseModel):
     keys: WebPushKeysIn = Field(default_factory=WebPushKeysIn)
     # aes128gcm у современных браузеров, aesgcm у старых. Пусто → современный.
     content_encoding: str = Field("aes128gcm", max_length=20)
+    session_bound: bool = False
+    expected_binding_id: Optional[str] = Field(default=None, max_length=32, pattern=r"^[0-9a-f]{32}$")
+
+
+def _push_binding_changed():
+    return herr(409, "Не получилось подключить уведомления. Попробуй позже.",
+                "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.", code="web_push_binding_changed")
 
 
 @router.post("/push/web/subscribe")
-def push_web_subscribe(body: WebPushSubIn, user: User = Depends(current_user),
+def push_web_subscribe(body: WebPushSubIn, cred: HTTPAuthorizationCredentials = Depends(bearer),
                        session: Session = Depends(get_session),
                        x_device_id: str = Header(default="", alias="X-Device-Id")):
-    """Подписка браузера на уведомления.
-
-    Зачем отдельно от `/push/register`. Тот принимает FCM-токен приложения — одну строку,
-    которой достаточно для отправки. Браузер устроен иначе: сообщение шифруется ключами
-    самой подписки, и хранить их надо рядом с адресом.
-
-    Пара к `/push/unregister`: там отвязка FCM-токена, здесь — подписки браузера.
-
-    Перепривязка к текущему человеку разрешена и нужна: на общем телефоне отец вышел,
-    зашёл сын — уведомления должны идти тому, кто сейчас в аккаунте. Подменить чужую
-    подписку «зная строку» тут нельзя так же, как и у FCM: браузер выдаёт endpoint только
-    своему сайту и своему устройству, а перед перепривязкой мы всё равно требуем вход.
-
-    Идемпотентно: повторная подписка тем же браузером обновляет запись, а не плодит новую.
-    """
-    endpoint = (body.endpoint or "").strip()
-    p256dh = (body.keys.p256dh or "").strip()
-    auth_key = (body.keys.auth or "").strip()
-    # Без ключей подписка бесполезна: зашифровать сообщение нечем, и каждая отправка
-    # по ней будет молча падать. Честнее отказать сразу.
-    if not endpoint or not p256dh or not auth_key:
+    endpoint, p256dh, auth_key = body.endpoint.strip(), body.keys.p256dh.strip(), body.keys.auth.strip()
+    if not endpoint.startswith("https://") or not p256dh or not auth_key:
         raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
                    "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
-    # Адрес пуш-сервиса — это всегда https. Всё остальное принимать незачем: своим
-    # запросом человек ничего не добьётся, а нам чинить потом «почему не приходит».
-    if not endpoint.startswith("https://"):
-        raise herr(400, "Не получилось подключить уведомления. Попробуй позже.",
-                   "Хәбәрҙәрҙе тоташтырып булманы. Һуңыраҡ ҡабатла.")
-
     did = normalize_device_id(x_device_id)
-    enc = (body.content_encoding or "aes128gcm").strip() or "aes128gcm"
-    row = session.exec(
-        select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
-    ).first()
-    if row:
-        row.user_id = user.id
-        row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
+    encoding = body.content_encoding.strip() or "aes128gcm"
+    for _ in range(2):
+        user, sid = lock_authenticated_user(cred, session)
+        if body.session_bound and sid is None:
+            raise _push_binding_changed()
+        target = sid if body.session_bound else None
+        row = session.exec(select(WebPushSubscription).where(
+            WebPushSubscription.endpoint == endpoint,
+        ).with_for_update().execution_options(populate_existing=True)).first()
+        if row is None:
+            if body.expected_binding_id is not None:
+                raise _push_binding_changed()
+            row = WebPushSubscription(user_id=user.id, endpoint=endpoint)
+        else:
+            same_keys = hmac.compare_digest(row.auth.encode(), auth_key.encode()) and row.p256dh == p256dh
+            same_owner = row.user_id == user.id and row.auth_session_id == target
+            if body.expected_binding_id is not None and body.expected_binding_id != row.binding_id:
+                raise _push_binding_changed()
+            if row.auth_session_id is not None and (not target or not same_owner and not body.expected_binding_id):
+                raise _push_binding_changed()
+            if target and not same_keys:
+                raise _push_binding_changed()
+            if same_owner and same_keys and row.content_encoding == encoding and (not did or row.device_id == did):
+                if row.binding_id is not None:
+                    return {"ok": True, "binding_id": row.binding_id} if target else {"ok": True}
+        row.user_id, row.auth_session_id = user.id, target
+        row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, encoding
+        row.binding_id = uuid.uuid4().hex
         if did:
             row.device_id = did
+        binding_id = row.binding_id
         session.add(row)
-        session.commit()
-        return {"ok": True}
-    try:
-        session.add(WebPushSubscription(
-            user_id=user.id, endpoint=endpoint, p256dh=p256dh, auth=auth_key,
-            content_encoding=enc, device_id=did,
-        ))
-        session.commit()
-    except IntegrityError:
-        # Тот же браузер успел подписаться параллельно (две вкладки) — перепривязываем.
-        session.rollback()
-        row = session.exec(
-            select(WebPushSubscription).where(WebPushSubscription.endpoint == endpoint)
-        ).first()
-        if row:
-            row.user_id = user.id
-            row.p256dh, row.auth, row.content_encoding = p256dh, auth_key, enc
-            if did:
-                row.device_id = did
-            session.add(row)
+        try:
             session.commit()
-    return {"ok": True}
+            return {"ok": True, "binding_id": binding_id} if target else {"ok": True}
+        except IntegrityError:
+            # Another browser request won the unique endpoint insert. Recheck both owners.
+            session.rollback()
+    raise _push_binding_changed()
 
 
 @router.post("/push/web/unsubscribe")
-def push_web_unsubscribe(body: WebPushSubIn, user: User = Depends(current_user),
+def push_web_unsubscribe(body: WebPushSubIn, cred: HTTPAuthorizationCredentials = Depends(bearer),
                          session: Session = Depends(get_session)):
-    """Отписка браузера при выходе из аккаунта.
-
-    Та же приватность, что у FCM-токена: на общем телефоне следующий вошедший не должен
-    получать чужие уведомления — брони, чат, сигналы SOS. Только СВОЮ подписку.
-    Идемпотентно: нечего удалять — отвечаем «хорошо».
-    """
-    endpoint = (body.endpoint or "").strip()
+    user, sid = lock_authenticated_user(cred, session)
+    endpoint = body.endpoint.strip()
     if not endpoint:
         return {"ok": True}
-    row = session.exec(select(WebPushSubscription).where(
-        WebPushSubscription.endpoint == endpoint,
-        WebPushSubscription.user_id == user.id,
-    )).first()
-    if row:
-        session.delete(row)
-        session.commit()
+    stmt = delete(WebPushSubscription).where(
+        WebPushSubscription.endpoint == endpoint, WebPushSubscription.user_id == user.id,
+    )
+    if body.session_bound and sid and body.expected_binding_id:
+        stmt = stmt.where(WebPushSubscription.auth_session_id == sid,
+                          WebPushSubscription.binding_id == body.expected_binding_id)
+    else:
+        stmt = stmt.where(WebPushSubscription.auth_session_id.is_(None))
+    session.execute(stmt)
+    session.commit()
     return {"ok": True}
 
 

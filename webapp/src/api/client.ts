@@ -1,5 +1,6 @@
 import { getLanguage } from "../i18n/languagePreference";
 export { initializeSessionStorage, reconcileSession } from "../utils/sessionCredentials";
+import { SESSION_LOGOUT_TOKEN } from "../utils/sessionRecord";
 import type { TripPassOwner } from "../utils/tripPass";
 import {
   cachedSession, initializeSessionStorage, newSessionGeneration, persistSession, reconcileSession,
@@ -114,13 +115,16 @@ function permitted(permit: SessionWritePermit): void {
 
 /** Only an active lock capability may bypass the publication queue. */
 export function setSession(
-  access: string | null, refresh?: string | null, permit?: SessionWritePermit, expectedGeneration?: string,
+  access: string | null, refresh?: string | null, permit?: SessionWritePermit, expectedGeneration?: string, logoutToken?: string,
 ): Promise<string | null> {
   const commit = async (active: SessionWritePermit) => {
     permitted(active);
     const previous = expectedGeneration ?? (await initializeSessionStorage()).generation;
     const generation = newSessionGeneration();
-    const result = await persistSession(previous, { generation, access, refresh: access ? refresh ?? null : null }, () => permitted(active));
+    const ticket = logoutTicketForAccess(access, logoutToken);
+    const result = await persistSession(previous, { generation, access, refresh: access ? refresh ?? null : null,
+      ...(ticket && { logoutToken: ticket }),
+    }, () => permitted(active));
     if (!result.applied) return null;
     if (!storageFenced()) discardRefreshIntentsFor(previous);
     return generation;
@@ -128,14 +132,19 @@ export function setSession(
   return Promise.resolve(permit ? commit(permit) : sessionMutation(commit));
 }
 
-export async function rotateSession(access: string, refresh: string, generation: string, previousRefresh = getRefreshToken()): Promise<boolean> {
+export async function rotateSession(
+  access: string, refresh: string, generation: string, previousRefresh = getRefreshToken(), logoutToken?: string,
+): Promise<boolean> {
   return sessionMutation(async permit => {
     permitted(permit);
     await reconcileSession();
     const previous = cachedSession();
     if (!previous || previous.generation !== generation || !access || !refresh) return false;
     if (previous.refresh !== previousRefresh) return true;
-    const result = await persistSession(generation, { generation, access, refresh }, () => permitted(permit), previous);
+    const ticket = logoutTicketForAccess(access, logoutToken ?? previous.logoutToken);
+    const result = await persistSession(generation, { generation, access, refresh,
+      ...(ticket && { logoutToken: ticket }),
+    }, () => permitted(permit), previous);
     return result.current.generation === generation &&
       (result.applied || result.current.refresh !== previousRefresh);
   });
@@ -204,13 +213,26 @@ export function refreshRejectedToken(rejected: string): Promise<boolean> {
   return runRefresh(getSessionGeneration(), rejected);
 }
 
-function tokenSubject(token: string | null): string | undefined {
+function tokenPayload(token: string | null): { sub?: unknown; sid?: unknown } | undefined {
   if (!token) return;
   try {
     const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    const subject = JSON.parse(atob(payload)).sub;
-    return typeof subject === "string" ? subject : undefined;
+    return JSON.parse(atob(payload));
   } catch { return undefined; }
+}
+
+function tokenSubject(token: string | null): string | undefined {
+  const subject = tokenPayload(token)?.sub;
+  return typeof subject === "string" ? subject : undefined;
+}
+
+export function authSessionId(token = getToken()): string | undefined {
+  const sid = tokenPayload(token)?.sid;
+  return typeof sid === "string" && /^[0-9a-f]{64}$/.test(sid) ? sid : undefined;
+}
+
+function logoutTicketForAccess(access: string | null, ticket?: string): string | undefined {
+  return ticket && SESSION_LOGOUT_TOKEN.test(ticket) && ticket.slice(0, 64) === authSessionId(access) ? ticket : undefined;
 }
 
 function tokenMatchesUser(token: string | null, userId: number): boolean {

@@ -9,14 +9,14 @@ from typing import Optional
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 from jose import jwt, JWTError
-from sqlalchemy import update
+from sqlalchemy import delete, update
 from sqlmodel import Session, select
 
 from .config import settings
 from .db import get_session
 from .errors import herr
 from .logs import log
-from .models import RefreshToken, User, UserRole
+from .models import AuthSession, RefreshToken, User, UserRole, WebPushSubscription
 from .timeutil import utcnow
 
 # Человеку всё равно, какое именно поле протухло, — результат один: «войди заново». Один текст
@@ -98,7 +98,8 @@ def normalize_phone(raw) -> str:
     return ("+" if plus else "") + digits
 
 
-def make_token(user_id: int, *, issued_after=None, review_session: bool = False) -> str:
+def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
+               auth_session: Optional[AuthSession] = None) -> str:
     """Короткоживущий access-токен (JWT)."""
     now = utcnow()
     if issued_after is not None and now <= issued_after:
@@ -111,6 +112,9 @@ def make_token(user_id: int, *, issued_after=None, review_session: bool = False)
     # (часы Windows дают одинаковое значение соседним вызовам) защищает явная выдача
     # строго после сохранённой границы + нестрогое сравнение в _token_revoked.
     payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp}
+    if auth_session is not None:
+        payload["sid"] = auth_session.id
+        auth_session.access_expires_at = max(auth_session.access_expires_at, exp)
     if review_session:
         # Фикс-код стора подтверждает только пассажирскую сессию, не будущую роль.
         payload["review_session"] = True
@@ -124,8 +128,43 @@ def _hash_refresh(raw: str) -> str:
 _REVIEW_REFRESH_PREFIX = "review."
 
 
+def _new_auth_session(session: Session, user_id: int) -> AuthSession:
+    login = AuthSession(id=secrets.token_hex(32), user_id=user_id)
+    session.add(login)
+    session.flush()
+    return login
+
+
+def _active_auth_session(session: Session, user_id: int, session_id: str) -> Optional[AuthSession]:
+    login = session.get(AuthSession, session_id, populate_existing=True)
+    if login and login.user_id == user_id and login.revoked_at is None:
+        return login
+    return None
+
+
+def _session_pair(session: Session, user: User, login: AuthSession, refresh: str, review_session: bool) -> dict:
+    # A stable ticket is reproducible after a lost rotation reply. Persist its hash so
+    # already issued tickets keep working if the JWT signing key is changed later.
+    mac = hmac.new(settings.jwt_secret.encode(), b"auth-session-logout-v1\x00" + login.id.encode(),
+                   hashlib.sha256).hexdigest()
+    ticket = f"{login.id}.{mac}"
+    digest = hashlib.sha256(ticket.encode()).hexdigest()
+    if digest not in login.logout_hashes:
+        login.logout_hashes = [*login.logout_hashes, digest]
+    access = make_token(user.id, issued_after=user.tokens_valid_from, review_session=review_session,
+                        auth_session=login)
+    session.add(login)
+    return {
+        "access_token": access,
+        "refresh_token": refresh,
+        "token_type": "bearer",
+        "session_id": login.id,
+        "logout_token": ticket,
+    }
+
+
 def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] = None,
-                 review_session: bool = False) -> dict:
+                 review_session: bool = False, auth_session_id: Optional[str] = None) -> dict:
     """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ.
 
     Граница последнего logout остаётся навсегда: иначе новый вход оживит все старые
@@ -134,27 +173,22 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
     if user is None or (review_session and user.role != UserRole.passenger):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
-    issued_after = user.tokens_valid_from if user else None
-    if user:
-        # Отметка «человек жив»: пишется при каждой выдаче пары ключей, то есть у активного —
-        # минимум раз в 12 часов. По ней отличаем «уехал на сезон» от «номер перешёл к другому»
-        # (волна 139). Отдельного запроса не стоит: строка уже в сессии и всё равно сохраняется.
-        user.last_seen_at = utcnow()
-        session.add(user)
+    login = (_active_auth_session(session, user_id, auth_session_id) if auth_session_id
+             else _new_auth_session(session, user_id))
+    if login is None:
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+    user.last_seen_at = utcnow()
+    session.add(user)
     raw = refresh_raw if refresh_raw is not None else secrets.token_urlsafe(48)
     if review_session and not raw.startswith(_REVIEW_REFRESH_PREFIX):
         # Полный непрозрачный raw, включая scope, хэшируется ниже. Удаление/добавление
         # префикса клиентом не найдёт исходную запись; отдельная колонка не нужна.
         raw = _REVIEW_REFRESH_PREFIX + raw
     session.add(RefreshToken(
-        user_id=user_id, token_hash=_hash_refresh(raw),
+        user_id=user_id, token_hash=_hash_refresh(raw), auth_session_id=login.id,
         expires_at=utcnow() + timedelta(days=settings.refresh_expire_days),
     ))
-    pair = {
-        "access_token": make_token(user_id, issued_after=issued_after, review_session=review_session),
-        "refresh_token": raw,
-        "token_type": "bearer",
-    }
+    pair = _session_pair(session, user, login, raw, review_session)
     session.commit()
     return pair
 
@@ -264,11 +298,25 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
                 or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
             raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
-        # No new row, no change to either expiry or recovery window. The User
-        # lock stays held until this request's session closes, excluding logout.
-        return {'access_token': make_token(owner.id, issued_after=owner.tokens_valid_from,
-                                          review_session=review_session),
-                'refresh_token': child_raw, 'token_type': 'bearer'}
+        if rt.auth_session_id and rt.auth_session_id != child.auth_session_id:
+            raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+        try:
+            login = (_active_auth_session(session, owner.id, child.auth_session_id) if child.auth_session_id
+                     else _new_auth_session(session, owner.id))
+            if login is None:
+                raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+            # A valid replay of a pair issued before migration may bind the old rows.
+            # Token expiry and the original rotation timestamp stay intact.
+            if rt.auth_session_id is None:
+                rt.auth_session_id = child.auth_session_id = login.id
+                session.add(rt)
+                session.add(child)
+            pair = _session_pair(session, owner, login, child_raw, review_session)
+            session.commit()
+            return pair
+        except Exception:
+            session.rollback()
+            raise
     # Гасим токен АТОМАРНО: условие «он ещё не погашен» живёт внутри UPDATE.
     #
     # Блокировка строки выше закрывает гонку на PostgreSQL, но SQLite её игнорирует — а на нём
@@ -279,29 +327,58 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
     # наравне с хозяином, и следа не оставалось.
     #
     # И как везде: саму защиту не проверял ни один тест — на SQLite блокировка пустая операция.
-    burned = session.execute(
-        update(RefreshToken)
-        .where(RefreshToken.id == rt.id, RefreshToken.revoked == False)   # noqa: E712 — SQL IS FALSE
-        .values(revoked=True, rotation_id_hash=_hash_refresh(rotation_id) if rotation_id else None,
-                rotated_at=now if rotation_id else None)
-    )
-    if burned.rowcount == 0:
-        session.rollback()
-        raise herr(401, "Не получилось продлить вход. Войди заново.",
-                   "Инеүҙе оҙайтып булманы. Яңынан ин.")
     try:
-        # Отзыв и новая пара фиксируются вместе, после успешной подписи JWT.
-        if rotation_id is not None:
-            return issue_tokens(session, rt.user_id, refresh_raw=_recovery_token(raw, rotation_id),
-                                review_session=review_session)
-        return issue_tokens(session, rt.user_id, review_session=review_session)
+        login_id = rt.auth_session_id or _new_auth_session(session, owner.id).id
+        burned = session.execute(
+            update(RefreshToken)
+            .where(RefreshToken.id == rt.id, RefreshToken.revoked == False)  # noqa: E712
+            .values(revoked=True, auth_session_id=login_id,
+                    rotation_id_hash=_hash_refresh(rotation_id) if rotation_id else None,
+                    rotated_at=now if rotation_id else None)
+        )
+        if burned.rowcount == 0:
+            raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+        successor = _recovery_token(raw, rotation_id) if rotation_id else None
+        return issue_tokens(session, rt.user_id, refresh_raw=successor,
+                            review_session=review_session, auth_session_id=login_id)
     except Exception:
         session.rollback()
         raise
 
 
+def revoke_auth_session(session: Session, ticket: str) -> bool:
+    """A revocation-only ticket never authenticates a user or renews a pair."""
+    if re.fullmatch(r"[0-9a-f]{64}\.[0-9a-f]{64}", ticket) is None:
+        return False
+    session_id = ticket.partition(".")[0]
+    owner_id = session.exec(select(AuthSession.user_id).where(AuthSession.id == session_id)).first()
+    if owner_id is None or lock_refresh_user(session, owner_id) is None:
+        return False
+    login = session.get(AuthSession, session_id, populate_existing=True)
+    digest = hashlib.sha256(ticket.encode()).hexdigest()
+    if not login or login.user_id != owner_id or not any(
+        hmac.compare_digest(digest, stored) for stored in login.logout_hashes
+    ):
+        return False
+    if login.revoked_at is None:
+        login.revoked_at = utcnow()
+        session.add(login)
+        session.execute(update(RefreshToken).where(
+            RefreshToken.user_id == owner_id, RefreshToken.auth_session_id == session_id,
+            RefreshToken.revoked == False,  # noqa: E712
+        ).values(revoked=True))
+        session.execute(delete(WebPushSubscription).where(
+            WebPushSubscription.user_id == owner_id, WebPushSubscription.auth_session_id == session_id,
+        ))
+    session.commit()
+    return True
+
+
 def revoke_all_refresh(session: Session, user_id: int, *, commit: bool = True) -> None:
-    """Отозвать все refresh-токены пользователя (logout со всех устройств)."""
+    """Отозвать все входы и ключи продления пользователя."""
+    session.execute(update(AuthSession).where(
+        AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None),
+    ).values(revoked_at=utcnow()))
     for rt in session.exec(select(RefreshToken).where(
         RefreshToken.user_id == user_id, RefreshToken.revoked == False  # noqa: E712
     )).all():
@@ -373,9 +450,16 @@ def authenticate_ws(token: str, session: Session) -> User:
     отозванный через logout, продолжал бы открывать чат до самого истечения JWT."""
     payload = _decode(token)
     user = session.get(User, int(payload["sub"]))
-    if not user or _token_revoked(payload, user):
+    if not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session):
         raise JWTError("token revoked or user missing")
     return user
+
+
+def _session_claim_revoked(payload: dict, user: User, session: Session) -> bool:
+    if "sid" not in payload:
+        return False
+    sid = payload["sid"]
+    return not isinstance(sid, str) or _active_auth_session(session, user.id, sid) is None
 
 
 def _token_revoked(payload: dict, user: User) -> bool:
@@ -408,24 +492,33 @@ def gen_referral_code() -> str:
     return "".join(secrets.choice(alphabet) for _ in range(6))
 
 
-def current_user(
-    cred: HTTPAuthorizationCredentials = Depends(bearer),
-    session: Session = Depends(get_session),
-) -> User:
+def _authenticated_user(cred: HTTPAuthorizationCredentials, session: Session, *, locked=False) -> tuple[User, dict]:
     try:
         payload = _decode(cred.credentials)
         user_id = int(payload["sub"])
     except (JWTError, KeyError, ValueError):
         raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
-    user = session.get(User, user_id)
+    user = lock_refresh_user(session, user_id) if locked else session.get(User, user_id)
     if not user:
         raise herr(401, "Пользователь не найден", "Ҡулланыусы табылманы")
-    if _token_revoked(payload, user):
+    if _token_revoked(payload, user) or _session_claim_revoked(payload, user, session):
         raise herr(401, "Сессия завершена. Войди заново.", "Сессия тамамланды. Яңынан ин.")
     # Номер обязателен: без реального номера приложение не работает (защита от мошенников).
     if is_placeholder_phone(user.phone):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "phone_required")
-    return user
+    return user, payload
+
+
+def current_user(
+    cred: HTTPAuthorizationCredentials = Depends(bearer),
+    session: Session = Depends(get_session),
+) -> User:
+    return _authenticated_user(cred, session)[0]
+
+
+def lock_authenticated_user(cred: HTTPAuthorizationCredentials, session: Session) -> tuple[User, Optional[str]]:
+    user, payload = _authenticated_user(cred, session, locked=True)
+    return user, payload.get("sid")
 
 
 def current_user_optional(
@@ -442,6 +535,7 @@ def current_user_optional(
     except (JWTError, KeyError, ValueError):
         return None
     user = session.get(User, user_id)
-    if not user or _token_revoked(payload, user) or is_placeholder_phone(user.phone):
+    if (not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session)
+            or is_placeholder_phone(user.phone)):
         return None
     return user

@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Integer, Index, UniqueConstraint, text
+from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, text
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -124,12 +124,24 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class AuthSession(SQLModel, table=True):
+    """Серверная сессия одного входа, общая для его последовательных пар ключей."""
+
+    id: str = Field(primary_key=True, max_length=64)
+    user_id: int = Field(index=True, foreign_key="user.id", ondelete="CASCADE")
+    revoked_at: Optional[datetime] = None
+    access_expires_at: datetime = Field(default_factory=utcnow)
+    # Только хэши ключей отзыва. Выданный ключ переживает смену ключа подписи JWT.
+    logout_hashes: list[str] = Field(default_factory=list, sa_column=Column(JSON, nullable=False))
+
+
 class RefreshToken(SQLModel, table=True):
     """Refresh-токен (ротируемый). Храним ХЕШ (sha256), не сам токен. При каждом
     /auth/refresh старый помечается revoked и выдаётся новый. logout ревокует все."""
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, foreign_key="user.id")
     token_hash: str = Field(index=True, unique=True)
+    auth_session_id: Optional[str] = Field(default=None, max_length=64, index=True, foreign_key="authsession.id")
     revoked: bool = False
     rotation_id_hash: Optional[str] = None
     rotated_at: Optional[datetime] = None
@@ -176,6 +188,8 @@ class WebPushSubscription(SQLModel, table=True):
     user_id: int = Field(index=True, foreign_key="user.id")
     # Адрес пуш-сервиса браузера. Уникален: одна подписка живёт у одного человека.
     endpoint: str = Field(index=True, unique=True)
+    auth_session_id: Optional[str] = Field(default=None, max_length=64, index=True, foreign_key="authsession.id")
+    binding_id: Optional[str] = Field(default=None, max_length=32)
     p256dh: str = ""
     auth: str = ""
     # aes128gcm (современные браузеры) или aesgcm (старые). Отдаёт сам браузер.

@@ -36,6 +36,22 @@ async function readTrip(generation) {
 }
 
 const cases = [
+  ["auth switch commits the old ticket with trip revocation", async () => {
+    const first = { ...A, logoutToken: "a".repeat(64) + "." + "1".repeat(64) };
+    const second = { ...B, logoutToken: "b".repeat(64) + "." + "2".repeat(64) };
+    await boot(() => first);
+    assert.deepEqual(await api.listPendingSessionLogouts(), []);
+    await api.replaceSessionRecord(A.generation, second, allow);
+    assert.deepEqual(await api.readSessionRecord(), row(second, 2));
+    assert.deepEqual(await readTrip(A.generation), { revoked: true });
+    await api.replaceSessionRecord(B.generation, guest, allow);
+    assert.deepEqual(await api.listPendingSessionLogouts(), [
+      { generation: A.generation, ticket: first.logoutToken },
+      { generation: B.generation, ticket: second.logoutToken },
+    ]);
+    await api.acknowledgeSessionLogout(A.generation);
+    assert.deepEqual(await api.listPendingSessionLogouts(), [{ generation: B.generation, ticket: second.logoutToken }]);
+  }],
   ["upgrade imports one valid legacy pair and preserves an existing trip", async () => {
     const trip = { ownerId: 12, trips: new Map([[42, { status: "confirmed" }]]), closedRides: new Set() };
     await oldDatabase(trip);
@@ -69,7 +85,8 @@ const cases = [
   ["an aborted new login preserves both old credentials and old trip", async () => {
     const trip = { ownerId: 12, trips: new Map(), closedRides: new Set() };
     await oldDatabase(trip);
-    await boot();
+    const previous = { ...A, logoutToken: "a".repeat(64) + "." + "1".repeat(64) };
+    await boot(() => previous);
     const put = IDBObjectStore.prototype.put;
     IDBObjectStore.prototype.put = function (...args) {
       if (this.name === "credentials") throw new Error("fixture write denied");
@@ -77,8 +94,9 @@ const cases = [
     };
     try { await assert.rejects(api.replaceSessionRecord(A.generation, B, allow), /write denied|aborted/i); }
     finally { IDBObjectStore.prototype.put = put; }
-    assert.deepEqual(await api.readSessionRecord(), row(A, 1));
+    assert.deepEqual(await api.readSessionRecord(), row(previous, 1));
     assert.deepEqual(await readTrip(A.generation), trip);
+    assert.deepEqual(await api.listPendingSessionLogouts(), []);
   }],
   ["the losing tab can neither publish its login nor clear the winner", async () => {
     await boot();

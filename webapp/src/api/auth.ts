@@ -17,6 +17,7 @@ import {
   rotateSession,
   reconcileSession,
 } from "./client";
+import { acknowledgeSessionLogout, listPendingSessionLogouts } from "../utils/sessionRecord";
 import { cacheLoginMethods, cachedLoginMethods, normalizeLoginMethods, type LoginMethod } from "../utils/loginMethods";
 
 export function lastLoginMethods(): LoginMethod[] {
@@ -59,6 +60,7 @@ interface TokenPair {
   access_token: string;
   refresh_token: string;
   token_type: string;
+  logout_token?: string;
   user: Me;
 }
 
@@ -138,7 +140,7 @@ export async function refreshSession(): Promise<boolean> {
     if (generation !== getSessionGeneration()) return false;
     // A delayed replay of R1 must not overwrite an already completed R2 -> R3.
     if (getRefreshToken() !== rt) return true;
-    const rotated = await rotateSession(pair.access_token, pair.refresh_token, generation, rt);
+    const rotated = await rotateSession(pair.access_token, pair.refresh_token, generation, rt, pair.logout_token);
     if (rotated) await clearRefreshRotationId(generation, rt).catch(() => {});
     return rotated;
   } catch (error) {
@@ -184,12 +186,38 @@ export function uploadProfilePhoto(file: File, signal?: AbortSignal): Promise<{ 
   return apiUpload<{ url: string }>("/upload/photo", form, { signal });
 }
 
-/** POST /auth/logout — гасит сессию на сервере (best-effort). */
-export async function logoutServer(access: string): Promise<void> {
-  await fetch(API_BASE + "/auth/logout", {
-    method: "POST", headers: { Authorization: "Bearer " + access }, keepalive: true,
-    redirect: "error", cache: "no-store",
-  });
+let logoutFlight: Promise<void> | undefined;
+let logoutRequested = false;
+
+/** Deliver only revocation tickets persisted with a committed local session change. */
+export function flushPendingLogouts(): Promise<void> {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return Promise.resolve();
+  logoutRequested = true;
+  if (logoutFlight) return logoutFlight;
+  logoutFlight = (async () => {
+    while (logoutRequested) {
+      logoutRequested = false;
+      for (const { generation, ticket } of await listPendingSessionLogouts()) {
+        const controller = new AbortController();
+        const timeout = setTimeout(() => controller.abort(), 10000);
+        try {
+          const response = await fetch(API_BASE + "/auth/logout/session", {
+            method: "POST", headers: { Authorization: "Bearer " + ticket }, keepalive: true,
+            redirect: "error", cache: "no-store", signal: controller.signal,
+          });
+          if (response.status !== 200 && response.status !== 401) continue;
+          const reply = await response.json();
+          if (response.status === 200 && reply?.ok === true ||
+              response.status === 401 && reply?.detail?.code === "auth_session_unavailable") {
+            await acknowledgeSessionLogout(generation);
+          }
+        } catch { /* The ticket remains available for another attempt. */ }
+        finally { clearTimeout(timeout); }
+      }
+    }
+  })().catch(() => { /* Local sign-out was already committed. */ })
+    .finally(() => { logoutFlight = undefined; });
+  return logoutFlight;
 }
 
 /** POST /me/delete — необратимое удаление аккаунта и всех персональных данных

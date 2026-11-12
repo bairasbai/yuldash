@@ -20,7 +20,7 @@ import {
 } from "../api/client";
 import {
   fetchMe,
-  logoutServer,
+  flushPendingLogouts,
   refreshSession,
   type Me,
 } from "../api/auth";
@@ -38,8 +38,8 @@ interface AuthCtx {
   user: Me | null;
   isAuthed: boolean;
   /** Подтвердить сохранение сессии после проверки кода. */
-  login: (access: string, refresh: string, user: Me, expectedGeneration: string) => Promise<string>;
-  /** Выйти: гасим сервер (best-effort) и чистим локально. */
+  login: (access: string, refresh: string, user: Me, expectedGeneration: string, logoutToken?: string) => Promise<string>;
+  /** Подтвердить локальный выход и передать отзыв серверу при наличии связи. */
   logout: () => Promise<void>;
   /** Перечитать профиль (после правок). */
   refresh: () => Promise<void>;
@@ -95,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(() => {
       clearSessionData();
       applyGuest();
+      void flushPendingLogouts();
     });
     return () => {
       setRefreshHandler(null);
@@ -139,9 +140,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (retryGeneration !== null && retryGeneration === getSessionGeneration() && getToken()) loadSession();
     };
     retrySessionRef.current = retry;
-    const onForeground = () => { void reconcileSession().then(retry).catch(() => {}); };
+    const onForeground = () => {
+      void reconcileSession().then(retry).catch(() => {});
+      void flushPendingLogouts();
+    };
     const unsubscribe = subscribeSessionChanges(loadSession);
     loadSession();
+    void flushPendingLogouts();
     if (typeof window !== "undefined") {
       window.addEventListener?.("online", onForeground);
       window.addEventListener?.("focus", onForeground);
@@ -166,16 +171,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     };
   }, [applyGuest]);
 
-  const login = useCallback(async (access: string, refresh: string, me: Me, expectedGeneration: string) => {
+  const login = useCallback(async (access: string, refresh: string, me: Me, expectedGeneration: string, logoutToken?: string) => {
     const epoch = sessionEpoch();
     return sessionMutation(async permit => {
       if (epoch !== sessionEpoch() || storageFenced()) throw new Error("Session operation superseded");
-      const generation = await setSession(access, refresh, permit, expectedGeneration);
+      const generation = await setSession(access, refresh, permit, expectedGeneration, logoutToken);
       if (!generation || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
       syncPersonalSession(generation);
       confirmStorageSession(generation);
       setUser(me);
       setStatus("authed");
+      void flushPendingLogouts();
       return generation;
     });
   }, []);
@@ -187,15 +193,13 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       await sessionMutation(async permit => {
         await reconcileSession();
         if (generation !== getSessionGeneration()) return;
-        const access = getToken();
-        if (!access) return;
+        if (!getToken()) return;
         const guest = await setSession(null, null, permit, generation);
         if (!guest || guest !== getSessionGeneration()) return;
         setUser(null);
         setStatus("guest");
         clearSessionData();
-        // These requests belong to the captured account. Local sign-out is already committed.
-        void logoutServer(access).catch(() => {});
+        void flushPendingLogouts();
         void disableLocalPushAfterLogout(guest);
       });
     } catch (error) {

@@ -18,12 +18,12 @@ const mocks = {
   'react/jsx-runtime': `export const jsx=(type,props)=>({type,props}),jsxs=jsx;`,
   client: `const h=globalThis.__authProviderSession;
     export const getToken=()=>h.token,getSessionGeneration=()=>String(h.generation);
-    export const setSession=(token,refresh,_permit,expected)=>{if(h.sessionFailure)throw Error('session storage unavailable');if(expected!==String(h.generation))return null;h.token=token;h.refresh=refresh;h.generation++;return String(h.generation);};
+    export const setSession=(token,refresh,_permit,expected)=>{if(h.sessionFailure)throw Error('session storage unavailable');if(expected!==String(h.generation))return null;if(!token&&h.token)h.pendingLogout='fixture-ticket-'+h.token;h.token=token;h.refresh=refresh;h.generation++;return String(h.generation);};
     export const reconcileSession=()=>h.reconcileGate?.promise??Promise.resolve(); export const setRefreshHandler=fn=>h.refreshHandler=fn,setUnauthorizedHandler=fn=>h.unauthorizedHandler=fn;`,
   auth: `const h=globalThis.__authProviderSession;
     export const fetchMe=()=>{const request=h.makeDeferred();h.requests.push(request);return request.promise;};
     export const refreshSession=async()=>true;
-    export const logoutServer=access=>{h.logoutBearers.push(access);return h.serverLogout.promise;};`,
+    export const flushPendingLogouts=()=>{if(!h.pendingLogout)return Promise.resolve();h.logoutBearers.push(h.pendingLogout);h.pendingLogout=null;return h.serverLogout.promise.catch(()=>{});};`,
   push: `export const disableLocalPushAfterLogout=()=>globalThis.__authProviderSession.disable.promise;`,
   credentials: `export const subscribeSessionChanges=listener=>{globalThis.__authProviderSession.sessionChanged=listener;return()=>{};};`,
   outbox: `export const clearOutbox=()=>globalThis.__authProviderSession.clears.push('outbox');`,
@@ -35,7 +35,7 @@ const result = await build({entryPoints:[root+'src/auth/AuthProvider.tsx'],bundl
   b.onLoad({filter:/.*/,namespace:'boundary'},a=>({contents:mocks[a.path],loader:'js'}));
 }}]});
 const {AuthProvider} = await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
-function reset(){delete globalThis.caches;Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,sessionFailure:false,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],clears:[],reconcileGate:null});}
+function reset(){delete globalThis.caches;Object.assign(h,{states:[],refs:[],callbacks:[],effectDeps:[],effects:[],cleanups:[],requests:[],token:'A',refresh:'refresh-A',generation:1,sessionFailure:false,makeDeferred:deferred,disable:deferred(),serverLogout:deferred(),logoutBearers:[],pendingLogout:null,clears:[],reconcileGate:null});}
 function render(){h.si=h.ri=h.ei=h.ci=0;return AuthProvider({children:null}).props.value;}
 function mount(){reset();const value=render();for(const fn of h.effects.splice(0))h.cleanups.push(fn());return value;}
 const A={id:101,name:'Account A'}, B={id:202,name:'Account B'};
@@ -67,7 +67,7 @@ await test('logout waiting for reconciliation never signs out a newer account',a
   assert.deepEqual(h.logoutBearers,[]);assertB();assert.deepEqual(h.clears,[]);
 });
 await test('guest is published while logout server response is still pending',async()=>{
-  await readyA();await render().logout();assert.equal(render().status,'guest');assert.deepEqual(h.logoutBearers,['A']);
+  await readyA();await render().logout();assert.equal(render().status,'guest');assert.deepEqual(h.logoutBearers,['fixture-ticket-A']);
   await loginB();h.serverLogout.resolve({ok:true});await flush();assertB();assert.deepEqual(h.clears,['outbox','drafts','personal']);
 });
 await test('normal startup refresh and logout still work',async()=>{

@@ -4,6 +4,7 @@ export interface SessionCredentials {
   generation: string;
   access: string | null;
   refresh: string | null;
+  logoutToken?: string;
 }
 
 export interface SessionRecord extends SessionCredentials {
@@ -12,6 +13,8 @@ export interface SessionRecord extends SessionCredentials {
 
 const CURRENT = "current";
 const REVISION = "revision";
+const WEB_PUSH = "web-push";
+export const SESSION_LOGOUT_TOKEN = /^[0-9a-f]{64}\.[0-9a-f]{64}$/;
 
 function savedRevision(value: unknown): number {
   return typeof value === "number" && Number.isSafeInteger(value) && value > 0 ? value : 0;
@@ -22,6 +25,8 @@ function parse(value: unknown): SessionRecord | undefined {
   const row = value as Partial<SessionRecord> | null;
   if (!row || typeof row.generation !== "string" || !row.generation ||
       !savedRevision(row.revision) ||
+      (row.logoutToken !== undefined && (row.access === null ||
+        typeof row.logoutToken !== "string" || !SESSION_LOGOUT_TOKEN.test(row.logoutToken))) ||
       !(row.access === null ? row.refresh === null :
         typeof row.access === "string" && !!row.access.trim() &&
         typeof row.refresh === "string" && !!row.refresh.trim())) {
@@ -33,7 +38,7 @@ function parse(value: unknown): SessionRecord | undefined {
 async function transaction<T>(
   mode: "readonly" | "readwrite",
   work: (current: SessionRecord | undefined, revoked: boolean, put: (row: SessionRecord) => void,
-    revoke: (generation: string) => void, candidate: SessionCredentials | undefined, revision: number) => T,
+    revoke: (generation: string, ticket?: string) => void, candidate: SessionCredentials | undefined, revision: number) => T,
   readLegacy?: () => SessionCredentials | undefined,
   repairInvalid = false,
 ): Promise<T> {
@@ -50,7 +55,10 @@ async function transaction<T>(
         auth.put(row, CURRENT);
         auth.put(row.revision, REVISION);
       };
-      const revoke = (generation: string) => { tx.objectStore(TRIP_STORE).put({ revoked: true }, generation); };
+      const revoke = (generation: string, ticket?: string) => {
+        tx.objectStore(TRIP_STORE).put({ revoked: true }, generation);
+        if (ticket) auth.put({ generation, ticket }, ["logout", generation]);
+      };
       let result: T;
       tx.oncomplete = () => resolve(result);
       tx.onabort = () => reject(tx.error ?? new Error("Session transaction aborted"));
@@ -126,9 +134,96 @@ export function replaceSessionRecord(
       if (revoked) throw new Error("Saved session is revoked");
       return { current, applied: false };
     }
-    if (current.generation !== next.generation) revoke(current.generation);
+    if (current.generation !== next.generation) revoke(current.generation, current.logoutToken);
     const saved = { ...next, revision: current.revision + 1 };
     put(saved);
     return { current: saved, applied: true };
   });
+}
+
+interface PendingSessionLogout {
+  generation: string;
+  ticket: string;
+}
+
+async function credentialRequest<T>(mode: "readonly" | "readwrite", operation: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+  const db = await openTripDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(AUTH_STORE, mode, mode === "readwrite" ? { durability: "strict" } : undefined);
+      const request = operation(tx.objectStore(AUTH_STORE));
+      tx.oncomplete = () => resolve(request.result);
+      tx.onabort = () => reject(tx.error ?? new Error("Credential storage unavailable"));
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export async function listPendingSessionLogouts(): Promise<PendingSessionLogout[]> {
+  const rows = await credentialRequest("readonly", store => store.getAll());
+  return rows.filter((row): row is PendingSessionLogout => typeof row?.generation === "string" &&
+    typeof row?.ticket === "string" && SESSION_LOGOUT_TOKEN.test(row.ticket));
+}
+
+export async function acknowledgeSessionLogout(generation: string): Promise<void> {
+  await credentialRequest("readwrite", store => store.delete(["logout", generation]));
+}
+
+export interface WebPushBinding {
+  generation: string;
+  endpoint: string;
+  sessionId: string;
+  bindingId: string;
+}
+
+export async function readWebPushBinding(): Promise<WebPushBinding | undefined> {
+  const row = await credentialRequest("readonly", store => store.get(WEB_PUSH));
+  if (typeof row?.generation === "string" && typeof row.endpoint === "string" &&
+      typeof row.sessionId === "string" && /^[0-9a-f]{64}$/.test(row.sessionId) &&
+      typeof row.bindingId === "string" && /^[0-9a-f]{32}$/.test(row.bindingId)) return row;
+}
+
+export async function writeWebPushBinding(
+  generation: string, next: WebPushBinding | undefined, expectedBindingId?: string,
+): Promise<boolean> {
+  const db = await openTripDatabase();
+  try {
+    return await new Promise((resolve, reject) => {
+      const tx = db.transaction(AUTH_STORE, "readwrite", { durability: "strict" });
+      const store = tx.objectStore(AUTH_STORE);
+      let applied = false;
+      tx.oncomplete = () => resolve(applied);
+      tx.onabort = () => reject(tx.error ?? new Error("Push binding storage unavailable"));
+      const current = store.get(CURRENT);
+      current.onsuccess = () => {
+        if (current.result?.generation !== generation || !current.result.access) return;
+        if (next) {
+          store.put(next, WEB_PUSH);
+          applied = true;
+          return;
+        }
+        const binding = store.get(WEB_PUSH);
+        binding.onsuccess = () => {
+          if (binding.result?.generation !== generation || binding.result.bindingId !== expectedBindingId) return;
+          store.delete(WEB_PUSH);
+          applied = true;
+        };
+      };
+    });
+  } finally {
+    db.close();
+  }
+}
+
+export function notifyPushScopeChanged(): void {
+  try {
+    if (typeof navigator === "undefined" || !navigator.serviceWorker) return;
+    const message = { type: "auth-scope-changed" };
+    const worker = navigator.serviceWorker.controller;
+    if (worker) worker.postMessage(message);
+    else void navigator.serviceWorker.getRegistration?.().then(registration => {
+      registration?.active?.postMessage(message);
+    }).catch(() => {});
+  } catch { /* The worker independently checks storage before displaying any details. */ }
 }

@@ -9,11 +9,11 @@ const mocks = {
     export const useState=v=>[typeof v==='function'?v():v, n=>globalThis.__events.push(['state',n])];
     export const useContext=()=>null;`,
   "react/jsx-runtime": `export const jsx=(type,props)=>({type,props}); export const jsxs=jsx;`,
-  "../api/client": `export const getToken=()=> globalThis.__generation==='A'?'local-token':null; export const setSession=(...v)=>{globalThis.__events.push(['session',...v]);return globalThis.__generation='guest';};
-    export const getSessionGeneration=()=>globalThis.__generation,reconcileSession=async()=>{};
+  "../api/client": `export const getToken=()=> globalThis.__generation==='A'?'local-token':null; export const setSession=(...v)=>{globalThis.__events.push(['session',...v]);globalThis.__pendingLogout='fixture-ticket';return globalThis.__generation='guest';};
+    export const getSessionGeneration=()=>globalThis.__generation,reconcileSession=async()=>{},authSessionId=()=>undefined,getAccountSession=()=>null,refreshRejectedToken=async()=>false; export class ApiError extends Error {}
     export const revokeCurrentTripPasses=()=>{}; export const setRefreshHandler=()=>{}; export const setUnauthorizedHandler=()=>{};`,
   "../api/auth": `export const fetchMe=async()=>({}); export const refreshSession=async()=>({});
-    export const logoutServer=access=>{globalThis.__events.push(['server-logout',access]);return new Promise(()=>{});};`,
+    export const flushPendingLogouts=()=>{globalThis.__events.push(['server-logout',globalThis.__pendingLogout]);return new Promise(()=>{});};`,
   "../api/push": `export class PushBackendMissing extends Error {}; export const sendWebPushSubscription=async()=>{};
     export const unsubscribeWebPush=async endpoint=>{globalThis.__events.push(['push-revoke',endpoint]);};`,
   "../utils/outbox": `export const clearOutbox=()=>globalThis.__events.push(['outbox-clear']);`,
@@ -47,7 +47,7 @@ async function check(label, registration) {
   clearTimeout(timer);
   try {
     assert.equal(completed, true, "logout blocked by serviceWorker.ready");
-    assert.ok(__events.some(e=>e[0]==='server-logout' && e[1]==='local-token'));
+    assert.ok(__events.some(e=>e[0]==='server-logout' && e[1]==='fixture-ticket'));
     assert.ok(__events.some(e=>e[0]==='session' && e[1]===null && e[2]===null));
     assert.ok(__events.some(e=>e[0]==='state' && e[1]==='guest'));
     for (const action of ['outbox-clear','drafts-clear','personal-clear']) assert.ok(__events.some(e=>e[0]===action));

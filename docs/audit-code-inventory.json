@@ -80,13 +80,13 @@
   "counts_by_kind": {
     "android_main": 207,
     "backend_main": 109,
-    "infra_resource_config": 406,
+    "infra_resource_config": 407,
     "public_site_promo": 91,
-    "pwa_main": 330,
-    "test_support": 1296
+    "pwa_main": 331,
+    "test_support": 1300
   },
   "counts_by_block": {
-    "B01": 165,
+    "B01": 169,
     "B02": 302,
     "B03": 123,
     "B04": 80,
@@ -94,8 +94,8 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 747,
-    "B10": 406,
+    "B09": 748,
+    "B10": 407,
     "B11": 92
   },
   "excluded_counts": {
@@ -104,7 +104,7 @@
     "documentation_artifacts_or_private_material": 339,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
-    "secret_or_local_settings_not_read": 2
+    "secret_or_local_settings_not_read": 3
   },
   "files": [
     {
@@ -6247,6 +6247,13 @@
       "lines": 37
     },
     {
+      "path": "backend/alembic/versions/ch_auth_session_20261112.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "63095579961db28c6d3bb5b5b3d73a6472712e4db17f1cfbdaef63495aeaab97",
+      "lines": 57
+    },
+    {
       "path": "backend/alembic/versions/city_profile.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -6761,8 +6768,8 @@
       "path": "backend/app/account.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "59d275add27f5b2dc6e454a0f81ec1da1e6276637aafaaf9d08b215b53c6b429",
-      "lines": 629
+      "sha256": "ed232a2ece7c6b26e7f83c51438e9bcf487ea494400394c1657828032a1f0d78",
+      "lines": 828
     },
     {
       "path": "backend/app/ads_expire.py",
@@ -6824,8 +6831,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "21a095b66945963ece36376df89e452ed3ed1bc837c2d9ae494a5893614f0466",
-      "lines": 950
+      "sha256": "7c3dfc25dcbabaad69db5dd3c7ac7f4c20ab251c812981be9f9988d79fcd9e1d",
+      "lines": 1025
     },
     {
       "path": "backend/app/collusion.py",
@@ -7013,14 +7020,14 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "0d000e11a479eb9bf62e8ddebc7dc399cc13008335e22e223e9e58f77a12e9ad",
-      "lines": 2132
+      "sha256": "3f412633603897de37d2ee9fc4dd51bbe6df979e539450a14358beb9dd313c47",
+      "lines": 2217
     },
     {
       "path": "backend/app/observability.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "70c10442ca8200cf103bec352ea9414beffb75cedb704b919484221e184a7f09",
+      "sha256": "8e8479bc138a82dd774599309a56c1bef8648130241aeebf6e6514c26ebe86bf",
       "lines": 382
     },
     {
@@ -7132,8 +7139,8 @@
       "path": "backend/app/routers/auth.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "1d71f7c98aa4dd9aa6b5978cb3847e72acd30805dc475fb0e06b7819cc08af72",
-      "lines": 1558
+      "sha256": "4ff7566e5104121f5ae0d7bef1837abfd3ba086072f5549df33b017a3e2f8875",
+      "lines": 1591
     },
     {
       "path": "backend/app/routers/bookings.py",
@@ -7426,15 +7433,15 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "ee50f2e576f5e34132f53af015194aaf0063eec40500c9cdce537c9d99ccfc27",
-      "lines": 447
+      "sha256": "fa3f63db92dc615a4615d632244eb9da7b7d2cb04a8349ba0e77f73ace9b4d08",
+      "lines": 541
     },
     {
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "2543c724680c8e40aa86f9d1fb8f33108a7a28f39e904f8aa35c0683df986f9d",
-      "lines": 2198
+      "sha256": "8750a9e53b93c6b51c8507ee47e7dba307fe607b58d880aaaae9a6c1ef7805d0",
+      "lines": 2244
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -8098,8 +8105,8 @@
       "path": "backend/tests/test_account_deletion.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "330a073bf482c84aa9af8b488c30d1b26a56dc6b2e38bfc9ea391f15bd7e1dd4",
-      "lines": 386
+      "sha256": "8e57760f27e13dd787139cb2e42033a1e70d2577d38091f7e3bf38bf0135a164",
+      "lines": 393
     },
     {
       "path": "backend/tests/test_account_deletion_bound_offer.py",
@@ -8373,6 +8380,13 @@
       "block": "B01",
       "sha256": "c3b268c62ab1e46fdc1ca7b03e74e522a8fe7ffebee399ca5db34e05d030c2c5",
       "lines": 538
+    },
+    {
+      "path": "backend/tests/test_auth_session_logout.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "26f2834340598504da6b07465af2d766ed17cc359a51105e8880bb1dd096e34e",
+      "lines": 400
     },
     {
       "path": "backend/tests/test_autocheck_asks_whose_licence_it_is.py",
@@ -9768,6 +9782,13 @@
       "lines": 141
     },
     {
+      "path": "backend/tests/test_migration_auth_session.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "557b62a5d22af0b84281f92d359b49217ec731cf865a513bd42944de5d382faa",
+      "lines": 74
+    },
+    {
       "path": "backend/tests/test_migrations_match_the_models.py",
       "kind": "test_support",
       "block": "B09",
@@ -10751,7 +10772,7 @@
       "path": "backend/tests/test_refresh_replay_postgres.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "dd1130dcf537f809b7b5856f4a17d93cabef5aa8da3b04a61fc5f8ffd8c1333d",
+      "sha256": "e15bc8c25dea2aa9bd4cbcfc7f97597ab422f480f2bf41612b9d3f377a07bb22",
       "lines": 214
     },
     {
@@ -10905,8 +10926,8 @@
       "path": "backend/tests/test_request_watch_destination.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "0d5f780b510e18543c0789149c20873159e42bb45898d0d9ab278a273ff95c35",
-      "lines": 85
+      "sha256": "68c12509d356f60a3582d73dc64b54bdc6498ee1e3c18f8f457901a2aa749b5c",
+      "lines": 91
     },
     {
       "path": "backend/tests/test_requests_edges.py",
@@ -13831,8 +13852,8 @@
       "path": "webapp/public/push-sw.js",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "044002f4d3bdcddc9de74d291260c7806408f5aace20f5d7cad3b2bea1b541c5",
-      "lines": 67
+      "sha256": "de3508b89396c1e175cdefeaf4601cb31a353d206ca86980d0f51653edf14ff9",
+      "lines": 116
     },
     {
       "path": "webapp/server-setup.sh",
@@ -13873,8 +13894,8 @@
       "path": "webapp/src/api/auth.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "db33d3b82afaf2d136c77ef34e18bc5e825efec949b47d7e935dac88269d334c",
-      "lines": 191
+      "sha256": "519ae7a9757a5f1622b0243783e59fed6bbf6e715433792aef3d09af4dc5951f",
+      "lines": 238
     },
     {
       "path": "webapp/src/api/bookings.ts",
@@ -13908,8 +13929,8 @@
       "path": "webapp/src/api/client.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "51bb69007df9f99b78868f759808d2fd5a5af2ccbf17ed4360ec46cd0e6a3140",
-      "lines": 439
+      "sha256": "d0b2601d71cfcd0eabadcecca6ce617127b53aa80bf8a697a6ad28ff2a5b523f",
+      "lines": 528
     },
     {
       "path": "webapp/src/api/coupons.ts",
@@ -14013,8 +14034,8 @@
       "path": "webapp/src/api/push.ts",
       "kind": "pwa_main",
       "block": "B06",
-      "sha256": "4c15e75bdcbdd9ec2ac224ec3031d2849f708dbd1ed08e8e2214a89e77f76330",
-      "lines": 84
+      "sha256": "c9ffe365c61a6eb201e1292b34a57e99cace15433a7eba5176109232d34a6d97",
+      "lines": 95
     },
     {
       "path": "webapp/src/api/referral.ts",
@@ -14125,8 +14146,8 @@
       "path": "webapp/src/auth/AuthProvider.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "5bcce15c158a94869e6bcfe6f46668c077ed5cf1b80d66ec364be56b341f7ba4",
-      "lines": 238
+      "sha256": "bdfa8efbdf8dcada156f902b82a53fc33b059df1ff82a09aac8a4775afb0dae6",
+      "lines": 242
     },
     {
       "path": "webapp/src/benefitOwner.ts",
@@ -14916,8 +14937,8 @@
       "path": "webapp/src/push/webPush.ts",
       "kind": "pwa_main",
       "block": "B06",
-      "sha256": "c3f885aec57165499df94968d75a9849aaba0185a44aff64351b2d4cf627071a",
-      "lines": 171
+      "sha256": "87dc783fc9715b7ad78ceb1e179a39a390e5d60b9fdc7b5b8f70e6bfce58ce74",
+      "lines": 249
     },
     {
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
@@ -15371,8 +15392,8 @@
       "path": "webapp/src/screens/LoginScreen.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "ca0c77764ae2983f37285ac2bbbe89acbefac9e3a16cea213492be154f121c1b",
-      "lines": 353
+      "sha256": "e3e9040f8e026c9b0ad6eff6ff834d1ca8918a43299506f934124f2c3f565f31",
+      "lines": 451
     },
     {
       "path": "webapp/src/screens/MyDataScreen.tsx",
@@ -15882,15 +15903,15 @@
       "path": "webapp/src/utils/loginFlow.d.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "67c8f5c62a6ec2dfed752763caded5a7badbdbd38018057d83855abca0ee4b81",
-      "lines": 36
+      "sha256": "4957a07e65b4ec68112cca9dba81c2982bfe108ea0e672e83f15154f1c2798f6",
+      "lines": 39
     },
     {
       "path": "webapp/src/utils/loginFlow.js",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "3f103fa249c10df4eed82cfbdbf971086a0bb28024117ae3e0117a8d352cd896",
-      "lines": 154
+      "sha256": "81416fea676729fac6a89ae0174bdeec4e71c3e65ae0b0ee72bd7abee0ab249c",
+      "lines": 174
     },
     {
       "path": "webapp/src/utils/navigator.ts",
@@ -16010,6 +16031,13 @@
       "block": "B01",
       "sha256": "945bd0cc3a862245faffbf353f769d0a174506ae6e1255a8a0e402446137bc1b",
       "lines": 29
+    },
+    {
+      "path": "webapp/src/utils/sessionRecord.ts",
+      "kind": "pwa_main",
+      "block": "B01",
+      "sha256": "eca3585e14492d28b98844d7df3056156291b06ae3ab158700aea06f2006a854",
+      "lines": 229
     },
     {
       "path": "webapp/src/utils/sosIntent.ts",
@@ -16183,15 +16211,15 @@
       "path": "webapp/tests/auth-provider-cross-tab-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "2b0bbe728790e7e23bcbdf99e086a5b887292829a28bd5f5a6e77ae73cb1528d",
-      "lines": 126
+      "sha256": "a2f63bdd263b99c331daff929fe9506d54577d823425dbd341b1499bbd906977",
+      "lines": 124
     },
     {
       "path": "webapp/tests/auth-provider-session-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "fa1e98ad967d454ba6bf19bccd16be9721a0230b9d598325bd8e896ebfe9ed92",
-      "lines": 98
+      "sha256": "466ae9d2d7ddf7a0239d0ba58b088618f91816bd7c1855d1bfe9f3742943fefa",
+      "lines": 95
     },
     {
       "path": "webapp/tests/auth-unavailable-gate-test.mjs",
@@ -16610,7 +16638,7 @@
       "path": "webapp/tests/logout-without-worker-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "00f685afef7454aa72aaa677608af7106e266b3017d2c270a703439ca0664950",
+      "sha256": "b9395b76507a5a3b369c6af1c2456c07bca4dea4f48037a025ec9bd5abf04933",
       "lines": 67
     },
     {
@@ -16946,8 +16974,15 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "70e395f043c774c3348618f56e9ca7d01812e6673edaba46a3965da014b32295",
-      "lines": 315
+      "sha256": "7ab04c7807200bee078d355b3aefd8188831ee12bb66b3bd687553790dbc1585",
+      "lines": 341
+    },
+    {
+      "path": "webapp/tests/scoped-logout-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9f6d502580f1b9bff91a7cfaf7e168791438eb37940171989a7d2e654741e6e4",
+      "lines": 77
     },
     {
       "path": "webapp/tests/seat-options-test.mjs",
@@ -16969,6 +17004,13 @@
       "block": "B01",
       "sha256": "8668fe6c55abc8e092bb14b9f93a668f635555e72456328ec42401faa8c5115a",
       "lines": 16
+    },
+    {
+      "path": "webapp/tests/session-record-test.mjs",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "a093001a419bd4ff78c1f352438ed5a13fcc452f535af7badf03f858e452c03e",
+      "lines": 127
     },
     {
       "path": "webapp/tests/shallow-harness.mjs",
@@ -17156,8 +17198,8 @@
       "path": "webapp/tests/web-push-session-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "8d173668b3502097be3d7d0c5a8a17c4d98a16ec44510c57fca2c23fc035fa7b",
-      "lines": 196
+      "sha256": "a37fe734036dfe2b80a637887e47441507c13cbaec318fab55ee304d07661f1b",
+      "lines": 364
     },
     {
       "path": "webapp/tests/winter-check-reload-test.mjs",
@@ -19205,6 +19247,10 @@
     {
       "path": "webapp/public/yuldash_logo.webp",
       "reason": "binary_asset_or_non_source"
+    },
+    {
+      "path": "webapp/src/utils/sessionCredentials.ts",
+      "reason": "secret_or_local_settings_not_read"
     },
     {
       "path": "yookassa-anketa/01_uslugi_boost_ceny.png",
