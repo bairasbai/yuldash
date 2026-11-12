@@ -159,7 +159,7 @@ export default function ActiveTripScreen() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [details, setDetails] = useState<BookingDetails | null>(null);
   const [trip, setTrip] = useState<TripState | null>(null);
-  const [code, setCode] = useState<{ value: string; revision?: string | null } | null>(null);
+  const [code, setCode] = useState<{ value: string; revision?: string | null; undoReceipt?: string | null } | null>(null);
   const readPass = useCallback(() => readOfflineTrip(bookingId), [bookingId]);
   const savedTrip = useStoredTripData(true, readPass, false);
   const detailsLifetime = useRef<AbortController | null>(null);
@@ -405,7 +405,9 @@ export default function ActiveTripScreen() {
   const needsBoardingCode = details?.role === "passenger" && st === "confirmed" &&
     (savedTrip?.status === "confirmed" || savedTrip?.status === "storage-unavailable");
   const codeRevision = savedTrip?.revision;
-  const visibleCode = code?.revision === codeRevision ? code?.value : undefined;
+  const liveUndo = details && isNewBoardingUndo(trip, details) ? details : trip;
+  const undoReceipt = liveUndo?.boarding_undo_confirmed_id;
+  const visibleCode = code && code.revision === codeRevision && code.undoReceipt === undoReceipt ? code.value : undefined;
 
   // Отменили, когда пассажир был в машине: экран не прячет помощь (CancelledInTransitCard) и не
   // показывает ничего от живой поездки — ни чата с водителем, ни карты (приёмка PR207, №1).
@@ -430,7 +432,7 @@ export default function ActiveTripScreen() {
         if (live.role !== "passenger" || live.status !== "confirmed") return;
       } else if (before?.status !== "confirmed" || before.revision !== codeRevision) return;
       const response = await fetchBoardingCode(bookingId, request.signal);
-      return { value: response.code, revision: before.revision };
+      return { value: response.code, revision: before.revision, undoReceipt };
     };
     void readCode()
       .then(async (r) => {
@@ -446,7 +448,7 @@ export default function ActiveTripScreen() {
         /* нет кода — не критично */
       });
     return () => request.abort();
-  }, [bookingId, needsBoardingCode, codeRevision, user?.id, sessionGeneration]);
+  }, [bookingId, needsBoardingCode, codeRevision, undoReceipt, user?.id, sessionGeneration]);
 
   // ---- Live-точка водителя (WS) — только пока активна и только пассажиру ----
   // Водителю этот канал на приём не нужен: свою точку он отправляет сам (DriverLocationShare),

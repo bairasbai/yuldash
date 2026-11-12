@@ -728,6 +728,23 @@ await test('online boarding code still works when the offline database cannot be
   assert.equal((await h.passStorage.readOfflineTrip(42)).pass, null);
 });
 
+await test('an unseen boarding undo requests a fresh online code while local storage stays unavailable', async () => {
+  reset(); h.denyPassRead = true;
+  await settle(Active);
+  assert(text(h.tree).includes('4931'));
+  const before = h.codeRequests.length;
+  let answer;
+  h.codeHolds.set(42, { promise: new Promise(resolve => { answer = resolve; }) });
+  Object.assign(h.trip, { boarding_undo_confirmed_id: 'fresh-receipt', boarding_undo_onboard_at: BOARDING_AT });
+  await h.interval(); await settle(Active);
+  assert(h.codeRequests.length > before);
+  assert(!text(h.tree).includes('4931'));
+  answer({ code: '5678' });
+  await settle(Active);
+  assert(text(h.tree).includes('5678'));
+  assert.equal((await h.passStorage.readOfflineTrip(42)).pass, null);
+});
+
 await test('verified B cannot see A cached pass after details fails', async () => {
   reset(); await settle(Active); assert.equal(storedPass(42).ownerId,7); await settle(Empty);
   h.generation='B';h.userId=8;h.detailsError=true;h.tripError=true;await settle(Active);
