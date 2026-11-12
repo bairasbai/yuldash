@@ -56,8 +56,12 @@ export function lastRideOf(acc) { return q1("SELECT * FROM ride WHERE driver_id 
 export function bookingsOfRide(rideId) { return q("SELECT * FROM booking WHERE ride_id = ? ORDER BY id", rideId); }
 export function ridesOf(acc) { return q("SELECT * FROM ride WHERE driver_id = ? ORDER BY id", userIdOf(acc)); }
 
-/** HH:MM of `minutes` from now in Ufa local time (device/browser timezone of the stand). */
-export function ufaClock(minutes) {
-  const t = new Date(Date.now() + minutes * 60000 + 5 * 3600000);
-  return { hh: t.getUTCHours(), mm: t.getUTCMinutes(), day: t.getUTCDate(), date: new Date(Date.now() + minutes * 60000) };
+/** The publication form needs the device's local clock; the PWA context uses Ufa by default. */
+export function ufaClock(minutes, timeZone = "Asia/Yekaterinburg") {
+  const date = new Date(Date.now() + minutes * 60_000);
+  const format = new Intl.DateTimeFormat("en-GB", {
+    timeZone, day: "2-digit", hour: "2-digit", minute: "2-digit", hourCycle: "h23",
+  });
+  const parts = Object.fromEntries(format.formatToParts(date).map(({ type, value }) => [type, value]));
+  return { hh: Number(parts.hour), mm: Number(parts.minute), day: Number(parts.day), date };
 }

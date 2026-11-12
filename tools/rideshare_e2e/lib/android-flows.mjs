@@ -5,8 +5,8 @@ import { tgBotLogin, lastTgAuthId, log, sleep } from "./common.mjs";
 const NAV = ["Карта", "Поездки", "Заявка", "Чат", "Профиль"];
 
 export function topActivity() {
-  const out = A.sh("dumpsys activity activities | grep -m1 topResumedActivity", { quiet: true });
-  return out.trim();
+  const activities = A.sh("dumpsys activity activities", { quiet: true });
+  return activities.split(/\r?\n/).find(line => line.includes("topResumedActivity"))?.trim() ?? "";
 }
 export async function ensureApp() {
   if (!/com\.yuldash\.app/.test(topActivity())) { A.launch(); await sleep(2500); }

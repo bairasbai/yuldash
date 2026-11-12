@@ -215,7 +215,8 @@ export async function scrollTap(want, opts = {}) {
 let _size = null;
 export function screenSize() {
   if (_size) return _size;
-  const m = sh("wm size", { quiet: true }).match(/(\d+)x(\d+)\s*$/m);
+  // wm size lists the physical size first and the active override last.
+  const m = sh("wm size", { quiet: true }).trim().match(/(\d+)x(\d+)$/);
   _size = [Number(m[1]), Number(m[2])];
   return _size;
 }
