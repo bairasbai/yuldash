@@ -179,6 +179,15 @@ def test_приложение_знает_об_отмене_в_пути_госн�
     mine = client.get("/bookings/mine", headers=pax["auth"]).json()
     row = next(b for b in mine if b["id"] == bid)
     assert row["cancelled_in_transit"] is True
+    with Session(engine) as s:
+        cancelled_at = s.get(Booking, bid).cancelled_at
+        assert cancelled_at is not None
+    assert row["cancelled_in_transit_at"] == details["cancelled_in_transit_at"] == role["cancelled_in_transit_at"]
+    assert role["cancelled_in_transit_at"] == cancelled_at.isoformat()
+    driver_role = client.get(f"/bookings/{bid}/role", headers=driver["auth"]).json()
+    driver_details = client.get(f"/bookings/{bid}/details", headers=driver["auth"]).json()
+    assert driver_role["cancelled_in_transit_at"] is None
+    assert driver_details["cancelled_in_transit_at"] is None
 
 
 def test_sos_после_отмены_в_пути_даёт_близким_госномер(client, user_factory, monkeypatch):

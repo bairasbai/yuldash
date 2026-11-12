@@ -449,6 +449,7 @@ class BookingDetailsOut(BaseModel):
     front_seat: bool = False          # пассажир просил переднее место — видят обе стороны
     # Отменена, когда пассажир был в машине (23.10.2026): экран не закрывается сам, а ведёт к SOS.
     cancelled_in_transit: bool = False
+    cancelled_in_transit_at: Optional[datetime] = None
     boarding_undo_pending: bool = False
     boarding_undo_request_id: Optional[str] = None
     boarding_undo_wait_sec: int = 0
