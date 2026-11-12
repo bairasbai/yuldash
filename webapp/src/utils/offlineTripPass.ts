@@ -2,7 +2,7 @@ import { getAccountSession, isAccountSession } from "../api/client";
 import { offlineStorageTrusted, reportStorageFailure } from "./storageHealth";
 import { serverDate } from "./serverTime";
 import { sameBoardingTimestamp } from "./boardingUndo";
-import { inTransitHelpAvailable } from "./inTransitCancel";
+import { IN_TRANSIT_MARKER_TTL_MS, inTransitHelpAvailable } from "./inTransitCancel";
 import {
   acceptTripPassState, closeTripPass, newTripPassRecord, positiveTripId, validTripPass,
   type TripPass, type TripPassOwner, type TripPassRecord, type TripPassSnapshot, type TripPassState,
@@ -13,12 +13,13 @@ function currentOwner(owner: TripPassOwner): boolean {
   try { return offlineStorageTrusted() && isAccountSession(owner); } catch { return false; }
 }
 
-async function change(
+async function change<Result>(
   owner: TripPassOwner, bookingId: number,
-  update: (record: TripPassRecord | undefined, closedRides: ReadonlySet<number>) => { result: boolean; record?: TripPassRecord },
+  update: (record: TripPassRecord | undefined, closedRides: ReadonlySet<number>) => { result: Result; record?: TripPassRecord },
+  denied: Result,
   signal?: AbortSignal,
-): Promise<boolean> {
-  if (!positiveTripId(bookingId) || !currentOwner(owner) || signal?.aborted) return false;
+): Promise<Result> {
+  if (!positiveTripId(bookingId) || !currentOwner(owner) || signal?.aborted) return denied;
   return editTripRecords(owner, () => !signal?.aborted && currentOwner(owner), (rows, closedRides) => {
     const previous = rows.get(bookingId);
     const { result, record } = update(previous, closedRides);
@@ -26,7 +27,7 @@ async function change(
     const trips = new Map(rows);
     trips.set(bookingId, record);
     return { result, trips };
-  }, false);
+  }, denied);
 }
 
 export async function readTripPassRevision(owner: TripPassOwner | null, bookingId: number): Promise<string | null | undefined> {
@@ -64,7 +65,7 @@ export async function observeTripPass(
         if (matchingStage && validTripPass(pass, owner, bookingId)) record = { ...record, rideId: snapshot.rideId, pass };
       }
       return { result: true, record };
-    }, signal);
+    }, false, signal);
   } catch {
     if (!signal?.aborted && currentOwner(owner) &&
         (state.status === "onboard" || state.status === "cancelled" || state.status === "done")) reportStorageFailure();
@@ -129,7 +130,7 @@ export async function saveTripPassCode(
       }
       if (record.pass.boardingCode === code) return { result: true };
       return { result: true, record: { ...record, pass: { ...record.pass, boardingCode: code } } };
-    }, signal);
+    }, false, signal);
   } catch { /* The online code is independent of saving a copy. */ }
 }
 
@@ -147,28 +148,33 @@ export async function saveTripPassPayment(
       return validTripPass(pass, owner, bookingId)
         ? { result: true, record: { ...record, pass } }
         : { result: false };
-    });
+    }, false);
   } catch { /* Payment agreement was already returned by the server. */ }
 }
 
-export function holdTripPassCancellation(owner: TripPassOwner, bookingId: number, key: string): Promise<boolean> {
-  return change(owner, bookingId, previous => {
-    if (previous?.status === "terminal" || previous?.cancellationKey === key) return { result: true };
-    if (previous?.cancellationKey) return { result: false };
+export function holdTripPassCancellation(owner: TripPassOwner, bookingId: number, key: string): Promise<"held" | "closed" | "blocked"> {
+  return change<"held" | "closed" | "blocked">(owner, bookingId, previous => {
+    if (previous?.status === "terminal" || previous?.cancellationKey === key) return { result: "held" };
+    if (previous?.closedCancellationKeys?.has(key)) return { result: "closed" };
+    if (previous?.cancellationKey) return { result: "blocked" };
     const record = previous ?? newTripPassRecord();
-    return { result: true, record: { ...record, pass: undefined, cancellationKey: key, revision: key } };
-  });
+    return { result: "held", record: { ...record, pass: undefined, cancellationKey: key, revision: key } };
+  }, "blocked");
 }
 
 export function releaseTripPassCancellation(owner: TripPassOwner, bookingId: number, key: string): Promise<boolean> {
-  return change(owner, bookingId, record => {
-    if (!record || record.status === "terminal" || record.cancellationKey !== key) return { result: true };
-    return { result: true, record: { ...record, cancellationKey: undefined, revision: "closed:" + key } };
-  });
+  return change(owner, bookingId, previous => {
+    if (previous?.status === "terminal" || previous?.closedCancellationKeys?.has(key)) return { result: true };
+    const record = previous ?? newTripPassRecord();
+    const closedCancellationKeys = new Set(record.closedCancellationKeys).add(key);
+    if (record.cancellationKey && record.cancellationKey !== key) return { result: true, record: { ...record, closedCancellationKeys } };
+    return { result: true, record: { ...record, closedCancellationKeys,
+      pass: undefined, cancellationKey: undefined, revision: "closed:" + key } };
+  }, false);
 }
 
 export function finishTripPass(owner: TripPassOwner, bookingId: number): Promise<boolean> {
-  return change(owner, bookingId, previous => ({ result: true, record: closeTripPass(previous) }));
+  return change(owner, bookingId, previous => ({ result: true, record: closeTripPass(previous) }), false);
 }
 
 export async function finishTripPassRide(owner: TripPassOwner | null, rideId: number): Promise<void> {
@@ -189,8 +195,10 @@ export async function finishTripPassRide(owner: TripPassOwner | null, rideId: nu
 
 export type OfflineTripView = {
   generation: string;
-  status: "confirmed" | "onboard" | "terminal" | "held";
+  status: "confirmed" | "onboard" | "terminal" | "held" | "storage-unavailable";
   cancelledInTransit: boolean;
+  expiresAt?: number;
+  revision?: string | null;
   pass: TripPass | null;
 };
 
@@ -207,12 +215,18 @@ export async function readOfflineTrip(bookingId: number): Promise<OfflineTripVie
     const rows = await readTripRecords(owner, () => currentOwner(owner));
     if (!rows || !currentOwner(owner)) return null;
     const record = rows.get(bookingId);
+    const cancelledAt = record?.status === "terminal" ? record.cancelledInTransitAt : undefined;
+    const cancelledInTransit = inTransitHelpAvailable(cancelledAt);
     return { generation: owner.generation,
       status: record && record.status !== "terminal" && record.cancellationKey ? "held" : record?.status ?? "confirmed",
-      cancelledInTransit: record?.status === "terminal" && inTransitHelpAvailable(record.cancelledInTransitAt),
+      cancelledInTransit,
+      expiresAt: cancelledInTransit && cancelledAt !== undefined ? cancelledAt + IN_TRANSIT_MARKER_TTL_MS + 1 : undefined,
+      revision: record?.status === "terminal" ? undefined : record?.revision ?? null,
       pass: visiblePass(record, owner, bookingId) };
   } catch {
-    return null;
+    return currentOwner(owner)
+      ? { generation: owner.generation, status: "storage-unavailable", cancelledInTransit: false, pass: null }
+      : null;
   }
 }
 

@@ -106,8 +106,10 @@ async function sendDecision(
   const snap = await commandFingerprint(scopeOf(decision.action), decision.bookingId, requestBody(decision));
   if (snap.payloadHash !== decision.hash) throw new BookingDecisionProblem("storage");
   if (decision.action === "passenger_cancel") {
-    const held = await holdTripPassCancellation(owner, decision.bookingId, decision.key).catch(() => false);
-    if (!held) throw new BookingDecisionProblem(isCurrentBookingOwner(owner) ? "storage" : "stale");
+    signal.throwIfAborted();
+    const hold = await holdTripPassCancellation(owner, decision.bookingId, decision.key).catch(() => "blocked");
+    if (hold === "closed" || !isCurrentBookingOwner(owner)) throw new BookingDecisionProblem("stale");
+    if (hold !== "held") throw new BookingDecisionProblem("storage");
     signal.throwIfAborted();
   }
   const path = "/bookings/" + decision.bookingId + "/commands/v1/" + (decision.action === "confirm" ? "confirm" : "cancel");

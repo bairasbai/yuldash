@@ -962,6 +962,7 @@ def booking_details(booking_id: int, user: User = Depends(current_user), session
         "minor_guardian_phone": (booking.minor_guardian_phone if guardian_visible else ""),
         "front_seat": bool(booking.front_seat),
         "cancelled_in_transit": in_transit,
+        "cancelled_in_transit_at": booking.cancelled_at if in_transit and not is_driver else None,
         **_boarding_undo_fields(booking),
         "onboard_at": booking.onboard_at,
         "can_rate": rateable and rating_allowed_now(session, user.id, ride.depart_at),
@@ -1141,6 +1142,7 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
     # + статус и подфаза → экран активной поездки опрашивает это и показывает пассажиру live-баннер
     # «водитель выехал/подъезжает» (раньше это приходило только пушем, в UI не обновлялось).
     is_driver = ride.driver_id == user.id
+    in_transit = cancelled_in_transit(booking)
     return {
         "alone_with_driver": _alone_with_driver(session, booking, ride, user),
         "role": "driver" if is_driver else "passenger",
@@ -1159,7 +1161,8 @@ def booking_role(booking_id: int, user: User = Depends(current_user), session: S
         # Сколько ещё пассажиру показывать «Сообщить о проблеме» после завершения (водителю 0).
         "problem_report_sec": 0 if is_driver else problem_report_left(booking, ride),
         # Отменена, когда пассажир был в машине (23.10.2026): экран остаётся и ведёт к SOS.
-        "cancelled_in_transit": cancelled_in_transit(booking),
+        "cancelled_in_transit": in_transit,
+        "cancelled_in_transit_at": booking.cancelled_at if in_transit and not is_driver else None,
     }
 
 
@@ -2288,6 +2291,7 @@ def my_bookings(
     for b in bookings:
         r = rides.get(b.ride_id)
         drv = drivers.get(r.driver_id) if r else None
+        in_transit = cancelled_in_transit(b)
         out.append({
             "id": b.id,
             "ride_id": b.ride_id,
@@ -2299,7 +2303,8 @@ def my_bookings(
             "pay_method": b.pay_method.value if hasattr(b.pay_method, "value") else b.pay_method,
             "pay_amount": b.pay_amount,
             "front_seat": bool(b.front_seat),
-            "cancelled_in_transit": cancelled_in_transit(b),
+            "cancelled_in_transit": in_transit,
+            "cancelled_in_transit_at": b.cancelled_at if in_transit else None,
             # Отказ водителя — не «отмена»: «Мои поездки» подписывают его «Отклонена», как экран брони
             # (`/details` → `declined`, приёмка PR210).
             "declined": b.cancel_reason == "driver_declined",

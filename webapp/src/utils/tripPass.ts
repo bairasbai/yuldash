@@ -1,5 +1,6 @@
 import type { BoardingUndoTerms } from "../api/bookings";
-import { isConfirmedBoardingUndo, isStaleBoardingAfterUndo, sameBoardingTimestamp } from "./boardingUndo";
+import { isConfirmedBoardingUndo, isNewBoardingUndo, isStaleBoardingAfterUndo, sameBoardingTimestamp } from "./boardingUndo";
+import { serverDate } from "./serverTime";
 
 export interface TripPassOwner {
   userId: number;
@@ -33,7 +34,9 @@ export interface TripPass {
 export type TripPassSnapshot = Omit<TripPass, "ownerId" | "sessionGeneration" | "boardingCode" | "savedAt">;
 export type TripPassState = BoardingUndoTerms & {
   status: "pending" | "confirmed" | "onboard" | "done" | "cancelled";
+  role?: "driver" | "passenger";
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
 };
 export type TripPassRecord =
   | { status: "terminal"; cancelledInTransitAt?: number }
@@ -45,6 +48,7 @@ export type TripPassRecord =
       undoId?: string | null;
       revision: string | null;
       cancellationKey?: string;
+      closedCancellationKeys?: Set<string>;
       pass?: TripPass;
     };
 
@@ -68,9 +72,9 @@ export function validTripPass(pass: TripPass, owner: TripPassOwner, bookingId: n
 }
 
 /** Terminal history is permanent and has no snapshot. */
-export function closeTripPass(previous: TripPassRecord | undefined, cancelledInTransit = false): TripPassRecord {
-  if (previous?.status === "terminal" && (previous.cancelledInTransitAt !== undefined || !cancelledInTransit)) return previous;
-  return { status: "terminal", ...(cancelledInTransit && { cancelledInTransitAt: Date.now() }) };
+export function closeTripPass(previous: TripPassRecord | undefined, cancelledInTransitAt?: number): TripPassRecord {
+  if (previous?.status === "terminal" && (previous.cancelledInTransitAt !== undefined || cancelledInTransitAt === undefined)) return previous;
+  return { status: "terminal", ...(cancelledInTransitAt !== undefined && { cancelledInTransitAt }) };
 }
 
 /** Change the stage and strip a used code in the same write. */
@@ -80,7 +84,10 @@ export function acceptTripPassState(
   confirmedRevision: string | null | undefined,
 ): TripPassRecord | undefined {
   if (incoming.status === "done" || incoming.status === "cancelled") {
-    return closeTripPass(previous, incoming.status === "cancelled" && incoming.cancelled_in_transit === true);
+    const at = incoming.status === "cancelled" && incoming.role === "passenger" && incoming.cancelled_in_transit === true
+      ? serverDate(incoming.cancelled_in_transit_at)?.getTime()
+      : undefined;
+    return closeTripPass(previous, at);
   }
   if (previous?.status === "terminal" || incoming.status === "pending") return previous;
   const current = previous ?? newTripPassRecord();
@@ -95,6 +102,7 @@ export function acceptTripPassState(
         sameBoardingTimestamp(current.onboardAt, onboardAt))) return current;
     return { status: "onboard", onboardAt, rideId: current.rideId, revision: crypto.randomUUID(),
       cancellationKey: current.cancellationKey,
+      closedCancellationKeys: current.closedCancellationKeys,
       pass: current.pass ? { ...current.pass, boardingCode: "" } : undefined };
   }
   if (confirmedRevision === undefined || confirmedRevision !== current.revision) return previous;
@@ -103,10 +111,10 @@ export function acceptTripPassState(
     return { status: "confirmed", rideId: current.rideId, undoAt: incoming.boarding_undo_onboard_at,
       undoId: incoming.boarding_undo_confirmed_id, revision: crypto.randomUUID(),
       cancellationKey: current.cancellationKey,
+      closedCancellationKeys: current.closedCancellationKeys,
       pass: current.pass ? { ...current.pass, boardingCode: "" } : undefined };
   }
-  if (!current.undoId && incoming.boarding_undo_confirmed_id &&
-      sameBoardingTimestamp(incoming.boarding_undo_onboard_at, incoming.boarding_undo_onboard_at)) {
+  if (isNewBoardingUndo(observed, incoming)) {
     return { ...current, undoAt: incoming.boarding_undo_onboard_at, undoId: incoming.boarding_undo_confirmed_id,
       revision: crypto.randomUUID(), pass: current.pass ? { ...current.pass, boardingCode: "" } : undefined };
   }

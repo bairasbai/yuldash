@@ -22,6 +22,12 @@ export function isConfirmedBoardingUndo(current: BoardingUndoTerms | null | unde
   return !!incoming.boarding_undo_confirmed_id && sameBoardingTimestamp(current?.onboard_at, incoming.boarding_undo_onboard_at);
 }
 
+export function isNewBoardingUndo(current: BoardingUndoTerms | null | undefined, incoming: BoardingUndoTerms): boolean {
+  return !!incoming.boarding_undo_confirmed_id && normalized(incoming.boarding_undo_onboard_at) !== null &&
+    (!current?.boarding_undo_confirmed_id ||
+      compareBoardingTimestamps(incoming.boarding_undo_onboard_at, current.boarding_undo_onboard_at) === 1);
+}
+
 /** Известную посадку нельзя заменить более старой или открыть повторно после исправления. */
 export function isStaleBoardingAfterUndo(
   current: (BoardingUndoTerms & { status?: string }) | null | undefined,

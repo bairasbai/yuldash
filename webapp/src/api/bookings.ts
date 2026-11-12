@@ -139,6 +139,7 @@ export interface BookingDetails extends BoardingUndoTerms {
    * (по ним родные и полиция ищут машину), телефона водителя нет. Старый сервер — поля нет.
    */
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
   /**
    * RS-03 А: точное место встречи/высадки брони. Пассажир видит своё; водитель — только при
    * confirmed/onboard (и теряет сразу после done/cancelled, даже в окне связи). Иначе null/"".
@@ -206,6 +207,7 @@ export interface TripState extends BoardingUndoTerms {
   problem_report_sec?: number;
   /** Отменили, когда пассажир был в машине (23.10.2026): экран не прячет помощь — SOS, «Застряли», разбор. */
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
@@ -251,6 +253,7 @@ export interface MyBooking {
   driver_verified: boolean;
   /** Отменили, когда пассажир был в машине (23.10.2026). Старый сервер — поля нет. */
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
   onboard_at?: string | null;
   /** Водитель отклонил неподтверждённую бронь — «Отклонена», не «Отменена» (приёмка PR210). Старый сервер — поля нет. */
 
@@ -320,7 +323,7 @@ export async function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]
   const owner = getAccountSession();
   const revisions = await readTripPassRevisions(owner);
   const rows = await apiGet<MyBooking[]>("/bookings/mine", { signal, _generation: owner?.generation });
-  await observeTripPassList(owner, rows, signal, revisions);
+  await observeTripPassList(owner, rows.map(row => ({ ...row, role: "passenger" })), signal, revisions);
   requireCurrentBookingSession(owner, signal);
   return rows;
 }

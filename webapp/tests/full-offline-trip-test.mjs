@@ -236,7 +236,7 @@ await test("START ownership mismatch closes both discovery and the card", async 
 });
 await test("START terminal in-transit booking cannot be discovered", async () => {
   await save();
-  await api.observeTripPass(owner, id, { status: "cancelled", cancelled_in_transit: true }, undefined);
+  await api.observeTripPass(owner, id, { status: "cancelled", role: "passenger", cancelled_in_transit: true, cancelled_in_transit_at: new Date().toISOString() }, undefined);
   assert.deepEqual((await api.listOfflineTripOptions()).trips, []);
 });
 await test("F07 cannot load a legacy pair or an invalid route", async () => {
@@ -333,7 +333,7 @@ for (const lang of ["ru", "ba"]) await test("METHOD07 missing or unknown method 
 for (const lang of ["ru", "ba"]) await test("CANCEL08 offline help keeps only 112 " + lang, async () => {
   h.lang = lang;
   await save();
-  await api.observeTripPass(owner, id, { status: "cancelled", cancelled_in_transit: true }, undefined);
+  await api.observeTripPass(owner, id, { status: "cancelled", role: "passenger", cancelled_in_transit: true, cancelled_in_transit_at: new Date().toISOString() }, undefined);
   const fallback = await viewOf(Fallback);
   assert(!childPass(fallback));
   const help = await viewOf(fallback.tree.type, fallback.tree.props);
@@ -343,7 +343,7 @@ for (const lang of ["ru", "ba"]) await test("CANCEL08 offline help keeps only 11
   for (const secret of ["QA001", "4931", "QA Car", snapshot.driverPhone]) assert(!text(help.tree).includes(secret));
 });
 for (const kind of ["expired", "future", "other login", "no token"]) await test("CANCEL08 offline help stays closed for " + kind, async () => {
-  await api.observeTripPass(owner, id, { status: "cancelled", cancelled_in_transit: true }, undefined);
+  await api.observeTripPass(owner, id, { status: "cancelled", role: "passenger", cancelled_in_transit: true, cancelled_in_transit_at: new Date().toISOString() }, undefined);
   if (kind === "expired") await changeRow(row => ({ ...row, cancelledInTransitAt: Date.now() - api.IN_TRANSIT_MARKER_TTL_MS - 1 }));
   if (kind === "future") await changeRow(row => ({ ...row, cancelledInTransitAt: Date.now() + 10000 }));
   if (kind === "other login") putSession({ ...owner, generation: "session-B" });

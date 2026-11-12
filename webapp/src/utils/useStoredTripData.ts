@@ -3,19 +3,26 @@ import { getSessionGeneration } from "../api/client";
 import { subscribeTripPassChanges } from "./tripPassStore";
 
 /** Recheck the current generation on every asynchronous read and browser boundary. */
-export function useStoredTripData<T extends { generation: string }>(
+export function useStoredTripData<T extends { generation: string; expiresAt?: number }>(
   enabled: boolean, read: () => Promise<T | null>, clearOnRefresh = true,
 ): T | null {
   const [value, setValue] = useState<{ read: typeof read; result: T } | null>(null);
   useEffect(() => {
     if (!enabled) return;
     let revision = 0;
+    let expiry: ReturnType<typeof setTimeout> | undefined;
     const refresh = () => {
+      clearTimeout(expiry);
       const expected = ++revision;
       if (clearOnRefresh) setValue(null);
       void read().then(result => {
         if (expected !== revision) return;
-        setValue(result?.generation === getSessionGeneration() ? { read, result } : null);
+        if (!result || result.generation !== getSessionGeneration()) {
+          setValue(null);
+          return;
+        }
+        setValue({ read, result });
+        if (result.expiresAt !== undefined) expiry = setTimeout(refresh, Math.max(0, result.expiresAt - Date.now()));
       }).catch(() => {
         if (expected === revision) setValue(null);
       });
@@ -32,6 +39,7 @@ export function useStoredTripData<T extends { generation: string }>(
     refresh();
     return () => {
       revision++;
+      clearTimeout(expiry);
       unsubscribe();
       window.removeEventListener("focus", refresh);
       window.removeEventListener("online", refresh);

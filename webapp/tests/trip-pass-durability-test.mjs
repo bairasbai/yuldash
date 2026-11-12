@@ -155,7 +155,8 @@ for (const status of ["cancelled", "done"]) {
   await test("terminal history is permanent even when late details are already in flight: " + status, async api => {
     await save(api);
     const stale = await api.readTripPassRevision(owner, booking);
-    globalThis.fetch = async () => reply([{ id: booking, status, cancelled_in_transit: status === "cancelled" }]);
+    globalThis.fetch = async () => reply([{ id: booking, status, cancelled_in_transit: status === "cancelled",
+      cancelled_in_transit_at: new Date().toISOString() }]);
     await api.fetchMyBookings();
     await api.observeTripPass(owner, booking, active, stale, snapshot);
     await api.observeTripPass(owner, booking, receipt(boardA), stale);
@@ -251,6 +252,45 @@ for (const status of ["rejected", "closed_no_effect"]) {
   });
 }
 
+await test("a closed cancellation cannot return from a late tab, including after a later boarding", async api => {
+  await save(api);
+  const otherTab = await fresh();
+  assert.equal(await otherTab.releaseTripPassCancellation(owner, booking, "old-key"), true);
+  await save(api);
+  assert.equal(await api.holdTripPassCancellation(owner, booking, "old-key"), "closed");
+  assert.equal((await state(api)).pass.boardingCode, "4931");
+  await api.observeTripPass(owner, booking, boarding(boardA), undefined);
+  await api.observeTripPass(owner, booking, receipt(boardA), await api.readTripPassRevision(owner, booking));
+  assert.equal(await otherTab.holdTripPassCancellation(owner, booking, "old-key"), "closed");
+  assert.equal(await api.holdTripPassCancellation(owner, booking, "new-key"), "held");
+  assert.equal(await otherTab.releaseTripPassCancellation(owner, booking, "old-key"), true);
+  assert.equal((await state(api)).status, "held");
+});
+
+await test("a new receipt after missed boarding requires a new code even after a prior undo", async api => {
+  await save(api);
+  await api.observeTripPass(owner, booking, receipt(boardA), await api.readTripPassRevision(owner, booking));
+  let revision = await api.readTripPassRevision(owner, booking);
+  await api.saveTripPassCode(owner, booking, revision, "from first undo");
+  await api.observeTripPass(owner, booking, receipt(boardB), revision);
+  assert.equal((await state(api)).pass.boardingCode, "");
+  await api.saveTripPassCode(owner, booking, revision, "late");
+  assert.equal((await state(await fresh())).pass.boardingCode, "");
+  revision = await api.readTripPassRevision(owner, booking);
+  await api.saveTripPassCode(owner, booking, revision, "from second undo");
+  assert.equal((await state(api)).pass.boardingCode, "from second undo");
+});
+
+await test("an old cancelled booking does not reopen the emergency hint, and driver gets no hint", async api => {
+  const ancient = new Date(Date.now() - 7 * 60 * 60 * 1000).toISOString();
+  await api.observeTripPass(owner, booking, { status: "cancelled", role: "passenger", cancelled_in_transit: true,
+    cancelled_in_transit_at: ancient }, undefined);
+  assert.equal((await state(api)).cancelledInTransit, false);
+  await api.observeTripPass(owner, booking + 1, { status: "cancelled", role: "driver", cancelled_in_transit: true,
+    cancelled_in_transit_at: new Date().toISOString() }, undefined);
+  assert.equal((await state(api, booking + 1)).cancelledInTransit, false);
+});
+
 await test("session credentials are published only after the old generation is durably revoked", async (api, h) => {
   await save(api);
   const gate = defer(), completed = defer();
@@ -287,7 +327,9 @@ await test("a failed database read has no localStorage fallback", async (api, h)
   await save(api);
   h.values.set("yuldash.tripPass.42", JSON.stringify(snapshot));
   h.denyRead = true;
-  assert.equal(await state(api), null);
+  const denied = await state(api);
+  assert.equal(denied.status, "storage-unavailable");
+  assert.equal(denied.pass, null);
   assert.equal(await api.listOfflineTripOptions(), null);
 });
 

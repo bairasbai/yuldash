@@ -42,9 +42,11 @@ const L = (lang, ru, ba) => (lang === "ba" ? ba : ru);
 
 const IN_TRANSIT = {
   status: "cancelled", contact_unlocked: false, driver_phone: "", cancelled_in_transit: true,
+  cancelled_in_transit_at: new Date().toISOString(),
   driver_car: "Лада Веста", driver_car_color: "серая", driver_plate: "М555ОР102",
 };
-const TRIP_IN_TRANSIT = { status: "cancelled", cancelled_in_transit: true, peer_id: 9, problem_report_sec: 3600 };
+const TRIP_IN_TRANSIT = { status: "cancelled", cancelled_in_transit: true,
+  cancelled_in_transit_at: IN_TRANSIT.cancelled_in_transit_at, peer_id: 9, problem_report_sec: 3600 };
 const { cancelled_in_transit: _roleFlag, ...TRIP_NO_FLAG } = TRIP_IN_TRANSIT;
 const { cancelled_in_transit: _detailsFlag, ...DETAILS_NO_FLAG } = IN_TRANSIT;
 const card = (tree) => ofType(tree, "CancelledInTransitCard")[0];
@@ -195,6 +197,7 @@ await t.test("SOS и назад без сети — только общая по
   assert.equal(card(h.tree), undefined, "без живых данных нельзя выдать приватную машину за проверенную");
   assert.equal(ofType(h.tree, "ErrorState").length, 1);
   for (const secret of ["М555ОР102", "серая Лада Веста", "tel:"]) assert(!JSON.stringify(h.tree).includes(secret));
+  h.unmount();
 });
 
 await t.test("вернулся, а ответ сервера ещё идёт — сразу экран помощи, а не заглушка загрузки", async () => {
@@ -204,6 +207,7 @@ await t.test("вернулся, а ответ сервера ещё идёт —
   const { h } = await openActiveTrip({ intercept: () => new Promise(() => {}), tripStorage });
   assert.equal(ofType(h.tree, "OfflineCancellationHelp")[0]?.props.bookingId, 42, "пока грузимся, общая помощь остаётся");
   assert.equal(ofType(h.tree, "LoadingList").length, 0);
+  h.unmount();
 });
 
 await t.test("другой вход в той же вкладке чужую отмену в пути не видит", async () => {

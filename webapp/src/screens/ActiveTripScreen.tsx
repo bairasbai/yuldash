@@ -68,7 +68,7 @@ import ShareTripCard from "../components/ShareTripCard";
 import DriverBoarding from "../components/DriverBoarding";
 import BoardingWait from "../components/BoardingWait";
 import PassengerBoardingUndo from "../components/PassengerBoardingUndo";
-import { isStaleBoardingAfterUndo, isConfirmedBoardingUndo, sameBoardingTimestamp } from "../utils/boardingUndo";
+import { isStaleBoardingAfterUndo, isConfirmedBoardingUndo, isNewBoardingUndo, sameBoardingTimestamp } from "../utils/boardingUndo";
 import DriverBoardedDispute from "../components/DriverBoardedDispute";
 import TripChatCard from "../components/TripChatCard";
 import CancelledInTransitCard from "../components/CancelledInTransitCard";
@@ -159,7 +159,7 @@ export default function ActiveTripScreen() {
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [details, setDetails] = useState<BookingDetails | null>(null);
   const [trip, setTrip] = useState<TripState | null>(null);
-  const [code, setCode] = useState<string | null>(null);
+  const [code, setCode] = useState<{ value: string; revision?: string | null } | null>(null);
   const readPass = useCallback(() => readOfflineTrip(bookingId), [bookingId]);
   const savedTrip = useStoredTripData(true, readPass, false);
   const detailsLifetime = useRef<AbortController | null>(null);
@@ -226,13 +226,13 @@ export default function ActiveTripScreen() {
     if (isStaleBoardingAfterUndo(current, incoming)) return false;
     const undo = currentStatus === "onboard" && incoming.status === "confirmed" && isConfirmedBoardingUndo(current, incoming);
     if (!shouldApplyBookingDetails(currentStatus, incoming.status) && !undo) return false;
-    if (incoming.status === "confirmed" && incoming.boarding_undo_confirmed_id) {
+    if (incoming.status === "confirmed" && (undo || isNewBoardingUndo(current, incoming))) {
+      boardingSeqRef.current += 1;
+      setCode(null);
       if (undo) {
-        boardingSeqRef.current += 1;
         detailsStatusRef.current = "confirmed";
         if (rawDetailsRef.current) rawDetailsRef.current = { ...rawDetailsRef.current, status: "confirmed", onboard_at: null };
         setDetails(previous => previous ? { ...previous, status: "confirmed", onboard_at: null } : previous);
-        setCode(null);
       }
     }
     if (incoming.status === "onboard" && sameBoardingTimestamp(incoming.onboard_at, incoming.onboard_at) &&
@@ -403,7 +403,9 @@ export default function ActiveTripScreen() {
   const active = st === "confirmed" || st === "onboard";
 
   const needsBoardingCode = details?.role === "passenger" && st === "confirmed" &&
-    (savedTrip?.status === "confirmed" || typeof indexedDB === "undefined");
+    (savedTrip?.status === "confirmed" || savedTrip?.status === "storage-unavailable");
+  const codeRevision = savedTrip?.revision;
+  const visibleCode = code?.revision === codeRevision ? code?.value : undefined;
 
   // Отменили, когда пассажир был в машине: экран не прячет помощь (CancelledInTransitCard) и не
   // показывает ничего от живой поездки — ни чата с водителем, ни карты (приёмка PR207, №1).
@@ -421,20 +423,30 @@ export default function ActiveTripScreen() {
     }
     const request = new AbortController();
     const boardingSeq = boardingSeqRef.current;
-    fetchBoardingCode(bookingId, request.signal)
+    const readCode = async () => {
+      const before = await readOfflineTrip(bookingId);
+      if (before?.status === "storage-unavailable") {
+        const live = await fetchTripState(bookingId, request.signal);
+        if (live.role !== "passenger" || live.status !== "confirmed") return;
+      } else if (before?.status !== "confirmed" || before.revision !== codeRevision) return;
+      const response = await fetchBoardingCode(bookingId, request.signal);
+      return { value: response.code, revision: before.revision };
+    };
+    void readCode()
       .then(async (r) => {
+        if (!r) return;
         const latest = await readOfflineTrip(bookingId);
         if (request.signal.aborted || currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration || boardingSeq !== boardingSeqRef.current ||
-          (typeof indexedDB !== "undefined" && latest?.status !== "confirmed") ||
+          (latest?.status !== "confirmed" && latest?.status !== "storage-unavailable") || latest.revision !== r.revision ||
           !shouldApplyBookingDetails(tripRef.current?.status, "confirmed") ||
           !shouldApplyBookingDetails(detailsStatusRef.current, "confirmed")) return;
-        setCode(r.code);
+        setCode(r);
       })
       .catch(() => {
         /* нет кода — не критично */
       });
     return () => request.abort();
-  }, [bookingId, needsBoardingCode, user?.id, sessionGeneration]);
+  }, [bookingId, needsBoardingCode, codeRevision, user?.id, sessionGeneration]);
 
   // ---- Live-точка водителя (WS) — только пока активна и только пассажиру ----
   // Водителю этот канал на приём не нужен: свою точку он отправляет сам (DriverLocationShare),
@@ -784,12 +796,12 @@ export default function ActiveTripScreen() {
       )}
 
       {/* Код посадки */}
-      {needsBoardingCode && code && (
+      {needsBoardingCode && visibleCode && (
         <div className="code-card">
           <div className="code-card__label">
             {appText("Код посадки", "Ултырыу коды")}
           </div>
-          <div className="code-card__value">{code}</div>
+          <div className="code-card__value">{visibleCode}</div>
           <div className="code-card__hint">
             {appText("Назови его водителю при посадке", "Ултырғанда йөрөтөүсегә әйт")}
           </div>

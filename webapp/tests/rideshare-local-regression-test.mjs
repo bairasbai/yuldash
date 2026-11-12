@@ -77,6 +77,7 @@ function passFixture() {
   const factory = new IDBFactory();
   globalThis.indexedDB = {
     open(...args) {
+      if (h.denyPassRead) throw Error("storage unavailable");
       const request = factory.open(...args);
       request.addEventListener("success", () => {
         const db = request.result, start = db.transaction.bind(db);
@@ -141,6 +142,7 @@ const definitions = {
   PassengerBoardingUndo: `props=>{h.undoProps=props;return h.components.PassengerBoardingUndo(props)}`,
   sameBoardingTimestamp: `(...args)=>h.sameBoardingTimestamp(...args)`,
   isStaleBoardingAfterUndo: `(...args)=>h.isStaleBoardingAfterUndo(...args)`,
+  isNewBoardingUndo: `(...args)=>h.isNewBoardingUndo(...args)`,
   usePassengerCancellation: `options=>h.passengerCancellation(options)`,
   bookingCommandOwner: `(user,generation)=>user?{userId:user.id,generation,namespace:String(user.id)}:null`,
   isCurrentBookingOwner: `owner=>owner.userId===h.userId&&owner.generation===h.generation`,
@@ -193,6 +195,7 @@ h.components.PassengerBoardingUndo = await compile('components/PassengerBoarding
 h.matchesBoardingUndo = await compile('utils/boardingUndo.ts', 'isConfirmedBoardingUndo');
 h.sameBoardingTimestamp = await compile('utils/boardingUndo.ts', 'sameBoardingTimestamp');
 h.isStaleBoardingAfterUndo = await compile('utils/boardingUndo.ts', 'isStaleBoardingAfterUndo');
+h.isNewBoardingUndo = await compile('utils/boardingUndo.ts', 'isNewBoardingUndo');
 h.components.DriverLocationShare = await compile('components/DriverLocationShare.tsx');
 h.passengerCancellation = await compile('components/PassengerCancellation.tsx', 'usePassengerCancellation');
 h.useStoredTripData = await compile('utils/useStoredTripData.ts', 'useStoredTripData');
@@ -222,7 +225,7 @@ function reset({ role = 'passenger', status = 'confirmed', lang = 'ru', shares =
   globalThis.window = new EventTarget();
   globalThis.document = new EventTarget();
   passFixture();
-  Object.assign(h, { markHolds: [], markHeldRequests: [], markReplyTransform: null, boardingAt: BOARDING_AT, undoResponses: [], undoResponseHolds: [], userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], records: new Map(), passes: new Map(), passWrites: [], diskFenced: false, stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
+  Object.assign(h, { markHolds: [], markHeldRequests: [], markReplyTransform: null, boardingAt: BOARDING_AT, undoResponses: [], undoResponseHolds: [], userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, denyPassRead: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], records: new Map(), passes: new Map(), passWrites: [], diskFenced: false, stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
     details: { booking_id: 42, ride_id: 7, role, status, from_city: 'Уфа', to_city: 'Сибай', depart_at: '2026-10-15T10:00:00Z', contact_unlocked: true, driver_name: 'QA Driver', driver_car: 'QA Car', driver_plate: 'QA001', driver_phone: '+79990000000', pickup: 'QA Pickup', price: 300, pay_method: 'cash', seats: 1 },
     trip: { role, status, onboard_at: status === 'onboard' ? BOARDING_AT : null, driver_phase: 'arriving', arrival_verified: true, peer_id: role === 'driver' ? 7 : 3, boarding_undo_sec: 0 },
     receipt: { role, booking_id: 42, from_city: 'Уфа', to_city: 'Сибай', amount: 300, paid: false, pay_method: 'cash' },
@@ -715,6 +718,14 @@ for (const observed of [
   assert.deepEqual(storedPass(42), before, 'The observed state must survive the late role response');
   assert.equal(codeCards().length, 0);
   assert.ok(!button(observed.lang === 'ba' ? 'Машинаға ултырҙым' : 'Села в машину'));
+});
+
+await test('online boarding code still works when the offline database cannot be opened', async () => {
+  reset(); h.denyPassRead = true;
+  await settle(Active);
+  assert(text(h.tree).includes('4931'));
+  assert(h.codeRequests.includes(42));
+  assert.equal((await h.passStorage.readOfflineTrip(42)).pass, null);
 });
 
 await test('verified B cannot see A cached pass after details fails', async () => {
