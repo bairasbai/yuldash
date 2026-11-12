@@ -650,8 +650,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "69037004dd05d617d77e1b3910519a447795fe5efe4898ca32ff9e35ea91f94d",
-      "lines": 2146
+      "sha256": "97764799e60fa1afa4bc9d621b1bab8e37f228b96b74c5c2f13637a9e55e7cb1",
+      "lines": 2131
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDecisionBar.kt",
@@ -1861,8 +1861,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "d8055d1100ede449707638f1be06732c01e17c3b65c4484c9ef3e6a21533daf6",
-      "lines": 2834
+      "sha256": "008ed675d9c1aaa0e0015a9c310cde4851a8d85eaa1f944835b4db31f89ae34b",
+      "lines": 2842
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -2421,8 +2421,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AccessibilityFormsContentTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "79f1458f46ca8ef359e40d1e43ba8dcf4daa080c7a4665e9331593946116a443",
-      "lines": 197
+      "sha256": "621d9c6415cfc699f42d843db15cdd63aebe104b51eed3d41f981a72c7eb4475",
+      "lines": 194
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AccessibilityScreensContentTest.kt",

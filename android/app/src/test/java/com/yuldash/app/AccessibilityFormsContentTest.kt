@@ -46,9 +46,8 @@ class AccessibilityFormsContentTest {
         CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             FamilyOrderFormContent(
                 passenger = passenger, from = from, to = to,
-                notifyContact = true, trustedName = "Айгуль",
                 loading = loading, error = error,
-                onPassengerChange = {}, onNotifyContactChange = {},
+                onPassengerChange = {},
                 onSubmit = onSubmit,
             )
         }
@@ -104,9 +103,8 @@ class AccessibilityFormsContentTest {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
                 FamilyOrderFormContent(
                     passenger = "Әсәй", from = "Өфө", to = "Сибай",
-                    notifyContact = true, trustedName = null,
                     loading = false, error = null,
-                    onPassengerChange = {}, onNotifyContactChange = {},
+                    onPassengerChange = {},
                     onSubmit = {},
                 )
             }
@@ -120,9 +118,8 @@ class AccessibilityFormsContentTest {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
                 FamilyOrderFormContent(
                     passenger = "Әсәй", from = "Өфө", to = "Сибай",
-                    notifyContact = true, trustedName = null,
                     loading = false, error = null,
-                    onPassengerChange = {}, onNotifyContactChange = {},
+                    onPassengerChange = {},
                     onSubmit = {},
                 )
             }

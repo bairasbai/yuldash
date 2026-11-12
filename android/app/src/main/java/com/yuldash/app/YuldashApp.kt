@@ -1700,7 +1700,7 @@ private fun YuldashAppContent() {
                 latestRequests = localRequests,
                 onBack = { goBack() },
                 onVoiceRequest = { openProtectedScreen(Screen.VoiceRequest) },
-                onFamilyOrder = { openProtectedScreen(Screen.FamilyOrder) },
+                onFamilyOrder = { vm.navigateLocally { openProtectedScreen(Screen.FamilyOrder) } },
                 onTrustedContacts = { openTrustedContacts(returnScreen = Screen.SimpleMode) },
                 onRepeatTrip = { openProtectedScreen(Screen.RepeatTrip) },
                 onCallbackHelp = { openProtectedScreen(Screen.CallbackHelp) },
@@ -1716,15 +1716,23 @@ private fun YuldashAppContent() {
                     goBack()
                 }
             )
-            Screen.FamilyOrder -> FamilyOrderScreen(
-                contacts = trustedContacts,
-                onBack = { goBack() },
-                onCreateRequest = { request ->
-                    localRequests.add(0, request)
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Яҡын кеше өсөн сәфәр булдырылды" else "Поездка за близкого создана", Toast.LENGTH_SHORT).show()
-                    goBack()
+            Screen.FamilyOrder -> {
+                val displayedRevision = vm.privateNavigationRevision
+                val createdMessage = appText("Заявка создана", "Заявка булдырылды")
+                androidx.compose.runtime.key(displayedRevision) {
+                    FamilyOrderScreen(
+                        onBack = { goBack() },
+                        onCreateRequest = { request ->
+                            if (localRequests.none { it.serverId == request.serverId }) localRequests.add(0, request)
+                            if (requestsLoading) requestsReload++
+                            if (vm.screen.value == Screen.FamilyOrder && vm.privateNavigationRevision == displayedRevision) {
+                                Toast.makeText(context, createdMessage, Toast.LENGTH_SHORT).show()
+                                goBack()
+                            }
+                        }
+                    )
                 }
-            )
+            }
             Screen.TrustedContacts -> {
                 val displayedRevision = vm.privateNavigationRevision
                 androidx.compose.runtime.key(displayedRevision) {
