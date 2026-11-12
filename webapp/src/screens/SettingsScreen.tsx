@@ -49,6 +49,8 @@ export default function SettingsScreen() {
   const navigate = useNavigate();
 
   const [theme, setThemeMode] = useTheme();
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [themeSaveError, setThemeSaveError] = useState(false);
   const [scale, setScale] = useFontScale();
 
   // Локальные тумблеры (уведомления/звуки) — из localStorage.
@@ -64,6 +66,20 @@ export default function SettingsScreen() {
   const [delError, setDelError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"theme" | "size" | null>(null); // ThemePickerDialog / FontScaleDialog
   const [logoutAsk, setLogoutAsk] = useState(false);
+
+  const saveTheme = async (mode: ThemeMode) => {
+    if (themeSaving) return;
+    setThemeSaving(true);
+    setThemeSaveError(false);
+    try {
+      await setThemeMode(mode);
+      setPicker(open => open === "theme" ? null : open);
+    } catch {
+      setThemeSaveError(true);
+    } finally {
+      setThemeSaving(false);
+    }
+  };
 
   const themes: { key: ThemeMode; icon: JSX.Element; label: string }[] = [
     { key: "system", icon: <IconSettings size={20} />, label: appText("Как в системе", "Системалағыса") },
@@ -193,17 +209,23 @@ export default function SettingsScreen() {
           icon={<IconMap size={24} />}
           title={appText("Тема", "Тема")}
           subtitle={themeLabel}
-          onClick={() => setPicker(picker === "theme" ? null : "theme")}
+          onClick={() => {
+            setThemeSaveError(false);
+            setPicker(picker === "theme" ? null : "theme");
+          }}
         />
         {picker === "theme" && (
           <div className="settings-group__body">
+            {themeSaving && <p role="status">{appText("Сохраняем тему…", "Теманы һаҡлайбыҙ…")}</p>}
+            {themeSaveError && <p role="alert">{appText("Не получилось сохранить тему. Попробуй ещё раз.", "Теманы һаҡлап булманы. Ҡабатлап ҡара.")}</p>}
             <div className="seg">
               {themes.map((th) => (
                 <button
                   key={th.key}
                   type="button"
                   className={"seg__item" + (theme === th.key ? " is-active" : "")}
-                  onClick={() => { setThemeMode(th.key); setPicker(null); }}
+                  onClick={() => void saveTheme(th.key)}
+                  disabled={themeSaving}
                   aria-pressed={theme === th.key}
                 >
                   <span aria-hidden>{th.icon}</span>

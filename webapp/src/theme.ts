@@ -1,61 +1,132 @@
-// ================================================================
-//  Тема оформления — ЕДИНАЯ точка правды (светлая / тёмная / системная).
-//  До этого тема шла ТОЛЬКО от системы (prefers-color-scheme). Здесь
-//  добавляем ручной оверрайд, переживающий перезагрузку (localStorage):
-//   • "system" — снимаем data-theme, дизайн-токены берутся из
-//     @media (prefers-color-scheme) в index.css (как раньше);
-//   • "light"/"dark" — ставим data-theme на <html>, CSS-переменные
-//     жёстко переопределяются (см. index.css → :root[data-theme=...]).
-//  Значение и применение определяются ТОЛЬКО здесь — переиспользуй
-//  хук useTheme в Настройках, без дублей (как fontScale.ts).
-// ================================================================
 import { useEffect, useState } from "react";
 
 export type ThemeMode = "system" | "light" | "dark";
 
-const KEY = "yuldash.theme";
+const LEGACY_KEY = "yuldash.theme";
+const DATABASE = "yuldash-device-theme-v1";
+const STORE = "preferences";
+const THEME_KEY = "theme";
+const STARTUP_READ_LIMIT_MS = 1000;
 
-function isMode(v: unknown): v is ThemeMode {
-  return v === "system" || v === "light" || v === "dark";
+function isMode(value: unknown): value is ThemeMode {
+  return value === "system" || value === "light" || value === "dark";
 }
 
-/** Текущий режим темы из localStorage (дефолт — системный). */
-export function getTheme(): ThemeMode {
-  const v = localStorage.getItem(KEY);
-  return isMode(v) ? v : "system";
-}
-
-/** Применить тему к документу. Вызывается на старте (main.tsx) и при смене. */
-export function applyTheme(mode: ThemeMode = getTheme()): void {
-  const el = document.documentElement;
-  if (mode === "system") {
-    // Возврат к системной теме: убираем ручной оверрайд, работает @media.
-    delete el.dataset.theme;
-  } else {
-    el.dataset.theme = mode; // "light" | "dark" — жёстко (см. index.css)
+function legacyTheme(): ThemeMode | null {
+  try {
+    const value = localStorage.getItem(LEGACY_KEY);
+    return isMode(value) ? value : null;
+  } catch {
+    return null;
   }
 }
 
-// Подписчики (компоненты через useTheme) — чтобы переключатель мгновенно
-// обновлял индикатор везде, где он показан.
-const listeners = new Set<() => void>();
-
-/** Сменить тему: сохранить + применить + оповестить подписчиков. */
-export function setTheme(mode: ThemeMode): void {
-  localStorage.setItem(KEY, mode);
-  applyTheme(mode);
-  listeners.forEach((l) => l());
+function openThemeDatabase(): Promise<IDBDatabase> {
+  return new Promise((resolve, reject) => {
+    const request = indexedDB.open(DATABASE, 1);
+    let blocked = false;
+    request.onupgradeneeded = () => request.result.createObjectStore(STORE);
+    request.onerror = () => reject(request.error);
+    request.onblocked = () => {
+      blocked = true;
+      reject(new Error("Theme storage is blocked"));
+    };
+    request.onsuccess = () => {
+      const db = request.result;
+      if (blocked) db.close();
+      else {
+        db.onversionchange = () => db.close();
+        resolve(db);
+      }
+    };
+  });
 }
 
-/** Хук для UI: [текущая тема, сменить]. Переиспользуй в Настройках. */
-export function useTheme(): [ThemeMode, (m: ThemeMode) => void] {
-  const [mode, setMode] = useState<ThemeMode>(getTheme);
+/** The completion event, rather than the success of put(), confirms a preference change. */
+async function accessTheme(selected?: ThemeMode): Promise<ThemeMode> {
+  if (typeof indexedDB === "undefined") {
+    if (selected !== undefined) localStorage.setItem(LEGACY_KEY, selected);
+    return selected ?? legacyTheme() ?? "system";
+  }
+  const db = await openThemeDatabase();
+  try {
+    const saved = await new Promise<ThemeMode | null>((resolve, reject) => {
+      const tx = db.transaction(STORE, "readwrite", { durability: "strict" });
+      const store = tx.objectStore(STORE);
+      let value: ThemeMode | null = selected ?? null;
+      tx.oncomplete = () => resolve(value);
+      tx.onabort = () => reject(tx.error ?? new Error("Theme storage write aborted"));
+      if (selected !== undefined) {
+        store.put(selected, THEME_KEY);
+      } else {
+        const request = store.get(THEME_KEY);
+        request.onsuccess = () => {
+          if (isMode(request.result)) {
+            value = request.result;
+          } else {
+            value = legacyTheme();
+            if (value !== null) store.put(value, THEME_KEY);
+          }
+        };
+      }
+    });
+    // The old preference is removed only after the one-time migration or a new choice commits.
+    if (saved !== null) {
+      try { localStorage.removeItem(LEGACY_KEY); } catch { /* The committed record remains authoritative. */ }
+    }
+    return saved ?? "system";
+  } finally {
+    db.close();
+  }
+}
+
+let currentMode: ThemeMode = "system";
+let pendingWrite: Promise<void> = Promise.resolve();
+const listeners = new Set<() => void>();
+
+export function getTheme(): ThemeMode {
+  return currentMode;
+}
+
+/** Apply the device preference before mounting the app, including cold offline starts. */
+export async function restoreTheme(): Promise<void> {
+  const fallback = legacyTheme() ?? "system";
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const deadline = new Promise<ThemeMode>(resolve => {
+      timer = setTimeout(() => resolve(fallback), STARTUP_READ_LIMIT_MS);
+    });
+    currentMode = await Promise.race([accessTheme(), deadline]);
+  } catch {
+    currentMode = fallback;
+  } finally {
+    clearTimeout(timer);
+  }
+  applyTheme();
+}
+
+export function applyTheme(mode: ThemeMode = currentMode): void {
+  const el = document.documentElement;
+  if (mode === "system") delete el.dataset.theme;
+  else el.dataset.theme = mode;
+}
+
+export function setTheme(mode: ThemeMode): Promise<void> {
+  const change = pendingWrite.then(async () => {
+    currentMode = await accessTheme(mode);
+    applyTheme();
+    listeners.forEach(listener => listener());
+  });
+  pendingWrite = change.catch(() => { /* A failed selection does not prevent the next one. */ });
+  return change;
+}
+
+export function useTheme(): [ThemeMode, (mode: ThemeMode) => Promise<void>] {
+  const [mode, setMode] = useState(getTheme);
   useEffect(() => {
-    const l = () => setMode(getTheme());
-    listeners.add(l);
-    return () => {
-      listeners.delete(l);
-    };
+    const update = () => setMode(getTheme());
+    listeners.add(update);
+    return () => { listeners.delete(update); };
   }, []);
   return [mode, setTheme];
 }
