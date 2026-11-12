@@ -15784,8 +15784,8 @@
       "path": "webapp/src/screens/TripChatScreen.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "8bbb6fd1274ce82c1e8fffa5699b0334abfa2d4ba16459405d6f125c1b56e39c",
-      "lines": 944
+      "sha256": "5d96eb38cf96aa36f8efefc67dd3ed9c3554848246d9d05173edb8b10c175a42",
+      "lines": 951
     },
     {
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
@@ -15840,8 +15840,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "47486d9767f9f4e2d6c2df50d5a1390fb9733cb8ebbbb7b214a50c4dcd7b4eff",
-      "lines": 20874
+      "sha256": "f1c987a036196af687c566342febdd3e8823c549cb0e9bc2db938c8ae83c11e0",
+      "lines": 21119
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -16162,15 +16162,15 @@
       "path": "webapp/src/utils/tripChat.d.ts",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "791208760ad5207def48a8b136799f6ffe74a11abdeff9d680741adaf1e040c0",
-      "lines": 27
+      "sha256": "7870f935e91a6fc951c0608fce0f8e54f10b648238e9f7f6a558f909faef259e",
+      "lines": 28
     },
     {
       "path": "webapp/src/utils/tripChat.js",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "8286b403457cecdace38534e41c8dec5e293b601b77c3a9bc6843d13c25f2787",
-      "lines": 91
+      "sha256": "51da826b15eb1b0a3d27c322b22601901390a29831612de8506e8da53625e95d",
+      "lines": 92
     },
     {
       "path": "webapp/src/utils/tripDetailsSync.d.ts",
@@ -17254,8 +17254,8 @@
       "path": "webapp/tests/trip-chat-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "0d0cf32829beb51677397d2c94e9626d902fe4bab6a1af863d258ae4f2835e9c",
-      "lines": 108
+      "sha256": "4734a0e82f41dc6fbc12864dc7fe98956cdd0e1e0ff2e1b77a1e151164fc1cd5",
+      "lines": 116
     },
     {
       "path": "webapp/tests/trip-rating-submit-test.mjs",

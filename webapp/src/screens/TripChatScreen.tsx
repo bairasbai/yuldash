@@ -66,14 +66,20 @@ function useViewportFrame(ref: RefObject<HTMLElement>) {
     if (!el) return;
     const vv = window.visualViewport;
     const apply = () => {
+      const zoom = Number.parseFloat(getComputedStyle(document.documentElement).zoom);
       // Щипок-зум меняет высоту visualViewport — это не клавиатура, рамку не трогаем.
       if (!vv || vv.scale > 1.01) {
         el.style.removeProperty("--tchat-top");
-        el.style.removeProperty("--tchat-h");
+        if (Number.isFinite(zoom) && zoom > 0 && zoom !== 1) {
+          const frame = viewportBox(window.innerHeight, window.innerHeight, 0, zoom);
+          el.style.setProperty("--tchat-h", `${frame.height}px`);
+        } else {
+          el.style.removeProperty("--tchat-h");
+        }
         el.dataset.kb = "0";
         return;
       }
-      const box = viewportBox(window.innerHeight, vv.height, vv.offsetTop);
+      const box = viewportBox(window.innerHeight, vv.height, vv.offsetTop, zoom);
       el.style.setProperty("--tchat-top", `${box.top}px`);
       el.style.setProperty("--tchat-h", `${box.height}px`);
       el.dataset.kb = box.keyboardOpen ? "1" : "0";
