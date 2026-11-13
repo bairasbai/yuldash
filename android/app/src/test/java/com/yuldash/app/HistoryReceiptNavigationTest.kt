@@ -64,13 +64,15 @@ class HistoryReceiptNavigationTest {
     private val currentOnboardAt="2031-02-03T09:00:00.123456Z"
     private val current=Ride(id="8",from="Текущая А",to="Текущая Б",time="Завтра",driver="CurrentDriver44",car="",price=900,seats=1,rating=4.9,verified=true,boosted=false)
 
-    private fun awaitApiBackgroundCompletion()=runBlocking {
+    private fun awaitApiBackgroundCompletion(cancelOwnRequests: Boolean = false)=runBlocking {
         // Observe only the test-owned API coroutine job, never auth/key fields.
         val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
         val parent=requireNotNull(scope.coroutineContext[Job])
-        // Navigation assertions are complete before cleanup. Cancel optional fire-and-forget
-        // work while the fixture still owns its origin, then require its jobs to drain.
-        parent.cancelChildren()
+        if (cancelOwnRequests) {
+            check(::server.isInitialized && ApiClient.testBaseUrl == serverOrigin())
+            // Setup already drained older jobs before this test claimed the origin.
+            parent.cancelChildren()
+        }
         try {
             withTimeout(10_000) {
                 while(true) {
@@ -214,7 +216,7 @@ class HistoryReceiptNavigationTest {
     @After fun cleanup(){
         if(!::server.isInitialized) {awaitApiBackgroundCompletion();awaitSnapshotCleanup();return}
         compose.runOnIdle{mounted.value=false};pump(300);actor.destroy();vm.clearUserData()
-        awaitApiBackgroundCompletion();awaitSnapshotCleanup()
+        awaitApiBackgroundCompletion(cancelOwnRequests = true);awaitSnapshotCleanup()
         ApiClient.resetForTest();ApiClient.testTimeoutMs=null;server.shutdown()
     }
 
