@@ -818,17 +818,26 @@ def _handle_admin_callback(callback: dict):
             elif resp.status == "accepted":
                 text = f"Отклик #{resp.id} уже принят"
             elif not approve:
-                resp.status = "declined"
-                s.add(resp)
-                s.commit()
-                text = f"Отклонён отклик #{resp.id}"
+                from .requests import decline_response_as_admin
+                try:
+                    changed = decline_response_as_admin(s, resp.id)
+                    text = f"Отклонён отклик #{resp.id}" if changed else f"Отклик #{resp.id} уже закрыт."
+                except HTTPException:
+                    text = f"Отклик #{resp.id} уже изменился."
             else:
-                from .requests import accept_request_response   # локальный импорт — без цикла на старте
+                from ..request_traveler import CONFIRMATION_REQUIRED
+                from .requests import accept_request_response, request_traveler_waiting
                 try:
                     accept_request_response(s, resp)
                     text = f"Принят отклик #{resp.id} — поездка создана. Перезвони пассажиру и водителю."
                 except HTTPException as e:
-                    text = f"Не удалось принять отклик #{resp.id}: {e.detail}"
+                    if isinstance(e.detail, dict) and e.detail.get("code") == CONFIRMATION_REQUIRED:
+                        if request_traveler_waiting(s, resp.id):
+                            text = f"Отклик #{resp.id} ждёт подтверждения пассажира владельцем заявки."
+                        else:
+                            text = f"Отклик #{resp.id} нельзя передать на подтверждение. Проверь условия в приложении."
+                    else:
+                        text = f"Не удалось принять отклик #{resp.id}: {e.detail}"
         else:
             # То же ядро, что у админки (payments.py): блокировка строки, проверка статуса,
             # единый активатор всех назначений, сообщение плательщику при отказе. Своя копия

@@ -2,7 +2,6 @@
 отмена, список своих, список броней водителя для оценки пассажиров."""
 import math
 import secrets
-import unicodedata
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -37,6 +36,7 @@ from ..visibility import (LIVE_GEO_LEAD_HOURS, PROBLEM_REPORT_WINDOW, booking_co
 from ..services import (booking_and_ride_for_user, geocode_city, haversine_km, is_blocked,
                         lock_booking_and_ride_for_user, notify_map_changed, push_notification, user_rating)
 from ..rating_service import booking_rating_open, rating_allowed_now
+from ..request_traveler import normalize_traveler_name
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -344,12 +344,7 @@ class BookIn(BaseModel):
     @field_validator("traveler_name")
     @classmethod
     def normalize_traveler_name(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        if (not any(char.isalpha() for char in value) or
-                any(char.isnumeric() or unicodedata.category(char).startswith("C") for char in value)):
-            raise ValueError("invalid traveler name")
-        return " ".join(value.split())
+        return None if value is None else normalize_traveler_name(value)
 
 
 # Отказ, когда переднее уже обещано другому пассажиру. Один текст на проверку и на барьер базы.

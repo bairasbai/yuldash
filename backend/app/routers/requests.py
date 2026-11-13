@@ -3,9 +3,9 @@ from datetime import datetime, timedelta
 from dataclasses import dataclass
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel, Field
-from sqlalchemy import and_, or_, text, update
+from fastapi import APIRouter, Depends, HTTPException, Response
+from pydantic import BaseModel, Field, field_validator
+from sqlalchemy import and_, func, or_, text, update
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -36,6 +36,11 @@ from ..timeutil import client_dt_to_utc, local_date, local_day_bounds_utc, utcno
 from .. import workday as workday_mod
 from ..trust_service import INSIDER_LEVEL, trust_level
 from .. import request_segments
+from ..request_traveler import (
+    TravelerConfirmationIn, normalize_traveler_name, request_traveler_mode, traveler_acceptance_hash,
+    traveler_booking_fields, traveler_confirmation_required, traveler_offer_version, traveler_request_departure,
+)
+from ..idempotency import IdempotencyKey, validate_key
 from .. import ride_seats            # RS-02 А: места по участкам — единая дверь записи
 from ..geo import snapshot_cached
 from ..safety_logic import GENDER_FEMALE, gender_of
@@ -88,12 +93,19 @@ class RequestIn(BaseModel):
     assisted: bool = False   # заявка из «помощь»-режима (пожилой/голос/за близкого) — НЕ храним, только уведомляем админа
 
 
+class RequestForAnotherIn(RequestIn):
+    for_relative_name: str = Field(max_length=120)
+
+    @field_validator("for_relative_name")
+    @classmethod
+    def validate_traveler(cls, value: str) -> str:
+        return normalize_traveler_name(value)
+
+
 def _visible_request_text(body: "RequestIn") -> str:
-    """Весь свободный текст заявки, который увидит лента водителей — одной строкой для проверки.
-    Комментарий, расшифровка голосовой заявки и имя близкого: три поля, одна модерация."""
+    """Свободный текст объявления, который видит лента водителей."""
     parts = ((body.comment or "").strip(),
-             (body.transcript or "").strip(),
-             (body.for_relative_name or "").strip())
+             (body.transcript or "").strip())
     return "\n".join(p for p in parts if p)
 
 
@@ -129,7 +141,7 @@ def live_request_conds():
     ]
 
 
-def _recent_twin_request(session: Session, passenger_id: int, body: RequestIn):
+def _recent_twin_request(session: Session, passenger_id: int, body: RequestIn, traveler_origin: str | None):
     """Только что созданная ПОЛНОСТЬЮ такая же заявка — тот же самый тап.
     Сравниваем весь смысл заявки: поменял хоть одно поле — это новая заявка."""
     fields = body.model_dump(exclude={"assisted", "pickup_point_id"})
@@ -141,13 +153,30 @@ def _recent_twin_request(session: Session, passenger_id: int, body: RequestIn):
         ).order_by(RideRequest.id.desc()).limit(20)
     ).all()
     for r in recent:
-        if all(getattr(r, k, None) == v for k, v in fields.items()):
+        if r.traveler_origin == traveler_origin and all(getattr(r, k, None) == v for k, v in fields.items()):
             return r
     return None
 
 
 @router.post("/requests", response_model=RideRequest)
 def create_request(body: RequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    origin = None if (body.for_relative_name or "").strip() else "self"
+    return _create_request(body, user, session, origin)
+
+
+@router.get("/requests/capabilities")
+def request_capabilities():
+    return {"for_another": True}
+
+
+@router.post("/requests/for-another", response_model=RideRequest)
+def create_request_for_another(
+    body: RequestForAnotherIn, user: User = Depends(current_user), session: Session = Depends(get_session),
+):
+    return _create_request(body, user, session, "other")
+
+
+def _create_request(body: RequestIn, user: User, session: Session, traveler_origin: str | None):
     # Заявка «посылка/груз» — та же новая доставка, что и поездка этой категории: выключатель
     # посылок закрывает и её (приёмка волны 1, 16.10.2026; замок — `features.py`).
     guard_delivery_ride(body.category)
@@ -176,11 +205,7 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     # и не отредактирует заявку, ни счётчик меток, ни админ-пульс о тексте не узнают
     # (аудит 2026-08-07). Как везде: ПОМЕЧАЕМ, текст не режем и сохранение не рвём.
     #
-    # Проверяем ВСЁ, что увидит лента, а не только комментарий (аудит 2026-08-08). Заявка
-    # уходит водителям целиком (`response_model=RideRequest`), а вместе с комментарием там
-    # едут расшифровка голосовой заявки и имя близкого — оба свободный текст от человека.
-    # Пока смотрели одно поле, обойти проверку можно было, просто продиктовав объявление
-    # голосом: тот же класс, что забытое имя пользователя (2026-08-07) и расшифровка в чате.
+    # Открытая расшифровка проверяется вместе с комментарием. Имя близкого хранится в своей заявке.
     moderate_open_text(_visible_request_text(body), user.id)
     # Желаемое время → наивный UTC (разбор №2): без этого заявка «на 10:00» жила в ленте
     # до 17:00 по Уфе. Время без пояса от старых версий приложения считаем местным.
@@ -194,12 +219,13 @@ def create_request(body: RequestIn, user: User = Depends(current_user), session:
     # Дедуп по содержимому в коротком окне; «поправил и отправил заново» отличается полем
     # и проходит как новая. Лочим строку пассажира — иначе два запроса пройдут SELECT разом.
     session.exec(select(User).where(User.id == user.id).with_for_update()).first()
-    twin = _recent_twin_request(session, user.id, body)
+    twin = _recent_twin_request(session, user.id, body, traveler_origin)
     if twin is not None:
         return twin
 
     req = RideRequest(
         passenger_id=user.id,
+        traveler_origin=traveler_origin,
         **body.model_dump(exclude={"assisted", "pickup_point_id"}),
         from_lat=frm[0], from_lng=frm[1], to_lat=to[0], to_lng=to[1],
     )
@@ -337,6 +363,7 @@ def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_u
         passenger_id=target.id, from_city=body.from_city, to_city=body.to_city,
         desired_at=client_dt_to_utc(body.desired_at), seats=body.seats, comment=body.comment,
         for_relative_name=(body.name or None),
+        traveler_origin="self",
     )
     session.add(req)
     session.commit()
@@ -414,7 +441,7 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
             setattr(req, field, val)
             changed = True
     if not changed:
-        return req   # нечего менять — no-op
+        return req if req.passenger_id == user.id else req.model_copy(update={"for_relative_name": None})
     # Маршрут мог смениться → перегеокодим концы (иначе маркер заявки останется в старом городе).
     if body.from_city is not None:
         frm = geocode_city(req.from_city) or (None, None)
@@ -422,11 +449,19 @@ def edit_request(request_id: int, body: RequestEditIn, user: User = Depends(curr
     if body.to_city is not None:
         to = geocode_city(req.to_city) or (None, None)
         req.to_lat, req.to_lng = to
+    with session.no_autoflush:
+        revised = session.execute(update(RideRequest).where(RideRequest.id == req.id, RideRequest.status == "active",
+                                  RideRequest.traveler_revision == req.traveler_revision)
+                                  .values(traveler_revision=func.coalesce(RideRequest.traveler_revision, 0) + 1)
+                                  .execution_options(synchronize_session=False))
+    if revised.rowcount != 1:
+        session.rollback()
+        raise herr(409, "Заявка уже изменилась. Обнови её.", "Ғариза үҙгәргән инде. Уны яңырт.")
     session.add(req)
     session.commit()
     session.refresh(req)
     notify_map_changed()   # маркер/карточка заявки обновится live
-    return req
+    return req if req.passenger_id == user.id else req.model_copy(update={"for_relative_name": None})
 
 
 @router.post("/requests/{request_id}/cancel", response_model=RideRequest)
@@ -439,7 +474,7 @@ def cancel_request(request_id: int, user: User = Depends(current_user), session:
     if req.passenger_id != user.id and user.role != UserRole.admin:
         raise herr(403, "Можно отменить только свою заявку", "Тик үҙ заявкаңды ғына кире алып була")
     if req.status == "cancelled":
-        return req   # идемпотентно — повторная отмена не ошибка (двойной тап/ретрай)
+        return req if req.passenger_id == user.id else req.model_copy(update={"for_relative_name": None})
     # Отменить можно активную И уже сведённую (matched) заявку. Из matched раньше не вело НИ ОДНОЙ
     # двери: отмена и правка требуют active, ночная чистка тоже смотрит только на active — и если
     # сделка развалилась (бронь отменили, водитель пропал), объявление «ищу машину» висело «в работе»
@@ -455,7 +490,7 @@ def cancel_request(request_id: int, user: User = Depends(current_user), session:
     # который уже никуда не едет (волна 118).
     close_open_responses(session, req, kept_id=None, reason="cancelled")
     notify_map_changed()   # оранжевый маркер заявки уходит с карты live
-    return req
+    return req if req.passenger_id == user.id else req.model_copy(update={"for_relative_name": None})
 
 
 # ---------------- Заявки ↔ водители: лента, отклики, принятие ----------------
@@ -641,7 +676,7 @@ def _feed_route_choices(session, user, reqs, passengers, entry, memo=None, scan=
                     continue
                 if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
                     continue
-                if ride.women_only and gender_of(passenger) != "female":
+                if ride.women_only and (request_traveler_mode(req) != "self" or gender_of(passenger) != "female"):
                     continue
                 choices[req.id] = (ride, section)
                 break
@@ -782,7 +817,7 @@ def _bound_section(session, req, driver, ride):
     # человека — предложи свой рейс и прочти ответ. Причину знает только сам пассажир, в своей брони.
     if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
         raise _ride_no_longer_fits()
-    if ride.women_only and gender_of(passenger) != GENDER_FEMALE:
+    if ride.women_only and (request_traveler_mode(req) != "self" or gender_of(passenger) != GENDER_FEMALE):
         raise _ride_no_longer_fits()
     section = request_segments.segment(ride, req)
     if section is None:
@@ -914,14 +949,19 @@ def price_on_table(resp: RequestResponse) -> int:
     return int(getattr(resp, "current_price", 0) or resp.price or 0)
 
 
-_RESPONSE_TERMS = ("status", "price", "current_price", "last_offer_by", "bargain_rounds", "bargain_history")
+def accepted_response_price(resp: RequestResponse) -> int:
+    return max(0, min(price_on_table(resp), _PRICE_CAP))
+
+
+_RESPONSE_TERMS = ("status", "price", "current_price", "last_offer_by", "bargain_rounds", "bargain_history",
+                   "traveler_driver_consent", "traveler_owner_waiting")
 
 
 def _response_terms(resp):
     return tuple(getattr(resp, field) for field in _RESPONSE_TERMS)
 
 
-def _mutate_response(session, resp, changes):
+def _mutate_response(session, resp, changes, *checks):
     """CAS: устаревший counter/decline/withdraw/accept не переписывает уже принятую сделку.
 
     FOR UPDATE сериализует PostgreSQL. Условие ВНУТРИ UPDATE обязательно и для SQLite,
@@ -930,6 +970,7 @@ def _mutate_response(session, resp, changes):
     """
     changed = session.execute(update(RequestResponse).where(
         RequestResponse.id == resp.id,
+        *checks,
         *(getattr(RequestResponse, key) == value for key, value in zip(_RESPONSE_TERMS, _response_terms(resp))),
     ).values(**changes).execution_options(synchronize_session=False))
     if changed.rowcount != 1:
@@ -1163,7 +1204,8 @@ def counter_offer(response_id: int, body: CounterIn,
                    f"Хаҡты ҡабул ит йәки баш тарт.")
     price = max(0, min(int(body.price), _PRICE_CAP))
     changes = dict(bargain_history=_append_history(resp, role, price), current_price=price,
-                   last_offer_by=role, bargain_rounds=rounds + 1)
+                   last_offer_by=role, bargain_rounds=rounds + 1,
+                   traveler_driver_consent=None, traveler_owner_waiting=None)
     if body.comment.strip():
         changes["comment"] = body.comment.strip()[:500]
     _mutate_response(session, resp, changes)
@@ -1190,14 +1232,10 @@ def decline_response(response_id: int, user: User = Depends(current_user), sessi
     role = _bargain_role(resp, req, user)
     if not role and user.role != UserRole.admin:
         raise herr(403, "Это не твой торг", "Был һинең һатыулашыуың түгел")
-    if resp.status == "accepted":
-        raise herr(409, "Отклик уже принят", "Яуап инде ҡабул ителгән")
-    if resp.status in ("declined", "withdrawn"):
+    if not _decline_open_response(session, resp):
         # Отозванный отклик отклонять нечего — иначе водитель получил бы пуш
         # «не договорились по цене» на предложение, которое сам же снял (волна 51).
         return {"ok": True, "already": True}
-    _mutate_response(session, resp, {"status": "declined"})
-    session.commit()
     other_id = req.passenger_id if role == "driver" else resp.driver_id
     if other_id and other_id != user.id:
         route = f"{req.from_city} → {req.to_city}"
@@ -1207,6 +1245,21 @@ def decline_response(response_id: int, user: User = Depends(current_user), sessi
             route, route, ref_kind="request", ref_id=req.id,
         )
     return {"ok": True}
+
+
+def _decline_open_response(session, resp) -> bool:
+    if resp.status == "accepted":
+        raise herr(409, "Отклик уже принят", "Яуап инде ҡабул ителгән")
+    if resp.status in ("declined", "withdrawn"):
+        return False
+    _mutate_response(session, resp, {"status": "declined"})
+    session.commit()
+    return True
+
+
+def decline_response_as_admin(session: Session, response_id: int) -> bool:
+    _, resp = _locked_response(session, response_id)
+    return _decline_open_response(session, resp)
 
 
 LIVE_RESPONSE_STATUSES = ("offered", "countered")
@@ -1255,7 +1308,8 @@ def close_open_responses(session: Session, req: RideRequest, *, kept_id: int | N
 
 
 def accept_request_response(session: Session, resp: RequestResponse, *, actor: Optional[User] = None,
-                            expected_terms=None) -> Booking:
+                            expected_terms=None, traveler: TravelerConfirmationIn | None = None,
+                            traveler_key: str | None = None) -> Booking:
     """Принять отклик водителя: Ride+Booking одной транзакцией, заявка → matched, водителю push.
     Общая логика для приложения (пассажир/админ), автоподбора и Telegram-кнопки ✅ у админа —
     чтобы приём отклика вёл себя одинаково откуда угодно. Заявка должна быть active, иначе 400/404."""
@@ -1267,6 +1321,11 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     # (аудит 2026-08-07).
     expected_terms = _response_terms(resp) if expected_terms is None else expected_terms
     req, resp = _locked_response(session, resp.id)
+    if traveler is not None:
+        if actor is None or actor.id != req.passenger_id:
+            raise herr(403, "Подтвердить пассажира может владелец заявки.", "Юлсыны ғариза хужаһы раҫлай ала.")
+        if request_traveler_mode(req) == "self":
+            raise herr(409, "У этой заявки обычное принятие отклика.", "Был ғаризаның яуабы ғәҙәти тәртиптә ҡабул ителә.")
     # HTTP приносит нажимающего. Telegram/автоподбор действуют от имени пассажира.
     role = _bargain_role(resp, req, actor) if actor is not None else "passenger"
     if role is None and actor is not None and actor.role == UserRole.admin:
@@ -1274,13 +1333,21 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     if role is None:
         raise herr(403, "Нет доступа", "Рөхсәт юҡ")
     driver = session.get(User, resp.driver_id)
-    _guard_request_parties(session, req, driver)
-    if resp.ride_id is not None and resp.status == "accepted" and resp.booking_id is not None:
+    acceptance_hash = traveler_acceptance_hash(resp.id, traveler) if traveler is not None else None
+    if resp.status == "accepted" and resp.booking_id is not None and (resp.ride_id is not None or traveler is not None):
+        if traveler is None:
+            _guard_request_parties(session, req, driver)
+        if (traveler is not None or resp.traveler_accept_hash is not None) and (
+            acceptance_hash != resp.traveler_accept_hash or traveler_key != resp.traveler_accept_key
+        ):
+            raise herr(409, "Эта бронь уже оформлена. Открой её из своих поездок.",
+                       "Был бронь инде асылған. Уны үҙ сәфәрҙәреңдән ас.", code="request_traveler_conflict")
         previous = session.get(Booking, resp.booking_id)
-        if previous and previous.ride_id == resp.ride_id and previous.passenger_id == req.passenger_id:
+        if previous and (resp.ride_id is None or previous.ride_id == resp.ride_id) and previous.passenger_id == req.passenger_id:
             return previous
         raise herr(409, "Не удалось найти принятую бронь. Обнови список поездок.",
                    "Ҡабул ителгән бронь табылманы. Сәфәрҙәр исемлеген яңырт.")
+    _guard_request_parties(session, req, driver)
     # Приём отклика сам создаёт поездку категории заявки с подтверждённой бронью — мимо замка
     # в rides.py/bookings.py. Одна общая точка для приложения, админа, автоподбора и Telegram ✅.
     guard_delivery_ride(req.category)
@@ -1289,7 +1356,10 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
         raise herr(400, "Заявка уже закрыта", "Заявка инде ябылған")
     if resp.status != "offered":
         raise herr(409, "Это предложение уже закрыто", "Был тәҡдим ябылған инде")
-    if (resp.last_offer_by or "driver") == role or _response_terms(resp) != expected_terms:
+    if request_traveler_mode(req) != "self" and traveler is None:
+        raise traveler_confirmation_required()
+    if ((traveler is None and (resp.last_offer_by or "driver") == role)
+            or _response_terms(resp) != expected_terms):
         raise herr(409, "Предложение уже изменилось. Обнови отклики и проверь условия.",
                    "Тәҡдим үҙгәргән инде. Яуаптарҙы яңырт та шарттарҙы тикшер.")
     # Пауза «Справедливости» и блокировка — здесь, в общей точке, а не только на кнопке в
@@ -1320,6 +1390,17 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
         )).first() is not None:
             raise herr(409, "У пассажира уже есть бронь в этом рейсе. Сначала разберитесь с ней в чате.",
                        "Юлсының был рейста броне бар инде. Тәүҙә уның тураһында чатта килешегеҙ.")
+    traveler_fields = {}
+    if traveler is not None:
+        if bound_ride is None and traveler_request_departure(req, resp) <= utcnow():
+            raise _ride_no_longer_fits()
+        version = traveler_offer_version(req, resp, bound_ride)
+        if traveler.version != version:
+            raise herr(409, "Условия изменились. Проверь их ещё раз.", "Шарттар үҙгәрҙе. Уларҙы ҡабат тикшер.", code="request_offer_changed")
+        if resp.last_offer_by == "passenger" and resp.traveler_driver_consent != version:
+            raise herr(409, "Сначала водитель должен принять встречную цену.",
+                       "Тәүҙә йөрөтөүсе ҡаршы хаҡты ҡабул итергә тейеш.", code="request_driver_consent_required")
+        traveler_fields = traveler_booking_fields(req, bound_ride, traveler)
     # Заявку ЗАКРЫВАЕМ атомарно, ДО создания поездки: условие «она всё ещё активна» живёт
     # внутри UPDATE.
     #
@@ -1331,11 +1412,15 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     # который уже собрался ехать.
     #
     # И как везде: саму защиту не проверял ни один тест — на SQLite блокировка пустая.
-    _mutate_response(session, resp, {"status": "accepted"})
+    _mutate_response(session, resp, {"status": "accepted", "traveler_accept_key": traveler_key,
+                                     "traveler_accept_hash": acceptance_hash})
+    request_fields = request_segments.REQUEST_FIELDS + ("traveler_origin", "traveler_revision", "for_relative_name")
+    if traveler is not None:
+        request_fields += ("max_price", "comment")
     claimed = session.execute(
         update(RideRequest)
         .where(RideRequest.id == req.id, RideRequest.status == "active",
-               *(getattr(RideRequest, key) == getattr(req, key) for key in request_segments.REQUEST_FIELDS))
+               *(getattr(RideRequest, key) == getattr(req, key) for key in request_fields))
         .values(status="matched")
     )
     if claimed.rowcount == 0:
@@ -1345,16 +1430,17 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     # иначе водитель отдаёт цену до 1_000_000 (потолок RespondIn) в обход общего лимита.
     # Берём цену НА СТОЛЕ (после торга), а не первое предложение водителя: иначе поездка
     # создавалась бы по цене, от которой обе стороны уже отошли.
-    price = max(0, min(price_on_table(resp), _PRICE_CAP))
+    price = accepted_response_price(resp)
     if bound_ride is not None:
         # CAS по версии условий + прежние условия внутри UPDATE защищают и SQLite, где FOR UPDATE
         # не работает (RS-02 А). Место списывается на участке заявки, а не со всего рейса; захват
         # заявки выше и списание мест откатываем вместе при отказе; цену опубликованного рейса не меняем.
+        ride_fields = request_segments.RIDE_FIELDS + (("no_minors",) if traveler is not None else ())
         reserved = ride_seats.take(
             session, bound_ride, ride_seats.span(bound_ride, section[0], section[1]), req.seats,
             extra_where=[Ride.driver_id == resp.driver_id, Ride.status == RideStatus.active,
                          *(getattr(Ride, key) == getattr(bound_ride, key)
-                           for key in request_segments.RIDE_FIELDS)],
+                           for key in ride_fields)],
         )
         if not reserved:
             session.rollback()
@@ -1362,7 +1448,7 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
                        "Рейстың урындары йәки шарттары хәҙер генә үҙгәрҙе. Тәҡдимдәрҙе яңырт.")
         ride = bound_ride
     else:
-        depart = req.desired_at or (utcnow() + timedelta(hours=1))
+        depart = traveler_request_departure(req, resp) if traveler is not None else req.desired_at or (utcnow() + timedelta(hours=1))
         ride = Ride(
             driver_id=resp.driver_id, from_city=req.from_city, to_city=req.to_city, depart_at=depart,
             seats_total=req.seats, seats_left=0, price=price, category=req.category, status=RideStatus.active,
@@ -1374,6 +1460,7 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
         status=BookingStatus.confirmed, boarding_code=gen_otp(),
         pickup_stop=section[0] if section else None,
         dropoff_stop=section[1] if section else None,
+        **traveler_fields,
     )
     session.add(booking)
     session.flush()
@@ -1405,6 +1492,121 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     return booking
 
 
+def _traveler_offer(session: Session, response_id: int, user: User):
+    req, resp = _locked_response(session, response_id)
+    role = _bargain_role(resp, req, user)
+    if role is None:
+        raise herr(403, "Нет доступа", "Рөхсәт юҡ")
+    if request_traveler_mode(req) == "self":
+        raise herr(409, "У этой заявки обычное принятие отклика.", "Был ғаризаның яуабы ғәҙәти тәртиптә ҡабул ителә.")
+    if resp.status == "accepted" and role == "passenger" and resp.booking_id is not None:
+        return req, resp, role, None, None
+    if req.status != "active" or resp.status != "offered":
+        raise herr(409, "Предложение закрыто.", "Тәҡдим ябылған.")
+    driver = session.get(User, resp.driver_id)
+    _guard_request_parties(session, req, driver)
+    ride = None
+    if resp.ride_id is not None:
+        ride = session.exec(select(Ride).where(Ride.id == resp.ride_id)
+                            .with_for_update().execution_options(populate_existing=True)).first()
+        if ride is None:
+            raise _ride_no_longer_fits()
+        _bound_section(session, req, driver, ride)
+        if resp.route_snapshot != request_segments.snapshot(ride, req):
+            raise _ride_no_longer_fits()
+    elif traveler_request_departure(req, resp) <= utcnow():
+        raise _ride_no_longer_fits()
+    return req, resp, role, ride, traveler_offer_version(req, resp, ride)
+
+
+def request_traveler_waiting(session: Session, response_id: int) -> bool:
+    """Automation can nominate a driver's open offer without accepting a passenger's counter."""
+    req, resp = _locked_response(session, response_id)
+    if (request_traveler_mode(req) == "self" or req.status != "active" or
+            resp.status != "offered" or (resp.last_offer_by or "driver") != "driver"):
+        return False
+    owner = session.get(User, req.passenger_id)
+    if owner is None:
+        return False
+    try:
+        req, resp, _, ride, version = _traveler_offer(session, response_id, owner)
+    except HTTPException:
+        return False
+    if version is None:
+        return False
+    if resp.traveler_owner_waiting == version:
+        return True
+    try:
+        _mutate_response(session, resp, {"traveler_owner_waiting": version}, *_traveler_offer_checks(req, ride))
+    except HTTPException:
+        return False
+    session.commit()
+    return True
+
+
+def _traveler_offer_checks(req, ride):
+    checks = [select(RideRequest.id).where(
+        RideRequest.id == req.id, RideRequest.status == "active",
+        RideRequest.traveler_revision == req.traveler_revision,
+        RideRequest.traveler_origin == req.traveler_origin,
+    ).exists()]
+    if ride is not None:
+        checks.append(select(Ride.id).where(
+            Ride.id == ride.id, Ride.status == RideStatus.active, Ride.terms_version == ride.terms_version,
+            Ride.no_minors == ride.no_minors,
+        ).exists())
+    return checks
+
+
+@router.get("/responses/{response_id}/traveler-confirmation")
+def get_traveler_confirmation(
+    response_id: int, response: Response, user: User = Depends(current_user), session: Session = Depends(get_session),
+):
+    response.headers["Cache-Control"] = "no-store"
+    req, resp, role, ride, version = _traveler_offer(session, response_id, user)
+    if version is None:
+        return {"state": "accepted", "booking_id": resp.booking_id}
+    owner_fields = {"for_another": request_traveler_mode(req) == "other"} if role == "passenger" else {}
+    waiting = resp.traveler_owner_waiting == version or resp.traveler_driver_consent == version
+    return {"state": "waiting_for_owner" if waiting else "offered", "version": version, **owner_fields,
+            "last_offer_by": resp.last_offer_by, "driver_consented": resp.traveler_driver_consent == version,
+            "price": accepted_response_price(resp), "seats": req.seats, "ride_id": resp.ride_id,
+            "from_city": req.from_city, "to_city": req.to_city, "no_minors": bool(ride and ride.no_minors),
+            "depart_at": ride.depart_at if ride else traveler_request_departure(req, resp)}
+
+
+class DriverTravelerConsentIn(BaseModel):
+    version: str = Field(min_length=64, max_length=64)
+
+
+@router.post("/responses/{response_id}/traveler-driver-consent")
+def consent_to_traveler_offer(
+    response_id: int, body: DriverTravelerConsentIn,
+    user: User = Depends(current_user), session: Session = Depends(get_session),
+):
+    req, resp, role, ride, version = _traveler_offer(session, response_id, user)
+    if role != "driver" or resp.last_offer_by != "passenger" or version != body.version:
+        raise herr(409, "Цена изменилась. Проверь предложение.", "Хаҡ үҙгәрҙе. Тәҡдимде тикшер.", code="request_offer_changed")
+    if resp.traveler_driver_consent != version:
+        _mutate_response(session, resp, {"traveler_driver_consent": version}, *_traveler_offer_checks(req, ride))
+        session.commit()
+    return {"state": "waiting_for_owner"}
+
+
+@router.post("/responses/{response_id}/traveler-confirmation")
+def confirm_request_traveler(
+    response_id: int, body: TravelerConfirmationIn, key: IdempotencyKey = None,
+    user: User = Depends(current_user), session: Session = Depends(get_session),
+):
+    if key is None:
+        raise herr(422, "Повтори действие из приложения.", "Ғәмәлде ҡушымтанан ҡабатла.", code="idempotency_key_invalid")
+    resp = session.get(RequestResponse, response_id)
+    if resp is None:
+        raise herr(404, "Отклик не найден", "Яуап табылманы")
+    booking = accept_request_response(session, resp, actor=user, traveler=body, traveler_key=validate_key(key))
+    return {"booking_id": booking.id}
+
+
 @router.post("/responses/{response_id}/accept")
 def accept_response(response_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Принять цену, которая сейчас на столе → Ride+Booking. Возвращает booking_id.
@@ -1433,7 +1635,7 @@ def accept_response(response_id: int, user: User = Depends(current_user), sessio
     if resp.status == "declined":
         raise herr(409, "Торг закрыт — по этому отклику не договорились",
                    "Һатыулашыу ябылған — был яуап буйынса килешмәгәндәр")
-    if last == role and not (resp.ride_id is not None and resp.status == "accepted"):
+    if last == role and request_traveler_mode(req) == "self" and not (resp.ride_id is not None and resp.status == "accepted"):
         raise herr(409, "Сейчас ход другой стороны — свою же цену принять нельзя",
                    "Хәҙер икенсе яҡтың сираты — үҙ хаҡыңды ҡабул итеп булмай")
     # ⬇️ Пауза «Справедливости» (§2) на ОБЕИХ сторонах. Торг — это две двери, а гейт стоял
@@ -1526,7 +1728,7 @@ def match_rides(request_id: int, response: Response, user: User = Depends(curren
                 continue
             if req.only_trusted and (driver is None or trust_level(session, driver) < INSIDER_LEVEL):
                 continue
-            if ride.women_only and gender_of(user) != "female":
+            if ride.women_only and (request_traveler_mode(req) != "self" or gender_of(user) != "female"):
                 continue
             section = request_segments.segment(ride, req, entry, memo)
             if section is not None:
