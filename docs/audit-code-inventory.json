@@ -846,15 +846,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "e347bb23de574fefb41c973288e666db1ecd194be1e1093909a89c36d71586ff",
-      "lines": 3555
+      "sha256": "f8ad4db6c9972a7a120c740ba9555a3ea07e0f478edb2d7bc2e51c8bc758b625",
+      "lines": 3570
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "7cee50fe6303b194c04e9305c921b67b8b7329adde0c57e86b185e7ce289bd10",
-      "lines": 268
+      "sha256": "d6036f2ce5f0131e3a2e65658dc33e2ba6fd608a38622bdb87f796477ae2b828",
+      "lines": 280
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingDecisionCards.kt",

@@ -215,7 +215,9 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -544,29 +546,42 @@ internal fun BookingScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
         bottomBar = {
-            if (bookingId == null && isOwnRide(displayRide)) OwnRideBar() else BookingDecisionBar(
-                primaryText = primaryLabel,
-                primaryEnabled = primaryEnabled,
-                primaryStyle = primaryStyle,
-                primaryIcon = primaryIcon,
-                onMessage = onMessage,
-                onPrimary = {
-                    if (bookingBusy || (bookingId == null && (!primaryEnabled || rideCategoryClosed(ride.category)))) return@BookingDecisionBar
-                    when {
-                        bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
-                            else showCancelConfirmation = true
-                        bookingCancelled -> onFindAnotherRide()
-                        onGuestBooking != null -> onGuestBooking(minorPassenger)
-                        else -> onConfirmRide(
-                            payMethod,
-                            payAmountText.trim().toIntOrNull(),
-                            minorPassenger,
-                            guardianName.trim(),
-                            guardianPhone.trim(),
+            if (bookingId == null && isOwnRide(displayRide)) OwnRideBar() else Column {
+                if (bookingId == null && !bookingBusy && recovery?.guardianPhoneRejected == true) {
+                    Surface(color = CanonSurface) {
+                        Text(
+                            guardianPhoneBookingError(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg, vertical = CanonSpace.sm)
+                                .semantics { liveRegion = LiveRegionMode.Polite },
+                            color = CanonRed,
+                            style = CanonBody,
                         )
                     }
-                },
-            )
+                }
+                BookingDecisionBar(
+                    primaryText = primaryLabel,
+                    primaryEnabled = primaryEnabled,
+                    primaryStyle = primaryStyle,
+                    primaryIcon = primaryIcon,
+                    onMessage = onMessage,
+                    onPrimary = {
+                        if (bookingBusy || (bookingId == null && (!primaryEnabled || rideCategoryClosed(ride.category)))) return@BookingDecisionBar
+                        when {
+                            bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
+                                else showCancelConfirmation = true
+                            bookingCancelled -> onFindAnotherRide()
+                            onGuestBooking != null -> onGuestBooking(minorPassenger)
+                            else -> onConfirmRide(
+                                payMethod,
+                                payAmountText.trim().toIntOrNull(),
+                                minorPassenger,
+                                guardianName.trim(),
+                                guardianPhone.trim(),
+                            )
+                        }
+                    },
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -687,7 +702,7 @@ internal fun BookingScreen(
             }
             if (bookingId == null && recovery != null) item {
                 BookingRecoveryActions(recovery, bookingBusy, onOpenRecoveredBooking,
-                    isCurrent = ::isBookingDisplayCurrent, onRefreshTerms = onRefreshBookingTerms)
+                    isCurrent = ::isBookingDisplayCurrent, onRefreshTerms = onRefreshBookingTerms, showGuardianPhoneError = false)
             }
             if (!canRepeatOriginal) {
                 pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)

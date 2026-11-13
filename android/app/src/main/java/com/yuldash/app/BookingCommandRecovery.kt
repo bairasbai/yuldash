@@ -45,6 +45,11 @@ internal class BookingRecoveryState(val generation: Long) {
     val preparedRetry: PreparedBookingRequest? get() =
         preparedRequest?.takeIf { retry && slot?.key == it.key && slot?.rideId == it.rideId }
     val canSubmit: Boolean get() = !loading && !needsFreshTerms && knownBooking?.status.let { it == null || it == "cancelled" }
+    val guardianPhoneRejected: Boolean get() = !loading && when (problem) {
+        CommandIntent.Problem.Rejected -> rejectionCode == "guardian_phone_invalid"
+        null -> outcome?.let { it.state == CommandIntent.State.Rejected && it.rejectionCode == "guardian_phone_invalid" } == true
+        else -> false
+    }
 
     fun apply(result: BookingCommandOutcome) {
         if (result.state == CommandIntent.State.Rejected) requireFreshTerms(result.rejectionCode)
@@ -127,6 +132,7 @@ internal fun BookingRecoveryActions(
     state: BookingRecoveryState, busy: Boolean, onOpen: (BookingCreatedDto) -> Unit,
     isCurrent: () -> Boolean = { true },
     onRefreshTerms: (() -> Unit)? = null,
+    showGuardianPhoneError: Boolean = true,
     afterCheck: suspend (BookingCommandOutcome?) -> Unit = {},
 ) {
     val scope = rememberCoroutineScope()
@@ -165,7 +171,9 @@ internal fun BookingRecoveryActions(
                 state.retry -> bookingCommandMessage(CommandIntent.Problem.Unknown)
                 else -> null
             }
-            if (message != null) Text(message, color = CanonText, style = CanonBody)
+            if (message != null && (showGuardianPhoneError || !state.guardianPhoneRejected)) {
+                Text(message, color = CanonText, style = CanonBody)
+            }
             if (state.needsFreshTerms && onRefreshTerms != null) {
                 TextButton(onClick = { if (active()) onRefreshTerms() },
                     modifier = Modifier.heightIn(min = 48.dp), enabled = !busy && !state.refreshingTerms) {
@@ -245,6 +253,10 @@ internal fun LazyListScope.pendingBookingItems(
 }
 
 @Composable
+internal fun guardianPhoneBookingError(): String =
+    appText("Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
+
+@Composable
 private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? = null): String = when (problem) {
     CommandIntent.Problem.Storage -> appText("Не удалось сохранить запрос на этом устройстве.", "Был ҡоролмала һорауҙы һаҡлап булманы.")
     CommandIntent.Problem.Full -> appText("Сначала проверь незавершённые запросы в «Моих поездках».",
@@ -260,7 +272,7 @@ private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? 
         "ride_terms_changed" -> appText("Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе.")
         "seats_not_enough" -> appText("На этом участке не хватило мест.", "Был участкала урындар етмәне.")
         "front_seat_taken" -> appText("Переднее место уже занято.", "Алғы урын инде алынған.")
-        "guardian_phone_invalid" -> appText("Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
+        "guardian_phone_invalid" -> guardianPhoneBookingError()
         else -> appText("Сервер отклонил запрос на бронь.", "Сервер бронлау һорауын кире ҡаҡты.")
     }
     else -> appText("Не удалось подтвердить результат. Проверим, что сохранилось.",
