@@ -190,6 +190,9 @@ jobs:
   android-unit-tests:
     runs-on: ubuntu-latest
     timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
+    env:
+      # MockWebServer tests set their own origin. Any unbound call must fail on loopback.
+      YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:1
     defaults:
       run:
         working-directory: android
