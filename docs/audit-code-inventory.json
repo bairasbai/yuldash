@@ -1364,8 +1364,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/PendingGuardianContactAction.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "59906751e6067bd6a61402e28c1597fa140db7b29317452424446ff14481bb43",
-      "lines": 88
+      "sha256": "4856eb341f3a6953e5e8d046903e27edd09da5a95b62f9674141146db29c5577",
+      "lines": 186
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/Permissions.kt",
@@ -1490,8 +1490,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "77ff957d2d23c5f8b994e1ff2b937da17a82f5d07bc04a50f098d0b026b93ee5",
-      "lines": 1061
+      "sha256": "f2227079a2bbc8ecee34d3aea479313ba5c71d103c04a0918c0d7a75cb7ff26d",
+      "lines": 1035
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareDecline.kt",
@@ -1910,8 +1910,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "0057195c7a77d2455f567692c22b5932073bae5daf50e63dde27788486c753ac",
-      "lines": 7850
+      "sha256": "e5cf303536a4304fdb14f67d845e7fe6594f2823cdabaa1ff5802ad224eb5272",
+      "lines": 7873
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -5424,8 +5424,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/PendingGuardianContactTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "cf1c41979db71be8612484ade43d7b4799d7f1667211c806f6b6bba91fdfc63a",
-      "lines": 102
+      "sha256": "bcc0d8a68e6130e3390b34da2ee0a73ef13d90f1035de24672d63fcc5209722d",
+      "lines": 140
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/PersonalDataExportCleanupTest.kt",

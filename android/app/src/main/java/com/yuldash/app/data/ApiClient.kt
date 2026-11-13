@@ -1125,15 +1125,38 @@ object ApiClient {
         OfflineTripSnapshotHooks.details(bookingId)
 
     internal suspend fun getPendingGuardianPhone(bookingId: Int, owner: Long): Result<String> =
+        getGuardianPhone(bookingId, owner, "pending").mapCatching { requireNotNull(it) }
+
+    internal suspend fun getCompletedGuardianPhone(bookingId: Int, owner: Long): Result<String?> =
+        getGuardianPhone(bookingId, owner, "done")
+
+    private suspend fun getGuardianPhone(bookingId: Int, owner: Long, status: String): Result<String?> =
         call("GET", "/bookings/$bookingId/details", null, auth = true, expectedGeneration = owner, freshRead = true)
             .mapCatching { body ->
-                require(isCurrentSession(owner) && body.optInt("booking_id") == bookingId &&
-                    body.optString("role") == "driver" && body.optString("status") == "pending" &&
-                    body.opt("minor_passenger") == true)
-                val phone = body.opt("minor_guardian_phone") as? String
-                require(!phone.isNullOrBlank())
-                phone
+                if (!isCurrentSession(owner)) throw SessionChangedException()
+                if (body.opt("booking_id") != bookingId || body.opt("role") != "driver" ||
+                    body.opt("status") != status || body.opt("minor_passenger") != true ||
+                    (status == "done" && body.opt("contact_unlocked") != true)) {
+                    null
+                } else {
+                    (body.opt("minor_guardian_phone") as? String)?.let(::normalizeGuardianDialNumber)
+                }
             }
+
+    private val formattedGuardianPhone = Regex("\\+?[0-9() .\u00a0\u202f-]+")
+
+    private fun normalizeGuardianDialNumber(raw: String): String? {
+        val phone = raw.trim()
+        if (!formattedGuardianPhone.matches(phone)) return null
+        val digits = phone.filter { it in '0'..'9' }
+        if (digits.length !in 10..15) return null
+        return when {
+            phone.startsWith("+") -> "+$digits"
+            digits.length == 11 && digits.first() in "78" -> "+7${digits.drop(1)}"
+            digits.length == 10 && digits.first() == '9' -> "+7$digits"
+            else -> digits
+        }
+    }
 
     // ---------- Заявки ----------
 

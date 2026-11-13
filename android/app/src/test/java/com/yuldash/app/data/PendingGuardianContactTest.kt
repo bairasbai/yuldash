@@ -76,6 +76,44 @@ class PendingGuardianContactTest {
         assertEquals(0, server.requestCount)
     }
 
+    @Test fun completedContactUsesFreshServerWindowAndNeverPublishesSnapshot() = runBlocking {
+        val owner = ApiClient.queueSessionGeneration()
+        val recent = details().put("status", "done").put("contact_unlocked", true)
+        server.enqueue(MockResponse().setBody(recent.toString()))
+        server.enqueue(MockResponse().setBody(recent.put("contact_unlocked", false).toString()))
+        assertEquals("+12025550118", ApiClient.getCompletedGuardianPhone(73, owner).getOrThrow())
+        assertNull(ApiClient.getCompletedGuardianPhone(73, owner).getOrThrow())
+        repeat(2) { assertEquals("no-cache, no-store", request().getHeader("Cache-Control")) }
+        assertNull(OfflineTripSnapshots.projection(73))
+    }
+
+    @Test fun completedContactRejectsUntrustedDetails() = runBlocking {
+        val owner = ApiClient.queueSessionGeneration()
+        fun recent() = details().put("status", "done").put("contact_unlocked", true)
+        val denied = listOf(
+            recent().put("booking_id", "73"), recent().put("booking_id", 74),
+            recent().put("role", "passenger"), recent().put("status", "pending"),
+            recent().put("minor_passenger", false), recent().put("contact_unlocked", "true"),
+            recent().put("minor_guardian_phone", "+12025550118;123"),
+        )
+        for (body in denied) {
+            server.enqueue(MockResponse().setBody(body.toString()))
+            assertNull(ApiClient.getCompletedGuardianPhone(73, owner).getOrThrow())
+        }
+        assertNull(OfflineTripSnapshots.projection(73))
+    }
+
+    @Test fun olderBookingsKeepFormattedPhoneNumbersCallable() = runBlocking {
+        val owner = ApiClient.queueSessionGeneration()
+        val legacy = details().put("minor_guardian_phone", "8 (999) 018-03-36")
+        server.enqueue(MockResponse().setBody(legacy.toString()))
+        val international = legacy.put("status", "done").put("contact_unlocked", true)
+            .put("minor_guardian_phone", "+1 (202) 555-0118")
+        server.enqueue(MockResponse().setBody(international.toString()))
+        assertEquals("+79990180336", ApiClient.getPendingGuardianPhone(73, owner).getOrThrow())
+        assertEquals("+12025550118", ApiClient.getCompletedGuardianPhone(73, owner).getOrThrow())
+    }
+
     @Test fun accountChangedWhileReadingCannotReceiveContact() = runBlocking {
         val owner = ApiClient.queueSessionGeneration()
         val release = CountDownLatch(1)

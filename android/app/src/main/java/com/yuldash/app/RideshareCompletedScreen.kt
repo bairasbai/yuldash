@@ -335,6 +335,9 @@ internal fun RideshareCompletedSession(
         },
         onSupport = { if (isCurrent()) onSupport() },
         problemReport = if (reportTo > 0) { { PassengerAfterTripReport(bookingId, reportTo, counterpartyName) } } else null,
+        guardianContact = if (receipt?.role == "driver") {
+            { CompletedGuardianContactAction(bookingId, completedSession, ::canAct) }
+        } else null,
     ) }
 }
 
@@ -382,6 +385,7 @@ internal fun RideshareCompletedContent(
     onlinePay: @Composable () -> Unit = {},
     hasCurrentReceipt: Boolean = true,
     problemReport: (@Composable () -> Unit)? = null,   // «Сообщить о проблеме» пассажиру (RideshareBoarding.kt)
+    guardianContact: (@Composable () -> Unit)? = null,
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -420,6 +424,7 @@ internal fun RideshareCompletedContent(
                     verified = counterpartyVerified,
                     car = car,
                 )
+                if (hasCurrentReceipt) guardianContact?.invoke()
             }
             if (hasCurrentReceipt) {
                 item {
