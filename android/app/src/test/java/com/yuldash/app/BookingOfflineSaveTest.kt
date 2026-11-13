@@ -196,7 +196,7 @@ class BookingOfflineSaveTest {
                         rating = 4.9, verified = true, boosted = false),
                     bookingId = 42, ads = emptyList(), adStats = emptyMap(), onBack = {},
                     onMessage = {}, onAdImpression = {}, onAdClick = {}, bookingStatus = "confirmed",
-                    onConfirmRide = { _, _, _, _, _ -> confirmCalls++ },
+                    onConfirmRide = { _, _, _, _, _, _ -> confirmCalls++ },
                 )
             }
         }

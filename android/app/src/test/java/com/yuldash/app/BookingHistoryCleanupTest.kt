@@ -82,7 +82,7 @@ class BookingHistoryCleanupTest {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 BookingScreen(ride = Ride(id="17", from="Город А", to="Город Б", time="вчера", driver="Водитель", car="Lada", price=700, seats=1, rating=4.9, verified=true, boosted=false),
                     bookingId=42, ads=emptyList(), adStats=emptyMap(), onBack={}, onMessage={}, onAdImpression={}, onAdClick={}, bookingStatus=status,
-                    onConfirmRide={ _,_,_,_,_ -> fail("History must not create a booking") })
+                    onConfirmRide={ _,_,_,_,_,_ -> fail("History must not create a booking") })
             }
         }
     }

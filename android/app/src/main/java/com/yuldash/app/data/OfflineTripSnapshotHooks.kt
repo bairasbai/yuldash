@@ -50,10 +50,11 @@ internal object OfflineTripSnapshotHooks {
 
     suspend fun details(bookingId: Int): Result<BookingDetailsDto> {
         prepareRead()
+        val started = android.os.SystemClock.elapsedRealtime()
         val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.DETAILS, ApiClient.queueSessionGeneration(), OfflineTripSnapshots)
         val result = ApiClient.readTripSnapshotJson("/bookings/$bookingId/details", read).mapCatching {
             require(!it.has("contact_unlocked") || it.get("contact_unlocked") is Boolean)
-            parseBookingDetailsDto(it).also { value ->
+            parseBookingDetailsDto(it, started).also { value ->
                 require(value.bookingId == bookingId && value.rideId > 0 && value.role in setOf("driver", "passenger") &&
                     value.status in setOf("pending", "confirmed", "onboard", "done", "cancelled"))
             }

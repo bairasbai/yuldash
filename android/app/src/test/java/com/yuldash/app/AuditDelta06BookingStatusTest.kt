@@ -67,7 +67,7 @@ class AuditDelta06BookingStatusTest {
                     bookingStatus = status,
                     onCancelBooking = onCancel,
                     onFindAnotherRide = onFindAnother,
-                    onConfirmRide = { _, _, _, _, _ -> onOpen() },
+                    onConfirmRide = { _, _, _, _, _, _ -> onOpen() },
                 )
             }
         }

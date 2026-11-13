@@ -50,7 +50,7 @@ class FeatureParcelRideGateTest {
     private fun booking(category: String, id: Int? = null, confirmed: () -> Unit = {}) {
         compose.setContent { if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             YuldashTheme { BookingScreen(ride(category), id, emptyList(), emptyMap(), {}, {}, {}, {},
-                onConfirmRide = { _, _, _, _, _ -> confirmed() }) }
+                onConfirmRide = { _, _, _, _, _, _ -> confirmed() }) }
         } }
     }
     @Test fun parcelNewBookingIsSoon() { booking("parcel"); compose.onNodeWithText("Скоро в Юлдаше").assertIsDisplayed(); compose.onNodeWithText("Забронировать место").assertDoesNotExist() }

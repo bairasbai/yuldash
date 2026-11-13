@@ -37,10 +37,8 @@ class ReviewedSpacingGuardTest {
 
     @Test
     fun `trip share sheet spaces with CanonSpace`() {
-        val screen = source("app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt")
-        val start = screen.indexOf("if (showShare && isTripChatActive())")
-        val end = screen.indexOf("// ── Чистые карточки поездки/статуса", start)
-        assertTrue("share sheet block not found: $start..$end", start >= 0 && end > start)
-        assertEquals(emptyList<String>(), rawIn(screen.substring(start, end)))
+        val screen = source("app/src/main/java/com/yuldash/app/BookingShareSheet.kt")
+        assertTrue("share sheet block not found", screen.contains("internal fun BookingShareSheet"))
+        assertEquals(emptyList<String>(), rawIn(screen))
     }
 }

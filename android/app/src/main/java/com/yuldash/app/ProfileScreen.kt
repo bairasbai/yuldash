@@ -205,12 +205,8 @@ import android.Manifest
 import android.app.Activity
 import android.speech.RecognizerIntent
 import android.content.pm.PackageManager
-// Платформенный ExifInterface, а не androidx: конструктор от InputStream есть с API 24,
-// minSdk у нас 26 — значит новая зависимость не нужна (CLAUDE.md §10).
-import android.media.ExifInterface
 import android.media.MediaPlayer
 import android.media.MediaRecorder
-import android.os.Build
 import android.os.SystemClock
 import java.io.File
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -228,15 +224,9 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import android.graphics.Canvas
-// decodeToJpeg: ImageDecoder сам применяет EXIF-поворот (API 28+), Matrix доворачивает вручную
-// на более старых. Без этих двух импортов файл не компилировался — сборка CI, 2026-07-30.
-import android.graphics.ImageDecoder
-import android.graphics.Matrix
 import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
@@ -1466,6 +1456,28 @@ internal fun DriverCabinetScreen(
     // ответ по заявке. Всё это меняет ДРУГАЯ сторона, а экран грузился один раз за вход —
     // единственным способом увидеть свежее было выйти и зайти обратно.
     var refreshing by remember { mutableStateOf(false) }
+    var bookingsRequest by remember(meetingSession) { mutableIntStateOf(0) }
+    suspend fun loadDriverBookings() {
+        val request = ++bookingsRequest
+        val revision = bookingsReload
+        ApiClient.getDriverBookings(expectedGeneration = meetingSession).onSuccess { rows ->
+            if (request != bookingsRequest || revision != bookingsReload || !ApiClient.isCurrentSession(meetingSession)) return@onSuccess
+            val now = SystemClock.elapsedRealtime()
+            val previous = driverBookings.associateBy { it.bookingId }
+            driverBookings = rows.map { it.observeBoardingUndo(now, previous[it.bookingId]) }
+        }
+    }
+    val bookingsLifecycle = LocalLifecycleOwner.current.lifecycle
+    val hasNamedTraveler = driverBookings.any { it.traveler != null }
+    LaunchedEffect(bookingsLifecycle, meetingSession, bookingsReload, ridesReload, hasNamedTraveler) {
+        if (!hasNamedTraveler) return@LaunchedEffect
+        bookingsLifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (ApiClient.isCurrentSession(meetingSession)) {
+                delay(PENDING_BOOKING_REFRESH_MS)
+                loadDriverBookings()
+            }
+        }
+    }
     LaunchedEffect(bookingsReload, ridesReload, meetingSession) {
         if (ApiClient.isLoggedIn()) ApiClient.getMyRestrictions().onSuccess { restrictions = it }
         ApiClient.getDriverRides()
@@ -1473,13 +1485,7 @@ internal fun DriverCabinetScreen(
             // 401 (не вошёл) → это не сеть, показываем обычное «пусто». Иначе — ошибка сети + «Повторить».
             .onFailure { e -> ridesError = ApiClient.isLoggedIn() && (e as? com.yuldash.app.data.ApiException)?.status != 401 }
         ridesLoading = false
-        val bookingRevision = bookingsReload
-        ApiClient.getDriverBookings(expectedGeneration = meetingSession).onSuccess { rows ->
-            if (bookingRevision != bookingsReload || !ApiClient.isCurrentSession(meetingSession)) return@onSuccess
-            val now = SystemClock.elapsedRealtime()
-            val previous = driverBookings.associateBy { it.bookingId }
-            driverBookings = rows.map { it.observeBoardingUndo(now, previous[it.bookingId]) }
-        }
+        loadDriverBookings()
         ApiClient.me().onSuccess { o -> driverRating = if (o.isNull("rating")) null else o.optDouble("rating") }
         ApiClient.getDriverStatus().onSuccess {
             online = it.online; onlineLoaded = true
@@ -3027,7 +3033,7 @@ internal fun DriverCabinetContent(
                             appText("Я на линии", "Мин эштә"),
                             appText("Пассажиры видят, что ты сейчас на линии", "Пассажирҙар һинең линияла икәнеңде күрә"),
                             online,
-                            onToggleOnline,
+                            onCheckedChange = onToggleOnline,
                         )
                     }
                     // Тумблер сам по себе — это «галочка включена», а не «меня видят».
@@ -3085,7 +3091,7 @@ internal fun DriverCabinetContent(
                         )
                     },
                     isWomanDriver,
-                    onToggleWoman,
+                    onCheckedChange = onToggleWoman,
                 )
             }
         }
@@ -3237,7 +3243,9 @@ internal fun DriverCabinetContent(
                             }
                             Spacer(Modifier.width(8.dp))
                             Column(Modifier.weight(1f)) {
-                                Text(b.passengerName, fontWeight = FontWeight.Bold, color = CanonText)
+                                val traveler = visibleBookingTraveler(b.traveler)
+                                if (traveler != null) BookingTravelerText(traveler, b.passengerName)
+                                else Text(b.passengerName, fontWeight = FontWeight.Bold, color = CanonText)
                                 Text(b.route, color = CanonMuted, fontSize = 14.sp)
                             }
                             b.passengerRating?.let { r ->
@@ -4711,66 +4719,3 @@ internal fun TripInfoRow(
         }
     }
 }
-
-/**
- * Декодирует выбранное фото и перекодирует в компактный JPEG: нормализует формат
- * (png/webp/heic → jpg — сервер иначе отвергал не-jpeg, фото «не сохранялось») и уменьшает
- * тяжёлое фото до размера аватара (экономит трафик и квоту). null при ошибке. Тяжёлое —
- * звать на IO-потоке. Даунсэмпл через inSampleSize, чтобы не поймать OOM на больших снимках.
- *
- * ⚠️ Ориентация. `BitmapFactory` игнорирует EXIF-тег поворота, а перекодированный JPEG его уже
- * не несёт — селфи с камеры (портрет) сохранялся аватаром «на боку». Поэтому на API 28+ идём
- * через `ImageDecoder`: он применяет EXIF сам. На старых версиях — читаем тег `ExifInterface`
- * и доворачиваем матрицей вручную (аудит 2026-07-26).
- */
-internal fun decodeToJpeg(
-    context: Context,
-    uri: Uri,
-    maxSize: Int = 1024,
-    quality: Int = 88,
-): ByteArray? = runCatching {
-    val decoded: Bitmap = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-        // ImageDecoder сам применяет EXIF-ориентацию и умеет HEIC; ограничиваем размер в колбэке.
-        val src = ImageDecoder.createSource(context.contentResolver, uri)
-        ImageDecoder.decodeBitmap(src) { dec, info, _ ->
-            dec.isMutableRequired = false
-            val longest = maxOf(info.size.width, info.size.height, 1)
-            if (longest > maxSize) {
-                val k = maxSize.toFloat() / longest
-                dec.setTargetSize((info.size.width * k).toInt().coerceAtLeast(1),
-                                  (info.size.height * k).toInt().coerceAtLeast(1))
-            }
-        }
-    } else {
-        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        context.contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
-        var sample = 1
-        while (bounds.outWidth / sample > maxSize * 2 || bounds.outHeight / sample > maxSize * 2) sample *= 2
-        val raw = context.contentResolver.openInputStream(uri)?.use {
-            BitmapFactory.decodeStream(it, null, BitmapFactory.Options().apply { inSampleSize = sample })
-        } ?: return@runCatching null
-        // До API 28 EXIF применяем руками — иначе портретное фото уедет на бок.
-        val degrees = context.contentResolver.openInputStream(uri)?.use { stream ->
-            when (ExifInterface(stream).getAttributeInt(
-                ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL
-            )) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> 90f
-                ExifInterface.ORIENTATION_ROTATE_180 -> 180f
-                ExifInterface.ORIENTATION_ROTATE_270 -> 270f
-                else -> 0f
-            }
-        } ?: 0f
-        if (degrees != 0f) {
-            val m = Matrix().apply { postRotate(degrees) }
-            Bitmap.createBitmap(raw, 0, 0, raw.width, raw.height, m, true)
-        } else raw
-    }
-    val scale = maxSize.toFloat() / maxOf(decoded.width, decoded.height, 1)
-    val bmp = if (scale < 1f) {
-        Bitmap.createScaledBitmap(decoded, (decoded.width * scale).toInt(), (decoded.height * scale).toInt(), true)
-    } else decoded
-    java.io.ByteArrayOutputStream().use { bos ->
-        bmp.compress(Bitmap.CompressFormat.JPEG, quality, bos)
-        bos.toByteArray()
-    }
-}.getOrNull()

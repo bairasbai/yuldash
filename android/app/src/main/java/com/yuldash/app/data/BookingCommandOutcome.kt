@@ -6,10 +6,12 @@ internal data class BookingCommandOutcome(
     val state: CommandIntent.State,
     val booking: BookingCreatedDto? = null,
     val rejectionCode: String? = null,
+    val existingBooking: BookingCreatedDto? = null,
 ) {
     companion object {
         const val SCOPE = "booking.create"
         const val PATH = "/bookings/commands/v1"
+        const val FOR_ANOTHER_PATH = "/bookings/for-another/commands/v1"
 
         fun booking(response: JSONObject, rideId: Int, userId: Int): BookingCreatedDto {
             val id = response.getInt("id")

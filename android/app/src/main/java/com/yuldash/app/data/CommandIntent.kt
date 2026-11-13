@@ -26,7 +26,7 @@ internal class CommandIntent(
 
     enum class State { Unknown, Applied, Rejected, Closed }
     enum class Problem { Storage, Full, Unknown, Changed, Expired, Superseded, Gone, Closed, Rejected }
-    data class BookingTerms(val version: Long?)
+    data class BookingTerms(val version: Long?, val forAnother: Boolean = false)
     data class Slot(
         val rideId: Int, val key: String, val hash: String, val createdAt: Long, val state: State,
         val bookingTerms: BookingTerms? = null,
@@ -50,7 +50,9 @@ internal class CommandIntent(
             if (prior == null || prior.key != previousKey || prior.state != State.Unknown) {
                 throw Failure(Problem.Superseded, prior)
             }
-            if (prior.hash != hash) throw Failure(Problem.Changed, prior)
+            if (prior.hash != hash || (prior.bookingTerms?.forAnother == true) != (bookingTerms?.forAnother == true)) {
+                throw Failure(Problem.Changed, prior)
+            }
             if (clock() - prior.createdAt !in 0L until RETRY_MS) throw Failure(Problem.Expired, prior)
             return prior
         }
@@ -91,7 +93,8 @@ internal class CommandIntent(
         return (0 until rows.length()).map { index ->
             val item = rows.getJSONObject(index)
             val terms = if (item.has("terms_version")) {
-                BookingTerms(if (item.isNull("terms_version")) null else item.getLong("terms_version"))
+                BookingTerms(if (item.isNull("terms_version")) null else item.getLong("terms_version"),
+                    item.optBoolean("for_another"))
             } else null
             Slot(item.getInt("ride_id"), item.getString("key"), item.getString("hash"),
                 item.getLong("created"), State.valueOf(item.getString("state")), terms).also {
@@ -106,7 +109,10 @@ internal class CommandIntent(
         for (slot in rows) {
             val item = JSONObject().put("ride_id", slot.rideId).put("key", slot.key).put("hash", slot.hash)
                 .put("created", slot.createdAt).put("state", slot.state.name)
-            slot.bookingTerms?.let { item.put("terms_version", it.version ?: JSONObject.NULL) }
+            slot.bookingTerms?.let {
+                item.put("terms_version", it.version ?: JSONObject.NULL)
+                if (it.forAnother) item.put("for_another", true)
+            }
             array.put(item)
         }
         persist(account, array.toString())

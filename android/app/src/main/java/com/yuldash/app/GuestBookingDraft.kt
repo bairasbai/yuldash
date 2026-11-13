@@ -10,6 +10,7 @@ internal data class GuestBookingDraft(
     val seats: Int,
     val front: Boolean,
     val minor: Boolean,
+    val forAnother: Boolean = false,
 ) {
     fun restore(ride: Ride): RestoredGuestBooking {
         val validSegment = segmentReady(ride, pickup, dropoff)
@@ -21,6 +22,7 @@ internal data class GuestBookingDraft(
             seats = seats,
             front = front && !frontUnavailable,
             minor = minor && !minorsUnavailable,
+            forAnother = forAnother,
             review = GuestBookingReview(
                 routeChanged = !validSegment || route != routePlaces(ride),
                 frontUnavailable = frontUnavailable,
@@ -38,6 +40,7 @@ internal data class RestoredGuestBooking(
     val front: Boolean,
     val minor: Boolean,
     val review: GuestBookingReview?,
+    val forAnother: Boolean = false,
 )
 
 internal data class GuestBookingReview(

@@ -40,11 +40,13 @@ internal class BookingRecoveryState(val generation: Long) {
     var refreshingTerms by mutableStateOf(false)
     private var existingBooking by mutableStateOf<BookingCreatedDto?>(null)
     private var preparedRequest by mutableStateOf<PreparedBookingRequest?>(null)
-    val knownBooking: BookingCreatedDto? get() = outcome?.booking ?: existingBooking
+    val knownBooking: BookingCreatedDto? get() = outcome?.booking ?: outcome?.existingBooking ?: existingBooking
     val retry: Boolean get() = slot?.state == CommandIntent.State.Unknown
     val preparedRetry: PreparedBookingRequest? get() =
         preparedRequest?.takeIf { retry && slot?.key == it.key && slot?.rideId == it.rideId }
-    val canSubmit: Boolean get() = !loading && !needsFreshTerms && knownBooking?.status.let { it == null || it == "cancelled" }
+    val canSubmit: Boolean get() = !loading && !needsFreshTerms &&
+        (!retry || slot?.bookingTerms?.forAnother != true || preparedRetry != null) &&
+        knownBooking?.status.let { it == null || it == "cancelled" }
     val guardianPhoneRejected: Boolean get() = !loading && when (problem) {
         CommandIntent.Problem.Rejected -> rejectionCode == "guardian_phone_invalid"
         null -> outcome?.let { it.state == CommandIntent.State.Rejected && it.rejectionCode == "guardian_phone_invalid" } == true
@@ -54,6 +56,7 @@ internal class BookingRecoveryState(val generation: Long) {
     fun apply(result: BookingCommandOutcome) {
         if (result.state == CommandIntent.State.Rejected) requireFreshTerms(result.rejectionCode)
         outcome = result
+        existingBooking = null
         problem = null
         slot = slot?.copy(state = result.state)
         if (!retry) preparedRequest = null
@@ -84,7 +87,8 @@ internal class BookingRecoveryState(val generation: Long) {
     }
 
     private fun requireFreshTerms(code: String?) {
-        if (code == "price_changed" || code == "ride_terms_changed") requireFreshTerms()
+        if (code in setOf("price_changed", "ride_terms_changed", "booking_traveler_women_only",
+            "booking_traveler_no_minors")) requireFreshTerms()
     }
 
     fun requireFreshTerms() {
@@ -234,6 +238,11 @@ internal fun LazyListScope.pendingBookingItems(
             else -> CommandIntent.Problem.Gone
         }
         Text(bookingCommandMessage(problem, result.rejectionCode), color = CanonText, style = CanonBody)
+        result.existingBooking?.let { booking ->
+            TextButton(onClick = { ApiClient.runIfCurrentSession(pending.generation) { onOpen(booking) } }) {
+                Text(appText("Открыть свою бронь", "Үҙ бронеңде асыу"), color = CanonGreen, style = CanonBody)
+            }
+        }
     } }
     if (pending.rows.isNotEmpty()) item("pending-booking-title") {
         Text(appText("Незавершённые запросы на бронь", "Тамамланмаған бронлау һорауҙары"),
@@ -257,7 +266,10 @@ internal fun guardianPhoneBookingError(): String =
     appText("Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
 
 @Composable
-private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? = null): String = when (problem) {
+private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? = null): String = if (
+    code == "booking_traveler_unsupported"
+) appText("Сервер пока не поддерживает бронь за другого. Попробуй позже.",
+    "Сервер әлегә башҡа кеше өсөн бронлауҙы ҡабул итмәй. Һуңыраҡ ҡабатлап ҡара.") else when (problem) {
     CommandIntent.Problem.Storage -> appText("Не удалось сохранить запрос на этом устройстве.", "Был ҡоролмала һорауҙы һаҡлап булманы.")
     CommandIntent.Problem.Full -> appText("Сначала проверь незавершённые запросы в «Моих поездках».",
         "Тәүҙә «Минең сәфәрҙәр»ҙә тамамланмаған һорауҙарҙы тикшер.")
@@ -273,6 +285,12 @@ private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? 
         "seats_not_enough" -> appText("На этом участке не хватило мест.", "Был участкала урындар етмәне.")
         "front_seat_taken" -> appText("Переднее место уже занято.", "Алғы урын инде алынған.")
         "guardian_phone_invalid" -> guardianPhoneBookingError()
+        "booking_traveler_conflict" -> appText("У тебя уже есть бронь с другими данными пассажира.",
+            "Һинең юлсы мәғлүмәттәре икенсе булған бронең бар.")
+        "booking_traveler_women_only" -> appText("В поездку «Только женщины» можно бронировать место только для себя.",
+            "«Тик ҡатын-ҡыҙ» сәфәренә урынды үҙең өсөн генә бронларға була.")
+        "booking_traveler_no_minors" -> appText("Водитель не берёт пассажиров младше 18 без взрослого рядом.",
+            "Йөрөтөүсе оло кешеһеҙ 18-ҙән кесе юлсыларҙы алмай.")
         else -> appText("Сервер отклонил запрос на бронь.", "Сервер бронлау һорауын кире ҡаҡты.")
     }
     else -> appText("Не удалось подтвердить результат. Проверим, что сохранилось.",

@@ -71,7 +71,7 @@ class AccountDeletionBoundaryTest {
                     if(path=="/me/delete") {
                         deleteStarted.countDown()
                         if(holdDelete) assertTrue(deleteRelease.await(35,TimeUnit.SECONDS))
-                        return json("{}",deleteCode)
+                        return json(if (deleteCode == 200) """{"ok":true}""" else "{}", deleteCode)
                     }
                     val rid=path.removePrefix("/rides/").toIntOrNull()
                     if(rid!=null) {

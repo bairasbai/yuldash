@@ -162,7 +162,7 @@ class BookingConfirmationJourneyTest {
                         ride = ride.value, ads = emptyList(), adStats = emptyMap(),
                         onBack = {}, onMessage = {}, onAdImpression = {}, onAdClick = {},
                         // Omit canOpenActiveTrip: its default must not authorize a new booking.
-                        onConfirmRide = { _, _, _, _, _ -> submitted++ },
+                        onConfirmRide = { _, _, _, _, _, _ -> submitted++ },
                     )
                 }
             }
@@ -349,7 +349,7 @@ class BookingConfirmationJourneyTest {
             if (stage.value != -1) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 BookingScreen(ride = null, bookingId = bookingId, ads = emptyList(), adStats = emptyMap(),
                     onBack = { backCalls++ }, onMessage = {}, onAdImpression = {}, onAdClick = {},
-                    onConfirmRide = { _, _, _, _, _ -> })
+                    onConfirmRide = { _, _, _, _, _, _ -> })
             }
         }
         compose.waitForIdle()

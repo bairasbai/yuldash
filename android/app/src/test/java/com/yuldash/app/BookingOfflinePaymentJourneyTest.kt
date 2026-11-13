@@ -292,7 +292,7 @@ class BookingOfflinePaymentJourneyTest {
                             ride = ride,
                             bookingId = 42, bookingStatus = "confirmed", ads = emptyList(), adStats = emptyMap(),
                             onBack = {}, onMessage = {}, onAdImpression = {}, onAdClick = {},
-                            onConfirmRide = { _, _, _, _, _ -> activeCandidate(); active.value = true })
+                            onConfirmRide = { _, _, _, _, _, _ -> activeCandidate(); active.value = true })
                     }
                 }
             }

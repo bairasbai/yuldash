@@ -647,7 +647,6 @@ internal fun MapScreen(
     }
     }
 }
-
 @Composable
 private fun MapHero(
     activeTrip: Ride?,

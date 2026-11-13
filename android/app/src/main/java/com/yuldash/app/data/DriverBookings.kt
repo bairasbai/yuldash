@@ -41,6 +41,7 @@ data class DriverBookingDto(
     val noShowWaitSec: Int = 0,
     val boardingUndoDeadlineElapsedMs: Long? = null,
     val minorPassenger: Boolean = false,
+    val traveler: PrivateBookingTraveler? = null,
 )
 
 internal fun DriverBookingDto.observeBoardingUndo(nowElapsedMs: Long, previous: DriverBookingDto?): DriverBookingDto {
@@ -69,11 +70,12 @@ internal fun DriverBookingDto.applyBoardingResult(result: BoardingResult, nowEla
 }
 
 /** Бронь глазами водителя. */
-internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
+internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long = android.os.SystemClock.elapsedRealtime()): DriverBookingDto {
     return DriverBookingDto(
         bookingId = o.optInt("booking_id"),
         noShowWaitSec = o.optInt("no_show_wait_sec").coerceAtLeast(0),
         passengerName = o.optString("passenger_name"),
+        traveler = parsePrivateBookingTraveler(o, startedElapsedMs),
         passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
         route = o.optString("route"),
         status = o.optString("status"),

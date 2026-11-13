@@ -195,7 +195,7 @@ class BookingTerminalPassTest {
                         rating = 4.9, verified = true, boosted = false),
                     bookingId = 42, ads = emptyList(), adStats = emptyMap(), onBack = {},
                     onMessage = {}, onAdImpression = {}, onAdClick = {}, bookingStatus = status,
-                    onConfirmRide = { _, _, _, _, _ -> fail("Opening history must not create a booking") },
+                    onConfirmRide = { _, _, _, _, _, _ -> fail("Opening history must not create a booking") },
                 )
             }
         }

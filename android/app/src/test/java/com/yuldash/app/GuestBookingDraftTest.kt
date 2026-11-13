@@ -36,6 +36,11 @@ class GuestBookingDraftTest {
         assertTrue(restored.review?.routeChanged == true)
     }
 
+    @Test fun restoresTravelerChoiceForTheLoginReturn() {
+        assertTrue(draft.copy(forAnother = true).restore(ride).forAnother)
+        assertFalse(draft.restore(ride).forAnother)
+    }
+
     @Test fun asksForReviewOfRemovedStopsAndNewRestrictions() {
         val fresh = ride.copy(waypoints = emptyList(), frontSeatAvailable = false, noMinors = true, termsVersion = 4)
         val restored = draft.restore(fresh)

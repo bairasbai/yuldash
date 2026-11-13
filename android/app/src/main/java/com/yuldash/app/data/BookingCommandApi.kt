@@ -27,6 +27,19 @@ internal object BookingCommandApi {
                      previousKey: String?, retry: Boolean,
                      onPrepared: ((String, String) -> Unit)? = null): Result<BookingCreatedDto> {
         val owner = commandOwner(expectedGeneration).getOrElse { return Result.failure(it) }
+        val forAnother = body.has("traveler_name")
+        if (forAnother && !retry) {
+            val capability = ApiClient.bookingCommandRequest("GET", "/bookings/capabilities", null,
+                owner.generation, owner.base)
+            val error = capability.exceptionOrNull()
+            if (error != null && (error !is ApiException || error.status !in setOf(404, 405))) {
+                return Result.failure(error)
+            }
+            if (capability.getOrNull()?.opt("traveler_name") != true) {
+                return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Rejected,
+                    rejectionCode = "booking_traveler_unsupported"))
+            }
+        }
         val (snapshot, slot) = withBookingCommands(owner) {
             if (deletingGeneration == owner.generation) throw stale()
             // Reserving or returning a seat advances the public version of the ride.
@@ -35,13 +48,16 @@ internal object BookingCommandApi {
                 .firstOrNull { it.rideId == rideId && it.key == previousKey }?.bookingTerms else null
             val currentTerms = CommandIntent.BookingTerms(
                 if (body.isNull("expected_terms_version")) null else body.getLong("expected_terms_version"),
+                forAnother,
             )
             val snapshot = bookingCommandSnapshot(rideId, body, originalTerms)
             snapshot to prepare(owner.account, rideId, snapshot.payloadHash, previousKey, retry, currentTerms)
         }.getOrElse { return Result.failure(it) }
         val wireBody = checkNotNull(snapshot.wireBody)
         onPrepared?.invoke(slot.key, wireBody)
-        val response = ApiClient.bookingCommandRequest("POST", BookingCommandOutcome.PATH, wireBody,
+        val path = if (slot.bookingTerms?.forAnother == true) BookingCommandOutcome.FOR_ANOTHER_PATH
+            else BookingCommandOutcome.PATH
+        val response = ApiClient.bookingCommandRequest("POST", path, wireBody,
             owner.generation, owner.base, slot.key)
             .mapCatching { BookingCommandOutcome.booking(it, rideId, owner.userId) }
         val booking = response.getOrNull()
@@ -54,6 +70,10 @@ internal object BookingCommandApi {
             return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Unknown, slot))
         }
         val refusal = response.exceptionOrNull() as? ApiException
+        if (forAnother && refusal?.status in setOf(404, 405)) {
+            return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Unknown, slot,
+                rejectionCode = "booking_traveler_unsupported"))
+        }
         if (refusal != null && refusal.status in 400..499 && refusal.status !in setOf(401, 404, 405, 408, 429)) {
             val receipt = reconcileBookingCommand(owner, slot, close = false).getOrNull()
             if (receipt != null) {
@@ -62,7 +82,7 @@ internal object BookingCommandApi {
                     CommandIntent.State.Applied -> return receipt.booking?.let { Result.success(it) }
                         ?: Result.failure(CommandIntent.Failure(CommandIntent.Problem.Gone, terminalSlot))
                     CommandIntent.State.Rejected -> return Result.failure(CommandIntent.Failure(
-                        CommandIntent.Problem.Rejected, terminalSlot, receipt.rejectionCode))
+                        CommandIntent.Problem.Rejected, terminalSlot, receipt.rejectionCode, receipt.existingBooking))
                     CommandIntent.State.Closed -> return Result.failure(CommandIntent.Failure(CommandIntent.Problem.Closed, terminalSlot))
                     CommandIntent.State.Unknown -> existingBookingIdOf(refusal)?.let { id ->
                         val existing = ApiClient.bookingCommandRequest("GET", "/bookings/$id/details", null,
@@ -189,9 +209,21 @@ internal object BookingCommandApi {
         val body = if (close) JSONObject().put("scope", BookingCommandOutcome.SCOPE)
             .put("target_id", slot.rideId).put("payload_hash", slot.hash) else null
         val response = ApiClient.bookingCommandRequest(if (close) "POST" else "GET", "/command-intents/${slot.key}" + if (close) "/close" else "",
-            body?.toString(), owner.generation, owner.base)
-            .mapCatching { BookingCommandOutcome.fromReceipt(it, slot.rideId, owner.userId, close) }
-        val outcome = response.getOrElse { return Result.failure(it) }
+            body?.toString(), owner.generation, owner.base).getOrElse { return Result.failure(it) }
+        val parsed = runCatching { BookingCommandOutcome.fromReceipt(response, slot.rideId, owner.userId, close) }
+            .getOrElse { return Result.failure(it) }
+        val conflictId = response.optInt("booking_id").takeIf { it > 0 && parsed.rejectionCode == "booking_traveler_conflict" }
+        val existing = conflictId?.let { id ->
+            ApiClient.bookingCommandRequest("GET", "/bookings/$id/details", null, owner.generation, owner.base)
+                .mapCatching {
+                    require(it.getInt("booking_id") == id && it.getInt("ride_id") == slot.rideId &&
+                        it.getString("role") == "passenger")
+                    val status = it.getString("status")
+                    require(status in setOf("pending", "confirmed", "onboard"))
+                    BookingCreatedDto(id, status)
+                }.getOrNull()
+        }
+        val outcome = parsed.copy(existingBooking = existing)
         return withBookingCommands(owner) {
             val latest = list(owner.account).firstOrNull { it.rideId == slot.rideId }
             val accepted = if (outcome.state == CommandIntent.State.Unknown) {
@@ -219,11 +251,13 @@ internal fun bookingPayload(
     rideId: Int, seats: Int, payMethod: String, payAmount: Int?, minorPassenger: Boolean,
     guardianName: String, guardianPhone: String, frontSeat: Boolean, pickupStop: String?, dropoffStop: String?,
     expectedPrice: Int?, expectedTermsVersion: Long?, meeting: MeetingPointInput?, alighting: MeetingPointInput?,
+    travelerName: String? = null,
 ): JSONObject = JSONObject().put("ride_id", rideId).put("seats", seats)
         .put("pay_method", payMethod)
         .put("pay_amount", payAmount ?: JSONObject.NULL)
         .apply {
             if (frontSeat) put("front_seat", true)
+            if (travelerName != null) put("traveler_name", travelerName)
             if (pickupStop != null) put("pickup_stop", pickupStop)
             if (dropoffStop != null) put("dropoff_stop", dropoffStop)
             if (expectedPrice != null) put("expected_price", expectedPrice)

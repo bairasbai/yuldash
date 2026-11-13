@@ -46,6 +46,43 @@ class BookingCommandApiTest {
     private fun generation() = ApiClient.queueSessionGeneration()
     private suspend fun slot() = BookingCommandApi.savedBookingCommands(generation()).getOrThrow().single()
 
+    @Test fun forAnotherDoesNotSendBookingToAnOldServer() = runBlocking {
+        server.enqueue(MockResponse().setResponseCode(404))
+        val failure = ApiClient.bookWithStatus(73, 1, travelerName = "Айгөл").exceptionOrNull() as CommandIntent.Failure
+        assertEquals("booking_traveler_unsupported", failure.rejectionCode)
+        assertEquals("/me", request().path)
+        assertEquals("/bookings/capabilities", request().path)
+        assertEquals(2, server.requestCount)
+        assertTrue(BookingCommandApi.savedBookingCommands(generation()).getOrThrow().isEmpty())
+    }
+
+    @Test fun forAnotherKeepsItsEndpointKeyAndExactNameAfterLostReply() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"traveler_name":true}"""))
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        val result = ApiClient.bookWithStatus(73, 1, travelerName = "Айгөл")
+        assertEquals(CommandIntent.Problem.Unknown, (result.exceptionOrNull() as CommandIntent.Failure).problem)
+        assertEquals("/me", request().path)
+        assertEquals("/bookings/capabilities", request().path)
+        val first = request()
+        val stored = slot()
+        val original = first.body.readUtf8()
+        assertEquals("/bookings/for-another/commands/v1", first.path)
+        assertEquals("Айгөл", JSONObject(original).getString("traveler_name"))
+        assertEquals(stored.key, first.getHeader("Idempotency-Key"))
+        assertTrue(stored.bookingTerms?.forAnother == true)
+
+        assertTrue(ApiClient.bookWithStatus(73, 1, previousKey = stored.key, retry = true).isFailure)
+        assertTrue(ApiClient.bookWithStatus(73, 1, previousKey = stored.key, retry = true, travelerName = "Зилә").isFailure)
+        assertEquals(3, server.requestCount)
+        server.enqueue(bookingCommandResponse(73, "pending"))
+        assertEquals("pending", ApiClient.bookWithStatus(73, 1, previousKey = stored.key,
+            retry = true, travelerName = "Айгөл").getOrThrow().status)
+        val replay = request()
+        assertEquals(first.path, replay.path)
+        assertEquals(stored.key, replay.getHeader("Idempotency-Key"))
+        assertEquals(original, replay.body.readUtf8())
+    }
+
     @Test fun lostReplyAndRestartKeepExactKeyAndReturnActualCancellation() = runBlocking {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         val failure = ApiClient.bookWithStatus(73, 2, pickupStop = "Өфө").exceptionOrNull() as CommandIntent.Failure
