@@ -965,6 +965,16 @@ def _traveler_details(booking: Booking, ride: Ride, visible: bool) -> dict:
     return {"traveler_name": name, "traveler_name_remaining_ms": remaining}
 
 
+@router.get("/bookings/{booking_id}/completed-traveler")
+def completed_traveler(booking_id: int, response: Response, user: User = Depends(current_user),
+                       session: Session = Depends(get_session)):
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    response.headers["Cache-Control"] = "no-store"
+    role = "driver" if ride.driver_id == user.id else "passenger"
+    visible = booking.status == BookingStatus.done and booking_contacts_open(booking, ride)
+    return {"booking_id": booking.id, "role": role, **_traveler_details(booking, ride, visible)}
+
+
 @router.get("/bookings/{booking_id}/details", response_model=BookingDetailsOut)
 def booking_details(booking_id: int, response: Response, user: User = Depends(current_user),
                     session: Session = Depends(get_session)):

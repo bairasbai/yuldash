@@ -1945,7 +1945,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "56fd0805ead9086507ae6236e28e3686a6d77207951af2a9eeb6c9f8a06dd1ea",
+      "sha256": "a48d57d3fab1b97acd6c7687dcc6e1a6ea3a48298b0c850a5b0ce05d4bebfe36",
       "lines": 7667
     },
     {
@@ -1980,7 +1980,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/BookingDtos.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "8b5388c25f7cb19ee3227737db1f78da9cc5c9433bfd7a36d34a2e16fa48057b",
+      "sha256": "e0662c262c080c5afe763bfffecd6df1b0689ba8d544d89a4dfaa33d2a59060f",
       "lines": 177
     },
     {
@@ -2029,7 +2029,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "1974ef58c19d8c13a965d9e6f07d3fb32d1d546b2cd789eca704ee3d476f7548",
+      "sha256": "cb1a0942dfef650b93306d36c146d34de8f9a5a7f8a2634e4aa42b812487ed9e",
       "lines": 109
     },
     {
@@ -2127,7 +2127,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/PrivateBookingTraveler.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "b9413471753c133cfd7c7ece355534a6d4b3e150da655c1b34885c237825d10b",
+      "sha256": "cd165d8a336c5d0cb2c3fbfbdfbc5fe21af6664c4ad0dea4079979ce9186e861",
       "lines": 23
     },
     {
@@ -3793,8 +3793,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/PassengerProblemReportTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "5b20a351d2ae5c3adc11a5f3b2fe565680eb608b2f9dbb32041cde84bff225bc",
-      "lines": 136
+      "sha256": "704b09c19a5506048e546f92db844e5dfbe93673a8f69966ca89155489e8308c",
+      "lines": 266
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/PassengerRatingTextTest.kt",
@@ -3891,7 +3891,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/PhotosAreCompressedBeforeSendingTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "25a3fa771a6a1d852fa3e55c921d4e37c9b841e2c976eae2ed4466f66cda81b8",
+      "sha256": "37829563671c53037ac4095d38135f79fe0e09822bf7d654e767103802832a56",
       "lines": 75
     },
     {
@@ -4192,8 +4192,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "55cf20bfd949f8de23d76ee78f9ccecc84ec31a498a703b1d32a15b37be262fe",
-      "lines": 200
+      "sha256": "612d929ae23a5a5994a1ead00e72286b7a596d90c6809510dd2f175afd072033",
+      "lines": 294
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedGuardTest.kt",
@@ -4227,8 +4227,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareRatingReopenTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "ae0613d534c477e8469e172be998bc47970b5fcc1bf6e446605865c1eda421a7",
-      "lines": 105
+      "sha256": "93b90a11339054b29426c28bf7290446644267ec6bed88c422dd3e92f4d0bed2",
+      "lines": 224
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareSmallFixesTest.kt",
@@ -7321,8 +7321,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "841d6497ea129b02100edf0c07612656c79c2b9ede4e7c28b4218b3d31bac4e1",
-      "lines": 2581
+      "sha256": "5fa7ca27df7a9661456060029d23274a636bc26d0d3c34acd8c888cc48acafab",
+      "lines": 2591
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -8728,8 +8728,8 @@
       "path": "backend/tests/test_booking_for_another.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "76e7f8fa467c10e1b342bd756fcc54441a4a20d20431e9b7532de32b47146380",
-      "lines": 390
+      "sha256": "6b76b658178dec0c5d10f8a1f3d822d70a5b2a12f1a342a0dfe6c4b8b8543f25",
+      "lines": 401
     },
     {
       "path": "backend/tests/test_booking_link_access.py",

@@ -112,6 +112,10 @@ class RideshareCompletedBoundaryTest {
                     val key = "${request.method} ${request.path}"
                     val bearer = request.getHeader("Authorization")
                     requests += key to bearer
+                    val traveler = Regex("^/bookings/(42|43)/completed-traveler$").matchEntire(request.path.orEmpty())
+                    if (request.method == "GET" && traveler != null && bearer == "Bearer $tokenA") {
+                        return MockResponse().setBody("""{"booking_id":${traveler.groupValues[1]},"role":"passenger"}""")
+                    }
                     val match = Regex("^/trips/(42|43)/receipt$").matchEntire(request.path.orEmpty())
                     if (request.method != "GET" || match == null || bearer != "Bearer $tokenA") {
                         fixtureFailures += "Unexpected local request $key"
