@@ -20987,6 +20987,9 @@ button.settings-row:active {
   margin: 0;
   padding: var(--space-sm) var(--space-md) 0;
 }
+.tchat__foot .quick-replies .chip {
+  min-height: 48px;
+}
 .tchat__strip {
   border-top: 0;
 }
@@ -21005,6 +21008,10 @@ button.settings-row:active {
 .tchat__foot .chat__input input {
   min-width: 0;
   min-height: 48px;
+}
+.tchat__foot .chat__input input::placeholder {
+  color: var(--muted);
+  opacity: 1;
 }
 .tchat__foot .chat__input button {
   width: 48px;

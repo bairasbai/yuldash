@@ -124,6 +124,19 @@ for (const [theme, p] of THEMES) {
   }
 }
 
+const chatQuickReply = blockBody(ui, ".tchat__foot .quick-replies .chip") ?? "";
+const chatQuickReplyHeight = Number(chatQuickReply.match(/\bmin-height:\s*(\d+)px\s*;/)?.[1]);
+check(chatQuickReplyHeight >= 48, "попутки: быстрый ответ в чате высотой не менее 48px");
+
+const chatPlaceholder = blockBody(ui, ".tchat__foot .chat__input input::placeholder") ?? "";
+const chatPlaceholderColor = chatPlaceholder.match(/\bcolor:\s*var\((--[\w-]+)\)\s*;/)?.[1];
+check(/\bopacity:\s*1\s*;/.test(chatPlaceholder), "попутки: браузер не приглушает цвет подсказки чата");
+for (const [theme, palette] of THEMES) {
+  const ratio = contrast(palette[chatPlaceholderColor], palette["--surface-2"]);
+  check(ratio !== null && ratio >= 4.5, `${theme}: контраст подсказки чата попутки`,
+    ratio === null ? "нет пары цветов" : `${ratio.toFixed(2)} (нужно ≥ 4.5)`);
+}
+
 // ---------------- правила ui.css: чем написано и на чём ----------------
 //
 // Пары выше — про токены, а человек читает ПРАВИЛО. Пара --canon-gold-ink / --canon-gold-soft была
