@@ -33,7 +33,7 @@ from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused,
 from ..security import current_user, gen_otp, normalize_guardian_phone
 from ..logs import log
 from ..visibility import (LIVE_GEO_LEAD_HOURS, PROBLEM_REPORT_WINDOW, booking_contacts_open, cancelled_in_transit,
-                          transit_cancel_car_open)
+                          completed_booking_contacts_deadline, transit_cancel_car_open)
 from ..services import (booking_and_ride_for_user, geocode_city, haversine_km, is_blocked,
                         lock_booking_and_ride_for_user, notify_map_changed, push_notification, user_rating)
 from ..rating_service import booking_rating_open, rating_allowed_now
@@ -443,6 +443,7 @@ class BookingDetailsOut(BaseModel):
     # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings.
     passenger_name: str = ""
     traveler_name: Optional[str] = None
+    traveler_name_remaining_ms: Optional[int] = None
     # Телефон пассажира — только водителю и только пока связь открыта (решение Александра 23.10.2026:
     # «после подтверждения можно открыть номер»), по тому же окну, что телефон водителя пассажиру.
     passenger_phone: str = ""
@@ -956,6 +957,19 @@ def _notify_new_booking(session: Session, booking: Booking, ride: Ride, user: Us
     )
 
 
+def _traveler_details(booking: Booking, ride: Ride, visible: bool) -> dict:
+    name = booking.traveler_name if visible else None
+    # Короткий срок ответа ограничивает видимость уже показанного имени при потере сети.
+    remaining = 30_000 if name is not None else None
+    if name is not None and booking.status == BookingStatus.done:
+        deadline = completed_booking_contacts_deadline(booking, ride)
+        if deadline is not None:
+            remaining = max(0, min(remaining, int((deadline - utcnow()).total_seconds() * 1000)))
+        if remaining == 0:
+            name = None
+    return {"traveler_name": name, "traveler_name_remaining_ms": remaining}
+
+
 @router.get("/bookings/{booking_id}/details", response_model=BookingDetailsOut)
 def booking_details(booking_id: int, response: Response, user: User = Depends(current_user),
                     session: Session = Depends(get_session)):
@@ -1023,8 +1037,8 @@ def booking_details(booking_id: int, response: Response, user: User = Depends(cu
         "pay_amount": booking.pay_amount,
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
-        "traveler_name": (booking.traveler_name if booking.status != BookingStatus.cancelled and
-                          (booking.status != BookingStatus.done or unlocked) else None),
+        **_traveler_details(booking, ride, booking.status != BookingStatus.cancelled and
+                            (booking.status != BookingStatus.done or unlocked)),
         # Подросток — нет: у водителя прямая связь со взрослым (minor_guardian_phone), а не с ребёнком
         # (правило Q14, decisions.md; ревью Opus 23.10, P1-2).
         "passenger_phone": (passenger.phone if (unlocked and is_driver and passenger and not booking.minor_passenger) else ""),
@@ -2467,7 +2481,7 @@ def driver_bookings(response: Response, user: User = Depends(current_user), sess
             # по брони «в пути» неявку не отметить, спорную посадку разбирает админ (14.10.2026).
             "passenger_id": b.passenger_id,
             "passenger_name": (passenger.name if passenger else "Пассажир"),
-            "traveler_name": b.traveler_name if stop_visible else None,
+            **_traveler_details(b, ride, stop_visible),
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             # RS-02 А: водитель видит, кто сколько мест занял и за сколько (для загрузки по участкам).
             "seats": b.seats,

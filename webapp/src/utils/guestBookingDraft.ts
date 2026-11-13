@@ -10,6 +10,7 @@ export const GUEST_BOOKING_DRAFT_TTL_MS = 15 * 60 * 1000;
 export interface GuestBookingOptions {
   frontSeat?: boolean;
   minor?: boolean;
+  forAnother?: boolean;
 }
 
 export interface GuestBookingSelection extends GuestBookingOptions {
@@ -63,11 +64,13 @@ function validate(raw: unknown): GuestBookingDraft | null {
         typeof v.sourceGeneration !== "string" || typeof v.at !== "number" ||
         !Number.isFinite(v.at) || v.at <= 0 || v.at > Date.now() || Date.now() - v.at > GUEST_BOOKING_DRAFT_TTL_MS ||
         (v.frontSeat !== undefined && typeof v.frontSeat !== "boolean") ||
-        (v.minor !== undefined && typeof v.minor !== "boolean")) return null;
+        (v.minor !== undefined && typeof v.minor !== "boolean") ||
+        (v.forAnother !== undefined && typeof v.forAnother !== "boolean")) return null;
     return { rideId: v.rideId, nonce: v.nonce, sourceGeneration: v.sourceGeneration, at: v.at,
       seats: v.seats, pickupStop: stop(v.pickupStop), dropoffStop: stop(v.dropoffStop),
       meeting: point(v.meeting), alighting: point(v.alighting),
-      ...(v.frontSeat && { frontSeat: true }), ...(v.minor && { minor: true }) };
+      ...(v.frontSeat && { frontSeat: true }), ...(v.minor && { minor: true }),
+      ...(v.forAnother && { forAnother: true }) };
   } catch { return null; }
 }
 function read(key: string): unknown {
@@ -120,7 +123,8 @@ export function consumeGuestBookingDraft(nonce: unknown, rideId: number, owner: 
     if (!draft || draft.rideId !== rideId || !owner || raw.owner !== owner || getSessionGeneration() !== owner) return null;
     return { seats: draft.seats, pickupStop: draft.pickupStop, dropoffStop: draft.dropoffStop,
       meeting: draft.meeting, alighting: draft.alighting,
-      ...(draft.frontSeat && { frontSeat: true }), ...(draft.minor && { minor: true }) };
+      ...(draft.frontSeat && { frontSeat: true }), ...(draft.minor && { minor: true }),
+      ...(draft.forAnother && { forAnother: true }) };
   } catch { return null; }
 }
 export function clearPendingGuestBookingDraft(nonce: unknown): void {

@@ -32,6 +32,8 @@ import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { bookingLinkPath } from "../utils/bookingLink";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
+import { BookingTraveler } from "../components/BookingTraveler";
+import ShareTripCard from "../components/ShareTripCard";
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -91,7 +93,7 @@ export default function BookingScreen() {
     onChanged: result => {
       if (result?.state === "applied" && result.booking?.status === "cancelled") {
         setD(current => current?.booking_id === bookingId && current.status === "pending"
-          ? { ...current, status: "cancelled" } : current);
+          ? { ...current, status: "cancelled", traveler_name: null } : current);
       }
       refreshOwnBookings();
       load(undefined, true);
@@ -99,29 +101,31 @@ export default function BookingScreen() {
   });
   const cancelling = passengerCancellation?.sending === true;
   latest.current = { bookingId, status, d, cancelling };
-  const pending = status === "ready" && d?.status === "pending" && d.booking_id === bookingId && !cancelling;
+  const refreshDetails = status === "ready" && d?.booking_id === bookingId && !cancelling &&
+    (d.status === "pending" || (d.status !== "cancelled" && Boolean(d.traveler_name)));
   const refreshPending = useCallback(() => {
     const current = latest.current;
     if (document.visibilityState !== "visible" || current.bookingId !== bookingId || current.status !== "ready"
-      || current.d?.status !== "pending" || current.cancelling || activeRequest.current) return;
+      || !current.d || (current.d.status !== "pending" && !current.d.traveler_name) ||
+      current.cancelling || activeRequest.current) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     const version = ++requestVersion.current;
     fetchBookingDetails(bookingId, controller.signal).then(res => {
       if (controller.signal.aborted || version !== requestVersion.current) return;
       setD(res);
-      if (res.status !== "pending") refreshOwnBookings();
+      if (res.status !== current.d?.status) refreshOwnBookings();
     }).catch(() => { /* A quiet retry must not hide already loaded details. */ }).finally(() => {
       if (activeRequest.current === controller) activeRequest.current = null;
     });
   }, [bookingId, refreshOwnBookings]);
-  useVisibleInterval(10000, refreshPending, pending);
+  useVisibleInterval(10000, refreshPending, refreshDetails);
   useEffect(() => {
-    if (!pending) return;
+    if (!refreshDetails) return;
     const onVisibility = () => { if (document.visibilityState !== "visible") abortRequest(); };
     document.addEventListener("visibilitychange", onVisibility);
     return () => { document.removeEventListener("visibilitychange", onVisibility); abortRequest(); };
-  }, [bookingId, pending, abortRequest]);
+  }, [bookingId, refreshDetails, abortRequest]);
 
   // Водитель по ссылке на бронь — не на пассажирскую «Бронь» с «Отменить бронь». Пассажир, которого
   // высадили в пути (`cancelled_in_transit`, 23.10.2026), — на экран поездки: там SOS, «Застряли» и машина.
@@ -178,6 +182,8 @@ export default function BookingScreen() {
             </div>
           )}
 
+          {d.booking_id === bookingId && d.status !== "cancelled" && <BookingTraveler name={d.traveler_name}
+            deadline={d.travelerNameDeadline} />}
           <div className="info-list">
             <div className="info-row">
               <span className="info-row__k">{appText("Водитель", "Йөрөтөүсе")}</span>
@@ -266,6 +272,8 @@ export default function BookingScreen() {
           >
             {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронде кире алырға")}
           </button>}
+          {d.booking_id === bookingId && d.role === "passenger" && d.status === "pending" && d.traveler_name &&
+            <ShareTripCard key={bookingId} bookingId={bookingId} bookingStatus="pending" forAnother />}
           {passengerCancellation?.content}
           <PartnerAdSlot placement="tripDetails" />
         </div>

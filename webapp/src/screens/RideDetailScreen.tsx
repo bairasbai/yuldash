@@ -82,6 +82,7 @@ export default function RideDetailScreen() {
     segmentReady(ride, restoredSelection.pickupStop, restoredSelection.dropoffStop) ? restoredSelection : null;
   const initialGuestOptions = restoredSelection ? {
     minor: restoredSelection.minor, frontSeat: restoredSelection.frontSeat,
+    ...(restoredSelection.forAnother && { forAnother: true }),
   } : undefined;
   return <>
     <ScreenHeader title={appText("Поездка", "Сәфәр")} />

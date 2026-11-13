@@ -44,6 +44,8 @@ import DeclineBookingButton from "../components/DeclineBookingButton";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
+import { BookingTraveler } from "../components/BookingTraveler";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 import { useFeatures } from "../features";
 import { isOpen } from "../featureRules";
 import {
@@ -273,15 +275,17 @@ export default function DriverCabinetScreen() {
 
   // После ответа на бронь или изменения рейса обновляем пассажиров и число мест,
   // не перезагружая кабинет: выбранные, но не отправленные оценки остаются на месте.
+  const pendingRequest = useRef(0);
   const loadPending = useCallback((signal?: AbortSignal) => {
+    const request = ++pendingRequest.current;
     fetchDriverBookings(signal)
       .then((rows) => {
-        if (signal?.aborted) return;
+        if (signal?.aborted || request !== pendingRequest.current) return;
         setPending(rows.filter((b) => b.status === "pending"));
         setOnboard(rows.filter((b) => b.status === "onboard"));
       })
       .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
+        if (signal?.aborted || request !== pendingRequest.current || e?.name === "AbortError") return;
         setPending([]);
         // «В машине» не стираем: последнее известное предупреждение лучше, чем никакого.
       });
@@ -330,6 +334,7 @@ export default function DriverCabinetScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+  useVisibleInterval(10000, loadPending, pending.some(row => Boolean(row.traveler_name)));
 
   async function toggleOnline() {
     if (!driver || onlineBusy) return;
@@ -568,10 +573,11 @@ export default function DriverCabinetScreen() {
                   <div className="act-card__title">
                     <IconRides size={18} /> {b.route}
                   </div>
-                  <p className="act-card__text" style={{ margin: "6px 0 10px" }}>
-                    {b.passenger_name || appText("Пассажир", "Юлаусы")}
-                    {b.passenger_rating != null && ` · ★ ${b.passenger_rating.toFixed(1)}`}
-                  </p>
+                  <BookingTraveler name={b.traveler_name} bookedBy={b.passenger_name} deadline={b.travelerNameDeadline} />
+                  {(!b.traveler_name || b.passenger_rating != null) && <p className="act-card__text" style={{ margin: "6px 0 10px" }}>
+                    {!b.traveler_name && (b.passenger_name || appText("Пассажир", "Юлаусы"))}
+                    {b.passenger_rating != null && `${b.traveler_name ? "" : " · "}★ ${b.passenger_rating.toFixed(1)}`}
+                  </p>}
                   {/* Просьба о переднем месте — до решения: водитель знает, кого куда посадит. */}
                   <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
                   {/* RS-03 А: точное место есть — до подтверждения виден только этот факт. */}

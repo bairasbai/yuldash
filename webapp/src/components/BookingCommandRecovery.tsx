@@ -27,6 +27,7 @@ function Recovery({ owner, rideId }: { owner: BookingCommandOwner; rideId?: numb
   const [rows, setRows] = useState<BookingCommand[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
+  const [conflictBookingId, setConflictBookingId] = useState<number>();
   const action = useRef<AbortController | null>(null);
 
   useEffect(() => {
@@ -43,6 +44,7 @@ function Recovery({ owner, rideId }: { owner: BookingCommandOwner; rideId?: numb
     action.current = ac;
     setBusy(true);
     setMessage("");
+    setConflictBookingId(undefined);
     const active = () => !ac.signal.aborted && isCurrentBookingOwner(owner);
     try {
       const result = await reconcileBookingCommand(owner, command, close, ac.signal);
@@ -56,6 +58,7 @@ function Recovery({ owner, rideId }: { owner: BookingCommandOwner; rideId?: numb
       if (result.booking) {
         navigate(`${result.booking.status === "pending" ? "/booking" : "/trip"}/${result.booking.id}`);
       } else {
+        if (result.state === "rejected") setConflictBookingId(result.conflictBookingId);
         setMessage(result.state === "closed_no_effect"
           ? appText("Запрос закрыт. Бронь по нему не создана.", "Һорау ябылды. Уның буйынса бронь яһалманы.")
           : result.state === "rejected"
@@ -97,6 +100,10 @@ function Recovery({ owner, rideId }: { owner: BookingCommandOwner; rideId?: numb
         </div>
       ))}
       {message && <p role="status">{message}</p>}
+      {conflictBookingId && <button type="button" className="btn-ghost"
+        onClick={() => { if (isCurrentBookingOwner(owner)) navigate(`/booking/${conflictBookingId}`); }}>
+        {appText("Открыть свою бронь", "Үҙ бронеңде асыу")}
+      </button>}
     </section>
   );
 }

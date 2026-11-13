@@ -40,6 +40,8 @@ const mocks = {
   analytics: `export const track=()=>{};`,
   own: `export const useRefreshOwnBookings=()=>()=>{};`,
   interval: `export const useVisibleInterval=()=>{};`,
+  share: `export default 'ShareTripCard';`,
+  traveler: `export const BookingTraveler='BookingTraveler';`,
 };
 const result = await build({
   entryPoints: [root + "src/screens/BookingScreen.tsx"], bundle: true, write: false, format: "esm", platform: "node", jsx: "automatic",
@@ -47,6 +49,8 @@ const result = await build({
     b.onResolve({ filter: /.*/ }, (a) => {
       const p = a.path;
       if (p.endsWith("/components/PassengerCancellation")) return { path: "cancellation", namespace: "mock" };
+      if (p.endsWith("/components/ShareTripCard")) return { path: "share", namespace: "mock" };
+      if (p.endsWith("/components/BookingTraveler")) return { path: "traveler", namespace: "mock" };
       const k = Object.hasOwn(mocks, p) ? p : p.endsWith("/utils/useVisibleInterval") ? "interval" : p.endsWith("/i18n/lang") ? "lang" : p.endsWith("/api/bookings") ? "bookings" : p.endsWith("/components/States") ? "states" : p.endsWith("/components/YandexMap") ? "map" : p.endsWith("/ConsentsScreen") ? "header" : p.endsWith("/components/StatusPill") ? "pill" : p.endsWith("/components/Icons") ? "icons" : p.endsWith("/utils/format") ? "format" : p.endsWith("/components/PartnerAd") ? "ads" : p.endsWith("/api/client") ? "client" : p.endsWith("/analytics") ? "analytics" : p.endsWith("/booking/OwnBookingsProvider") ? "own" : null;
       return k ? { path: k, namespace: "mock" } : null;
     });
@@ -65,12 +69,13 @@ function render() {
 const text = (tree) => JSON.stringify(tree);
 
 /** Открыть `/booking/42` с таким ответом сервера и вернуть то, что нарисовано. */
-async function open(role, status) {
+async function open(role, status, extra = {}) {
   Object.assign(h, { inst: { values: [], i: 0 }, effects: [], routes: [], cancelled: 0 });
   h.details = {
     booking_id: 42, ride_id: 7, role, status, contact_unlocked: status === "confirmed",
     from_city: "Уфа", to_city: "Сибай", depart_at: "2030-01-01T10:00:00", seats: 1, price: 500, pay_method: "cash",
     driver_name: "Ринат", driver_verified: true, driver_phone: "", driver_car: "Lada", pickup: "",
+    ...extra,
   };
   render();
   for (const fn of h.effects) fn();
@@ -131,6 +136,18 @@ await test("пока ответ не пришёл, водитель не вид�
   const tree = render();
   assert.ok(!text(tree).includes("Отменить бронь"));
   assert.ok(text(tree).includes("loading"));
+});
+
+await test("ожидающая бронь за другого открывает имя и ссылку только заказчику", async () => {
+  const extra = { traveler_name: "Ҡунаҡ Һынау", travelerNameDeadline: 30000 };
+  const owner = await open("passenger", "pending", extra);
+  assert.match(text(owner), /Ҡунаҡ Һынау/);
+  assert.match(text(owner), /ShareTripCard/);
+  const cancelled = await open("passenger", "cancelled", extra);
+  assert.doesNotMatch(text(cancelled), /Ҡунаҡ Һынау|ShareTripCard/);
+  const driver = await open("driver", "pending", extra);
+  assert.equal(driver.type, "Navigate");
+  assert.doesNotMatch(text(driver), /Ҡунаҡ Һынау|ShareTripCard/);
 });
 
 // ---- уведомления ведут на /booking/:id — туда, где роль уже учтена ----

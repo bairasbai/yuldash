@@ -85,6 +85,7 @@ def test_private_name_has_its_own_field_and_window(client, scene):
         assert own.status_code == 200
         assert own.headers["Cache-Control"] == "no-store"
         assert own.json()["traveler_name"] == TRAVELER
+        assert own.json()["traveler_name_remaining_ms"] == 30000
         assert own.json()["passenger_name"] == "Тест Заказчик"
     assert driver_row(client, booking_id, driver)["traveler_name"] == TRAVELER
     assert details(client, booking_id, stranger).status_code == 403
@@ -105,7 +106,8 @@ def test_private_name_has_its_own_field_and_window(client, scene):
         assert receipt.status_code == 200 and TRAVELER not in receipt.text
     set_ride_flags(ride_id, depart_at=utcnow()-timedelta(days=10))
     for user in (driver, owner):
-        assert details(client, booking_id, user).json()["traveler_name"] is None
+        data = details(client, booking_id, user).json()
+        assert data["traveler_name"] is None and data["traveler_name_remaining_ms"] is None
     assert driver_row(client, booking_id, driver)["traveler_name"] is None
 
 

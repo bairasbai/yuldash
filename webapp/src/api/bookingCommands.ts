@@ -10,15 +10,16 @@ export const BOOKING_RETRY_WINDOW = 24 * 60 * 60 * 1000;
 
 type Outcome =
   | { state: "unseen" | "closed_no_effect"; booking: null }
-  | { state: "rejected"; booking: null; code: string | null }
+  | { state: "rejected"; booking: null; code: string | null; conflictBookingId?: number }
   | { state: "applied"; booking: BookingRow | null };
 
 export class BookingCommandProblem extends Error {
   constructor(
-    readonly kind: "storage" | "full" | "unknown" | "changed" | "expired" | "gone" | "closed" | "rejected",
+    readonly kind: "storage" | "full" | "unknown" | "changed" | "expired" | "gone" | "closed" | "rejected" | "unsupported",
     readonly command?: BookingCommand,
     readonly original?: unknown,
     readonly code?: string | null,
+    readonly conflictBookingId?: number,
   ) { super(kind); }
 }
 
@@ -34,7 +35,8 @@ function checkedBooking(value: BookingRow | null, rideId: number, userId: number
 async function sendBookingCommand(
   owner: BookingCommandOwner, command: BookingCommand, body: string, signal: AbortSignal,
 ): Promise<BookingRow> {
-  const response = await apiCommand<BookingRow>("/bookings/commands/v1", owner, {
+  const path = command.forAnother ? "/bookings/for-another/commands/v1" : "/bookings/commands/v1";
+  const response = await apiCommand<BookingRow>(path, owner, {
     method: "POST", key: command.key, body, signal,
   });
   const booking = checkedBooking(response, command.rideId, owner.userId);
@@ -49,6 +51,20 @@ export async function createBooking(
   onPrepared?: (key: string, input: CreateBookingInput) => void,
 ): Promise<BookingRow> {
   if (!owner) throw new BookingCommandProblem("storage");
+  const forAnother = body.traveler_name !== undefined;
+  if (forAnother && !retry) {
+    try {
+      const capability = await apiCommand<{ traveler_name?: boolean }>("/bookings/capabilities", owner, {
+        method: "GET", signal,
+      });
+      if (capability.traveler_name !== true) throw new BookingCommandProblem("unsupported");
+    } catch (error) {
+      if (error instanceof ApiError && [404, 405].includes(error.status)) {
+        throw new BookingCommandProblem("unsupported");
+      }
+      throw error;
+    }
+  }
   let command: BookingCommand;
   let wireBody: string;
   let preparedInput: CreateBookingInput;
@@ -64,13 +80,15 @@ export async function createBooking(
     if (snapshot.wireBody === undefined) throw new Error("Missing booking body");
     wireBody = snapshot.wireBody;
     if (current) {
-      if (current.hash !== snapshot.payloadHash) throw new BookingCommandProblem("changed", current);
+      if (Boolean(current.forAnother) !== forAnother || current.hash !== snapshot.payloadHash) {
+        throw new BookingCommandProblem("changed", current);
+      }
       const age = Date.now() - current.createdAt;
       if (age < 0 || age >= BOOKING_RETRY_WINDOW) throw new BookingCommandProblem("expired", current);
       command = current;
     } else {
       const reservation = await reserveBookingCommand(owner, body.ride_id, snapshot.payloadHash,
-        prior && prior.state !== "unknown" ? prior.key : undefined, body.expected_terms_version ?? null);
+        prior && prior.state !== "unknown" ? prior.key : undefined, body.expected_terms_version ?? null, forAnother);
       if (reservation.status === "full") throw new BookingCommandProblem("full");
       if (reservation.status === "existing") throw new BookingCommandProblem("unknown", reservation.command);
       command = reservation.command;
@@ -84,6 +102,9 @@ export async function createBooking(
     onPrepared?.(command.key, preparedInput);
     return await sendBookingCommand(owner, command, wireBody, signal);
   } catch (error) {
+    if (command.forAnother && error instanceof ApiError && [404, 405].includes(error.status)) {
+      throw new BookingCommandProblem("unsupported", command);
+    }
     let result: Outcome | undefined;
     if (!signal.aborted && error instanceof ApiError && error.status >= 400 && error.status < 500 &&
         ![401, 404, 405, 408, 429].includes(error.status)) {
@@ -95,7 +116,7 @@ export async function createBooking(
     }
     if (result?.state === "rejected") {
       const original = error instanceof ApiError && error.code === result.code ? error : undefined;
-      throw new BookingCommandProblem("rejected", { ...command, state: "rejected" }, original, result.code);
+      throw new BookingCommandProblem("rejected", { ...command, state: "rejected" }, original, result.code, result.conflictBookingId);
     }
     if (result?.state === "closed_no_effect") throw new BookingCommandProblem("closed", { ...command, state: "closed_no_effect" });
     throw new BookingCommandProblem("unknown", command);
@@ -108,6 +129,7 @@ export async function reconcileBookingCommand(
   const path = `/command-intents/${encodeURIComponent(command.key)}`;
   const view = await apiCommand<{
     state: string; scope: string | null; ref_id: number | null; current: BookingRow | null; result_code: string | null;
+    booking_id?: number;
   }>(path + (close ? "/close" : ""), owner, close ? {
     method: "POST", signal,
     body: JSON.stringify({ scope: BOOKING_COMMAND_SCOPE, target_id: command.rideId, payload_hash: command.hash }),
@@ -127,7 +149,10 @@ export async function reconcileBookingCommand(
   if (view.state === "rejected" || view.state === "closed_no_effect") {
     if (!await resolveBookingCommand(owner, command, view.state)) throw new Error("Booking command superseded");
     return view.state === "rejected"
-      ? { state: "rejected", booking: null, code: view.result_code }
+      ? { state: "rejected", booking: null, code: view.result_code,
+          conflictBookingId: view.result_code === "booking_traveler_conflict" &&
+            typeof view.booking_id === "number" && Number.isSafeInteger(view.booking_id) && view.booking_id > 0
+            ? view.booking_id : undefined }
       : { state: "closed_no_effect", booking: null };
   }
   throw new Error("Unexpected booking command state");

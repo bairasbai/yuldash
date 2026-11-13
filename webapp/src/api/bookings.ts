@@ -39,6 +39,7 @@ export interface CreateBookingInput {
   minor_passenger?: boolean;
   minor_guardian_name?: string;
   minor_guardian_phone?: string;
+  traveler_name?: string;
   /** «Хочу переднее место». Одно на поездку — гонку двух нажатий разводит сервер (409). */
   front_seat?: boolean;
   /** RS-02 Б: цена ЗА МЕСТО на своём участке, которую видел клиент; несовпадение → 409 price_changed. */
@@ -109,6 +110,9 @@ export interface BookingDetails extends BoardingUndoTerms {
   passenger_phone?: string;
   /** Имя пассажира для шапки чата водителя (как в приложении). Старый сервер — нет. */
   passenger_name?: string;
+  traveler_name?: string | null;
+  traveler_name_remaining_ms?: number | null;
+  travelerNameDeadline?: number;
   /** Водитель отклонил неподтверждённую бронь (сервер решает сам) — «Водитель отклонил бронь». */
   declined?: boolean;
   driver_car: string;
@@ -265,6 +269,19 @@ function requireCurrentBookingSession(owner: TripPassOwner | null, signal?: Abor
   }
 }
 
+function setTravelerNameDeadline(value: {
+  traveler_name?: string | null; traveler_name_remaining_ms?: number | null; travelerNameDeadline?: number;
+}, started: number): void {
+  const remaining = value.traveler_name_remaining_ms;
+  if (!value.traveler_name) return;
+  if (typeof remaining !== "number" || !Number.isFinite(remaining) || remaining <= 0 || remaining > 30_000) {
+    value.traveler_name = null;
+    return;
+  }
+  value.travelerNameDeadline = started + remaining;
+  if (value.travelerNameDeadline <= performance.now()) value.traveler_name = null;
+}
+
 export async function fetchBookingDetails(
   id: number,
   signal?: AbortSignal,
@@ -272,7 +289,9 @@ export async function fetchBookingDetails(
 ): Promise<BookingDetails> {
   const owner = getAccountSession();
   const revision = await readTripPassRevision(owner, id);
-  const details = await apiGet<BookingDetails>(`/bookings/${id}/details`, { signal, _generation: owner?.generation });
+  const started = performance.now();
+  const details = await apiGet<BookingDetails>(`/bookings/${id}/details`, { signal, cache: "no-store", _generation: owner?.generation });
+  setTravelerNameDeadline(details, started);
   if (details.booking_id === id && (details.role === "driver" || details.role === "passenger")) {
     const snapshot = saveOffline && details.contact_unlocked &&
       (details.status === "confirmed" || details.status === "onboard")
@@ -445,6 +464,9 @@ export interface DriverBookingRow extends BoardingUndoTerms {
   /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */
   passenger_id?: number;
   passenger_name: string;
+  traveler_name?: string | null;
+  traveler_name_remaining_ms?: number | null;
+  travelerNameDeadline?: number;
   passenger_rating: number | null;
   route: string;
   status: BookingStatus | string;
@@ -509,7 +531,9 @@ export type DriverBooking = DriverBookingRow;
 export async function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
   const owner = getAccountSession();
   const revisions = await readTripPassRevisions(owner);
-  const rows = await apiGet<DriverBookingRow[]>("/driver/bookings", { signal, _generation: owner?.generation });
+  const started = performance.now();
+  const rows = await apiGet<DriverBookingRow[]>("/driver/bookings", { signal, cache: "no-store", _generation: owner?.generation });
+  rows.forEach(row => setTravelerNameDeadline(row, started));
   const relevant = rows.flatMap(row => row.status === "done" || row.status === "cancelled" || row.status === "onboard"
     ? [{ id: row.booking_id, status: row.status as "done" | "cancelled" | "onboard", onboard_at: row.onboard_at }] : []);
   await observeTripPassList(owner, relevant, signal, revisions);

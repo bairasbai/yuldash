@@ -464,7 +464,7 @@ async function request<T>(
 
 export function apiGet<T>(
   path: string,
-  opts?: { auth?: boolean; signal?: AbortSignal; onResponse?: (response: Response) => void; _generation?: string }
+  opts?: { auth?: boolean; signal?: AbortSignal; cache?: RequestCache; onResponse?: (response: Response) => void; _generation?: string }
 ): Promise<T> {
   return request<T>(path, { method: "GET", ...opts });
 }

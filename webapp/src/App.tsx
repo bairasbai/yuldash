@@ -405,7 +405,7 @@ export default function App() {
           path="/booking/:id"
           element={
             <RequireAuth>
-              <BookingScreen />
+              <BookingScreen key={getSessionGeneration()} />
             </RequireAuth>
           }
         />
@@ -413,7 +413,7 @@ export default function App() {
           path="/trip/:id"
           element={
             <RequireAuth unavailableContent={<OfflineTripFallback />}>
-              <ActiveTripScreen />
+              <ActiveTripScreen key={getSessionGeneration()} />
             </RequireAuth>
           }
         />
@@ -495,7 +495,7 @@ export default function App() {
           path="/driver"
           element={
             <RequireAuth>
-              <DriverCabinetScreen />
+              <DriverCabinetScreen key={getSessionGeneration()} />
             </RequireAuth>
           }
         />

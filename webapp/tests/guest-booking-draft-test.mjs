@@ -36,13 +36,14 @@ await test("G10-seats-and-both-user-points-once",()=>{
   assert.equal(draft.consumeGuestBookingDraft(nonce,42,"login-B"),null);
   assert.equal(values.size,0);
 });
-await test("G10-guardian-and-arbitrary-fields-never-carried",()=>{
-  const options={...selection,frontSeat:true,minor:true};
-  const nonce=remember({...options,guardianName:"Fixture Adult",guardianPhone:"not-a-real-number",token:"never-copy"});
+await test("G10-traveler-flag-survives-without-names-or-contacts",()=>{
+  const options={...selection,frontSeat:true,minor:true,forAnother:true};
+  const nonce=remember({...options,traveler_name:"Fixture Traveler",guardianName:"Fixture Adult",guardianPhone:"not-a-real-number",token:"never-copy"});
   const raw=values.get(pending);assert(!raw.includes("guardian"));assert(!raw.includes("token"));
+  assert(!raw.includes("Fixture Traveler"));
   publish(nonce);assert.deepEqual(draft.consumeGuestBookingDraft(nonce,42,"login-B"),options);
 });
-for(const flags of [{frontSeat:"true"},{minor:1},{minor:null}])await test(
+for(const flags of [{frontSeat:"true"},{minor:1},{minor:null},{forAnother:"true"}])await test(
   "G10-invalid-option-flags-"+JSON.stringify(flags),
   ()=>assert.equal(remember({...selection,...flags}),undefined)
 );

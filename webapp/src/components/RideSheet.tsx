@@ -65,6 +65,7 @@ export default function RideSheet({
   const [command, setCommand] = useState<BookingCommand>();
   const [originalRequest, setOriginalRequest] = useState<{ key: string; input: CreateBookingInput; generation: string } | null>(null);
   const [recoveredBooking, setRecoveredBooking] = useState<BookingRow | null>(null);
+  const [conflictBookingId, setConflictBookingId] = useState<number>();
   const [restoringCommand, setRestoringCommand] = useState(false);
   const owner = isAuthed ? bookingCommandOwner(user, ownerGeneration) : null;
   const unresolved = command?.state === "unknown";
@@ -86,6 +87,8 @@ export default function RideSheet({
    * Правило держит сервер — мы просто спрашиваем заранее, чтобы бронь не отлетела.
    */
   const [minor, setMinor] = useState(initialGuestOptions?.minor ?? false);
+  const [forAnother, setForAnother] = useState(initialGuestOptions?.forAnother ?? false);
+  const [travelerName, setTravelerName] = useState("");
   const [guardName, setGuardName] = useState("");
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
@@ -109,7 +112,9 @@ export default function RideSheet({
   const pickupReady = segmentReady(eff, pickupStop, dropoffStop);
   const frontSeatConflict = frontSeat && frontSeatState(eff) !== "free";
   const minorConflict = minor && eff.no_minors === true;
-  const choiceConflict = frontSeatConflict || minorConflict;
+  const travelerConflict = forAnother && eff.women_only === true;
+  const choiceConflict = frontSeatConflict || minorConflict || travelerConflict;
+  const canRetry = !command?.forAnother || retryInput !== null;
   const available = seatsOnSpan(eff, pickupStop, dropoffStop) ?? eff.seats_left;
   const perSeat = segmentPriceRub(eff, pickupStop, dropoffStop) ?? eff.price;
   useEffect(() => {
@@ -121,6 +126,7 @@ export default function RideSheet({
       setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
+      setForAnother(false); setTravelerName(""); setConflictBookingId(undefined);
       setSeats(1); setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
       setReviewedRoute(JSON.stringify(routePlaces(ride)));
       setCommand(undefined); setRecoveredBooking(null); setRestoringCommand(false);
@@ -137,7 +143,7 @@ export default function RideSheet({
     void readBookingCommand(owner, ride.id).then(async value => {
       if (!active() || !value) return;
       setCommand(current => current ?? value);
-      if (value.state !== "unknown" && value.state !== "applied") return;
+      if (value.state === "closed_no_effect") return;
       const result = await reconcileBookingCommand(owner, value, false, ac.signal);
       if (!active() || result.state === "unseen") return;
       const state = result.state;
@@ -146,6 +152,7 @@ export default function RideSheet({
       if (result.booking) setRecoveredBooking(result.booking);
       else if (result.state === "applied") setError(commandMessage("gone"));
       else if (result.state === "rejected") {
+        setConflictBookingId(result.conflictBookingId);
         setError(bookingRefusalMessage(appText, result.code));
         updateRideTerms(result.code, ac.signal);
       }
@@ -162,7 +169,8 @@ export default function RideSheet({
   }
 
   function updateRideTerms(code?: string | null, signal?: AbortSignal) {
-    if (code !== "price_changed" && code !== "ride_terms_changed" && code !== "front_seat_taken") return;
+    if (!["price_changed", "ride_terms_changed", "front_seat_taken", "booking_traveler_women_only",
+      "booking_traveler_no_minors"].includes(code ?? "")) return;
     void fetchRide(ride.id, signal).then(fresh => {
       if (mounted.current && !signal?.aborted && ownerGeneration === getSessionGeneration() &&
           selectionOwner.current === `${ownerGeneration}:${ride.id}`) setFreshRide(fresh);
@@ -182,6 +190,8 @@ export default function RideSheet({
       case "gone": return appText("Результат бронирования больше недоступен.", "Бронлау һөҙөмтәһе бүтән асыҡ түгел.");
       case "closed": return appText("Запрос закрыт. Бронь по нему не создана.", "Һорау ябылды. Уның буйынса бронь яһалманы.");
       case "rejected": return bookingRefusalMessage(appText);
+      case "unsupported": return appText("Сервер пока не поддерживает бронь за другого. Попробуй позже.",
+        "Сервер әлегә башҡа кеше өсөн бронлауҙы ҡабул итмәй. Һуңыраҡ ҡабатлап ҡара.");
       default: return appText("Не удалось подтвердить результат. Проверим, что сохранилось.",
         "Һөҙөмтәне раҫлап булманы. Нимә һаҡланғанын тикшерәйек.");
     }
@@ -207,8 +217,10 @@ export default function RideSheet({
       const state = result.state;
       setCommand(current => current?.key === command.key ? { ...command, state } : current);
       setOriginalRequest(null);
+      if (state === "closed_no_effect") setTravelerName("");
       if (result.booking) openBooking(result.booking);
       else if (result.state === "rejected") {
+        setConflictBookingId(result.conflictBookingId);
         setError(bookingRefusalMessage(appText, result.code));
         updateRideTerms(result.code, ac.signal);
       } else setError(commandMessage(result.state === "applied" ? "gone" : "closed"));
@@ -224,10 +236,12 @@ export default function RideSheet({
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
     if (bookingInFlight.current || !mounted.current || ownerGeneration !== getSessionGeneration() ||
         selectionOwner.current !== `${ownerGeneration}:${ride.id}` || (restoringCommand && !ownBooking)) return;
+    if (retry && !canRetry) return;
     if (!isAuthed) {
+      if (travelerConflict) return;
       const guestBookingNonce = authStatus === "guest"
         ? rememberGuestBookingDraft(ride.id, {
-          seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor,
+          seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor, forAnother,
         }, ownerGeneration)
         : undefined;
       // All guest choices travel only inside the bounded, one-use draft, never independently in history.
@@ -243,6 +257,10 @@ export default function RideSheet({
     if (recoveredBooking && !canRebook) { openBooking(recoveredBooking); return; }
     if ((!retry && (choiceConflict || routeReviewRequired)) || (parcelCategory && !getFeatures().parcels)) return;
     const originalInput = retry ? retryInput : null;
+    if (!originalInput && forAnother && (!/\p{L}/u.test(travelerName) || /[\p{N}\p{C}]/u.test(travelerName))) {
+      setError(appText("Укажи имя пассажира без цифр.", "Юлсының исемен һандарһыҙ күрһәт."));
+      return;
+    }
     if (!originalInput && !pickupReady) {
       setError(appText("Выбери места посадки и высадки, чтобы забронировать.", "Бронлау өсөн ултырыу һәм төшөү урындарын һайла."));
       return;
@@ -265,6 +283,7 @@ export default function RideSheet({
     bookingInFlight.current = true;
     setBusy(true);
     setError(null);
+    setConflictBookingId(undefined);
     track("booking_start");
     const ac = new AbortController();
     bookingAbort.current = ac;
@@ -278,6 +297,7 @@ export default function RideSheet({
         minor_passenger: minor || undefined,
         minor_guardian_name: minor ? guardName.trim() : undefined,
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
+        ...(forAnother ? { traveler_name: travelerName.trim().replace(/\s+/gu, " ") } : {}),
         // Только когда просили: обычная бронь уходит тем же телом, что и раньше.
         ...(frontSeat ? { front_seat: true } : {}),
         pickup_stop: pickupStop!,
@@ -291,12 +311,14 @@ export default function RideSheet({
       }, ac.signal, owner, command, retry, (key, input) => { prepared = { key, input }; });
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       setOriginalRequest(null);
+      setTravelerName("");
       track("booking_done");
       openBooking(b);
     } catch (failure) {
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       if (failure instanceof BookingCommandProblem && failure.command) setCommand(failure.command);
-      setOriginalRequest(failure instanceof BookingCommandProblem && failure.kind === "unknown" &&
+      if (failure instanceof BookingCommandProblem) setConflictBookingId(failure.conflictBookingId);
+      setOriginalRequest(failure instanceof BookingCommandProblem && ["unknown", "unsupported"].includes(failure.kind) &&
         prepared && failure.command?.key === prepared.key ? { ...prepared, generation: ownerGeneration } : null);
       const e = failure instanceof BookingCommandProblem ? failure.original : failure;
       // 409 «у тебя уже есть бронь» (другое число мест, остановка, подросток): сервер ответил, сеть есть —
@@ -488,6 +510,36 @@ export default function RideSheet({
           </button>
         )}
 
+        {!parcelCategory && !ownBooking && !unresolved && !conflictBookingId && (
+          eff.women_only && !forAnother ? null : <>
+            <label className="list-row list-row--check">
+              <span className="list-row__title">{appText("Еду не я", "Мин бармайым")}</span>
+              <input type="checkbox" className="checkbox" checked={forAnother} disabled={busy}
+                onChange={e => {
+                  setForAnother(e.target.checked);
+                  setTravelerName("");
+                  setError(null);
+                }} />
+            </label>
+            {travelerConflict && <p role="status" className="sheet__note">
+              {bookingRefusalMessage(appText, "booking_traveler_women_only")}
+            </p>}
+            {forAnother && !travelerConflict && (isAuthed && selectionOwner.current === `${ownerGeneration}:${ride.id}` ? (
+              <label className="field">
+                <span className="field__label">{appText("Имя пассажира", "Юлсының исеме")}</span>
+                <input className="field__input" value={travelerName} maxLength={120} autoComplete="off" disabled={busy}
+                  onChange={e => setTravelerName(e.target.value)} />
+                <span className="field__hint">
+                  {appText("Водитель увидит имя пассажира. Связь, управление бронью и SOS остаются у тебя.",
+                    "Йөрөтөүсе юлсының исемен күрер. Бәйләнеш, бронде идара итеү һәм SOS һиндә ҡала.")}
+                </span>
+              </label>
+            ) : <p className="sheet__note">
+              {appText("Имя пассажира понадобится после входа.", "Юлсының исеме ингәндән һуң кәрәк буласаҡ.")}
+            </p>)}
+          </>
+        )}
+
         {/* Подросток за рулём чужой машины — отдельный разговор, а не галочка мелким шрифтом.
             Водитель, который таких не берёт, сказал это заранее: тогда мы не предлагаем
             отметку вовсе и объясняем почему — иначе бронь отлетит уже после нажатия. */}
@@ -573,7 +625,12 @@ export default function RideSheet({
           </>
         ))}
 
-        {error && <div className="auth__error">{error}</div>}
+        {error && <div className="auth__error" role="status">{error}</div>}
+        {conflictBookingId && <button type="button" className="btn-ghost" onClick={() => {
+          if (ownerGeneration !== getSessionGeneration()) return;
+          onClose();
+          navigate(`/booking/${conflictBookingId}`);
+        }}>{appText("Открыть свою бронь", "Үҙ бронеңде асыу")}</button>}
         {canRebook && recoveredBooking && (
           <button type="button" className="btn-ghost" onClick={() => openBooking(recoveredBooking)}>
             {appText("Открыть отменённую бронь", "Кире алынған бронде асыу")}
@@ -595,11 +652,11 @@ export default function RideSheet({
           </div>
         )}
 
-        <button
+        {(!unresolved || canRetry || ownBooking) && !conflictBookingId && <button
           type="button"
           className="btn-primary sheet__cta"
           onClick={() => book(unresolved && !ownBooking)}
-          disabled={busy || (isAuthed && !ownBooking && (restoringCommand ||
+          disabled={busy || (!isAuthed && travelerConflict) || (isAuthed && !ownBooking && (restoringCommand ||
             ((!recoveredBooking || canRebook) && ((!retryInput && (!pickupReady || seats < 1 || seats > available)) ||
               (unresolved && parcelCategory && !features.parcels) ||
               (!unresolved && (choiceConflict || routeReviewRequired))))))}
@@ -617,7 +674,7 @@ export default function RideSheet({
                   ? appText(`Забронировать ${seats} ${pluralRu(seats, "место", "места", "мест")}`, `${seats} урын бронларға`)
                   : appText("Забронировать место", "Урын бронларға")
               : appText("Войти и забронировать", "Инеп бронларға")}
-        </button>
+        </button>}
         <p className="sheet__note">
           {appText(
             "Телефон и точное место встречи откроются после подтверждения водителем.",

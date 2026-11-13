@@ -65,6 +65,7 @@ import { StatusPill } from "../components/StatusPill";
 import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
 import ShareTripCard from "../components/ShareTripCard";
+import { BookingTraveler } from "../components/BookingTraveler";
 import DriverBoarding from "../components/DriverBoarding";
 import BoardingWait from "../components/BoardingWait";
 import PassengerBoardingUndo from "../components/PassengerBoardingUndo";
@@ -139,6 +140,7 @@ function cancelledDetails(d: BookingDetails, inTransit = false): BookingDetails 
     driver_plate: keepCar ? d.driver_plate : "",
     pickup: "", pickup_lat: null, pickup_lng: null,
     minor_guardian_name: "", minor_guardian_phone: "",
+    traveler_name: null,
     pickup_stop: d.role === "driver" ? null : d.pickup_stop,
     dropoff_stop: d.role === "driver" ? null : d.dropoff_stop,
     cancelled_in_transit: inTransit || d.cancelled_in_transit === true,
@@ -356,11 +358,12 @@ export default function ActiveTripScreen() {
           const needCar = inTransitRef.current && !inTransitDetailsAskedRef.current &&
             !(rawDetailsRef.current?.driver_plate || rawDetailsRef.current?.driver_car);
           if (needCar) inTransitDetailsAskedRef.current = true;
-          if (previousStatus !== fresh.status || needCar) void syncBookingDetails();
+          if (previousStatus !== fresh.status || needCar ||
+            (fresh.status === "done" && rawDetailsRef.current?.traveler_name)) void syncBookingDetails();
           return;
         }
         const elapsed = Date.now() - lastDetailsAtRef.current;
-        if (shouldRefreshBookingDetails(previousStatus, fresh.status, elapsed)) {
+        if (rawDetailsRef.current?.traveler_name || shouldRefreshBookingDetails(previousStatus, fresh.status, elapsed)) {
           void syncBookingDetails();
         }
       })
@@ -738,6 +741,8 @@ export default function ActiveTripScreen() {
       {header}
 
       <BookingSegmentNote pickupStop={details.pickup_stop} dropoffStop={details.dropoff_stop} rideHasStops={details.ride_has_stops} from={details.from_city} to={details.to_city} />
+      {details.booking_id === bookingId && st !== "cancelled" && <BookingTraveler name={details.traveler_name}
+        bookedBy={details.role === "driver" ? details.passenger_name : undefined} deadline={details.travelerNameDeadline} />}
 
       {/* ❄️ Погода на маршруте — до выезда, а не когда машина уже на трассе */}
       <WeatherWarningCard weather={weather} />
@@ -756,7 +761,8 @@ export default function ActiveTripScreen() {
       {winterAsk && (
         <div className="winter-check">
           <div className="winter-check__title">
-            {appText("Ты доехал(а)? ❄️", "Барып еттеңме? ❄️")}
+            {details.traveler_name ? appText("Пассажир доехал? ❄️", "Юлсы барып еттеме? ❄️")
+              : appText("Ты доехал(а)? ❄️", "Барып еттеңме? ❄️")}
           </div>
           <p className="winter-check__hint">
             {appText(
@@ -766,7 +772,8 @@ export default function ActiveTripScreen() {
           </p>
           <div className="winter-check__actions">
             <button type="button" className="btn-primary" onClick={winterAnswerOk} disabled={winterAnswerBusy}>
-              <IconCheck size={17} /> {appText("Доехал ✓", "Барып еттем ✓")}
+              <IconCheck size={17} /> {details.traveler_name ? appText("Пассажир доехал ✓", "Юлсы барып етте ✓")
+                : appText("Доехал ✓", "Барып еттем ✓")}
             </button>
             <button
               type="button"
@@ -1087,8 +1094,9 @@ export default function ActiveTripScreen() {
       )}
 
       {/* Поделиться поездкой с близким + статусы (у пассажира) */}
-      {active && details.role === "passenger" && (
-        <ShareTripCard bookingId={bookingId} showStatuses bookingStatus={st} onStatusChange={tickTrip} />
+      {(active || (st === "pending" && details.traveler_name)) && details.role === "passenger" && (
+        <ShareTripCard bookingId={bookingId} showStatuses={active} bookingStatus={st}
+          forAnother={Boolean(details.traveler_name)} onStatusChange={tickTrip} />
       )}
 
       {details.role === "passenger" && st === "confirmed" && <div className="trip-cancel">
@@ -1107,7 +1115,9 @@ export default function ActiveTripScreen() {
           узнаёт, в какой машине человек (без неё сигнал «человеку плохо» без адреса). */}
       {active && (
         <button type="button" className="sos-btn" onClick={() => navigate(sosPath(bookingId))}>
-          <IconWarn size={16} /> {appText("SOS — нужна помощь", "SOS — ярҙам")}
+          <IconWarn size={16} /> {details.role === "passenger" && details.traveler_name
+            ? appText("SOS — помощь пассажиру", "SOS — юлсыға ярҙам")
+            : appText("SOS — нужна помощь", "SOS — ярҙам")}
         </button>
       )}
 

@@ -12,6 +12,7 @@ export interface BookingCommand extends CommandSlot {
   rideId: number;
   /** Missing on old rows. Null means the original request omitted the version. */
   expectedTermsVersion?: number | null;
+  forAnother?: true;
 }
 export interface RidePublication extends CommandSlot {
   draftHash: string;
@@ -92,6 +93,7 @@ export function readPendingBookingCommands(owner: BookingCommandOwner): Promise<
 type Reservation = { status: "reserved" | "existing"; command: BookingCommand } | { status: "full" };
 export function reserveBookingCommand(
   owner: BookingCommandOwner, rideId: number, hash: string, replaceKey?: string, expectedTermsVersion?: number | null,
+  forAnother = false,
 ): Promise<Reservation> {
   return transaction<Reservation>(owner, rows => {
     const prior = rows.find(row => row.rideId === rideId);
@@ -107,6 +109,7 @@ export function reserveBookingCommand(
     const command: BookingCommand = {
       rideId, key: COMMAND_KEY_PREFIX + crypto.randomUUID(), hash, createdAt: Date.now(), state: "unknown",
       ...(expectedTermsVersion !== undefined ? { expectedTermsVersion } : {}),
+      ...(forAnother ? { forAnother: true as const } : {}),
     };
     updated.push(command);
     return { result: { status: "reserved", command }, updated };

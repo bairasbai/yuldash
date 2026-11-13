@@ -97,6 +97,65 @@ assert.equal((await api.createBooking(body, signal(), ownerA(), after404, true))
 assert.equal(posts, 2);
 console.log("PASS two tabs, old server 404 and manual retry with the same key");
 
+const forAnother = { ...body, traveler_name: "Ҡунаҡ Һынау" };
+await restore();
+const travelerRequests = [];
+globalThis.fetch = async (url, opts) => {
+  const path = new URL(url).pathname;
+  travelerRequests.push(path);
+  assert.equal(opts.cache, "no-store");
+  return reply({ detail: "old server" }, 404);
+};
+await assert.rejects(api.createBooking(forAnother, signal(), ownerA()), problem("unsupported"));
+assert.deepEqual(travelerRequests, ["/bookings/capabilities"]);
+assert.equal(await api.readBookingCommand(ownerA(), body.ride_id), undefined);
+console.log("PASS old server receives no booking or name");
+
+await restore();
+let travelerKey;
+let originalTravelerBody;
+let oldInstance = true;
+globalThis.fetch = async (url, opts) => {
+  const path = new URL(url).pathname;
+  if (path === "/bookings/capabilities") return reply({ traveler_name: true });
+  if (path === "/bookings/for-another/commands/v1") {
+    travelerKey ??= opts.headers["Idempotency-Key"];
+    originalTravelerBody ??= opts.body;
+    assert.equal(opts.headers["Idempotency-Key"], travelerKey);
+    assert.equal(opts.body, originalTravelerBody);
+    assert.deepEqual(JSON.parse(opts.body), forAnother);
+    return oldInstance ? reply({ detail: "old instance" }, 404) : reply(booking);
+  }
+  assert.fail("unexpected path for another passenger: " + path);
+};
+await assert.rejects(api.createBooking(forAnother, signal(), ownerA()), problem("unsupported"));
+const travelerSaved = await restarted.readBookingCommand(ownerA(), body.ride_id);
+assert.equal(travelerSaved.key, travelerKey);
+assert.equal(travelerSaved.forAnother, true);
+assert.doesNotMatch(JSON.stringify(travelerSaved), /Ҡунаҡ Һынау|traveler_name/);
+await assert.rejects(restarted.createBooking(body, signal(), ownerA(), travelerSaved, true), error => error.kind === "changed");
+oldInstance = false;
+assert.equal((await api.createBooking(forAnother, signal(), ownerA(), travelerSaved, true)).id, booking.id);
+console.log("PASS mixed deployment keeps the same key and dedicated address");
+
+await restore();
+let conflictKey;
+globalThis.fetch = async (url, opts) => {
+  const path = new URL(url).pathname;
+  if (path === "/bookings/capabilities") return reply({ traveler_name: true });
+  if (path === "/bookings/for-another/commands/v1") {
+    conflictKey = opts.headers["Idempotency-Key"];
+    throw new TypeError("response lost");
+  }
+  assert.equal(path, `/command-intents/${conflictKey}`);
+  assert.equal(opts.method, "GET");
+  return reply({ ...receipt("rejected"), result_code: "booking_traveler_conflict", booking_id: booking.id });
+};
+await assert.rejects(api.createBooking(forAnother, signal(), ownerA()), problem("unknown"));
+const lostConflict = await restarted.readBookingCommand(ownerA(), body.ride_id);
+assert.equal((await restarted.reconcileBookingCommand(ownerA(), lostConflict, false, signal())).conflictBookingId, booking.id);
+console.log("PASS lost conflict response recovers the existing booking without resending the name");
+
 for (const originalVersion of [0, undefined]) {
   await restore();
   const requests = [];
