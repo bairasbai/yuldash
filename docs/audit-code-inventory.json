@@ -3338,8 +3338,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/HistoryReceiptNavigationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7be648a41d1fdbeb7fd0cd138e8ec1baf0b87d74aa63352b9c89c6d3ea6812c1",
-      "lines": 266
+      "sha256": "223cd117888029d46355e3a2da13cd22e3874ef8cc90e64fb3e3d6e379ecf5e5",
+      "lines": 268
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeBookingNavigationTest.kt",
