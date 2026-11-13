@@ -7286,7 +7286,7 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "e262be1e8c174052b013077ca37b86099a095ac00556fe421ae1e42b88cc6737",
+      "sha256": "7367613c0a2ac8403d272befa69ed279f8d4d09224d3a9d4b6227c8f931e64a4",
       "lines": 2586
     },
     {
@@ -8693,8 +8693,8 @@
       "path": "backend/tests/test_booking_for_another.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "554167c61573761805d3294e7b6866232f61e2b5e194b5ae8ff8c61216c8ef4a",
-      "lines": 375
+      "sha256": "76e7f8fa467c10e1b342bd756fcc54441a4a20d20431e9b7532de32b47146380",
+      "lines": 390
     },
     {
       "path": "backend/tests/test_booking_link_access.py",

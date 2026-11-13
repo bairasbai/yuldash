@@ -2480,7 +2480,7 @@ def driver_bookings(response: Response, user: User = Depends(current_user), sess
             # Вторая сторона для «Сообщить о проблеме» (разбор POST /incidents ждёт respondent_id):
             # по брони «в пути» неявку не отметить, спорную посадку разбирает админ (14.10.2026).
             "passenger_id": b.passenger_id,
-            "passenger_name": (passenger.name if passenger else "Пассажир"),
+            "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
             **_traveler_details(b, ride, stop_visible),
             "passenger_rating": (round(avg, 1) if cnt > 0 else None),
             # RS-02 А: водитель видит, кто сколько мест занял и за сколько (для загрузки по участкам).

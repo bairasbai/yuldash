@@ -62,6 +62,21 @@ def driver_row(client, booking_id, driver):
     return next(row for row in result.json() if row["booking_id"] == booking_id)
 
 
+def test_driver_keeps_booker_label_without_account_name(client, scene):
+    driver, owner, _, ride_id = scene
+    with Session(engine) as session:
+        account = session.get(User, owner["id"])
+        account.name = ""
+        session.add(account)
+        session.commit()
+
+    result = post(client, owner, ride_id, traveler_name=TRAVELER)
+    assert result.status_code == 200, result.text
+    row = driver_row(client, result.json()["id"], driver)
+    assert row["traveler_name"] == TRAVELER
+    assert row["passenger_name"] == "Пассажир"
+
+
 def set_ride_flags(ride_id, **fields):
     with Session(engine) as session:
         ride = session.get(Ride, ride_id)
