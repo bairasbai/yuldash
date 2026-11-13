@@ -260,6 +260,7 @@ private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? 
         "ride_terms_changed" -> appText("Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе.")
         "seats_not_enough" -> appText("На этом участке не хватило мест.", "Был участкала урындар етмәне.")
         "front_seat_taken" -> appText("Переднее место уже занято.", "Алғы урын инде алынған.")
+        "guardian_phone_invalid" -> appText("Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
         else -> appText("Сервер отклонил запрос на бронь.", "Сервер бронлау һорауын кире ҡаҡты.")
     }
     else -> appText("Не удалось подтвердить результат. Проверим, что сохранилось.",

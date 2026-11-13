@@ -1,6 +1,7 @@
 """Брони: бронирование (с защитой от овербукинга и блокировок), подтверждение,
 отмена, список своих, список броней водителя для оценки пассажиров."""
 import math
+import re
 import secrets
 from datetime import datetime, timedelta
 from typing import Optional
@@ -29,7 +30,7 @@ from ..geo import snapshot_cached
 from ..ride_stops import VILLAGE_KINDS, canonical_stop, is_end, is_start, parse_stops, pickup_of, ride_has_stops_raw
 from ..safety_logic import (CANCEL_REASONS, MSG_WOMEN_ONLY_RIDE, account_paused, ensure_active,
                             guard_women_only, is_late_cancel)
-from ..security import current_user, gen_otp
+from ..security import SMS_PHONE_RE, current_user, gen_otp, normalize_phone
 from ..logs import log
 from ..visibility import (LIVE_GEO_LEAD_HOURS, PROBLEM_REPORT_WINDOW, booking_contacts_open, cancelled_in_transit,
                           transit_cancel_car_open)
@@ -726,6 +727,10 @@ def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
                 "Для поездки пассажира младше 18 укажи взрослого: имя и телефон. Он отвечает за поездку, и водителю есть кому позвонить.",
                 "18-ҙән кесе юлсы өсөн оло кешене күрһәт: исеме һәм телефоны. Ул сәфәр өсөн яуаплы, водителгә шылтыратырға кем булыр.",
             )
+        normalized_phone = normalize_phone(guardian_phone)
+        if not re.fullmatch(r"\+?[0-9() .\u00a0\u202f-]+", guardian_phone) or not SMS_PHONE_RE.fullmatch(normalized_phone):
+            raise herr(*idempotency.GUARDIAN_PHONE_INVALID, code="guardian_phone_invalid")
+        guardian_phone = normalized_phone
     else:
         guardian_name = guardian_phone = ""   # не подросток — лишних ПДн не храним
     # RS-02 Б: сумма брони — цена СВОЕГО участка × места (цены остановок нет → полная, как раньше).

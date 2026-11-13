@@ -65,6 +65,9 @@ def is_placeholder_phone(phone) -> bool:
     return not phone or bool(_TG_PLACEHOLDER_RE.match(phone))
 
 
+SMS_PHONE_RE = re.compile(r"^\+?\d{10,15}$")  # 10–15 цифр и необязательный ведущий плюс
+
+
 def normalize_phone(raw) -> str:
     """Один номер — одна запись, как бы человек его ни набрал.
 

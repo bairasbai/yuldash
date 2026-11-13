@@ -853,8 +853,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "194b52d9086a0a737adefbc9faf128a63c3bc8c7ae4f6d189302a526ef5734ec",
-      "lines": 267
+      "sha256": "7cee50fe6303b194c04e9305c921b67b8b7329adde0c57e86b185e7ce289bd10",
+      "lines": 268
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingDecisionCards.kt",
@@ -7195,8 +7195,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "53d01c335a195208d4156dc6b71da47a52aa3d855a51d5a8b90d61c1e0b366a0",
-      "lines": 2476
+      "sha256": "88309ac2f224c1405d337ab2993951ab135e30e6ad7ecd24d4206e6da830ace1",
+      "lines": 2481
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -7265,8 +7265,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "b67b3c806af58a5e95357499701d6df34b28f425000be9a629966ad56e3e4a41",
-      "lines": 786
+      "sha256": "c1c47827df092f58ff5fec2553afd7de87dc46e2fc70837575fa4663c61678ee",
+      "lines": 951
     },
     {
       "path": "backend/app/routers/health.py",
@@ -7482,8 +7482,8 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "fa3f63db92dc615a4615d632244eb9da7b7d2cb04a8349ba0e77f73ace9b4d08",
-      "lines": 541
+      "sha256": "d4de47c43422ef37508f980c011b74e963a8e390846713722f50864d130bdc63",
+      "lines": 544
     },
     {
       "path": "backend/app/services.py",
@@ -8826,8 +8826,8 @@
       "path": "backend/tests/test_command_idempotency.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "71a16bd52e5755378cecf3760fcc8a305a1101a3a84143e91afa5ee58791046e",
-      "lines": 539
+      "sha256": "3c007f3812bee9db84085ba013202b3243f3ed5f8c954dedd6e0d74d8cb64192",
+      "lines": 597
     },
     {
       "path": "backend/tests/test_commission_promise_matches_reality.py",

@@ -1,6 +1,5 @@
 """Семейный контроль: доверенные контакты, шаринг поездки близкому,
 статусы поездки (сел/доехал/завершил) с SMS-уведомлением, оценки после поездки."""
-import re
 import secrets
 from contextlib import nullcontext
 from datetime import datetime, timedelta
@@ -23,7 +22,7 @@ from ..models import (
     TripShare, TrustedContact, User,
 )
 from ..rating_service import apply_rating, booking_rating_open, guard_rating_window
-from ..security import current_user, normalize_phone
+from ..security import SMS_PHONE_RE, current_user, normalize_phone
 from ..services import (pick_lang, sms_lang_of, booking_and_ride_for_user,
                         lock_booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text)
 from ..timeutil import utcnow
@@ -44,7 +43,6 @@ _PARCEL_SHARE_TTL = timedelta(hours=72)
 router = APIRouter(tags=["family"])
 
 MAX_TRUSTED_CONTACTS = 10          # разумный потолок «своих» → анти-SMS-бомбинг (каждый SOS/статус шлёт SMS всем)
-_PHONE_RE = re.compile(r"^\+?\d{10,15}$")   # телефон-получатель SMS: 10–15 цифр, опц. ведущий +
 
 
 def _ensure_share_token(session: Session, share: TripShare) -> str:
@@ -76,7 +74,7 @@ def add_contact(body: ContactIn, user: User = Depends(current_user), session: Se
     # Телефон доверенного — это адрес SMS за счёт платформы. Валидируем формат и держим потолок,
     # иначе через сотни «контактов» с чужими номерами можно устроить SMS-бомбинг (SOS/трип-статус шлют всем).
     phone = (body.phone or "").strip()
-    if phone and not _PHONE_RE.match(phone.replace(" ", "").replace("-", "")):
+    if phone and not SMS_PHONE_RE.match(phone.replace(" ", "").replace("-", "")):
         raise herr(400, "Неверный номер телефона", "Телефон номеры дөрөҫ түгел")
     # Тот же номер второй раз — то же самое добавление (аудит 2026-08-08, волна 135).
     #
@@ -766,7 +764,7 @@ def notify_guardian_cancelled_in_transit(session: Session, booking_id: int, pass
     if booking is None or not booking.minor_passenger:
         return False
     phone = normalize_phone(booking.minor_guardian_phone)
-    if not _PHONE_RE.match(phone or ""):
+    if not SMS_PHONE_RE.match(phone or ""):
         return False
     if normalize_phone(passenger.phone) == phone:
         return False
@@ -846,7 +844,7 @@ def set_tips_sbp(body: TipsSbpIn, user: User = Depends(current_user), session: S
     if not prof:
         raise herr(403, "Только для водителя", "Тик водитель өсөн")
     sbp = (body.sbp or "").strip()
-    if sbp and not _PHONE_RE.match(sbp.replace(" ", "").replace("-", "")):
+    if sbp and not SMS_PHONE_RE.match(sbp.replace(" ", "").replace("-", "")):
         raise herr(400, "Неверный номер СБП", "СБП номеры дөрөҫ түгел")
     prof.tips_sbp = sbp
     session.add(prof)

@@ -4,6 +4,7 @@ export function bookingRefusalMessage(appText: (ru: string, ba: string) => strin
     case "ride_terms_changed": return appText("Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе.");
     case "seats_not_enough": return appText("На этом участке не хватило мест.", "Был участкала урындар етмәне.");
     case "front_seat_taken": return appText("Переднее место уже занято.", "Алғы урын инде алынған.");
+    case "guardian_phone_invalid": return appText("Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.");
     default: return appText("Сервер отклонил запрос на бронь.", "Сервер бронлау һорауын кире ҡаҡты.");
   }
 }

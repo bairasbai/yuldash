@@ -156,6 +156,64 @@ def test_versioned_booking_path_requires_key_and_replays_one_booking(client, cas
     assert len(_snapshot(ride_id)[0]) == 1 and _seats_left(ride_id) == 2
 
 
+@pytest.mark.parametrize("keyed", [False, True])
+def test_guardian_phone_refusal_does_not_reserve_seats_and_can_be_corrected(client, case, keyed):
+    _, passenger, ride_id = case
+    path = "/bookings/commands/v1" if keyed else "/bookings"
+    key = f"cmd1_{KEY}"
+    headers = {**passenger["auth"], "Idempotency-Key": key} if keyed else passenger["auth"]
+    body = {"ride_id": ride_id, "seats": 1, "minor_passenger": True, "minor_guardian_name": "Мама",
+            "minor_guardian_phone": "нет номера"}
+    refused = client.post(path, headers=headers, json=body)
+    assert refused.status_code == 400
+    detail = refused.json()["detail"]
+    assert set(detail) == {"ru", "ba", "code"} and detail["ru"] and detail["ba"]
+    assert detail["code"] == "guardian_phone_invalid"
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
+    corrected = {**body, "minor_guardian_phone": "8 (999) 018-03-36"}
+    if keyed:
+        intent = _get(client, passenger, key).json()
+        assert intent["state"] == "rejected" and intent["result_code"] == "guardian_phone_invalid"
+        assert intent["current"] is None and intent["ref_id"] is None
+        replay = client.post(path, headers=headers, json=body)
+        assert replay.status_code == 400 and replay.json() == refused.json()
+        changed = client.post(path, headers=headers, json=corrected)
+        assert changed.status_code == 409 and changed.json()["detail"]["code"] == "idempotency_key_reused"
+        headers = {**headers, "Idempotency-Key": "cmd1_3feff2d8-5afb-4cf8-b306-b09f0e0a8a17"}
+    applied = client.post(path, headers=headers, json=corrected)
+    assert applied.status_code == 200, applied.text
+    booking_id = applied.json()["id"]
+    with Session(engine) as session:
+        assert session.get(Booking, booking_id).minor_guardian_phone == "+79990180336"
+    again = client.post(path, headers=headers, json=corrected)
+    assert again.status_code == 200 and again.json()["id"] == booking_id
+    rows, notices = _snapshot(ride_id)
+    assert len(rows) == notices == 1 and _seats_left(ride_id) == 3
+
+
+@pytest.mark.parametrize("phone", ["123456789", "89990180336 (не звонить)", "1234567890123456", "++79990180336"])
+def test_guardian_phone_rejects_invalid_format(client, case, phone):
+    _, passenger, ride_id = case
+    response = client.post("/bookings", headers=passenger["auth"], json={
+        "ride_id": ride_id, "seats": 1, "minor_passenger": True,
+        "minor_guardian_name": "Мама", "minor_guardian_phone": phone,
+    })
+    assert response.status_code == 400
+    assert response.json()["detail"]["code"] == "guardian_phone_invalid"
+    assert _snapshot(ride_id) == ([], 0) and _seats_left(ride_id) == 4
+
+
+def test_adult_booking_discards_unused_guardian_contact(client, case):
+    _, passenger, ride_id = case
+    response = client.post("/bookings", headers=passenger["auth"], json={
+        "ride_id": ride_id, "seats": 1, "minor_guardian_name": "Мама", "minor_guardian_phone": "нет номера",
+    })
+    assert response.status_code == 200, response.text
+    with Session(engine) as session:
+        booking = session.get(Booking, response.json()["id"])
+        assert not booking.minor_passenger and booking.minor_guardian_name == booking.minor_guardian_phone == ""
+
+
 def test_versioned_booking_path_respects_existing_close(client, case):
     _, passenger, ride_id = case
     key = f"cmd1_{KEY}"

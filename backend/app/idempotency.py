@@ -231,7 +231,11 @@ def read_intent(session: Session, owner_id: int, key: str) -> dict:
     return _view(session, owner_id, _find(session, owner_id, validate_key(key)))
 
 
+GUARDIAN_PHONE_INVALID = (400, "Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
+
+
 _FINAL_REFUSALS = {
+    "guardian_phone_invalid": GUARDIAN_PHONE_INVALID,
     "ride_terms_changed": (409, "Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе."),
     "price_changed": (409, "Цена поездки изменилась.", "Сәфәр хаҡы үҙгәрҙе."),
     "seats_not_enough": (400, "На этом участке не хватило мест.", "Был участкала урындар етмәне."),
