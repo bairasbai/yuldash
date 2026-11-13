@@ -119,6 +119,17 @@ def test_контакты_взрослого_водителю_до_поездк�
     assert _seen(d, GUARDIAN_PHONE)
     assert _seen(d, GUARDIAN_NAME)
 
+    row = next(row for row in client.get("/driver/bookings", headers=drv["auth"]).json()
+               if row["booking_id"] == bid)
+    assert row["minor_passenger"] is True
+    assert not _seen(row, GUARDIAN_PHONE)
+    assert not _seen(row, GUARDIAN_NAME)
+
+    stranger = user_factory("OtherDriver", role=UserRole.driver)
+    assert not any(row["booking_id"] == bid
+                   for row in client.get("/driver/bookings", headers=stranger["auth"]).json())
+    assert client.get(f"/bookings/{bid}/details", headers=stranger["auth"]).status_code == 403
+
 
 def test_отменил_бронь_и_номер_мамы_у_водителя_не_остался(client, user_factory):
     drv, pax, bid = _booking_with_minor(client, user_factory, "MinorCancel")
@@ -127,6 +138,9 @@ def test_отменил_бронь_и_номер_мамы_у_водителя_н
     d = client.get(f"/bookings/{bid}/details", headers=drv["auth"]).json()
     assert not _seen(d, GUARDIAN_PHONE)
     assert not _seen(d, GUARDIAN_NAME)
+    row = next(row for row in client.get("/driver/bookings", headers=drv["auth"]).json()
+               if row["booking_id"] == bid)
+    assert row["minor_passenger"] is False
 
 
 def test_попутчику_контакты_взрослого_не_показываем(client, user_factory):

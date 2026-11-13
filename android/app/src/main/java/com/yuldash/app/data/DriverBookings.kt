@@ -40,6 +40,7 @@ data class DriverBookingDto(
     val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
     val noShowWaitSec: Int = 0,
     val boardingUndoDeadlineElapsedMs: Long? = null,
+    val minorPassenger: Boolean = false,
 )
 
 internal fun DriverBookingDto.observeBoardingUndo(nowElapsedMs: Long, previous: DriverBookingDto?): DriverBookingDto {
@@ -78,6 +79,7 @@ internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
         status = o.optString("status"),
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
+        minorPassenger = o.optBoolean("minor_passenger"),
         passengerId = o.optInt("passenger_id"),
         boardingUndoSec = o.optInt("boarding_undo_sec"), boardingUndo = parseBoardingUndo(o),
         noShowAt = if (o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },

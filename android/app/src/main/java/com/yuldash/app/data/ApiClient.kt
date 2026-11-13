@@ -1124,6 +1124,17 @@ object ApiClient {
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
         OfflineTripSnapshotHooks.details(bookingId)
 
+    internal suspend fun getPendingGuardianPhone(bookingId: Int, owner: Long): Result<String> =
+        call("GET", "/bookings/$bookingId/details", null, auth = true, expectedGeneration = owner, freshRead = true)
+            .mapCatching { body ->
+                require(isCurrentSession(owner) && body.optInt("booking_id") == bookingId &&
+                    body.optString("role") == "driver" && body.optString("status") == "pending" &&
+                    body.opt("minor_passenger") == true)
+                val phone = body.opt("minor_guardian_phone") as? String
+                require(!phone.isNullOrBlank())
+                phone
+            }
+
     // ---------- Заявки ----------
 
     /** Создать заявку пассажира (требует входа). */
@@ -3534,6 +3545,7 @@ object ApiClient {
         expectedBase: String? = null,
         onDeletionConfirmed: (() -> Unit)? = null,
         admitWire: (() -> Boolean)? = null,
+        freshRead: Boolean = false,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3602,6 +3614,10 @@ object ApiClient {
                     text = mutationResponse.body?.string().orEmpty()
                 } else {
                     conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                        if (freshRead) {
+                            useCaches = false
+                            setRequestProperty("Cache-Control", "no-cache, no-store")
+                        }
                         requestMethod = method
                         connectTimeout = connectMs
                         readTimeout = readMs
@@ -3647,7 +3663,8 @@ object ApiClient {
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
                         idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
-                        wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed, admitWire = admitWire)
+                        wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed,
+                        admitWire = admitWire, freshRead = freshRead)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,

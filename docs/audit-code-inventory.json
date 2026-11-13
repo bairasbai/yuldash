@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 211,
-    "backend_main": 109,
+    "android_main": 212,
+    "backend_main": 110,
     "infra_resource_config": 407,
     "public_site_promo": 91,
-    "pwa_main": 334,
-    "test_support": 1307
+    "pwa_main": 335,
+    "test_support": 1309
   },
   "counts_by_block": {
     "B01": 169,
-    "B02": 314,
+    "B02": 315,
     "B03": 123,
     "B04": 80,
     "B05": 62,
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 750,
+    "B09": 754,
     "B10": 407,
     "B11": 92
   },
@@ -1361,6 +1361,13 @@
       "lines": 458
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/PendingGuardianContactAction.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "59906751e6067bd6a61402e28c1597fa140db7b29317452424446ff14481bb43",
+      "lines": 88
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/Permissions.kt",
       "kind": "android_main",
       "block": "B09",
@@ -1406,8 +1413,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "21c55426fdf9035045fbe96cb98c1eaa7d43d5de7e5fba48051f5dd0a4b6aea7",
-      "lines": 4773
+      "sha256": "236ecc0b3dc3aa96261d29cae94a99b352ed8151659772e06fd66382078807d3",
+      "lines": 4776
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1903,8 +1910,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "857ff6b0767807ac059fc1cc6ed346fac8870cff27cc2616172d8de750f992a2",
-      "lines": 7833
+      "sha256": "0057195c7a77d2455f567692c22b5932073bae5daf50e63dde27788486c753ac",
+      "lines": 7850
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -1966,8 +1973,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "3a3f354c241a492fc266afb6e790cb40f80e2ab8eb82e75c854a9df3a21b2950",
-      "lines": 105
+      "sha256": "bb5381bfef58193cfaea167b5dedb5047eaccc03ec3d137a2721aa3d2fb06810",
+      "lines": 107
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
@@ -5414,6 +5421,13 @@
       "lines": 80
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/PendingGuardianContactTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "cf1c41979db71be8612484ade43d7b4799d7f1667211c806f6b6bba91fdfc63a",
+      "lines": 102
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/PersonalDataExportCleanupTest.kt",
       "kind": "test_support",
       "block": "B01",
@@ -7202,8 +7216,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "b804e66e207756a00b5924fd2fe9ca560d64f6e400dbf550cedcbb228484b43f",
-      "lines": 2480
+      "sha256": "57318a5a284419b0a6ba4da1ac8ca73137c633805f22a2733d37d49c7d9f7259",
+      "lines": 2481
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -11521,8 +11535,8 @@
       "path": "backend/tests/test_strangers_data_is_not_ours_to_show.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e8b0c7a967a2681da41a7735e4aeb9100cdb99f54344c64139b1ba6e0822e1d7",
-      "lines": 137
+      "sha256": "5ab3eacb496ebee5c55203e09ac0793420001acc5eba473bfff61bf18efee98e",
+      "lines": 151
     },
     {
       "path": "backend/tests/test_support.py",

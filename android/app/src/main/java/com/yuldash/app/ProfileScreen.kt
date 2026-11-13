@@ -3247,6 +3247,9 @@ internal fun DriverCabinetContent(
                             }
                         }
                         if (b.frontSeat) FrontSeatRequestBadge()   // до решения: водитель знает, кого куда посадит
+                        if (b.minorPassenger && !bookingDecisionBlocked(b.bookingId)) {
+                            PendingGuardianContactAction(b, boardingOwner)
+                        }
                         BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
                         PassengerMeetingPoint(b)   // RS-03 А: «место указано» — водитель знает до подтверждения
                         if (b.seats > 0) {

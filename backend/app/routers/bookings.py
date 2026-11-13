@@ -2388,6 +2388,7 @@ def driver_bookings(user: User = Depends(current_user), session: Session = Depen
             # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
             "my_stars": my_stars.get(b.id, 0),
             "front_seat": bool(b.front_seat),   # «просит переднее место» в карточке заявки
+            "minor_passenger": b.status == BookingStatus.pending and b.minor_passenger,
             # Где садится (18.10.2026): "" — начало маршрута, «Акъяр» — остановка, null — не указано
             # (клиент пишет «Место посадки не указано — уточни в чате») или уже не видно (отмена).
             "pickup_stop": ((b.pickup_stop if has_stops else "") if stop_visible else None),
