@@ -23,5 +23,6 @@ export function isNearBottom(
 export function viewportBox(
   innerHeight: number,
   vvHeight: number,
-  vvTop: number
+  vvTop: number,
+  zoom?: number
 ): { top: number; height: number; covered: number; keyboardOpen: boolean };

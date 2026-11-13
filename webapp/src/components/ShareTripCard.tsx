@@ -45,6 +45,7 @@ export default function ShareTripCard({
   orderId,
   showStatuses = false,
   bookingStatus = "confirmed",
+  forAnother = false,
   onStatusChange,
 }: {
   /** Ровно одно из двух: бронь попутки или такси-заказ. */
@@ -53,6 +54,7 @@ export default function ShareTripCard({
   /** Показывать ли кнопки статуса для близких (только у пассажира попутки). */
   showStatuses?: boolean;
   bookingStatus?: BookingStatus;
+  forAnother?: boolean;
   /** После записи статуса перечитать авторитетное состояние брони. */
   onStatusChange?: () => void | Promise<void>;
 }) {
@@ -379,7 +381,7 @@ export default function ShareTripCard({
           </p>
           <div className="chips">
             <button type="button" className="chip" onClick={() => sendStatus("arrived")} disabled={busy}>
-              {appText("Доехала", "Барып еттем")}
+              {forAnother ? appText("Пассажир доехал", "Юлсы барып етте") : appText("Доехала", "Барып еттем")}
             </button>
             <button type="button" className="chip" onClick={() => sendStatus("done")} disabled={busy}>
               {appText("Поездка завершена", "Сәфәр тамамланды")}

@@ -318,9 +318,13 @@ internal class BookingMeetingDraft(
 }
 
 @Composable
-internal fun rememberBookingMeetingDraft(ride: Ride?, session: Long): BookingMeetingDraft {
-    val pickup = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session) { mutableStateOf(ride?.let(::initialPickupStop)) }
-    val dropoff = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session) { mutableStateOf(ride?.let(::initialDropoffStop)) }
+internal fun rememberBookingMeetingDraft(ride: Ride?, session: Long, guest: RestoredGuestBooking? = null): BookingMeetingDraft {
+    val pickup = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session) {
+        mutableStateOf(if (guest != null) guest.pickup else ride?.let(::initialPickupStop))
+    }
+    val dropoff = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session) {
+        mutableStateOf(if (guest != null) guest.dropoff else ride?.let(::initialDropoffStop))
+    }
     val meeting = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session, stateSaver = com.yuldash.app.data.MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
     val alighting = androidx.compose.runtime.saveable.rememberSaveable(ride?.id, session, stateSaver = com.yuldash.app.data.MeetingPointInputSaver) { mutableStateOf<MeetingPointInput?>(null) }
     return remember(ride, session, pickup, dropoff, meeting, alighting) { BookingMeetingDraft(ride, pickup, dropoff, meeting, alighting) }

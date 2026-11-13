@@ -84,7 +84,7 @@ await test("разбор: мусор в ответе не роняет лент�
 });
 
 await test("fetchRideCities ходит на /rides/cities с токеном и отдаёт разобранный ответ", async ({ m, calls }) => {
-  m.setSession("tok-A", "refresh-A");
+  await m.setSession("tok-A", "refresh-A");
   const r = await m.fetchRideCities();
   assert.equal(calls.length, 1);
   assert.equal(new URL(calls[0].url).pathname, "/rides/cities");

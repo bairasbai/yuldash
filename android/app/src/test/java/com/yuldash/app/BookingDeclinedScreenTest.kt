@@ -69,7 +69,7 @@ class BookingDeclinedScreenTest {
             rating = 5.0, verified = true, boosted = false)
         compose.setContent { if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             YuldashTheme { BookingScreen(ride, 73, emptyList(), emptyMap(), {}, {}, {}, {}, bookingStatus = "pending",
-                onConfirmRide = { _, _, _, _, _ -> }) }
+                onConfirmRide = { _, _, _, _, _, _ -> }) }
         } }
     }
 

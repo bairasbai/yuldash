@@ -7,6 +7,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 `main.py` разрезан без дублирования логики (поведение 1:1).
 """
 from collections import deque
+from collections.abc import Callable
 from datetime import timedelta
 import base64
 import json
@@ -17,7 +18,7 @@ import threading
 import time
 
 from fastapi import HTTPException
-from sqlalchemy import case, delete
+from sqlalchemy import case, delete, or_
 from sqlmodel import Session, select
 
 from .config import settings
@@ -29,8 +30,8 @@ from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
 from .models import (
-    Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
-    Notification, PickupPoint, Rating, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
+    AuthSession, Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
+    Notification, PickupPoint, Rating, RefreshToken, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
     User, UserRole, WebPushSubscription,
 )
 from .schemas import RideOut
@@ -236,6 +237,20 @@ def booking_and_ride_for_user(session: Session, booking_id: int, user: User) -> 
     ride = session.get(Ride, booking.ride_id)
     if not ride:
         raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
+    if booking.passenger_id != user.id and ride.driver_id != user.id:
+        raise herr(403, "Нет доступа к этой брони", "Был урын һаҡлауға инеү юҡ")
+    return booking, ride
+
+
+def lock_booking_and_ride_for_user(session: Session, booking_id: int, user: User) -> tuple[Booking, Ride]:
+    """Проверить участие и перечитать состояние под замками Ride → Booking."""
+    _, original_ride = booking_and_ride_for_user(session, booking_id, user)
+    ride = session.exec(select(Ride).where(Ride.id == original_ride.id)
+                        .with_for_update().execution_options(populate_existing=True)).first()
+    booking = session.exec(select(Booking).where(Booking.id == booking_id)
+                           .with_for_update().execution_options(populate_existing=True)).first()
+    if booking is None or ride is None or booking.ride_id != ride.id:
+        raise herr(404, "Бронь не найдена", "Урын һаҡлау табылманы")
     if booking.passenger_id != user.id and ride.driver_id != user.id:
         raise herr(403, "Нет доступа к этой брони", "Был урын һаҡлауға инеү юҡ")
     return booking, ride
@@ -563,26 +578,35 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         log.warning(f"[WEBPUSH] библиотека недоступна: {e}")
         return
 
-    subs = session.exec(
-        select(WebPushSubscription).where(WebPushSubscription.user_id == user_id)
-    ).all()
+    now = utcnow()
+    live_refresh = select(RefreshToken.id).where(
+        RefreshToken.auth_session_id == AuthSession.id, RefreshToken.revoked.is_(False), RefreshToken.expires_at > now,
+    ).exists()
+    active_logins = select(AuthSession.id).where(
+        AuthSession.user_id == user_id, AuthSession.revoked_at.is_(None),
+        or_(AuthSession.access_expires_at > now, live_refresh),
+    )
+    subs = session.exec(select(WebPushSubscription).where(
+        WebPushSubscription.user_id == user_id,
+        or_(WebPushSubscription.auth_session_id.is_(None), WebPushSubscription.auth_session_id.in_(active_logins)),
+    )).all()
     if not subs:
         return
 
     tag_parts = [str((data or {}).get("type") or (data or {}).get("ref_kind") or ""),
                  str((data or {}).get("id") or (data or {}).get("ref_id") or "")]
     tag = "-".join([x for x in tag_parts if x])
-    payload = json.dumps({
-        "title": title,
-        "body": body,
-        # Тег склеивает повторы об одном событии в одно уведомление: пять сообщений
-        # в чате не должны превращаться в пять плашек на экране.
-        "tag": tag or None,
-        "url": _web_push_url(data),
-    }, ensure_ascii=False)
-
-    dead: list[str] = []
+    message = {"title": title, "body": body, "tag": tag or None, "url": _web_push_url(data)}
+    dead = []
     for s in subs:
+        if s.auth_session_id and not s.binding_id:
+            continue
+        # A worker from before scoped push may still be active during a PWA update.
+        if s.auth_session_id:
+            content = {**message, "session_id": s.auth_session_id, "binding_id": s.binding_id}
+        else:
+            content = {"title": "Юлдаш", "tag": "yuldash", "url": "/"}
+        payload = json.dumps(content, ensure_ascii=False)
         try:
             webpush(
                 subscription_info={
@@ -598,7 +622,7 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         except WebPushException as e:  # noqa: PERF203
             code = getattr(getattr(e, "response", None), "status_code", 0)
             if code in (404, 410):
-                dead.append(s.endpoint)
+                dead.append((s.id, s.endpoint, s.binding_id))
             else:
                 # Адрес пуш-сервиса в лог НЕ пишем: по нему можно слать уведомления человеку.
                 log.warning(f"[WEBPUSH] отправка не прошла, код {code}")
@@ -609,7 +633,11 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         # В ОТДЕЛЬНОЙ сессии — по той же причине, что и у FCM: commit в переданную session
         # сбросил бы ORM-объекты вызывающего.
         with Session(engine) as s2:
-            s2.execute(delete(WebPushSubscription).where(WebPushSubscription.endpoint.in_(dead)))
+            for row_id, endpoint, binding_id in dead:
+                s2.execute(delete(WebPushSubscription).where(
+                    WebPushSubscription.id == row_id, WebPushSubscription.endpoint == endpoint,
+                    WebPushSubscription.binding_id == binding_id,
+                ))
             s2.commit()
 
 
@@ -728,6 +756,7 @@ def push_notification(
     data: "dict | None" = None,
     urgent: bool = False,
     storm_exempt: bool = False,
+    record_if: Callable[[Session], bool] | None = None,
 ) -> None:
     """Единая точка события: пишет строку в Центр уведомлений (двуязычно RU+BA) И шлёт FCM-push.
 
@@ -754,6 +783,8 @@ def push_notification(
         push = False
     try:
         with Session(engine) as s:
+            if record_if is not None and not record_if(s):
+                return
             if not storm_exempt and _notify_storm(s, user_id, ref_kind, ref_id):
                 return
             s.add(Notification(
@@ -768,6 +799,9 @@ def push_notification(
             ))
             s.commit()
     except Exception as e:  # noqa: BLE001 — уведомление вторично, основную операцию не валим
+        if record_if is not None:
+            log.warning("[NOTIFY] Guarded write failed: %s", type(e).__name__)
+            return
         log.warning(f"[NOTIFY] db error: {e}")
     if push:
         # Язык получателя: BA-пользователю пуш уходит на башкирском (клиент пишет выбор
@@ -1006,13 +1040,14 @@ def mask_phone(phone: str) -> str:
 
 def _smsdar_send(phone: str, text: str) -> tuple[bool, str]:
     """Отправка одного SMS через SMSDAR (брендовый канал /v1/brand). Возврат (ok, инфо для лога).
-    Авторизация в теле JSON: {id, password}. Номер → формат 79XXXXXXXXX."""
+    Авторизация в теле JSON: {id, password}. Номер → цифры с кодом страны."""
     import httpx
     d = "".join(c for c in (phone or "") if c.isdigit())
-    if d.startswith("8"):
-        d = "7" + d[1:]
-    if len(d) == 10:
-        d = "7" + d
+    if not (phone or "").lstrip().startswith("+"):
+        if d.startswith("8"):
+            d = "7" + d[1:]
+        if len(d) == 10:
+            d = "7" + d
     body = {
         "id": settings.smsdar_id,
         "password": settings.smsdar_password,

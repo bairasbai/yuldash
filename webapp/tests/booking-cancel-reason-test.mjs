@@ -1,26 +1,11 @@
-// ================================================================
-//  Паритет с Android, шаг 3 (17.10.2026): отмена брони — как в приложении.
-//
-//  Было на сайте: на «Брони» одна кнопка «Отменить бронь» для ЛЮБОГО статуса — и для ждущей,
-//  и для подтверждённой, и «в пути» (человек уже в машине); системное окно браузера вместо
-//  своего; без причины — `cancelBooking` слал запрос без тела, водитель не узнавал, почему место
-//  освободилось.
-//
-//  Стало как в Android (BookingActiveTripScreen.kt):
-//   • «Бронь»: отменить можно только ЖДУЩУЮ бронь и только пассажиру — своим окном
-//     «Отменить бронь?» на двух языках;
-//   • экран поездки: подтверждённую — «Отменить поездку», подпись «Отмена бесплатна до начала
-//     поездки», окно с причиной (по желанию) → POST /bookings/{id}/cancel {reason};
-//     сервер ответил «уже завершена» — так и говорим, а не «отменено»;
-//   • «в пути» (после «Я сел») кнопки отмены нет.
-//
-//  Исполняем настоящие BookingScreen, ActiveTripScreen и api/bookings.ts (shallow-harness.mjs).
-// ================================================================
+// Отмена пассажиром из ожидающей брони и подтверждённой поездки.
+// Экраны и диалог настоящие, серверные ответы подменены. Байты запроса проверяет driver-booking-decision-test.mjs.
 import assert from "node:assert/strict";
 import { existsSync, readFileSync } from "node:fs";
 import { build } from "esbuild";
 import { ROOT, all, bundleComponent, button, checker, langMock, mount, ofType, text } from "./shallow-harness.mjs";
 import { openActiveTrip } from "./active-trip-fixture.mjs";
+import { passengerDecisionStoreStub, passengerDecisionStub } from "./booking-command-stub.mjs";
 
 const t = checker();
 globalThis.document ??= { visibilityState: "visible", addEventListener() {}, removeEventListener() {} };
@@ -32,22 +17,12 @@ const api = await build({
   plugins: [{ name: "client", setup(b) {
     b.onResolve({ filter: /\/client$/ }, () => ({ path: "client", namespace: "c" }));
     b.onLoad({ filter: /.*/, namespace: "c" }, () => ({
-      contents: `export const apiGet=async()=>null;export const apiPost=async(p,b)=>{globalThis.__posts.push([p,b]);return{status:"cancelled"}};`,
+      contents: `export const getAccountSession=()=>null,isAccountSession=()=>false;export const getSessionGeneration=()=>"A";export const getToken=()=>"test-token";export const apiGet=async()=>null;export const apiPost=async(p,b)=>{globalThis.__posts.push([p,b]);return{status:"cancelled"}};`,
       loader: "js",
     }));
   } }],
 });
 const B = await import("data:text/javascript;base64," + Buffer.from(api.outputFiles[0].text).toString("base64"));
-
-await t.test("api: cancelBooking шлёт {reason} — с кодом причины и пустой, если причину не выбрали", async () => {
-  globalThis.__posts = [];
-  await B.cancelBooking(7, "found_other");
-  await B.cancelBooking(8);
-  assert.deepEqual(globalThis.__posts, [
-    ["/bookings/7/cancel", { reason: "found_other" }],
-    ["/bookings/8/cancel", { reason: "" }],
-  ]);
-});
 
 await t.test("причины — три кода Android, все из белого списка сервера CANCEL_REASONS", () => {
   const codes = B.CANCEL_REASONS.map((r) => r.code);
@@ -57,7 +32,7 @@ await t.test("причины — три кода Android, все из белог
     const set = readFileSync(py, "utf8").match(/CANCEL_REASONS[^{]*\{([\s\S]*?)\}/)?.[1] ?? "";
     for (const c of codes) assert.ok(set.includes(`"${c}"`), `сервер не знает код ${c} — свёл бы его к «other»`);
   }
-  const kt = ROOT + "../android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt";
+  const kt = ROOT + "../android/app/src/main/java/com/yuldash/app/PassengerCancellation.kt";
   if (existsSync(kt)) {
     const src = readFileSync(kt, "utf8");
     for (const r of B.CANCEL_REASONS) {
@@ -69,11 +44,16 @@ await t.test("причины — три кода Android, все из белог
 // ---------------------------------------------------------------- «Бронь»: только ждущая, только пассажир
 async function openBooking(lang, role, status) {
   const Screen = await bundleComponent("src/screens/BookingScreen.tsx", {
+    real: ["/components/PassengerCancellation"],
     mocks: {
       "react-router-dom": `export const Navigate="Navigate";export const useNavigate=()=>p=>globalThis.__bk.nav.push(p);export const useParams=()=>({id:"42"});`,
       "/i18n/lang": langMock(lang),
-      "/api/bookings": `export const fetchBookingDetails=async()=>({...globalThis.__bk.details});export const cancelBooking=async(...a)=>{globalThis.__bk.cancels.push(a);return{id:42,status:"cancelled"};};`,
-      "/api/client": `export class ApiError extends Error{}`,
+      "/api/bookings": `export const fetchBookingDetails=async()=>({...globalThis.__bk.details});export const CANCEL_REASONS=[];`,
+      "/api/client": `export class ApiError extends Error{};export const getSessionGeneration=()=>"A";`,
+      "/auth/AuthProvider": `export const useAuth=()=>({user:{id:7}});`,
+      "/AlertDialog": `export default "AlertDialog";`,
+      "/utils/bookingCommandStore": passengerDecisionStoreStub,
+      "/api/bookingDecisions": passengerDecisionStub('async (id, reason) => {globalThis.__bk.cancels.push([id,reason]);globalThis.__bk.details.status="cancelled";return{id,status:"cancelled"};}'),
       "/analytics": `export const track=(e)=>globalThis.__bk.tracked.push(e);`,
       "/booking/OwnBookingsProvider": `export const useRefreshOwnBookings=()=>()=>{globalThis.__bk.refreshed++;};`,
       "/utils/bookingLink": `export const bookingLinkPath=()=>null;`,
@@ -119,7 +99,7 @@ for (const lang of ["ru", "ba"]) {
       await h.settle();
       ofType(h.tree, "AlertDialog")[0].props.confirm.onClick();
       await h.settle();
-      assert.deepEqual(globalThis.__bk.cancels, [[42]], "подтвердил — бронь отменена");
+      assert.deepEqual(globalThis.__bk.cancels, [[42, ""]], "подтвердил — бронь отменена");
       assert.deepEqual(globalThis.__bk.tracked, ["booking_cancel"]);
       assert.equal(globalThis.__bk.refreshed, 1, "«моя бронь» в ленте перечитана");
     } finally {
@@ -149,12 +129,10 @@ await t.test("«Бронь»: системного окна браузера в 
 // ---------------------------------------------------------------- экран поездки: подтверждённая — с причиной
 for (const lang of ["ru", "ba"]) {
   const tripCancel = L(lang, "Отменить поездку", "Сәфәрҙе кире алыу");
-  await t.test(`${lang}: экран поездки, подтверждена — «Отменить поездку» и подпись «бесплатна до начала»`, async () => {
+  await t.test(`${lang}: экран поездки, подтверждена — можно открыть диалог отмены`, async () => {
     const { h } = await openActiveTrip({ lang, role: "passenger", status: "confirmed" });
     assert.ok(button(h.tree, tripCancel), "кнопка есть");
-    assert.ok(
-      text(h.tree).includes(L(lang, "Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."))
-    );
+    assert.ok(!text(h.tree).includes("бесплатна"));
   });
 
   await t.test(`${lang}: окно «Отменить поездку?» — три причины, выбранная уходит на сервер`, async () => {
@@ -163,8 +141,8 @@ for (const lang of ["ru", "ba"]) {
     await h.settle();
     const dlg = () => ofType(h.tree, "AlertDialog").find((d) => d.props.title === L(lang, "Отменить поездку?", "Сәфәрҙе кире аларғамы?"));
     assert.ok(dlg(), "окно открылось");
-    assert.equal(dlg().props.text, L(lang, "Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай."));
-    assert.ok(text(dlg()).includes(L(lang, "Причина (по желанию):", "Сәбәбе (теләгәнсә):")));
+    assert.equal(dlg().props.text, L(lang, "Место освободится, а водитель получит уведомление.", "Урын бушаясаҡ, ә йөрөтөүсе хәбәр аласаҡ."));
+    assert.ok(text(dlg()).includes(L(lang, "Причина (по желанию)", "Сәбәбе (теләгәнсә)")));
     const reasons = all(dlg()).filter((n) => n.type === "button" && String(n.props.className).includes("adlg__reason"));
     assert.deepEqual(reasons.map((r) => text(r)), [
       L(lang, "Планы поменялись", "Пландар үҙгәрҙе"),
@@ -178,13 +156,13 @@ for (const lang of ["ru", "ba"]) {
     assert.equal(picked.length, 1, "выбрана одна причина");
     assert.equal(text(picked[0]), L(lang, "Нашёл другой вариант", "Башҡа юл таптым"));
     assert.equal(dlg().props.confirm.label, L(lang, "Да, отменить", "Эйе, кире алырға"));
-    assert.equal(dlg().props.dismiss.label, L(lang, "Назад", "Артҡа"));
+    assert.equal(dlg().props.dismiss.label, L(lang, "Оставить бронь", "Бронде ҡалдырырға"));
     dlg().props.confirm.onClick();
     await h.settle();
-    assert.deepEqual(at.posts.filter(([p]) => p.endsWith("/cancel")), [["/bookings/42/cancel", { reason: "found_other" }]]);
+    assert.deepEqual(at.posts.filter(([p]) => p.endsWith("/cancel")), [["/bookings/42/commands/v1/cancel", { reason: "found_other", expected_terms_key: "a".repeat(64) }]]);
     assert.equal(dlg(), undefined, "окно закрылось");
     assert.ok(
-      text(h.tree).includes(L(lang, "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚", "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚")),
+      text(h.tree).includes(L(lang, "Если договорились ехать, заверши поездку в приложении, чтобы работали защита и SOS.", "Барырға һөйләшкән булһаң, яҡлау һәм SOS эшләһен өсөн сәфәрҙе ҡушымтала тамамла.")),
       "отмена после открытого телефона — мягкое напоминание, как в Android"
     );
     assert.equal(button(h.tree, tripCancel), undefined, "после отмены кнопки нет");
@@ -205,8 +183,8 @@ await t.test("без причины — уходит пустая строка; 
   await h.settle();
   ofType(h.tree, "AlertDialog")[0].props.confirm.onClick();
   await h.settle();
-  assert.deepEqual(at.posts.filter(([p]) => p.endsWith("/cancel")), [["/bookings/42/cancel", { reason: "" }]]);
-  assert.ok(text(h.tree).includes("Поездка отменена"));
+  assert.deepEqual(at.posts.filter(([p]) => p.endsWith("/cancel")), [["/bookings/42/commands/v1/cancel", { reason: "", expected_terms_key: "a".repeat(64) }]]);
+  assert.ok(text(h.tree).includes("Бронь отменена."));
 });
 
 await t.test("сервер не отменил (поездку уже завершили) — «уже завершена», а не «отменено»", async () => {
@@ -215,18 +193,18 @@ await t.test("сервер не отменил (поездку уже завер
   await h.settle();
   ofType(h.tree, "AlertDialog")[0].props.confirm.onClick();
   await h.settle();
-  assert.ok(text(h.tree).includes("Поездка уже завершена — отменить её нельзя."));
-  assert.ok(!text(h.tree).includes("Поездка отменена"));
+  assert.ok(text(h.tree).includes("Поездка уже завершена."));
+  assert.ok(!text(h.tree).includes("Бронь отменена."));
   assert.ok(!at.tracked.some(([e]) => e === "booking_cancel"), "несостоявшаяся отмена не считается отменой");
 });
 
-await t.test("сеть упала — окно остаётся, ответ сервера или «Не удалось отменить»", async () => {
+await t.test("сеть упала — показывается неизвестный результат отмены", async () => {
   const { h } = await openActiveTrip({ role: "passenger", status: "confirmed", cancel: () => { throw new Error("offline"); } });
   button(h.tree, "Отменить поездку").props.onClick();
   await h.settle();
   ofType(h.tree, "AlertDialog")[0].props.confirm.onClick();
   await h.settle();
-  assert.ok(text(h.tree).includes("Не удалось отменить"));
+  assert.ok(text(h.tree).includes("Результат отмены пока неизвестен."));
   assert.ok(button(h.tree, "Отменить поездку"), "бронь цела — кнопка на месте");
 });
 

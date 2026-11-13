@@ -103,6 +103,14 @@ console.log("✓ «лента внизу» с запасом; короткая �
   assert.equal(odd.top, 0);
   assert.equal(odd.covered, 0);
   console.log("✓ клавиатура: закрыта / открыта / iOS со сдвигом / адресная строка не в счёт / мусор не ломает");
+
+  const largeText = viewportBox(800, 480, 40, 1.3);
+  assert.equal(largeText.height * 1.3, 480);
+  assert.equal(largeText.top * 1.3, 40);
+  assert.equal(largeText.covered, 280);
+  assert.equal(largeText.keyboardOpen, true);
+  assert.deepEqual(viewportBox(800, 800, 0, NaN), closed);
+  console.log("✓ крупный текст: масштаб рамки не меняет видимую область и распознавание клавиатуры");
 }
 
 console.log("\nвсё сходится");

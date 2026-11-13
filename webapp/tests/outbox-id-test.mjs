@@ -11,7 +11,7 @@ const locks=new Map();Object.defineProperty(globalThis,'navigator',{configurable
 const load=tag=>import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+tag).toString('base64'));
 const clock=Date.now;Date.now=()=>123456789;
 const a=await load('append-A'),b=await load('append-B');Date.now=clock;
-a.setSession('A','refresh-A');let pendingB;
+await a.setSession('A','refresh-A');await b.initializeSessionStorage();let pendingB;
 pendingB=await b.enqueue(42,'message','B');
 await a.enqueue(42,'message','A');await pendingB;
 const actions=(await storedActions());

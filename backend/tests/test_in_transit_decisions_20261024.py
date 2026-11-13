@@ -499,6 +499,16 @@ def test_sms_взрослому_по_башкирски_и_длинное_имя
         assert len(family_router.guardian_sms_text(User(name=long_name), lang)) <= 134
 
 
+def test_guardian_international_code_is_preserved_in_booking_and_cancel_sms(client, user_factory, spies):
+    number = "+84901234567"
+    driver, pax, _, bid = _trip(client, user_factory, "international", minor=True, guardian="+84 90 123 4567")
+    details = client.get(f"/bookings/{bid}/details", headers=driver["auth"])
+    assert details.status_code == 200 and details.json()["minor_guardian_phone"] == number
+    _cancel_in_transit(client, driver, bid)
+    assert [phone for phone, text in spies["sms"] if "взрослым" in text] == [number]
+    assert _guard_log(pax["id"]) == 1
+
+
 def test_заглушка_имени_взрослому_не_пишем(client, user_factory, spies):
     assert "пассажир" in family_router.guardian_sms_text(User(name="Пользователь"), "ru")
     assert "Telegram" not in family_router.guardian_sms_text(User(name="Telegram"), "ru")

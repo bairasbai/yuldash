@@ -73,6 +73,7 @@ data class BookingDetailsDto(
     val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
     val canRate: Boolean = false,
     val myStars: Int = 0,
+    val traveler: PrivateBookingTraveler? = null,
 )
 
 /** RS-03 Б: активное предложение смены места (публичные поля — без автора). */
@@ -105,7 +106,7 @@ internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
 
 
 /** Полная карточка брони. */
-internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
+internal fun parseBookingDetailsDto(o: JSONObject, startedElapsedMs: Long? = null): BookingDetailsDto {
     return BookingDetailsDto(
         bookingId = o.optInt("booking_id"),
         rideId = o.optInt("ride_id"),
@@ -121,6 +122,7 @@ internal fun parseBookingDetailsDto(o: JSONObject): BookingDetailsDto {
         payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
         driverName = o.optString("driver_name"),
         passengerName = o.optString("passenger_name"), declined = o.optBoolean("declined"),
+        traveler = parsePrivateBookingTraveler(o, startedElapsedMs),
         passengerPhone = o.optString("passenger_phone"),
         driverVerified = o.optBoolean("driver_verified"),
         driverPhone = o.optString("driver_phone"),

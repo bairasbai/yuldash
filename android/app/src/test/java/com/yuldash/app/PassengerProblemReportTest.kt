@@ -86,10 +86,12 @@ class PassengerProblemReportTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
-                    if (request.path != "/trips/42/receipt" || request.method != "GET")
+                    if (request.method != "GET" || request.path !in setOf("/trips/42/receipt", "/bookings/42/completed-traveler"))
                         return MockResponse().setResponseCode(404).setBody("{}")
                     if (request.getHeader("Authorization") != receiptBearer)
                         return MockResponse().setResponseCode(403).setBody("{}")
+                    if (request.path == "/bookings/42/completed-traveler")
+                        return MockResponse().setBody("""{"booking_id":42,"role":"passenger"}""")
                     receiptReads.incrementAndGet()
                     val value = receipt()
                     val body = JSONObject().put("booking_id", value.bookingId).put("ride_id", value.rideId)
@@ -124,7 +126,9 @@ class PassengerProblemReportTest {
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
                 compose.waitForIdle()
             }
-            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null) {
+                compose.mainClock.advanceTimeByFrame()
+            }
             if (sessionInstalled) ApiClient.logout()
             finishOfflineWriteFixture02(cleanupGuard) {
                 check(ApiClient.testTrace == null || ApiClient.testTrace === ownTrace)
@@ -245,7 +249,7 @@ class PassengerProblemReportTest {
             }
         }
 
-        fun awaitCompleted(port: Int?) = runBlocking {
+        fun awaitCompleted(port: Int?, advanceFrame: () -> Unit) = runBlocking {
             withTimeout(5_000) {
                 check(!missingParent) { "Owned caller completion unavailable" }
                 val field = ChatSocket::class.java.getDeclaredField("client\$delegate")
@@ -255,6 +259,8 @@ class PassengerProblemReportTest {
                 while (started.any { !it.isCompleted } || client?.dispatcher?.let {
                         it.runningCalls() + it.queuedCalls()
                     }.orEmpty().any { it.request().url.host == "127.0.0.1" && it.request().url.port == port }) {
+                    Snapshot.sendApplyNotifications()
+                    advanceFrame()
                     org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                     delay(10)
                 }

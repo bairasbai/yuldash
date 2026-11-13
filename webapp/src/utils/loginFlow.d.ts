@@ -7,10 +7,10 @@ export interface LoginFlowDeps {
   getGeneration(): string;
   botAvailable(): boolean;
   tgStart(): Promise<{ request_id: string }>;
-  tgVerify(requestId: string, code: string): Promise<{ access_token: string; refresh_token: string; user: unknown }>;
+  tgVerify(requestId: string, code: string): Promise<{ access_token: string; refresh_token: string; logout_token?: string; user: unknown }>;
   smsRequest(phone: string): Promise<unknown>;
-  smsVerify(phone: string, code: string, name: string): Promise<{ access_token: string; refresh_token: string; user: unknown }>;
-  login(access: string, refresh: string, user: any): void | string | Promise<void | string>;
+  smsVerify(phone: string, code: string, name: string): Promise<{ access_token: string; refresh_token: string; logout_token?: string; user: unknown }>;
+  login(access: string, refresh: string, user: any, expectedGeneration: string, logoutToken?: string): void | string | Promise<void | string>;
   updateName(name: string): Promise<unknown>;
   getStatus(error: unknown): number;
   getCode?(error: unknown): string;

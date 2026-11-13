@@ -15,6 +15,7 @@ internal class SnapshotPreferencesDisk(
     private val secure: SharedPreferences?,
 ) : SnapshotDisk {
     init { require(meta !== secure) }
+    override val canReadPayload: Boolean get() = secure != null
     private fun requireNamespace(value: String) { require(value.matches(Regex("[0-9a-f]{64}"))) }
     private fun barrierKey(value: String) { require(value.matches(Regex("[0-9a-f]{64}:[0-9a-f]{64}"))) }
     private fun barrierValue(value: String) {

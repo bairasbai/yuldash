@@ -9,8 +9,8 @@ async function environment(){
  globalThis.indexedDB=new IDBFactory();const storage=new Map();
  globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
  globalThis.window={addEventListener(){},removeEventListener(){}};
- const load=()=>import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));
- const api=await load(),calls=[];globalThis.fetch=async(u,i)=>{calls.push(JSON.parse(i.body));return new Response('{}');};api.setSession('A','refresh-A');
+ const load=async()=>{const instance=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));await instance.initializeSessionStorage();return instance;};
+ const api=await load(),calls=[];globalThis.fetch=async(u,i)=>{calls.push(JSON.parse(i.body));return new Response('{}');};await api.setSession('A','refresh-A');
  return {api,load,storage,calls};
 }
 async function check(name,fn){try{await fn(await environment());passed++;console.log('✓ '+name);}catch(e){failed++;console.error('FAIL '+name+': '+e.message);}}
@@ -41,11 +41,28 @@ await check('transaction abort after add rejects the save and rolls back the act
  assert.equal((await storedActions()).length,0);
 });
 await check('account change before opening the database prevents stale insertion',async({api})=>{
- const pending=api.enqueue(42,'message','old A');api.setSession('B','refresh-B');await assert.rejects(pending);
+ const open=indexedDB.open.bind(indexedDB);
+ let release;
+ indexedDB.open=(name,...args)=>{
+  const request=open(name,...args);
+  if(name!=='yuldash-outbox-v1')return request;
+  return new Proxy(request,{set(target,key,value){
+   if(key==='onsuccess'){
+    target.onsuccess=event=>{release=()=>value.call(target,event);};
+    return true;
+   }
+   return Reflect.set(target,key,value,target);
+  },get(target,key){return Reflect.get(target,key,target);}});
+ };
+ const pending=api.enqueue(42,'message','old A');
+ await until(()=>release);
+ await api.setSession('B','refresh-B');
+ indexedDB.open=open;release();
+ await assert.rejects(pending);
  await api.enqueue(99,'message','own B');assert.deepEqual((await storedActions()).map(a=>a.payload),['own B']);
 });
 await check('delayed cleanup cannot remove the new account actions',async({api})=>{
- await api.enqueue(42,'message','old A');const cleanup=api.clearOutbox();api.setSession('B','refresh-B');
+ await api.enqueue(42,'message','old A');const cleanup=api.clearOutbox();await api.setSession('B','refresh-B');
  await api.enqueue(99,'message','own B');await cleanup;
  assert.deepEqual((await storedActions()).map(a=>a.payload),['own B']);
 });

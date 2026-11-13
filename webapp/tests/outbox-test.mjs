@@ -1,3 +1,5 @@
+import { build } from "esbuild";
+import { fileURLToPath } from "node:url";
 import { IDBFactory } from 'fake-indexeddb';
 globalThis.indexedDB = new IDBFactory();
 // Проверка очереди исходящих на настоящем модуле (собранном esbuild-ом).
@@ -42,7 +44,14 @@ globalThis.fetch = async (url, init) => {
   return { ok: true, status: 200, json: async () => ({ id: sent.length, text: body?.text ?? "" }) };
 };
 
-const ob = await import("./.bundles/outbox-bundle.mjs");
+const { outputFiles } = await build({
+  stdin: {
+    contents: "export * from './src/utils/outbox'; export {setSession} from './src/api/client';",
+    resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts",
+  },
+  bundle: true, write: false, platform: "node", format: "esm", define: { "import.meta.env": "{}" },
+});
+const ob = await import("data:text/javascript;base64," + Buffer.from(outputFiles[0].text).toString("base64"));
 
 let bad = 0;
 const check = (ok, label, extra = "") => {
@@ -99,7 +108,7 @@ check(flushedCalls === 1, "экран получил сигнал обновит
 stop();
 
 // Content-free confirmation must reach even a subscriber whose own flush did not send it.
-store.set('yuldash.token', 'header.' + Buffer.from(JSON.stringify({ sub: '7' })).toString('base64url') + '.signature');
+await ob.setSession('header.' + Buffer.from(JSON.stringify({ sub: '7' })).toString('base64url') + '.signature', 'fixture-refresh');
 mode = 'down';
 const receipts = [];
 const stopReceipt = ob.watchOutbox(() => {}, (bid, receipt) => receipts.push({ bid, receipt }));

@@ -1,3 +1,4 @@
+import { subscribeSessionChanges } from "../utils/sessionCredentials";
 import { sessionMutation, sessionEpoch, storageFenced, confirmStorageSession, reportStorageFailure } from "../utils/storageHealth";
 import {
   createContext,
@@ -11,6 +12,7 @@ import {
 } from "react";
 import {
   getToken,
+  reconcileSession,
   getSessionGeneration,
   setSession,
   setRefreshHandler,
@@ -18,11 +20,11 @@ import {
 } from "../api/client";
 import {
   fetchMe,
-  logoutServer,
+  flushPendingLogouts,
   refreshSession,
   type Me,
 } from "../api/auth";
-import { disableWebPush } from "../push/webPush";
+import { disableLocalPushAfterLogout } from "../push/webPush";
 import { clearOutbox } from "../utils/outbox";
 import { clearAllDrafts } from "../utils/formDraft";
 import { clearPersonalLocal, syncPersonalSession } from "../utils/privacy";
@@ -35,9 +37,9 @@ interface AuthCtx {
   status: Status;
   user: Me | null;
   isAuthed: boolean;
-  /** Записать сессию после успешного входа (токены уже в localStorage). */
-  login: (access: string, refresh: string, user: Me) => void | string | Promise<void | string>;
-  /** Выйти: гасим сервер (best-effort) и чистим локально. */
+  /** Подтвердить сохранение сессии после проверки кода. */
+  login: (access: string, refresh: string, user: Me, expectedGeneration: string, logoutToken?: string) => Promise<string>;
+  /** Подтвердить локальный выход и передать отзыв серверу при наличии связи. */
   logout: () => Promise<void>;
   /** Перечитать профиль (после правок). */
   refresh: () => Promise<void>;
@@ -93,6 +95,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUnauthorizedHandler(() => {
       clearSessionData();
       applyGuest();
+      void flushPendingLogouts();
     });
     return () => {
       setRefreshHandler(null);
@@ -137,70 +140,71 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (retryGeneration !== null && retryGeneration === getSessionGeneration() && getToken()) loadSession();
     };
     retrySessionRef.current = retry;
-    const storageChanged = (event: StorageEvent) => {
-      if (event.storageArea && event.storageArea !== localStorage) return;
-      // A failed login may remove access before its generation can be committed.
-      // Quiet rotations keep access present; an obsolete removal cannot clear B.
-      if (event.key === "yuldash.token" && event.newValue === null && !getToken()) {
-        loadSession();
-        return;
-      }
-      if (event.key !== "yuldash.session" && event.key !== null) return;
-      if (event.key !== null && event.newValue !== getSessionGeneration()) return;
-      loadSession();
+    const onForeground = () => {
+      void reconcileSession().then(retry).catch(() => {});
+      void flushPendingLogouts();
     };
+    const unsubscribe = subscribeSessionChanges(loadSession);
     loadSession();
-    if (typeof window !== "undefined") window.addEventListener?.("storage", storageChanged);
+    void flushPendingLogouts();
     if (typeof window !== "undefined") {
-      window.addEventListener?.("online", retry);
-      window.addEventListener?.("focus", retry);
+      window.addEventListener?.("online", onForeground);
+      window.addEventListener?.("focus", onForeground);
+      window.addEventListener?.("pageshow", onForeground);
     }
+    const watch = typeof document === "undefined" ? undefined : setInterval(() => {
+      if (document.visibilityState === "visible") void reconcileSession().catch(() => {});
+    }, 5000);
+    if (typeof document !== "undefined") document.addEventListener?.("visibilitychange", onForeground);
     return () => {
+      clearInterval(watch);
       mounted.current = false;
       ac?.abort();
       retrySessionRef.current = () => {};
-      if (typeof window !== "undefined") window.removeEventListener?.("storage", storageChanged);
+      unsubscribe();
+      if (typeof document !== "undefined") document.removeEventListener?.("visibilitychange", onForeground);
       if (typeof window !== "undefined") {
-        window.removeEventListener?.("online", retry);
-        window.removeEventListener?.("focus", retry);
+        window.removeEventListener?.("online", onForeground);
+        window.removeEventListener?.("focus", onForeground);
+        window.removeEventListener?.("pageshow", onForeground);
       }
     };
   }, [applyGuest]);
 
-  const login = useCallback((access: string, refresh: string, me: Me) => {
-    const generation = getSessionGeneration(), epoch = sessionEpoch();
-    return sessionMutation(permit => {
-      if (epoch !== sessionEpoch() || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
-      try {
-        setSession(access, refresh, permit);
-        syncPersonalSession(getSessionGeneration());
-      } catch (error) { setUser(null); setStatus("guest"); throw error; }
-      confirmStorageSession(getSessionGeneration()); setUser(me); setStatus("authed");
-      return getSessionGeneration();
+  const login = useCallback(async (access: string, refresh: string, me: Me, expectedGeneration: string, logoutToken?: string) => {
+    const epoch = sessionEpoch();
+    return sessionMutation(async permit => {
+      if (epoch !== sessionEpoch() || storageFenced()) throw new Error("Session operation superseded");
+      const generation = await setSession(access, refresh, permit, expectedGeneration, logoutToken);
+      if (!generation || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
+      syncPersonalSession(generation);
+      confirmStorageSession(generation);
+      setUser(me);
+      setStatus("authed");
+      void flushPendingLogouts();
+      return generation;
     });
   }, []);
 
   const logout = useCallback(async () => {
     const generation = getSessionGeneration();
-    if (storageFenced()) { setUser(null); setStatus("guest"); return; }
-    // Пуши гасим ДО выхода: серверу нужен ещё живой токен, чтобы отвязать подписку.
-    // Иначе на общем телефоне следующий вошедший получал бы чужие уведомления.
+    if (storageFenced()) return;
     try {
-      await disableWebPush();
-    } catch {
-      /* не критично — выход важнее */
+      await sessionMutation(async permit => {
+        await reconcileSession();
+        if (generation !== getSessionGeneration()) return;
+        if (!getToken()) return;
+        const guest = await setSession(null, null, permit, generation);
+        if (!guest || guest !== getSessionGeneration()) return;
+        setUser(null);
+        setStatus("guest");
+        clearSessionData();
+        void flushPendingLogouts();
+        void disableLocalPushAfterLogout(guest);
+      });
+    } catch (error) {
+      if (!storageFenced()) throw error;
     }
-    if (generation !== getSessionGeneration()) return;
-    try {
-      await logoutServer();
-    } catch {
-      /* нет сети / уже протух — всё равно чистим локально */
-    }
-    if (generation !== getSessionGeneration()) return;
-    try { await sessionMutation(permit => {
-      if (generation !== getSessionGeneration()) return;
-      setSession(null, null, permit); setUser(null); setStatus("guest"); clearSessionData();
-    }); } catch (error) { if (!storageFenced()) throw error; }
   }, []);
 
   const refresh = useCallback(async () => {

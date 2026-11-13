@@ -10,6 +10,9 @@ import MyTripCard, { bookingStatusAllowsActiveTrip } from "../components/MyTripC
 import { LoadingList } from "../components/States";
 import PartnerAdCard, { usePartnerAds } from "../components/PartnerAd";
 import { IconCar, IconRoute, IconShield, IconSignal } from "../components/Icons";
+import { BookingCommandRecovery } from "../components/BookingCommandRecovery";
+import PassengerCancellation from "../components/PassengerCancellation";
+import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 
 type Segment = "active" | "history" | "all";
 type ViewState = "loading" | "error" | "ready";
@@ -28,6 +31,7 @@ export default function MyRidesScreen() {
   const { appText } = useLang();
   const navigate = useNavigate();
   const { status: authStatus } = useAuth();
+  const refreshOwnBookings = useRefreshOwnBookings();
   const [segment, setSegment] = useState<Segment>("active");
   const [state, setState] = useState<ViewState>("loading");
   const [bookings, setBookings] = useState<MyBooking[]>([]);
@@ -83,6 +87,8 @@ export default function MyRidesScreen() {
   return (
     <>
       <ScreenHeader title={appText("Мои поездки", "Минең сәфәрҙәр")} />
+      <BookingCommandRecovery />
+      <PassengerCancellation onChanged={() => { refreshOwnBookings(); load(); }} />
 
       <div className="segmented" role="tablist" aria-label={appText("Какие поездки показать", "Ниндәй сәфәрҙәрҙе күрһәтергә")}>
         {segments.map((s) => (

@@ -335,8 +335,10 @@ private val LoginGutter = 24.dp
 internal fun LoginScreen(
     currentLanguage: AppLanguage,
     onToggleLanguage: () -> Unit,
-    onContinue: () -> Unit,
+    onContinue: (Long) -> Unit,
+    onCancel: (() -> Unit)? = null,
 ) {
+    if (onCancel != null) androidx.activity.compose.BackHandler(onBack = onCancel)
     // Появление формы. Флаг стартует false и включается ПОСЛЕ первой композиции — иначе
     // animate*AsState берёт цель уже на первом кадре и никакого «выезда» не будет (мёртвая анимация).
     var appear by remember { mutableStateOf(false) }
@@ -354,6 +356,7 @@ internal fun LoginScreen(
         Column(
             modifier = Modifier.fillMaxSize().imePadding().verticalScroll(rememberScrollState())
         ) {
+            if (onCancel != null) ScreenTopBar(appText("Вход", "Инеү"), onCancel)
             // heightIn, а не height: при системном КРУПНОМ шрифте (им пользуются пожилые) геро
             // растёт под текст, а не режет его. Фото внутри тянется matchParentSize.
             BrandHero(
@@ -398,7 +401,7 @@ internal fun LoginScreen(
 @Composable
 private fun LoginFormCard(
     currentLanguage: AppLanguage,
-    onContinue: () -> Unit,
+    onContinue: (Long) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val scope = rememberCoroutineScope()
@@ -503,11 +506,12 @@ private fun LoginFormCard(
                 else if (!isLoginCodeValid(code)) { error = errEnterTgCode } else {
                     loading = true; error = null
                     scope.launch {
-                        ApiClient.tgVerify(tgRequestId, code.trim())
-                            .onSuccess {
+                        ApiClient.tgVerifySession(tgRequestId, code.trim())
+                            .onSuccess { generation ->
                                 loading = false
+                                if (!ApiClient.isCurrentSession(generation)) return@onSuccess
                                 nameInput.trim().takeIf { it.isNotBlank() }?.let { ApiClient.fireUpdateName(it) }
-                                onContinue()
+                                onContinue(generation)
                             }
                             .onFailure { e ->
                                 loading = false
@@ -572,8 +576,8 @@ private fun LoginFormCard(
                     if (!isLoginCodeValid(code)) { error = errEnterCode } else {
                         loading = true
                         scope.launch {
-                            ApiClient.verifyCode(phone.trim(), code.trim(), nameInput.trim())
-                                .onSuccess { loading = false; onContinue() }
+                            ApiClient.verifyCodeSession(phone.trim(), code.trim(), nameInput.trim())
+                                .onSuccess { generation -> loading = false; onContinue(generation) }
                                 .onFailure { e ->
                                     loading = false
                                     if (!disabledMethod(e)) error = when {

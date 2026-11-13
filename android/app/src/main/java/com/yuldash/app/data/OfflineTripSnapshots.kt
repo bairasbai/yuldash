@@ -136,15 +136,17 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         val before = SystemClock.elapsedRealtime()
         SnapshotClock(boot, System.currentTimeMillis(), before, SystemClock.elapsedRealtime())
     }
-    private suspend fun publish(epoch: Long = storageEpoch, durableAck: Boolean = false, action: suspend () -> SnapshotPersistence) {
+    private suspend fun publish(epoch: Long = storageEpoch, durableAck: Boolean = false, action: suspend () -> SnapshotPersistence): SnapshotPersistence {
         val write: suspend () -> SnapshotPersistence = {
             diskAccess.withLock {
                 if (epoch != storageEpoch) SnapshotPersistence.STALE
                 else runCatching { action() }.getOrDefault(SnapshotPersistence.NOT_DURABLE)
             }
         }
-        writes.value = if (durableAck) withContext(NonCancellable) { write() } else write()
+        val result = if (durableAck) withContext(NonCancellable) { write() } else write()
+        writes.value = result
         changed()
+        return result
     }
     suspend fun load(owner: SnapshotOwner, bookingId: Int): OfflineTripSnapshot? = withContext(Dispatchers.IO) {
         val epoch = storageEpoch
@@ -427,20 +429,45 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         timeCurrent(it.owner, bookingId, it.stamp, "terminal:$bookingId:${it.stamp}")
     }
     suspend fun terminal(ticket: SnapshotTicket?, bookingId: Int, status: String, role: String? = null, inTransit: Boolean = false) {
-        ticket ?: return
-        if (!gate.current(ticket) || status !in setOf("done", "cancelled")) return
+        terminalWithPersistence(ticket, bookingId, status, role, inTransit)
+    }
+    suspend fun terminalWithPersistence(ticket: SnapshotTicket?, bookingId: Int, status: String, role: String?, inTransit: Boolean = false): SnapshotPersistence {
+        ticket ?: return SnapshotPersistence.STALE
+        if (!gate.current(ticket) || status !in setOf("done", "cancelled")) return SnapshotPersistence.STALE
         val actualRole = role ?: synchronized(this) { live[bookingId]?.permit?.state?.role }
-        if (!gate.close(ticket, bookingId)) return
+        if (!gate.close(ticket, bookingId)) return SnapshotPersistence.STALE
         if (current(ticket.owner) && actualRole in setOf("driver", "passenger")) synchronized(this) {
             terminals[bookingId] = Terminal(ticket.owner, requireNotNull(actualRole), status, inTransit, processClock()); changed()
         }
-        close(ticket, bookingId)
+        return closeWithPersistence(ticket, bookingId, false)
     }
+    /** The passenger list can close a known terminal booking. It cannot grant trip authority. */
+    suspend fun closeListedTerminalBookings(ticket: SnapshotTicket?, bookingIds: Set<Int>) {
+        if (ticket == null || bookingIds.isEmpty()) return
+        val memoryIds = synchronized(this) {
+            if (!gate.current(ticket) || !current(ticket.owner)) return
+            val known = bookingIds.filter { it in live || it in details || it in warmFallbacks || it in driverCodes }
+            bookingIds.forEach { gate.close(ticket, it) }
+            changed()
+            known
+        }
+        withContext(NonCancellable + Dispatchers.IO) {
+            val storedIds = diskAccess.withLock {
+                val store = repo(ticket.owner) ?: return@withLock emptySet()
+                store.storedBookings(ticket, bookingIds) ?: bookingIds
+            }
+            for (id in storedIds + memoryIds) closeBookingWithPersistence(ticket, id)
+        }
+    }
+
     override suspend fun close(ticket: SnapshotTicket?, bookingId: Int) { close(ticket, bookingId, false) }
-    suspend fun close(ticket: SnapshotTicket?, id: Int, ride: Boolean) {
-        ticket ?: return
-        if (!gate.close(ticket, id, ride)) return
+    suspend fun closeBookingWithPersistence(ticket: SnapshotTicket?, bookingId: Int): SnapshotPersistence =
+        closeWithPersistence(ticket, bookingId, false)
+    suspend fun close(ticket: SnapshotTicket?, id: Int, ride: Boolean) { closeWithPersistence(ticket, id, ride) }
+    private suspend fun closeWithPersistence(ticket: SnapshotTicket?, id: Int, ride: Boolean): SnapshotPersistence {
+        ticket ?: return SnapshotPersistence.STALE
         synchronized(this) {
+            if (!current(ticket.owner) || !gate.close(ticket, id, ride)) return SnapshotPersistence.STALE
             if (ride) {
                 driverCodes.entries.removeAll { it.value.projection.owner == ticket.owner && it.value.projection.details.rideId == id }
                 details.filterValues { it.owner == ticket.owner && it.details.rideId == id }.keys.toList().forEach { details.remove(it) }
@@ -449,7 +476,13 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
             } else { live.remove(id); driverCodes.remove(id); warmFallbacks.remove(id); if (details[id]?.details?.status !in setOf("done", "cancelled")) details.remove(id) }
             changed()
         }
-        repo(ticket.owner)?.let { store -> publish(durableAck = true) { store.close(ticket, id, ride) } }
+        val store = repo(ticket.owner)
+        return when {
+            store != null -> publish(durableAck = true) { store.close(ticket, id, ride) }
+            !current(ticket.owner) || resetPending -> SnapshotPersistence.STALE
+            durable -> SnapshotPersistence.NOT_DURABLE
+            else -> SnapshotPersistence.UNCHANGED
+        }
     }
     /** Explicit logout/auth-reset only. No encrypted preferences/key is opened or inspected. */
     fun logoutCleanup() {

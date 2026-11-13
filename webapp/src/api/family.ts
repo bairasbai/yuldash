@@ -4,7 +4,8 @@
 //  GET/POST /trusted-contacts есть на бэке; DELETE — best-effort
 //  (появится на проде позже) → экран деградирует мягко на 404/405.
 // ================================================================
-import { apiGet, apiPost, apiDelete, API_BASE } from "./client";
+import { apiGet, apiPost, apiDelete, API_BASE, getAccountSession } from "./client";
+import { observeTripPass } from "../utils/offlineTripPass";
 
 /** Строка доверенного контакта (TrustedContact). */
 export interface TrustedContact {
@@ -100,8 +101,11 @@ export function revokeBookingShare(
 }
 
 /** «Села / доехала / завершила» — близкие видят новый статус по ссылке; SMS — только если на сервере включён SMS-провайдер. */
-export function setTripStatus(bookingId: number, status: TripStatus): Promise<TripShare[]> {
-  return apiPost<TripShare[]>(`/bookings/${bookingId}/trip-status`, { status });
+export async function setTripStatus(bookingId: number, status: TripStatus): Promise<TripShare[]> {
+  const owner = status === "done" ? getAccountSession() : null;
+  const shares = await apiPost<TripShare[]>(`/bookings/${bookingId}/trip-status`, { status }, { _generation: owner?.generation });
+  if (owner && Array.isArray(shares)) await observeTripPass(owner, bookingId, { status: "done" }, undefined);
+  return shares;
 }
 
 // --- Такси (заказ) ---

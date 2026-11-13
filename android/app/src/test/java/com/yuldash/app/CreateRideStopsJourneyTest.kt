@@ -47,9 +47,11 @@ class CreateRideStopsJourneyTest {
                         queries += query
                         if (query == "Берёзовка") return json("""{"items":[{"id":1,"name_ru":"Берёзовка","name_ba":"Ҡайынлыҡ","kind":"village","region":"РБ","district":"Иглинский р-н","lat":54,"lng":56},{"id":2,"name_ru":"Берёзовка","kind":"village","region":"РБ","district":"Уфимский р-н","lat":54,"lng":56}]}""")
                     }
-                    if (request.method == "POST" && path == "/rides") {
+                    if (path == "/me") return json("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
+                    if (path.startsWith("/command-intents/")) return json("""{"state":"unseen","scope":null,"ref_id":null,"current":null}""")
+                    if (request.method == "POST" && path == "/rides/commands/v1") {
                         bodies += request.body.readUtf8()
-                        return if (reject) json("""{"detail":"Остановка временно недоступна"}""", 422) else json("""{"id":42}""", 201)
+                        return if (reject) json("""{"detail":"Остановка временно недоступна"}""", 422) else json(JSONObject(bodies.last()).put("id", 42).put("driver_id", 7).put("status", "active").put("seats_left", 4).toString(), 201)
                     }
                     return json("""{"items":[]}""")
                 }
@@ -58,7 +60,7 @@ class CreateRideStopsJourneyTest {
         }
         ApiClient.testBaseUrl = server.url("/").toString().trimEnd('/')
         ApiClient.testTimeoutMs = 2000
-        ApiClient.saveToken("local-stop-driver")
+        ApiClient.saveToken("test.eyJzdWIiOiI3In0.signature")
     }
 
     @After fun cleanup() {

@@ -215,7 +215,9 @@ import coil.compose.AsyncImage
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
@@ -251,7 +253,6 @@ import android.graphics.Paint
 import android.graphics.PointF
 import android.graphics.Typeface
 import android.view.MotionEvent
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.viewinterop.AndroidView
@@ -311,7 +312,8 @@ internal fun BookingScreen(
     // (аудит сценариев 30.08, два P0). Пусто = состояние неизвестно, ведём себя как раньше.
     bookingStatus: String = "",
     onBookingStatusChange: (String) -> Unit = {},   // свежий статус из деталей брони (подтвердили, пока экран открыт)
-    onCancelBooking: () -> Unit = {},
+    onCancelBooking: (() -> Unit)? = null,
+    onPassengerCancelled: () -> Unit = {},
     onFindAnotherRide: () -> Unit = {}, onSos: () -> Unit = {}, frontSeat: Boolean = false, onFrontSeatChange: (Boolean) -> Unit = {},   // + «хочу переднее» (SeatOptions.kt); SOS — отмена в пути (CancelledInTransit.kt)
     pickupStop: String? = ride?.let(::initialPickupStop), onPickupStopChange: (String) -> Unit = {},
     dropoffStop: String? = ride?.let(::initialDropoffStop), onDropoffStopChange: (String) -> Unit = {},
@@ -319,7 +321,15 @@ internal fun BookingScreen(
     // RS-03 А: точное место встречи/высадки по желанию (состояние — наверху, экран рисует).
     meetPickup: MeetingPointInput? = null, onMeetPickupChange: (MeetingPointInput) -> Unit = {},
     meetDropoff: MeetingPointInput? = null, onMeetDropoffChange: (MeetingPointInput) -> Unit = {},
-    onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String) -> Unit
+    recovery: BookingRecoveryState? = null, onOpenRecoveredBooking: (com.yuldash.app.data.BookingCreatedDto) -> Unit = {},
+    onRefreshBookingTerms: (() -> Unit)? = null,
+    initialMinor: Boolean = false,
+    initialForAnother: Boolean = false,
+    trustedContacts: List<TrustedContact> = emptyList(),
+    onTrustedContacts: () -> Unit = {},
+    onGuestBooking: ((Boolean, Boolean) -> Unit)? = null,
+    onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String,
+        travelerName: String?) -> Unit
 ) {
     // Бронировать нечего: экран открылся без поездки. Демо-поездку вместо настоящей
     // не подставляем — молча возвращаемся назад.
@@ -342,7 +352,12 @@ internal fun BookingScreen(
     var payAmountText by rememberBookingPayAmount(ride, bookingId, selectedSeats,
         perSeat = segmentPriceRub(ride, pickupStop, dropoffStop) ?: ride.price)
     // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
-    var minorPassenger by remember { mutableStateOf(false) }
+    var minorPassenger by remember(initialMinor) { mutableStateOf(initialMinor) }
+    var forAnother by remember(initialForAnother) { mutableStateOf(initialForAnother) }
+    var travelerName by remember { mutableStateOf("") }
+    LaunchedEffect(recovery?.slot?.state) {
+        if (recovery?.slot?.state == com.yuldash.app.data.CommandIntent.State.Closed) travelerName = ""
+    }
     var guardianName by remember { mutableStateOf("") }
     var guardianPhone by remember { mutableStateOf("") }
     var detailsLoading by remember(bookingId) { mutableStateOf(bookingId != null) }
@@ -458,25 +473,56 @@ internal fun BookingScreen(
     // Свежие детали знают статус лучше, чем список, из которого открыли бронь.
     val normalizedBookingStatus = (details?.status?.takeIf { it.isNotBlank() } ?: bookingStatus).trim().lowercase()
     val bookingPending = bookingId != null && normalizedBookingStatus == "pending"
+    val bookingTraveler = visibleBookingTraveler(details?.takeIf(OfflineTripSnapshots::currentAcceptedDetails)?.traveler)
+    var showPendingShare by remember(bookingId) { mutableStateOf(false) }
+    val canSharePending = bookingPending && details?.role == "passenger"
+    LaunchedEffect(canSharePending) { if (!canSharePending) showPendingShare = false }
+    if (showPendingShare && canSharePending) {
+        BookingShareSheet(bookingId, trustedContacts, detailsSession,
+            isCurrent = { isBookingDisplayCurrent() && details?.let(OfflineTripSnapshots::currentAcceptedDetails) == true && canSharePending },
+            onDismiss = { showPendingShare = false }, onTrustedContacts = onTrustedContacts)
+    }
     // Ждёт ответа водителя — тихо сверяемся с сервером, пока экран на виду: пуш может не дойти, а
     // подтверждение открывает телефон и точку встречи (приёмка 18.10). Сменился статус — полная загрузка.
-    BookingPendingRefresh(bookingId, bookingPending, details?.status, detailsSession) { detailsReload++ }
+    BookingPendingRefresh(bookingId, bookingPending, details?.status, detailsSession, onDetails = { loaded ->
+        if (isBookingDisplayCurrent() && ride.matchesPrivateBookingRide(loaded.bookingId, loaded.rideId)) rawDetails = loaded
+    }) { detailsReload++ }
+    val passengerCancellation = if (bookingId != null && onCancelBooking == null) {
+        rememberPassengerCancellation(detailsSession, bookingId, "pending".takeIf { bookingPending },
+            isCurrent = ::isBookingDisplayCurrent) { result ->
+            if (result?.bookingStatus == "cancelled") onPassengerCancelled() else detailsReload++
+        }
+    } else null
     val bookingCancelled = bookingId != null && normalizedBookingStatus == "cancelled"
     var showCancelConfirmation by rememberSaveable(bookingId, normalizedBookingStatus) { mutableStateOf(false) }
     // RS-02 А: решение о брони — по СВОЕМУ участку, а не по всему пути (трое до Ургазы
     // не закрывают Булату Ургаза→Акъяр: seats_left=0, а на его звене места есть).
     val segmentSeats = bookableSeats(displayRide, pickupStop, dropoffStop)
     val canCreateBooking = bookingId == null && segmentSeats > 0
+    val canRepeatOriginal = bookingId == null && recovery?.preparedRetry != null
+    val requiredContactsReady = onGuestBooking != null || !minorPassenger ||
+        (guardianName.isNotBlank() && guardianPhone.isNotBlank())
+    val travelerReady = !forAnother || (!ride.womenOnly &&
+        (onGuestBooking != null || normalizedBookingTravelerName(travelerName) != null))
     val primaryLabel = when {
+        bookingId == null && recovery?.knownBooking?.status?.let { it != "cancelled" } == true -> appText("Бронь найдена", "Бронь табылды")
+        canRepeatOriginal -> appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
         bookingId == null && !canCreateBooking -> appText("Мест нет", "Урын юҡ")
+        bookingId == null && recovery?.slot?.bookingTerms?.forAnother == true && recovery.retry ->
+            appText("Сначала проверь запрос", "Тәүҙә һорауҙы тикшер")
+        bookingId == null && recovery?.retry == true -> appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
+        bookingId == null && recovery?.outcome?.booking?.status == "cancelled" -> appText("Забронировать снова", "Яңынан бронларға")
         bookingId == null -> bookSeatsLabel(selectedSeats)
         bookingPending -> appText("Отменить бронь", "Бронде кире алыу")
         bookingCancelled -> appText("Найти другую поездку", "Башҡа сәфәр табыу")
         canOpenActiveTrip -> appText("Открыть поездку", "Сәфәрҙе асыу")
         else -> appText("Ждём водителя", "Йөрөтөүсене көтәбеҙ")
     }
-    val primaryEnabled = if (bookingId == null) canCreateBooking && canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)
-        else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip)
+    val primaryEnabled = if (bookingId == null) !bookingBusy && recovery?.canSubmit != false &&
+        (canRepeatOriginal || (canCreateBooking && requiredContactsReady && travelerReady &&
+            canBookSeats(segmentSeats, selectedSeats, bookingBusy) && segmentReady(ride, pickupStop, dropoffStop)))
+        else !bookingBusy && (bookingPending || bookingCancelled || canOpenActiveTrip) &&
+            !(bookingPending && passengerCancellation?.blocked == true)
     val primaryStyle = if (bookingPending) AppButtonStyle.Danger else AppButtonStyle.Primary
     val primaryIcon = when {
         bookingPending -> Icons.Default.Close
@@ -484,7 +530,7 @@ internal fun BookingScreen(
         primaryEnabled -> Icons.Default.EventSeat
         else -> Icons.Default.Schedule
     }
-    if (showCancelConfirmation) {
+    if (showCancelConfirmation && onCancelBooking != null) {
         AlertDialog(
             onDismissRequest = { showCancelConfirmation = false },
             title = { Text(appText("Отменить бронь?", "Бронде кире алырғамы?")) },
@@ -523,27 +569,43 @@ internal fun BookingScreen(
         containerColor = CanonBg,
         topBar = { ScreenTopBar(appText("Детали поездки", "Сәфәр тураһында"), onBack) },
         bottomBar = {
-            if (bookingId == null && isOwnRide(displayRide)) OwnRideBar() else BookingDecisionBar(
-                primaryText = primaryLabel,
-                primaryEnabled = primaryEnabled,
-                primaryStyle = primaryStyle,
-                primaryIcon = primaryIcon,
-                onMessage = onMessage,
-                onPrimary = {
-                    if (bookingBusy || (bookingId == null && (selectedSeats !in 1..segmentSeats || rideCategoryClosed(ride.category) || !segmentReady(ride, pickupStop, dropoffStop)))) return@BookingDecisionBar
-                    when {
-                        bookingPending -> showCancelConfirmation = true
-                        bookingCancelled -> onFindAnotherRide()
-                        else -> onConfirmRide(
-                            payMethod,
-                            payAmountText.trim().toIntOrNull(),
-                            minorPassenger,
-                            guardianName.trim(),
-                            guardianPhone.trim(),
+            if (bookingId == null && isOwnRide(displayRide)) OwnRideBar() else Column {
+                if (bookingId == null && !bookingBusy && recovery?.guardianPhoneRejected == true) {
+                    Surface(color = CanonSurface) {
+                        Text(
+                            guardianPhoneBookingError(),
+                            modifier = Modifier.fillMaxWidth().padding(horizontal = CanonSpace.lg, vertical = CanonSpace.sm)
+                                .semantics { liveRegion = LiveRegionMode.Polite },
+                            color = CanonRed,
+                            style = CanonBody,
                         )
                     }
-                },
-            )
+                }
+                BookingDecisionBar(
+                    primaryText = primaryLabel,
+                    primaryEnabled = primaryEnabled,
+                    primaryStyle = primaryStyle,
+                    primaryIcon = primaryIcon,
+                    onMessage = onMessage,
+                    onPrimary = {
+                        if (bookingBusy || (bookingId == null && (!primaryEnabled || rideCategoryClosed(ride.category)))) return@BookingDecisionBar
+                        when {
+                            bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
+                                else showCancelConfirmation = true
+                            bookingCancelled -> onFindAnotherRide()
+                            onGuestBooking != null -> onGuestBooking(minorPassenger, forAnother)
+                            else -> onConfirmRide(
+                                payMethod,
+                                payAmountText.trim().toIntOrNull(),
+                                minorPassenger,
+                                guardianName.trim(),
+                                guardianPhone.trim(),
+                                normalizedBookingTravelerName(travelerName).takeIf { forAnother },
+                            )
+                        }
+                    },
+                )
+            }
         },
     ) { padding ->
         LazyColumn(
@@ -573,6 +635,7 @@ internal fun BookingScreen(
                     }
                 }
             }
+            passengerCancellation?.content?.let { content -> item(key = "passenger-cancellation") { content() } }
             if (bookingPending) {
                 item {
                     InfoCard(
@@ -661,11 +724,16 @@ internal fun BookingScreen(
                     )
                 }
             }
-            // RS-02 А: сначала участок (от него зависят места и цена), потом число мест.
-            pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
-            bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
+            if (bookingId == null && recovery != null) item {
+                BookingRecoveryActions(recovery, bookingBusy, onOpenRecoveredBooking,
+                    isCurrent = ::isBookingDisplayCurrent, onRefreshTerms = onRefreshBookingTerms, showGuardianPhoneError = false)
+            }
+            if (!canRepeatOriginal) {
+                pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
+                bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
+            }
             // RS-03 А: точное место по желанию — только при создании брони (смена потом — RS-03 Б).
-            if (ride != null && bookingId == null) {
+            if (ride != null && bookingId == null && !canRepeatOriginal && onGuestBooking == null) {
                 item {
                     BookingMeetingPoints(displayRide, pickupStop, dropoffStop,
                         meetPickup, onMeetPickupChange, meetDropoff, onMeetDropoffChange,
@@ -689,6 +757,8 @@ internal fun BookingScreen(
                     PassengerMeetingPoints(currentOwnBookingDetails(details), isCurrentParent = ::isBookingDisplayCurrent) { detailsReload++ }
                 }
             }
+            if (bookingTraveler != null) item { BookingTravelerText(bookingTraveler) }
+            if (canSharePending) item { ShareTripRow(onClick = { showPendingShare = true }) }
             item {
                 // Кнопка звонка появляется не сразу. Без объяснения это читается как поломка,
                 // а на деле это защита: номер и точная точка встречи открываются только после
@@ -715,7 +785,7 @@ internal fun BookingScreen(
                     )
                 }
             }
-            item {
+            if (!canRepeatOriginal) item {
                 PayAgreementBlock(
                     editable = bookingId == null,
                     method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
@@ -725,8 +795,15 @@ internal fun BookingScreen(
                     onAmount = { payAmountText = it },
                 )
             }
-            frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)   // переднее место; ниже подросток: до брони форма со взрослым, после — пометка
-            if (bookingId == null) {
+            if (!canRepeatOriginal) frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)
+            if (bookingId == null && !canRepeatOriginal) {
+                if (ride.category !in setOf("parcel", "cargo") && (!ride.womenOnly || forAnother)) item {
+                    BookingTravelerChoice(forAnother, travelerName, ride.womenOnly, onGuestBooking != null,
+                        !bookingBusy, onChecked = {
+                            forAnother = it
+                            if (!it) travelerName = ""
+                        }, onName = { travelerName = it })
+                }
                 item {
                     if (!ride.noMinors) {
                         MinorPassengerBlock(
@@ -736,6 +813,7 @@ internal fun BookingScreen(
                             onChecked = { minorPassenger = it },
                             onName = { guardianName = it },
                             onPhone = { guardianPhone = it },
+                            showContacts = onGuestBooking == null,
                         )
                     } else {
                         InfoCard(
@@ -1301,6 +1379,7 @@ internal fun SettingSwitchRow(
     title: String,
     subtitle: String,
     checked: Boolean,
+    enabled: Boolean = true,
     onCheckedChange: (Boolean) -> Unit
 ) {
     Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -1312,7 +1391,7 @@ internal fun SettingSwitchRow(
             Text(title, color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
             Text(subtitle, color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
-        Switch(checked = checked, onCheckedChange = onCheckedChange)
+        Switch(checked = checked, enabled = enabled, onCheckedChange = onCheckedChange)
     }
 }
 
@@ -1499,9 +1578,6 @@ internal fun ActiveTripContent(
     var showDriverFinishConfirmation by rememberSaveable(bookingId) { mutableStateOf(false) }
     var driverFinishing by remember(bookingId, tripSession) { mutableStateOf(false) }
     var showShare by remember { mutableStateOf(false) }
-    val shareSheet = rememberModalBottomSheetState()
-    val tripSharedPrefix = appText("Ссылка готова", "Һылтанма әҙер")
-    val shareRevokedMsg = appText("Ссылка отозвана", "Һылтанма кире алынды")
 
     val frostyNight = remember { isFrostyWinterNight() }   // F12: морозная ночь — считаем один раз (LazyListScope не @Composable)
     var codeLoadFailed by remember(bookingId) { mutableStateOf(false) }
@@ -1567,6 +1643,23 @@ internal fun ActiveTripContent(
         chat.loadInitialHistory(id, requestedHistoryTick)
     }
     ActiveTripDetailsRefresh(tripDetails, ::isTripDetailsCurrent, ::loadTripDetails)
+    val contactCancelMsg = appText(
+        "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
+        "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
+    )
+    val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
+    val passengerTripCancellation = if (bookingId != null && role == "passenger") {
+        rememberPassengerCancellation(tripSession, bookingId,
+            "confirmed".takeIf { activeTripShowsCancel(role, hasBooking = true, bookingStatus = bookingStatus) },
+            isCurrent = ::isTripSessionCurrent) { result ->
+            val status = result?.bookingStatus
+            if (status != null) acceptBookingStatus(status)
+            if (status == "cancelled") {
+                val message = if (result?.contactThenCancel == true) contactCancelMsg else cancelOkMsg
+                Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+            } else if (status != "done") tripDetails.retry()
+        }
+    } else null
 
     // Начальный код и его повтор — один независимый запрос, без истории/деталей/изменений поездки.
     val privateDetailsReady = authorityRevision.let { currentTripPrivateDetails(bookingId)?.role in setOf("driver", "passenger") }
@@ -1907,6 +2000,25 @@ internal fun ActiveTripContent(
             }
             // Пассажир до посадки: номер водителя и точка встречи. Без сети они в паспорте ниже.
             pickupDetails?.takeIf { it.role in setOf("passenger", "driver") && it.status in setOf("pending", "confirmed", "onboard") }?.let { d -> item(key = "trip-pickup-stop") { BookingSegmentNote(d.pickupStop, d.dropoffStop, d.rideHasStops, d.fromCity, d.toCity) } }
+            item(key = "trip-traveler") {
+                val details = authorityRevision.let { currentTripPrivateDetails(bookingId) }
+                visibleBookingTraveler(details?.traveler)?.let { name ->
+                    BookingTravelerText(name, details?.passengerName.takeIf { role == "driver" })
+                }
+            }
+            val guardianContact = authorityRevision.let {
+                if (role == "driver" && isTripChatActive()) {
+                    driverGuardianContact(currentTripPrivateDetails(bookingId), bookingStatus)
+                } else null
+            }
+            guardianContact?.let { contact ->
+                item(key = "trip-guardian-contact") {
+                    DriverGuardianContactCard(contact) {
+                        role == "driver" && isTripChatActive() &&
+                            driverGuardianContact(currentTripPrivateDetails(bookingId), bookingStatus) === contact
+                    }
+                }
+            }
             tripContacts?.takeIf { !boardingDone(status, bookingStatus) && !(offline && tripPass != null) }?.let { c ->
                 item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1), showMeeting = !hasOwnPickup(pickupDetails), isCurrent = { isTripChatActive() && currentTripPrivateDetails(bookingId)?.let(::passengerContacts) == c }) }
             }
@@ -2186,94 +2298,33 @@ internal fun ActiveTripContent(
             if (bookingId == null || bookingStatusAllowsBoarding(bookingStatus)) item {
                 ShareTripRow(onClick = { showShare = true }, modifier = Modifier.appearIn(3))
             }
+            passengerTripCancellation?.content?.let { content -> item(key = "passenger-cancellation") { content() } }
             if (activeTripShowsCancel(role, hasBooking = bookingId != null, bookingStatus = bookingStatus)) item {
-                var showCancel by remember { mutableStateOf(false) }
-                var cancelReason by remember { mutableStateOf("") }   // код причины отмены (по желанию пассажира)
-                val cancelOkMsg = appText("Поездка отменена", "Сәфәр кире алынды")
-                // B8-8: отмена после открытия телефона/чата — мягкое напоминание (не обвиняем).
-                val contactCancelMsg = appText(
-                    "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
-                    "Барырға һөйләштегеҙме? Сәфәрҙе ҡушымтала тамамла — шулай яҡлау һәм SOS эшләй 💚",
-                )
-                val cancelFailMsg = appText("Не удалось отменить", "Кире алып булманы")
-                // Экран отстал: поездку уже завершили, пока диалог был открыт.
-                val cancelTooLateMsg = appText(
-                    "Поездка уже завершена — отменить её нельзя.",
-                    "Сәфәр тамамланған инде — уны кире алып булмай.",
-                )
-                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    OutlinedButton(
-                        onClick = { if (isTripChatActive()) showCancel = true },
-                        modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
-                        shape = RoundedCornerShape(14.dp),
-                        border = BorderStroke(1.dp, CanonRed)
-                    ) {
-                        Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed)
-                        Spacer(Modifier.width(8.dp))
-                        Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
-                    }
-                    Text(appText("Отмена бесплатна до начала поездки — место вернётся в поездку.", "Сәфәр башланғанға тиклем кире алыу бушлай — урын кире ҡайта."), color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp)
+                var closeLocalTrip by remember { mutableStateOf(false) }
+                OutlinedButton(
+                    onClick = {
+                        if (!isTripChatActive()) return@OutlinedButton
+                        if (bookingId == null) closeLocalTrip = true else passengerTripCancellation?.open()
+                    },
+                    enabled = passengerTripCancellation?.blocked != true,
+                    modifier = Modifier.fillMaxWidth().heightIn(min = 50.dp),
+                    shape = RoundedCornerShape(14.dp),
+                    border = BorderStroke(1.dp, CanonRed)
+                ) {
+                    Icon(Icons.Default.Close, contentDescription = null, tint = CanonRed)
+                    Spacer(Modifier.width(8.dp))
+                    Text(appText("Отменить поездку", "Сәфәрҙе кире алыу"), color = CanonRed, fontWeight = FontWeight.Bold)
                 }
-                if (showCancel) {
-                    AlertDialog(
-                        onDismissRequest = { showCancel = false },
-                        title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
-                        text = {
-                            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Text(appText("Бронь будет отменена, место освободится для других.", "Брон кире алына, урын башҡаларға бушай."))
-                                Text(appText("Причина (по желанию):", "Сәбәбе (теләгәнсә):"), color = CanonMuted, fontSize = 12.sp)
-                                listOf(
-                                    "plans_changed" to appText("Планы поменялись", "Пландар үҙгәрҙе"),
-                                    "found_other" to appText("Нашёл другой вариант", "Башҡа юл таптым"),
-                                    "driver_no_response" to appText("Водитель не отвечает", "Йөрөтөүсе яуап бирмәй"),
-                                ).forEach { (code, label) ->
-                                    val on = cancelReason == code
-                                    Text(
-                                        label,
-                                        color = if (on) CanonGreen2 else CanonText,
-                                        fontWeight = if (on) FontWeight.Bold else FontWeight.Normal,
-                                        fontSize = 14.sp,
-                                        modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(8.dp))
-                                            .clickable { if (isTripChatActive()) cancelReason = if (on) "" else code }
-                                            .background(if (on) CanonMint else Color.Transparent)
-                                            .padding(horizontal = 10.dp, vertical = 8.dp)
-                                    )
-                                }
-                            }
-                        },
-                        confirmButton = {
-                            TextButton(onClick = {
-                                if (!isTripChatActive()) return@TextButton
-                                showCancel = false
-                                bookingId?.let { id ->
-                                    voiceScope.launch {
-                                        if (!isTripChatActive()) return@launch
-                                        ApiClient.cancelBooking(id, cancelReason, expectedGeneration = tripSession)
-                                            .onSuccess { res ->
-                                                if (!isTripSessionCurrent()) return@onSuccess
-                                                if (!res.cancelled) {
-                                                    // Сервер отменять отказался — поездка уже завершена (или отменена
-                                                    // раньше). Экран у пассажира просто отстал: водитель нажал
-                                                    // «доехали», пока диалог был открыт. Врать «отменено» нельзя,
-                                                    // Локальную копию очистит общий обработчик конечного статуса.
-                                                    Toast.makeText(context, cancelTooLateMsg, Toast.LENGTH_LONG).show()
-                                                    acceptBookingStatus(res.status.ifBlank { bookingStatus })
-                                                    return@onSuccess
-                                                }
-                                                // Leave only after durable cleanup was accepted; failure offers retry.
-                                                bookingStatus = "cancelled"
-                                                // B8-8: телефон/чат уже открывались → мягко напоминаем про защиту в приложении.
-                                                val msg = if (res.contactThenCancel) contactCancelMsg else cancelOkMsg
-                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                            }
-                                            .onFailure { if (isTripSessionCurrent()) Toast.makeText(context, serverSaid(it, cancelFailMsg), Toast.LENGTH_LONG).show() }
-                                    }
-                                } ?: onTripEnd()
-                            }) { Text(appText("Да, отменить", "Эйе, кире алырға"), color = CanonRed, fontWeight = FontWeight.Bold) }
-                        },
-                        dismissButton = { TextButton(onClick = { showCancel = false }) { Text(appText("Назад", "Артҡа")) } }
-                    )
-                }
+                if (closeLocalTrip) AlertDialog(
+                    onDismissRequest = { closeLocalTrip = false },
+                    title = { Text(appText("Отменить поездку?", "Сәфәрҙе кире аларғамы?")) },
+                    confirmButton = {
+                        TextButton(onClick = { closeLocalTrip = false; if (isTripChatActive()) onTripEnd() }) {
+                            Text(appText("Да, отменить", "Эйе, кире алырға"))
+                        }
+                    },
+                    dismissButton = { TextButton(onClick = { closeLocalTrip = false }) { Text(appText("Назад", "Артҡа")) } },
+                )
             }
             // Чат по поездке — карточкой: последнее сообщение и новые. Сама переписка — отдельным
             // экраном (TripChatScreen): там строка ввода прибита к низу, как в мессенджерах.
@@ -2312,153 +2363,8 @@ internal fun ActiveTripContent(
     }
 
     if (showShare && isTripChatActive()) {
-        // A fresh scope for each opening rejects its predecessor's results and retained callbacks.
-        val sharingScope = rememberCoroutineScope()
-        fun isShareCurrent() = sharingScope.isActive && showShare && isTripChatActive()
-        AppModalBottomSheet(onDismissRequest = { if (isShareCurrent()) showShare = false }, sheetState = shareSheet, containerColor = CanonSurface) {
-            // Ссылка live-поездки (B7c): после выбора близкого показываем её тут же —
-            // скопировать или отправить самому через системный share-sheet.
-            var liveLink by remember { mutableStateOf<String?>(null) }
-            // Приватность: кому сейчас открыта поездка + возможность отозвать.
-            var activeShares by remember { mutableStateOf<List<Pair<com.yuldash.app.data.TripShareDto, String>>>(emptyList()) }
-            var showContacts by remember { mutableStateOf(true) }
-            var listLoading by remember { mutableStateOf(true) }
-            var listError by remember { mutableStateOf(false) }
-            var mutationUncertain by remember { mutableStateOf(false) }
-            var listErrorText by remember { mutableStateOf<String?>(null) }   // объяснение сервера (429 и т.п.); null — обрыв сети
-            var mutationBusy by remember { mutableStateOf(false) }
-            var listRequest by remember { mutableIntStateOf(0) }
-            fun canMutate() = isShareCurrent() && !listLoading && !listError && !mutationBusy
-            fun reloadShares() {
-                if (!isShareCurrent() || listLoading || mutationBusy) return
-                // Set before launch: retained callbacks in the same frame must see the lock.
-                listLoading = true
-                listError = false; listErrorText = null
-                listRequest++
-            }
-            fun reconcileShares(cause: Throwable?) {
-                // A failed POST/DELETE can follow a committed server change. Only GET settles access.
-                mutationUncertain = true
-                listError = true; listErrorText = serverText(cause)
-            }
-            LaunchedEffect(bookingId, listRequest) {
-                if (!isShareCurrent()) return@LaunchedEffect
-                val bid = bookingId
-                if (bid == null) {
-                    listError = true
-                    listLoading = false
-                    return@LaunchedEffect
-                }
-                ApiClient.getBookingShares(bid).onSuccess { srv ->
-                    if (!isShareCurrent()) return@onSuccess
-                    activeShares = srv.map { s ->
-                        s to (contacts.firstOrNull { it.id == s.contactId }?.name ?: "")
-                    }
-                    liveLink = srv.firstNotNullOfOrNull { it.link?.takeIf(String::isNotBlank) }
-                    showContacts = srv.isEmpty()
-                    mutationUncertain = false
-                    listError = false; listErrorText = null
-                }.onFailure {
-                    if (isShareCurrent()) { listError = true; listErrorText = serverText(it) }
-                }
-                if (isShareCurrent()) listLoading = false
-            }
-            Column(Modifier.verticalScroll(rememberScrollState()).padding(horizontal = CanonSpace.lg).padding(bottom = CanonSpace.xl)) {
-                val link = liveLink
-                if (listLoading) {
-                    Text(appText("Проверяем ссылки…", "Һылтанмаларҙы тикшерәбеҙ…"), color = CanonText, modifier = Modifier.padding(vertical = CanonSpace.lg))
-                    LinearProgressIndicator(Modifier.fillMaxWidth().testTag("tripSharesLoading"), color = CanonGreen2)
-                } else if (listError) {
-                    Text(
-                        if (bookingId == null) appText("Не удалось открыть ссылки. Открой поездку заново.", "Һылтанмаларҙы асып булманы. Сәфәрҙе яңынан ас.")
-                        else if (mutationUncertain) listOfNotNull(listErrorText, appText("Не получилось подтвердить результат. Обнови список ссылок.", "Һөҙөмтәне раҫлап булманы. Һылтанмалар исемлеген яңырт.")).joinToString("\n")
-                        else listErrorText ?: appText("Не удалось загрузить ссылки. Проверь сеть и повтори.", "Һылтанмаларҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла."),
-                        color = CanonText, modifier = Modifier.padding(vertical = CanonSpace.lg).testTag("tripSharesError"),
-                    )
-                    TextButton(onClick = { if (bookingId == null) { if (isShareCurrent()) showShare = false } else reloadShares() }, modifier = Modifier.heightIn(min = 48.dp).testTag("tripSharesRetry")) {
-                        Text(if (bookingId == null) appText("Закрыть", "Ябыу") else if (mutationUncertain) appText("Обновить список", "Исемлекте яңыртыу") else appText("Повторить", "Ҡабатлау"), color = CanonGreen2)
-                    }
-                } else if (activeShares.isNotEmpty() && !showContacts) {
-                    Text(appText("Ссылка для близкого", "Яҡын кеше өсөн һылтанма"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
-                    if (!link.isNullOrBlank()) LiveLinkCard(link, ownerGeneration = tripSession,
-                        isCurrentParent = { isShareCurrent() && !listLoading && !listError && !mutationBusy &&
-                            !showContacts && liveLink == link && activeShares.any { it.first.link == link } })
-                    ActiveSharesList(activeShares, enabled = !mutationBusy) { share ->
-                        val bid = bookingId
-                        if (bid != null && canMutate() && !showContacts && activeShares.any { it.first.id == share.id }) {
-                            mutationBusy = true
-                            sharingScope.launch {
-                                if (!isShareCurrent()) return@launch
-                                try { ApiClient.revokeBookingShare(bid, share.id)
-                                .onSuccess {
-                                    if (!isShareCurrent()) return@onSuccess
-                                    activeShares = activeShares.filterNot { it.first.id == share.id }
-                                    liveLink = activeShares.firstNotNullOfOrNull { it.first.link?.takeIf(String::isNotBlank) }
-                                    if (activeShares.isEmpty()) showContacts = true
-                                    Toast.makeText(context, shareRevokedMsg, Toast.LENGTH_SHORT).show()
-                                }
-                                .onFailure { if (isShareCurrent()) reconcileShares(it) }
-                                } finally { if (isShareCurrent()) mutationBusy = false }
-                            }
-                        }
-                    }
-                    Spacer(Modifier.height(CanonSpace.md))
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        TextButton(enabled = !mutationBusy, onClick = { if (canMutate()) showContacts = true }) {
-                            Text(appText("Поделиться ещё", "Йәнә бүлешеү"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                        }
-                        TextButton(onClick = { if (isShareCurrent()) showShare = false }) {
-                            Text(appText("Готово", "Әҙер"), color = CanonGreen2, fontWeight = FontWeight.Bold)
-                        }
-                    }
-                } else {
-                Text(appText("Кому отправить поездку", "Сәфәрҙе кемгә ебәрергә"), fontSize = 19.sp, fontWeight = FontWeight.Bold, modifier = Modifier.padding(vertical = CanonSpace.sm))
-                if (contacts.isEmpty()) NoTrustedContactsHint { if (isShareCurrent()) { showShare = false; onTrustedContacts() } }   // RideshareTripContacts.kt
-                contacts.forEach { c ->
-                    Row(
-                        Modifier.fillMaxWidth().clickable(enabled = !mutationBusy) {
-                            val bid = bookingId
-                            if (bid != null && canMutate() && showContacts) {
-                                mutationBusy = true
-                                sharingScope.launch {
-                                    if (!isShareCurrent()) return@launch
-                                    try { ApiClient.shareTrip(bid, c.id)
-                                    .onSuccess { share ->
-                                        if (!isShareCurrent()) return@onSuccess
-                                        if (share != null) {
-                                            activeShares = activeShares.filterNot { it.first.id == share.id } + (share to c.name)
-                                            liveLink = share.link?.takeIf(String::isNotBlank)
-                                            showContacts = false
-                                            Toast.makeText(context, "$tripSharedPrefix: ${c.name}", Toast.LENGTH_SHORT).show()
-                                        } else reconcileShares(null)
-                                    }
-                                    .onFailure {
-                                        if (!isShareCurrent()) return@onFailure
-                                        reconcileShares(it)
-                                    }
-                                    } finally { if (isShareCurrent()) mutationBusy = false }
-                                }
-                            }
-                        }.padding(vertical = CanonSpace.md),
-                        verticalAlignment = Alignment.CenterVertically
-                    ) {
-                        Box(Modifier.size(44.dp).background(CanonMint, CircleShape), contentAlignment = Alignment.Center) {
-                            Text(c.name.take(1), fontWeight = FontWeight.Bold)
-                        }
-                        Spacer(Modifier.width(CanonSpace.md))
-                        Column(Modifier.weight(1f)) {
-                            Text(c.name, fontWeight = FontWeight.Bold)
-                            Text(c.relation, color = CanonMuted, fontSize = 14.sp)
-                        }
-                        Icon(Icons.Default.KeyboardArrowRight, contentDescription = null, tint = CanonMuted)
-                    }
-                }
-                }
-                AnimatedVisibility(visible = mutationBusy, enter = fadeIn(tween(CanonMotion.QUICK)), exit = fadeOut(tween(CanonMotion.QUICK))) {
-                    LinearProgressIndicator(Modifier.fillMaxWidth(), color = CanonGreen2)
-                }
-            }
-        }
+        BookingShareSheet(bookingId, contacts, tripSession, ::isTripChatActive,
+            onDismiss = { showShare = false }, onTrustedContacts = onTrustedContacts)
     }
 }
 
@@ -3225,6 +3131,7 @@ internal fun MinorPassengerBlock(
     onName: (String) -> Unit,
     onPhone: (String) -> Unit,
     modifier: Modifier = Modifier,
+    showContacts: Boolean = true,
 ) {
     Surface(modifier = modifier.fillMaxWidth(), color = CanonSurface, shape = CanonCardShape, border = BorderStroke(1.dp, CanonBorder)) {
         Column(Modifier.padding(vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -3234,7 +3141,7 @@ internal fun MinorPassengerBlock(
                 appText("Водитель увидит это до подтверждения", "Йөрөтөүсе быны раҫлауға тиклем күрер"),
                 checked,
             ) { onChecked(it) }
-            AnimatedVisibility(visible = checked) {
+            AnimatedVisibility(visible = checked && showContacts) {
                 Column(Modifier.padding(horizontal = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(
                         appText("Кто из взрослых отвечает за поездку. Водителю будет кому позвонить.",
@@ -3254,8 +3161,39 @@ internal fun MinorPassengerBlock(
                     )
                 }
             }
+            if (checked && !showContacts) {
+                Text(
+                    appText("Имя и телефон взрослого понадобятся после входа.",
+                        "Оло кешенең исеме һәм телефоны ингәндән һуң кәрәк буласаҡ."),
+                    color = CanonMuted, style = CanonCaption, modifier = Modifier.padding(horizontal = CanonSpace.md),
+                )
+            }
         }
     }
+}
+
+@Composable
+internal fun GuestBookingReviewDialog(review: GuestBookingReview, onReview: () -> Unit, onBack: () -> Unit) {
+    val changes = listOfNotNull(
+        if (review.routeChanged) appText("Маршрут изменился. Проверь остановки и число мест.",
+            "Маршрут үҙгәрҙе. Туҡталыштарҙы һәм урындар һанын тикшер.") else null,
+        if (review.frontUnavailable) appText("Переднее место недоступно. Продолжай, если подходит место сзади.",
+            "Алғы урын буш түгел. Арттағы урын тура килһә, дауам ит.") else null,
+        if (review.minorsUnavailable) appText("Водитель берёт только 18+. Продолжай, если поедет взрослый.",
+            "Йөрөтөүсе тик 18+ ала. Оло кеше барһа, дауам ит.") else null,
+        if (review.termsChanged) appText("Проверь актуальные условия поездки.", "Сәфәрҙең хәҙерге шарттарын тикшер.") else null,
+    )
+    AlertDialog(
+        onDismissRequest = onBack,
+        title = { Text(appText("Условия поездки изменились", "Сәфәр шарттары үҙгәрҙе")) },
+        text = { Text(changes.joinToString("\n")) },
+        confirmButton = {
+            TextButton(onClick = onReview) { Text(appText("Проверить и продолжить", "Тикшереп дауам итергә")) }
+        },
+        dismissButton = {
+            TextButton(onClick = onBack) { Text(appText("Найти другую поездку", "Башҡа сәфәр табыу")) }
+        },
+    )
 }
 
 /**
@@ -3281,12 +3219,13 @@ internal fun AlonePassengerHint(
             Spacer(Modifier.width(12.dp))
             Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Text(
-                    appText("Попутчики вышли — дальше едешь одна(один)", "Юлдаштар төштө — артабан яңғыҙ бараһың"),
+                    appText("Попутчики вышли — пассажир остался с водителем",
+                        "Юлдаштар төштө — юлсы йөрөтөүсе менән ҡалды"),
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp,
                 )
                 Text(
-                    appText("Можно отправить близкому ссылку — он будет видеть, где ты едешь.",
-                        "Яҡыныңа һылтанма ебәрергә була — ул ҡайҙа барғаныңды күреп торор."),
+                    appText("Можно отправить близкому ссылку на поездку.",
+                        "Яҡыныңа сәфәр һылтанмаһын ебәрергә була."),
                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp,
                 )
             }
@@ -3324,7 +3263,7 @@ internal fun ShareTripRow(
 
 /** Список активных live-ссылок поездки с кнопкой «Отозвать» (приватность B7c). */
 @Composable
-private fun ActiveSharesList(
+internal fun ActiveSharesList(
     shares: List<Pair<com.yuldash.app.data.TripShareDto, String>>,
     enabled: Boolean = true,
     onRevoke: (com.yuldash.app.data.TripShareDto) -> Unit,

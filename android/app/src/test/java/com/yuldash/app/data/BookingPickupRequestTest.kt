@@ -1,7 +1,6 @@
 package com.yuldash.app.data
 
 import kotlinx.coroutines.runBlocking
-import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.json.JSONObject
 import org.junit.After
@@ -23,18 +22,23 @@ class BookingPickupRequestTest {
     @After fun cleanup() { ApiClient.testBaseUrl = null; server.shutdown() }
 
     @Test fun explicitStartAndWaypointAreSentAsNames() = runBlocking {
-        for (stop in listOf("Баймак", "Акъяр")) {
-            server.enqueue(MockResponse().setBody("""{"id":42,"status":"pending"}"""))
-            ApiClient.bookWithStatus(7, 1, pickupStop = stop).getOrThrow()
+        startBookingCommandSession(server)
+        for ((index, stop) in listOf("Баймак", "Акъяр").withIndex()) {
+            val rideId = 7 + index
+            server.enqueue(bookingCommandResponse(rideId))
+            ApiClient.bookWithStatus(rideId, 1, pickupStop = stop).getOrThrow()
+            if (index == 0) assertEquals("/me", server.takeRequest().path)
             val request = server.takeRequest()
-            assertEquals("/bookings", request.path)
+            assertEquals("/bookings/commands/v1", request.path)
             assertEquals(stop, JSONObject(request.body.readUtf8()).getString("pickup_stop"))
         }
     }
 
     @Test fun absentChoiceIsNotSilentlyConvertedToStart() = runBlocking {
-        server.enqueue(MockResponse().setBody("""{"id":42,"status":"pending"}"""))
+        startBookingCommandSession(server)
+        server.enqueue(bookingCommandResponse(7))
         ApiClient.bookWithStatus(7, 1).getOrThrow()
+        assertEquals("/me", server.takeRequest().path)
         assertFalse(JSONObject(server.takeRequest().body.readUtf8()).has("pickup_stop"))
     }
 }

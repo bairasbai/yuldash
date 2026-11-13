@@ -8,15 +8,20 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingDetailsDto
 import kotlinx.coroutines.delay
 
 /** Keep a pending booking fresh only while the screen is visible. */
 @Composable
-internal fun BookingPendingRefresh(bookingId: Int?, pending: Boolean, detailsStatus: String?, session: Long, onChanged: () -> Unit) {
+internal fun BookingPendingRefresh(
+    bookingId: Int?, pending: Boolean, detailsStatus: String?, session: Long,
+    onDetails: (BookingDetailsDto) -> Unit, onChanged: () -> Unit,
+) {
     val lifecycleOwner = LocalLifecycleOwner.current
     val latestStatus by rememberUpdatedState(detailsStatus)
     val latestChanged by rememberUpdatedState(onChanged)
-    LaunchedEffect(bookingId, pending, lifecycleOwner) {
+    val latestDetails by rememberUpdatedState(onDetails)
+    LaunchedEffect(bookingId, pending, lifecycleOwner, session) {
         val id = bookingId?.takeIf { pending } ?: return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (session == ApiClient.queueSessionGeneration()) {
@@ -24,7 +29,7 @@ internal fun BookingPendingRefresh(bookingId: Int?, pending: Boolean, detailsSta
                 if (session != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
                 val fresh = ApiClient.getBookingDetails(id).getOrNull() ?: continue
                 if (session != ApiClient.queueSessionGeneration()) return@repeatOnLifecycle
-                if (fresh.status != latestStatus) latestChanged()
+                if (fresh.status != latestStatus) latestChanged() else latestDetails(fresh)
             }
         }
     }

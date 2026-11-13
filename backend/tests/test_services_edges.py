@@ -89,7 +89,12 @@ def test_upload_validation_and_base64_decoding(monkeypatch):
     assert bad_magic.value.status_code == 400
 
 
-def test_smsdar_send_formats_phone_and_detects_success(monkeypatch):
+@pytest.mark.parametrize(("phone", "expected"), [
+    ("89990000000", "79990000000"),
+    ("+84 90 123 4567", "84901234567"),
+    ("+1 234 567 890", "1234567890"),
+])
+def test_smsdar_send_formats_phone_and_detects_success(monkeypatch, phone, expected):
     captured = {}
 
     def fake_post(url, json, timeout):
@@ -102,10 +107,10 @@ def test_smsdar_send_formats_phone_and_detects_success(monkeypatch):
     monkeypatch.setattr(settings, "smsdar_id", "id")
     monkeypatch.setattr(settings, "smsdar_password", "password")
     monkeypatch.setattr(settings, "smsdar_sender", "Yuldash")
-    ok, info = services._smsdar_send("89990000000", "hello")
+    ok, info = services._smsdar_send(phone, "hello")
     assert ok is True
     assert "200" in info
-    assert captured["json"]["pack"][0]["phone"] == "79990000000"
+    assert captured["json"]["pack"][0]["phone"] == expected
     assert captured["json"]["pack"][0]["sender"] == "Yuldash"
 
 

@@ -78,7 +78,7 @@ def get_trust_row(session: Session, user_id: int) -> Optional[Trust]:
     return session.exec(select(Trust).where(Trust.user_id == user_id)).first()
 
 
-def trust_level(session: Session, user: Optional[User]) -> int:
+def trust_level(session: Session, user: Optional[User], *, refresh: bool = True) -> int:
     """Итоговый уровень доверия пользователя (0..3). Аноним (None) → 0.
 
     Дарованный статус «свой» ЗАМОРАЖИВАЕТСЯ на время паузы «Справедливости» (§2). Круг своих —
@@ -97,7 +97,7 @@ def trust_level(session: Session, user: Optional[User]) -> int:
         granted = row.level
     if granted > 0:
         from .safety_logic import account_paused   # локальный импорт: safety_logic тянет services
-        if account_paused(session, user.id):
+        if account_paused(session, user.id, refresh=refresh):
             granted = 0
     return max(base_level(user), granted)
 

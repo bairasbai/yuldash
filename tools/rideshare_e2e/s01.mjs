@@ -25,7 +25,9 @@ await runScenario(sc, async () => {
   const page = pwa.page;
   sc.pages = [page];
   await sc.step("android account", () => androidAs(pair === "A" ? ACC.andPassenger : ACC.andDriver));
-  const depart = ufaClock(20);
+  const deviceZone = pair === "B" ? A.sh("getprop persist.sys.timezone", { quiet: true }).trim() : undefined;
+  if (pair === "B" && !deviceZone) throw new Error("Android time zone not set");
+  const depart = ufaClock(20, deviceZone);
 
   // 1. Publication
   await sc.step("publish ride with two stops", async () => {
@@ -34,6 +36,9 @@ await runScenario(sc, async () => {
   });
   const ride = lastRideOf(driverAcc);
   sc.facts.ride_id = ride.id;
+  const storedDeparture = new Date(ride.depart_at.replace(" ", "T") + "Z");
+  sc.check(Math.abs(storedDeparture.getTime() - depart.date.getTime()) < 60_000,
+    "published departure matches the planned minute", { stored: ride.depart_at, planned: depart.date.toISOString() });
   sc.check(ride.price === PRICE && ride.waypoints === "Стерлитамак | Салават" && ride.seats_left === 3 && ride.status === "active",
     "ride stored with both stops, 3 seats, price", { ride_id: ride.id, waypoints: ride.waypoints, seats_left: ride.seats_left });
 

@@ -17,8 +17,8 @@ async function environment(){
  const commit=(key,text)=>{if(!messages.has(key))messages.set(key,{type:'message',id:messages.size+1,sender_id:7,text,request_id:key});return messages.get(key);};
  globalThis.WebSocket=class{static OPEN=1;readyState=0;constructor(){sockets.push(this);}send(raw){const frame=JSON.parse(raw);if(frame.type==='message'){wire.push(frame);commit(frame.request_id,frame.text);}}close(){this.readyState=3;this.onclose?.();}};
  globalThis.fetch=async(url,init)=>{const key=init.headers['Idempotency-Key'];http.push({key,text:JSON.parse(init.body).text});return new Response(JSON.stringify(commit(key,JSON.parse(init.body).text)));};
- const load=()=>import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64'));
- const api=await load();api.setSession('fixture-A','fixture-refresh');
+ const load = async () => { const module = await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'\n//'+serial++).toString('base64')); await module.initializeSessionStorage(); return module; };
+ const api=await load();await api.setSession('fixture-A','fixture-refresh');
  const chat=api.openBookingChat(42,{senderId:7,onMessage(){}});const socket=sockets[0];socket.readyState=1;socket.onopen();
  return{api,chat,socket,load,messages,wire,http,timers,tick(){for(const [id,fn]of [...timers]){timers.delete(id);fn();}}};
 }
@@ -45,7 +45,7 @@ try{
  });
  await check('late acknowledgment captured by A cannot remove account B intent',async f=>{
   const generation=f.api.getSessionGeneration(),key='same-key';await f.api.enqueue(42,'message','A',key);
-  f.api.setSession('fixture-B','fixture-refresh-B');await f.api.enqueue(42,'message','B',key);await f.api.acknowledgeMessage(42,key,generation);
+  await f.api.setSession('fixture-B','fixture-refresh-B');await f.api.enqueue(42,'message','B',key);await f.api.acknowledgeMessage(42,key,generation);
   assert.ok((await storedActions()).some(a=>a.payload==='B'));assert.equal(f.http.length,0);
  });
 }finally{globalThis.setTimeout=realTimeout;globalThis.clearTimeout=realClear;}

@@ -24,24 +24,13 @@ from sqlmodel import Session, select
 from app import instant_service as isv
 from app.config import settings
 from app.db import engine
-from app.models import Booking, InstantOrder, ParcelDelivery, TrustedContact, UserRole
+from app.models import InstantOrder, ParcelDelivery, UserRole
 from app.timeutil import utcnow
 
 from test_api import _ride
 
 
-@pytest.fixture(autouse=True)
-def _оператор_подключён(monkeypatch):
-    """Мир этого файла: канал SMS РАБОТАЕТ, сообщения близким уходят по-настоящему.
-
-    Раньше это подразумевалось молча — и потому не проверялось: на проде канал выключен,
-    а тесты всё равно видели «уведомлено: 2», потому что сервер считал намерение, а не факт
-    (волна 184). Что честный счёт бывает нулём при молчащем канале — проверяет
-    `test_help_counted_is_help_sent.py`.
-    """
-    from app.config import settings as _s
-    monkeypatch.setattr(_s, "sms_provider", "smsru")
-    monkeypatch.setattr(_s, "sms_ru_api_id", "test-id")
+pytestmark = pytest.mark.usefixtures("smsru_ready")
 
 ORIG = (52.5911, 58.3178)
 DEST = (52.9128, 58.6689)

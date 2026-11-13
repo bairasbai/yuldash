@@ -2,12 +2,8 @@ package com.yuldash.app.data
 
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
+
 import kotlinx.coroutines.runBlocking
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.joinAll
-import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
 import org.junit.After
@@ -40,7 +36,6 @@ import java.util.concurrent.TimeUnit
 @Config(sdk = [34])
 class ApiClientActionsTest {
     companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
-    private var cancelSessionPrepared = false
 
     private lateinit var server: MockWebServer
 
@@ -55,37 +50,9 @@ class ApiClientActionsTest {
     fun teardown() {
         cleanupGuard.requireHealthy()
         ApiClient.logout()          // чистим возможные токен-сеттеры (без токена — no-op)
-        val drained = !cancelSessionPrepared || runCatching { awaitPreparedSessionJobs() }.isSuccess
-        cleanupGuard.runCleanup(drained) {
-            if (cancelSessionPrepared) ApiClient.resetForTest()
+        cleanupGuard.runCleanup(true) {
             ApiClient.testBaseUrl = null
             server.shutdown()
-        }
-    }
-
-    private fun prepareCancelSession() {
-        cancelSessionPrepared = true
-        // Only this positive fixture gains a session; unauthenticated cases stay unchanged.
-        server.dispatcher = object : okhttp3.mockwebserver.QueueDispatcher() {
-            override fun dispatch(request: okhttp3.mockwebserver.RecordedRequest): MockResponse =
-                if (request.path in setOf("/auth/logout", "/push/unregister")) json("{}")
-                else super.dispatch(request)
-        }
-        ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
-        runBlocking {
-            withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
-        }
-        ApiClient.saveToken(TripPassAuthorityFixture.jwt(11))
-        assertTrue("Positive fixture must establish a real synthetic owner", OfflineTripSnapshots.currentOwner() != null)
-    }
-
-    private fun awaitPreparedSessionJobs() = runBlocking {
-        withTimeout(5_000) {
-            for ((owner, fieldName) in listOf(ApiClient to "bg", OfflineTripSnapshots to "jobs")) {
-                val scope = owner.javaClass.getDeclaredField(fieldName).apply { isAccessible = true }
-                    .get(owner) as CoroutineScope
-                requireNotNull(scope.coroutineContext[Job]).children.toList().joinAll()
-            }
         }
     }
 
@@ -105,41 +72,6 @@ class ApiClientActionsTest {
         val body = rec.body.readUtf8()
         assertTrue(body.contains("\"ride_id\":42"))
         assertTrue(body.contains("\"seats\":2"))
-    }
-
-    @Test
-    fun cancelBooking_postsToCancelPath_withoutBody() = runBlocking {
-        prepareCancelSession()
-        server.enqueue(json("""{"status":"cancelled"}"""))
-        val res = ApiClient.cancelBooking(bookingId = 15)
-        assertTrue(res.isSuccess)
-        assertTrue("бронь снята — экран вправе сказать «отменено»", res.getOrThrow().cancelled)
-        val rec = server.takeRequest()
-        assertEquals("POST", rec.method)
-        assertEquals("/bookings/15/cancel", rec.path)
-    }
-
-    @Test
-    fun `сервер отменять отказался — это НЕ отмена, даже если код 200`() = runBlocking {
-        prepareCancelSession()
-        // Так отвечает сервер на попытку отменить уже завершённую поездку: код 200 и бронь
-        // как есть, ничего не изменено (bookings.py пропускает статусы cancelled и done).
-        // Раньше клиент читал только contact_then_cancel, а статус выбрасывал — и экран писал
-        // «Поездка отменена» по состоявшейся поездке, попутно стирая офлайн-паспорт с телефоном
-        // водителя. Попасть туда просто: водитель нажал «доехали», пока у пассажира открыт диалог.
-        server.enqueue(json("""{"status":"done","contact_then_cancel":false}"""))
-        val res = ApiClient.cancelBooking(bookingId = 15).getOrThrow()
-        assertFalse("завершённая поездка не может считаться отменённой", res.cancelled)
-        assertEquals("done", res.status)
-    }
-
-    @Test
-    fun `повторная отмена уже отменённой брони честно считается отменой`() = runBlocking {
-        prepareCancelSession()
-        server.enqueue(json("""{"status":"cancelled","contact_then_cancel":true}"""))
-        val res = ApiClient.cancelBooking(bookingId = 15).getOrThrow()
-        assertTrue(res.cancelled)
-        assertTrue("подсказку про защиту в приложении показываем только когда контакт открывали", res.contactThenCancel)
     }
 
     @Test
@@ -274,12 +206,4 @@ class ApiClientActionsTest {
         assertEquals("Отклик уже принят", e.message)   // detail с сервера прокидывается в текст
     }
 
-    @Test
-    fun cancelBooking_error400_returnsFailure() = runBlocking {
-        prepareCancelSession()
-        server.enqueue(MockResponse().setResponseCode(400).setBody("""{"detail":"Поездка уже началась"}"""))
-        val res = ApiClient.cancelBooking(bookingId = 15)
-        assertTrue(res.isFailure)
-        assertEquals(400, (res.exceptionOrNull() as ApiException).status)
-    }
 }

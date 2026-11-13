@@ -27,7 +27,7 @@ def test_participant_can_validate_private_booking_link(client, user_factory, sta
     # закрывается сам, а ведёт к SOS (23.10.2026). Квитанция исправления и исходная эпоха посадки
     # нужны только участникам; телефонов и координат в этом закрытом наборе нет.
     assert set(response.json()) == {"role", "status", "driver_phase", "alone_with_driver", "arrival_verified",
-                                    "peer_id", "boarding_undo_sec", "problem_report_sec", "cancelled_in_transit",
+                                    "peer_id", "boarding_undo_sec", "problem_report_sec", "cancelled_in_transit", "cancelled_in_transit_at",
                                     "boarding_undo_pending", "boarding_undo_request_id", "boarding_undo_wait_sec",
                                     "boarding_undo_confirmed_id", "boarding_undo_onboard_at", "onboard_at"}
     assert response.json()["boarding_undo_pending"] is False
@@ -35,6 +35,7 @@ def test_participant_can_validate_private_booking_link(client, user_factory, sta
     for field in ("boarding_undo_request_id", "boarding_undo_confirmed_id", "boarding_undo_onboard_at", "onboard_at"):
         assert response.json()[field] is None
     assert response.json()["cancelled_in_transit"] is False
+    assert response.json()["cancelled_in_transit_at"] is None
     other = (passenger, driver)[participant]
     assert response.json()["peer_id"] == other["id"]
     assert response.json()["boarding_undo_sec"] == 0

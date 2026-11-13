@@ -144,7 +144,14 @@ class LoginContactsBootstrapTest {
     }
     private fun scenario(lang: AppLanguage, noContacts: Boolean = false, retry: Boolean = false, oldOwner: Boolean = false) {
         empty = noContacts; rejectFirst = retry
-        if (oldOwner) ApiClient.saveToken(tokenA)
+        if (oldOwner) {
+            kotlinx.coroutines.runBlocking {
+                kotlinx.coroutines.withTimeout(5_000) {
+                    while (!com.yuldash.app.data.OfflineTripSnapshots.ensureResetCommitted()) kotlinx.coroutines.delay(10)
+                }
+            }
+            ApiClient.saveToken(tokenA)
+        }
         mount(lang)
         if (oldOwner) {
             assertTrue(oldStarted.await(10, TimeUnit.SECONDS))

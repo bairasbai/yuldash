@@ -150,7 +150,7 @@ def _кто_в_беде(order, нажал: User) -> str:
 
 
 def _место_беды(order, booking_id, нажал_lat, нажал_lng, нажал_id: "int | None" = None, *,
-                booking=None, ride=None, session=None) -> tuple:
+                booking=None, ride=None, session=None, за_пассажира=False) -> tuple:
     """Где человек, которому нужна помощь. Возврат: (lat, lng) или (None, None).
 
     Раньше брали координаты ТОГО ТЕЛЕФОНА, ЧТО НАЖАЛ. Для обычной поездки это правильно —
@@ -170,6 +170,8 @@ def _место_беды(order, booking_id, нажал_lat, нажал_lng, на
     дома или на остановке, и сигнал с точкой машины где-то за 30 км увёл бы близких не туда. Точку
     берём по любой живой брони рейса и по правилам этой брони (`location.driver_point_for_booking`:
     блокировки, окно) — водитель мог открыть поездку другого пассажира.
+    Для сигнала за пассажира попутки GPS заказчика пропускаем. Без разрешённой точки машины
+    сигнал остаётся без координат.
     """
     from ..livepos import livepos_get
     # Безопасный дефолт: без явного id нажавшего считаем, что «для другого» НЕ действует
@@ -179,7 +181,7 @@ def _место_беды(order, booking_id, нажал_lat, нажал_lng, на
     if везут_другого and order is not None:
         поз = livepos_get("order", order.id)
         return (поз.get("lat"), поз.get("lng")) if поз else (None, None)
-    if нажал_lat is not None and нажал_lng is not None:
+    if not за_пассажира and нажал_lat is not None and нажал_lng is not None:
         return (нажал_lat, нажал_lng)
     # Своих координат нет (GPS не схватился) — машина лучше, чем ничего.
     if order is not None:
@@ -210,7 +212,7 @@ def _телефон_в_беде(order, нажал: User) -> str:
 
 
 def _текст_сигнала(*, кто: str, время: str, телефон: str, машина: str, место: str,
-                   по_русски: bool) -> str:
+                   по_русски: bool, за_пассажира: bool = False) -> str:
     """SMS близким. Порядок строк = порядок действий человека, который её читает.
 
     Прежний текст был написан для системы, а не для человека в панике: «SOS! Имя просит
@@ -231,18 +233,18 @@ def _текст_сигнала(*, кто: str, время: str, телефон: 
     строки = []
     if по_русски:
         строки.append(f"SOS · Юлдаш, {время}")
-        строки.append(f"{кто}: нужна срочная помощь.")
-        строки.append(f"Звони: {телефон}. Не отвечает — 112." if телефон
-                      else "Свяжись скорее. Не получается — звони 112.")
+        строки.append(f"{кто} просит помощи для пассажира." if за_пассажира else f"{кто}: нужна срочная помощь.")
+        кому = "Свяжись с заказчиком." if за_пассажира else "Свяжись скорее."
+        строки.append(f"Звони: {телефон}. Не отвечает — 112." if телефон else f"{кому} Не получается — звони 112.")
         if машина:
             строки.append(f"Машина: {машина}")
         if место:
             строки.append(f"Где искать: {место}")
     else:
         строки.append(f"SOS · Юлдаш, {время}")
-        строки.append(f"{кто}: ашығыс ярҙам кәрәк.")
-        строки.append(f"Шылтырат: {телефон}. Яуап бирмәһә — 112." if телефон
-                      else "Тиҙерәк бәйләнешкә сыҡ. Булмаһа — 112-гә шылтырат.")
+        строки.append(f"{кто} юлсыға ярҙам һорай." if за_пассажира else f"{кто}: ашығыс ярҙам кәрәк.")
+        кому = "Заказ биреүсе менән бәйләнешкә сыҡ." if за_пассажира else "Тиҙерәк бәйләнешкә сыҡ."
+        строки.append(f"Шылтырат: {телефон}. Яуап бирмәһә — 112." if телефон else f"{кому} Булмаһа — 112-гә шылтырат.")
         if машина:
             строки.append(f"Машина: {машина}")
         if место:
@@ -354,8 +356,10 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     ).all()
     # Место кладём в ТЕКСТ события (как у «застрял»): отдельной колонки под координаты нет,
     # а заводить её ради ссылки — миграция ради ссылки. В stdout координаты НЕ пишем (152-ФЗ).
+    за_пассажира = (order is None and booking is not None and booking.traveler_name is not None
+                    and booking.passenger_id == user.id)
     место_lat, место_lng = _место_беды(order, эфф_booking_id, body.lat, body.lng, user.id,
-                                       booking=booking, ride=ride, session=session)
+                                       booking=booking, ride=ride, session=session, за_пассажира=за_пассажира)
     link = _maps_link(место_lat, место_lng)
     where = f" Место: {link}" if link else ""
     fields = body.model_dump(exclude={"lat", "lng"})
@@ -416,9 +420,9 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
             _sos_text(
                 session, user.id,
                 _текст_сигнала(кто=who, время=местное, телефон=звонить,
-                               машина=car, место=link, по_русски=True),
+                               машина=car, место=link, по_русски=True, за_пассажира=за_пассажира),
                 _текст_сигнала(кто=who, время=местное, телефон=звонить,
-                               машина=car, место=link, по_русски=False),
+                               машина=car, место=link, по_русски=False, за_пассажира=за_пассажира),
             ),
         )
     else:
@@ -434,6 +438,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
     # хотя именно там человек садится в машину к незнакомцу. Первый вопрос спасателя —
     # «с кем и на чём уехали», ответ должен быть в самом сигнале, а не искаться потом руками.
     ride_line = _ride_context_line(session, ride)
+    booking_line = "Сигнал от заказчика за пассажира попутки. Перезвони заказчику.\n" if за_пассажира else ""
     background.add_task(
         notify_admin_telegram,
         f"🆘 SOS (Юлдаш) — {(utcnow() + timedelta(hours=settings.local_tz_offset_hours)).strftime('%H:%M')} по Уфе\n"
@@ -443,6 +448,7 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
            if _кто_в_беде(order, user) != (user.name or user.phone or "") else "")
         + 
         f"Тел: {user.phone or '—'}\n"
+        f"{booking_line}"
         f"Категория: {body.category}\n"
         f"{order_line}"
         f"{ride_line}"
@@ -462,7 +468,8 @@ def sos(body: SosIn, background: BackgroundTasks, user: User = Depends(current_u
             background.add_task(
                 _send_sos_sms, admin_phones,
                 f"SOS Юлдаш: {user.name or 'пользователь'}, {body.category}, "
-                f"тел {user.phone or '—'}.{where} Открой админку.",
+                f"тел {user.phone or '—'}.{where} "
+                + ("Сигнал за пассажира. " if за_пассажира else "") + "Открой админку.",
             )
     log.info(f"[SOS] user={user.id} category={body.category} contacts_notified={notified}")
     # Человек обязан знать, дошёл ли сигнал до РОДНЫХ (аудит 2026-08-08, волна 172).

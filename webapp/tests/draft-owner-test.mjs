@@ -1,3 +1,4 @@
+import { IDBFactory } from 'fake-indexeddb';
 // Production draft helpers and session owner; hook effects can be deferred like a stale mount.
 import assert from 'node:assert/strict';
 import { build } from 'esbuild';
@@ -21,6 +22,7 @@ const bundle = await build({
 });
 let serial = 0, failed = 0;
 async function environment() {
+  globalThis.indexedDB = new IDBFactory();
   const store = new Map();
   globalThis.localStorage = { get length() { return store.size; }, key: i => [...store.keys()][i] ?? null,
     getItem: k => store.get(k) ?? null, setItem: (k, v) => store.set(k, String(v)), removeItem: k => store.delete(k) };
@@ -38,52 +40,52 @@ async function check(name, test) {
 const key = 'taxi-application';
 const draftA = { permit: 'synthetic-A' }, draftB = { permit: 'synthetic-B' };
 
-await check('direct account change cannot read a previous accounts draft', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('direct account change cannot read a previous accounts draft', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   api.writeDraft(key, draftA);
   assert.deepEqual(api.readDraft(key), draftA);
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   assert.equal(api.readDraft(key), null);
 });
 
-await check('ownerless legacy draft is not assigned to the current account', ({ api, store }) => {
-  api.setSession('B', 'refresh-B');
+await check('ownerless legacy draft is not assigned to the current account', async ({ api, store }) => {
+  await api.setSession('B', 'refresh-B');
   store.set('yuldash.draft.' + key, JSON.stringify({ at: Date.now(), data: draftA }));
   assert.equal(api.readDraft(key), null);
 });
 
-await check('ordinary refresh preserves the same sessions draft', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('ordinary refresh preserves the same sessions draft', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   api.writeDraft(key, draftA);
-  assert.equal(api.rotateSession('A-new', 'refresh-A-new', api.getSessionGeneration()), true);
+  assert.equal(await api.rotateSession('A-new', 'refresh-A-new', api.getSessionGeneration()), true);
   assert.deepEqual(api.readDraft(key), draftA);
 });
 
-await check('old useDraftSync effect cannot overwrite B draft', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('old useDraftSync effect cannot overwrite B draft', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   render(() => api.useDraftSync(key, { permit: '' }, () => {}));
   flushEffects();
   render(() => api.useDraftSync(key, draftA, () => {}));
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   api.writeDraft(key, draftB);
   flushEffects();
   assert.deepEqual(api.readDraft(key), draftB);
 });
 
-await check('old useFormDraft save effect cannot overwrite B draft', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('old useFormDraft save effect cannot overwrite B draft', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   render(() => api.useFormDraft(key, draftA));
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   api.writeDraft(key, draftB);
   flushEffects();
   assert.deepEqual(api.readDraft(key), draftB);
 });
 
-await check('old form forget callback cannot delete B draft', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('old form forget callback cannot delete B draft', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   const [, , forgetA] = render(() => api.useFormDraft(key, draftA));
   flushEffects();
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   api.writeDraft(key, draftB);
   forgetA();
   assert.deepEqual(api.readDraft(key), draftB);
@@ -91,8 +93,8 @@ await check('old form forget callback cannot delete B draft', ({ api }) => {
 
 // Приёмка попутки 24.10.2026: после «Опубликовать» экран зовёт clearDraft, но следующая отрисовка
 // («Поездка опубликована», снятие «Отправляем…») не должна записать те же поля обратно.
-await check('submitted form stays cleared on later renders with unchanged fields', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('submitted form stays cleared on later renders with unchanged fields', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   const filled = { from: 'Уфа', to: 'Мелеуз', waypoints: ['Стерлитамак'] };
   render(() => api.useDraftSync('create-ride', { from: '', to: '', waypoints: [] }, () => {}));
   flushEffects();
@@ -107,8 +109,8 @@ await check('submitted form stays cleared on later renders with unchanged fields
   assert.equal(api.readDraft('create-ride'), null);
 });
 
-await check('first frame does not overwrite a saved draft with empty fields', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('first frame does not overwrite a saved draft with empty fields', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   const saved = { from: 'Уфа', to: 'Сибай', waypoints: [] };
   api.writeDraft('create-ride', saved);
   let applied = null;
@@ -118,8 +120,8 @@ await check('first frame does not overwrite a saved draft with empty fields', ({
   assert.deepEqual(api.readDraft('create-ride'), saved);
 });
 
-await check('real edits after restore are still saved, including clearing a field', ({ api }) => {
-  api.setSession('A', 'refresh-A');
+await check('real edits after restore are still saved, including clearing a field', async ({ api }) => {
+  await api.setSession('A', 'refresh-A');
   render(() => api.useDraftSync('create-ride', { from: '' }, () => {}));
   flushEffects();
   render(() => api.useDraftSync('create-ride', { from: 'У' }, () => {}));

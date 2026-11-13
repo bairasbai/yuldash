@@ -35,7 +35,7 @@ async function environment() {
   globalThis.fetch = async () => { throw new Error('Unexpected fetch; real network is prohibited'); };
   return { a, b };
 }
-function newAccountInOtherTab(b) { b.setSession(null, null); b.setSession('B', 'refresh-B'); }
+async function newAccountInOtherTab(b) { await b.setSession(null, null); await b.setSession('B', 'refresh-B'); }
 async function check(name, test) {
   cases++;
   try { await test(await environment()); console.log(`PASS ${name}`); }
@@ -46,9 +46,9 @@ await check('old 401 in tab A cannot clear the session installed by tab B', asyn
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
   a.setRefreshHandler(null);
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   const result = a.apiGet('/private').catch(error => error);
-  newAccountInOtherTab(b);
+  await newAccountInOtherTab(b);
   pending.resolve(response(401));
   await result;
   assert.equal(b.getToken(), 'B');
@@ -56,17 +56,18 @@ await check('old 401 in tab A cannot clear the session installed by tab B', asyn
 });
 
 await check('old mutation in tab A cannot replay with credentials installed by tab B', async ({ a, b }) => {
-  const pending = deferred();
+  const pending = deferred(), sent = deferred();
   const calls = [];
   globalThis.fetch = (url, init) => {
     calls.push({ path: new URL(url).pathname, auth: init.headers.Authorization });
-    if (calls.length === 1) return pending.promise;
+    if (calls.length === 1) { sent.resolve(); return pending.promise; }
     return Promise.resolve(response(200, url.endsWith('/auth/refresh')
       ? { access_token: 'B-new', refresh_token: 'refresh-B-new' } : { ok: true }));
   };
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   const result = a.apiPost('/me/delete', {}).catch(error => error);
-  newAccountInOtherTab(b);
+  await sent.promise;
+  await newAccountInOtherTab(b);
   pending.resolve(response(401));
   await result;
   assert.deepEqual(calls, [{ path: '/me/delete', auth: 'Bearer A' }]);
@@ -76,9 +77,9 @@ await check('old mutation in tab A cannot replay with credentials installed by t
 await check('old protected success cannot escape after another tab changes account', async ({ a, b }) => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   const result = a.apiGet('/private').then(value => ({ value }), error => ({ error }));
-  newAccountInOtherTab(b);
+  await newAccountInOtherTab(b);
   pending.resolve(response(200, { private: 'A' }));
   assert.ok((await result).error, 'Old private body was returned after another tab logged in');
 });
@@ -87,10 +88,10 @@ await check('another tab account change during body decoding rejects the old res
   const body = deferred();
   const reading = deferred();
   globalThis.fetch = async () => ({ status: 200, ok: true, json: () => { reading.resolve(); return body.promise; } });
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   const result = a.apiGet('/private').then(value => ({ value }), error => ({ error }));
   await reading.promise;
-  newAccountInOtherTab(b);
+  await newAccountInOtherTab(b);
   body.resolve({ private: 'A' });
   assert.ok((await result).error);
 });
@@ -98,9 +99,9 @@ await check('another tab account change during body decoding rejects the old res
 await check('old refresh cannot overwrite a new account installed by another tab', async ({ a, b }) => {
   const pending = deferred();
   globalThis.fetch = () => pending.promise;
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   const refreshing = a.refreshSession();
-  newAccountInOtherTab(b);
+  await newAccountInOtherTab(b);
   pending.resolve(response(200, { access_token: 'A-new', refresh_token: 'refresh-A-new' }));
   assert.equal(await refreshing, false);
   assert.equal(b.getToken(), 'B');
@@ -112,7 +113,8 @@ await check('same-account refresh in another tab preserves an earlier successful
   globalThis.fetch = (url) => url.endsWith('/auth/refresh')
     ? Promise.resolve(response(200, { access_token: 'A-new', refresh_token: 'refresh-A-new' }))
     : pending.promise;
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
+  await b.initializeSessionStorage();
   const result = a.apiGet('/private');
   assert.equal(await b.refreshSession(), true);
   pending.resolve(response(200, { private: 'A' }));
@@ -155,7 +157,8 @@ for (const secondStartsLater of [false, true]) {
       return Promise.resolve(init.headers.Authorization === 'Bearer A-new'
         ? response(200, { ok: true }) : response(401));
     };
-    a.setSession('A', 'refresh-A');
+    await a.setSession('A', 'refresh-A');
+    await b.initializeSessionStorage();
     const first = a.apiGet('/first').then(value => ({ value }), error => ({ error }));
     if (secondStartsLater) await refreshStarted.promise;
     const second = b.apiGet('/second').then(value => ({ value }), error => ({ error }));
@@ -181,7 +184,7 @@ await check('genuine refresh rejection still clears its own session', async ({ a
     if (url.endsWith('/auth/refresh')) refreshCount++;
     return response(401);
   };
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   await assert.rejects(a.apiGet('/private'));
   assert.equal(refreshCount, 1);
   assert.equal(a.getToken(), null);
@@ -197,7 +200,7 @@ await check('without Web Locks single-tab parallel refresh retains its fallback'
     if (url.endsWith('/auth/refresh')) { refreshCount++; refreshStarted.resolve(); return refreshResponse.promise; }
     return Promise.resolve(init.headers.Authorization === 'Bearer A-new' ? response(200, { ok: true }) : response(401));
   };
-  a.setSession('A', 'refresh-A');
+  await a.setSession('A', 'refresh-A');
   const first = a.apiGet('/first');
   const second = a.apiGet('/second');
   await refreshStarted.promise;

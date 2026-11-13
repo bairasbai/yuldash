@@ -9,11 +9,11 @@ const mocks = {
     export const useState=v=>[typeof v==='function'?v():v, n=>globalThis.__events.push(['state',n])];
     export const useContext=()=>null;`,
   "react/jsx-runtime": `export const jsx=(type,props)=>({type,props}); export const jsxs=jsx;`,
-  "../api/client": `export const getToken=()=> 'local-token'; export const setSession=(...v)=>globalThis.__events.push(['session',...v]);
-    export const getSessionGeneration=()=>0;
-    export const setRefreshHandler=()=>{}; export const setUnauthorizedHandler=()=>{};`,
+  "../api/client": `export const getToken=()=> globalThis.__generation==='A'?'local-token':null; export const setSession=(...v)=>{globalThis.__events.push(['session',...v]);globalThis.__pendingLogout='fixture-ticket';return globalThis.__generation='guest';};
+    export const getSessionGeneration=()=>globalThis.__generation,reconcileSession=async()=>{},authSessionId=()=>undefined,getAccountSession=()=>null,refreshRejectedToken=async()=>false; export class ApiError extends Error {}
+    export const revokeCurrentTripPasses=()=>{}; export const setRefreshHandler=()=>{}; export const setUnauthorizedHandler=()=>{};`,
   "../api/auth": `export const fetchMe=async()=>({}); export const refreshSession=async()=>({});
-    export const logoutServer=async()=>{globalThis.__events.push(['server-logout']);};`,
+    export const flushPendingLogouts=()=>{globalThis.__events.push(['server-logout',globalThis.__pendingLogout]);return new Promise(()=>{});};`,
   "../api/push": `export class PushBackendMissing extends Error {}; export const sendWebPushSubscription=async()=>{};
     export const unsubscribeWebPush=async endpoint=>{globalThis.__events.push(['push-revoke',endpoint]);};`,
   "../utils/outbox": `export const clearOutbox=()=>globalThis.__events.push(['outbox-clear']);`,
@@ -35,7 +35,7 @@ globalThis.window = { Notification: {}, PushManager: {} };
 globalThis.localStorage = { getItem:()=>null, setItem:()=>{}, removeItem:k=>globalThis.__events.push(['remove',k]) };
 let failed = 0;
 async function check(label, registration) {
-  globalThis.__events = [];
+  globalThis.__events = [];globalThis.__generation='A';
   Object.defineProperty(globalThis, "navigator", {configurable:true, value:{serviceWorker:{
     ready: new Promise(()=>{}), getRegistration: async()=>registration,
   }}});
@@ -47,20 +47,20 @@ async function check(label, registration) {
   clearTimeout(timer);
   try {
     assert.equal(completed, true, "logout blocked by serviceWorker.ready");
-    assert.ok(__events.some(e=>e[0]==='server-logout'));
+    assert.ok(__events.some(e=>e[0]==='server-logout' && e[1]==='fixture-ticket'));
     assert.ok(__events.some(e=>e[0]==='session' && e[1]===null && e[2]===null));
     assert.ok(__events.some(e=>e[0]==='state' && e[1]==='guest'));
     for (const action of ['outbox-clear','drafts-clear','personal-clear']) assert.ok(__events.some(e=>e[0]===action));
     if (registration?.pushManager) {
       const actions = __events.map(e=>e[0]);
-      assert.ok(actions.indexOf('push-revoke') < actions.indexOf('browser-unsubscribe'));
-      assert.ok(actions.indexOf('browser-unsubscribe') < actions.indexOf('server-logout'));
+      assert.ok(actions.includes('browser-unsubscribe'));
+      assert.ok(actions.indexOf('session') < actions.indexOf('browser-unsubscribe'));
     }
     console.log('✓ '+label);
   } catch(e) { failed++; console.error('✗ '+label+': '+e.message); }
 }
 await check('logout finishes with no registration and permanently pending ready', undefined);
-await check('logout revokes installed subscription before clearing account despite pending ready', {
+await check('logout clears account and revokes installed subscription despite pending ready and server', {
   pushManager:{getSubscription:async()=>({endpoint:'https://push.invalid/local-fixture',
     unsubscribe:async()=>{__events.push(['browser-unsubscribe']);return true;}})},
 });

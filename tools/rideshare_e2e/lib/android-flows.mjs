@@ -5,8 +5,8 @@ import { tgBotLogin, lastTgAuthId, log, sleep } from "./common.mjs";
 const NAV = ["Карта", "Поездки", "Заявка", "Чат", "Профиль"];
 
 export function topActivity() {
-  const out = A.sh("dumpsys activity activities | grep -m1 topResumedActivity", { quiet: true });
-  return out.trim();
+  const activities = A.sh("dumpsys activity activities", { quiet: true });
+  return activities.split(/\r?\n/).find(line => line.includes("topResumedActivity"))?.trim() ?? "";
 }
 export async function ensureApp() {
   if (!/com\.yuldash\.app/.test(topActivity())) { A.launch(); await sleep(2500); }
@@ -127,28 +127,33 @@ export async function searchAndOpen({ from, to, cardText }) {
   return cardTexts;
 }
 
-/** Tap the first of `options` that appears below the heading `head` (scrolling as needed). */
+/** Choose and verify a stop below the heading, even when the selected row stops being clickable. */
 export async function tapOptionAfter(head, options) {
   const [, h] = A.screenSize();
   for (let i = 0; i < 10; i++) {
     const nodes = A.dump();
     const hd = A.find(nodes, head);
     if (hd) {
-      const opt = nodes.filter((n) => options.includes(n.text) && n.box[1] > hd.box[1]).sort((a, b) => a.box[1] - b.box[1])[0];
-      if (opt && opt.box[3] < h * 0.88) { A.tapXY(...A.center(opt)); log("android.option", { head: String(head), option: opt.text }); await sleep(600); return opt.text; }
-      await A.swipeUp(0.25);
+      const option = A.stopOption(nodes, head, options);
+      if (option?.checked) return option.label;
+      const action = option?.action;
+      if (action?.enabled === "true" && action.box[3] < h * 0.88) {
+        A.tapXY(...A.center(action));
+        log("android.option", { head: String(head), option: option.label });
+        await sleep(600);
+      } else await A.swipeUp(0.25);
     } else {
       await A.scrollTo(head);
     }
   }
-  throw new Error(`option ${options} not reachable after ${head}`);
+  throw new Error(`option ${options} not selected after ${head}`);
 }
 
 export async function chooseStopsAndBook({ pickup, dropoff }) {
   if (pickup) await tapOptionAfter("Где садишься?", [pickup, `Начало маршрута · ${pickup}`]);
   if (dropoff) await tapOptionAfter("Где выходишь?", [dropoff, `Конец маршрута · ${dropoff}`]);
   A.screencap("android-booking-choice");
-  await A.tapText("Забронировать место", { what: "book" });
+  await A.tapEnabledText("Забронировать место");
   await A.waitFor("Отменить бронь", { timeout: 20000 });
   log("android.booked", { pickup, dropoff });
 }
@@ -258,9 +263,15 @@ export async function publishRide({ from, to, stops = [], hh, mm, day = null, se
   for (const s of stops) {
     await A.scrollTap("Добавить остановку");
     await sleep(600);
-    const nodes = A.dump();
-    const empties = nodes.filter((n) => n.class === "android.widget.EditText" && n.text === "");
-    const target = empties.sort((a, b) => b.box[1] - a.box[1])[0];
+    const [, height] = A.screenSize();
+    let target;
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const emptyFields = A.dump().filter(n => n.class === "android.widget.EditText" && n.text === "");
+      target = emptyFields.sort((a, b) => b.box[1] - a.box[1])[0];
+      if (target && target.box[3] < height * 0.72) break;
+      await A.swipeUp(0.18);
+    }
+    if (!target || target.box[3] >= height * 0.72) throw new Error("Stop field has no room for suggestions");
     A.tapXY(...A.center(target)); await sleep(400);
     A.typeText(s);
     await sleep(1800);

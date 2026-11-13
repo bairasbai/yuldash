@@ -9,6 +9,7 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.TripPass
 import com.yuldash.app.data.TripPassDeletion
@@ -58,11 +59,14 @@ class ActiveTripDeletionTest {
                     preparationResponse(request)?.let { return it }
                     requests.add("${request.method} ${request.path}")
                     val body = when (request.path) {
-                        "/bookings/42/cancel" -> {
+                        "/me" -> """{"id":7,"created_at":"2026-01-01T00:00:00Z"}"""
+                        "/bookings/42/cancel-preview" -> JSONObject().put("booking_status", terminalStatus)
+                            .put("consequence", "driver_departed").put("terms_key", "a".repeat(64)).toString()
+                        "/bookings/42/commands/v1/cancel" -> {
                             if (request.method != "POST") return MockResponse().setResponseCode(405)
                             cancelBodies.add(request.body.readUtf8())
                             terminalStatus = "cancelled"
-                            """{"status":"cancelled","contact_then_cancel":false}"""
+                            """{"id":42,"ride_id":7,"passenger_id":7,"status":"cancelled","contact_then_cancel":false}"""
                         }
                         "/bookings/42/role" -> """{"role":"passenger","status":"$terminalStatus","driver_phase":"departed"}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
@@ -78,6 +82,7 @@ class ActiveTripDeletionTest {
             start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
         TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'))
+        BookingCommandApi.init(MemoryDiskPreferences())
         ApiClient.testTimeoutMs = 1000
         TripPassStore.initStores(plain, secure)
         val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "old").put("pay_method", "negotiate"))
@@ -201,6 +206,7 @@ class ActiveTripDeletionTest {
         assertTrue(cancelBodies.isEmpty())
         compose.onNodeWithText("Отменить поездку").performClick()
         compose.onNodeWithText("Отменить поездку?").assertIsDisplayed()
+        waitForText("Планы поменялись")
         compose.onNodeWithText("Планы поменялись").performClick()
         compose.onNodeWithText("Да, отменить").performClick()
 
@@ -210,13 +216,14 @@ class ActiveTripDeletionTest {
         assertEquals(0, tripEndCalls)
         assertEquals(1, cancelBodies.size)
         assertEquals("plans_changed", JSONObject(cancelBodies.single()).getString("reason"))
+        assertEquals("a".repeat(64), JSONObject(cancelBodies.single()).getString("expected_terms_key"))
         assertTrue(secure.restarted().contains("pass_42"))
         assertFalse(plain.restarted().contains(TripPassDeletion.KEY))
         plain.failWriteOf = null
         compose.onNodeWithText("Повторить удаление").performClick()
         waitForTripEnd()
         assertEquals(1, tripEndCalls)
-        assertEquals(listOf("POST /bookings/42/cancel"), requests.filter { it.startsWith("POST ") })
+        assertEquals(listOf("POST /bookings/42/commands/v1/cancel"), requests.filter { it.startsWith("POST ") })
         assertEquals(1, cancelBodies.size)
         assertFalse(secure.restarted().contains("pass_42"))
         verifyAfterRestart()

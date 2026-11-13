@@ -1,6 +1,7 @@
 /** Document-lifetime fence. No credentials or personal data are kept here. */
-let enabled = false, blocked = false, epoch = 0, known = "", failedOwner = "", committed = "";
+let enabled = false, blocked = false, epoch = 0, known = "", failedOwner = "";
 let offlineTrusted = true;
+let cleanupRequired = false;
 const listeners = new Set<() => void>();
 const permits = new WeakSet<object>();
 export interface SessionWritePermit { readonly epoch: number }
@@ -13,16 +14,12 @@ export function rememberSession(generation: string): void { if (!blocked) known 
 export function activateStorageFence(): void {
   if (enabled) return;
   enabled = true;
-  window.addEventListener("storage", event => {
-    if (event.key === "yuldash.session" && event.newValue) {
-      if (blocked) committed = event.newValue;
-      else known = event.newValue;
-    }
-  });
 }
-export function reportStorageFailure(): void {
-  if (!enabled || blocked) return;
-  failedOwner = known; committed = ""; blocked = true; offlineTrusted = false; epoch++;
+export function reportStorageFailure(requireCleanup = true): void {
+  if (!enabled) return;
+  cleanupRequired ||= requireCleanup;
+  if (blocked) return;
+  failedOwner = known; blocked = true; offlineTrusted = false; epoch++;
   // A failing read may happen during a child render; never set parent state there.
   queueMicrotask(() => listeners.forEach(fn => fn()));
 }
@@ -39,7 +36,7 @@ export function probeStorage(write = true): boolean {
       if (write) { const key = `yuldash.tracked.storageProbe.${crypto.randomUUID()}`; store.setItem(key, "1"); store.removeItem(key); }
     }
     return true;
-  } catch { reportStorageFailure(); return false; }
+  } catch { reportStorageFailure(false); return false; }
 }
 export function assertSessionPermit(permit: SessionWritePermit): void {
   if (!permits.has(permit) || permit.epoch !== epoch) throw new Error("Session operation superseded");
@@ -64,11 +61,14 @@ function mutation<T>(work: (permit: SessionWritePermit) => T, recovery: boolean)
 }
 export function sessionMutation<T>(work: (permit: SessionWritePermit) => T): T | Promise<Awaited<T>> { return mutation(work, false); }
 export function storageRecoveryMutation<T>(work: (permit: SessionWritePermit) => T): T | Promise<Awaited<T>> { return mutation(work, true); }
-export function isNewSessionCommit(generation: string): boolean {
-  return !!generation && ((!!failedOwner && generation !== failedOwner) || generation === committed);
+export function canImportLegacyDuringRecovery(): boolean {
+  return !cleanupRequired && !failedOwner;
+}
+export function canKeepRecoveredSession(generation: string): boolean {
+  return !cleanupRequired || (!!failedOwner && generation !== failedOwner);
 }
 export function finishStorageRecovery(generation: string): void {
-  known = generation; failedOwner = ""; committed = ""; blocked = false; epoch++;
+  known = generation; failedOwner = ""; cleanupRequired = false; blocked = false; epoch++;
   // Until /me confirms this owner, even an otherwise matching offline pass stays closed.
   offlineTrusted = false;
 }

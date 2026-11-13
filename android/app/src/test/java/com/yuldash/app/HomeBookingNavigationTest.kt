@@ -73,6 +73,9 @@ class HomeBookingNavigationTest {
     private val mounted = mutableStateOf(true)
     private val tokenA = "header.eyJzdWIiOiIxMSJ9.signature"
     private val tokenB = "header.eyJzdWIiOiIxMiJ9.signature"
+    private val createPath = "/bookings/commands/v1"
+    private val cancelPath = "/bookings/42/commands/v1/cancel"
+    private val cancelTerms = "a".repeat(64)
     private var actorCreated = false
     private val actor by lazy {
         Robolectric.buildActivity(MainActivity::class.java).create().also { actorCreated = true }
@@ -101,14 +104,28 @@ class HomeBookingNavigationTest {
             dispatcher = object: Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.requestUrl!!.encodedPath
-                    records += Triple(request.method!!,path,request.getHeader("Authorization"))
+                    val authorization = request.getHeader("Authorization")
+                    records += Triple(request.method!!, path, authorization)
+                    val passengerId = when (authorization) {
+                        "Bearer $tokenA" -> 11
+                        "Bearer $tokenB" -> 12
+                        else -> null
+                    }
                     // This fixture's bookings belong to A. Match backend booking_and_ride_for_user.
-                    if (request.getHeader("Authorization") == "Bearer $tokenB") {
+                    if (passengerId == 12) {
                         if (path.startsWith("/bookings/42/") || path.startsWith("/trips/42/"))
                             return json("{}", 403)
                         if (path == "/bookings/mine") return json("""{"items":[]}""")
                     }
-                    val bookingBody = if (request.method == "POST" && path == "/bookings") request.body.readUtf8().also { bodies += it } else null
+                    val isCreate = request.method == "POST" && path == createPath
+                    val isCancel = request.method == "POST" && path == cancelPath
+                    val bookingBody = if (isCreate) request.body.readUtf8().also { bodies += it } else null
+                    if (isCreate || isCancel) {
+                        if (passengerId == null || request.getHeader("Idempotency-Key").isNullOrBlank()) return json("{}", 400)
+                    }
+                    if (isCancel && JSONObject(request.body.readUtf8()).optString("expected_terms_key") != cancelTerms) {
+                        return json("{}", 409)
+                    }
                     if (path == heldPath) {
                         started.countDown(); assertTrue(release.await(35,TimeUnit.SECONDS)); dispatched.countDown()
                     }
@@ -116,10 +133,13 @@ class HomeBookingNavigationTest {
                         path == "/rides/near" -> """{"items":[{"id":7,"from_city":"Пункт А","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats_total":3,"seats_left":3,"price":750,"category":"regular","driver_id":9,"driver_name":"Тестовый водитель","driver_verified":true}],"count":1}"""
                         path == "/rides/7" -> """{"id":7,"from_city":"Пункт А","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats_total":3,"seats_left":3,"price":750,"category":"regular","driver_id":9,"driver_name":"Тестовый водитель","driver_verified":true}"""
                         path == "/rides/9" -> """{"id":9,"from_city":"Баймак","to_city":"Сибай","depart_at":"2030-01-03T10:00:00+03:00","seats_total":4,"seats_left":4,"price":350,"category":"regular","driver_id":10,"driver_name":"Другой водитель","driver_verified":true}"""
-                        request.method == "POST" && path == "/bookings" -> {
+                        path == "/me" && passengerId != null ->
+                            """{"id":$passengerId,"created_at":"2026-01-01T00:00:00Z","role":"passenger"}"""
+                        isCreate -> {
                             existing = true
                             val rideId = JSONObject(requireNotNull(bookingBody)).getInt("ride_id")
-                            JSONObject().put("id", if (rideId == 9) 46 else 42).put("ride_id", rideId).put("status", status).toString()
+                            JSONObject().put("id", if (rideId == 9) 46 else 42)
+                                .put("ride_id", rideId).put("passenger_id", passengerId).put("status", status).toString()
                         }
                         path == "/bookings/46/details" -> """{"booking_id":46,"ride_id":9,"role":"passenger","status":"pending","from_city":"Баймак","to_city":"Сибай","depart_at":"2030-01-03T10:00:00+03:00","seats":1,"price":350,"contact_unlocked":false}"""
                         path == "/bookings/mine" && accepted -> """{"items":[{"id":44,"ride_id":8,"status":"confirmed","seats":1,"price":900,"from_city":"Новый пункт А","to_city":"Новый пункт Б","driver_name":"Новый водитель"}]}"""
@@ -135,7 +155,12 @@ class HomeBookingNavigationTest {
                         path == "/bookings/42/role" -> """{"role":"passenger","status":"$status"}"""
                         path == "/trips/42/receipt" -> """{"booking_id":42,"ride_id":7,"role":"passenger","from_city":"Пункт А","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats":1,"amount":400,"pay_method":"cash","paid":false,"driver_name":"ReceiptDriver42","counterparty_name":"ReceiptDriver42","my_stars":0,"my_rating_tags":""}"""
                         path == "/trips/42/tip" -> """{"already_thanked":false}"""
-                        path == "/bookings/42/cancel" -> """{"status":"cancelled"}"""
+                        path == "/bookings/42/cancel-preview" ->
+                            """{"booking_status":"$status","consequence":"early","terms_key":"$cancelTerms"}"""
+                        isCancel -> {
+                            status = "cancelled"
+                            """{"id":42,"ride_id":7,"passenger_id":11,"status":"cancelled"}"""
+                        }
                         else -> """{"items":[],"role":"passenger"}"""
                     },if(path=="/instant/orders/active") 503 else 200)
                 }
@@ -205,7 +230,7 @@ class HomeBookingNavigationTest {
     private fun back() { compose.onNodeWithContentDescription("Назад").performClick(); pump() }
     private fun raw(type:String,id:Int=44) { MainActivity::class.java.getDeclaredMethod("onNewIntent",Intent::class.java).apply { isAccessible=true }.invoke(actor.get(),Intent(context,MainActivity::class.java).putExtra("type",type).putExtra("id",id.toString()).putExtra("recipient_user_id", "11")) }
     private fun deliver(type:String) { compose.runOnIdle { raw(type) }; await { vm.pendingScreenNavigation.value==null }; pump() }
-    private fun heldCreate() { heldPath="/bookings"; choosePublicRide(); click("Забронировать место"); await { started.count==0L } }
+    private fun heldCreate() { heldPath=createPath; choosePublicRide(); click("Забронировать место"); await { started.count==0L } }
     private fun finishOld() { release.countDown(); assertTrue(dispatched.await(8,TimeUnit.SECONDS)); pump(1500) }
     private fun posts(path:String)=records.count { it.first=="POST" && it.second==path }
     @After fun cleanup() {
@@ -235,6 +260,8 @@ class HomeBookingNavigationTest {
         } finally {
             if (ApiClient.testTrace === ownTrace) ApiClient.testTrace = null
         }
+        assertEquals("A booking must not fall back to the legacy create endpoint", 0, posts("/bookings"))
+        assertEquals("A cancellation must not fall back to the legacy endpoint", 0, posts("/bookings/42/cancel"))
     }
     @Test fun otherPublicRideAfterBookingRemountStartsItsOwnSeatsAndSegment() {
         mount()
@@ -246,7 +273,7 @@ class HomeBookingNavigationTest {
         compose.onNodeWithText("Посадка: Баймак").assertExists()
         compose.onNodeWithText("Высадка: Сибай").assertExists()
         compose.onNodeWithText("Забронировать место").assertIsEnabled().performClick()
-        await { posts("/bookings") == 1 && vm.activeBookingId.value == 46 }
+        await { posts(createPath) == 1 && vm.activeBookingId.value == 46 }
         val sent = JSONObject(bodies.single())
         assertEquals(9, sent.getInt("ride_id"))
         assertEquals(1, sent.getInt("seats"))
@@ -268,7 +295,7 @@ class HomeBookingNavigationTest {
         saver.emulateSavedInstanceStateRestore()
         pump(1500)
         compose.onNodeWithText("Забронировать 2 места").assertIsEnabled().performClick()
-        await { posts("/bookings") == 1 }
+        await { posts(createPath) == 1 }
         val sent = JSONObject(bodies.single())
         assertEquals(9, sent.getInt("ride_id"))
         assertEquals(2, sent.getInt("seats"))
@@ -288,7 +315,7 @@ class HomeBookingNavigationTest {
         assertEquals(12, OfflineTripSnapshots.currentOwner()?.userId)
         compose.onNodeWithText("Забронировать место").assertIsEnabled()
         compose.onAllNodesWithText("Забронировать 2 места").assertCountEquals(0)
-        assertEquals(0, posts("/bookings"))
+        assertEquals(0, posts(createPath))
     }
 
     @Test fun retainedDifferentRideSubmitCannotBookTheNewPublicRide() {
@@ -303,7 +330,7 @@ class HomeBookingNavigationTest {
         compose.onNodeWithText("Забронировать место").assertIsEnabled()
         compose.runOnIdle { oldSubmit() }
         pump(1500)
-        assertEquals(0, posts("/bookings"))
+        assertEquals(0, posts(createPath))
         assertEquals("9", vm.selectedRide.value?.id)
         assertNull(vm.activeBookingId.value)
         compose.onNodeWithText("Забронировать место").assertIsEnabled()
@@ -312,17 +339,17 @@ class HomeBookingNavigationTest {
     @Test fun publicHomeCreatesOnePendingBookingWithExactRide() {
         choosePublicRide(); val confirm=capture("Забронировать место")
         compose.runOnIdle { confirm(); confirm() }; await { vm.activeBookingId.value==42 }; pump()
-        assertEquals(Screen.Booking,vm.screen.value); assertNull(vm.activeTrip.value); assertEquals(1,posts("/bookings"))
+        assertEquals(Screen.Booking,vm.screen.value); assertNull(vm.activeTrip.value); assertEquals(1,posts(createPath))
         assertEquals(7,JSONObject(bodies.single()).getInt("ride_id")); compose.onNodeWithText("Отменить бронь").assertExists()
     }
     @Test fun lateCreateAfterBackDoesNotReopenBooking() { heldCreate(); back(); finishOld(); assertEquals(Screen.Home,vm.screen.value); assertNull(vm.activeBookingId.value) }
     @Test fun lateCreateCannotReplaceNewerAdDestination() { heldCreate(); deliver("ad"); finishOld(); assertEquals(Screen.AdsCabinet,vm.screen.value); assertNull(vm.activeBookingId.value) }
     @Test fun lateCreateCannotReplaceNewerRequestDestination() { heldCreate(); deliver("request"); finishOld(); assertEquals(Screen.RequestResponses,vm.screen.value); assertEquals(44,vm.responsesRequestId.value); assertNull(vm.activeBookingId.value) }
-    @Test fun retainedConfirmAfterBackCannotCreateBooking() { choosePublicRide(); val confirm=capture("Забронировать место"); back(); compose.runOnIdle { confirm() }; pump(1500); assertEquals(0,posts("/bookings")); assertEquals(Screen.Home,vm.screen.value) }
-    @Test fun retainedConfirmCannotCreateUnderNextAccount() { choosePublicRide(); val confirm=capture("Забронировать место"); compose.runOnIdle { ApiClient.saveToken(tokenB); confirm() }; pump(1500); assertEquals(0,posts("/bookings")) }
-    @Test fun retainedCancelCannotCancelUnderNextAccount() { openExisting(); click("Отменить бронь"); val cancel=capture("Да, отменить"); compose.runOnIdle { ApiClient.saveToken(tokenB); cancel() }; pump(1500); assertEquals(0,posts("/bookings/42/cancel")) }
-    @Test fun lateCancellationCannotReplaceNewerRequest() { heldPath="/bookings/42/cancel"; openExisting(); click("Отменить бронь"); click("Да, отменить"); await { started.count==0L }; deliver("request"); finishOld(); assertEquals(Screen.RequestResponses,vm.screen.value); assertEquals(44,vm.responsesRequestId.value); assertEquals(42,vm.activeBookingId.value) }
-    @Test fun doubleCancelInSameFrameSendsOneMutation() { heldPath="/bookings/42/cancel"; openExisting(); click("Отменить бронь"); val cancel=capture("Да, отменить"); compose.runOnIdle { cancel(); cancel() }; await { started.count==0L }; pump(); assertEquals(1,posts("/bookings/42/cancel")); finishOld() }
+    @Test fun retainedConfirmAfterBackCannotCreateBooking() { choosePublicRide(); val confirm=capture("Забронировать место"); back(); compose.runOnIdle { confirm() }; pump(1500); assertEquals(0,posts(createPath)); assertEquals(Screen.Home,vm.screen.value) }
+    @Test fun retainedConfirmCannotCreateUnderNextAccount() { choosePublicRide(); val confirm=capture("Забронировать место"); compose.runOnIdle { ApiClient.saveToken(tokenB); confirm() }; pump(1500); assertEquals(0,posts(createPath)) }
+    @Test fun retainedCancelCannotCancelUnderNextAccount() { openExisting(); click("Отменить бронь"); val cancel=capture("Да, отменить"); compose.runOnIdle { ApiClient.saveToken(tokenB); cancel() }; pump(1500); assertEquals(0,posts(cancelPath)) }
+    @Test fun lateCancellationCannotReplaceNewerRequest() { heldPath=cancelPath; openExisting(); click("Отменить бронь"); click("Да, отменить"); await { started.count==0L }; deliver("request"); finishOld(); assertEquals(Screen.RequestResponses,vm.screen.value); assertEquals(44,vm.responsesRequestId.value); assertEquals(42,vm.activeBookingId.value) }
+    @Test fun doubleCancelInSameFrameSendsOneMutation() { heldPath=cancelPath; openExisting(); click("Отменить бронь"); val cancel=capture("Да, отменить"); compose.runOnIdle { cancel(); cancel() }; await { started.count==0L }; pump(); assertEquals(1,posts(cancelPath)); finishOld() }
     @Test fun homeExistingSelectionPersistsBeforeNextComposeEffect() {
         existing=true; mount(); click("Поездки"); val open=capture("Подробнее"); val bundle=Bundle()
         compose.runOnIdle { open(); actor.saveInstanceState(bundle) }
@@ -574,7 +601,7 @@ class HomeBookingNavigationTest {
     }
     @Test fun guestHomeCanOpenPublicRideWithoutSendingPrivateBooking() {
         ApiClient.logout();choosePublicRide();click("Забронировать место");pump(1000)
-        assertEquals(Screen.Login,vm.screen.value);assertEquals(0,posts("/bookings"));assertNull(vm.activeBookingId.value)
+        assertEquals(Screen.Login,vm.screen.value);assertEquals(0,posts(createPath));assertNull(vm.activeBookingId.value)
     }
     private fun markedPendingNotificationUsesServerStatus(language: AppLanguage) {
         compose.runOnIdle { vm.language.value = language }
@@ -593,7 +620,7 @@ class HomeBookingNavigationTest {
         assertTrue(records.any { it.second == "/bookings/42/role" && it.third == "Bearer $tokenA" })
         compose.onNodeWithText(if (language == AppLanguage.Ru) "Отменить бронь" else "Бронде кире алыу")
             .assertExists().assertIsEnabled()
-        assertEquals(0, posts("/bookings/42/cancel"))
+        assertEquals(0, posts(cancelPath))
     }
     @Test fun markedPendingNotificationShowsEnabledCancellationInRussian() = markedPendingNotificationUsesServerStatus(AppLanguage.Ru)
     @Test fun markedPendingNotificationShowsEnabledCancellationInBashkir() = markedPendingNotificationUsesServerStatus(AppLanguage.Ba)

@@ -1,6 +1,8 @@
 package com.yuldash.app
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -152,9 +154,15 @@ internal fun CreateRideStopsEditor(values: List<String>, onChange: (List<String>
 
 /** Хранилище цен остановок формы публикации: состояние Compose на полях, экрану нужны
  *  только «что отправить» и признак ошибки ввода. */
-internal class StopPricesStore(val errorText: String) {
-    var enabled by mutableStateOf(false)
-    var values by mutableStateOf(listOf<String>())
+internal class StopPricesStore(
+    val errorText: String,
+    private val enabledState: MutableState<Boolean> = mutableStateOf(false),
+    private val valuesState: MutableState<List<String>> = mutableStateOf(emptyList()),
+) {
+    var enabled by enabledState
+    var values: List<String>
+        get() = valuesState.value
+        set(value) { valuesState.value = ArrayList(value) }
     var splitBusy by mutableStateOf(false)
     var splitFailed by mutableStateOf(false)
     var invalid by mutableStateOf(false)   // правка: ввод неверен (текст показывает редактор)
@@ -164,7 +172,9 @@ internal class StopPricesStore(val errorText: String) {
 internal fun rememberStopPricesStore(): StopPricesStore {
     val err = appText("Проверь цены остановок: каждая больше предыдущей и меньше цены маршрута.",
                       "Туҡталыш хаҡтарын тикшер: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй.")
-    return remember { StopPricesStore(err) }
+    val enabled = rememberSaveable { mutableStateOf(false) }
+    val values = rememberSaveable { mutableStateOf<List<String>>(arrayListOf()) }
+    return remember(err, enabled, values) { StopPricesStore(err, enabled, values) }
 }
 
 /** Хранилище цен остановок для диалога правки своего рейса — предзаполнено текущими ценами. */
@@ -219,11 +229,6 @@ internal fun StopPricesStore.split(scope: kotlinx.coroutines.CoroutineScope, fro
         if (split == null) { values = emptyList(); splitFailed = true } else values = split.map { it.toString() }
     }
 }
-
-/** Что отправить серверу: выключено/нет остановок — пустой список; ввод неверен — null. */
-internal fun StopPricesStore.toSend(price: Int, stopsCount: Int, stopsPresent: Boolean): List<Int>? =
-    if (!enabled || !stopsPresent) emptyList()
-    else stopPricesInputValid(price, stopsCount, values.filter { it.isNotBlank() })
 
 /** Самодостаточный редактор цен остановок для формы публикации (слот в CreateRideScreen). */
 @Composable

@@ -25,6 +25,12 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
     internal data class SosReturnOrigin(val principalId: Int, val generation: Long)
     internal var visibleSosOrigin: SosReturnOrigin? = null
 
+    // Public choices survive a configuration change. Nothing here is written to saved state.
+    internal val guestBookingLogin = mutableStateOf<GuestBookingLogin?>(null)
+    internal val pendingGuestBooking = mutableStateOf<PendingGuestBooking?>(null)
+    internal val failedGuestBooking = mutableStateOf<FailedGuestBooking?>(null)
+    internal val openGuestBooking = mutableStateOf<OpenGuestBooking?>(null)
+
     // --- Survival-критичные: переживают поворот И kill процесса (SavedStateHandle) ---
     private val restoredScreen = saved.get<String>(KEY_SCREEN)
         ?.let { runCatching { Screen.valueOf(it) }.getOrNull() } ?: Screen.Splash
@@ -406,6 +412,10 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      */
     fun clearUserData() {
         visibleSosOrigin = null
+        guestBookingLogin.value = null
+        pendingGuestBooking.value = null
+        failedGuestBooking.value = null
+        openGuestBooking.value = null
         offlineTripSnapshot.value = null
         pendingScreenNavigation.value?.let(::clearPendingScreen)
         clearScreenBridges()

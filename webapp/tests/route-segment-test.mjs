@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 import { all, bundleComponent, button, checker, langMock, mount, text } from "./shallow-harness.mjs";
@@ -58,7 +59,7 @@ const mockFor = lang => ({
   "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
   "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__segment.ownBooking,useRefreshOwnBookings=()=>()=>{};`,
   "/utils/format": `export const pluralRu=(n,s)=>s,dayMonthShort=()=>'',hhmm=()=>'',formatWhen=()=>'',priceLabel=v=>String(v);`,
-  "/api/bookings": `export const createBooking=(body,signal)=>{globalThis.__segment.sent.push({body,signal});return globalThis.__segment.send?.()??Promise.resolve({id:55});};`,
+  "/api/bookingCommands": bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__segment.sent.push({body,signal});return globalThis.__segment.send?.()??Promise.resolve({id:55});};`),
 });
 for (const lang of ["ru", "ba"]) {
   const Sheet = await bundleComponent("src/components/RideSheet.tsx", { real: ["/utils/pickupStops"], mocks: mockFor(lang) });

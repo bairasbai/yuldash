@@ -81,11 +81,12 @@ export function isNearBottom(scrollTop, clientHeight, scrollHeight, threshold = 
 /**
  * Область, которую реально видно человеку, когда открыта экранная клавиатура.
  * `innerHeight` — высота окна страницы, `vvHeight`/`vvTop` — размеры visualViewport.
- * Возвращает высоту и сдвиг сверху для рамки чата и признак «клавиатура открыта».
+ * Высота и сдвиг возвращаются в CSS-единицах рамки, до применения `zoom` документа.
  */
-export function viewportBox(innerHeight, vvHeight, vvTop) {
-  const height = Math.max(0, Math.round(vvHeight));
-  const top = Math.max(0, Math.round(vvTop));
+export function viewportBox(innerHeight, vvHeight, vvTop, zoom = 1) {
+  const scale = Number.isFinite(zoom) && zoom > 0 ? zoom : 1;
+  const height = Math.max(0, Math.round(vvHeight)) / scale;
+  const top = Math.max(0, Math.round(vvTop)) / scale;
   const covered = Math.max(0, Math.round(innerHeight - vvHeight - vvTop));
   return { top, height, covered, keyboardOpen: covered >= KEYBOARD_MIN_PX };
 }

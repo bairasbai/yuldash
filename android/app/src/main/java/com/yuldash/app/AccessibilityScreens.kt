@@ -1456,60 +1456,56 @@ internal fun familyOrderValid(passenger: String, from: String, to: String): Bool
 
 @Composable
 internal fun FamilyOrderScreen(
-    contacts: List<TrustedContact>,
     onBack: () -> Unit,
     onCreateRequest: (LocalRequest) -> Unit
 ) {
-    val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val submitOwner = remember { ApiClient.queueSessionGeneration() }
     val defaultPassenger = appText("Мама", "Әсәй")
     val familyRequestTitle = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
-    val familyRequestTime = appText("сегодня после 17:00", "бөгөн 17:00-тан һуң")
+    val familyRequestTime = appText("по договорённости", "килешеү буйынса")
     val familyRequestStatus = appText("ждём отклики", "яуаптар көтәбеҙ")
-    val commentLabel = appText("Заказ за близкого", "Яҡын кеше өсөн заказ")
     val sendError = appText("Не получилось отправить. Проверь сеть и повтори.", "Ебәреп булманы. Интернетте тикшереп ҡабатла.")
     var passenger by remember { mutableStateOf(defaultPassenger) }
     var fromCity by remember { mutableStateOf("") }
     var toCity by remember { mutableStateOf("") }
-    var notifyContact by remember { mutableStateOf(true) }
     var submitting by remember { mutableStateOf(false) }
     var submitError by remember { mutableStateOf<String?>(null) }
-    val trusted = contacts.firstOrNull()
     Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Заказать за близкого", "Яҡын өсөн заказ"), onBack) }) { padding ->
         FamilyOrderFormContent(
             passenger = passenger, from = fromCity, to = toCity,
-            notifyContact = notifyContact, trustedName = trusted?.name,
             loading = submitting, error = submitError,
             onPassengerChange = { passenger = it },
-            onNotifyContactChange = { notifyContact = it },
             onSubmit = {
-                if (submitting) return@FamilyOrderFormContent   // гард двойного нажатия
-                val f = fromCity.trim(); val t = toCity.trim()
-                // ПРИВАТНОСТЬ: телефона близкого в форме нет совсем (решение Александра 17.10.2026):
-                // он никуда не уходил, а человек ждал звонка водителя маме. Комментарий заявки —
-                // только нейтральная метка, чужих данных в ленте водителей нет.
-                val comment = commentLabel
+                if (submitting || !ApiClient.isCurrentSession(submitOwner)) return@FamilyOrderFormContent
+                val from = fromCity.trim()
+                val to = toCity.trim()
+                val relativeName = passenger.trim()
                 submitError = null
                 submitting = true
                 scope.launch {
-                    // Реальная серверная заявка: ждём ответ сервера — успех показываем только при удаче.
-                    ApiClient.createRequest(f, t, 1, "regular", false, comment, 0, assisted = true, relativeName = passenger.trim())
-                        .onSuccess {
-                            onCreateRequest(
-                                LocalRequest(
-                                    title = familyRequestTitle,
-                                    route = "$f → $t",
-                                    time = familyRequestTime,
-                                    passenger = passenger,
-                                    status = familyRequestStatus,
-                                    trustedContact = if (notifyContact) trusted?.name else null
+                    ApiClient.createRequest(
+                        from, to, 1, "regular", false, familyRequestTitle, 0,
+                        assisted = true, relativeName = relativeName, expectedGeneration = submitOwner,
+                    )
+                        .onSuccess { newId ->
+                            ApiClient.runIfCurrentSession(submitOwner) {
+                                onCreateRequest(
+                                    LocalRequest(
+                                        title = familyRequestTitle,
+                                        route = "$from → $to",
+                                        time = familyRequestTime,
+                                        passenger = relativeName,
+                                        status = familyRequestStatus,
+                                        serverId = newId,
+                                    )
                                 )
-                            )
+                            }
                         }
                         .onFailure { e ->
+                            if (!ApiClient.isCurrentSession(submitOwner)) return@onFailure
                             submitting = false
                             submitError = serverSaid(e, sendError)
-                            Toast.makeText(context, submitError!!, Toast.LENGTH_LONG).show()
                         }
                 }
             },
@@ -1532,12 +1528,9 @@ internal fun FamilyOrderFormContent(
     passenger: String,
     from: String,
     to: String,
-    notifyContact: Boolean,
-    trustedName: String?,
     loading: Boolean,
     error: String?,
     onPassengerChange: (String) -> Unit,
-    onNotifyContactChange: (Boolean) -> Unit,
     onSubmit: () -> Unit,
     fromField: (@Composable () -> Unit)? = null,
     toField: (@Composable () -> Unit)? = null,
@@ -1566,14 +1559,6 @@ internal fun FamilyOrderFormContent(
                 leadingIcon = { Icon(Icons.Default.NearMe, contentDescription = null) },
                 singleLine = true, modifier = Modifier.fillMaxWidth(), shape = RoundedCornerShape(14.dp)
             )
-        }
-        item {
-            SettingSwitchRow(
-                Icons.Default.Notifications,
-                appText("Уведомлять доверенного", "Ышаныслы кешегә хәбәр итеү"),
-                appText("Статус поездки получит ${trustedName ?: "контакт"}", "Сәфәр статусын ${trustedName ?: "контакт"} ала"),
-                notifyContact
-            ) { onNotifyContactChange(it) }
         }
         item {
             error?.let {

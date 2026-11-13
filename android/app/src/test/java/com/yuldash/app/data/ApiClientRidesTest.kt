@@ -1,5 +1,6 @@
 package com.yuldash.app.data
 
+import org.json.JSONObject
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -327,26 +328,24 @@ class ApiClientRidesTest {
 
     @Test
     fun publishRide_sendsPostWithSnakeCaseBody() = runBlocking {
-        server.enqueue(json("""{"id":42}"""))
-        val res = ApiClient.publishRide(
-            fromCity = "Уфа",
-            toCity = "Стерлитамак",
-            departAt = "2026-07-05T09:30:00",
-            seats = 3,
-            price = 450,
-            comment = "поеду утром",
-            womenOnly = true,
-            baggage = true,
-            category = "regular",
-        )
-        assertEquals(42, res.getOrThrow())
+        startBookingCommandSession(server)
+        val depart = "2026-07-05T09:30:00+05:00"
+        val input = JSONObject().put("from_city", "Уфа").put("to_city", "Стерлитамак")
+            .put("depart_at", depart).put("seats_total", 3).put("price", 450)
+            .put("comment", "поеду утром").put("women_only", true).put("baggage", true).put("category", "regular")
+        server.enqueue(json(JSONObject(input.toString()).put("id", 42).put("driver_id", 7).put("status", "active").toString()))
+        val draft = RidePublicationIntent.Draft(CommandFingerprint.create("ride.create.draft", null, input).payloadHash, depart, "ru")
+        val res = RidePublicationApi.publish(ApiClient.queueSessionGeneration(), input, draft, null, retry = false)
+        assertEquals(42, res.getOrThrow().outcome.ride?.id)
+        assertEquals("/me", server.takeRequest().path)
         val recorded = server.takeRequest()
         assertEquals("POST", recorded.method)
-        assertEquals("/rides", recorded.path)
+        assertEquals("/rides/commands/v1", recorded.path)
+        assertTrue(recorded.getHeader("Idempotency-Key")?.startsWith("cmd1_") == true)
         val body = recorded.body.readUtf8()
         assertTrue(body.contains("\"from_city\":\"Уфа\""))
         assertTrue(body.contains("\"to_city\":\"Стерлитамак\""))
-        assertTrue(body.contains("\"depart_at\":\"2026-07-05T09:30:00\""))
+        assertTrue(body.contains("\"depart_at\":\"2026-07-05T09:30:00+05:00\""))
         assertTrue(body.contains("\"seats_total\":3"))
         assertTrue(body.contains("\"price\":450"))
         assertTrue(body.contains("\"women_only\":true"))

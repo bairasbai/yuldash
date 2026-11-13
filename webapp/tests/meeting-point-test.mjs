@@ -2,6 +2,7 @@
 // (зеркало backend/tests/test_meeting_points.py и Android MeetingPointTest).
 // Пусто — тела брони прежние; ориентир/булавка — meeting/alighting уходят; clear — не шлём.
 import assert from "node:assert/strict";
+import { bookingCommandStub } from "./booking-command-stub.mjs";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
 globalThis.document ??= { body: {} };
@@ -18,8 +19,8 @@ const modules = {
   "react-router-dom": `export const Link='a'; export const useNavigate=()=> ()=>{}; export const useParams=()=>({id:'42'});`,
   lang: `export const useLang=()=>({lang:globalThis.__meetPoint.lang??'ru',appText:(ru,ba)=>globalThis.__meetPoint.lang==='ba'?ba:ru,t:k=>k});`,
   auth: `export const useAuth=()=>({isAuthed:true});`,
-  bookings: `export const createBooking=body=>{globalThis.__meetPoint.calls.push(body);return Promise.resolve({id:73,status:'pending'})};
-    export const proposeMeetingPoint=(...args)=>{globalThis.__meetPoint.calls.push(args);return globalThis.__meetPoint.propose(...args)};
+  commands: bookingCommandStub(`export const createBooking=body=>{globalThis.__meetPoint.calls.push(body);return Promise.resolve({id:73,status:'pending'})};`),
+  bookings: `    export const proposeMeetingPoint=(...args)=>{globalThis.__meetPoint.calls.push(args);return globalThis.__meetPoint.propose(...args)};
     export const withdrawMeetingPoint=async()=>({});
     export const answerMeetingPoint=(...args)=>{globalThis.__meetPoint.calls.push(args);return globalThis.__meetPoint.answer(...args)};
     export const fetchDriverBookings=async()=>[]; export const markArriving=async()=>({}); export const markNoShow=async()=>({}); export const rateBooking=async()=>({});`,
@@ -46,7 +47,7 @@ async function component(path, name = "default") {
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;
         const rowKey=args.importer.endsWith('DriverPassengers.tsx')?(p.endsWith('/DriverBoarding')||p.endsWith('/DriverNoShow')||p.endsWith('/FileIncidentCard')?'rowStub':p.endsWith('/cabinetUi')?'cabinetUi':p.endsWith('/Icons')?'rowIcons':p.endsWith('/PickupStopChoice')?'bookingSegment':null):null;
-        const key=rowKey??(Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null);
+        const key=rowKey??(Object.hasOwn(modules,p)?p:p.endsWith('/i18n/lang')?'lang':p.endsWith('/auth/AuthProvider')?'auth':p.endsWith('/api/bookings')?'bookings':p.endsWith('/api/bookingCommands')?'commands':p.endsWith('/api/rides')?'rides':p.endsWith('/api/geo')?'geo':p.endsWith('/api/client')?'client':p.endsWith('/booking/OwnBookingsProvider')?'ownBookings':p.endsWith('/features')?'features':p.endsWith('/ComingSoon')?'soon':p.endsWith('/analytics')?'analytics':p.endsWith('/components/States')?'states':p.endsWith('YandexMap')?'ymap':p.endsWith('/components/ScreenHeader')?'header':null);
         return key?{path:key,namespace:'mock'}:null;
       });
       b.onLoad({filter:/.*/,namespace:'mock'},args=>({contents:modules[args.path],loader:'js'}));

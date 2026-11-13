@@ -44,6 +44,12 @@ class BookingHistoryCleanupTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     preparationResponse(request)?.let { return it }
                     requests.add("${request.method} ${request.path}")
+                    if (request.getHeader("Authorization") != "Bearer ${TripPassAuthorityFixture.jwt(7)}") {
+                        return MockResponse().setResponseCode(403)
+                    }
+                    if (request.method == "GET" && request.path == "/me") return MockResponse()
+                        .setHeader("Content-Type", "application/json")
+                        .setBody("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
                     if (request.path != "/bookings/42/details") return MockResponse().setResponseCode(404)
                     if (detailsHttpStatus != 200) return MockResponse().setResponseCode(detailsHttpStatus).setBody("{}")
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(canonicalTripBody(request.path,
@@ -53,6 +59,9 @@ class BookingHistoryCleanupTest {
             start()
         }
         TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'))
+        com.yuldash.app.data.BookingCommandApi.init(context.getSharedPreferences("history_cleanup_commands", Context.MODE_PRIVATE).apply {
+            edit().clear().commit()
+        })
         ApiClient.testTimeoutMs = 1000
         TripPassStore.initStores(plain, secure)
         val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate"))
@@ -73,7 +82,7 @@ class BookingHistoryCleanupTest {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 BookingScreen(ride = Ride(id="17", from="Город А", to="Город Б", time="вчера", driver="Водитель", car="Lada", price=700, seats=1, rating=4.9, verified=true, boosted=false),
                     bookingId=42, ads=emptyList(), adStats=emptyMap(), onBack={}, onMessage={}, onAdImpression={}, onAdClick={}, bookingStatus=status,
-                    onConfirmRide={ _,_,_,_,_ -> fail("History must not create a booking") })
+                    onConfirmRide={ _,_,_,_,_,_ -> fail("History must not create a booking") })
             }
         }
     }
@@ -86,7 +95,7 @@ class BookingHistoryCleanupTest {
         TripPassStore.initStores(plain.restarted(), secure.restarted())
         assertNull(TripPassStore.load(context, 42))
         assertEquals("other", TripPassStore.load(context, 99)?.boardingCode)
-        assertEquals(listOf("GET /bookings/42/details"), requests.toList())
+        assertEquals(listOf("GET /bookings/42/details"), requests.filterNot { it == "GET /me" })
     }
     @Test fun completedHistoryRemovesPreviousOfflinePassport() { open(); verifyRemoved() }
     @Test fun cancelledHistoryRemovesPreviousOfflinePassport() { status="cancelled"; open(); verifyRemoved() }

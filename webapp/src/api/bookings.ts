@@ -5,7 +5,9 @@
 //  подтверждения), следит за live-статусом, показывает код посадки,
 //  оценивает завершённую поездку. Квитанция — GET /trips/{id}/receipt.
 // ================================================================
-import { apiGet, apiPost } from "./client";
+import { apiGet, apiPost, getAccountSession, isAccountSession } from "./client";
+import { observeTripPass, observeTripPassList, readTripPassRevision, readTripPassRevisions, saveTripPassCode, saveTripPassPayment } from "../utils/offlineTripPass";
+import type { TripPassOwner } from "../utils/tripPass";
 import { driverStep, emitDriverAction } from "../utils/driverActions";
 
 export type BookingStatus =
@@ -37,6 +39,7 @@ export interface CreateBookingInput {
   minor_passenger?: boolean;
   minor_guardian_name?: string;
   minor_guardian_phone?: string;
+  traveler_name?: string;
   /** «Хочу переднее место». Одно на поездку — гонку двух нажатий разводит сервер (409). */
   front_seat?: boolean;
   /** RS-02 Б: цена ЗА МЕСТО на своём участке, которую видел клиент; несовпадение → 409 price_changed. */
@@ -107,6 +110,9 @@ export interface BookingDetails extends BoardingUndoTerms {
   passenger_phone?: string;
   /** Имя пассажира для шапки чата водителя (как в приложении). Старый сервер — нет. */
   passenger_name?: string;
+  traveler_name?: string | null;
+  traveler_name_remaining_ms?: number | null;
+  travelerNameDeadline?: number;
   /** Водитель отклонил неподтверждённую бронь (сервер решает сам) — «Водитель отклонил бронь». */
   declined?: boolean;
   driver_car: string;
@@ -137,6 +143,7 @@ export interface BookingDetails extends BoardingUndoTerms {
    * (по ним родные и полиция ищут машину), телефона водителя нет. Старый сервер — поля нет.
    */
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
   /**
    * RS-03 А: точное место встречи/высадки брони. Пассажир видит своё; водитель — только при
    * confirmed/onboard (и теряет сразу после done/cancelled, даже в окне связи). Иначе null/"".
@@ -204,6 +211,7 @@ export interface TripState extends BoardingUndoTerms {
   problem_report_sec?: number;
   /** Отменили, когда пассажир был в машине (23.10.2026): экран не прячет помощь — SOS, «Застряли», разбор. */
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
@@ -249,34 +257,94 @@ export interface MyBooking {
   driver_verified: boolean;
   /** Отменили, когда пассажир был в машине (23.10.2026). Старый сервер — поля нет. */
   cancelled_in_transit?: boolean;
+  cancelled_in_transit_at?: string | null;
+  onboard_at?: string | null;
   /** Водитель отклонил неподтверждённую бронь — «Отклонена», не «Отменена» (приёмка PR210). Старый сервер — поля нет. */
 
 }
 
-export function createBooking(body: CreateBookingInput, signal?: AbortSignal): Promise<BookingRow> {
-  return apiPost<BookingRow>("/bookings", body, { signal });
+function requireCurrentBookingSession(owner: TripPassOwner | null, signal?: AbortSignal): void {
+  if (signal?.aborted || (owner && !isAccountSession(owner))) {
+    throw new DOMException("Booking request superseded", "AbortError");
+  }
 }
 
-export function fetchBookingDetails(
+function setTravelerNameDeadline(value: {
+  traveler_name?: string | null; traveler_name_remaining_ms?: number | null; travelerNameDeadline?: number;
+}, started: number): void {
+  const remaining = value.traveler_name_remaining_ms;
+  if (!value.traveler_name) return;
+  if (typeof remaining !== "number" || !Number.isFinite(remaining) || remaining <= 0 || remaining > 30_000) {
+    value.traveler_name = null;
+    return;
+  }
+  value.travelerNameDeadline = started + remaining;
+  if (value.travelerNameDeadline <= performance.now()) value.traveler_name = null;
+}
+
+export async function fetchBookingDetails(
   id: number,
-  signal?: AbortSignal
+  signal?: AbortSignal,
+  saveOffline = false,
 ): Promise<BookingDetails> {
-  return apiGet<BookingDetails>(`/bookings/${id}/details`, { signal });
+  const owner = getAccountSession();
+  const revision = await readTripPassRevision(owner, id);
+  const started = performance.now();
+  const details = await apiGet<BookingDetails>(`/bookings/${id}/details`, { signal, cache: "no-store", _generation: owner?.generation });
+  setTravelerNameDeadline(details, started);
+  if (details.booking_id === id && (details.role === "driver" || details.role === "passenger")) {
+    const snapshot = saveOffline && details.contact_unlocked &&
+      (details.status === "confirmed" || details.status === "onboard")
+      ? {
+          bookingId: id,
+          rideId: details.ride_id,
+          fromCity: details.from_city,
+          toCity: details.to_city,
+          departAt: details.depart_at,
+          driverName: details.driver_name,
+          driverCar: details.driver_car,
+          driverPlate: details.driver_plate ?? "",
+          driverPhone: details.driver_phone,
+          pickup: details.pickup,
+          pickupStop: details.pickup_stop,
+          dropoffStop: details.dropoff_stop,
+          rideHasStops: details.ride_has_stops,
+          price: details.pay_amount ?? details.price,
+          payMethod: details.pay_method,
+          seats: details.seats,
+        }
+      : undefined;
+    await observeTripPass(owner, id, details, revision, snapshot, signal);
+  }
+  requireCurrentBookingSession(owner, signal);
+  return details;
 }
 
-export function fetchTripState(id: number, signal?: AbortSignal): Promise<TripState> {
-  return apiGet<TripState>(`/bookings/${id}/role`, { signal });
+export async function fetchTripState(id: number, signal?: AbortSignal): Promise<TripState> {
+  const owner = getAccountSession();
+  const revision = await readTripPassRevision(owner, id);
+  const state = await apiGet<TripState>(`/bookings/${id}/role`, { signal, _generation: owner?.generation });
+  if (state.role === "driver" || state.role === "passenger") await observeTripPass(owner, id, state, revision, undefined, signal);
+  requireCurrentBookingSession(owner, signal);
+  return state;
 }
 
-export function fetchBoardingCode(
-  id: number,
-  signal?: AbortSignal
-): Promise<{ code: string }> {
-  return apiGet<{ code: string }>(`/bookings/${id}/boarding-code`, { signal });
+export async function fetchBoardingCode(id: number, signal?: AbortSignal): Promise<{ code: string }> {
+  const owner = getAccountSession();
+  const revision = await readTripPassRevision(owner, id);
+  const result = await apiGet<{ code: string }>(`/bookings/${id}/boarding-code`, { signal, _generation: owner?.generation });
+  await saveTripPassCode(owner, id, revision, result.code, signal);
+  requireCurrentBookingSession(owner, signal);
+  return result;
 }
 
-export function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]> {
-  return apiGet<MyBooking[]>("/bookings/mine", { signal });
+export async function fetchMyBookings(signal?: AbortSignal): Promise<MyBooking[]> {
+  const owner = getAccountSession();
+  const revisions = await readTripPassRevisions(owner);
+  const rows = await apiGet<MyBooking[]>("/bookings/mine", { signal, _generation: owner?.generation });
+  await observeTripPassList(owner, rows.map(row => ({ ...row, role: "passenger" })), signal, revisions);
+  requireCurrentBookingSession(owner, signal);
+  return rows;
 }
 
 /**
@@ -293,23 +361,18 @@ export const CANCEL_REASONS = [
 
 export type CancelReason = (typeof CANCEL_REASONS)[number]["code"] | "";
 
-/**
- * Отменить бронь — POST /bookings/{id}/cancel {reason}. Как Android ApiClient.cancelBooking:
- * тело уходит всегда, причина — код из CANCEL_REASONS или пусто. Ответ — строка брони: если
- * статус в ней не `cancelled`, сервер отменять отказался (поездку уже завершили, пока окно было
- * открыто), и говорить «отменено» нельзя.
- */
-export function cancelBooking(id: number, reason: CancelReason = ""): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/cancel`, { reason });
-}
-
 /** Зафиксировать договорённость об оплате (способ/сумма). */
-export function setPayAgreement(
+export async function setPayAgreement(
   id: number,
   pay_method?: PayMethod | null,
   pay_amount?: number | null
 ): Promise<{ ok: boolean; pay_method: PayMethod; pay_amount?: number | null }> {
-  return apiPost(`/bookings/${id}/pay-agreement`, { pay_method, pay_amount });
+  const owner = getAccountSession();
+  const revision = await readTripPassRevision(owner, id);
+  const result = await apiPost<{ ok: boolean; pay_method: PayMethod; pay_amount?: number | null }>(
+    `/bookings/${id}/pay-agreement`, { pay_method, pay_amount }, { _generation: owner?.generation });
+  await saveTripPassPayment(owner, id, revision, result.pay_method, result.pay_amount);
+  return result;
 }
 
 /** Оценить вторую сторону (только завершённую поездку). 409 — ещё не done. */
@@ -401,6 +464,9 @@ export interface DriverBookingRow extends BoardingUndoTerms {
   /** Вторая сторона для «Сообщить о проблеме» (разбор по брони «в пути»). Старый сервер — нет. */
   passenger_id?: number;
   passenger_name: string;
+  traveler_name?: string | null;
+  traveler_name_remaining_ms?: number | null;
+  travelerNameDeadline?: number;
   passenger_rating: number | null;
   route: string;
   status: BookingStatus | string;
@@ -462,8 +528,17 @@ export interface DriverBookingRow extends BoardingUndoTerms {
 /** Старое имя типа из ветки main — чтобы не переписывать импорты кабинета. */
 export type DriverBooking = DriverBookingRow;
 
-export function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
-  return apiGet<DriverBookingRow[]>("/driver/bookings", { signal });
+export async function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
+  const owner = getAccountSession();
+  const revisions = await readTripPassRevisions(owner);
+  const started = performance.now();
+  const rows = await apiGet<DriverBookingRow[]>("/driver/bookings", { signal, cache: "no-store", _generation: owner?.generation });
+  rows.forEach(row => setTravelerNameDeadline(row, started));
+  const relevant = rows.flatMap(row => row.status === "done" || row.status === "cancelled" || row.status === "onboard"
+    ? [{ id: row.booking_id, status: row.status as "done" | "cancelled" | "onboard", onboard_at: row.onboard_at }] : []);
+  await observeTripPassList(owner, relevant, signal, revisions);
+  requireCurrentBookingSession(owner, signal);
+  return rows;
 }
 
 // ---------- RS-03 Б: смена точного места (CAS по версии; 409 meeting_point_stale — перечитать) ----------
@@ -498,20 +573,6 @@ export function withdrawMeetingPoint(
 }
 
 /**
- * Водитель подтверждает бронь — POST /bookings/{id}/confirm.
- *
- * Ручка была с самого начала, а в вебе её не вызывал никто: бронь приходила, пассажир ждал,
- * а подтвердить её с сайта было нечем. Для пассажира это выглядело как молчание водителя,
- * для водителя — как будто броней нет.
- *
- * После подтверждения пассажиру открываются телефон и точка сбора, и уходит уведомление.
- * Идемпотентно: повторный тап ничего не ломает.
- */
-export function confirmBooking(id: number): Promise<BookingRow> {
-  return apiPost<BookingRow>(`/bookings/${id}/confirm`);
-}
-
-/**
  * «Пассажир не вышел» — бронь отменяется, места возвращаются в поездку.
  *
  * Отдельно от обычной отмены намеренно: это сигнал доверия «между своими», и водитель
@@ -523,7 +584,12 @@ export function confirmBooking(id: number): Promise<BookingRow> {
  * «Точно?» перед отправкой. Поездка с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`.
  */
 export function markNoShow(id: number): Promise<BookingRow> {
-  return driverStep(id, true, () => apiPost<BookingRow>(`/bookings/${id}/no-show`));
+  const owner = getAccountSession();
+  return driverStep(id, true, async () => {
+    const result = await apiPost<BookingRow>(`/bookings/${id}/no-show`, undefined, { _generation: owner?.generation });
+    if (result.id === id) await observeTripPass(owner, id, result, undefined);
+    return result;
+  });
 }
 
 /** Ответ на «Подъезжаю»: фаза и новый срок «Не вышел» (те же поля, что в строке `/driver/bookings`). */
@@ -560,7 +626,13 @@ export interface BoardingResult extends BoardingUndoTerms {
  * раньше чем за 30 минут до выезда; повтор — тот же ответ. Та же ручка, что «Выехал/Подъезжаю».
  */
 export function markBoarded(id: number): Promise<BoardingResult> {
-  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" }).then((result) => { emitDriverAction(id, false); return result; });
+  const owner = getAccountSession();
+  return apiPost<BoardingResult>(`/bookings/${id}/driver-status`, { status: "boarded" }, { _generation: owner?.generation })
+    .then(async result => {
+      await observeTripPass(owner, id, result, undefined);
+      emitDriverAction(id, false);
+      return result;
+    });
 }
 
 /** «Отменить» свою отметку «Сел» — промахнулся карточкой. Только в первые 5 минут (409 позже). */
@@ -569,8 +641,12 @@ export function undoBoarded(id: number): Promise<BoardingResult> {
 }
 
 /** Пассажир отвечает на текущий запрос исправления посадки в той же сессии. */
-export function respondBoardingUndo(id: number, requestId: string, confirm: boolean, generation: string): Promise<BoardingResult> {
-  return apiPost<BoardingResult>(`/bookings/${id}/boarded/undo/respond`, { request_id: requestId, confirm }, { _generation: generation });
+export async function respondBoardingUndo(id: number, requestId: string, confirm: boolean, generation: string): Promise<BoardingResult> {
+  const owner = getAccountSession();
+  const revision = await readTripPassRevision(owner, id);
+  const result = await apiPost<BoardingResult>(`/bookings/${id}/boarded/undo/respond`, { request_id: requestId, confirm }, { _generation: generation });
+  if (owner?.generation === generation) await observeTripPass(owner, id, result, revision);
+  return result;
 }
 
 /**

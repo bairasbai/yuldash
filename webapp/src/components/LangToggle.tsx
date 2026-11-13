@@ -4,9 +4,8 @@ import { track } from "../analytics";
 /** Переключатель RU/BA. Живёт в шапке (белый текст на зелёном градиенте). */
 export default function LangToggle() {
   const { lang, setLang } = useLang();
-  const choose = (l: "ru" | "ba") => {
-    if (l !== lang) track("lang_switch", { to: l });
-    setLang(l);
+  const choose = async (l: "ru" | "ba") => {
+    if (l !== lang && await setLang(l)) track("lang_switch", { to: l });
   };
   return (
     <div className="lang-toggle" role="group" aria-label="Язык / Тел">
@@ -14,7 +13,7 @@ export default function LangToggle() {
         type="button"
         data-active={lang === "ru"}
         aria-pressed={lang === "ru"}
-        onClick={() => choose("ru")}
+        onClick={() => void choose("ru")}
       >
         RU
       </button>
@@ -22,7 +21,7 @@ export default function LangToggle() {
         type="button"
         data-active={lang === "ba"}
         aria-pressed={lang === "ba"}
-        onClick={() => choose("ba")}
+        onClick={() => void choose("ba")}
       >
         БА
       </button>

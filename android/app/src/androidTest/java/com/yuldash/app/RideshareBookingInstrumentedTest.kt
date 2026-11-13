@@ -2,10 +2,17 @@ package com.yuldash.app
 
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performTextInput
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.ui.theme.YuldashTheme
@@ -42,7 +49,7 @@ class RideshareBookingInstrumentedTest {
         var called = false
         var method = ""
         var amount: Int? = null
-        render(onConfirm = { pickedMethod, pickedAmount, _, _, _ ->
+        render(onConfirm = { pickedMethod, pickedAmount, _, _, _, _ ->
             called = true
             method = pickedMethod
             amount = pickedAmount
@@ -64,9 +71,39 @@ class RideshareBookingInstrumentedTest {
         composeRule.onNodeWithText("Урынды бронләү").assertIsDisplayed()
     }
 
+    @Test fun travelerChoiceWorksInRussianLight() = verifyTravelerChoice(AppLanguage.Ru, false)
+    @Test fun travelerChoiceWorksInRussianDark() = verifyTravelerChoice(AppLanguage.Ru, true)
+    @Test fun travelerChoiceWorksInBashkirLight() = verifyTravelerChoice(AppLanguage.Ba, false)
+    @Test fun travelerChoiceWorksInBashkirDark() = verifyTravelerChoice(AppLanguage.Ba, true)
+
+    private fun verifyTravelerChoice(language: AppLanguage, dark: Boolean) {
+        val title = if (language == AppLanguage.Ru) "Еду не я" else "Мин бармайым"
+        val field = if (language == AppLanguage.Ru) "Имя пассажира" else "Юлсының исеме"
+        composeRule.setContent {
+            var checked by remember { mutableStateOf(false) }
+            var name by remember { mutableStateOf("") }
+            YuldashTheme(darkTheme = dark) {
+                CompositionLocalProvider(LocalAppLanguage provides language) {
+                    BookingTravelerChoice(checked, name, womenOnly = false, guest = false, enabled = true,
+                        onChecked = {
+                            checked = it
+                            if (!it) name = ""
+                        }, onName = { name = it })
+                }
+            }
+        }
+        composeRule.onNodeWithText(title).assertIsDisplayed()
+        val choice = composeRule.onNode(isToggleable())
+        choice.assertIsEnabled().performClick()
+        composeRule.onNodeWithText(field).assertIsDisplayed().performTextInput("Айгөл")
+        composeRule.onNodeWithText("Айгөл").assertIsDisplayed()
+        choice.performClick()
+        composeRule.onNodeWithText("Айгөл").assertDoesNotExist()
+    }
+
     private fun render(
         language: AppLanguage = AppLanguage.Ru,
-        onConfirm: (String, Int?, Boolean, String, String) -> Unit = { _, _, _, _, _ -> },
+        onConfirm: (String, Int?, Boolean, String, String, String?) -> Unit = { _, _, _, _, _, _ -> },
     ) {
         composeRule.setContent {
             YuldashTheme {

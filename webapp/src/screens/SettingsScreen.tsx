@@ -1,6 +1,6 @@
 // ================================================================
 //  Настройки → /settings (RequireAuth). Управление приложением:
-//   • Язык РУС/БАШ — переиспользует механизм useLang (localStorage);
+//   • Язык РУС/БАШ — переиспользует механизм useLang;
 //   • Тема светлая/тёмная/системная — точка правды src/theme.ts;
 //   • Размер текста — точка правды src/fontScale.ts (тот же хук, без дублей);
 //   • Уведомления / звуки — локальные флаги (src/uiPrefs.ts);
@@ -18,7 +18,9 @@ import { useFontScale, type FontScale } from "../fontScale";
 import { getUiPref, setUiPref, type UiPrefKey } from "../uiPrefs";
 import PushToggle from "../components/PushToggle";
 import { deleteAccount } from "../api/auth";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration, getToken } from "../api/client";
+import { bookingCommandOwner, purgeBookingCommands } from "../utils/bookingCommandStore";
+import { reportStorageFailure } from "../utils/storageHealth";
 import { SettingsGroup, SettingsNavRow, SettingSwitchRow } from "../components/cabinetUi";
 import {
   IconBell,
@@ -47,6 +49,8 @@ export default function SettingsScreen() {
   const navigate = useNavigate();
 
   const [theme, setThemeMode] = useTheme();
+  const [themeSaving, setThemeSaving] = useState(false);
+  const [themeSaveError, setThemeSaveError] = useState(false);
   const [scale, setScale] = useFontScale();
 
   // Локальные тумблеры (уведомления/звуки) — из localStorage.
@@ -62,6 +66,20 @@ export default function SettingsScreen() {
   const [delError, setDelError] = useState<string | null>(null);
   const [picker, setPicker] = useState<"theme" | "size" | null>(null); // ThemePickerDialog / FontScaleDialog
   const [logoutAsk, setLogoutAsk] = useState(false);
+
+  const saveTheme = async (mode: ThemeMode) => {
+    if (themeSaving) return;
+    setThemeSaving(true);
+    setThemeSaveError(false);
+    try {
+      await setThemeMode(mode);
+      setPicker(open => open === "theme" ? null : open);
+    } catch {
+      setThemeSaveError(true);
+    } finally {
+      setThemeSaving(false);
+    }
+  };
 
   const themes: { key: ThemeMode; icon: JSX.Element; label: string }[] = [
     { key: "system", icon: <IconSettings size={20} />, label: appText("Как в системе", "Системалағыса") },
@@ -121,14 +139,26 @@ export default function SettingsScreen() {
   ];
 
   async function confirmDelete() {
+    const generation = getSessionGeneration();
+    if (!user) return;
+    const owner = bookingCommandOwner(user, generation);
     setDel("deleting");
     setDelError(null);
     try {
-      await deleteAccount();
+      const confirmation = await deleteAccount({ userId: user.id, generation });
+      if (confirmation?.ok !== true) throw new Error("Account deletion was not confirmed");
       // Аккаунт удалён на сервере → чистим локальную сессию и уводим на старт.
-      await logout();
-      navigate("/splash", { replace: true });
+      const stillOnDeletedAccount = generation === getSessionGeneration();
+      if (stillOnDeletedAccount) await logout();
+      const loggedOutGeneration = getSessionGeneration();
+      if (owner) await purgeBookingCommands(owner).catch(() => {
+        if (loggedOutGeneration === getSessionGeneration() && !getToken()) reportStorageFailure();
+      });
+      if (stillOnDeletedAccount && loggedOutGeneration === getSessionGeneration() && !getToken()) {
+        navigate("/splash", { replace: true });
+      }
     } catch (e) {
+      if (generation !== getSessionGeneration()) return;
       const notReady = e instanceof ApiError && (e.status === 404 || e.status === 405);
       // 409 — сервер объяснил, что закрыть до удаления и когда можно (комиссия, живая поездка, отмена в
       // пути — решение 24.10.2026). Его текст уже на языке человека; «проверь связь» тут неправда.
@@ -173,23 +203,29 @@ export default function SettingsScreen() {
           icon={<IconGlobe size={24} />}
           title={appText("Язык", "Тел")}
           subtitle={lang === "ba" ? "Башҡортса" : "Русский"}
-          onClick={() => setLang(lang === "ba" ? "ru" : "ba")}
+          onClick={() => void setLang(lang === "ba" ? "ru" : "ba")}
         />
         <SettingsNavRow
           icon={<IconMap size={24} />}
           title={appText("Тема", "Тема")}
           subtitle={themeLabel}
-          onClick={() => setPicker(picker === "theme" ? null : "theme")}
+          onClick={() => {
+            setThemeSaveError(false);
+            setPicker(picker === "theme" ? null : "theme");
+          }}
         />
         {picker === "theme" && (
           <div className="settings-group__body">
+            {themeSaving && <p role="status">{appText("Сохраняем тему…", "Теманы һаҡлайбыҙ…")}</p>}
+            {themeSaveError && <p role="alert">{appText("Не получилось сохранить тему. Попробуй ещё раз.", "Теманы һаҡлап булманы. Ҡабатлап ҡара.")}</p>}
             <div className="seg">
               {themes.map((th) => (
                 <button
                   key={th.key}
                   type="button"
                   className={"seg__item" + (theme === th.key ? " is-active" : "")}
-                  onClick={() => { setThemeMode(th.key); setPicker(null); }}
+                  onClick={() => void saveTheme(th.key)}
+                  disabled={themeSaving}
                   aria-pressed={theme === th.key}
                 >
                   <span aria-hidden>{th.icon}</span>

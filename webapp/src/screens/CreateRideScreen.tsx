@@ -1,16 +1,22 @@
 // ================================================================
-//  Публикация поездки водителем (POST /rides). RequireAuth.
+//  Публикация поездки водителем (POST /rides/commands/v1). RequireAuth.
 //  Маршрут (откуда/куда, тип — в т.ч. «В больницу» с выбором клиники),
 //  дата/время, места, цена, удобства (тумблеры), регулярность.
 //  Тип «В больницу» → GET /medical-partners (выбор клиники-назначения).
 // ================================================================
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { getFeatures, useFeatures } from "../features";
 import ComingSoon from "../components/ComingSoon";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
-import { publishRide, fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
+import { fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
+import { useAuth } from "../auth/AuthProvider";
+import { checkRidePublication, publicationDraftHash, PublicationProblem, publishRide } from "../api/ridePublication";
+import {
+  bookingCommandOwner, isCurrentBookingOwner, releaseRidePublication, type BookingCommandOwner,
+} from "../utils/bookingCommandStore";
+import { useSavedPublication } from "../utils/useSavedPublication";
 import { track } from "../analytics";
 import { fetchMedicalPartners, type MedicalPartner } from "../api/medical";
 import type { RideCategory } from "../api/rides";
@@ -24,7 +30,7 @@ import StopSuggestField, { MAX_RIDE_STOPS, resolveRideStops, RideStopError, ride
 import PickupChips from "../components/PickupChips";
 import { priceLabel, rubLabel } from "../utils/format";
 import { legPriceAmounts, splitPriceByLegs } from "../utils/pickupStops";
-import { useDraftSync, clearDraft } from "../utils/formDraft";
+import { useDraftSync, clearDraft, readDraft } from "../utils/formDraft";
 import { minDateTimeNow } from "../utils/dateInput";
 import { SEATS_DEFAULT, clampSeats, seatCap } from "../utils/seatOptions";
 import { SeatOptionsFields } from "../components/SeatOptions";
@@ -51,6 +57,15 @@ export default function CreateRideScreen() {
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const features = useFeatures();
+  const { status, user } = useAuth();
+  const userId = user?.id;
+  const accountCreated = user?.created_at;
+  const generation = getSessionGeneration();
+  const owner = useMemo(() => status === "authed" && userId
+    ? bookingCommandOwner({ id: userId, created_at: accountCreated }, generation) : null,
+    [status, userId, accountCreated, generation]);
+  const operation = useRef<AbortController | null>(null);
+  const { publication, setSavedPublication, reloadPublication } = useSavedPublication(owner, operation);
 
   const [from, setFrom] = useState("");
   const [to, setTo] = useState("");
@@ -130,13 +145,17 @@ export default function CreateRideScreen() {
   const [busy, setBusy] = useState(false);
   const submitting = useRef(false);
   const [error, setError] = useState<string | null>(null);
+  const [publicationStale, setPublicationStale] = useState(false);
 
   // Форма длинная: маршрут, время, цена, удобства, комментарий. Отвлёкся на звонок,
   // айфон выгрузил вкладку — и всё заново. Черновик держит заполненное до публикации.
+  const draft = { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup, pickupPointId,
+    receiverName, parcelSize, waypoints, partnerId, backMaxTwo, frontSeatAvailable, stopPricesOn, stopPriceValues };
+  const draftSnapshot = JSON.stringify(draft);
+  const latestDraft = useRef(draftSnapshot);
+  latestDraft.current = draftSnapshot;
   useDraftSync(
-    RIDE_DRAFT,
-    { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup,
-      receiverName, parcelSize, waypoints, backMaxTwo, frontSeatAvailable, stopPricesOn, stopPriceValues },
+    RIDE_DRAFT, draft,
     (d) => {
       if (d.from) setFrom(d.from);
       if (d.to) setTo(d.to);
@@ -144,6 +163,7 @@ export default function CreateRideScreen() {
       if (d.seats) setSeats(d.seats);
       if (d.price) setPrice(d.price);
       if (d.category) setCategory(d.category);
+      if (typeof d.partnerId === "number") setPartnerId(d.partnerId);
       if (d.receiverName) setReceiverName(String(d.receiverName));
       if (d.parcelSize) setParcelSize(String(d.parcelSize));
       if (Array.isArray(d.waypoints)) setWaypoints(d.waypoints.map(String));
@@ -152,6 +172,7 @@ export default function CreateRideScreen() {
       if (d.recurrence) setRecurrence(d.recurrence);
       if (d.comment) setComment(d.comment);
       if (d.pickup) setPickup(d.pickup);
+      if (typeof d.pickupPointId === "number") setPickupPointId(d.pickupPointId);
       if (typeof d.backMaxTwo === "boolean") setBackMaxTwo(d.backMaxTwo);
       if (typeof d.frontSeatAvailable === "boolean") setFrontSeatAvailable(d.frontSeatAvailable);
       // RS-02 Б: вписанные цены остановок тоже переживают выгрузку вкладки.
@@ -159,8 +180,8 @@ export default function CreateRideScreen() {
       if (Array.isArray(d.stopPriceValues)) setStopPriceValues(d.stopPriceValues.map(String));
     }
   );
-  const [done, setDone] = useState(false);
-  const [createdId, setCreatedId] = useState<number | null>(null);
+  const [completed, setDone] = useState<{ owner: BookingCommandOwner; id: number; recurrence: Recur }>();
+  const done = completed?.owner === owner ? completed : undefined;
 
   useEffect(() => {
     if (category !== "hospital" || clinicsLoaded) return;
@@ -207,21 +228,47 @@ export default function CreateRideScreen() {
   ];
 
   const canSubmit =
-    from.trim().length > 0 && to.trim().length > 0 && when.length > 0 && !busy;
+    from.trim().length > 0 && to.trim().length > 0 && when.length > 0 && !busy &&
+    !!publication && !publication.storageUnavailable && !publicationStale;
+  const command = publication?.command;
+  const result = publication?.result;
+  const knownState = result && result.state !== "unseen" ? result.state : command?.state;
+  const terminal = knownState === "applied" || knownState === "rejected" || knownState === "closed_no_effect";
+  const canReplay = command?.state === "unknown" && (!result || result.state === "unseen");
+  const confirmedDraftHash = knownState === "applied" ? command?.draftHash : undefined;
+
+  useEffect(() => {
+    if (!owner || !confirmedDraftHash) return;
+    const saved = readDraft(RIDE_DRAFT);
+    if (!saved) return;
+    const serialized = JSON.stringify(saved);
+    let active = true;
+    void publicationDraftHash(saved).then(hash => {
+      if (active && hash === confirmedDraftHash && isCurrentBookingOwner(owner) &&
+          JSON.stringify(readDraft(RIDE_DRAFT)) === serialized) clearDraft(RIDE_DRAFT);
+    }).catch(() => {});
+    return () => { active = false; };
+  }, [owner, confirmedDraftHash]);
 
   async function submit() {
-    if (submitting.current || !canSubmit || ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
+    if (!owner || !publication || (command && !canReplay) || submitting.current || !canSubmit ||
+        ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
+    const request = new AbortController();
+    operation.current = request;
     submitting.current = true;
-    const owner = getSessionGeneration();
     setBusy(true);
     setError(null);
     try {
-    const selectedStops = await resolveRideStops(waypoints, from.trim(), to.trim(), lang === "ba");
-    if (getSessionGeneration() !== owner || ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
+    const stopLanguage = command?.stopLanguage ?? (lang === "ba" ? "ba" : "ru");
+    const wallTime = Date.parse(when + "Z");
+    const utcOffsetMinutes = command?.utcOffsetMinutes ?? (new Date(when).getTime() - wallTime) / 60_000;
+    const selectedStops = await resolveRideStops(waypoints, from.trim(), to.trim(), stopLanguage === "ba");
+    if (request.signal.aborted || !isCurrentBookingOwner(owner) ||
+        ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     const body: RideCreateInput = {
       from_city: from.trim(),
       to_city: to.trim(),
-      depart_at: new Date(when).toISOString(),
+      depart_at: new Date(wallTime + utcOffsetMinutes * 60_000).toISOString(),
       seats_total: clampSeats(seats, backMaxTwo, frontSeatAvailable),
       back_max_two: backMaxTwo,
       front_seat_available: frontSeatAvailable,
@@ -261,22 +308,144 @@ export default function CreateRideScreen() {
       }
       body.stop_prices = nums;
     }
-      const ride = await publishRide(body);
+      const draftHash = await publicationDraftHash(draft);
+      if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
+      const saved = await publishRide(body, owner, request.signal, {
+        draftHash, revision: publication.revision, stopLanguage, utcOffsetMinutes, retry: command,
+      });
+      if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
+      setSavedPublication({ owner, revision: saved.command.key, ...saved });
+      if (saved.result.state !== "applied" || saved.result.ride?.status !== "active") return;
+      const storedDraft = readDraft<typeof draft>(RIDE_DRAFT);
+      if (draftHash === saved.command.draftHash && latestDraft.current === draftSnapshot &&
+          (!storedDraft || JSON.stringify(storedDraft) === draftSnapshot)) {
+        clearDraft(RIDE_DRAFT);
+      }
       track("publish_ride", { category });
-      setCreatedId(ride.id);
-      setDone(true);
-      clearDraft(RIDE_DRAFT); // опубликовано — черновик больше не нужен
+      setDone({ owner, id: saved.result.ride.id, recurrence });
     } catch (e) {
+      if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
+      if (e instanceof PublicationProblem) {
+        if (e.kind === "stale") { setPublicationStale(true); return; }
+        if (e.command) setSavedPublication({ owner, revision: e.command.key, command: e.command });
+        else if (e.kind === "unknown") reloadPublication();
+        const messages = {
+          changed: appText("Поля изменились. Сначала проверь прошлую публикацию.", "Яландар үҙгәрҙе. Тәүҙә алдағы баҫтырыуҙы тикшер."),
+          expired: appText("Время повтора вышло. Проверь прошлую публикацию.", "Ҡабатлау ваҡыты үтте. Алдағы баҫтырыуҙы тикшер."),
+          storage: appText("Не получилось сохранить запрос. Попробуй снова.", "Һорауҙы һаҡлап булманы. Тағы ҡабатлап ҡара."),
+          unknown: appText("Ответ не пришёл. Проверь, появилась ли поездка.", "Яуап килмәне. Сәфәр барлыҡҡа килдеме, тикшер."),
+        };
+        setError(e.original?.message || messages[e.kind]);
+        return;
+      }
       setError(
         e instanceof RideStopError ? rideStopErrorMessage(e.problem, appText) : e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось опубликовать. Попробуй снова.", "Баҫтырырға булманы. Ҡабат ҡара.") // DRAFT
       );
     } finally {
-      submitting.current = false;
-      setBusy(false);
+      if (operation.current === request) {
+        submitting.current = false;
+        setBusy(false);
+      }
     }
   }
+
+  async function recover(mode: "check" | "close" | "release") {
+    if (!owner || !command || submitting.current) return;
+    const request = new AbortController();
+    operation.current = request;
+    submitting.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      if (mode === "release") {
+        const matchesForm = knownState === "applied" && await publicationDraftHash(draft) === command.draftHash;
+        if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
+        const released = await releaseRidePublication(owner, command);
+        if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+          if (!released) { setPublicationStale(true); return; }
+          if (matchesForm && latestDraft.current === draftSnapshot) {
+            const stored = readDraft(RIDE_DRAFT);
+            if (JSON.stringify(stored) === draftSnapshot) clearDraft(RIDE_DRAFT);
+            navigate("/create-ride", { replace: true });
+          } else reloadPublication();
+        }
+      } else {
+        const checked = await checkRidePublication(owner, command, mode === "close", request.signal);
+        if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+          setSavedPublication({ owner, revision: command.key, command, result: checked });
+        }
+      }
+    } catch (failure) {
+      if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+        if (failure instanceof PublicationProblem && failure.kind === "stale") { setPublicationStale(true); return; }
+        setError(appText("Не удалось проверить публикацию. Повтори, когда появится сеть.",
+          "Баҫтырыуҙы тикшереп булманы. Бәйләнеш ҡайтҡас, ҡабатлап ҡара."));
+      }
+    } finally {
+      if (operation.current === request) {
+        submitting.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  const recoveredRide = result?.state === "applied" ? result.ride : null;
+  const recoveryPanel = publicationStale ? (
+    <div className="state">
+      <p role="status">{appText("Публикация изменилась в другой вкладке.", "Баҫтырыу башҡа ҡушымтала үҙгәрҙе.")}</p>
+      <button type="button" className="btn-soft" onClick={() => navigate("/create-ride", { replace: true })}>
+        {appText("Открыть свежий черновик", "Яңыртылған ҡараламаны асырға")}
+      </button>
+    </div>
+  ) : owner && !publication ? (
+    <p role="status">{appText("Проверяем прошлые публикации…", "Алдағы баҫтырыуҙарҙы тикшерәбеҙ…")}</p>
+  ) : status === "authed" && !owner ? (
+    <p role="status">{appText("Для публикации войди в аккаунт заново.", "Баҫтырыр өсөн аккаунтҡа яңынан ин.")}</p>
+  ) : publication?.storageUnavailable ? (
+    <div className="state">
+      <p role="status">{appText("Не получилось открыть хранилище публикаций.", "Баҫтырылғандар һаҡлағысын асып булманы.")}</p>
+      <button type="button" className="btn-soft" onClick={reloadPublication}>
+        {appText("Повторить", "Ҡабатларға")}
+      </button>
+    </div>
+  ) : command ? (
+    <div className="state">
+      <p role="status">{result?.state === "applied"
+        ? recoveredRide?.status === "active" ? appText("Поездка уже опубликована.", "Сәфәр инде баҫтырылған.")
+          : appText("Прежняя поездка больше не активна.", "Алдағы сәфәр инде әүҙем түгел.")
+        : knownState === "applied"
+          ? appText("Публикация обработана. Подключись к сети, чтобы увидеть поездку.",
+            "Баҫтырыу эшкәртелде. Сәфәрҙе күрер өсөн бәйләнешкә тоташ.")
+        : knownState === "rejected" || knownState === "closed_no_effect"
+          ? appText("Прошлая публикация не создала поездку.", "Алдағы баҫтырыу сәфәрҙе булдырманы.")
+          : appText("Проверь, появилась ли поездка, прежде чем публиковать снова.",
+            "Яңынан баҫтырғансы, сәфәр барлыҡҡа килдеме, тикшер.")}</p>
+      {recoveredRide?.status === "active" && (
+        <button type="button" className="btn-soft" onClick={() => navigate("/driver")}>
+          {appText("В кабинет водителя", "Йөрөтөүсе кабинетына")}
+        </button>
+      )}
+      {terminal && (
+        <button type="button" className="btn-soft" disabled={busy} onClick={() => void recover("release")}>
+          {appText("Начать новую публикацию", "Яңы баҫтырыуҙы башларға")}
+        </button>
+      )}
+      {(!terminal || (knownState === "applied" && !result)) && (
+        <>
+          <button type="button" className="btn-soft" disabled={busy} onClick={() => void recover("check")}>
+            {appText("Проверить публикацию", "Баҫтырыуҙы тикшерергә")}
+          </button>
+          {canReplay && (
+            <button type="button" className="btn-ghost" disabled={busy} onClick={() => void recover("close")}>
+              {appText("Закрыть прошлый запрос", "Алдағы һорауҙы ябырға")}
+            </button>
+          )}
+        </>
+      )}
+    </div>
+  ) : null;
 
   if (done) {
     return (
@@ -290,23 +459,21 @@ export default function CreateRideScreen() {
           <h2>{appText("Готово! Пассажиры увидят поездку", "Әҙер! Юлаусылар күрер")}</h2>
           <p>
             {appText(
-              recurrence === "none"
+              done.recurrence === "none"
                 ? "Твоя поездка теперь в ленте и на карте. Придёт бронь — пришлём уведомление."
                 : "Создали серию ближайших рейсов. Все — в ленте и на карте.",
-              recurrence === "none"
+              done.recurrence === "none"
                 ? "Сәфәрең хәҙер таҫмала һәм картала. Бронь килһә — хәбәр итәбеҙ."
                 : "Яҡын рейстар серияһын төҙөнөк. Барыһы ла таҫмала һәм картала."
             )}
           </p>
-          {createdId != null && (
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() => navigate("/boost", { state: { rideId: createdId } })}
-            >
-              {appText("Поднять в ленте", "Таҫмала күтәреү")}
-            </button>
-          )}
+          <button
+            type="button"
+            className="btn-primary"
+            onClick={() => navigate("/boost", { state: { rideId: done.id } })}
+          >
+            {appText("Поднять в ленте", "Таҫмала күтәреү")}
+          </button>
           <button
             type="button"
             className="btn-ghost"
@@ -321,6 +488,7 @@ export default function CreateRideScreen() {
   }
 
   if ((category === "parcel" || category === "cargo") && !features.parcels && !busy) return <>
+    {recoveryPanel}
     <ComingSoon kind="delivery" />
     <button type="button" className="btn-soft" onClick={() => setCategory("regular")}>{appText("Обычная", "Ябай")}</button>
   </>;
@@ -334,6 +502,7 @@ export default function CreateRideScreen() {
       />
 
       <div className="form">
+        {recoveryPanel}
         {/* Подсказки из справочника: одно написание на всех. «Темясово»
             человек напишет пятью способами, и заявка не совпадёт ни с одной поездкой. */}
         <CityField
@@ -762,9 +931,11 @@ export default function CreateRideScreen() {
           type="button"
           className="btn-primary submit-btn"
           onClick={submit}
-          disabled={!canSubmit}
+          disabled={!canSubmit || (!!command && !canReplay)}
         >
-          {busy ? appText("Публикуем…", "Баҫтырабыҙ…") : appText("Опубликовать", "Баҫтырырға")}
+          {busy ? appText("Публикуем…", "Баҫтырабыҙ…")
+            : canReplay ? appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
+              : appText("Опубликовать", "Баҫтырырға")}
         </button>
       </div>
     </>

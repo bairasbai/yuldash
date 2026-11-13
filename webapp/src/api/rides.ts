@@ -1,6 +1,7 @@
 // Модель поездки — зеркало backend RideOut (app/schemas.py).
 // Оставлены поля, нужные первому экрану-ленте; остальные добавим по мере надобности.
 import { apiGet, apiPost } from "./client";
+import { cancelRide as cancelDriverRide } from "./driver";
 
 export type RideCategory =
   | "regular"
@@ -161,5 +162,5 @@ export function editRide(id: number, body: RideEditInput): Promise<Ride> {
  * уведомление. Идемпотентно: повторная отмена ничего не ломает.
  */
 export function cancelRide(id: number): Promise<Ride> {
-  return apiPost<Ride>(`/rides/${id}/cancel`);
+  return cancelDriverRide(id);
 }

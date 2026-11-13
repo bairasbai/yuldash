@@ -1,3 +1,4 @@
+import { IDBFactory } from 'fake-indexeddb';
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -143,7 +144,8 @@ await t.test("no configured bot: Telegram button is absent even if cached/server
 const apiBuild = await build({ stdin: { contents: "export * from './src/api/client';export {fetchLoginMethods,lastLoginMethods} from './src/api/auth';export {fetchRequestsFeed,fetchMatchRides} from './src/api/requests';", resolveDir: fileURLToPath(new URL("../", import.meta.url)), loader: "ts" }, bundle: true, write: false, format: "esm", platform: "node", define: { "import.meta.env": "{}" } });
 const api = await import("data:text/javascript;base64," + Buffer.from(apiBuild.outputFiles[0].text).toString("base64"));
 await t.test("public login methods omit Authorization, cache empty/known list and surface transport errors", async () => {
-  api.setSession("synthetic-access", "synthetic-refresh");
+  globalThis.indexedDB = new IDBFactory();
+  await api.setSession("synthetic-access", "synthetic-refresh");
   globalThis.fetch = async (url, init) => {
     assert.ok(String(url).endsWith("/config/login-methods")); assert.ok(!init.headers.Authorization);
     return new Response(JSON.stringify({ methods: ["unknown", "sms", "telegram", "sms"] }), { status: 200 });

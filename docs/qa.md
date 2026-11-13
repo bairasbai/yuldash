@@ -1,3 +1,7 @@
+## Локальный полный прогон в разреженной копии
+
+Перед полным `pytest tests/` в разреженной копии добавь отслеживаемые `.github`, `android`, `backend`, `docs`, `tools`, `web` и `webapp`. Сторожа читают CI, юридические тексты сайта и исходники смежных частей. Для адресных тестов достаточно их фактических файлов.
+
 ## Геометрия кнопки Compose-шторки при клавиатуре — 06.11.2026
 
 Для настоящего IME брать экранный прямоугольник системного TYPE_INPUT_METHOD. Прямоугольник собственной Compose-кнопки брать из её layoutCoordinates.localToScreen на UI-потоке; не предполагать, что текст виртуального Compose-узла обязательно повторяется отдельным узлом UIAutomation в первом окне Activity. Сохранить проверку button.bottom≤keyboard.top и реальное касание с проверкой результата. Код приложения ради отказа такого поиска не менять. Пример: IntegrationDriverFinishVisualTest.meetingPointKeepsDoneAboveKeyboard; два исходных отказа поиска сохранены в integration-20261106/native-tests и native-keyboard11, успешным результатом их не называть. Финальный native-keyboard13: OK(1test), реальное нажатие сохранило QA point; доказательство — native-meeting-keyboard.png.

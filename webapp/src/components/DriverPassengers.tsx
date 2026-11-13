@@ -45,6 +45,8 @@ import { BookingSegmentNote } from "./PickupStopChoice";
 import { beginDriverClick, finishDriverClick } from "../utils/driverActions";
 import { rideShareKeep, subscribeRideShare, takeRidingFocus } from "../utils/rideShareStore";
 import RideShareNote from "./RideShareNote";
+import { BookingTraveler } from "./BookingTraveler";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 
 /** RS-03 Б: предложение смены места от пассажира — ответ водителя.
  *  «Согласиться» применяет точку, «Оставить прежнее» — отклоняет; после ответа кабинет
@@ -196,15 +198,17 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
   const [disputeId, setDisputeId] = useState<number | null>(null);
   const [filedIds, setFiledIds] = useState<number[]>([]);
 
+  const rowsRequest = useRef(0);
   const load = useCallback((signal?: AbortSignal) => {
+    const request = ++rowsRequest.current;
     fetchDriverBookings(signal)
       .then((r) => {
-        if (signal?.aborted) return;
+        if (signal?.aborted || request !== rowsRequest.current) return;
         setRows(r);
         setBoot("ready");
       })
       .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
+        if (signal?.aborted || request !== rowsRequest.current || e?.name === "AbortError") return;
         // Нет ручки или нет поездок — блок просто не появляется. Пустая карточка
         // «пассажиров нет» в кабинете, где и поездок ещё нет, только мешает.
         setBoot("hidden");
@@ -238,6 +242,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
+  useVisibleInterval(10000, reload, rows.some(row => Boolean(row.traveler_name)));
 
   const actionSending = useRef(false);
   const pendingClick = useRef<ReturnType<typeof beginDriverClick>>(null);
@@ -332,13 +337,14 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
     <div className="list-row__main">
       <div className="repeat-route">
         <IconProfile size={18} />
-        <span>{b.passenger_name}</span>
+        {!b.traveler_name && <span>{b.passenger_name}</span>}
         {b.passenger_rating != null && (
           <span className="taxi-driver__rating">
             <IconStar size={14} /> {b.passenger_rating.toFixed(1)}
           </span>
         )}
       </div>
+      <BookingTraveler name={b.traveler_name} bookedBy={b.passenger_name} deadline={b.travelerNameDeadline} />
       <div className="list-row__sub">{b.route}</div>
       {/* RS-02 А: сколько мест и за сколько — водитель видит до подтверждения («1 место · 300 ₽»). */}
       {(b.seats ?? 0) > 0 && (

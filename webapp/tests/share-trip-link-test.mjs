@@ -27,7 +27,7 @@ const mocks = {
   "react-router-dom": `export const Link='Link',Navigate='Navigate';export const useLocation=()=>({pathname:'/trip/42'});`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>globalThis.__shareLink.ba?ba:ru});`,
   auth: `export const useAuth=()=>({status:globalThis.__shareLink.authStatus,retrySession:()=>{}});`,
-  client: `export const API_BASE='https://yulbash.ru'; export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__shareLink.ApiError=ApiError; export const getSessionGeneration=()=>globalThis.__shareLink.generation;
+  client: `export const API_BASE='https://yulbash.ru'; export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} globalThis.__shareLink.ApiError=ApiError; export const getAccountSession=()=>null,isAccountSession=()=>false;export const getSessionGeneration=()=>globalThis.__shareLink.generation;
  export const apiGet=(p)=>globalThis.__shareLink.api('GET',p); export const apiPost=(p,b)=>globalThis.__shareLink.api('POST',p,b); export const apiDelete=(p)=>globalThis.__shareLink.api('DELETE',p);`,
   outbox: `export const enqueue=async()=>{};`,
   refusal: `export const useBookingRefusal=(id,fn)=>{globalThis.__shareLink.refusal={id,fn};};`,

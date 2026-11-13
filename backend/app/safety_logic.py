@@ -226,12 +226,17 @@ def is_suspended(profile: SafetyProfile, now=None) -> bool:
     return bool(profile.suspended_until and profile.suspended_until > now)
 
 
-def account_paused(session: Session, user_id: int) -> bool:
+def account_paused(session: Session, user_id: int, *, refresh: bool = True) -> bool:
     """Активна ли сейчас пауза лестницы (§2). Не бросает — для мест, где отказ показывают
     молча (лента офферов: там правильный ответ «офферов нет», а не красная ошибка).
 
     Нет строки SafetyProfile → чистая история: отвечаем «нет» БЕЗ создания строки (проверка
     стоит на горячих путях). Ленивый пересчёт снимает истёкшую паузу сам."""
+    if not refresh:
+        # Команда с сохранённым ключом читает срок паузы внутри своей транзакции.
+        return session.exec(select(SafetyProfile.id).where(
+            SafetyProfile.user_id == user_id, SafetyProfile.suspended_until > utcnow(),
+        )).first() is not None
     has = session.exec(select(SafetyProfile.id).where(SafetyProfile.user_id == user_id)).first()
     if has is None:
         return False
@@ -294,7 +299,7 @@ def trip_really_happened(session: Session, *, booking_id=None, order_id=None,
     return False
 
 
-def ensure_active(session: Session, user_id: int) -> None:
+def ensure_active(session: Session, user_id: int, *, refresh: bool = True) -> None:
     """Гейт лестницы (§2): приостановленный аккаунт не совершает активных действий — жалобы,
     брони, публикации поездок/заявок, отклики на заявки, торг о цене, такси-заказы и предзаказы,
     доставка. Иначе «пауза 3/7/30 дней» из решения админа была бы декорацией.
@@ -303,7 +308,7 @@ def ensure_active(session: Session, user_id: int) -> None:
     обходится в два тапа. Полноту сторожит `tests/test_suspension_reaches_everywhere.py`.
     Намеренно НЕ закрываем: SOS и завершение уже начатой поездки (пауза не должна отбирать
     экстренную помощь и бросать пассажира на полдороге)."""
-    if account_paused(session, user_id):
+    if account_paused(session, user_id, refresh=refresh):
         raise herr(403,
                "Аккаунт на паузе до разбора. Загляни в Центр справедливости — там причина и срок.",
                "Аккаунт тикшереүгә тиклем паузала. Ғәҙеллек үҙәгенә ин — сәбәбе һәм ваҡыты шунда.")

@@ -112,13 +112,13 @@ export default function LoginScreen() {
         guestVerifyNonce.current = live.current.guestBookingNonce;
         return verifySmsCode(...args);
       },
-      login: async (access, refresh, user) => {
+      login: async (access, refresh, user, expectedGeneration, logoutToken) => {
         const attempt = guestAttempt.current;
-        const source = getSessionGeneration();
+        const source = expectedGeneration;
         const draft = claimGuestBookingDraft(guestVerifyNonce.current, source);
         guestVerifyNonce.current = undefined;
         guestRestoreNonce.current = undefined;
-        const publication = await live.current.login(access, refresh, user);
+        const publication = await live.current.login(access, refresh, user, expectedGeneration, logoutToken);
         const owner = typeof publication === "string" ? publication : getSessionGeneration();
         if (draft && attempt === guestAttempt.current && flow.current?.busy &&
             guestRouteActive.current.active && guestRouteActive.current.nonce === draft.nonce &&
@@ -198,7 +198,7 @@ export default function LoginScreen() {
     <button
       type="button"
       className={"login-lang__chip" + (lang === code ? " is-active" : "")}
-      onClick={() => setLang(code)}
+      onClick={() => void setLang(code)}
       aria-label={appText(`Сменить язык: ${label}`, `Телде алмаштырыу: ${label}`)}
     >
       {label}

@@ -27,7 +27,8 @@ async function openSettings(failure) {
       "/theme": `export const useTheme=()=>["system",()=>{}];`,
       "/fontScale": `export const useFontScale=()=>["normal",()=>{}];`,
       "/uiPrefs": `export const getUiPref=()=>true;export const setUiPref=()=>{};`,
-      "/api/client": `export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`,
+      "/api/client": `export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} export const getSessionGeneration=()=>"settings-session",getToken=()=>null;`,
+      "/utils/bookingCommandStore": `export const bookingCommandOwner=()=>null,purgeBookingCommands=async()=>{};`,
       "/api/auth": `import {ApiError} from "/api/client";
         export const deleteAccount=async()=>{const f=globalThis.__set.failure;
           if(!f) return {ok:true};

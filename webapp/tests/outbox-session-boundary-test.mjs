@@ -40,14 +40,14 @@ await check('late flush of A cannot overwrite B queue or send A second action as
     calls.push({ path: new URL(url).pathname, auth: init.headers.Authorization, body: JSON.parse(init.body ?? '{}') });
     return calls.length === 1 ? pending.promise : Promise.resolve(ok());
   };
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   await api.enqueue(42, 'message', 'A1');
   await api.enqueue(42, 'message', 'A2');
   const flushing = api.flushOutbox();
   await until(() => calls.length === 1);
   assert.equal(calls.length, 1);
   await api.clearOutbox();
-  api.setSession('B', 'refresh-B');
+  await api.setSession('B', 'refresh-B');
   await api.enqueue(99, 'message', 'B1');
   pending.resolve(ok());
   await flushing;
@@ -60,7 +60,7 @@ await check('enqueue during a pending flush is preserved instead of overwritten 
   const { api } = env;
   const pending = deferred();
   env.reply = () => env.calls.length === 1 ? pending.promise : Promise.resolve(ok());
-  api.setSession('A', 'refresh-A');
+  await api.setSession('A', 'refresh-A');
   await api.enqueue(42, 'message', 'A1');
   await api.enqueue(42, 'message', 'A2');
   const flushing = api.flushOutbox();
@@ -76,7 +76,7 @@ await check('enqueue during a pending flush is preserved instead of overwritten 
 
 await check('offline failure leaves every queued action available for retry', async env => {
   env.reply = async () => { throw new Error('Offline fixture'); };
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   await env.api.enqueue(42, 'message', 'A1');
   await env.api.enqueue(42, 'message', 'A2');
   assert.equal(await env.api.flushOutbox(), false);
@@ -85,7 +85,7 @@ await check('offline failure leaves every queued action available for retry', as
 });
 
 await check('ordinary successful flush sends actions in order and empties queue', async env => {
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   await env.api.enqueue(42, 'message', 'A1');
   await env.api.enqueue(42, 'message', 'A2');
   assert.equal(await env.api.flushOutbox(), true);
@@ -99,10 +99,10 @@ await check('old online listener cannot start work for the new account', async e
     addEventListener: (event, fn) => { if (event === 'online') handlers.add(fn); },
     removeEventListener: (event, fn) => { if (event === 'online') handlers.delete(fn); },
   };
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   let notifications = 0;
   const stop = env.api.watchOutbox(() => notifications++);
-  env.api.setSession('B', 'refresh-B');
+  await env.api.setSession('B', 'refresh-B');
   await env.api.enqueue(99, 'message', 'B1');
   for (const handler of handlers) handler();
   await new Promise(resolve => setImmediate(resolve));
@@ -116,12 +116,12 @@ await check('old online listener cannot start work for the new account', async e
 await check('token refresh preserves the current flush and remaining actions', async env => {
   const pending = deferred();
   env.reply = () => env.calls.length === 1 ? pending.promise : Promise.resolve(ok());
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   await env.api.enqueue(42, 'message', 'A1');
   await env.api.enqueue(42, 'message', 'A2');
   const flushing = env.api.flushOutbox();
   await until(() => env.calls.length === 1);
-  assert.equal(env.api.rotateSession('A-new', 'refresh-A-new', env.api.getSessionGeneration()), true);
+  assert.equal(await env.api.rotateSession('A-new', 'refresh-A-new', env.api.getSessionGeneration()), true);
   pending.resolve(ok());
   assert.equal(await flushing, true);
   assert.deepEqual(env.calls.map(call => [call.auth, call.body.text]), [['Bearer A', 'A1'], ['Bearer A-new', 'A2']]);
@@ -131,12 +131,12 @@ await check('token refresh preserves the current flush and remaining actions', a
 await check('new account can flush while the previous account request is still pending', async env => {
   const pending = deferred();
   env.reply = () => env.calls.length === 1 ? pending.promise : Promise.resolve(ok());
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   await env.api.enqueue(42, 'message', 'A1');
   const oldFlush = env.api.flushOutbox();
   await until(() => env.calls.length === 1);
   await env.api.clearOutbox();
-  env.api.setSession('B', 'refresh-B');
+  await env.api.setSession('B', 'refresh-B');
   await env.api.enqueue(99, 'message', 'B1');
   try {
     assert.equal(await env.api.flushOutbox(), true, 'Old pending request blocked the new account queue');
@@ -151,7 +151,7 @@ await check('new account can flush while the previous account request is still p
 await check('same account cannot send the pending action twice', async env => {
   const pending = deferred();
   env.reply = () => pending.promise;
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   await env.api.enqueue(42, 'message', 'A1');
   const first = env.api.flushOutbox();
   await until(() => env.calls.length === 1);
@@ -166,9 +166,9 @@ await check('same account cannot send the pending action twice', async env => {
 });
 
 await check('saved actions cannot be inherited by a new account without explicit cleanup', async env => {
-  env.api.setSession('A', 'refresh-A');
+  await env.api.setSession('A', 'refresh-A');
   await env.api.enqueue(42, 'message', 'private A');
-  env.api.setSession('B', 'refresh-B');
+  await env.api.setSession('B', 'refresh-B');
   assert.equal(env.api.hasPending(), false);
   assert.equal(env.api.outboxCount(42), 0);
   await env.api.flushOutbox();
@@ -179,7 +179,7 @@ await check('saved actions cannot be inherited by a new account without explicit
 });
 
 await check('legacy ownerless actions are never sent under the current token', async env => {
-  env.api.setSession('B', 'refresh-B');
+  await env.api.setSession('B', 'refresh-B');
   env.store.set('yuldash.outbox', JSON.stringify([{id:1,bookingId:42,kind:'message',payload:'owner unknown',createdAt:Date.now()}]));
   assert.equal(env.api.hasPending(), false);
   await env.api.flushOutbox();

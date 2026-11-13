@@ -39,19 +39,49 @@ data class DriverBookingDto(
     val meetingProposal: MeetingProposalDto? = null, val meetingVersion: Int = 0,
     val boardingUndo: BoardingUndoTerms = BoardingUndoTerms(),
     val noShowWaitSec: Int = 0,
+    val boardingUndoDeadlineElapsedMs: Long? = null,
+    val minorPassenger: Boolean = false,
+    val traveler: PrivateBookingTraveler? = null,
 )
 
+internal fun DriverBookingDto.observeBoardingUndo(nowElapsedMs: Long, previous: DriverBookingDto?): DriverBookingDto {
+    if (status != "onboard") return copy(boardingUndoDeadlineElapsedMs = null)
+    val deadline = nowElapsedMs + boardingUndoSec * 1_000L
+    val previousDeadline = previous?.boardingUndoDeadlineElapsedMs
+    val sameBoarding = sameBoardingTimestamp(boardingUndo.onboardAt, previous?.boardingUndo?.onboardAt)
+    return copy(boardingUndoDeadlineElapsedMs = if (sameBoarding && previousDeadline != null) minOf(deadline, previousDeadline) else deadline)
+}
+
+internal fun DriverBookingDto.boardingUndoSecondsAt(nowElapsedMs: Long): Int {
+    val deadline = boardingUndoDeadlineElapsedMs ?: return boardingUndoSec
+    return boardingUndoSecondsUntil(deadline, nowElapsedMs)
+}
+
+internal fun boardingUndoSecondsUntil(deadlineElapsedMs: Long, nowElapsedMs: Long): Int =
+    ((deadlineElapsedMs - nowElapsedMs).coerceAtLeast(0) + 999L).div(1_000L).toInt()
+
+internal fun DriverBookingDto.applyBoardingResult(result: BoardingResult, nowElapsedMs: Long): DriverBookingDto {
+    if (status !in setOf("confirmed", "onboard") || result.status !in setOf("confirmed", "onboard")) return this
+    val knownBoarding = boardingUndo.onboardAt
+    val resultBoarding = result.undo.onboardAt ?: result.undo.sourceOnboardAt
+    if (knownBoarding != null && !sameBoardingTimestamp(knownBoarding, resultBoarding)) return this
+    return copy(status = result.status, boardingUndoSec = result.undoSec, boardingUndo = result.undo)
+        .observeBoardingUndo(nowElapsedMs, previous = this)
+}
+
 /** Бронь глазами водителя. */
-internal fun parseDriverBookingDto(o: JSONObject): DriverBookingDto {
+internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long? = null): DriverBookingDto {
     return DriverBookingDto(
         bookingId = o.optInt("booking_id"),
         noShowWaitSec = o.optInt("no_show_wait_sec").coerceAtLeast(0),
         passengerName = o.optString("passenger_name"),
+        traveler = parsePrivateBookingTraveler(o, startedElapsedMs),
         passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
         route = o.optString("route"),
         status = o.optString("status"),
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
+        minorPassenger = o.optBoolean("minor_passenger"),
         passengerId = o.optInt("passenger_id"),
         boardingUndoSec = o.optInt("boarding_undo_sec"), boardingUndo = parseBoardingUndo(o),
         noShowAt = if (o.isNull("no_show_at")) null else o.optString("no_show_at").ifBlank { null },

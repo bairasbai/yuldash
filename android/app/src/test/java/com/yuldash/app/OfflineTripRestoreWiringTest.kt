@@ -75,7 +75,7 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
                 .put("status", "confirmed").put("boarding_undo_confirmed_id", "00000000-0000-4000-8000-000000000011")
                 .put("boarding_undo_onboard_at", epoch).toString()) else defaultResponse(request) }
             assertTrue(BoardingApi.respondUndo(11, "00000000-0000-4000-8000-000000000011", true, ApiClient.queueSessionGeneration()).isSuccess)
-        } else assertTrue(ApiClient.cancelBooking(11).isSuccess)
+        } else assertEquals(kind != "both", cancelPassengerOnStand().isSuccess)
         if (kind == "clear") assertTrue(OfflineTripSnapshots.allowsLive(11)) else assertFalse(OfflineTripSnapshots.allowsLive(11))
         assertNull(TripPassStore.load(context, 11)); assertNull(OfflineTripSnapshots.load(owner(), 11))
         assertEquals(when (kind) {
@@ -168,25 +168,32 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
         }
         compose.waitForIdle()
     }
-    private fun cancelPosts() = requests.filter { it.method == "POST" && it.path == "/bookings/11/cancel" }
+    private fun cancelPosts() = requests.filter { it.method == "POST" && it.path == "/bookings/11/commands/v1/cancel" }
     private fun meetingPosts() = requests.filter { it.method == "POST" && it.path == "/bookings/11/meeting-point" }
 
     @Test fun retainedCancelDialogCannotPostForAnotherOwnerOrAnOutgoingRoute(): Unit = runBlocking {
         compose.mainClock.autoAdvance = true
-        handler = { request -> if (request.path == "/bookings/11/cancel")
-            MockResponse().setBody("{\"status\":\"confirmed\"}") else confirmedResponse(request) }
+        handler = { request -> when {
+            request.path == "/bookings/11/commands/v1/cancel" -> MockResponse().setResponseCode(409)
+                .setBody("""{"detail":{"code":"cancel_terms_changed","ru":"Условия отмены изменились."}}""")
+            request.path?.startsWith("/command-intents/") == true -> MockResponse()
+                .setBody("""{"state":"rejected","scope":"booking.cancel","ref_kind":null,"ref_id":null,"current":null,"result_code":"cancel_terms_changed"}""")
+            else -> confirmedResponse(request)
+        } }
         warm()
         val vm = vm(); mount(vm)
         awaitUi { compose.onAllNodesWithText("4821", substring = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Отменить поездку"))
         compose.onNodeWithText("Отменить поездку").performClick()
+        awaitUi { compose.onAllNodesWithText("Планы поменялись").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("Планы поменялись").performClick()
         compose.onNodeWithText("Да, отменить").performClick()
-        awaitUi { cancelPosts().size == 1 && compose.onAllNodesWithText("Отменить поездку?").fetchSemanticsNodes().isEmpty() }
+        awaitUi { cancelPosts().size == 1 && compose.onAllNodesWithText("Условия отмены изменились. Открой отмену заново.").fetchSemanticsNodes().isNotEmpty() }
         assertEquals("plans_changed", JSONObject(cancelPosts().single().body.clone().readUtf8()).getString("reason"))
         assertEquals("Bearer ${jwt(7)}", cancelPosts().single().getHeader("Authorization"))
 
         compose.onNodeWithText("Отменить поездку").performClick()
+        awaitUi { compose.onAllNodesWithText("Да, отменить").fetchSemanticsNodes().isNotEmpty() }
         val oldOwnerConfirm = captureText("Да, отменить")
         inSameFrameGap { ApiClient.saveToken(jwt(8)); oldOwnerConfirm() }
         drainActions()
@@ -196,6 +203,7 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
         awaitUi { OfflineTripSnapshots.privatePass(11)?.boardingCode == "4821" }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Отменить поездку"))
         compose.onNodeWithText("Отменить поездку").performClick()
+        awaitUi { compose.onAllNodesWithText("Да, отменить").fetchSemanticsNodes().isNotEmpty() }
         val outgoingConfirm = captureText("Да, отменить")
         inSameFrameGap { vm.navigateLocally { vm.screen.value = Screen.Settings }; outgoingConfirm() }
         drainActions()
@@ -205,6 +213,7 @@ internal class OfflineTripRestoreWiringTest : SnapshotWiringFixture() {
         awaitUi { compose.onAllNodesWithText("4821", substring = true).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Отменить поездку"))
         compose.onNodeWithText("Отменить поездку").performClick()
+        awaitUi { compose.onAllNodesWithText("Да, отменить").fetchSemanticsNodes().isNotEmpty() }
         val queuedConfirm = captureText("Да, отменить")
         inSameFrameGap {
             // The real callback queues its coroutine on Main while Main is held here. Retire the

@@ -73,6 +73,7 @@ FAMILY_SMS_DAYS = 30
 # 42 таблицы из 61 просто росли, и понять, что из этого осознанно, было нельзя.
 KEEP_FOREVER = {
     "chatmessagerequest": "Отдельно не храним: чистим каскадно при удалении message (FK ON DELETE CASCADE); срок родителя MSG_DAYS.",
+    "commandreceipt": "Запрет повторного применения известного ключа до удаления аккаунта.",
     # Аккаунт и его прямые части. Стираются целиком при удалении аккаунта (app/account.py).
     "user": "сам аккаунт — живёт, пока человек им пользуется",
     "driverprofile": "профиль водителя = часть аккаунта",
@@ -87,7 +88,8 @@ KEEP_FOREVER = {
     # То же самое, но для браузера. Растёт не от времени, а от числа устройств человека,
     # и убирается тремя путями: выход из аккаунта, отзыв разрешения в браузере
     # (пуш-сервис отвечает 404/410 — чистим прямо при отправке) и удаление аккаунта.
-    "webpushsubscription": "подписка браузера на уведомления: снимается при выходе, при отзыве разрешения и вместе с аккаунтом",
+    "webpushsubscription": "Старые подписки снимаются при выходе, отзыве разрешения или удалении аккаунта. "
+                           "Подписки отдельных входов чистим с окном TOKEN_DAYS.",
     "deviceban": "бан устройства снимает только админ",
     "invitecode": "инвайт-коды круга доверия — их выдаёт и тратит сам человек",
     "referralbonus": "кому уже начисляли бонус — без этого начислим второй раз",
@@ -138,7 +140,7 @@ _ALLOWED_TABLES = frozenset({
     "booking", "ride", "notification", "instantorder", "parceldelivery",
     "analyticsevent", "waitlistentry", "pricecomplaint",
     "pretripcheck", "carphotocheck", "taxiworkday", "dailydigestlog", "textflag", "recentplace",
-    "familysmslog",
+    "familysmslog", "authsession", "webpushsubscription",
 })
 
 
@@ -146,6 +148,10 @@ def _rules(now):
     """Список (метка, таблица, WHERE, параметры). Порядок ВАЖЕН: дети раньше родителей."""
     def cut(days):
         return now - timedelta(days=days)
+    expired_login = (
+        "COALESCE(authsession.revoked_at, authsession.access_expires_at) < :c "
+        "AND NOT EXISTS (SELECT 1 FROM refreshtoken WHERE auth_session_id = authsession.id)"
+    )
     return [
         # --- Фаза 1: эфемерное (безопасно, основной объём) ---
         ("сообщения чата >30д", "message", "created_at < :c", {"c": cut(MSG_DAYS)}),
@@ -156,6 +162,12 @@ def _rules(now):
          "refreshtoken", "(revoked = true OR expires_at < :now) AND created_at < :c "
          "AND (rotated_at IS NULL OR rotated_at < :recovery_cutoff)",
          {"now": now, "c": cut(TOKEN_DAYS), "recovery_cutoff": now - timedelta(seconds=REFRESH_RECOVERY_SECONDS)}),
+        ("уведомления истёкших входов", "webpushsubscription",
+         f"auth_session_id IN (SELECT id FROM authsession WHERE {expired_login})",
+         {"c": cut(TOKEN_DAYS)}),
+        ("истёкшие входы", "authsession",
+         expired_login + " AND NOT EXISTS (SELECT 1 FROM webpushsubscription WHERE auth_session_id = authsession.id)",
+         {"c": cut(TOKEN_DAYS)}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
         ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
         ("брошенные водителем заказы >90д", "drivercancel", "at < :c", {"c": cut(DRIVER_CANCEL_DAYS)}),
@@ -288,7 +300,10 @@ def _delete_batched(table, where, params):
     """Удаляем чанками по _BATCH — каждый чанк своя короткая транзакция (не держим долгий лок и
     не раздуваем WAL на больших таблицах вроде message/notification). `id IN (SELECT ... LIMIT)`
     кросс-диалектно (Postgres/sqlite); коррелированные NOT EXISTS во WHERE продолжают работать."""
-    sql = text(f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} WHERE {where} LIMIT :_batch)")
+    # PostgreSQL may wait for a concurrent rebind. Recheck the subscription's new
+    # owner in the DELETE itself after the wait, even if its numeric id is unchanged.
+    recheck = f" AND ({where})" if table == "webpushsubscription" else ""
+    sql = text(f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} WHERE {where} LIMIT :_batch){recheck}")
     total = 0
     while True:
         with engine.begin() as conn:

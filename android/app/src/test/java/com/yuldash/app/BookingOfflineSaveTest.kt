@@ -47,6 +47,7 @@ class BookingOfflineSaveTest {
     private val secure = MemoryDiskPreferences()
     private lateinit var server: MockWebServer
     private val requests = CopyOnWriteArrayList<String>()
+    private fun tripRequests() = requests.filterNot { it == "GET /me" }
     private val authenticationRequests = CopyOnWriteArrayList<String>()
     private val tokenA = TripPassAuthorityFixture.jwt(7)
     private val preparationRequests = CopyOnWriteArrayList<String>()
@@ -142,6 +143,7 @@ class BookingOfflineSaveTest {
                     if (request.getHeader("Authorization") != "Bearer " + tokenA)
                         return MockResponse().setResponseCode(403).setBody("{}")
                     val body = when (request.path) {
+                        "/me" -> """{"id":7,"created_at":"2026-01-01T00:00:00Z"}"""
                         "/bookings/42/details" -> """{"booking_id":42,"ride_id":17,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","driver_name":"Серверный водитель","driver_car":"Lada Vesta","driver_phone":"+70000000000","price":700,"seats":1,"pickup":"Точка встречи"}"""
                         "/bookings/42/boarding-code" -> return MockResponse()
                             .setResponseCode(boardingCodeStatus)
@@ -194,7 +196,7 @@ class BookingOfflineSaveTest {
                         rating = 4.9, verified = true, boosted = false),
                     bookingId = 42, ads = emptyList(), adStats = emptyMap(), onBack = {},
                     onMessage = {}, onAdImpression = {}, onAdClick = {}, bookingStatus = "confirmed",
-                    onConfirmRide = { _, _, _, _, _ -> confirmCalls++ },
+                    onConfirmRide = { _, _, _, _, _, _ -> confirmCalls++ },
                 )
             }
         }
@@ -250,7 +252,7 @@ class BookingOfflineSaveTest {
             OfflineTripSnapshots.privatePass(42)?.boardingCode == "4821")
         assertNull(TripPassAuthorityFixture.durable(secure, 42))
         assertNull(TripPassAuthorityFixture.durable(plain, 42))
-        assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), requests.toList())
+        assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), tripRequests())
     }
 
     private fun showWarning() {
@@ -327,7 +329,7 @@ class BookingOfflineSaveTest {
         val previousDurableBytes = if (withdrawnPrivate) secure.restarted().getString("pass_42", null) else null
         // render waits until detailsLoading ends, after the initial save attempt completes.
         render(allowWithdrawnPrivate = withdrawnPrivate)
-        assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), requests.toList())
+        assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), tripRequests())
         // This is intentionally the first failure assertion: HTTP failure must not erase a known code.
         assertEquals("4821", TripPassAuthorityFixture.durable(secure, 42)?.boardingCode)
         if (withdrawnPrivate) {
@@ -337,7 +339,7 @@ class BookingOfflineSaveTest {
         showWarning()
         compose.onNodeWithText("Открыть поездку").assertIsDisplayed()
 
-        val beforeRetry = if (withdrawnPrivate) requests.size else 0
+        val beforeRetry = if (withdrawnPrivate) tripRequests().size else 0
         boardingCodeValue = "5932"
         boardingCodeStatus = 200
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Сохранить ещё раз"))
@@ -351,15 +353,15 @@ class BookingOfflineSaveTest {
         compose.onNodeWithText(warning).assertDoesNotExist()
         assertEquals(0, confirmCalls)
         if (withdrawnPrivate) {
-            assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), requests.drop(beforeRetry))
+            assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), tripRequests().drop(beforeRetry))
             assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code",
-                "GET /bookings/42/details", "GET /bookings/42/boarding-code"), requests.toList())
+                "GET /bookings/42/details", "GET /bookings/42/boarding-code"), tripRequests())
             assertFalse(requests.any { it.startsWith("POST ") })
             compose.onNode(hasScrollAction()).performScrollToNode(hasText("Серверный водитель"))
             compose.onNodeWithText("Серверный водитель").assertIsDisplayed()
         } else {
             assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code",
-                "GET /bookings/42/boarding-code"), requests.toList())
+                "GET /bookings/42/boarding-code"), tripRequests())
         }
         TripPassStore.initStores(plain.restarted(), secure.restarted())
         assertEquals("5932", TripPassAuthorityFixture.durable(secure, 42)?.boardingCode)

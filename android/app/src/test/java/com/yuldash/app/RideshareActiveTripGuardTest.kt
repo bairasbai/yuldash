@@ -42,7 +42,9 @@ class RideshareActiveTripGuardTest {
         assertFalse("«в пути» не отменяют", activeTripShowsCancel("passenger", hasBooking = true, bookingStatus = "onboard"))
         assertFalse(activeTripShowsCancel("passenger", hasBooking = true, bookingStatus = "pending"))
         assertTrue("без брони — прежний выход с экрана", activeTripShowsCancel("", hasBooking = false, bookingStatus = ""))
-        assertTrue(source("BookingActiveTripScreen.kt").contains("if (activeTripShowsCancel(role, hasBooking = bookingId != null, bookingStatus = bookingStatus)) item {"))
+        val screen = source("BookingActiveTripScreen.kt")
+        assertTrue(screen.contains("if (activeTripShowsCancel(role, hasBooking = bookingId != null, bookingStatus = bookingStatus)) item {"))
+        assertTrue(screen.contains("if (bookingId == null) closeLocalTrip = true else passengerTripCancellation?.open()"))
     }
 
     @Test

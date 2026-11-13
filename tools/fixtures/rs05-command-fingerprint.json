@@ -1,0 +1,58 @@
+[
+  {
+    "name": "booking coordinates and two alphabets",
+    "scope": "booking.create",
+    "target_id": 73,
+    "wire_body": "{\"ride_id\":73,\"meeting\":{\"note\":\"У входа / Ишек янында\",\"lat\":54.0,\"lon\":5.6e1},\"seats\":2}",
+    "canonical_body": "{\"meeting\":{\"lat\":54,\"lon\":56,\"note\":\"У входа / Ишек янында\"},\"ride_id\":73,\"seats\":2}"
+  },
+  {
+    "name": "publication dates remain literal",
+    "scope": "ride.create",
+    "target_id": null,
+    "wire_body": "{\"starts_at\":\"2030-01-01T10:00:00.120Z\",\"waypoints\":[{\"city\":\"Өфө\",\"lat\":-0.000},null]}",
+    "canonical_body": "{\"starts_at\":\"2030-01-01T10:00:00.120Z\",\"waypoints\":[{\"city\":\"Өфө\",\"lat\":0},null]}"
+  },
+  {
+    "name": "UTF-16 names, numeric names and control characters",
+    "scope": "booking.driver_status",
+    "target_id": 12,
+    "wire_body": "{\"2\":false,\"10\":true,\"\":null,\"\\ud83d\\ude80\":[\"\\n\\t\\u0001\\b\\f\\r\\\"\\\\/\",1.2e-8,-1e+23]}",
+    "canonical_body": "{\"10\":true,\"2\":false,\"🚀\":[\"\\n\\t\\u0001\\b\\f\\r\\\"\\\\/\",0.000000012,-100000000000000000000000],\"\":null}"
+  },
+  {
+    "name": "cancel omitted body",
+    "scope": "booking.cancel",
+    "target_id": 12,
+    "wire_body": null,
+    "canonical_body": "null"
+  },
+  {
+    "name": "cancel explicit null",
+    "scope": "booking.cancel",
+    "target_id": 12,
+    "wire_body": "null",
+    "canonical_body": "null"
+  },
+  {
+    "name": "cancel empty object",
+    "scope": "booking.cancel",
+    "target_id": 12,
+    "wire_body": "{}",
+    "canonical_body": "{}"
+  },
+  {
+    "name": "cancel explicit empty note",
+    "scope": "booking.cancel",
+    "target_id": 12,
+    "wire_body": "{\"reason\":\"\"}",
+    "canonical_body": "{\"reason\":\"\"}"
+  },
+  {
+    "name": "bodyless confirmation",
+    "scope": "booking.confirm",
+    "target_id": 73,
+    "wire_body": null,
+    "canonical_body": "null"
+  }
+]

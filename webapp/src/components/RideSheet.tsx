@@ -2,7 +2,7 @@ import { rideDriverRating } from "../utils/rideDriverRating";
 // ================================================================
 //  Нижняя шторка с деталями поездки + бронирование.
 //  Открывается тапом по поездке на витрине (Home). Гость → на вход.
-//  Бронь: POST /bookings → pending открывает /booking/{id}, иначе /trip/{id}.
+//  Бронь: сохранённая команда → pending открывает /booking/{id}, иначе /trip/{id}.
 //  «Закрыть», затемнение и Esc уводят шторку вниз (useSheetExit); бронь и «Открыть поездку»
 //  закрывают её сразу — их движение — переход на экран поездки, ждать нечего.
 // ================================================================
@@ -14,8 +14,11 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
-import { createBooking, type MeetingPointInput } from "../api/bookings";
-import { rememberGuestBookingDraft, type GuestBookingSelection } from "../utils/guestBookingDraft";
+import type { BookingRow, CreateBookingInput, MeetingPointInput } from "../api/bookings";
+import { BookingCommandProblem, bookingCommandOwner, createBooking, readBookingCommand,
+  reconcileBookingCommand, type BookingCommand } from "../api/bookingCommands";
+import { bookingRefusalMessage } from "../utils/bookingCommandLabels";
+import { rememberGuestBookingDraft, type GuestBookingOptions, type GuestBookingSelection } from "../utils/guestBookingDraft";
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
 import { fetchRide } from "../api/rides";
@@ -24,7 +27,8 @@ import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
 import { useSheetExit } from "./useSheetExit";
-import { initialSegment, keepDropoffAfterPickup, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
+import { frontSeatState } from "../utils/seatOptions";
+import { initialSegment, keepDropoffAfterPickup, routePlaces, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 import { MeetingPointPicker } from "./MeetingPointPicker";
 
@@ -32,15 +36,19 @@ export default function RideSheet({
   ride,
   onClose,
   initialSelection,
+  initialGuestOptions,
+  initialRouteChanged = false,
 }: {
   ride: Ride;
   onClose: () => void;
   initialSelection?: GuestBookingSelection | null;
+  initialGuestOptions?: GuestBookingOptions;
+  initialRouteChanged?: boolean;
 }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
-  const { isAuthed, status: authStatus } = useAuth();
+  const { isAuthed, status: authStatus, user } = useAuth();
   const features = useFeatures();
   const parcelCategory = ride.category === "parcel" || ride.category === "cargo";
   const ownBooking = useOwnBooking(ride.id);
@@ -54,6 +62,17 @@ export default function RideSheet({
   // Пока бронь в пути, Esc шторку не трогает.
   const exit = useSheetExit(onClose, dialogRef, { canClose: () => !bookingInFlight.current });
   const [error, setError] = useState<string | null>(null);
+  const [command, setCommand] = useState<BookingCommand>();
+  const [originalRequest, setOriginalRequest] = useState<{ key: string; input: CreateBookingInput; generation: string } | null>(null);
+  const [recoveredBooking, setRecoveredBooking] = useState<BookingRow | null>(null);
+  const [conflictBookingId, setConflictBookingId] = useState<number>();
+  const [restoringCommand, setRestoringCommand] = useState(false);
+  const owner = isAuthed ? bookingCommandOwner(user, ownerGeneration) : null;
+  const unresolved = command?.state === "unknown";
+  const retryInput = unresolved && isAuthed && originalRequest?.key === command.key &&
+    originalRequest.generation === ownerGeneration && originalRequest.input.ride_id === ride.id
+    ? originalRequest.input : null;
+  const canRebook = recoveredBooking?.status === "cancelled" && !ownBooking;
 
   // Открыли карточку поездки — заинтересовался конкретной поездкой.
   useEffect(() => {
@@ -67,11 +86,13 @@ export default function RideSheet({
    * не отвечает никто, а водитель узнаёт о подростке, только когда тот сядет в машину.
    * Правило держит сервер — мы просто спрашиваем заранее, чтобы бронь не отлетела.
    */
-  const [minor, setMinor] = useState(false);
+  const [minor, setMinor] = useState(initialGuestOptions?.minor ?? false);
+  const [forAnother, setForAnother] = useState(initialGuestOptions?.forAnother ?? false);
+  const [travelerName, setTravelerName] = useState("");
   const [guardName, setGuardName] = useState("");
   const [guardPhone, setGuardPhone] = useState("");
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
-  const [frontSeat, setFrontSeat] = useState(false);
+  const [frontSeat, setFrontSeat] = useState(initialGuestOptions?.frontSeat ?? false);
   const acceptedSelection = initialSelection && segmentReady(ride, initialSelection.pickupStop, initialSelection.dropoffStop) ? initialSelection : null;
   const [seats, setSeats] = useState(acceptedSelection?.seats ?? 1);
   const [pickupStop, setPickupStop] = useState<string | null>(() => acceptedSelection?.pickupStop ?? initialSegment(ride).pickup);
@@ -82,10 +103,18 @@ export default function RideSheet({
   const selectionOwner = useRef(`${ownerGeneration}:${ride.id}`);
   const mounted = useRef(true);
   const bookingAbort = useRef<AbortController | null>(null);
-  const pickupReady = segmentReady(ride, pickupStop, dropoffStop);
+  const [reviewedRoute, setReviewedRoute] = useState(() => initialRouteChanged ? null : JSON.stringify(routePlaces(ride)));
   // RS-02 А/Б: условия обновились после 409 (цена/места изменились) — показываем и шлём свежие.
   const [freshRide, setFreshRide] = useState<Ride | null>(null);
   const eff = freshRide ?? ride;
+  const route = JSON.stringify(routePlaces(eff));
+  const routeReviewRequired = reviewedRoute !== route;
+  const pickupReady = segmentReady(eff, pickupStop, dropoffStop);
+  const frontSeatConflict = frontSeat && frontSeatState(eff) !== "free";
+  const minorConflict = minor && eff.no_minors === true;
+  const travelerConflict = forAnother && eff.women_only === true;
+  const choiceConflict = frontSeatConflict || minorConflict || travelerConflict;
+  const canRetry = !command?.forAnother || retryInput !== null;
   const available = seatsOnSpan(eff, pickupStop, dropoffStop) ?? eff.seats_left;
   const perSeat = segmentPriceRub(eff, pickupStop, dropoffStop) ?? eff.price;
   useEffect(() => {
@@ -97,19 +126,123 @@ export default function RideSheet({
       setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
+      setForAnother(false); setTravelerName(""); setConflictBookingId(undefined);
       setSeats(1); setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
+      setReviewedRoute(JSON.stringify(routePlaces(ride)));
+      setCommand(undefined); setRecoveredBooking(null); setRestoringCommand(false);
+      setOriginalRequest(null);
     }
     return () => { mounted.current = false; bookingAbort.current?.abort(); };
   }, [ownerGeneration, ride.id]);
+  useEffect(() => {
+    if (!owner) return;
+    const ac = new AbortController();
+    const currentOwner = () => !ac.signal.aborted && mounted.current && ownerGeneration === getSessionGeneration();
+    const active = () => currentOwner() && !bookingInFlight.current;
+    setRestoringCommand(true);
+    void readBookingCommand(owner, ride.id).then(async value => {
+      if (!active() || !value) return;
+      setCommand(current => current ?? value);
+      if (value.state === "closed_no_effect") return;
+      const result = await reconcileBookingCommand(owner, value, false, ac.signal);
+      if (!active() || result.state === "unseen") return;
+      const state = result.state;
+      setCommand(current => current?.key === value.key ? { ...value, state } : current);
+      setOriginalRequest(current => current?.key === value.key ? null : current);
+      if (result.booking) setRecoveredBooking(result.booking);
+      else if (result.state === "applied") setError(commandMessage("gone"));
+      else if (result.state === "rejected") {
+        setConflictBookingId(result.conflictBookingId);
+        setError(bookingRefusalMessage(appText, result.code));
+        updateRideTerms(result.code, ac.signal);
+      }
+    }).catch(() => {}).finally(() => { if (currentOwner()) setRestoringCommand(false); });
+    return () => ac.abort();
+  }, [owner?.namespace, ownerGeneration, ride.id]);
   // Свободных мест стало меньше выбранного (смена участка, поездку обновили) — НЕ срезаем молча
   // (RS-02 В): отправка блокируется, человек сам жмёт «Уменьшить до K» или выбирает другую поездку.
 
-  async function book() {
+  function openBooking(booking: BookingRow) {
+    refreshOwnBookings();
+    onClose();
+    navigate(`${booking.status === "pending" ? "/booking" : "/trip"}/${booking.id}`);
+  }
+
+  function updateRideTerms(code?: string | null, signal?: AbortSignal) {
+    if (!["price_changed", "ride_terms_changed", "front_seat_taken", "booking_traveler_women_only",
+      "booking_traveler_no_minors"].includes(code ?? "")) return;
+    void fetchRide(ride.id, signal).then(fresh => {
+      if (mounted.current && !signal?.aborted && ownerGeneration === getSessionGeneration() &&
+          selectionOwner.current === `${ownerGeneration}:${ride.id}`) setFreshRide(fresh);
+    }).catch(() => {});
+  }
+
+  function commandMessage(kind: BookingCommandProblem["kind"]) {
+    switch (kind) {
+      case "storage": return appText("Не удалось сохранить запрос на этом устройстве. Попробуй снова.",
+        "Был ҡоролмала һорауҙы һаҡлап булманы. Ҡабатлап ҡара.");
+      case "full": return appText("Слишком много незавершённых запросов. Сначала проверь предыдущие.",
+        "Тамамланмаған һорауҙар күп. Тәүҙә алдағыларын тикшер.");
+      case "changed": return appText("Данные изменились. Сначала проверь или закрой предыдущий запрос.",
+        "Мәғлүмәт үҙгәрҙе. Тәүҙә алдағы һорауҙы тикшер йәки яп.");
+      case "expired": return appText("Срок повтора истёк или время на устройстве изменилось. Проверь или закрой запрос.",
+        "Ҡабатлау ваҡыты үтте йәки ҡоролмала ваҡыт үҙгәрҙе. Һорауҙы тикшер йәки яп.");
+      case "gone": return appText("Результат бронирования больше недоступен.", "Бронлау һөҙөмтәһе бүтән асыҡ түгел.");
+      case "closed": return appText("Запрос закрыт. Бронь по нему не создана.", "Һорау ябылды. Уның буйынса бронь яһалманы.");
+      case "rejected": return bookingRefusalMessage(appText);
+      case "unsupported": return appText("Сервер пока не поддерживает бронь за другого. Попробуй позже.",
+        "Сервер әлегә башҡа кеше өсөн бронлауҙы ҡабул итмәй. Һуңыраҡ ҡабатлап ҡара.");
+      default: return appText("Не удалось подтвердить результат. Проверим, что сохранилось.",
+        "Һөҙөмтәне раҫлап булманы. Нимә һаҡланғанын тикшерәйек.");
+    }
+  }
+
+  async function checkCommand(close: boolean) {
+    if (!owner || !command || !unresolved || bookingInFlight.current || exit.leaving ||
+        ownerGeneration !== getSessionGeneration() || selectionOwner.current !== `${ownerGeneration}:${ride.id}`) return;
+    const ac = new AbortController();
+    bookingAbort.current = ac;
+    bookingInFlight.current = true;
+    setBusy(true);
+    setError(null);
+    const active = () => mounted.current && !ac.signal.aborted && ownerGeneration === getSessionGeneration();
+    try {
+      const result = await reconcileBookingCommand(owner, command, close, ac.signal);
+      if (!active()) return;
+      if (result.state === "unseen") {
+        setError(appText("Сервер пока не видит результата. Можно проверить снова или закрыть запрос.",
+          "Сервер һөҙөмтәне әлегә күрмәй. Ҡабат тикшерергә йәки һорауҙы ябырға була."));
+        return;
+      }
+      const state = result.state;
+      setCommand(current => current?.key === command.key ? { ...command, state } : current);
+      setOriginalRequest(null);
+      if (state === "closed_no_effect") setTravelerName("");
+      if (result.booking) openBooking(result.booking);
+      else if (result.state === "rejected") {
+        setConflictBookingId(result.conflictBookingId);
+        setError(bookingRefusalMessage(appText, result.code));
+        updateRideTerms(result.code, ac.signal);
+      } else setError(commandMessage(result.state === "applied" ? "gone" : "closed"));
+    } catch {
+      if (active()) setError(commandMessage("unknown"));
+    } finally {
+      if (bookingAbort.current === ac) bookingInFlight.current = false;
+      if (active()) setBusy(false);
+    }
+  }
+
+  async function book(retry = false) {
     if (exit.leaving) return; // шторка уже уходит (Esc, затемнение) — бронь из неё не отправляем (приёмка PR154)
-    if (bookingInFlight.current || !mounted.current || ownerGeneration !== getSessionGeneration() || selectionOwner.current !== `${ownerGeneration}:${ride.id}`) return;
+    if (bookingInFlight.current || !mounted.current || ownerGeneration !== getSessionGeneration() ||
+        selectionOwner.current !== `${ownerGeneration}:${ride.id}` || (restoringCommand && !ownBooking)) return;
+    if (retry && !canRetry) return;
     if (!isAuthed) {
+      if (travelerConflict) return;
       const guestBookingNonce = authStatus === "guest"
-        ? rememberGuestBookingDraft(ride.id, { seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff }, ownerGeneration)
+        ? rememberGuestBookingDraft(ride.id, {
+          seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor, forAnother,
+        }, ownerGeneration)
         : undefined;
       // All guest choices travel only inside the bounded, one-use draft, never independently in history.
       navigate("/login", { state: { from: "/rides/" + ride.id, guestBooking: true,
@@ -121,18 +254,24 @@ export default function RideSheet({
       navigate(`${ownBooking.status === "pending" ? "/booking" : "/trip"}/${ownBooking.id}`);
       return;
     }
-    if (parcelCategory && !getFeatures().parcels) return;
-    if (!pickupReady) {
+    if (recoveredBooking && !canRebook) { openBooking(recoveredBooking); return; }
+    if ((!retry && (choiceConflict || routeReviewRequired)) || (parcelCategory && !getFeatures().parcels)) return;
+    const originalInput = retry ? retryInput : null;
+    if (!originalInput && forAnother && (!/\p{L}/u.test(travelerName) || /[\p{N}\p{C}]/u.test(travelerName))) {
+      setError(appText("Укажи имя пассажира без цифр.", "Юлсының исемен һандарһыҙ күрһәт."));
+      return;
+    }
+    if (!originalInput && !pickupReady) {
       setError(appText("Выбери места посадки и высадки, чтобы забронировать.", "Бронлау өсөн ултырыу һәм төшөү урындарын һайла."));
       return;
     }
-    if (!Number.isInteger(seats) || seats < 1 || seats > available) {
+    if (!originalInput && (!Number.isInteger(seats) || seats < 1 || seats > available)) {
       setError(available < 1
         ? appText("Мест больше нет. Посмотри другие поездки.", "Буш урындар ҡалманы. Башҡа сәфәрҙәрҙе ҡара.")
         : appText(`Осталось мест на твоём участке: ${available}. Выбери меньше.`, `Һинең участкаңда ҡалған урындар: ${available}. Әҙерәк һайла.`));
       return;
     }
-    if (minor && (!guardName.trim() || !guardPhone.trim())) {
+    if (!originalInput && minor && (!guardName.trim() || !guardPhone.trim())) {
       setError(
         appText(
           "Укажи взрослого: имя и телефон. Он отвечает за поездку, и водителю есть кому позвонить.",
@@ -144,16 +283,21 @@ export default function RideSheet({
     bookingInFlight.current = true;
     setBusy(true);
     setError(null);
+    setConflictBookingId(undefined);
     track("booking_start");
     const ac = new AbortController();
     bookingAbort.current = ac;
+    // The wire input may contain contact details. Keep it only in this mounted form,
+    // and only when this send was bound to the exact unresolved key.
+    let prepared: { key: string; input: CreateBookingInput } | undefined;
     try {
-      const b = await createBooking({
+      const b = await createBooking(originalInput ?? {
         ride_id: ride.id,
         seats,
         minor_passenger: minor || undefined,
         minor_guardian_name: minor ? guardName.trim() : undefined,
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
+        ...(forAnother ? { traveler_name: travelerName.trim().replace(/\s+/gu, " ") } : {}),
         // Только когда просили: обычная бронь уходит тем же телом, что и раньше.
         ...(frontSeat ? { front_seat: true } : {}),
         pickup_stop: pickupStop!,
@@ -164,25 +308,30 @@ export default function RideSheet({
         // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
         expected_price: perSeat,
         expected_terms_version: eff.terms_version,
-      }, ac.signal);
+      }, ac.signal, owner, command, retry, (key, input) => { prepared = { key, input }; });
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
-      refreshOwnBookings();
+      setOriginalRequest(null);
+      setTravelerName("");
       track("booking_done");
-      onClose();
-      navigate(`${b.status === "pending" ? "/booking" : "/trip"}/${b.id}`);
-    } catch (e) {
+      openBooking(b);
+    } catch (failure) {
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
+      if (failure instanceof BookingCommandProblem && failure.command) setCommand(failure.command);
+      if (failure instanceof BookingCommandProblem) setConflictBookingId(failure.conflictBookingId);
+      setOriginalRequest(failure instanceof BookingCommandProblem && ["unknown", "unsupported"].includes(failure.kind) &&
+        prepared && failure.command?.key === prepared.key ? { ...prepared, generation: ownerGeneration } : null);
+      const e = failure instanceof BookingCommandProblem ? failure.original : failure;
       // 409 «у тебя уже есть бронь» (другое число мест, остановка, подросток): сервер ответил, сеть есть —
       // перечитываем свои брони, и кнопка сама станет «Открыть поездку» (приёмка #189).
       if (e instanceof ApiError && e.status === 409) refreshOwnBookings();
       // Условия уехали (цена/места/маршрут): перечитываем поездку — следующее нажатие уже
       // подтверждает НОВЫЕ условия, а серверный текст объясняет, что именно поменялось (RS-02 В).
-      if (e instanceof ApiError && (e.code === "price_changed" || e.code === "ride_terms_changed")) {
-        fetchRide(ride.id).then((fresh) => { if (mounted.current) setFreshRide(fresh); }).catch(() => {});
-      }
+      const rejectionCode = failure instanceof BookingCommandProblem ? failure.code : e instanceof ApiError ? e.code : null;
+      updateRideTerms(rejectionCode, ac.signal);
       const msg =
-        e instanceof ApiError && e.message
-          ? e.message
+        e instanceof ApiError && e.message ? e.message
+          : failure instanceof BookingCommandProblem && failure.kind === "rejected" ? bookingRefusalMessage(appText, rejectionCode)
+          : failure instanceof BookingCommandProblem ? commandMessage(failure.kind)
           : appText("Не получилось забронировать. Попробуй снова.", "Бронларға булманы. Ҡабат ҡара."); // DRAFT
       setError(msg);
     } finally {
@@ -205,14 +354,14 @@ export default function RideSheet({
         <button type="button" className="btn-ghost" onClick={exit.close} disabled={busy}>
           {appText("Закрыть", "Ябырға")}
         </button>
-        {parcelCategory && !features.parcels && !ownBooking && !bookingInFlight.current ? <ComingSoon kind="delivery" variant="inline" /> : <>
+        {parcelCategory && !features.parcels && !ownBooking && !unresolved && !bookingInFlight.current ? <ComingSoon kind="delivery" variant="inline" /> : <>
         <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
         <div className="ride-card__route" style={{ fontSize: "var(--font-heading)" }}>
-          <span>{ride.from_city}</span>
+          <span>{eff.from_city}</span>
           <span className="ride-card__arrow">
             <IconArrow size={20} />
           </span>
-          <span>{ride.to_city}</span>
+          <span>{eff.to_city}</span>
         </div>
 
         <div className="ride-card__meta" style={{ marginTop: 12 }}>
@@ -238,25 +387,48 @@ export default function RideSheet({
               {appText("Детское кресло", "Бала урыны")}
             </span>
           )}
-          <SeatBadges ride={ride} ownBooking={ownBooking} />
+          <SeatBadges ride={eff} ownBooking={ownBooking} />
         </div>
 
         {ride.comment && <p className="sheet__comment">{ride.comment}</p>}
         {ownBooking
           ? <BookingSegmentNote pickupStop={ownBooking.pickup_stop} dropoffStop={ownBooking.dropoff_stop} rideHasStops={ownBooking.ride_has_stops} from={ride.from_city} to={ride.to_city} />
+          : retryInput
+          ? <BookingSegmentNote pickupStop={retryInput.pickup_stop} dropoffStop={retryInput.dropoff_stop} />
           : <>
-            <PickupStopChoice ride={ride} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setDropoffStop(current => keepDropoffAfterPickup(ride, place, current)); setError(null); }} />
-            <DropoffStopChoice ride={ride} pickup={pickupStop} picked={dropoffStop} disabled={busy} onPick={place => { setDropoffStop(place); setError(null); }} />
+            <PickupStopChoice ride={eff} picked={pickupStop} disabled={busy} onPick={place => { setPickupStop(place); setDropoffStop(current => keepDropoffAfterPickup(eff, place, current)); setError(null); }} />
+            <DropoffStopChoice ride={eff} pickup={pickupStop} picked={dropoffStop} disabled={busy} onPick={place => { setDropoffStop(place); setError(null); }} />
+            {routeReviewRequired && !unresolved && (
+              <div className="sheet__note">
+                <p role="status">{appText("Маршрут изменился. Проверь остановки и число мест.",
+                  "Маршрут үҙгәрҙе. Туҡталыштарҙы һәм урындар һанын тикшер.")}</p>
+                <button type="button" className="btn-ghost" disabled={busy} onClick={() => {
+                  if (!pickupReady) {
+                    const segment = initialSegment(withoutRideMatch(eff));
+                    setPickupStop(segment.pickup);
+                    setDropoffStop(segment.dropoff);
+                  }
+                  setMeetPickup(null);
+                  setMeetDropoff(null);
+                  setReviewedRoute(route);
+                  setError(null);
+                }}>
+                  {appText("Подтвердить новый маршрут", "Яңы маршрутты раҫлау")}
+                </button>
+              </div>
+            )}
+            {!routeReviewRequired && <>
             {/* RS-03 А: точное место по желанию — водитель увидит после подтверждения. */}
             <MeetingPointPicker
-              city={pickupStop || ride.from_city}
+              city={pickupStop || eff.from_city}
               title={appText("Где тебя забрать?", "Һине ҡайҙан алырға?")}
               value={meetPickup} disabled={busy} onChange={setMeetPickup} />
             <MeetingPointPicker
-              city={dropoffStop || ride.to_city}
+              city={dropoffStop || eff.to_city}
               title={appText("Где тебя высадить?", "Һине ҡайҙа төшөрөргә?")}
               value={meetDropoff} disabled={busy} onChange={setMeetDropoff} />
             <p className="sheet__note">{appText("Водитель увидит, где тебя забрать и высадить.", "Йөрөтөүсе һине ҡайҙан алырға һәм ҡайҙа төшөрөргә икәнен күрер.")}</p>
+            </>}
           </>}
 
         <div className="sheet__driver">
@@ -289,14 +461,14 @@ export default function RideSheet({
             </div>
           </button>
           <div className="ride-card__price">
-            {priceLabel(perSeat, ru)}
+            {priceLabel(retryInput?.expected_price ?? perSeat, ru)}
             {(eff.stop_prices?.length ?? 0) > 0 && (
               <div className="sheet__note">{appText("за место на твоём участке", "бер урын — һинең участкаңда")}</div>
             )}
           </div>
         </div>
 
-        {!ownBooking && <>
+        {!ownBooking && !retryInput && <>
           {seats > available && available >= 1 ? (
             // RS-02 В: мест стало меньше выбранного — отправка заблокирована (не clamp молча);
             // человек сам решает: уменьшить или посмотреть другие поездки.
@@ -323,26 +495,70 @@ export default function RideSheet({
           </p>
         </>}
 
-        <FrontSeatChoice
-          ride={ride}
+        {!retryInput && <FrontSeatChoice
+          ride={eff}
           ownBooking={ownBooking}
           checked={frontSeat}
           onChange={(v) => {
             setFrontSeat(v);
             setError(null);
           }}
-        />
+        />}
+        {!ownBooking && !unresolved && frontSeatConflict && (
+          <button type="button" className="btn-ghost" onClick={() => { setFrontSeat(false); setError(null); }}>
+            {appText("Выбрать место сзади", "Арттағы урынды һайлау")}
+          </button>
+        )}
+
+        {!parcelCategory && !ownBooking && !unresolved && !conflictBookingId && (
+          eff.women_only && !forAnother ? null : <>
+            <label className="list-row list-row--check">
+              <span className="list-row__title">{appText("Еду не я", "Мин бармайым")}</span>
+              <input type="checkbox" className="checkbox" checked={forAnother} disabled={busy}
+                onChange={e => {
+                  setForAnother(e.target.checked);
+                  setTravelerName("");
+                  setError(null);
+                }} />
+            </label>
+            {travelerConflict && <p role="status" className="sheet__note">
+              {bookingRefusalMessage(appText, "booking_traveler_women_only")}
+            </p>}
+            {forAnother && !travelerConflict && (isAuthed && selectionOwner.current === `${ownerGeneration}:${ride.id}` ? (
+              <label className="field">
+                <span className="field__label">{appText("Имя пассажира", "Юлсының исеме")}</span>
+                <input className="field__input" value={travelerName} maxLength={120} autoComplete="off" disabled={busy}
+                  onChange={e => setTravelerName(e.target.value)} />
+                <span className="field__hint">
+                  {appText("Водитель увидит имя пассажира. Связь, управление бронью и SOS остаются у тебя.",
+                    "Йөрөтөүсе юлсының исемен күрер. Бәйләнеш, бронде идара итеү һәм SOS һиндә ҡала.")}
+                </span>
+              </label>
+            ) : <p className="sheet__note">
+              {appText("Имя пассажира понадобится после входа.", "Юлсының исеме ингәндән һуң кәрәк буласаҡ.")}
+            </p>)}
+          </>
+        )}
 
         {/* Подросток за рулём чужой машины — отдельный разговор, а не галочка мелким шрифтом.
             Водитель, который таких не берёт, сказал это заранее: тогда мы не предлагаем
             отметку вовсе и объясняем почему — иначе бронь отлетит уже после нажатия. */}
-        {ride.no_minors ? (
-          <p className="sheet__note">
-            {appText(
-              "Водитель не берёт пассажиров младше 18 без взрослого рядом.",
-              "Йөрөтөүсе оло кешеһеҙ 18-ҙән кесе юлсыларҙы алмай."
+        {!retryInput && (eff.no_minors ? (
+          <>
+            <p className="sheet__note">
+              {appText(
+                "Водитель не берёт пассажиров младше 18 без взрослого рядом.",
+                "Йөрөтөүсе оло кешеһеҙ 18-ҙән кесе юлсыларҙы алмай."
+              )}
+            </p>
+            {!ownBooking && !unresolved && minorConflict && (
+              <button type="button" className="btn-ghost" onClick={() => {
+                setMinor(false); setGuardName(""); setGuardPhone(""); setError(null);
+              }}>
+                {appText("Поедет взрослый", "Оло кеше бара")}
+              </button>
             )}
-          </p>
+          </>
         ) : (
           <>
             <label className="list-row list-row--check" style={{ marginTop: 8 }}>
@@ -363,12 +579,19 @@ export default function RideSheet({
                 checked={minor}
                 onChange={(e) => {
                   setMinor(e.target.checked);
+                  if (!e.target.checked) { setGuardName(""); setGuardPhone(""); }
                   setError(null);
                 }}
                 aria-label={appText("Пассажир младше 18", "Юлсы 18-ҙән кесе")}
               />
             </label>
-            {minor && (
+            {minor && !isAuthed && (
+              <p className="sheet__note">
+                {appText("Имя и телефон взрослого понадобятся после входа.",
+                  "Оло кешенең исеме һәм телефоны ингәндән һуң кәрәк буласаҡ.")}
+              </p>
+            )}
+            {minor && isAuthed && (
               <>
                 <label className="field">
                   <span className="field__label">{appText("Взрослый: имя", "Оло кеше: исеме")}</span>
@@ -400,26 +623,58 @@ export default function RideSheet({
               </>
             )}
           </>
+        ))}
+
+        {error && <div className="auth__error" role="status">{error}</div>}
+        {conflictBookingId && <button type="button" className="btn-ghost" onClick={() => {
+          if (ownerGeneration !== getSessionGeneration()) return;
+          onClose();
+          navigate(`/booking/${conflictBookingId}`);
+        }}>{appText("Открыть свою бронь", "Үҙ бронеңде асыу")}</button>}
+        {canRebook && recoveredBooking && (
+          <button type="button" className="btn-ghost" onClick={() => openBooking(recoveredBooking)}>
+            {appText("Открыть отменённую бронь", "Кире алынған бронде асыу")}
+          </button>
+        )}
+        {unresolved && (
+          <div className="sheet__note">
+            <p role="status">{commandMessage("unknown")}</p>
+            <p>{appText("Если бронь уже создана, покажем её.", "Бронь яһалған булһа, уны күрһәтербеҙ.")}</p>
+            {retryInput && !ownBooking && (
+              <p>{appText("Количество мест", "Урындар һаны")}: {retryInput.seats}</p>
+            )}
+            <button type="button" className="btn-ghost" disabled={busy} onClick={() => checkCommand(false)}>
+              {appText("Проверить запрос", "Һорауҙы тикшереү")}
+            </button>
+            <button type="button" className="btn-ghost" disabled={busy} onClick={() => checkCommand(true)}>
+              {appText("Закрыть запрос", "Һорауҙы ябыу")}
+            </button>
+          </div>
         )}
 
-        {error && <div className="auth__error">{error}</div>}
-
-        <button
+        {(!unresolved || canRetry || ownBooking) && !conflictBookingId && <button
           type="button"
           className="btn-primary sheet__cta"
-          onClick={book}
-          disabled={busy || (isAuthed && !ownBooking && (!pickupReady || seats < 1 || seats > available))}
+          onClick={() => book(unresolved && !ownBooking)}
+          disabled={busy || (!isAuthed && travelerConflict) || (isAuthed && !ownBooking && (restoringCommand ||
+            ((!recoveredBooking || canRebook) && ((!retryInput && (!pickupReady || seats < 1 || seats > available)) ||
+              (unresolved && parcelCategory && !features.parcels) ||
+              (!unresolved && (choiceConflict || routeReviewRequired))))))}
         >
-          {busy
-            ? appText("Бронируем…", "Бронлайбыҙ…")
+          {(busy || (restoringCommand && !ownBooking))
+            ? (unresolved || restoringCommand) ? appText("Проверяем запрос…", "Һорауҙы тикшерәбеҙ…") : appText("Бронируем…", "Бронлайбыҙ…")
             : isAuthed
-              ? ownBooking
+              ? ownBooking || (recoveredBooking && !canRebook)
                 ? appText("Открыть поездку", "Сәфәрҙе асыу")
+                : unresolved
+                  ? appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")
+                  : canRebook
+                    ? appText("Забронировать снова", "Яңынан бронларға")
                 : seats > 1
                   ? appText(`Забронировать ${seats} ${pluralRu(seats, "место", "места", "мест")}`, `${seats} урын бронларға`)
                   : appText("Забронировать место", "Урын бронларға")
               : appText("Войти и забронировать", "Инеп бронларға")}
-        </button>
+        </button>}
         <p className="sheet__note">
           {appText(
             "Телефон и точное место встречи откроются после подтверждения водителем.",

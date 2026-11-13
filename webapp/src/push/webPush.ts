@@ -12,7 +12,11 @@
 //  устройстве» — localStorage (webPushEnabled).
 // ================================================================
 import { sendWebPushSubscription, PushBackendMissing, unsubscribeWebPush } from "../api/push";
-import { getSessionGeneration } from "../api/client";
+import {
+  ApiError, authSessionId, getAccountSession, getSessionGeneration, getToken, reconcileSession, refreshRejectedToken,
+} from "../api/client";
+import { notifyPushScopeChanged, readWebPushBinding, writeWebPushBinding } from "../utils/sessionRecord";
+import { sessionMutation } from "../utils/storageHealth";
 
 const ENABLED_KEY = "yuldash.push.web.enabled";
 
@@ -54,10 +58,11 @@ export function permission(): NotificationPermission {
 
 /** Отмечено ли, что пуши включены на этом устройстве (для индикатора). */
 export function isWebPushEnabled(): boolean {
-  return localStorage.getItem(ENABLED_KEY) === "1";
+  const enabled = localStorage.getItem(ENABLED_KEY);
+  return enabled === "1" || enabled === getSessionGeneration();
 }
 function setWebPushEnabled(v: boolean): void {
-  if (v) localStorage.setItem(ENABLED_KEY, "1");
+  if (v) localStorage.setItem(ENABLED_KEY, getSessionGeneration());
   else localStorage.removeItem(ENABLED_KEY);
 }
 
@@ -82,6 +87,22 @@ function urlBase64ToUint8Array(base64: string): Uint8Array<ArrayBuffer> {
   const out = new Uint8Array(buffer);
   for (let i = 0; i < raw.length; i++) out[i] = raw.charCodeAt(i);
   return out;
+}
+
+function supportsScopedPush(worker: ServiceWorker | null): Promise<boolean> {
+  if (!worker) return Promise.resolve(false);
+  const { port1, port2 } = new MessageChannel();
+  return new Promise(resolve => {
+    const finish = (supported: boolean) => {
+      clearTimeout(timeout);
+      port1.close();
+      resolve(supported);
+    };
+    const timeout = setTimeout(() => finish(false), 1000);
+    port1.onmessage = event => finish(event.data === true);
+    try { worker.postMessage({ type: "supports-session-push" }, [port2]); }
+    catch { port2.close(); finish(false); }
+  });
 }
 
 /**
@@ -111,6 +132,18 @@ export async function enableWebPush(): Promise<EnableResult> {
 
     const reg = await navigator.serviceWorker.ready;
     if (!currentSession()) return "error";
+    let sessionId = authSessionId();
+    const access = getToken();
+    if (!sessionId && access && getAccountSession()) {
+      await refreshRejectedToken(access);
+      if (!currentSession()) return "error";
+      sessionId = authSessionId();
+    }
+    if (sessionId && !await supportsScopedPush(reg.active)) {
+      if (currentSession()) setWebPushEnabled(false);
+      return "error";
+    }
+    if (!currentSession()) return "error";
     // Переиспользуем существующую подписку, если она уже есть.
     let sub = await reg.pushManager.getSubscription();
     if (!currentSession()) return "error";
@@ -123,7 +156,24 @@ export async function enableWebPush(): Promise<EnableResult> {
     }
 
     try {
-      await sendWebPushSubscription(sub);
+      if (sessionId) {
+        const previous = await readWebPushBinding();
+        if (!currentSession()) return "error";
+        const expectedBindingId = previous?.endpoint === sub.endpoint ? previous.bindingId : undefined;
+        let bindingId: string | undefined;
+        try {
+          bindingId = await sendWebPushSubscription(sub, { expectedBindingId });
+        } catch (error) {
+          // A completed logout may already have removed the binding kept by this device.
+          if (!(error instanceof ApiError && error.status === 409 && expectedBindingId && currentSession())) throw error;
+          bindingId = await sendWebPushSubscription(sub, {});
+        }
+        if (!currentSession() || !bindingId || !await writeWebPushBinding(generation, {
+          generation, endpoint: sub.endpoint, sessionId, bindingId,
+        })) return "error";
+      } else {
+        await sendWebPushSubscription(sub);
+      }
       if (!currentSession()) return "error";
       setWebPushEnabled(true);
       return "ok";
@@ -161,11 +211,39 @@ export async function disableWebPush(): Promise<void> {
     if (sub) {
       // Сначала говорим серверу, потом гасим подписку в браузере. Иначе на общем телефоне
       // следующий вошедший продолжал бы получать чужие уведомления: локального удаления мало.
-      await unsubscribeWebPush(sub.endpoint);
-      if (!currentSession()) return;
-      await sub.unsubscribe();
+      const sessionId = authSessionId();
+      if (sessionId) {
+        const binding = await readWebPushBinding();
+        if (!currentSession()) return;
+        if (binding?.generation === generation && binding.sessionId === sessionId && binding.endpoint === sub.endpoint) {
+          if (!await writeWebPushBinding(generation, undefined, binding.bindingId)) return;
+          notifyPushScopeChanged();
+          await unsubscribeWebPush(sub.endpoint, binding.bindingId);
+        }
+      } else {
+        await unsubscribeWebPush(sub.endpoint);
+      }
+      await unsubscribeBrowserIfCurrent(generation, sub);
     }
   } catch {
     /* мягко: флаг уже снят, подписка протухнет сама */
   }
+}
+
+async function unsubscribeBrowserIfCurrent(generation: string, subscription: PushSubscription): Promise<void> {
+  await sessionMutation(async () => {
+    await reconcileSession();
+    if (generation === getSessionGeneration() && !isWebPushEnabled()) await subscription.unsubscribe();
+  });
+}
+
+/** Drop the browser subscription if it still belongs to the signed-out device. */
+export async function disableLocalPushAfterLogout(guestGeneration: string): Promise<void> {
+  setWebPushEnabled(false);
+  if (!pushSupported()) return;
+  try {
+    const registration = await navigator.serviceWorker.getRegistration();
+    const subscription = await registration?.pushManager.getSubscription();
+    if (subscription) await unsubscribeBrowserIfCurrent(guestGeneration, subscription);
+  } catch { /* Local sign-out is already saved. */ }
 }

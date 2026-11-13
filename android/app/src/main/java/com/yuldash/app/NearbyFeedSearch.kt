@@ -12,6 +12,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
+import com.yuldash.app.data.NearbyPage
 import com.yuldash.app.data.RideDto
 
 // «Найти попутку» на вкладке «Карта» ведёт к ленте «Ближайшие поездки» — она на том же экране,
@@ -65,6 +66,9 @@ internal fun nearbySearch(
     toCities: Set<String>,
     verifiedOnly: Boolean,
 ): Any = listOf(from, to, date, conditions, fromCities, toCities, verifiedOnly)
+
+/** Карточки, счётчик и скрытые поездки относятся к одному поиску. */
+internal data class NearbyFeedResult(val search: Any, val page: NearbyPage, val failed: Boolean = false)
 
 /**
  * Запрос ленты упал: убрать ли показанный список (зеркало `nearbyFailure` в nearbyFeed.ts сайта).

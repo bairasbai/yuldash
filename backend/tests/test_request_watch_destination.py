@@ -7,7 +7,6 @@ from sqlmodel import Session
 
 import app.services as services
 from app.db import engine
-from app.models import WebPushSubscription
 from test_request_watch import _request, _watch
 
 
@@ -66,7 +65,7 @@ def test_web_push_accepts_transport_and_record_destination(data, path):
     ({"type": "ride", "id": "42"}, "/rides/42", "ride-42"),
     ({"ref_kind": "booking", "ref_id": 42}, "/booking/42", "booking-42"),
 ])
-def test_browser_transport_serializes_destination(user_factory, monkeypatch, data, path, tag):
+def test_browser_transport_serializes_destination(client, user_factory, monkeypatch, data, path, tag):
     import pywebpush
 
     owner = user_factory("Browser destination owner")
@@ -74,10 +73,17 @@ def test_browser_transport_serializes_destination(user_factory, monkeypatch, dat
     monkeypatch.setattr(services.settings, "vapid_private_key", "local-not-read")
     monkeypatch.setattr(services.settings, "vapid_public_key", "local-not-read")
     monkeypatch.setattr(pywebpush, "webpush", lambda **kwargs: captured.append(kwargs))
+    from app.security import issue_tokens
+
     with Session(engine) as session:
-        session.add(WebPushSubscription(user_id=owner["id"],
-                    endpoint=f"https://push.example/local-destination/{owner['id']}", p256dh="test", auth="test"))
+        pair = issue_tokens(session, owner["id"])
         session.commit()
+    response = client.post("/push/web/subscribe", headers={"Authorization": "Bearer " + pair["access_token"]}, json={
+        "endpoint": f"https://push.example/local-destination/{owner['id']}",
+        "keys": {"p256dh": "test", "auth": "test"}, "session_bound": True,
+    })
+    assert response.status_code == 200
+    with Session(engine) as session:
         services._send_web_push(session, owner["id"], "Title", "Body", data)
     assert len(captured) == 1
     payload = json.loads(captured[0]["data"])

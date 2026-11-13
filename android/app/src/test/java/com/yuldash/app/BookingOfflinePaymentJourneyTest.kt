@@ -227,11 +227,13 @@ class BookingOfflinePaymentJourneyTest {
         }
         /** Exactly the initial BookingScreen reads; transport completion alone is insufficient. */
         fun initialBookingCompleted(): Boolean {
-            val size = reads.size
+            // The separate booking recovery effect also reads the signed-in profile.
+            val bookingReads = reads.filterNot { it.path == "/me" }
+            val size = bookingReads.size
             check(size <= 2) { "PAYMENT_PHASE_A_SETUP initialReads=EXCESS" }
             if (size < 2) return false
-            val details = reads[0]
-            val code = reads[1]
+            val details = bookingReads[0]
+            val code = bookingReads[1]
             check(details.path == "/bookings/42/details" && code.path == "/bookings/42/boarding-code" &&
                 details.caller === code.caller) { "PAYMENT_PHASE_A_SETUP initialReads=UNEXPECTED" }
             return details.phase == 2 && code.phase == 2 &&
@@ -290,7 +292,7 @@ class BookingOfflinePaymentJourneyTest {
                             ride = ride,
                             bookingId = 42, bookingStatus = "confirmed", ads = emptyList(), adStats = emptyMap(),
                             onBack = {}, onMessage = {}, onAdImpression = {}, onAdClick = {},
-                            onConfirmRide = { _, _, _, _, _ -> activeCandidate(); active.value = true })
+                            onConfirmRide = { _, _, _, _, _, _ -> activeCandidate(); active.value = true })
                     }
                 }
             }
@@ -436,8 +438,8 @@ class BookingOfflinePaymentJourneyTest {
             "PAYMENT_PHASE_A_SETUP clockAndGateValid=false"
         }
         check(OfflineTripSnapshots.currentOwner() == expectedOwner && ApiClient.isCurrentSession(generation) &&
-            requestJobs.initialBookingCompleted() && requests.size == 2 &&
-            requests[0] == "GET /bookings/42/details" && requests[1] == "GET /bookings/42/boarding-code") {
+            requestJobs.initialBookingCompleted() && requests.filterNot { it == "GET /me" } ==
+                listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code")) {
             "PAYMENT_PHASE_A_SETUP ownerAndInitialReadsUnchanged=false"
         }
         assertEquals(1, requests.count { it == "GET /bookings/42/details" })

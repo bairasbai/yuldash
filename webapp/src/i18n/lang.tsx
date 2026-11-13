@@ -4,18 +4,17 @@ import {
   useContext,
   useEffect,
   useMemo,
-  useState,
+  useSyncExternalStore,
   type ReactNode,
 } from "react";
 import { dict, type DictKey, type Lang, type Pair } from "./dict";
+import { getLanguage, getLanguageSaveStatus, saveLanguage, subscribeLanguage, subscribeLanguageSaveStatus } from "./languagePreference";
 import { getToken } from "../api/client";
 import { updateMe } from "../api/auth";
 
-const STORAGE_KEY = "yuldash.lang";
-
 interface LangCtx {
   lang: Lang;
-  setLang: (l: Lang) => void;
+  setLang: (l: Lang) => Promise<boolean>;
   toggle: () => void;
   /** Перевод по ключу словаря. */
   t: (key: DictKey) => string;
@@ -26,47 +25,50 @@ interface LangCtx {
 
 const Ctx = createContext<LangCtx | null>(null);
 
-function initialLang(): Lang {
-  const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved === "ru" || saved === "ba") return saved;
-  return "ru";
-}
-
 export function LangProvider({ children }: { children: ReactNode }) {
-  const [lang, setLangState] = useState<Lang>(initialLang);
+  const lang = useSyncExternalStore(subscribeLanguage, getLanguage);
+  const saveStatus = useSyncExternalStore(subscribeLanguageSaveStatus, getLanguageSaveStatus);
 
   useEffect(() => {
-    localStorage.setItem(STORAGE_KEY, lang);
-    document.documentElement.lang = lang === "ba" ? "ba" : "ru";
-    // Язык нужен и серверу: пуши приходят двуязычные, и он выбирает нужный по User.language.
-    // Без этого человек переключал сайт на башкирский, а уведомления продолжали идти по-русски.
-    // Гость — не в счёт: без токена запрос вернёт 401, поэтому молча пропускаем.
+    // Сервер использует язык профиля для уведомлений.
     if (getToken()) {
-      updateMe({ language: lang }).catch(() => {
-        /* сеть/старый сервер — не критично, локальный язык уже переключён */
+      void updateMe({ language: lang }).catch(() => {
+        /* Выбор на устройстве уже сохранён. */
       });
     }
   }, [lang]);
 
-  const setLang = useCallback((l: Lang) => setLangState(l), []);
-  const toggle = useCallback(
-    () => setLangState((p) => (p === "ru" ? "ba" : "ru")),
-    []
-  );
+  const toggle = useCallback(() => {
+    void saveLanguage(getLanguage() === "ru" ? "ba" : "ru");
+  }, []);
 
   const value = useMemo<LangCtx>(() => {
     const idx = lang === "ba" ? 1 : 0;
     return {
       lang,
-      setLang,
+      setLang: saveLanguage,
       toggle,
       t: (key) => dict[key][idx],
       appText: (ru, ba) => (lang === "ba" ? ba : ru),
       pick: (pair) => pair[idx],
     };
-  }, [lang, setLang, toggle]);
+  }, [lang, toggle]);
 
-  return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
+  return (
+    <Ctx.Provider value={value}>
+      {children}
+      {saveStatus === "saving" && (
+        <p className="language-save-status" role="status">
+          {value.appText("Сохраняем язык…", "Телде һаҡлайбыҙ…")}
+        </p>
+      )}
+      {saveStatus === "failed" && (
+        <p className="language-save-status" role="alert">
+          {value.appText("Не получилось сохранить язык. Попробуй ещё раз.", "Телде һаҡлап булманы. Ҡабатлап ҡара.")}
+        </p>
+      )}
+    </Ctx.Provider>
+  );
 }
 
 export function useLang(): LangCtx {

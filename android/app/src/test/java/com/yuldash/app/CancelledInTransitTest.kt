@@ -389,7 +389,7 @@ class CancelledInTransitTest {
                         car = "Лада Веста", price = 500, seats = 1, rating = 4.9, verified = true, boosted = false),
                     bookingId = 42, ads = emptyList(), adStats = emptyMap(), onBack = {}, onMessage = {},
                     onAdImpression = {}, onAdClick = {}, bookingStatus = "cancelled", onSos = { sosCalls++ },
-                    onConfirmRide = { _, _, _, _, _ -> fail("история брони не создаёт бронь") },
+                    onConfirmRide = { _, _, _, _, _, _ -> fail("история брони не создаёт бронь") },
                 )
             }
         }

@@ -5,7 +5,7 @@ import { IDBFactory } from 'fake-indexeddb';
 import { fileURLToPath } from 'node:url';
 const {outputFiles}=await build({stdin:{contents:"export * from './src/api/client'; export * from './src/api/chat'; export * from './src/utils/outbox';",resolveDir:fileURLToPath(new URL('../',import.meta.url)),loader:'ts'},bundle:true,write:false,format:'esm',platform:'node',define:{'import.meta.env':'{}'}});
 globalThis.indexedDB=new IDBFactory();const storage=new Map();globalThis.localStorage={getItem:k=>storage.get(k)??null,setItem:(k,v)=>storage.set(k,String(v)),removeItem:k=>storage.delete(k)};
-const api=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text).toString('base64'));api.setSession('A','refresh-A');
+const api=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text).toString('base64'));await api.setSession('A','refresh-A');
 const received=[],messages=new Map();
 globalThis.fetch=async(url,init)=>{
  const key=init.headers['Idempotency-Key'];received.push(key);
@@ -17,7 +17,7 @@ globalThis.fetch=async(url,init)=>{
 const identity=api.createOutboxId?.()??'original-intent';
 await assert.rejects(api.sendMessageRest(42,'one message',undefined,identity),e=>e.status===0);
 await api.enqueue(42,'message','one message',identity);
-const reloaded=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'// reloaded').toString('base64'));await reloaded.flushOutbox();
+const reloaded=await import('data:text/javascript;base64,'+Buffer.from(outputFiles[0].text+'// reloaded').toString('base64'));await reloaded.initializeSessionStorage();await reloaded.flushOutbox();
 assert.equal(messages.size,1,'Lost response caused a second server message');
 assert.deepEqual(received,[identity,identity]);assert.equal(reloaded.hasPending(),false);
 console.log('✓ first REST attempt and durable retry retain the same idempotency key');

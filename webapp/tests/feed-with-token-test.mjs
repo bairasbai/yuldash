@@ -69,7 +69,7 @@ const feeds = [
 
 for (const [label, call, path] of feeds) {
   await test(`${label}: с токеном уходит Authorization`, async ({ api, calls }) => {
-    api.setSession("tok-A", "refresh-A");
+    await api.setSession("tok-A", "refresh-A");
     await call(api);
     assert.equal(calls.length, 1);
     assert.ok(calls[0].url.includes(path), calls[0].url);

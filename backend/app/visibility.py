@@ -300,9 +300,6 @@ FEED_MAX = 200
 # окна для связи по одной поездке — значит однажды их рассинхронизировать.
 def booking_contacts_open(booking, ride, now=None) -> bool:
     """Открыт ли ПРЯМО СЕЙЧАС телефон второй стороны по этой брони."""
-    from datetime import timedelta
-
-    from .config import settings
     from .timeutil import utcnow
 
     статус = booking.status.value if hasattr(booking.status, "value") else booking.status
@@ -310,14 +307,19 @@ def booking_contacts_open(booking, ride, now=None) -> bool:
         return False
     if статус != "done":
         return True                     # едем прямо сейчас — связь нужна
-    сейчас = now or utcnow()
-    # «Забыл вещь» продлевает связь: пока идёт поиск, номер нужен обеим сторонам.
-    до = getattr(booking, "lost_item_until", None)
-    if до is not None and сейчас <= до:
-        return True
+    до = completed_booking_contacts_deadline(booking, ride)
+    return до is None or (now or utcnow()) <= до
+
+
+def completed_booking_contacts_deadline(booking, ride):
+    """Серверная граница окна связи после поездки, включая поиск забытой вещи."""
+    from .config import settings
+
     if ride is None or ride.depart_at is None:
-        return True                     # времени выезда нет — закрывать не по чему
-    return сейчас <= ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)
+        return None
+    до = ride.depart_at + timedelta(hours=settings.chat_after_trip_hours)
+    поиск = getattr(booking, "lost_item_until", None)
+    return max(до, поиск) if поиск is not None else до
 
 
 # «Сообщить о проблеме» пассажира — 6 часов (приёмка PR174; от отмены в пути — решение 23.10.2026).

@@ -194,8 +194,16 @@ check(/ResizeObserver/.test(screenCode), "клавиатура/фото поме
   );
   check(/@media \(max-width: 389px\)/.test(block), "есть правка под узкий экран (320–389px)");
   check(
-    /inTripChat/.test(read("App.tsx")) && /<InstallPrompt hidden=\{inTripChat\}/.test(read("App.tsx")),
+    /inTripChat/.test(app) && app.includes("<InstallPrompt hidden={inTripChat || inPublicationForm || inProfileOrTrustedContacts}"),
     "подсказка «Установи на экран» не лежит поверх строки ввода"
+  );
+  check(
+    app.includes('matchPath("/request", pathname) || matchPath("/create-ride", pathname)'),
+    "подсказка установки скрыта на формах заявки и публикации рейса"
+  );
+  check(
+    app.includes('matchPath("/profile", pathname) || matchPath("/trusted", pathname)'),
+    "подсказка установки не перекрывает выход и форму доверенных контактов"
   );
   check(/tchat-card__write\s*\{[^}]*min-height:\s*48px/.test(block), "тач-цель ≥ 48px: «Написать»");
 }

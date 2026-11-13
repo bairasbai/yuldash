@@ -198,7 +198,7 @@ internal fun NearbyConditionsChip(
     chosen: Set<String>,
     onChange: (Set<String>) -> Unit,
     verifiedOnly: Boolean,
-    total: Int,
+    total: Int?,
     chipModifier: Modifier,
 ) {
     var open by remember { mutableStateOf(false) }
@@ -217,7 +217,8 @@ internal fun NearbyConditionsChip(
             },
         ) { close ->
             NearbyConditionsList(chosen, onChange, verifiedOnly)
-            AppButton(showRidesLabel(total), close, modifier = Modifier.padding(top = CanonSpace.md))
+            val action = total?.let { showRidesLabel(it) } ?: appText("Готово", "Әҙер")
+            AppButton(action, close, modifier = Modifier.padding(top = CanonSpace.md))
         }
     }
 }

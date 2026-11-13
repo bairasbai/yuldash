@@ -22,15 +22,12 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
-import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
-import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.BorderStroke
@@ -46,7 +43,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -76,6 +72,7 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.filled.Pets
 import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
@@ -174,10 +171,10 @@ import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.key
 import com.yuldash.app.data.OfflineTripSnapshots
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateListOf
@@ -225,7 +222,6 @@ import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
@@ -254,6 +250,7 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
@@ -366,6 +363,25 @@ private fun YuldashAppContent() {
     var language by vm.language
     // Сохраняем только запрошенный экран, без данных прежнего аккаунта или автодействия.
     var destinationAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Screen?>("destinationAfterLogin")) { mutableStateOf<Screen?>(null) }
+    var guestBookingLogin by vm.guestBookingLogin
+    var pendingGuestBooking by vm.pendingGuestBooking
+    var failedGuestBooking by vm.failedGuestBooking
+    var openGuestBooking by vm.openGuestBooking
+    LaunchedEffect(screen, navigationRevision, navigationSession) {
+        guestBookingLogin?.let {
+            if (screen != Screen.Login || navigationRevision != it.revision ||
+                navigationSession !in it.generation..it.generation + 1) guestBookingLogin = null
+        }
+        pendingGuestBooking?.let {
+            if (navigationSession != it.generation || vm.pendingPublicRideNavigation.value != it.destination) pendingGuestBooking = null
+        }
+        failedGuestBooking?.let {
+            if (screen != it.screen || navigationRevision != it.revision || navigationSession != it.generation) failedGuestBooking = null
+        }
+        openGuestBooking?.let {
+            if (screen != Screen.Booking || navigationRevision != it.revision || navigationSession != it.generation) openGuestBooking = null
+        }
+    }
     // SharedPreferences — источник языка для настоящего холодного старта, когда SavedStateHandle пуст.
     // Пока гидратация не закончилась, не пишем дефолтный RU обратно на диск и сервер.
     val persistedLanguage = remember(context) { AppPrefs.language(context) }
@@ -641,6 +657,7 @@ private fun YuldashAppContent() {
     var bookingLinkAttempt by remember { mutableIntStateOf(0) }
     // Отличает два запроса того же public id: старый callback не управляет новой ошибкой.
     var publicLinkAttempt by remember { mutableIntStateOf(0) }
+    var failedPublicRecovery by remember { mutableStateOf<(() -> Boolean)?>(null) }
     LaunchedEffect(navigationRevision) {
         if (failedRideLink != null && failedCompletedRevision != null && failedCompletedRevision != vm.privateNavigationRevision) {
             failedRideLink = null
@@ -674,26 +691,42 @@ private fun YuldashAppContent() {
         val requestedScreen = screen
         val requestedRevision = vm.privateNavigationRevision
         val requestedSession = ApiClient.queueSessionGeneration()
+        val guestBooking = pendingGuestBooking?.takeIf { it.destination == publicDestination && it.generation == requestedSession }
         val requestedAttempt = ++publicLinkAttempt
         failedRideLink = null
         failedBookingDestination = null
-        val result = ApiClient.getRide(rideId)
+        failedPublicRecovery = null
+        failedGuestBooking = null
+        val result = ApiClient.getRide(rideId, expectedGeneration = requestedSession)
         // Не менять ключ LaunchedEffect до окончания запроса: это отменяло саму загрузку.
         ApiClient.runIfUnchangedSession(requestedSession) {
             if (!isActive || vm.pendingPublicRideNavigation.value != publicDestination || vm.screen.value != requestedScreen ||
                 vm.privateNavigationRevision != requestedRevision || publicLinkAttempt != requestedAttempt) return@runIfUnchangedSession
             vm.clearPendingPublicRide()
+            if (guestBooking != null) pendingGuestBooking = null
             result.onSuccess { dto ->
                 vm.navigateLocally {
-                    selectedRide = dto.toUiRide().withRouteHints(selectedRide)
+                    val freshRide = dto.toUiRide()
+                    selectedRide = if (guestBooking == null) freshRide.withRouteHints(selectedRide) else freshRide
                     activeBookingId = null
                     selectedBookingStatus = ""
+                    if (guestBooking != null && ApiClient.isCurrentSession(requestedSession) && freshRide.id.toIntOrNull() == rideId) {
+                        openGuestBooking = OpenGuestBooking(rideId, requestedSession, vm.privateNavigationRevision, guestBooking.draft.restore(freshRide))
+                    }
                     screen = Screen.Booking
                 }
             }.onFailure { error ->
                 rideLinkUnavailable = (error as? ApiException)?.status in listOf(403, 404, 410)
+                if (guestBooking != null && !rideLinkUnavailable && ApiClient.isCurrentSession(requestedSession)) {
+                    failedGuestBooking = FailedGuestBooking(guestBooking.draft, requestedSession, requestedRevision, requestedScreen)
+                }
                 failedBookingDestination = null
                 failedCompletedRevision = requestedRevision
+                failedPublicRecovery = {
+                    ApiClient.isCurrentSession(requestedSession) && vm.screen.value == requestedScreen &&
+                        vm.privateNavigationRevision == requestedRevision && publicLinkAttempt == requestedAttempt &&
+                        failedRideLink == rideId
+                }
                 failedRideLink = rideId
             }
         }
@@ -705,16 +738,28 @@ private fun YuldashAppContent() {
         val failedKind = failedBookingDestination
         val failedOwner = failedCompletedOwner
         val failedRevision = if (failedKind == null) failedCompletedRevision ?: vm.privateNavigationRevision else failedCompletedRevision
-        val failedSession = ApiClient.queueSessionGeneration()
+        val failedSession = navigationSession
         val failedScreen = screen
         val failedPublicAttempt = publicLinkAttempt
+        val publicFailureGuard = failedPublicRecovery
         fun isDisplayedFailureCurrent() = appScope.isActive && failedRideLink == rideId && failedBookingDestination == failedKind &&
             vm.screen.value == failedScreen && (if (failedKind == null)
                 vm.privateNavigationRevision == failedRevision && publicLinkAttempt == failedPublicAttempt
             else failedCompletedRevision == failedRevision)
+        fun isPublicRecoveryCurrent() = failedKind == null && isDisplayedFailureCurrent() &&
+            failedPublicRecovery === publicFailureGuard && publicFailureGuard?.invoke() == true &&
+            ApiClient.isCurrentSession(failedSession) && vm.pendingPublicRideNavigation.value == null &&
+            vm.pendingBookingNavigation.value == null && vm.pendingScreenNavigation.value == null
+        val linkRecovery = if (isPublicRecoveryCurrent()) key(rideId, failedPublicAttempt, failedSession) {
+            rememberBookingRecovery(rideId, failedSession, ::isPublicRecoveryCurrent)
+        } else null
         fun closeDisplayedFailure() {
             ApiClient.runIfUnchangedSession(failedSession) {
-                if (isDisplayedFailureCurrent()) failedRideLink = null
+                if (isDisplayedFailureCurrent()) {
+                    if (failedKind == null) failedPublicRecovery = null
+                    if (failedKind == null) failedGuestBooking = null
+                    failedRideLink = null
+                }
             }
         }
         val tagPrefix = if (failedKind == null) "rideLink" else "bookingLink"
@@ -729,9 +774,22 @@ private fun YuldashAppContent() {
             title = { Text(if (rideLinkUnavailable)
                 appText("Поездка недоступна", "Сәфәрҙе асып булмай")
             else appText("Не получилось открыть поездку", "Сәфәрҙе асып булманы")) },
-            text = { Text(if (rideLinkUnavailable)
-                appText("Поездка удалена или доступ к ней закрыт.", "Сәфәр юйылған йәки уға инеү рөхсәте юҡ.")
-            else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла.")) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                    Text(if (rideLinkUnavailable)
+                        appText("Поездка удалена или доступ к ней закрыт.", "Сәфәр юйылған йәки уға инеү рөхсәте юҡ.")
+                    else appText("Проверь сеть и попробуй снова.", "Селтәрҙе тикшереп ҡабатла."))
+                    if (linkRecovery?.slot != null || linkRecovery?.problem != null) {
+                        BookingRecoveryActions(checkNotNull(linkRecovery), busy = bookingInFlight,
+                            isCurrent = ::isPublicRecoveryCurrent, onOpen = { booking ->
+                                if (isPublicRecoveryCurrent()) {
+                                    closeDisplayedFailure()
+                                    vm.requestBookingDestination(booking.id, ApiClient.myUserId(), completed = booking.status == "done")
+                                }
+                            })
+                    }
+                }
+            },
             confirmButton = {
                 if (rideLinkUnavailable) {
                     TextButton(modifier = Modifier.testTag("${tagPrefix}Close"), onClick = { closeDisplayedFailure() }) {
@@ -758,7 +816,18 @@ private fun YuldashAppContent() {
                             if (!isDisplayedFailureCurrent() || vm.pendingPublicRideNavigation.value != null ||
                                 vm.pendingBookingNavigation.value != null || vm.pendingScreenNavigation.value != null) return@runIfUnchangedSession
                             publicLinkAttempt++
+                            val guestRetry = failedGuestBooking?.takeIf {
+                                it.draft.rideId == rideId && it.generation == failedSession &&
+                                    it.revision == failedRevision && it.screen == failedScreen &&
+                                    ApiClient.isCurrentSession(failedSession)
+                            }
                             vm.requestPublicRide(rideId)
+                            if (guestRetry != null) {
+                                pendingGuestBooking = PendingGuestBooking(
+                                    guestRetry.draft, failedSession, checkNotNull(vm.pendingPublicRideNavigation.value),
+                                )
+                            }
+                            failedGuestBooking = null
                             failedRideLink = null
                         }
                     }) { Text(appText("Повторить", "Ҡабатлау"), color = CanonGreen2) }
@@ -972,8 +1041,10 @@ private fun YuldashAppContent() {
 
     // Поездки — с сервера. Стартуем с демо (мгновенно), при ответе заменяем на серверные.
     // Сервер недоступен (ТСПУ/офлайн) → остаются демо, экран не пустеет.
-    LaunchedEffect(Unit) {
+    var ridesReload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(navigationSession, ridesReload) {
         ApiClient.getRides().onSuccess { dtos ->
+            if (ApiClient.queueSessionGeneration() != navigationSession) return@onSuccess
             // Сервер ОТВЕТИЛ → показываем ровно его список. Пусто = пусто (честный empty-state),
             // а не «оставить демо с числовыми id 1..3», которые book() принял бы за реальные
             // серверные поездки и создал бронь на чужую поездку id=1.
@@ -1239,17 +1310,36 @@ private fun YuldashAppContent() {
                 }
             )
             Screen.Login -> {
+                val loginRevision = navigationRevision
+                val guestLogin = guestBookingLogin?.takeIf { it.revision == loginRevision && vm.screen.value == Screen.Login }
                 LoginScreen(
                     currentLanguage = language,
                     onToggleLanguage = {
                         language = if (language == AppLanguage.Ru) AppLanguage.Ba else AppLanguage.Ru
                     },
-                    onContinue = {
+                    onCancel = if (guestLogin != null) {
+                        {
+                            if (vm.screen.value == Screen.Login && vm.privateNavigationRevision == loginRevision) {
+                                guestBookingLogin = null
+                                vm.requestPublicRide(guestLogin.draft.rideId)
+                            }
+                        }
+                    } else null,
+                    onContinue = { generation ->
+                        if (vm.screen.value != Screen.Login || vm.privateNavigationRevision != loginRevision ||
+                            !ApiClient.isCurrentSession(generation)) return@LoginScreen
                         sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
                         prefs.markOnboardingCompleted()   // вошёл по ссылке, минуя вводные, — после перезапуска их не показываем
                         val destination = destinationAfterLogin
                         destinationAfterLogin = null
-                        if (destination != null) {
+                        val guestBooking = guestLogin?.takeIf { guestBookingLogin == it && it.generation + 1 == generation }
+                        guestBookingLogin = null
+                        if (guestBooking != null) {
+                            openHome(startHomeTab)
+                            vm.requestPublicRide(guestBooking.draft.rideId)
+                            val publicRide = checkNotNull(vm.pendingPublicRideNavigation.value)
+                            pendingGuestBooking = PendingGuestBooking(guestBooking.draft, generation, publicRide)
+                        } else if (destination != null) {
                             if (destination == Screen.Home) openHome(startHomeTab) else screen = destination
                         } else if (prefs.getString("preferred_role", "") == RideRole.Driver.name) {
                             startHomeTab = HomeTab.Profile   // назад из кабинета водителя → профиль
@@ -1291,8 +1381,9 @@ private fun YuldashAppContent() {
             Screen.CreateRide -> CreateRideScreen(
                 prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
                 onBack = { goBack() },
-                onPublish = { ride ->
-                    rides.add(0, ride)
+                onPublicationResolved = { ridesReload++ },
+                onPublish = {
+                    screenStates.removeState("$screenStateOwner:${Screen.CreateRide.name}")
                     Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
                     if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)
                 }
@@ -1320,17 +1411,62 @@ private fun YuldashAppContent() {
                     OfflineTripSnapshots.currentOwner() == displayedOwner && vm.pendingBookingNavigation.value == null &&
                     vm.pendingScreenNavigation.value == null && vm.pendingPublicRideNavigation.value == null
                 fun isDisplayedBookingCurrent() = isDisplayedBookingUnchanged() && ApiClient.isCurrentSession(displayedSession)
-                key("booking-draft-v2", displayedOwner, displayedSession, displayedBookingId, displayedRide?.id) {
-                var frontSeat by remember(displayedRide?.id) { mutableStateOf(false) }   // «хочу переднее» — своё у каждой поездки
-                var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(1) }
-                val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession)
+                val guestChoices = openGuestBooking?.takeIf {
+                    it.rideId == displayedRide?.id?.toIntOrNull() && it.generation == displayedSession &&
+                        it.revision == displayedRevision && displayedBookingId == null
+                }?.choices
+                val guestForm = displayedBookingId == null && !ApiClient.isLoggedIn()
+                key("booking-draft-v2", displayedOwner, displayedSession, displayedBookingId, displayedRide?.id, guestChoices) {
+                var frontSeat by remember(displayedRide?.id) { mutableStateOf(guestChoices?.front == true) }
+                var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(guestChoices?.seats ?: 1) }
+                val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession, guestChoices)
+                val needsGuestReview = guestChoices?.review != null
+                if (guestChoices?.review != null) {
+                    GuestBookingReviewDialog(guestChoices.review,
+                        onReview = {
+                            if (isDisplayedBookingCurrent()) openGuestBooking = openGuestBooking?.copy(choices = guestChoices.copy(review = null))
+                        },
+                        onBack = { if (isDisplayedBookingCurrent()) vm.navigateLocally { openHome(HomeTab.Rides) } },
+                    )
+                }
+                val recovery = key(displayedRevision) {
+                    rememberBookingRecovery(displayedRide?.id?.toIntOrNull().takeIf { displayedBookingId == null },
+                        displayedSession, ::isDisplayedBookingCurrent)
+                }
+                var refreshBookingTerms by remember(displayedRevision) { mutableIntStateOf(0) }
+                LaunchedEffect(recovery, recovery.needsFreshTerms, recovery.loading, refreshBookingTerms) {
+                    val ride = displayedRide ?: return@LaunchedEffect
+                    val rideId = ride.id.toIntOrNull() ?: return@LaunchedEffect
+                    if (!recovery.needsFreshTerms || recovery.loading || !isDisplayedBookingCurrent()) return@LaunchedEffect
+                    recovery.refreshingTerms = true
+                    try {
+                        ApiClient.getRide(rideId).onSuccess { fresh ->
+                            if (isActive && isDisplayedBookingCurrent()) ApiClient.runIfCurrentSession(displayedSession) {
+                                if (isDisplayedBookingCurrent()) {
+                                    val updatedRide = fresh.toUiRide().withRouteHints(ride)
+                                    if (routePlaces(ride) != routePlaces(updatedRide)) {
+                                        meetingDraft.meeting = null
+                                        meetingDraft.alighting = null
+                                        if (!segmentReady(updatedRide, meetingDraft.pickup, meetingDraft.dropoff)) {
+                                            meetingDraft.pickup = initialPickupStop(updatedRide)
+                                            meetingDraft.dropoff = initialDropoffStop(updatedRide)
+                                        }
+                                    }
+                                    selectedRide = updatedRide
+                                    recovery.freshTermsShown()
+                                }
+                            }
+                        }
+                    } finally {
+                        recovery.refreshingTerms = false
+                    }
+                }
                 key(displayedRide, displayedBookingId, displayedSession, displayedOwner, displayedRevision) {
                     BookingScreen(
-                    // null = бронировать нечего (лента пуста и ничего не выбрано): экран сам вернёт
-                    // назад. Раньше тут подставлялась демо-поездка «вместо краша на пустом списке» —
-                    // человек видел карточку выдуманного водителя, а бронь не проходила (id не серверный).
                     ride = selectedRide ?: rides.firstOrNull(),
                     bookingId = activeBookingId,
+                    recovery = recovery, onOpenRecoveredBooking = { vm.requestBookingDestination(it.id, ApiClient.myUserId(), completed = it.status == "done") },
+                    onRefreshBookingTerms = { refreshBookingTerms++ },
                     isCurrentParent = { isDisplayedBookingUnchanged() },
                     ads = partnerAds,
                     adStats = adStats,
@@ -1340,56 +1476,47 @@ private fun YuldashAppContent() {
                     onAdClick = ::trackAdClick,
                     canOpenActiveTrip = activeBookingId == null || bookingStatusAllowsActiveTrip(selectedBookingStatus),
                     bookingStatus = selectedBookingStatus, onBookingStatusChange = { selectedBookingStatus = it },
-                    // Передумал, пока водитель молчит. Место возвращается в поездку, водителю
-                    // уходит уведомление — этим занимается сервер.
-                    onCancelBooking = {
-                        if (displayedBookingId != null && isDisplayedBookingCurrent() && !bookingInFlight) {
-                            bookingInFlight = true
-                            appScope.launch {
-                                try {
-                                    if (!isDisplayedBookingCurrent()) return@launch
-                                    val result = ApiClient.cancelBooking(displayedBookingId)
-                                    if (!isDisplayedBookingCurrent()) return@launch
-                                    ApiClient.runIfCurrentSession(displayedSession) {
-                                        result.onSuccess {
-                                            vm.navigateLocally {
-                                                selectedBookingStatus = "cancelled"
-                                                activeBookingId = null
-                                                openHome(HomeTab.Rides)
-                                            }
-                                        }.onFailure {
-                                            val текст = if (language == AppLanguage.Ba)
-                                                "Кире алып булманы. Селтәрҙе тикшереп ҡабатла."
-                                            else "Не получилось отменить. Проверь сеть и повтори."
-                                            Toast.makeText(context, serverSaid(it, текст), Toast.LENGTH_LONG).show()
-                                        }
-                                    }
-                                } finally { bookingInFlight = false }
-                            }
+                    onPassengerCancelled = {
+                        if (isDisplayedBookingCurrent()) vm.navigateLocally {
+                            selectedBookingStatus = "cancelled"
+                            activeBookingId = null
+                            openHome(HomeTab.Rides)
                         }
                     },
                     onFindAnotherRide = { openHome(HomeTab.Rides) },
                     onSos = { openSos(bookingId = activeBookingId ?: 0) },   // отменили в пути: SOS с бронью, как на экране поездки
                     frontSeat = frontSeat, onFrontSeatChange = { frontSeat = it },
                     selectedSeats = selectedSeats, onSeatsChange = { if (!bookingInFlight) selectedSeats = it },
-                    bookingBusy = bookingInFlight,
+                    bookingBusy = bookingInFlight || needsGuestReview,
                     pickupStop = meetingDraft.pickup, onPickupStopChange = meetingDraft::selectPickup,
                     dropoffStop = meetingDraft.dropoff, onDropoffStopChange = meetingDraft::selectDropoff,
                     meetPickup = meetingDraft.meeting, onMeetPickupChange = { meetingDraft.meeting = it },
                     meetDropoff = meetingDraft.alighting, onMeetDropoffChange = { meetingDraft.alighting = it },
-                    onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone ->
+                    initialMinor = guestChoices?.minor == true,
+                    initialForAnother = guestChoices?.forAnother == true,
+                    trustedContacts = trustedContacts,
+                    onTrustedContacts = { openTrustedContacts(returnScreen = Screen.Booking) },
+                    onGuestBooking = if (guestForm) guest@{ minor, forAnother ->
+                        val ride = displayedRide ?: return@guest
+                        val rideId = ride.id.toIntOrNull()?.takeIf { it > 0 } ?: return@guest
+                        ApiClient.runIfUnchangedSession(displayedSession) {
+                            if (isDisplayedBookingUnchanged() && !ApiClient.isLoggedIn()) {
+                                val draft = GuestBookingDraft(rideId, ride.termsVersion, routePlaces(ride),
+                                    meetingDraft.pickup, meetingDraft.dropoff, selectedSeats, frontSeat, minor, forAnother)
+                                vm.navigateLocally {
+                                    destinationAfterLogin = null
+                                    guestBookingLogin = GuestBookingLogin(draft, displayedSession, vm.privateNavigationRevision)
+                                    screen = Screen.Login
+                                }
+                            }
+                        }
+                    } else null,
+                    onConfirmRide = { payMethod, payAmount, minor, guardianName, guardianPhone, travelerName ->
                         val pickupStop = meetingDraft.pickup
                         val dropoffStop = meetingDraft.dropoff
                         val meetPickup = meetingDraft.meeting
                         val meetDropoff = meetingDraft.alighting
-                        if (!isDisplayedBookingUnchanged()) return@BookingScreen
-                        if (!ApiClient.isLoggedIn()) {
-                            ApiClient.runIfUnchangedSession(displayedSession) {
-                                if (isDisplayedBookingUnchanged()) vm.navigateLocally { openProtectedScreen(Screen.Booking) }
-                            }
-                            return@BookingScreen
-                        }
-                        if (!isDisplayedBookingCurrent()) return@BookingScreen
+                        if (needsGuestReview || !isDisplayedBookingCurrent()) return@BookingScreen
                         if (displayedBookingId != null) {
                             ApiClient.runIfCurrentSession(displayedSession) {
                                 if (isDisplayedBookingCurrent()) vm.navigateLocally {
@@ -1399,19 +1526,27 @@ private fun YuldashAppContent() {
                             }
                         } else {
                             val rid = bookingRideIdOrNotify(displayedRide, context, language)
-                            // Блокируем повторное нажатие до ответа на медленной сети.
-                            // Сервер отдельно проверяет явный повтор после потерянного ответа.
-                            if (rid != null && !bookingInFlight && displayedRide != null && selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) && segmentReady(displayedRide, pickupStop, dropoffStop)) {
+                            val original = recovery.preparedRetry?.takeIf { it.rideId == rid }
+                            if (rid != null && !bookingInFlight && recovery.canSubmit && displayedRide != null &&
+                                !rideCategoryClosed(displayedRide.category) && (original != null ||
+                                    (selectedSeats in 1..bookableSeats(displayedRide, pickupStop, dropoffStop) &&
+                                        segmentReady(displayedRide, pickupStop, dropoffStop)))) {
                                 bookingInFlight = true
                                 appScope.launch {
                                     try {
                                         if (!isDisplayedBookingCurrent()) return@launch
-                                        val result = ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop,
+                                        var prepared: PreparedBookingRequest? = null
+                                        val result = if (original != null) {
+                                            BookingCommandApi.repeatPrepared(
+                                                rid, original.wireBody, displayedSession, original.key)
+                                        } else ApiClient.bookWithStatus(rid, selectedSeats, payMethod, payAmount, minor, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop,
                                             // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
                                             expectedPrice = segmentPriceRub(displayedRide, pickupStop, dropoffStop) ?: displayedRide.price,
                                             expectedTermsVersion = displayedRide.termsVersion,
-                                            // RS-03 А: точки встречи/высадки по желанию.
-                                            meeting = meetPickup, alighting = meetDropoff)
+                                            meeting = meetPickup, alighting = meetDropoff, expectedGeneration = displayedSession,
+                                            previousKey = recovery.slot?.key, retry = recovery.retry,
+                                            onPrepared = { key, body -> prepared = PreparedBookingRequest(rid, key, body) },
+                                            travelerName = travelerName)
                                         if (!isDisplayedBookingCurrent()) return@launch
                                         ApiClient.runIfCurrentSession(displayedSession) {
                                             result.onSuccess { booking ->
@@ -1422,17 +1557,7 @@ private fun YuldashAppContent() {
                                                     screen = if (bookingStatusAllowsActiveTrip(booking.status)) Screen.ActiveTrip else Screen.Booking
                                                 }
                                             }.onFailure { e ->
-                                                val msg = (e as? ApiException)?.message?.takeIf { it.isNotBlank() }
-                                                    ?: if (language == AppLanguage.Ba) "Бронләп булманы. Ҡабатла." else "Не удалось забронировать. Повтори."
-                                                Toast.makeText(context, msg, Toast.LENGTH_LONG).show()
-                                                // Условия уехали (цена/места/маршрут): перечитываем поездку, человек подтверждает уже НОВЫЕ условия (RS-02 В).
-                                                if ((e as? ApiException)?.detailCode in setOf("price_changed", "ride_terms_changed")) appScope.launch {
-                                                    ApiClient.getRide(rid).onSuccess { fresh ->
-                                                        if (isDisplayedBookingUnchanged()) vm.navigateLocally { selectedRide = fresh.toUiRide().withRouteHints(displayedRide) }
-                                                    }
-                                                }
-                                                // Своя бронь уже есть — открываем её (номер пришёл в отказе).
-                                                existingBookingIdOf(e)?.let { id -> vm.navigateLocally { activeBookingId = id; selectedBookingStatus = ""; screen = Screen.Booking } }
+                                                recovery.failed(e, prepared)
                                             }
                                         }
                                     } finally { bookingInFlight = false }
@@ -1657,7 +1782,7 @@ private fun YuldashAppContent() {
                 latestRequests = localRequests,
                 onBack = { goBack() },
                 onVoiceRequest = { openProtectedScreen(Screen.VoiceRequest) },
-                onFamilyOrder = { openProtectedScreen(Screen.FamilyOrder) },
+                onFamilyOrder = { vm.navigateLocally { openProtectedScreen(Screen.FamilyOrder) } },
                 onTrustedContacts = { openTrustedContacts(returnScreen = Screen.SimpleMode) },
                 onRepeatTrip = { openProtectedScreen(Screen.RepeatTrip) },
                 onCallbackHelp = { openProtectedScreen(Screen.CallbackHelp) },
@@ -1673,15 +1798,23 @@ private fun YuldashAppContent() {
                     goBack()
                 }
             )
-            Screen.FamilyOrder -> FamilyOrderScreen(
-                contacts = trustedContacts,
-                onBack = { goBack() },
-                onCreateRequest = { request ->
-                    localRequests.add(0, request)
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Яҡын кеше өсөн сәфәр булдырылды" else "Поездка за близкого создана", Toast.LENGTH_SHORT).show()
-                    goBack()
+            Screen.FamilyOrder -> {
+                val displayedRevision = vm.privateNavigationRevision
+                val createdMessage = appText("Заявка создана", "Заявка булдырылды")
+                androidx.compose.runtime.key(displayedRevision) {
+                    FamilyOrderScreen(
+                        onBack = { goBack() },
+                        onCreateRequest = { request ->
+                            if (localRequests.none { it.serverId == request.serverId }) localRequests.add(0, request)
+                            if (requestsLoading) requestsReload++
+                            if (vm.screen.value == Screen.FamilyOrder && vm.privateNavigationRevision == displayedRevision) {
+                                Toast.makeText(context, createdMessage, Toast.LENGTH_SHORT).show()
+                                goBack()
+                            }
+                        }
+                    )
                 }
-            )
+            }
             Screen.TrustedContacts -> {
                 val displayedRevision = vm.privateNavigationRevision
                 androidx.compose.runtime.key(displayedRevision) {
@@ -2409,7 +2542,7 @@ internal class HomeTabActionGate(
     fun <A, B> guard(action: (A, B) -> Unit): (A, B) -> Unit = { a, b -> if (accepts()) action(a, b) }
     fun <A, B, C> guard(action: (A, B, C) -> Unit): (A, B, C) -> Unit = { a, b, c -> if (accepts()) action(a, b, c) }
 }
-private val LocalHomeTabActionGate = staticCompositionLocalOf { HomeTabActionGate(accepts = { true }) }
+internal val LocalHomeTabActionGate = staticCompositionLocalOf { HomeTabActionGate(accepts = { true }) }
 
 @Composable
 internal fun HomeScreen(
@@ -2481,7 +2614,7 @@ internal fun HomeScreen(
     onTabChange: (HomeTab) -> Unit = {},
     onOpenInstantOrder: () -> Unit = {},
     onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
-    onOpenReceipt: (Int) -> Unit = {}
+    onOpenReceipt: (Int) -> Unit = {}, onOpenRecoveredBooking: (Int, Boolean) -> Unit = { _, _ -> }
 ) {
     // Шелл (таб-стейт + нижнее меню + смена вкладок) вынесен в чистый HomeShell — тестируется на JVM.
     // HomeScreen остаётся «умной» обёрткой: раздаёт данные/колбэки в тело конкретной вкладки.
@@ -2527,6 +2660,7 @@ internal fun HomeScreen(
                     onAdClick = onAdClick,
                     onDriverCabinet = gate.guard(onDriverCabinet),
                     onOpenReceipt = gate.guard(onOpenReceipt),
+                    onOpenRecoveredBooking = onOpenRecoveredBooking,
                 )
                 HomeTab.Request -> MyRequestsScreen(
                     requests = requests,
@@ -2580,211 +2714,5 @@ internal fun HomeScreen(
                     onAdClick = onAdClick
                 )
             }
-    }
-}
-
-/**
- * Чистый шелл главного экрана: держит выбранную вкладку (переживает поворот), рисует Scaffold с нижним
- * меню (YuldashBottomBar) и анимированно переключает тело вкладки. Тело каждой вкладки приходит слотом
- * `tabContent(tab, selectTab)` — так HomeShell не знает про данные/сеть и тестируется на JVM (Robolectric).
- * Аппаратная «Назад» с любой вкладки, кроме Карты, возвращает на Карту. Смену вкладки прокидываем наверх
- * (onTabChange) — чтобы «Назад» с под-экранов возвращался на активную вкладку, а не на Карту.
- */
-@Composable
-internal fun HomeShell(
-    initialTab: HomeTab,
-    onTabChange: (HomeTab) -> Unit = {},
-    onSelectTab: (HomeTab, () -> Unit) -> Unit = { _, commit -> commit() },
-    onOpenInstantOrder: () -> Unit = {},
-    tabContent: @Composable (tab: HomeTab, selectTab: (HomeTab) -> Unit) -> Unit,
-) {
-    val generation by ApiClient.sessionChanges.collectAsState()
-    var selectedTab by remember(initialTab) { mutableStateOf(initialTab) }   // поворот хранит vm.startHomeTab; старый снимок Home не подменяет явный переход
-    val shellScope = rememberCoroutineScope()
-    var selectionEpoch by remember { mutableIntStateOf(0) }
-    val callbackEpoch = selectionEpoch
-    fun selectTab(tab: HomeTab, afterSelection: () -> Unit = {}) {
-        if (shellScope.isActive && callbackEpoch == selectionEpoch) {
-            onSelectTab(tab) {
-                selectedTab = tab
-                selectionEpoch++
-                afterSelection()
-            }
-        }
-    }
-    LaunchedEffect(selectedTab) { onTabChange(selectedTab) }
-
-    BackHandler(enabled = selectedTab != HomeTab.Map) {
-        selectTab(HomeTab.Map)
-    }
-
-    // Пока идёт поиск или сама поездка, нижнее меню прячется. Заказ уже живой: случайный
-    // переход в другой раздел только теряет контекст, а освободившееся место нужно карте.
-    val taxiOrderOnScreen = TaxiNavigationState.orderOnScreen(generation)
-    Scaffold(
-        containerColor = CanonBg,
-        bottomBar = {
-            AnimatedVisibility(
-                visible = !taxiOrderOnScreen,
-                enter = fadeIn(tween(CanonMotion.NORMAL)),
-                exit = fadeOut(tween(CanonMotion.QUICK)),
-            ) {
-                YuldashBottomBar(
-                    selectedTab = selectedTab,
-                    onSelect = { selectTab(it) }
-                )
-            }
-        }
-    ) { padding ->
-        Column(Modifier.padding(padding)) {
-            // Полоска стоит НАД содержимым, а не поверх него: наложенная, она закрывала
-            // переключатель сервисов, и тот торчал из-под неё краями.
-            val renderedTrip = TaxiNavigationState.currentTrip(generation)
-            ActiveTripBar(onOpen = {
-                if (renderedTrip != null) TaxiNavigationState.runIfCurrentTrip(renderedTrip) {
-                    if (!TaxiNavigationState.tripOnScreen(generation)) {
-                        selectTab(HomeTab.Map, onOpenInstantOrder)
-                    }
-                }
-            })
-            AnimatedContent(
-                targetState = selectedTab,
-                transitionSpec = {
-                    (fadeIn(animationSpec = tween(CanonMotion.NORMAL)) +
-                        slideInVertically(animationSpec = tween(CanonMotion.NORMAL)) { it / 18 })
-                        .togetherWith(fadeOut(animationSpec = tween(CanonMotion.QUICK)))
-                },
-                label = "homeTab"
-            ) { tab ->
-                val renderedEpoch = selectionEpoch
-                val gate = HomeTabActionGate(
-                    accepts = { shellScope.isActive && tab == selectedTab && renderedEpoch == selectionEpoch },
-                    choose = { target, after -> selectTab(target, after) },
-                )
-                CompositionLocalProvider(LocalHomeTabActionGate provides gate) {
-                    tabContent(tab) { target -> gate.guard { selectTab(target) }() }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-internal fun YuldashBottomBar(
-    selectedTab: HomeTab,
-    onSelect: (HomeTab) -> Unit
-) {
-    Surface(
-        color = CanonSurface.copy(alpha = 0.98f),
-        shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
-        shadowElevation = CanonDepth.sheet
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()   // на жест-навигации иконки меню не уезжают под системную полосу
-                .heightIn(min = 78.dp)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.Top
-        ) {
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Map,
-                label = appText("Карта", "Карта"),
-                iconRes = R.drawable.yu_map_tab,
-                onClick = { onSelect(HomeTab.Map) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Rides,
-                label = appText("Поездки", "Сәфәрҙәр"),
-                iconRes = R.drawable.yu_trip_list,
-                onClick = { onSelect(HomeTab.Rides) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Request,
-                label = appText("Заявка", "Ғариза"),
-                iconRes = R.drawable.yu_request_add,
-                onClick = { onSelect(HomeTab.Request) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Chat,
-                label = appText("Чат", "Чат"),
-                iconRes = R.drawable.yu_chat,
-                onClick = { onSelect(HomeTab.Chat) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Profile,
-                label = appText("Профиль", "Профиль"),
-                iconRes = R.drawable.yu_profile,
-                onClick = { onSelect(HomeTab.Profile) },
-                badge = NavSignals.payNowDebtKop.value > 0
-            )
-        }
-    }
-}
-
-@Composable
-private fun RowScope.YuldashBottomItem(
-    selected: Boolean,
-    label: String,
-    iconRes: Int,
-    onClick: () -> Unit,
-    badge: Boolean = false
-) {
-    val pillColor by animateColorAsState(if (selected) CanonGold else Color.Transparent, tween(CanonMotion.NORMAL), label = "navPill")
-    val iconTint by animateColorAsState(if (selected) CanonGoldInk else CanonMuted, tween(CanonMotion.NORMAL), label = "navTint")
-    val labelColor by animateColorAsState(if (selected) CanonGreen else CanonMutedStrong, tween(CanonMotion.NORMAL), label = "navLabel")
-    val iconScale by animateFloatAsState(if (selected) 1.12f else 1f, tween(CanonMotion.NORMAL), label = "navScale")
-    val badgeScale by animateFloatAsState(if (badge) 1f else 0f, tween(CanonMotion.QUICK), label = "navBadge")
-    val interaction = remember { MutableInteractionSource() }
-    Column(
-        modifier = Modifier
-            .weight(1f)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .semantics(mergeDescendants = true) { this.selected = selected; role = Role.Tab }
-            .padding(vertical = 4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.spacedBy(4.dp)
-    ) {
-        Box {
-            Surface(
-                color = pillColor,
-                shape = RoundedCornerShape(14.dp)
-            ) {
-                Icon(
-                    painterResource(iconRes),
-                    contentDescription = label,
-                    modifier = Modifier
-                        .padding(horizontal = 12.dp, vertical = 4.dp)
-                        .size(21.dp)
-                        .graphicsLayer { scaleX = iconScale; scaleY = iconScale },
-                    tint = iconTint
-                )
-            }
-            // Точка «загляни сюда»: срочный долг за дальнюю поездку. Живёт на вкладке, а не
-            // только в кабинете, потому что пуш может не дойти вовсе — уведомления выключены,
-            // нет устройства, антишторм. Без неё водитель зашёл бы в приложение, не увидел
-            // требования и всё равно считался бы предупреждённым.
-            if (badgeScale > 0.01f) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(top = 2.dp, end = 8.dp)
-                        .size(9.dp)
-                        .graphicsLayer { scaleX = badgeScale; scaleY = badgeScale }
-                        .background(CanonRed, CircleShape)
-                        .border(2.dp, CanonSurface, CircleShape)
-                )
-            }
-        }
-        Text(
-            text = label,
-            color = labelColor,
-            style = CanonMicro,
-            modifier = Modifier.fillMaxWidth(),
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-            textAlign = TextAlign.Center,
-            maxLines = 2,
-            overflow = TextOverflow.Ellipsis
-        )
     }
 }

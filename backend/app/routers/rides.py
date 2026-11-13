@@ -9,11 +9,13 @@ from types import SimpleNamespace
 from typing import List, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, text
 from sqlmodel import Session, select
 
-from ..antifraud import moderate_open_text
+from .. import idempotency
+from ..antifraud import moderate_open_text, moderate_text, record_open_text_flag
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
@@ -218,20 +220,67 @@ def seat_cap(back_max_two: bool, front_seat_available: bool) -> int:
     return 2 + (1 if front_seat_available else 0)
 
 
+@router.post("/rides/commands/v1", response_model=RideOut,
+             dependencies=[Depends(idempotency.require_wire_command)])
 @router.post("/rides", response_model=Ride)
-def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    ensure_active(session, user.id)   # пауза лестницы «Справедливости» (§2) блокирует публикацию
+def create_ride(body: RideIn, user: User = Depends(current_user), session: Session = Depends(get_session),
+                keyed_body: idempotency.KeyedBody = None):
+    if keyed_body is None:
+        return _create_ride(body, user, session)
+    command = keyed_body.command(idempotency.Scope.RIDE_CREATE, None, body)
+    geo = {}
+
+    def prepare():
+        nonlocal geo
+        ensure_active(session, user.id, refresh=False)
+        guard_delivery_ride(body.category)
+        if body.women_only:
+            guard_women_only_publish(session, user)
+        _guard_ride_partner(session, body.partner_id)
+        origin, destination = (body.from_city or "").strip(), (body.to_city or "").strip()
+        if origin and destination and client_dt_to_utc(body.depart_at) >= utcnow() - timedelta(minutes=30):
+            _guard_route_cities(origin, destination)
+            _clean_publish_stops(body.waypoints)
+            session.rollback()
+            geo = _ride_coordinates(origin, destination)
+
+    current = idempotency.execute(
+        session, user.id, command, lambda: _create_ride(body, user, session, keyed=True, geo=geo), prepare=prepare,
+    )
+    return JSONResponse(current)
+
+
+def _guard_open_rides(session, user_id):
+    guard_open_items(session, Ride.id, Ride.driver_id == user_id, Ride.status == RideStatus.active,
+                     limit=settings.flood_active_rides_max,
+                     ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1])
+
+
+def _guard_ride_partner(session: Session, partner_id: int | None) -> None:
+    if partner_id is not None:
+        partner = session.get(MedicalPartner, partner_id)
+        if not partner or not partner.active:
+            raise herr(400, "Клиника не найдена", "Клиника табылманы")
+
+
+def _ride_coordinates(origin: str, destination: str) -> dict:
+    frm = geocode_city(origin) or (None, None)
+    to = geocode_city(destination) or (None, None)
+    return {"from_lat": frm[0], "from_lng": frm[1], "to_lat": to[0], "to_lng": to[1]}
+
+
+def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = False, geo: dict | None = None):
+    ensure_active(session, user.id, refresh=not keyed)
     guard_delivery_ride(body.category)
     # Отдых водителя (волна 2, §8): во время блока такси разрешена ОДНА попутка «домой»
     # (первая публикация проходит и помечает return_ride_used, вторая → мягкий 403).
     # ВНЕ блока попутка не ограничена вообще — guard мгновенно пропускает.
-    workday_mod.guard_publish_ride(session, user.id)
     # Анти-флуд: одновременно активных поездок у одного водителя — не больше потолка. Раньше
     # потолка не было вовсе, и один человек забивал ленту небольшого района восемьюдесятью
     # публикациями подряд (аудит 2026-08-06). Закрыл поездку → место освободилось.
-    guard_open_items(session, Ride.id, Ride.driver_id == user.id, Ride.status == RideStatus.active,
-                     limit=settings.flood_active_rides_max,
-                     ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1])
+    if not keyed:
+        workday_mod.guard_publish_ride(session, user.id)
+        _guard_open_rides(session, user.id)
     # Потолка на ТЕМП здесь намеренно НЕТ (волна 49). У заявок и посылок он есть, потому что
     # каждая будит Александра сообщением в Telegram, а у поездки такого канала нет: её видит
     # только лента, и там уже стоит потолок выше. А цена ошибки была бы настоящей — «регулярная
@@ -278,26 +327,28 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # Города проверяем так же, как в расписании водителя: «Сибай → Сибай» — это опечатка,
     # а название без единой буквы («🚗🚗», «...») превращает ленту в мусор (волна 108).
     _guard_route_cities(body.from_city, body.to_city)
-    moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", session=session)
     # «Где встречаемся» — такое же открытое поле, как комментарий, и его тоже видит весь
     # район. Проверки тут не было вовсе. Правила те же, что у комментария попутки:
     # ловим мат и фишинг, телефон НЕ помечаем — обмен номерами между соседями это норма
     # и суть «между своими», комиссии в попутках нет.
-    moderate_open_text(body.pickup, user.id, check_contact=False, place="pickup", session=session)
+    if not keyed:
+        moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", session=session)
+        moderate_open_text(body.pickup, user.id, check_contact=False, place="pickup", session=session)
     # Остановки по пути — тоже открытое поле (их видит весь район, по ним выбирают, где садиться):
     # строгая проверка формы и та же модерация, что у «Где встречаемся» (18.10.2026).
     body.waypoints = _clean_publish_stops(body.waypoints)
-    moderate_open_text(body.waypoints, user.id, check_contact=False, place="waypoints", session=session)
+    if keyed:
+        flags = [(place, moderate_text(value, check_contact=False)) for place, value in (
+            ("ride_comment", body.comment), ("pickup", body.pickup), ("waypoints", body.waypoints),
+        )]
+    else:
+        moderate_open_text(body.waypoints, user.id, check_contact=False, place="waypoints", session=session)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
     # (чтобы не осталось битой ссылки). Это ТОЛЬКО точка назначения, без мед.данных.
-    if body.partner_id is not None:
-        partner = session.get(MedicalPartner, body.partner_id)
-        if not partner or not partner.active:
-            raise herr(400, "Клиника не найдена", "Клиника табылманы")
+    _guard_ride_partner(session, body.partner_id)
     # Геокодим концы маршрута (для радиус-поиска: PostGIS на проде / haversine иначе).
-    frm = geocode_city(body.from_city) or (None, None)
-    to = geocode_city(body.to_city) or (None, None)
-    geo = {"from_lat": frm[0], "from_lng": frm[1], "to_lat": to[0], "to_lng": to[1]}
+    if geo is None:
+        geo = _ride_coordinates(body.from_city, body.to_city)
     # F14: выбрана известная точка сбора из справочника → привязываем её координаты/название к поездке.
     point_id = body.pickup_point_id
     if point_id:
@@ -322,7 +373,12 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     session.exec(select(User).where(User.id == user.id).with_for_update()).first()
     twin = _recent_twin_ride(session, user.id, body)
     if twin is not None:
+        if keyed:
+            return idempotency.Applied(twin.id, twin.created_at, idempotency.ride_command_dto(session, twin))
         return twin
+    if keyed:
+        workday_mod.guard_publish_ride(session, user.id)
+        _guard_open_rides(session, user.id)
 
     # (время выезда уже приведено к UTC выше, вместе с проверкой «не в прошлом»)
     # RS-02 Б: цены остановок проверяем до записи (по частям waypoints и полной цене);
@@ -367,8 +423,23 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     if apply_boost_credit(user, ride, utcnow()):
         session.add(user)
         session.add(ride)
+    if keyed:
+        session.flush()
+        current = idempotency.ride_command_dto(session, ride)
+
+        def after_commit():
+            for place, flag in flags:
+                record_open_text_flag(flag, user.id, place=place, ref_id=ride.id, session=session)
+            _notify_new_ride(session, ride, point_id)
+
+        return idempotency.Applied(ride.id, ride.created_at, current, after_commit)
     session.commit()
     session.refresh(ride)
+    _notify_new_ride(session, ride, point_id)
+    return ride
+
+
+def _notify_new_ride(session: Session, ride: Ride, point_id: int | None) -> None:
     # F14: пополняем справочник ориентиров реально выбранной точкой (usage_count / новый ориентир).
     record_pickup_choice(
         session, city=ride.from_city, point_id=point_id,
@@ -384,7 +455,6 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     # поездка на сервере создана, а приложению не с чем работать — и он жмёт «Опубликовать» снова.
     # Тот же рефреш строкой выше стоит после записи ориентира; здесь его просто забыли.
     session.refresh(ride)
-    return ride
 
 
 class RideEditIn(BaseModel):
@@ -1297,26 +1367,41 @@ def _live_bookings(session: Session, ride_id: int) -> list:
     ).with_for_update().execution_options(populate_existing=True)).all()
 
 
+@router.post("/rides/{ride_id}/commands/v1/cancel", response_model=RideOut,
+             dependencies=[Depends(idempotency.require_wire_command_without_body)])
 @router.post("/rides/{ride_id}/cancel", response_model=RideOut)
 def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(current_user),
-                session: Session = Depends(get_session)):
+                 session: Session = Depends(get_session), idempotency_key: idempotency.IdempotencyKey = None):
+    if idempotency_key is None:
+        return _cancel_ride(ride_id, background, user, session)
+    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.RIDE_CANCEL, ride_id)
+    return idempotency.execute(session, user.id, command, lambda: _cancel_ride(
+        ride_id, background, user, session, keyed=True,
+    ))
+
+
+def _ride_terminal_result(session: Session, ride: Ride, keyed: bool):
+    if keyed:
+        return idempotency.Applied(ride.id, ride.created_at, idempotency.ride_command_dto(session, ride))
+    return public_ride_payload(ride_out(ride, session), full=True)
+
+
+def _cancel_ride(ride_id: int, background: BackgroundTasks, user: User, session: Session, *, keyed: bool = False):
     """Водитель снимает поездку (сломался/передумал). Каскад: все живые брони → cancelled,
     каждому пассажиру push «Поездка отменена» (он увидит альтернативы в /rides/near).
     Идемпотентно: повторная отмена — no-op. Завершённую отменить нельзя."""
     ride = _ride_owned(session, ride_id, user)
     if ride.status == RideStatus.cancelled:
-        return public_ride_payload(ride_out(ride, session), full=True)   # идемпотентно (двойной тап); свой рейс — свой текст
+        return _ride_terminal_result(session, ride, keyed)
     if ride.status == RideStatus.done:
-        raise herr(400, "Поездка уже завершена", "Сәфәр инде тамамланған")
+        raise herr(400, "Поездка уже завершена", "Сәфәр инде тамамланған",
+                   code="ride_already_completed" if keyed else None)
     # Замки Ride → Booking (порядок V4, как у отмены брони): поездку уже держит `_ride_owned` (и
     # читает её первой в этой сессии — поля свежие), брони берём под замок и перечитываем. Без
     # этого «Сел» водителя в ту же секунду расходился с отменой: бронь в памяти «подтверждена», а в
     # базе уже «в пути» — и пассажиру, близким и странице слежения ушли бы разные правды
     # (проверка безопасности 23.10.2026).
-    affected = session.exec(select(Booking).where(
-        Booking.ride_id == ride_id,
-        Booking.status.notin_((BookingStatus.cancelled, BookingStatus.done)),  # type: ignore[attr-defined]
-    ).with_for_update().execution_options(populate_existing=True)).all()
+    affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.cancelled
     session.add(ride)
     now = utcnow()
@@ -1349,7 +1434,18 @@ def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(
         b.cancelled_by = user.id
         b.cancel_reason = "not_going"
         session.add(b)
-    session.commit()                     # атомарно: поездка+брони одной транзакцией
+    if keyed:
+        session.flush()
+        return idempotency.Applied(
+            ride.id, ride.created_at, idempotency.ride_command_dto(session, ride),
+            lambda: _notify_ride_cancelled(session, ride, affected, background),
+        )
+    session.commit()
+    _notify_ride_cancelled(session, ride, affected, background)
+    return _ride_terminal_result(session, ride, keyed)
+
+
+def _notify_ride_cancelled(session: Session, ride: Ride, affected: list[Booking], background: BackgroundTasks) -> None:
     for b in affected:
         trip_wake.poke(b.id)             # каналы координат этих броней закрываются сразу
     session.refresh(ride)
@@ -1377,19 +1473,29 @@ def cancel_ride(ride_id: int, background: BackgroundTasks, user: User = Depends(
             f"{route}: водитель кире алды. Яҡындағы башҡа сәфәрҙәрҙе ҡара.",
             ref_kind="booking", ref_id=b.id,
         )
-    return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
+@router.post("/rides/{ride_id}/commands/v1/complete", response_model=RideOut,
+             dependencies=[Depends(idempotency.require_wire_command_without_body)])
 @router.post("/rides/{ride_id}/complete", response_model=RideOut)
-def complete_ride(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def complete_ride(ride_id: int, user: User = Depends(current_user), session: Session = Depends(get_session),
+                  idempotency_key: idempotency.IdempotencyKey = None):
+    if idempotency_key is None:
+        return _complete_ride(ride_id, user, session)
+    command = idempotency.Command.from_body(idempotency_key, idempotency.Scope.RIDE_COMPLETE, ride_id)
+    return idempotency.execute(session, user.id, command, lambda: _complete_ride(ride_id, user, session, keyed=True))
+
+
+def _complete_ride(ride_id: int, user: User, session: Session, *, keyed: bool = False):
     """Водитель завершает рейс целиком: поездка → done, подтверждённые/в-пути брони → done,
     ожидающие (pending) → cancelled (рейс кончился — «висящих» заявок не оставляем).
     Идемпотентно: повторное завершение — no-op."""
     ride = _ride_owned(session, ride_id, user)
     if ride.status == RideStatus.done:
-        return public_ride_payload(ride_out(ride, session), full=True)   # идемпотентно; свой рейс — свой текст
+        return _ride_terminal_result(session, ride, keyed)
     if ride.status == RideStatus.cancelled:
-        raise herr(400, "Поездка отменена — завершать нечего", "Сәфәр кире алынған — тамамлар нәмә юҡ")
+        raise herr(400, "Поездка отменена — завершать нечего", "Сәфәр кире алынған — тамамлар нәмә юҡ",
+                   code="ride_cancelled" if keyed else None)
     # Третья дверь к «поездка состоялась» (независимая проверка аудита 2026-08-07). Планку
     # «завершить можно только начавшуюся» поставили на брони — водительскую (`bookings.py`)
     # и пассажирскую из семейного контроля (`family.py`), — а вот эта ручка закрывает СРАЗУ
@@ -1399,7 +1505,8 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
     # человек видит «5 поездок, рейтинг 5.0» у того, кто не проехал ни метра.
     if ride.depart_at and utcnow() < ride.depart_at - DONE_EARLY_GRACE:
         raise herr(409, "Поездка ещё не началась — завершить можно после времени выезда",
-                   "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була")
+                   "Сәфәр әле башланмаған — сығыу ваҡытынан һуң тамамлап була",
+                   code="trip_not_started" if keyed else None)
     affected = _live_bookings(session, ride_id)
     ride.status = RideStatus.done
     session.add(ride)
@@ -1427,7 +1534,19 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             b.done_at = now   # от неё — окно «Сообщить о проблеме» пассажира (bookings.problem_report_left)
             completed.append(b)
         session.add(b)
+    if keyed:
+        session.flush()
+        return idempotency.Applied(
+            ride.id, ride.created_at, idempotency.ride_command_dto(session, ride),
+            lambda: _notify_ride_completed(session, ride, affected, completed, dropped),
+        )
     session.commit()
+    _notify_ride_completed(session, ride, affected, completed, dropped)
+    return _ride_terminal_result(session, ride, keyed)
+
+
+def _notify_ride_completed(session: Session, ride: Ride, affected: list[Booking],
+                           completed: list[Booking], dropped: list[Booking]) -> None:
     for b in affected:
         trip_wake.poke(b.id)             # каналы координат этих броней закрываются сразу
     session.refresh(ride)
@@ -1458,7 +1577,6 @@ def complete_ride(ride_id: int, user: User = Depends(current_user), session: Ses
             f"{route}: бергә барғаныңа рәхмәт! Сәфәрҙе баһала.",
             ref_kind="booking_done", ref_id=b.id,
         )
-    return public_ride_payload(ride_out(ride, session), full=True)  # свой рейс — свой текст
 
 
 @router.get("/rides/cities")

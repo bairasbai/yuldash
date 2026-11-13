@@ -5,10 +5,10 @@
 //  17.10.2026, как и в Android): номер никуда не уходил, а человек ждал, что водитель позвонит маме.
 //  Комментарий видят все водители в ленте — в нём только нейтральная метка. RequireAuth.
 // ================================================================
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import { createRequest } from "../api/requests";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconHeart } from "../components/Icons";
@@ -18,18 +18,28 @@ type State = "idle" | "sending" | "sent" | "error";
 export default function FamilyOrderScreen() {
   const { appText } = useLang();
   const navigate = useNavigate();
+  const generation = useRef(getSessionGeneration()).current;
+  const mounted = useRef(false);
+  const submitting = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const current = () => mounted.current && generation === getSessionGeneration();
 
   const [relName, setRelName] = useState("");
   const [fromCity, setFromCity] = useState("");
   const [toCity, setToCity] = useState("");
   const [comment, setComment] = useState("");
   const [state, setState] = useState<State>("idle");
+  const [createdId, setCreatedId] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const valid = relName.trim() && fromCity.trim() && toCity.trim();
 
   async function submit() {
-    if (!valid || state === "sending") return;
+    if (!valid || !current() || submitting.current) return;
+    submitting.current = true;
     setState("sending");
     setError(null);
     // ПРИВАТНОСТЬ: заявку со всем комментарием видят все водители в ленте ещё до отклика, поэтому
@@ -37,15 +47,19 @@ export default function FamilyOrderScreen() {
     // и заметка самого человека. Телефона близкого в форме нет (17.10.2026).
     const parts = [appText("Заказ за близкого", "Яҡын кеше өсөн заказ"), comment.trim()].filter(Boolean);
     try {
-      await createRequest({
+      const row = await createRequest({
         from_city: fromCity.trim(),
         to_city: toCity.trim(),
         for_relative_name: relName.trim(),
         comment: parts.join(". "),
         assisted: true,
       });
+      if (!current()) return;
+      setCreatedId(row.id);
       setState("sent");
     } catch (e) {
+      submitting.current = false;
+      if (!current()) return;
       if (e instanceof ApiError && e.status === 401) {
         navigate("/login", { state: { from: "/family-order" } });
         return;
@@ -59,7 +73,9 @@ export default function FamilyOrderScreen() {
     }
   }
 
-  if (state === "sent") {
+  if (generation !== getSessionGeneration()) return null;
+
+  if (state === "sent" && createdId !== null) {
     return (
       <>
         <SubHeader title={appText("За близкого", "Яҡын өсөн")} onBack={() => navigate("/profile")} />
@@ -68,12 +84,19 @@ export default function FamilyOrderScreen() {
           <h2>{appText("Заявка принята", "Заявка ҡабул ителде")}</h2>
           <p>
             {appText(
-              "Мы уже подбираем попутку для близкого. Поддержка Юлдаша на связи, если нужно — поможем.",
-              "Яҡының өсөн юлдаш эҙләй башланыҡ. Кәрәк булһа, Юлдаш ярҙамы бәйләнештә."
+              "Водители увидят заявку. Их предложения появятся в откликах.",
+              "Йөрөтөүселәр заявканы күрер. Тәҡдимдәре яуаптарҙа күренер."
             )}
           </p>
-          <button type="button" className="btn-primary" onClick={() => navigate("/map")}>
-            {appText("Хорошо", "Яҡшы")}
+          <button type="button" className="btn-primary" onClick={() => {
+            if (current()) navigate(`/requests/${createdId}/responses`);
+          }}>
+            {appText("Смотреть отклики", "Яуаптарҙы ҡарарға")}
+          </button>
+          <button type="button" className="btn-ghost" onClick={() => {
+            if (current()) navigate("/my-requests");
+          }}>
+            {appText("Мои заявки", "Минең заявкалар")}
           </button>
         </div>
       </>

@@ -12,7 +12,9 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import PriorityCard from "../components/PriorityCard";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
+import { bookingCommandOwner } from "../utils/bookingCommandStore";
+import { useDriverBookingDecisions } from "../utils/useDriverBookingDecisions";
 import {
   fetchDriverStatus,
   setDriverOnline,
@@ -30,8 +32,6 @@ import {
   type DriverSchedule,
 } from "../api/driver";
 import {
-  cancelBooking,
-  confirmBooking,
   fetchDriverBookings,
   type DriverBooking,
 } from "../api/bookings";
@@ -44,6 +44,8 @@ import DeclineBookingButton from "../components/DeclineBookingButton";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
+import { BookingTraveler } from "../components/BookingTraveler";
+import { useVisibleInterval } from "../utils/useVisibleInterval";
 import { useFeatures } from "../features";
 import { isOpen } from "../featureRules";
 import {
@@ -172,8 +174,6 @@ export default function DriverCabinetScreen() {
   // Брони «в пути» (пассажир в машине): «Снять поездку?» предупреждает, сколько их у этой поездки.
   const [onboard, setOnboard] = useState<DriverBooking[]>([]);
   const [passengersReload, setPassengersReload] = useState(0);
-  const [bookingBusy, setBookingBusy] = useState<number | null>(null);
-  const [bookingNote, setBookingNote] = useState("");
 
   /** Завершить рейс целиком (POST /rides/{id}/complete) — закрывает все брони разом. */
   async function finishRide(rideId: number) {
@@ -195,32 +195,13 @@ export default function DriverCabinetScreen() {
     }
   }
 
-  /**
-   * Ответить на бронь: подтвердить или отклонить.
-   *
-   * Пассажир в это время сидит и ждёт — поэтому оба ответа делаем одинаково доступными,
-   * а ошибку показываем словами сервера, а не «проверь сеть».
-   */
-  async function answerBooking(id: number, yes: boolean) {
-    if (bookingBusy) return;
-    setBookingBusy(id);
-    setBookingNote("");
-    try {
-      if (yes) await confirmBooking(id);
-      else await cancelBooking(id);
-      setPending((prev) => prev.filter((b) => b.booking_id !== id));
-      setPassengersReload((n) => n + 1);
-    } catch (e) {
-      setBookingNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось ответить на бронь. Проверь сеть.",
-                    "Урын һаҡлауға яуап биреп булманы. Селтәрҙе тикшер.")
-      );
-    } finally {
-      setBookingBusy(null);
-    }
-  }
+  const generation = getSessionGeneration();
+  const userId = user?.id;
+  const accountCreatedAt = user?.created_at;
+  const decisionOwner = useMemo(() => bookingCommandOwner(
+    userId === undefined ? null : { id: userId, created_at: accountCreatedAt }, generation,
+  ), [userId, accountCreatedAt, generation]);
+  const decisions = useDriverBookingDecisions(decisionOwner, () => setPassengersReload(n => n + 1));
 
   /**
    * Снять рейс целиком (POST /rides/{id}/cancel).
@@ -294,15 +275,17 @@ export default function DriverCabinetScreen() {
 
   // После ответа на бронь или изменения рейса обновляем пассажиров и число мест,
   // не перезагружая кабинет: выбранные, но не отправленные оценки остаются на месте.
+  const pendingRequest = useRef(0);
   const loadPending = useCallback((signal?: AbortSignal) => {
+    const request = ++pendingRequest.current;
     fetchDriverBookings(signal)
       .then((rows) => {
-        if (signal?.aborted) return;
+        if (signal?.aborted || request !== pendingRequest.current) return;
         setPending(rows.filter((b) => b.status === "pending"));
         setOnboard(rows.filter((b) => b.status === "onboard"));
       })
       .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
+        if (signal?.aborted || request !== pendingRequest.current || e?.name === "AbortError") return;
         setPending([]);
         // «В машине» не стираем: последнее известное предупреждение лучше, чем никакого.
       });
@@ -351,6 +334,7 @@ export default function DriverCabinetScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
+  useVisibleInterval(10000, loadPending, pending.some(row => Boolean(row.traveler_name)));
 
   async function toggleOnline() {
     if (!driver || onlineBusy) return;
@@ -383,12 +367,48 @@ export default function DriverCabinetScreen() {
   const freeSeats = useMemo(() => activeRides.reduce((sum, r) => sum + Math.max(0, r.seats_left), 0), [activeRides]);
   const ratingText = user?.rating != null ? user.rating.toFixed(1) : "—";
 
+  const decisionRecovery = (decisions.loadError || decisions.pending.length > 0 || decisions.note) ? (
+    <>
+      {decisions.loadError && (
+        <div className="act-card">
+          <p role="status">{appText("Не удалось открыть сохранённые решения.", "Һаҡланған ҡарарҙарҙы асып булманы.")}</p>
+          <button type="button" className="btn-ghost" disabled={decisions.busy} onClick={decisions.retryLoad}>
+            {appText("Повторить проверку", "Тикшереүҙе ҡабатлау")}
+          </button>
+        </div>
+      )}
+      {decisions.pending.map(decision => (
+        <div className="act-card" key={decision.key}>
+          <p>
+            {decision.action === "confirm"
+              ? appText("Подтверждение брони", "Бронды раҫлау")
+              : appText("Отклонение брони", "Бронды кире ҡағыу")} №{decision.bookingId}
+          </p>
+          <div className="act-card__actions">
+            <button type="button" className="btn-ghost" disabled={decisions.busy} onClick={() => void decisions.check(decision)}>
+              {appText("Проверить запрос", "Һорауҙы тикшереү")}
+            </button>
+            <button type="button" className="btn-ghost" disabled={decisions.busy} onClick={() => void decisions.repeat(decision)}>
+              {appText("Повторить тот же запрос", "Шул уҡ һорауҙы ҡабатлау")}
+            </button>
+            <button type="button" className="btn-ghost" disabled={decisions.busy} onClick={() => void decisions.check(decision, true)}>
+              {appText("Закрыть запрос", "Һорауҙы ябыу")}
+            </button>
+          </div>
+        </div>
+      ))}
+      {decisions.note && <p role="status" className="taxi-note">{decisions.note}</p>}
+    </>
+  ) : null;
+
   return (
     <>
       <SubHeader title={appText("Кабинет водителя", "Йөрөтөүсе кабинеты")} onBack={() => navigate(-1)} />
 
       {status === "loading" && <LoadingList count={2} />}
       {status === "error" && <ErrorState onRetry={() => load()} />}
+
+      {(status !== "ready" || !driver) && decisionRecovery && <div className="cabinet">{decisionRecovery}</div>}
 
       {status === "ready" && driver && (
         <div className="cabinet">
@@ -538,6 +558,8 @@ export default function DriverCabinetScreen() {
             })
           )}
 
+          {decisionRecovery}
+
           {/* Брони, которые ждут ответа. Пока водитель молчит, человек сидит и не знает,
               поедет он или нет — это самое срочное, что есть в кабинете. */}
           {pending.length > 0 && (
@@ -551,10 +573,11 @@ export default function DriverCabinetScreen() {
                   <div className="act-card__title">
                     <IconRides size={18} /> {b.route}
                   </div>
-                  <p className="act-card__text" style={{ margin: "6px 0 10px" }}>
-                    {b.passenger_name || appText("Пассажир", "Юлаусы")}
-                    {b.passenger_rating != null && ` · ★ ${b.passenger_rating.toFixed(1)}`}
-                  </p>
+                  <BookingTraveler name={b.traveler_name} bookedBy={b.passenger_name} deadline={b.travelerNameDeadline} />
+                  {(!b.traveler_name || b.passenger_rating != null) && <p className="act-card__text" style={{ margin: "6px 0 10px" }}>
+                    {!b.traveler_name && (b.passenger_name || appText("Пассажир", "Юлаусы"))}
+                    {b.passenger_rating != null && `${b.traveler_name ? "" : " · "}★ ${b.passenger_rating.toFixed(1)}`}
+                  </p>}
                   {/* Просьба о переднем месте — до решения: водитель знает, кого куда посадит. */}
                   <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
                   {/* RS-03 А: точное место есть — до подтверждения виден только этот факт. */}
@@ -576,21 +599,20 @@ export default function DriverCabinetScreen() {
                     <button
                       type="button"
                       className="btn-primary"
-                      disabled={bookingBusy === b.booking_id}
-                      onClick={() => void answerBooking(b.booking_id, true)}
+                      disabled={decisions.busy || decisions.pending.some(decision => decision.bookingId === b.booking_id)}
+                      onClick={() => void decisions.answer(b.booking_id, "confirm")}
                     >
                       {appText("Подтвердить", "Раҫлау")}
                     </button>
                     {/* Сперва «Отклонить бронь?» — одним касанием отказ больше не уходит (приёмка 18.10, п.6). */}
                     <DeclineBookingButton
                       passengerName={b.passenger_name}
-                      disabled={bookingBusy === b.booking_id}
-                      onDecline={() => void answerBooking(b.booking_id, false)}
+                      disabled={decisions.busy || decisions.pending.some(decision => decision.bookingId === b.booking_id)}
+                      onDecline={() => void decisions.answer(b.booking_id, "decline")}
                     />
                   </div>
                 </div>
               ))}
-              {bookingNote && <p className="taxi-note">{bookingNote}</p>}
             </>
           )}
           {finishNote && <p className="taxi-note">{finishNote}</p>}

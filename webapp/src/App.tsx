@@ -1,5 +1,5 @@
 import { Suspense, useEffect, useState, type ReactNode } from "react";
-import { Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
+import { matchPath, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import BottomNav from "./components/BottomNav";
 import ActiveTaxiBar from "./components/ActiveTaxiBar";
 import InstallPrompt from "./components/InstallPrompt";
@@ -34,6 +34,7 @@ import { useTaxiOrderOnScreen } from "./navSignals";
 import { useAuth } from "./auth/AuthProvider";
 import { useLang } from "./i18n/lang";
 import { fetchDriverDebt } from "./api/driver";
+import { getSessionGeneration } from "./api/client";
 import { disableFeatures, refreshFeatures, useFeatures } from "./features";
 import { isTaxiOpen } from "./featureRules";
 
@@ -153,6 +154,8 @@ function Shell() {
   const showBottomNav = onMainTab && !taxiOrderOnScreen;
   /** Чат поездки занимает весь экран: плавающим подсказкам над строкой ввода там не место. */
   const inTripChat = /^\/trip\/[^/]+\/chat\/?$/.test(pathname);
+  const inPublicationForm = Boolean(matchPath("/request", pathname) || matchPath("/create-ride", pathname));
+  const inProfileOrTrustedContacts = Boolean(matchPath("/profile", pathname) || matchPath("/trusted", pathname));
 
   useEffect(() => {
     if (status !== "authed" || user?.role !== "driver") {
@@ -182,7 +185,7 @@ function Shell() {
           <Outlet />
         </Suspense>
       </main>
-      <InstallPrompt hidden={inTripChat} />
+      <InstallPrompt hidden={inTripChat || inPublicationForm || inProfileOrTrustedContacts} />
       {showBottomNav && <BottomNav debtBadge={debtBadge} />}
     </div>
   );
@@ -206,6 +209,7 @@ function TaxiGuestGate({ children }: { children: ReactNode }) {
 
 export default function App() {
   const { status: queueStatus, user: queueUser } = useAuth();
+  const { key: routeKey } = useLocation();
   // Приложение поднялось — значит куски грузятся. Снимаем метку разовой
   // перезагрузки, чтобы следующее обновление сайта тоже сработало.
   useEffect(() => {
@@ -401,7 +405,7 @@ export default function App() {
           path="/booking/:id"
           element={
             <RequireAuth>
-              <BookingScreen />
+              <BookingScreen key={getSessionGeneration()} />
             </RequireAuth>
           }
         />
@@ -409,7 +413,7 @@ export default function App() {
           path="/trip/:id"
           element={
             <RequireAuth unavailableContent={<OfflineTripFallback />}>
-              <ActiveTripScreen />
+              <ActiveTripScreen key={getSessionGeneration()} />
             </RequireAuth>
           }
         />
@@ -491,7 +495,7 @@ export default function App() {
           path="/driver"
           element={
             <RequireAuth>
-              <DriverCabinetScreen />
+              <DriverCabinetScreen key={getSessionGeneration()} />
             </RequireAuth>
           }
         />
@@ -499,7 +503,7 @@ export default function App() {
           path="/create-ride"
           element={
             <RequireAuth>
-              <CreateRideScreen />
+              <CreateRideScreen key={JSON.stringify([getSessionGeneration(), queueUser?.id, queueUser?.created_at, routeKey])} />
             </RequireAuth>
           }
         />

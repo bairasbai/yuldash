@@ -16,7 +16,6 @@ import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -48,14 +47,11 @@ internal fun nearbyVerifiedOnly(saved: Boolean, revealedFor: Any?, search: Any):
 internal fun nearbyUnverifiedHint(fetched: Int, error: Boolean, verifiedOnly: Boolean, hidden: Int): Boolean =
     fetched == 0 && !error && verifiedOnly && hidden > 0
 
-/** «Только проверенные» ленты: сохранённая настройка, «Показать» на один поиск и сколько спрятано. */
+/** «Только проверенные» ленты: сохранённая настройка и «Показать» на один поиск. */
 internal class NearbyVerifiedState(val saved: Boolean) {
     /** Поиск ([nearbySearch] с [saved]), где человек нажал «Показать»; null — не нажимал. */
     var revealedFor by mutableStateOf<Any?>(null)
         private set
-
-    /** Сколько подходящих поездок спрятал фильтр в последнем ответе (`hidden_unverified`). */
-    var hidden by mutableIntStateOf(0)
 
     fun verifiedOnly(search: Any): Boolean = nearbyVerifiedOnly(saved, revealedFor, search)
 

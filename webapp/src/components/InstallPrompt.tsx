@@ -57,11 +57,11 @@ export default function InstallPrompt({ hidden = false }: { hidden?: boolean }) 
 
   // Показали подсказку установки — важный шаг «дороги к айфонам». Раз за сессию.
   useEffect(() => {
-    if (show) trackOnce("install_prompt_shown", "install_prompt_shown");
-  }, [show]);
+    if (show && !hidden) trackOnce("install_prompt_shown", "install_prompt_shown");
+  }, [show, hidden]);
 
-  // Полноэкранный чат: подсказка не должна лежать поверх строки ввода. Состояние не теряем —
-  // событие установки браузер шлёт один раз за загрузку, вернёмся из чата — подсказка на месте.
+  // Сохраняем событие установки, пока экран скрывает подсказку.
+  // Браузер присылает его один раз, поэтому подсказка появится после выхода с экрана.
   if (!show || hidden) return null;
 
   const dismiss = () => {

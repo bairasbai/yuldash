@@ -164,7 +164,7 @@ class BookingPendingRefreshTest {
                     bookingId = 42, ads = emptyList(), adStats = emptyMap(), onBack = {},
                     onMessage = {}, onAdImpression = {}, onAdClick = {}, bookingStatus = status,
                     onBookingStatusChange = { statuses += it },
-                    onConfirmRide = { _, _, _, _, _ -> },
+                    onConfirmRide = { _, _, _, _, _, _ -> },
                 )
             }
         }

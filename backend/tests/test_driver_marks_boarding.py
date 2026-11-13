@@ -90,6 +90,8 @@ def test_driver_marks_boarding_and_booking_goes_onboard(client, user_factory):
     drv_state = client.get(f"/bookings/{bid}/role", headers=drv["auth"]).json()
     pax_state = client.get(f"/bookings/{bid}/role", headers=pax["auth"]).json()
     assert drv_state["status"] == pax_state["status"] == "onboard"
+    own = next(x for x in client.get("/bookings/mine", headers=pax["auth"]).json() if x["id"] == bid)
+    assert own["onboard_at"] == pax_state["onboard_at"]
     assert drv_state["boarding_undo_sec"] > 0 and pax_state["boarding_undo_sec"] == 0
     # Вторая сторона брони — для «Сообщить о проблеме» пассажира, который ждёт отметки.
     assert pax_state["peer_id"] == drv["id"] and drv_state["peer_id"] == pax["id"]

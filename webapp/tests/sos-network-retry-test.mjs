@@ -34,7 +34,7 @@ const compiled = await build({
   } }],
 });
 let serial = 0;
-const load = () => import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text + '\n//' + serial++).toString('base64'));
+const load = async () => { const module = await import('data:text/javascript;base64,' + Buffer.from(compiled.outputFiles[0].text + '\n//' + serial++).toString('base64')); await module.initializeSessionStorage(); return module; };
 const tick = () => new Promise(setImmediate);
 async function until(predicate) {
   const deadline = performance.now() + 3000;

@@ -4,13 +4,14 @@ from threading import Barrier, Event
 
 import pytest
 from fastapi import HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
 from jose import JWTError
 from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app import security
 from app.db import engine
-from app.models import RefreshToken, User
+from app.models import RefreshToken
 from app.routers import auth
 
 
@@ -70,8 +71,8 @@ def test_initial_issuance_and_logout_obey_the_same_lock_order(client, user_facto
             session.info['initial_issuance_operation'] = operation
             if operation == 'login':
                 return pid, security.issue_tokens(session, user['id'])
-            owner = session.get(User, user['id'])
-            assert auth.logout(user=owner, session=session) == {'ok': True}
+            cred = HTTPAuthorizationCredentials(scheme='Bearer', credentials=user['token'])
+            assert auth.logout(cred=cred, session=session) == {'ok': True}
             return pid, None
 
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -175,9 +176,8 @@ def test_logout_serializes_with_refresh_in_both_orders(
             pid = _connection(session)
             session.info["replay_test_operation"] = operation
             if operation == "logout":
-                owner = session.get(User, user["id"])
-                assert owner is not None
-                assert auth.logout(user=owner, session=session) == {"ok": True}
+                cred = HTTPAuthorizationCredentials(scheme="Bearer", credentials=initial["access_token"])
+                assert auth.logout(cred=cred, session=session) == {"ok": True}
                 return operation, pid, 200, None
             try:
                 pair = security.rotate_refresh(session, raw, rotation_id=nonce)

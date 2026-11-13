@@ -35,6 +35,77 @@ internal class SnapshotTransportWiringTest : SnapshotWiringFixture() {
         assertEquals("4821", ApiClient.getBoardingCode(11).getOrThrow())
         assertTrue(requests.filter { it.path?.startsWith("/bookings/") == true }.all { it.getHeader("Authorization") == "Bearer ${jwt(7)}" })
     }
+    @Test fun ownBookingListClosesOnlyExplicitTerminalCopiesAcrossProcessReopen() = runBlocking {
+        warm()
+        for (id in 12..14) ApiClient.getBookingDetails(id).getOrThrow()
+        reopenAuthority()
+        assertEquals(setOf(11, 12, 13, 14), OfflineTripSnapshots.historicalSummaries().map { it.bookingId }.toSet())
+        handler = { request ->
+            if (request.path == "/bookings/mine") MockResponse().setBody(
+                """{"items":[{"id":11,"status":"cancelled"},{"id":12,"status":"confirmed"},{"id":13,"status":"done"},{"id":99,"status":"done"}]}"""
+            ) else defaultResponse(request)
+        }
+
+        assertEquals(listOf("cancelled", "confirmed", "done", "done"),
+            ApiClient.getMyBookingsDetailed().getOrThrow().map { it.status })
+        reopenAuthority()
+        assertEquals(setOf(12, 14), OfflineTripSnapshots.historicalSummaries().map { it.bookingId }.toSet())
+        assertFalse(OfflineTripSnapshots.allowsLive(11))
+        assertFalse(OfflineTripSnapshots.allowsLive(12))
+        val disk = SnapshotPreferencesDisk(meta, secure)
+        assertNull(disk.barrier(owner().barrier("booking", 99)))
+        val saved = disk.read(owner().namespace)
+        ApiClient.getMyBookingsDetailed().getOrThrow()
+        assertEquals(saved, disk.read(owner().namespace))
+    }
+
+    @Test fun ownTerminalListPersistsBarrierWhileEncryptedPayloadIsUnavailable() = runBlocking {
+        warm()
+        val previous = owner()
+        OfflineTripSnapshots.installForTest(SnapshotPreferencesDisk(meta, null)) { clock }
+        OfflineTripSnapshots.activate(previous.userId, previous.scope, previous.generation)
+        handler = { request ->
+            if (request.path == "/bookings/mine")
+                MockResponse().setBody("""{"items":[{"id":11,"status":"cancelled"}]}""")
+            else defaultResponse(request)
+        }
+
+        assertEquals("cancelled", ApiClient.getMyBookingsDetailed().getOrThrow().single().status)
+        assertEquals("closed", SnapshotPreferencesDisk(meta, null).barrier(previous.barrier("booking", 11)))
+        reopenAuthority()
+        assertTrue(OfflineTripSnapshots.historicalSummaries().isEmpty())
+    }
+
+    @Test fun heldOldBookingListCannotCloseTheNewOwnersCopyOfTheSameId() = runBlocking {
+        warm()
+        val held = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        handler = { request ->
+            if (request.path == "/bookings/mine" && request.getHeader("Authorization") == "Bearer " + jwt(7)) {
+                held.countDown()
+                check(release.await(10, TimeUnit.SECONDS))
+                MockResponse().setBody("""{"items":[{"id":11,"status":"cancelled"}]}""")
+            } else defaultResponse(request)
+        }
+        ApiClient.testTimeoutMs = 8000
+        val oldList = async(Dispatchers.IO) { ApiClient.getMyBookingsDetailed() }
+        try {
+            assertTrue(held.await(10, TimeUnit.SECONDS))
+            ApiClient.saveToken(jwt(8))
+            val fresh = ApiClient.getBookingDetails(11).getOrThrow()
+            assertTrue(OfflineTripSnapshots.privateDetails(fresh))
+            release.countDown()
+            assertTrue(oldList.await().isFailure)
+            assertTrue(OfflineTripSnapshots.privateDetails(fresh))
+            reopenAuthority()
+            assertEquals(8, owner().userId)
+            assertEquals(11, OfflineTripSnapshots.historicalSummaries().single().bookingId)
+        } finally {
+            release.countDown()
+        }
+    }
+
+
     @Test fun observed401WithBrokenBodyRevokesBeforeRefreshAndNeverFallsBack() = runBlocking {
         warm()
         val previous = owner()
@@ -174,16 +245,16 @@ internal class SnapshotTransportWiringTest : SnapshotWiringFixture() {
     @Test fun heldOwnCancelThenFreshOldDetailsStillClosesOnActualSuccessfulTerminalPost() = runBlocking {
         warm()
         val held = CountDownLatch(1); val release = CountDownLatch(1)
-        handler = { request -> if (request.path == "/bookings/11/cancel") {
-            held.countDown(); check(release.await(10, TimeUnit.SECONDS)); MockResponse().setBody("{\"status\":\"cancelled\"}")
+        handler = { request -> if (request.path == "/bookings/11/commands/v1/cancel") {
+            held.countDown(); check(release.await(10, TimeUnit.SECONDS)); cancelledBookingResponse()
         } else defaultResponse(request) }
         ApiClient.testTimeoutMs = 8000
-        val cancel = async(Dispatchers.IO) { ApiClient.cancelBooking(11) }
+        val cancel = async(Dispatchers.IO) { cancelPassengerOnStand() }
         try {
             assertTrue(held.await(10, TimeUnit.SECONDS))
             val oldState = ApiClient.getBookingDetails(11).getOrThrow()
             assertTrue(OfflineTripSnapshots.privateDetails(oldState)); assertTrue(OfflineTripSnapshots.allowsLive(11))
-            release.countDown(); assertEquals("cancelled", cancel.await().getOrThrow().status)
+            release.countDown(); assertEquals("cancelled", cancel.await().getOrThrow().bookingStatus)
             assertFalse(OfflineTripSnapshots.allowsLive(11)); assertNull(TripPassStore.load(context, 11))
             assertNull(OfflineTripSnapshots.load(owner(), 11)); assertFalse(OfflineTripSnapshots.privateDetails(oldState))
             reopenAuthority(); assertNull(OfflineTripSnapshots.load(owner(), 11))
@@ -310,6 +381,7 @@ internal open class SnapshotWiringFixture {
         ApiClient.testTimeoutMs = 500
         OfflineTripSnapshots.installForTest(SnapshotPreferencesDisk(metaFault.wrap(meta), secureFault.wrap(secure))) { clock }
         ApiClient.saveToken(jwt(7))
+        BookingCommandApi.init(MemoryDiskPreferences())
         TripPassStore.initStores(MemoryDiskPreferences(), MemoryDiskPreferences())
     }
     @After fun cleanupWiring() = cleanupGuard.runCleanup(permitWiringCleanup()) {
@@ -339,14 +411,25 @@ internal open class SnapshotWiringFixture {
         .put("role", "passenger").put("from_city", "Уфа").put("to_city", "Сибай").put("depart_at", "2026-11-02T10:00:00Z")
         .put("seats", 1).put("amount", 200).put("pay_method", "cash").put("paid", false).put("driver_name", marker)
     protected fun defaultResponse(request: RecordedRequest): MockResponse = when {
+        request.path == "/me" -> MockResponse().setBody(JSONObject()
+            .put("id", ApiClient.myUserId()).put("created_at", "2026-01-01T00:00:00Z").toString())
+        request.path == "/bookings/11/cancel-preview" -> MockResponse().setBody(JSONObject()
+            .put("booking_status", "confirmed").put("consequence", "early").put("terms_key", "a".repeat(64)).toString())
+        request.path == "/bookings/11/commands/v1/cancel" -> cancelledBookingResponse()
         request.path?.endsWith("/details") == true -> MockResponse().setBody(detailsJson(request.path!!.split('/')[2].toInt()).toString())
         request.path?.endsWith("/role") == true -> MockResponse().setBody(roleJson().toString())
         request.path?.endsWith("/boarding-code") == true -> MockResponse().setBody("{\"code\":\"4821\"}")
         request.path?.endsWith("/receipt") == true -> MockResponse().setBody(receiptJson(request.path!!.split('/')[2].toInt()).toString())
-        request.path?.endsWith("/cancel") == true -> MockResponse().setBody("{\"status\":\"cancelled\"}")
         request.path?.endsWith("/complete") == true || request.path?.endsWith("/driver-status") == true -> MockResponse().setBody("{\"status\":\"done\"}")
         request.path?.endsWith("/trip-status") == true -> MockResponse().setBody("[]")
         else -> MockResponse().setResponseCode(404).setBody("{}")
+    }
+    protected fun cancelledBookingResponse() =
+        MockResponse().setBody("""{"id":11,"ride_id":33,"passenger_id":7,"status":"cancelled"}""")
+    protected suspend fun cancelPassengerOnStand(): Result<BookingDecisionOutcome> {
+        val generation = ApiClient.queueSessionGeneration()
+        val terms = BookingDecisionApi.preparePassengerCancellation(generation, 11, "confirmed").getOrThrow()
+        return BookingDecisionApi.cancelPassenger(generation, terms, "")
     }
     protected suspend fun warm() {
         val value = ApiClient.getBookingDetails(11).getOrThrow()

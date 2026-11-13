@@ -1,6 +1,7 @@
 package com.yuldash.app.data
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.security.crypto.EncryptedSharedPreferences
 import androidx.security.crypto.MasterKey
 import com.yuldash.app.BuildConfig
@@ -246,16 +247,6 @@ object ApiClient {
         bg.launch { createRequest(fromCity, toCity, seats, category, withKids, comment, maxPrice, voiceUrl, transcript, assisted, relativeName) }
     }
 
-    fun firePublishRide(
-        fromCity: String, toCity: String, departAt: String, seats: Int, price: Int, comment: String,
-        petsAllowed: Boolean = false, childSeat: Boolean = false, womenOnly: Boolean = false,
-        smoking: Boolean = false, baggage: Boolean = false, airConditioner: Boolean = false,
-        recurrence: String = "none", category: String = "regular", pickup: String = "",
-        pickupLat: Double? = null, pickupLng: Double? = null, onlyTrusted: Boolean = false,
-    ) {
-        bg.launch { publishRide(fromCity, toCity, departAt, seats, price, comment, petsAllowed, childSeat, womenOnly, smoking, baggage, airConditioner, recurrence, category, pickup, pickupLat, pickupLng, onlyTrusted = onlyTrusted) }
-    }
-
     fun fireRequestCallback(note: String) {
         bg.launch { requestCallback(note) }
     }
@@ -305,6 +296,7 @@ object ApiClient {
             )
         }.getOrNull()
         val plain = app.getSharedPreferences("yuldash", Context.MODE_PRIVATE)
+        BookingCommandApi.init(app.getSharedPreferences("yuldash_booking_commands", Context.MODE_PRIVATE))
         // The source marker prevents stale plaintext from replacing a newer
         // encrypted login, and keeps logout authoritative while Keystore is unavailable.
         val selected = runCatching { AuthStorePolicy.resolve(plain, secure) }.getOrNull()
@@ -623,12 +615,16 @@ object ApiClient {
      *  При успехе локально очищаем сессию — как при выходе. Ошибку прокидываем наверх. */
     suspend fun deleteAccount(expectedGeneration: Long = queueSessionGeneration()): Result<Long> {
         if (!isCurrentSession(expectedGeneration)) return staleSession()
-        val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
-        return synchronized(sessionLock) {
-            if (!sameSession(expectedGeneration)) staleSession()
-            else result.map {
-                clearLocalSession()
-                sessionGeneration // Exact post-delete receipt, captured before another login can intervene.
+        return BookingCommandApi.withDeletionBarrier(expectedGeneration) { accounts ->
+            val result = call("POST", "/me/delete", JSONObject(), auth = true, expectedGeneration = expectedGeneration,
+                singleAttemptMutation = true, onDeletionConfirmed = { synchronized(sessionLock) { BookingCommandApi.purge(accounts) } })
+            synchronized(sessionLock) {
+                if (!sameSession(expectedGeneration)) staleSession()
+                else result.mapCatching {
+                    require(it.opt("ok") == true)
+                    clearLocalSession()
+                    sessionGeneration // Exact post-delete receipt, captured before another login can intervene.
+                }
             }
         }
     }
@@ -709,7 +705,13 @@ object ApiClient {
         call("POST", "/auth/request-code", JSONObject().put("phone", phone), auth = false).map { }
 
     /** Проверить код. При успехе сохраняем токен и возвращаем JSON юзера. */
-    suspend fun verifyCode(phone: String, code: String, name: String): Result<JSONObject> {
+    suspend fun verifyCode(phone: String, code: String, name: String): Result<JSONObject> =
+        verifySmsLogin(phone, code, name).map { it.userResponse }
+
+    internal suspend fun verifyCodeSession(phone: String, code: String, name: String): Result<Long> =
+        verifySmsLogin(phone, code, name).map { it.generation }
+
+    private suspend fun verifySmsLogin(phone: String, code: String, name: String): Result<CommittedLogin> {
         val generation = requestSession().generation
         val result = call("POST", "/auth/verify",
             JSONObject().put("phone", phone).put("code", code).put("name", name),
@@ -766,7 +768,9 @@ object ApiClient {
     // ---------- OAuth: Telegram / VK / WhatsApp ----------
     // Возврат из соцсети DeepLink'ом → сюда. При успехе сохраняем токен+имя (как SMS-вход).
 
-    private fun commitAuth(obj: JSONObject, generation: Long, fallbackName: String? = null): Result<JSONObject> =
+    private data class CommittedLogin(val userResponse: JSONObject, val generation: Long)
+
+    private fun commitAuth(obj: JSONObject, generation: Long, fallbackName: String? = null): Result<CommittedLogin> =
         synchronized(sessionLock) {
             if (!sameSession(generation)) return@synchronized staleSession()
             val access = obj.optString("access_token").takeIf { it.isNotBlank() }
@@ -791,7 +795,7 @@ object ApiClient {
             userRole = role
             OfflineTripSnapshotHooks.newSession(myUserId(), snapshotScope, sessionGeneration)
             mutableSessionChanges.value = sessionGeneration
-            Result.success(obj)
+            Result.success(CommittedLogin(obj, sessionGeneration))
         }
     private fun persistNewSession(write: (android.content.SharedPreferences.Editor) -> Unit): Boolean {
         val selected = prefs ?: return OfflineTripSnapshotHooks.authWriteResult(appCtx == null) // Calls without init exist only in isolated unit tests.
@@ -813,7 +817,13 @@ object ApiClient {
             .onSuccess { Analytics.log("login_start", mapOf("method" to "telegram")) }   // старт входа → видно отвал «начал, но не дошёл до кода»
 
     /** Проверка 6-значного кода, который бот прислал в Telegram. При успехе — токен+имя. */
-    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> {
+    suspend fun tgVerify(requestId: String, code: String): Result<JSONObject> =
+        verifyTelegramLogin(requestId, code).map { it.userResponse }
+
+    internal suspend fun tgVerifySession(requestId: String, code: String): Result<Long> =
+        verifyTelegramLogin(requestId, code).map { it.generation }
+
+    private suspend fun verifyTelegramLogin(requestId: String, code: String): Result<CommittedLogin> {
         val generation = requestSession().generation
         val result = call("POST", "/auth/tg/verify",
             JSONObject().put("request_id", requestId).put("code", code),
@@ -847,8 +857,8 @@ object ApiClient {
         }
 
     /** Одна поездка по id — публичная витрина (без ПДн). Для deep-link yulbash.ru/r/{id}. */
-    suspend fun getRide(id: Int): Result<RideDto> =
-        call("GET", "/rides/$id", null, auth = true).map { it.toRideDto() }
+    suspend fun getRide(id: Int, expectedGeneration: Long? = null): Result<RideDto> =
+        call("GET", "/rides/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toRideDto() }
 
     /**
      * Ближайшие поездки по маршруту клиента, отсортированы по времени выезда (ранняя — первой).
@@ -984,70 +994,6 @@ object ApiClient {
         }
     }
 
-    /** Опубликовать поездку (текущий пользователь = водитель). depart_at — ISO-строка. */
-    suspend fun publishRide(
-        fromCity: String,
-        toCity: String,
-        departAt: String,
-        seats: Int,
-        price: Int,
-        comment: String,
-        petsAllowed: Boolean = false,
-        childSeat: Boolean = false,
-        womenOnly: Boolean = false,
-        smoking: Boolean = false,
-        baggage: Boolean = false,
-        airConditioner: Boolean = false,
-        recurrence: String = "none",
-        category: String = "regular",
-        pickup: String = "",
-        pickupLat: Double? = null,
-        pickupLng: Double? = null,
-        onlyTrusted: Boolean = false,   // «только для своих» — поездку видят/берут лишь L3
-        receiverName: String = "",   // посылка: кому отдать
-        parcelSize: String = "",     // посылка: габарит/вес
-        pickupPointId: Int? = null,  // F14: выбрана известная точка сбора из справочника → привязать
-        partnerId: Int? = null,      // F22: клиника-назначение (category=hospital)
-        quiet: Boolean = false,      // тихая поездка (в конце — чтобы не сдвигать позиционные вызовы)
-        waypoints: String = "",     // остановки по пути (названия через " | ")
-        noMinors: Boolean = false,  // не беру пассажиров младше 18 без сопровождения взрослого
-        backMaxTwo: Boolean = false, frontSeatAvailable: Boolean = true,   // опции мест; потолок мест держит сервер
-        stopPrices: List<Int> = emptyList(),   // RS-02 Б: цена до каждой остановки (рубли, порядок waypoints)
-    ): Result<Int> = call(
-        "POST", "/rides",
-        JSONObject()
-            .put("from_city", fromCity)
-            .put("to_city", toCity)
-            .put("depart_at", departAt)
-            .put("seats_total", seats)
-            .put("price", price)
-            .put("stop_prices", JSONArray(stopPrices))
-            .put("category", category)
-            .put("comment", comment)
-            .put("pets_allowed", petsAllowed)
-            .put("child_seat", childSeat)
-            .put("women_only", womenOnly)
-            .put("smoking", smoking)
-            .put("baggage", baggage)
-            .put("air_conditioner", airConditioner)
-            .put("quiet", quiet)
-            .put("no_minors", noMinors)
-            .put("back_max_two", backMaxTwo).put("front_seat_available", frontSeatAvailable)
-            .put("waypoints", waypoints)
-            .put("recurrence", recurrence)
-            .put("pickup", pickup)
-            .put("pickup_lat", pickupLat ?: JSONObject.NULL)
-            .put("pickup_lng", pickupLng ?: JSONObject.NULL)
-            .put("only_trusted", onlyTrusted)
-            .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
-            .put("receiver_name", receiverName)
-            .put("parcel_size", parcelSize)
-            .put("partner_id", partnerId ?: JSONObject.NULL),
-        auth = true,
-    ).mapCatching { response ->
-        response.getInt("id").also { require(it > 0) { "Invalid published ride id" } }
-    }.onSuccess { Analytics.log("publish_ride") }
-
     // ---------- F22: клиники-партнёры (медцентры) ----------
 
     /** Справочник клиник-партнёров (только активные). Опц. фильтр по городу. Публичные данные. */
@@ -1077,8 +1023,7 @@ object ApiClient {
         }
     }
 
-    /** Забронировать поездку. Возвращает id брони.
-     * payMethod/payAmount — договорённость об оплате (ЗАПИСЬ, не платёж): как решили платить.
+    /** Забронировать поездку. payMethod/payAmount — договорённость об оплате, не платёж.
      * Способ по умолчанию — "negotiate" (договоримся); сумма опц. (null = сервер возьмёт цену поездки). */
     suspend fun book(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
@@ -1086,19 +1031,29 @@ object ApiClient {
     ): Result<Int> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop)
         .map { it.optInt("id") }
 
-    /** Preserve the server status: a newly requested seat is not yet confirmed by the driver. */
     suspend fun bookWithStatus(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
         minorPassenger: Boolean = false, guardianName: String = "", guardianPhone: String = "", frontSeat: Boolean = false, pickupStop: String? = null, dropoffStop: String? = null,
         expectedPrice: Int? = null, expectedTermsVersion: Long? = null,
         meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
-    ): Result<BookingCreatedDto> = createBookingResponse(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone, frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting)
-        .mapCatching { response ->
-            val id = response.getInt("id")
-            val status = response.getString("status")
-            require(id > 0 && status in setOf("pending", "confirmed", "onboard")) { "Invalid booking response" }
-            BookingCreatedDto(id, status)
-        }
+        expectedGeneration: Long = queueSessionGeneration(),
+        previousKey: String? = null, retry: Boolean = false,
+        onPrepared: ((String, String) -> Unit)? = null,
+        travelerName: String? = null,
+    ): Result<BookingCreatedDto> = BookingCommandApi.book(rideId,
+        bookingPayload(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone,
+            frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting, travelerName),
+        expectedGeneration, previousKey, retry, onPrepared)
+
+    internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null, blockDuringDeletion: Boolean = false): Result<JSONObject> =
+        call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
+            singleAttemptMutation = true, wireBody = body, expectedBase = base,
+            admitWire = if (blockDuringDeletion) ({ BookingCommandApi.publicationAllowed(generation) }) else null)
+
+    internal suspend fun ridePublicationRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
+        call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
+            singleAttemptMutation = true, wireBody = body, expectedBase = base,
+            admitWire = { BookingCommandApi.publicationAllowed(generation) })
 
     private suspend fun createBookingResponse(
         rideId: Int, seats: Int, payMethod: String = "negotiate", payAmount: Int? = null,
@@ -1115,23 +1070,8 @@ object ApiClient {
         meeting: MeetingPointInput? = null, alighting: MeetingPointInput? = null,
     ): Result<JSONObject> = call(
         "POST", "/bookings",
-        JSONObject().put("ride_id", rideId).put("seats", seats)
-            .put("pay_method", payMethod)
-            .put("pay_amount", payAmount ?: JSONObject.NULL)
-            .apply {
-                if (frontSeat) put("front_seat", true)
-                if (pickupStop != null) put("pickup_stop", pickupStop)
-                if (dropoffStop != null) put("dropoff_stop", dropoffStop)
-                if (expectedPrice != null) put("expected_price", expectedPrice)
-                if (expectedTermsVersion != null) put("expected_terms_version", expectedTermsVersion)
-                if (meeting != null && !meeting.isEmpty) put("meeting", meeting.toJson())
-                if (alighting != null && !alighting.isEmpty) put("alighting", alighting.toJson())
-                if (minorPassenger) {
-                    put("minor_passenger", true)
-                    put("minor_guardian_name", guardianName)
-                    put("minor_guardian_phone", guardianPhone)
-                }
-            },
+        bookingPayload(rideId, seats, payMethod, payAmount, minorPassenger, guardianName, guardianPhone,
+            frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting),
         auth = true,
     ).onSuccess { Analytics.log("booking") }
 
@@ -1185,6 +1125,42 @@ object ApiClient {
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
     suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
         OfflineTripSnapshotHooks.details(bookingId)
+
+    internal suspend fun getPendingGuardianPhone(bookingId: Int, owner: Long): Result<String> =
+        getGuardianPhone(bookingId, owner, "pending").mapCatching { requireNotNull(it) }
+
+    internal suspend fun getCompletedGuardianPhone(bookingId: Int, owner: Long): Result<String?> =
+        getGuardianPhone(bookingId, owner, "done")
+
+    internal suspend fun readCompletedTraveler(bookingId: Int, owner: Long): Result<JSONObject> =
+        call("GET", "/bookings/$bookingId/completed-traveler", null, auth = true, expectedGeneration = owner, freshRead = true)
+
+    private suspend fun getGuardianPhone(bookingId: Int, owner: Long, status: String): Result<String?> =
+        call("GET", "/bookings/$bookingId/details", null, auth = true, expectedGeneration = owner, freshRead = true).mapCatching { body ->
+                if (!isCurrentSession(owner)) throw SessionChangedException()
+                if (body.opt("booking_id") != bookingId || body.opt("role") != "driver" ||
+                    body.opt("status") != status || body.opt("minor_passenger") != true ||
+                    (status == "done" && body.opt("contact_unlocked") != true)) {
+                    null
+                } else {
+                    (body.opt("minor_guardian_phone") as? String)?.let(::normalizeGuardianDialNumber)
+                }
+            }
+
+    private val formattedGuardianPhone = Regex("\\+?[0-9() .\u00a0\u202f-]+")
+
+    private fun normalizeGuardianDialNumber(raw: String): String? {
+        val phone = raw.trim()
+        if (!formattedGuardianPhone.matches(phone)) return null
+        val digits = phone.filter { it in '0'..'9' }
+        if (digits.length !in 10..15) return null
+        return when {
+            phone.startsWith("+") -> "+$digits"
+            digits.length == 11 && digits.first() in "78" -> "+7${digits.drop(1)}"
+            digits.length == 10 && digits.first() == '9' -> "+7$digits"
+            else -> digits
+        }
+    }
 
     // ---------- Заявки ----------
 
@@ -1659,14 +1635,19 @@ object ApiClient {
 
     /** Мои брони со сводкой поездки (маршрут/водитель/статус) — для экрана «Мои поездки».
      *  Старый сервер вернёт только id/seats/status → поля сводки пустые, экран это переживает. */
-    suspend fun getMyBookingsDetailed(): Result<List<BookingMineDto>> =
-        call("GET", "/bookings/mine", null, auth = true).map { obj ->
+    suspend fun getMyBookingsDetailed(): Result<List<BookingMineDto>> {
+        val generation = queueSessionGeneration()
+        val ticket = OfflineTripSnapshots.ticket()?.takeIf { it.owner.generation == generation }
+        return call("GET", "/bookings/mine", null, auth = true, expectedGeneration = generation).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            (0 until arr.length()).map { i ->
-                val o = arr.getJSONObject(i)
-                parseBookingMineDto(o)
-            }
+            (0 until arr.length()).map { i -> parseBookingMineDto(arr.getJSONObject(i)) }
+        }.onSuccess { bookings ->
+            val closed = bookings.asSequence()
+                .filter { it.id > 0 && (it.status == "cancelled" || it.status == "done") }
+                .map { it.id }.toSet()
+            OfflineTripSnapshots.closeListedTerminalBookings(ticket, closed)
         }
+    }
 
     suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,
@@ -1845,14 +1826,16 @@ object ApiClient {
         call("POST", "/driver/gender", JSONObject().put("gender", gender), auth = true).map { }
 
     /** Брони на поездки водителя — чтобы оценить пассажиров. */
-    suspend fun getDriverBookings(expectedGeneration: Long? = null): Result<List<DriverBookingDto>> =
-        call("GET", "/driver/bookings", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
+    suspend fun getDriverBookings(expectedGeneration: Long? = null): Result<List<DriverBookingDto>> {
+        val started = SystemClock.elapsedRealtime()
+        return call("GET", "/driver/bookings", null, auth = true, expectedGeneration = expectedGeneration, freshRead = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 val o = arr.getJSONObject(i)
-                parseDriverBookingDto(o)
+                parseDriverBookingDto(o, started)
             }
         }
+    }
 
     // --- F17: постоянные (регулярные) маршруты водителя ---
     private fun JSONObject.toDriverScheduleDto() = DriverScheduleDto(
@@ -2390,39 +2373,11 @@ object ApiClient {
     /** Отменить поездку (пассажир или водитель). Места возвращаются в поездку.
      *  Возврат: contact_then_cancel (B8-8) — отмена после открытия телефона/чата →
      *  UI показывает мягкий баннер «заверши поездку в приложении». */
-    /** Итог отмены брони. `cancelled = false` значит сервер отменять отказался. */
-    data class CancelResultDto(val cancelled: Boolean, val contactThenCancel: Boolean, val status: String)
-
-    /**
-     * Отменить бронь.
-     *
-     * ВАЖНО про `cancelled`. Сервер на попытку отменить УЖЕ ЗАВЕРШЁННУЮ поездку отвечает 200
-     * и возвращает бронь как есть, ничего не меняя (bookings.py: статусы cancelled и done
-     * пропускаются). Это верно для данных, но для экрана — ловушка: раньше клиент читал из
-     * ответа только `contact_then_cancel`, статус выбрасывал и на любой успех радостно писал
-     * «Поездка отменена», стирал офлайн-паспорт поездки и закрывал экран.
-     *
-     * Попасть туда просто: пассажир держит открытым экран, водитель тем временем завершает
-     * поездку, у пассажира на экране всё ещё «подтверждена» — и кнопка «Отменить» на месте.
-     * Человек получал сообщение о том, чего не произошло, и терял телефон водителя из паспорта
-     * по состоявшейся поездке.
-     *
-     * Поэтому отдаём наверх настоящий статус: экран сам решает, что показать.
-     */
-    suspend fun cancelBooking(bookingId: Int, reason: String = "", expectedGeneration: Long = queueSessionGeneration()): Result<CancelResultDto> =
-        OfflineTripSnapshotHooks.cancel(bookingId, expectedGeneration) { generation ->
-            call("POST", "/bookings/$bookingId/cancel", JSONObject().put("reason", reason), auth = true, expectedGeneration = generation) }
-            .onSuccess { if (it.cancelled) Analytics.log("booking_cancel") }
-
     // Водитель отмечает неявку пассажира (no-show): бронь снимается, места возвращаются.
     suspend fun markNoShow(bookingId: Int): Result<Unit> =
         OfflineTripSnapshotHooks.bookingTerminal(bookingId) { generation ->
             call("POST", "/bookings/$bookingId/no-show", JSONObject(), auth = true, expectedGeneration = generation) }
             .onSuccess { Analytics.log("booking_no_show") }
-
-    /** F2: водитель подтверждает бронь → пассажиру открываются телефон/точка сбора, приходит push. */
-    suspend fun confirmBooking(bookingId: Int): Result<Unit> =
-        call("POST", "/bookings/$bookingId/confirm", JSONObject(), auth = true).map { }
 
     // ---------- Boost (поднятие объявления, оплата) ----------
 
@@ -3615,6 +3570,11 @@ object ApiClient {
         idempotencyKey: String? = null,
         singleAttemptMutation: Boolean = false,
         snapshotRead: SnapshotTransportRead? = SnapshotTransportRead.denialFor(path, expectedGeneration ?: queueSessionGeneration(), auth),
+        wireBody: String? = null,
+        expectedBase: String? = null,
+        onDeletionConfirmed: (() -> Unit)? = null,
+        admitWire: (() -> Boolean)? = null,
+        freshRead: Boolean = false,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3644,7 +3604,7 @@ object ApiClient {
         val backoff = if (retryOnNetwork && testTimeoutMs == null) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
-            if (sessionBound && !sameSession(generation)) return@withContext staleSession()
+            if ((sessionBound && !sameSession(generation)) || (expectedBase != null && expectedBase != BASE)) return@withContext staleSession()
             snapshotRead?.attempt()
             var conn: HttpURLConnection? = null
             var mutationResponse: Response? = null
@@ -3652,12 +3612,16 @@ object ApiClient {
                 val code: Int
                 val text: String
                 if (singleAttemptMutation || rideshareMutation(method, path)) {
-                    val bytes = body?.toString()?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
-                    val requestBody = object : RequestBody() {
-                        override fun contentType() = if (body != null) "application/json; charset=utf-8".toMediaType() else null
+                    val json = wireBody ?: body?.toString()
+                    val bytes = json?.toByteArray(Charsets.UTF_8) ?: ByteArray(0)
+                    val requestBody = if (idempotent) null else object : RequestBody() {
+                        override fun contentType() = if (json != null) "application/json; charset=utf-8".toMediaType() else null
                         override fun contentLength() = bytes.size.toLong()
                         override fun isOneShot() = true // Also for empty DELETE: 503/408 follow-ups must not resend it.
-                        override fun writeTo(sink: BufferedSink) { sink.write(bytes) }
+                        override fun writeTo(sink: BufferedSink) {
+                            if (admitWire?.invoke() == false) throw IOException("Command session ended before send")
+                            sink.write(bytes)
+                        }
                     }
                     val headers = Headers.Builder().add("Accept", "application/json").apply {
                         idempotencyKey?.let { add("Idempotency-Key", it) }
@@ -3669,8 +3633,9 @@ object ApiClient {
                             addUnsafeNonAscii("Authorization", bearer)
                         }
                     }.build()
-                    val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
+                    val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
+                    if (admitWire?.invoke() == false) return@withContext staleSession()
                     mutationResponse = oneShotTransport().newCall(request).execute()
                     code = mutationResponse.code
                     snapshotRead?.status(code)
@@ -3678,6 +3643,10 @@ object ApiClient {
                     text = mutationResponse.body?.string().orEmpty()
                 } else {
                     conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
+                        if (freshRead) {
+                            useCaches = false
+                            setRequestProperty("Cache-Control", "no-cache, no-store")
+                        }
                         requestMethod = method
                         connectTimeout = connectMs
                         readTimeout = readMs
@@ -3700,6 +3669,9 @@ object ApiClient {
                     val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                     text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 }
+                if (onDeletionConfirmed != null && code in 200..299 && runCatching { JSONObject(text).opt("ok") == true }.getOrDefault(false)) {
+                    onDeletionConfirmed()
+                }
                 if (sessionBound && !sameSession(generation)) return@withContext staleSession()
                 return@withContext if (code in 200..299) {
                     val obj = when {
@@ -3719,7 +3691,9 @@ object ApiClient {
                     val refreshed = tryRefresh(usedToken, generation)
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
-                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead)
+                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
+                        wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed,
+                        admitWire = admitWire, freshRead = freshRead)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -4492,7 +4466,7 @@ object ApiClient {
             )
         }
 
-    // ═══════════ C1: Курьер Юлдаша (профессиональная доставка) ═══════════
+// ═══════════ C1: Курьер Юлдаша (профессиональная доставка) ═══════════
     // Пользователь подаёт заявку «Стать курьером» (транспорт + селфи) → админ одобряет →
     // курьер выходит «на линию» (город/межгород/регион), берёт заказы, доставляет по коду.
     // Отправитель заказывает курьера/«купи и привези» — сервер считает цену (комиссия по ступени, прозрачно).
@@ -7789,117 +7763,3 @@ data class ParcelSettlementDto(
     val totalDueKop: Int,      // всего к оплате получателем (товар + доставка)
     val settled: Boolean,      // расчёт закрыт (оплата получена)
 )
-
-// ═══════════ C1: Курьер Юлдаша ═══════════
-
-/** Заявка «Стать курьером». status: pending | approved | rejected. */
-/** День заработка курьера (чистыми = цена доставки минус комиссия платформы). */
-data class CourierEarningsDayDto(val date: String, val netKop: Int, val deliveries: Int)
-
-/** Заработок курьера за период. Всё в КОПЕЙКАХ (у водителя аналогичный экран — в рублях). */
-data class CourierEarningsDto(
-    val period: String,
-    val netKop: Int,
-    val commissionKop: Int,
-    val deliveries: Int,
-    val byDay: List<CourierEarningsDayDto>,
-)
-
-data class CourierApplicationDto(
-    val id: Int,
-    val transport: String,        // car | cargo
-    val status: String,           // pending | approved | rejected
-    val selfieUrl: String,
-    val fullName: String = "",    // ФИО как в документе (сверка с селфи)
-    val carPlate: String = "",    // госномер — по нему узнают машину
-    val rulesAccepted: Boolean = false,
-    val invitedBy: String?,       // «кто пригласил» (реферал, доверие между своими)
-    val rejectReason: String,     // причина отклонения (видит курьер)
-    val createdAt: String,
-    val reviewedAt: String?,
-    // Только в админ-списке (в личной заявке пустые):
-    val userId: Int = 0,
-    val name: String = "",
-    val phone: String = "",
-)
-
-/** Разбивка цены доставки курьером — показываем честно (из чего сложилась цена). */
-data class CourierEstimateBreakdown(
-    val baseKop: Int, val distanceKop: Int, val sizeKop: Int, val urgencyKop: Int, val commissionPercent: Double,
-    val commissionMinKop: Int = 0,            // пол комиссии за доставку (25 ₽)
-    val commissionEstimated: Boolean = false, // комиссия до вручения — оценка (финал после вручения)
-    // «Если получателя не будет» — оценка возврата, показанная ДО заказа. Конституционный суд
-    // (декабрь 2022) признал недопустимым брать плату за возврат с человека, которого о ней
-    // заранее не предупредили. Без этой строки на экране заказа наша компенсация висит в воздухе.
-    val returnFeeEstimateKop: Int = 0,
-)
-
-/** Оценка стоимости доставки курьером (сервер считает по своей формуле). */
-data class CourierEstimateDto(
-    val priceKop: Int, val commissionKop: Int, val distanceKm: Double, val breakdown: CourierEstimateBreakdown,
-)
-
-/** Профиль курьера (режим работы). */
-data class CourierProfileDto(
-    val id: Int, val online: Boolean, val carClass: String, val zone: String,
-    val workCity: String?, val workDirectionId: Int?, val updatedAt: String,
-    // Зона по-новому: район как база + два согласия (см. InstantZoneDto — правила общие).
-    val workDistrict: String? = null,
-    val workIntercity: Boolean = false,
-    val workRegions: Boolean = false,
-)
-
-/** C3: выписка курьера по нашей комиссии.
- *  earned — всего наша комиссия за доставки; owed — к оплате сейчас; paid — уже оплачено.
- *  commissionKop — легаси-поле (== earned), оставлено для совместимости. */
-data class CourierStatementDto(
-    val deliveredCount: Int,
-    val commissionEarnedKop: Int,
-    val commissionOwedKop: Int,
-    val commissionPaidKop: Int,
-    val commissionKop: Int,
-    val currentFeePercent: Double = 0.0,     // текущая ставка комиссии курьера, %
-    val feeTier: String = "",                // ступень: promo | tier1 | tier2 | tier3
-    val commissionMinKop: Int = 0,           // пол комиссии за доставку (25 ₽)
-)
-
-/** C3: рейтинг курьера. avg=null — пока нет оценок. */
-data class CourierRatingDto(val avg: Double?, val count: Int)
-
-/** C3: ответ /parcels/{id}/rate — новый рейтинг оценённого пользователя. */
-data class RateResultDto(val rateeId: Int, val rating: Double, val count: Int)
-
-/** C3: ответ /courier/pay-commission — заявка на оплату комиссии + реквизиты СБП. */
-data class PayCommissionDto(
-    val status: String, val paymentId: Int, val amountKop: Int, val amount: Int,
-    val payeePhone: String, val payeeBank: String, val payeeName: String,
-    val method: String = "sbp_manual",           // yookassa → оплата картой, иначе СБП «на доверии»
-    val confirmationUrl: String? = null,          // ЮKassa redirect (открыть в браузере)
-)
-
-/** Ответ на оплату долга такси: yookassa (оплата картой) или sbp_manual (перевод «на доверии»). */
-data class DebtPayResultDto(
-    val method: String, val status: String, val paymentId: Int,
-    val pendingKop: Int, val confirmationUrl: String?,
-)
-
-/** Ответ /courier/me: заявка + профиль (если одобрен) + выписка + рейтинг + пауза по качеству. */
-data class CourierMeDto(
-    val application: CourierApplicationDto?,
-    val profile: CourierProfileDto?,
-    val statement: CourierStatementDto,
-    val rating: CourierRatingDto = CourierRatingDto(null, 0),
-    val pausedUntil: String? = null,
-)
-
-/** Выписка по посылкам (админ). Три разных числа вместо одного «собрано», которое врало:
- *  сбор «по пути» никому не выставляется, а показывался как выручка (аудит 2026-07-26). */
-data class ParcelStatementDto(
-    val deliveredCount: Int,
-    val collectedFeeKop: Int,          // деньги дошли: курьеры оплатили комиссию
-    val owedCommissionKop: Int = 0,    // начислено курьерам, ещё не оплачено (долг)
-    val unbilledFeeKop: Int = 0,       // сбор «по пути»: выставить некому — это не выручка
-)
-
-/** Ответ /admin/parcels: все посылки + выписка. */
-data class ParcelAdminListDto(val parcels: List<ParcelDto>, val statement: ParcelStatementDto)

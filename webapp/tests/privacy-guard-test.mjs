@@ -56,10 +56,11 @@ const DEVICE_KEYS = new Set([
   // Какие направления включены (запуск волнами, GET /config/features): одинаково для всех,
   // публичный ответ сервера без единого личного поля — настройка устройства, не человека.
   "yuldash.features",
+  "yuldash.auth.changed", // Сигнал перечитать IndexedDB. Содержит только номер записи.
 ]);
 // Эти чистятся своим кодом, не через privacy.ts.
 const CLEARED_ELSEWHERE = new Set([
-  "yuldash.session", // client.ts заменяет случайный маркер при каждом входе/выходе; личных данных нет.
+  "yuldash.session", // Маркер текущего поколения вкладки. Старый ключ localStorage удаляется при переносе входа.
   "yuldash.token",
   "yuldash.refresh",
   "yuldash.outbox",

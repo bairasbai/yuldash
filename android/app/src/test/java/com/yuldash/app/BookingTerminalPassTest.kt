@@ -139,6 +139,7 @@ class BookingTerminalPassTest {
                     if (request.getHeader("Authorization") != "Bearer " + tokenA)
                         return MockResponse().setResponseCode(403).setBody("{}")
                     val body = when (request.path) {
+                        "/me" -> """{"id":7,"created_at":"2026-01-01T00:00:00Z"}"""
                         "/bookings/42/details" -> """{"booking_id":42,"ride_id":17,"role":"passenger","status":"$terminalStatus","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","driver_name":"Серверный водитель","driver_car":"Lada Vesta","driver_phone":"+70000000000","price":700,"seats":1,"pickup":"Точка встречи"}"""
                         "/bookings/42/boarding-code" -> """{"code":"4821"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
@@ -194,7 +195,7 @@ class BookingTerminalPassTest {
                         rating = 4.9, verified = true, boosted = false),
                     bookingId = 42, ads = emptyList(), adStats = emptyMap(), onBack = {},
                     onMessage = {}, onAdImpression = {}, onAdClick = {}, bookingStatus = status,
-                    onConfirmRide = { _, _, _, _, _ -> fail("Opening history must not create a booking") },
+                    onConfirmRide = { _, _, _, _, _, _ -> fail("Opening history must not create a booking") },
                 )
             }
         }
@@ -211,7 +212,7 @@ class BookingTerminalPassTest {
         compose.waitForIdle()
         // Check network independently: even a storage tombstone must not conceal this UI bug.
         assertEquals("Terminal details must not request a fresh boarding code",
-            listOf("GET /bookings/42/details"), requests.toList())
+            listOf("GET /bookings/42/details"), requests.filterNot { it == "GET /me" })
         assertNull(TripPassStore.load(context, 42))
         assertEquals("unrelated", TripPassStore.load(context, 99)?.boardingCode)
         assertEquals("unrelated", TripPassAuthorityFixture.durable(secure, 99)?.boardingCode)

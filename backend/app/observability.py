@@ -127,7 +127,7 @@ _SCRUB = (
     # координатами). Всё это лежит в строке исходящего запроса (приёмка #178, P2). Мойка знает
     # только известные имена: закодированные координаты (`waypoints=54.05%2C58.31`) она не
     # узнает — поэтому крошки и спаны исходящих запросов урезаются до хоста целиком.
-    (re.compile(r"\b(token|access_token|refresh_token|code|otp|password|secret|api_key|apikey|api_id"
+    (re.compile(r"\b(token|access_token|refresh_token|logout_token|code|otp|password|secret|api_key|apikey|api_id"
                 r"|key|msg|text|chat_id)=[^&\s\"']+",
                 re.IGNORECASE), r"\1=<скрыто>"),
     # Адрес с номером дома или квартиры: «ул. Ленина 1, кв. 5», «дом 7». Город и улицу

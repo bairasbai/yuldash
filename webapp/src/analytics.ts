@@ -12,9 +12,9 @@
 //  блокируем и агрессивно не ретраим. Появится ручка на бэке — просто заработает.
 // ================================================================
 import { API_BASE } from "./api/client";
+import { getLanguage } from "./i18n/languagePreference";
 
 const CID_KEY = "yuldash.cid";
-const LANG_KEY = "yuldash.lang"; // тот же ключ, что у i18n/lang
 const ROLE_KEY = "yuldash.role"; // тот же ключ, что у flags
 
 /** Разрешённые типы значений в props — только безопасный контекст. */
@@ -75,7 +75,7 @@ export function track(event: string, props?: TrackProps): void {
     client_id: clientId(),
     ts: Date.now(),
     // Общий безопасный контекст — подставляем автоматически, чтобы вызовы были короткими.
-    lang: localStorage.getItem(LANG_KEY) === "ba" ? "ba" : "ru",
+    lang: getLanguage(),
     role: localStorage.getItem(ROLE_KEY) === "driver" ? "driver" : "passenger",
     standalone: isStandalone(),
     ...sanitize(props),
