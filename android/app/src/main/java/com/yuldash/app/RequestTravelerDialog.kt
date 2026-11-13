@@ -50,6 +50,7 @@ internal fun RequestTravelerDialog(
     val scope = rememberCoroutineScope()
     fun current() = currentParent() && ApiClient.isCurrentSession(owner)
     var offer by remember(responseId, owner) { mutableStateOf<JSONObject?>(null) }
+    var lastVersion by remember(responseId, owner) { mutableStateOf<String?>(null) }
     var reload by remember(responseId, owner) { mutableIntStateOf(0) }
     var loading by remember(responseId, owner) { mutableStateOf(true) }
     var busy by remember(responseId, owner) { mutableStateOf(false) }
@@ -65,7 +66,6 @@ internal fun RequestTravelerDialog(
     LaunchedEffect(responseId, owner, reload) {
         loading = true
         error = null
-        val previousVersion = offer?.optString("version")
         offer = null
         RequestTravelerApi.offer(responseId, owner).onSuccess { fresh ->
             if (!current()) return@onSuccess
@@ -78,11 +78,12 @@ internal fun RequestTravelerDialog(
                 error = failed
                 return@onSuccess
             }
-            if (previousVersion != fresh.optString("version")) {
+            if (lastVersion != fresh.optString("version")) {
                 original = null
                 other = true.takeIf { fresh.optBoolean("for_another") }
                 name = ""; minor = false; guardian = ""; phone = ""
             }
+            lastVersion = fresh.optString("version")
             offer = fresh
         }.onFailure { if (current()) error = serverSaid(it, failed) }
         if (current()) loading = false
@@ -142,8 +143,18 @@ internal fun RequestTravelerDialog(
                         .onSuccess { if (current()) accepted(it) }
                         .onFailure {
                             if (!current()) return@onFailure
-                            val status = (it as? ApiException)?.status
-                            if (status != null && status in 400..499 && status != 408) original = null
+                            val apiError = it as? ApiException
+                            val status = apiError?.status
+                            if (status != null && status in 400..499 && status != 408) {
+                                original = null
+                                if (status != 422 && status != 429 && apiError.detailCode != "guardian_phone_invalid" &&
+                                    apiError.detailCode != "booking_traveler_women_only"
+                                ) {
+                                    offer = null
+                                    lastVersion = null
+                                    other = null; name = ""; minor = false; guardian = ""; phone = ""
+                                }
+                            }
                             error = serverSaid(it, failed)
                         }
                     if (current()) busy = false

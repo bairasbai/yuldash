@@ -22,6 +22,7 @@ export default function RequestTravelerForm({ responseId, generation, onAccepted
   const [phone, setPhone] = useState("");
   const [uncertain, setUncertain] = useState(false);
   const controller = useRef<AbortController | null>(null);
+  const lastVersion = useRef<string | null>(null);
   const submitting = useRef(false);
   const original = useRef<{ key: string; body: RequestTravelerSelection } | null>(null);
   const accepted = useRef(onAccepted); accepted.current = onAccepted;
@@ -44,13 +45,14 @@ export default function RequestTravelerForm({ responseId, generation, onAccepted
         return;
       }
       if (!result.version) throw new Error("Missing offer version");
-      if (offer?.version !== result.version) {
+      if (lastVersion.current !== result.version) {
         original.current = null;
         setUncertain(false);
         setName(""); setMinor(false); setGuardian(""); setPhone("");
+        setChoice(result.for_another ? "other" : "");
       }
+      lastVersion.current = result.version;
       setOffer(result);
-      if (offer?.version !== result.version) setChoice(result.for_another ? "other" : "");
     } catch (failure) {
       if (current(ac.signal)) setError(message(failure));
     } finally {
@@ -59,6 +61,7 @@ export default function RequestTravelerForm({ responseId, generation, onAccepted
   }
 
   useEffect(() => {
+    lastVersion.current = null;
     void load();
     return () => { controller.current?.abort(); original.current = null; };
   }, [responseId, generation]);
@@ -91,8 +94,14 @@ export default function RequestTravelerForm({ responseId, generation, onAccepted
       if (current(ac.signal)) accepted.current(result.booking_id);
     } catch (failure) {
       if (!current(ac.signal)) return;
-      const unknown = !(failure instanceof ApiError) || failure.status === 408 || failure.status >= 500;
+      const unknown = !(failure instanceof ApiError) || failure.status === 0 || failure.status === 408 || failure.status >= 500;
       if (!unknown) original.current = null;
+      if (failure instanceof ApiError && !unknown && failure.status !== 422 && failure.status !== 429 &&
+        failure.code !== "guardian_phone_invalid" && failure.code !== "booking_traveler_women_only") {
+        setOffer(null);
+        lastVersion.current = null;
+        setChoice(""); setName(""); setMinor(false); setGuardian(""); setPhone("");
+      }
       setUncertain(unknown);
       setError(message(failure));
     } finally {
