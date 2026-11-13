@@ -7300,8 +7300,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "12af93aefedd16d1104e5c898826e6968fe16ec2305fb0853b9b9ff6f1947242",
-      "lines": 974
+      "sha256": "5242e1ea3abf024f412f2da6ffaf9aabab155eebfff42f7e0ecf4c8217783749",
+      "lines": 970
     },
     {
       "path": "backend/app/routers/health.py",

@@ -190,22 +190,18 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
     # Близкий сразу получает live-ссылку (B7c): живая карта поездки в браузере, без приложения.
     if contact.phone:
         who = user.name or user.phone
+        link = _live_link(share.token)
+        if booking.traveler_name is not None:
+            text_ru = f"Юлдаш: {who} отправил тебе ссылку на попутку: {link}"
+            text_ba = f"Юлдаш: {who} һиңә юлдаш сәфәренә һылтанма ебәрҙе: {link}"
+        else:
+            text_ru = f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {link}"
+            text_ba = f"Юлдаш: {who} юлдаш менән бара. Сәфәрҙе күҙәт: {link}"
         if not may_send_family_sms(session, user.id, "share_ride"):
             raise herr(429, "Слишком много сообщений близким за сутки. Попробуй завтра.",
                        "Бер тәүлеккә яҡындарға хәбәр артыҡ күп. Иртәгә ҡабатла.")
         lang = sms_lang_of(session, user.id)
-        link = _live_link(share.token)
-        if booking.traveler_name is not None:
-            message = pick_lang(
-                lang, f"Юлдаш: {who} отправил тебе ссылку на попутку: {link}",
-                f"Юлдаш: {who} һиңә юлдаш сәфәренә һылтанма ебәрҙе: {link}",
-            )
-        else:
-            message = pick_lang(
-                lang, f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {link}",
-                f"Юлдаш: {who} юлдаш менән бара. Сәфәрҙе күҙәт: {link}",
-            )
-        send_text(contact.phone, message)
+        send_text(contact.phone, pick_lang(lang, text_ru, text_ba))
         session.refresh(share)   # учёт SMS коммитил сессию — освежаем перед ответом
     return share
 
