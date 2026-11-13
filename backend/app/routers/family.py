@@ -22,7 +22,7 @@ from ..models import (
     TripShare, TrustedContact, User,
 )
 from ..rating_service import apply_rating, booking_rating_open, guard_rating_window
-from ..security import SMS_PHONE_RE, current_user, normalize_phone
+from ..security import SMS_PHONE_RE, current_user, normalize_guardian_phone
 from ..services import (pick_lang, sms_lang_of, booking_and_ride_for_user,
                         lock_booking_and_ride_for_user, may_send_family_sms, push_bilingual, send_text)
 from ..timeutil import utcnow
@@ -763,12 +763,12 @@ def notify_guardian_cancelled_in_transit(session: Session, booking_id: int, pass
     booking = session.get(Booking, booking_id)
     if booking is None or not booking.minor_passenger:
         return False
-    phone = normalize_phone(booking.minor_guardian_phone)
-    if not SMS_PHONE_RE.match(phone or ""):
+    phone = normalize_guardian_phone(booking.minor_guardian_phone)
+    if phone is None:
         return False
-    if normalize_phone(passenger.phone) == phone:
+    if normalize_guardian_phone(passenger.phone) == phone:
         return False
-    уже_знают = {normalize_phone(p) for p in session.exec(
+    уже_знают = {normalize_guardian_phone(p) for p in session.exec(
         select(TrustedContact.phone).join(TripShare, TripShare.contact_id == TrustedContact.id).where(
             TripShare.booking_id == booking_id,
             TripShare.last_status == "cancelled_onboard",

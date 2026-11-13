@@ -7010,6 +7010,13 @@
       "lines": 818
     },
     {
+      "path": "backend/app/idempotency.py",
+      "kind": "backend_main",
+      "block": "B09",
+      "sha256": "3cb7a621058e7e74903f5a35338cc17ed9fad58f701fe00a21816af2f32bee0b",
+      "lines": 409
+    },
+    {
       "path": "backend/app/imagemeta.py",
       "kind": "backend_main",
       "block": "B09",
@@ -7195,8 +7202,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "88309ac2f224c1405d337ab2993951ab135e30e6ad7ecd24d4206e6da830ace1",
-      "lines": 2481
+      "sha256": "b804e66e207756a00b5924fd2fe9ca560d64f6e400dbf550cedcbb228484b43f",
+      "lines": 2480
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -7265,7 +7272,7 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "c1c47827df092f58ff5fec2553afd7de87dc46e2fc70837575fa4663c61678ee",
+      "sha256": "923473d36a12d4b2b22f0999d528cc2f4af0296aba456f006663c9683033cb5a",
       "lines": 951
     },
     {
@@ -7482,15 +7489,15 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "d4de47c43422ef37508f980c011b74e963a8e390846713722f50864d130bdc63",
-      "lines": 544
+      "sha256": "34575e30065d2d15be7177564421d6e01435ae03797cb69f1364fd2b7cecdeae",
+      "lines": 554
     },
     {
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "8750a9e53b93c6b51c8507ee47e7dba307fe607b58d880aaaae9a6c1ef7805d0",
-      "lines": 2244
+      "sha256": "8d5b58a709b2efa18d1bc00c8e3ce2fed47059f0315c07c1bde7194ee788ec29",
+      "lines": 2245
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -9551,6 +9558,13 @@
       "lines": 117
     },
     {
+      "path": "backend/tests/test_in_transit_decisions_20261024.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "56d7f5e5530e0ea03a6ef61f37f4c2c1fbc86df84b9bfe46731cb1dd9955cc6c",
+      "lines": 673
+    },
+    {
       "path": "backend/tests/test_incident_order_context.py",
       "kind": "test_support",
       "block": "B08",
@@ -11283,8 +11297,8 @@
       "path": "backend/tests/test_services_edges.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "11845ed38708c4bcd8085d9484a5038ec0518c856124417e6fa2e7004e3094a6",
-      "lines": 434
+      "sha256": "0640f542ce11d5d183a86f708ab0ff4a00a857a571eebad5dce4aabe82733efd",
+      "lines": 439
     },
     {
       "path": "backend/tests/test_share.py",
@@ -15849,6 +15863,13 @@
       "block": "B09",
       "sha256": "89ae650033e8baeb4b94c5eeec29cf93463c12ae63b53fd9e0e7a270faf576f4",
       "lines": 25
+    },
+    {
+      "path": "webapp/src/utils/bookingCommandLabels.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "0a7f825a7c97b082d4db24fda3c07810f1b007b8e3c7259a2acc1cf934c39a55",
+      "lines": 10
     },
     {
       "path": "webapp/src/utils/bookingLink.ts",

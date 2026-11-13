@@ -66,6 +66,7 @@ def is_placeholder_phone(phone) -> bool:
 
 
 SMS_PHONE_RE = re.compile(r"^\+?\d{10,15}$")  # 10–15 цифр и необязательный ведущий плюс
+_FORMATTED_PHONE_RE = re.compile(r"\+?[0-9() .\u00a0\u202f-]+")
 
 
 def normalize_phone(raw) -> str:
@@ -99,6 +100,15 @@ def normalize_phone(raw) -> str:
         return "+7" + digits
     # Всё остальное — только чистим разделители, форму сохраняем.
     return ("+" if plus else "") + digits
+
+
+def normalize_guardian_phone(raw: str) -> str | None:
+    """Проверяет номер взрослого и сохраняет явно введённый международный код."""
+    raw = raw.strip()
+    if not _FORMATTED_PHONE_RE.fullmatch(raw):
+        return None
+    phone = "+" + re.sub(r"\D", "", raw) if raw.startswith("+") else normalize_phone(raw)
+    return phone if SMS_PHONE_RE.fullmatch(phone) else None
 
 
 def make_token(user_id: int, *, issued_after=None, review_session: bool = False,

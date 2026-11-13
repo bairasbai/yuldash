@@ -1040,13 +1040,14 @@ def mask_phone(phone: str) -> str:
 
 def _smsdar_send(phone: str, text: str) -> tuple[bool, str]:
     """Отправка одного SMS через SMSDAR (брендовый канал /v1/brand). Возврат (ok, инфо для лога).
-    Авторизация в теле JSON: {id, password}. Номер → формат 79XXXXXXXXX."""
+    Авторизация в теле JSON: {id, password}. Номер → цифры с кодом страны."""
     import httpx
     d = "".join(c for c in (phone or "") if c.isdigit())
-    if d.startswith("8"):
-        d = "7" + d[1:]
-    if len(d) == 10:
-        d = "7" + d
+    if not (phone or "").lstrip().startswith("+"):
+        if d.startswith("8"):
+            d = "7" + d[1:]
+        if len(d) == 10:
+            d = "7" + d
     body = {
         "id": settings.smsdar_id,
         "password": settings.smsdar_password,
