@@ -245,6 +245,7 @@ class ApiClientEndpointContractTest {
         Ep("updateCity", "POST", "/me/update") { ApiClient.updateCity(city = "x") },
         Ep("minAppVersion", "GET", "/version/min") { ApiClient.minAppVersion() },
         Ep("getRide", "GET", "/rides/1") { ApiClient.getRide(id = 1) },
+        Ep("getDriverBookings", "GET", "/driver/bookings") { ApiClient.getDriverBookings() },
         Ep("getPickupPoints", "GET", "/pickup-points") { ApiClient.getPickupPoints(city = "x") },
         Ep("getMedicalPartners", "GET", "/medical-partners") { ApiClient.getMedicalPartners() },
         Ep("getRidesToPartner", "GET", "/medical-partners/1/rides") { ApiClient.getRidesToPartner(partnerId = 1) },

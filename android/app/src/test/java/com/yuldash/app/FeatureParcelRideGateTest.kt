@@ -5,6 +5,7 @@ import android.content.Context
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -24,7 +25,7 @@ import org.robolectric.annotation.GraphicsMode
 
 /** Реальные entry points: восстановленный draft и сохранённый OnClick не создают доставку. */
 @RunWith(RobolectricTestRunner::class)
-@Config(sdk = [34], application = Application::class)
+@Config(sdk = [34], application = Application::class, qualifiers = "w600dp-h1600dp")
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class FeatureParcelRideGateTest {
     @get:Rule val compose = createComposeRule()
@@ -53,6 +54,11 @@ class FeatureParcelRideGateTest {
                 onConfirmRide = { _, _, _, _, _, _ -> confirmed() }) }
         } }
     }
+    private fun scrollToParcelOption() {
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasText("Тип поездки"))
+    }
+
     @Test fun parcelNewBookingIsSoon() { booking("parcel"); compose.onNodeWithText("Скоро в Юлдаше").assertIsDisplayed(); compose.onNodeWithText("Забронировать место").assertDoesNotExist() }
     @Test fun cargoNewBookingIsSoon() { booking("cargo"); compose.onNodeWithText("Скоро в Юлдаше").assertIsDisplayed(); compose.onNodeWithText("Забронировать место").assertDoesNotExist() }
     @Test fun existingCargoBookingCanStillOpen() { booking("cargo", 73); compose.onNodeWithText("Открыть поездку").assertIsDisplayed(); compose.onNodeWithText("Скоро в Юлдаше").assertDoesNotExist() }
@@ -69,11 +75,12 @@ class FeatureParcelRideGateTest {
         restore.setContent { if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             YuldashTheme { CreateRideScreen({}, { fail("closed draft published") }) }
         } }
-        compose.onNodeWithText("Посылка").performScrollTo().performClick()
+        scrollToParcelOption()
+        compose.onNodeWithText("Посылка").performClick()
         compose.runOnIdle { flags(false) }
-        compose.onNodeWithText("Скоро в Юлдаше").assertIsDisplayed()
+        compose.onNodeWithText("Скоро в Юлдаше").performScrollTo().assertIsDisplayed()
         restore.emulateSavedInstanceStateRestore()
-        compose.onNodeWithText("Скоро в Юлдаше").assertIsDisplayed()
+        compose.onNodeWithText("Скоро в Юлдаше").performScrollTo().assertIsDisplayed()
     }
     @Test fun dtoCategorySurvivesMappingWithoutChangingRegularDefault() {
         for (category in listOf("parcel", "cargo", "regular", "urgent", "hospital")) {
@@ -87,11 +94,14 @@ class FeatureParcelRideGateTest {
         compose.setContent { if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
             YuldashTheme { CreateRideScreen({}, { fail("nothing to publish") }) }
         } }
-        compose.onNodeWithText("Тип поездки").performScrollTo().assertIsDisplayed()
+        compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasText("Тип поездки"))
+        compose.onNodeWithText("Тип поездки").assertIsDisplayed()
         compose.onAllNodesWithText("Посылка").assertCountEquals(0)
         compose.onAllNodesWithText("Груз").assertCountEquals(0)
         compose.runOnIdle { flags(true) }
-        compose.onNodeWithText("Посылка").performScrollTo().assertIsDisplayed()
+        scrollToParcelOption()
+        compose.onNodeWithText("Посылка").assertIsDisplayed()
     }
     @Test fun onlyExactDeliveryCategoriesAreClosed() {
         for (category in listOf("regular", "urgent", "hospital", "unknown", "")) assertFalse(rideCategoryClosed(category))

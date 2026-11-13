@@ -3240,8 +3240,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/FeatureParcelRideGateTest.kt",
       "kind": "test_support",
       "block": "B04",
-      "sha256": "a11abb2482c07d7290b26d79b9985ee5b09d60db1b7d70ecb18756a771975a4a",
-      "lines": 100
+      "sha256": "09f66b2de67f9741ccb0ee397222913845bc49317e1cba6b2db06690d14bd9ab",
+      "lines": 110
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/FileSizeRatchetTest.kt",
@@ -3513,8 +3513,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/LoginContactsBootstrapTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "d2809df8e800f78d778f7699134831339ac5bb5f76d7ea063fe0a3aed9f4f0c6",
-      "lines": 176
+      "sha256": "1608f9daeff89877c4ca4f2b64984c7a089c9031ffc182e2c9883726c19c647a",
+      "lines": 183
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/LoginDeep2ContentTest.kt",
@@ -5123,8 +5123,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientEndpointContractTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "25916b083c5995ddacee70659b0ac436fc847ac7f07260d2896061cdab1aa202",
-      "lines": 512
+      "sha256": "ec45f6961c3d641045427588a546a7ff983cd53405917bc42a9c38236e3d7dd2",
+      "lines": 515
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientHardPathsTest.kt",
