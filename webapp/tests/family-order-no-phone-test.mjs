@@ -24,11 +24,11 @@ async function openForm(lang) {
     mocks: {
       "react-router-dom": `export const useNavigate=()=>p=>globalThis.__fo.nav.push(p);`,
       "/i18n/lang": langMock(lang),
-      "/api/requests": `export const createRequest=async(body)=>{globalThis.__fo.sent.push(body);return{id:1};};`,
-      "/api/client": `export class ApiError extends Error{}`,
+      "/api/requests": `export const createRequest=async(body)=>{globalThis.__fo.sent.push(body);return globalThis.__fo.reply;};`,
+      "/api/client": `export class ApiError extends Error{}; export const getSessionGeneration=()=>globalThis.__fo.generation;`,
     },
   });
-  globalThis.__fo = { nav: [], sent: [] };
+  globalThis.__fo = { nav: [], sent: [], reply: { id: 37 }, generation: "first" };
   const h = mount(Screen);
   h.render();
   await h.settle();
@@ -38,8 +38,7 @@ async function openForm(lang) {
 /** Поле ввода по подсказке внутри него. */
 const field = (tree, placeholder) => all(tree).filter((n) => n.props?.placeholder === placeholder);
 
-async function fillAndSend(lang, note) {
-  const h = await openForm(lang);
+async function fillForm(h, lang, note) {
   const type = (input, value) => input.props.onChange({ target: { value } });
   type(field(h.tree, L(lang, "Например: Мама, Фаниль", "Мәҫәлән: Әсәй, Фәниль"))[0], "Мама");
   const cities = field(h.tree, L(lang, "Город или село", "Ҡала йәки ауыл"));
@@ -48,10 +47,16 @@ async function fillAndSend(lang, note) {
   type(cities[1], "Сибай");
   if (note) type(field(h.tree, L(lang, "Время, вещи, помощь при посадке…", "Ваҡыт, әйберҙәр, ултырышҡа ярҙам…"))[0], note);
   await h.settle();
-  button(h.tree, L(lang, "Оставить заявку", "Заявка ҡалдырырға")).props.onClick();
+  return button(h.tree, L(lang, "Оставить заявку", "Заявка ҡалдырырға")).props.onClick;
+}
+
+async function fillAndSend(lang, note) {
+  const h = await openForm(lang);
+  const submit = await fillForm(h, lang, note);
+  submit();
   await h.settle();
   assert.equal(globalThis.__fo.sent.length, 1, "заявка должна уйти один раз");
-  return globalThis.__fo.sent[0];
+  return h;
 }
 
 for (const lang of ["ru", "ba"]) {
@@ -76,7 +81,8 @@ for (const lang of ["ru", "ba"]) {
   });
 
   await t.test(`${lang}: в заявку уходят только метка и имя — ни цифры, ни ключа phone`, async () => {
-    const body = await fillAndSend(lang, "");
+    await fillAndSend(lang, "");
+    const [body] = globalThis.__fo.sent;
     const wire = JSON.stringify(body);
     assert.ok(!/\d/.test(wire), "в запросе есть цифра: " + wire);
     assert.ok(!/phone|tel/i.test(Object.keys(body).join(",")), "в запросе есть ключ телефона: " + wire);
@@ -86,10 +92,69 @@ for (const lang of ["ru", "ba"]) {
   });
 
   await t.test(`${lang}: заметка человека сохраняется после нейтральной метки`, async () => {
-    const body = await fillAndSend(lang, "Нужна помощь с сумкой");
+    await fillAndSend(lang, "Нужна помощь с сумкой");
+    const [body] = globalThis.__fo.sent;
     assert.equal(body.comment, L(lang, "Заказ за близкого", "Яҡын кеше өсөн заказ") + ". Нужна помощь с сумкой");
     assert.ok(!/\d/.test(JSON.stringify(body)), "в запросе есть цифра: " + JSON.stringify(body));
   });
+
+  await t.test(`${lang}: переходы к откликам созданной заявки и списку`, async () => {
+    const h = await fillAndSend(lang, "");
+    button(h.tree, L(lang, "Смотреть отклики", "Яуаптарҙы ҡарарға")).props.onClick();
+    button(h.tree, L(lang, "Мои заявки", "Минең заявкалар")).props.onClick();
+    assert.deepEqual(globalThis.__fo.nav, ["/requests/37/responses", "/my-requests"]);
+  });
 }
+
+await t.test("повторное нажатие не отправляет ещё одну заявку", async () => {
+  const h = await openForm("ru");
+  const submit = await fillForm(h, "ru");
+  const first = submit();
+  await submit();
+  await first;
+  await h.settle();
+  await submit();
+  assert.equal(globalThis.__fo.sent.length, 1);
+});
+
+await t.test("ответ прежнего аккаунта не открывает его отклики и не оставляет черновик", async () => {
+  const h = await openForm("ru");
+  const submit = await fillForm(h, "ru");
+  let resolve;
+  globalThis.__fo.reply = new Promise((done) => { resolve = done; });
+  const sent = submit();
+  globalThis.__fo.generation = "second";
+  resolve({ id: 37 });
+  await sent;
+  h.render();
+  assert.equal(h.tree, null);
+  await submit();
+  assert.equal(globalThis.__fo.sent.length, 1);
+  assert.deepEqual(globalThis.__fo.nav, []);
+});
+
+await t.test("уход со страницы отзывает незавершённое действие", async () => {
+  const h = await openForm("ru");
+  const submit = await fillForm(h, "ru");
+  let resolve;
+  globalThis.__fo.reply = new Promise((done) => { resolve = done; });
+  const sent = submit();
+  h.unmount();
+  resolve({ id: 37 });
+  await sent;
+  await submit();
+  assert.equal(globalThis.__fo.sent.length, 1);
+  assert.deepEqual(globalThis.__fo.nav, []);
+});
+
+await t.test("кнопки завершённой заявки не открывают данные после смены аккаунта", async () => {
+  const h = await fillAndSend("ru", "");
+  const responses = button(h.tree, "Смотреть отклики").props.onClick;
+  const list = button(h.tree, "Мои заявки").props.onClick;
+  globalThis.__fo.generation = "second";
+  responses();
+  list();
+  assert.deepEqual(globalThis.__fo.nav, []);
+});
 
 t.done();
