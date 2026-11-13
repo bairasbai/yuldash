@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 224,
     "backend_main": 112,
-    "infra_resource_config": 409,
+    "infra_resource_config": 415,
     "public_site_promo": 91,
     "pwa_main": 338,
-    "test_support": 1314
+    "test_support": 1315
   },
   "counts_by_block": {
     "B01": 170,
@@ -94,8 +94,8 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 759,
-    "B10": 409,
+    "B09": 760,
+    "B10": 415,
     "B11": 92
   },
   "excluded_counts": {
@@ -13371,6 +13371,55 @@
       "block": "B10",
       "sha256": "73e61803d1e24f751f5b32133a8824c3d8fe1b7b28ae91823ec1be376169a210",
       "lines": 72
+    },
+    {
+      "path": "tools/rideshare_e2e/fresh-stand.ps1",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "cd347c993edfb74f65f32fddedaf2471cf1d4c589cebb90d44a4238cfbe2734a",
+      "lines": 27
+    },
+    {
+      "path": "tools/rideshare_e2e/lib/common.mjs",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "9595028d8154cf088e69cb555967081e1fe689d994b843d96b169ae7fbc83c6f",
+      "lines": 77
+    },
+    {
+      "path": "tools/rideshare_e2e/lib/pwa-preflight.mjs",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "8fbcb61771ace934afd74245553dfae40eaaf99aeeaca81e6703c754e2c2680d",
+      "lines": 109
+    },
+    {
+      "path": "tools/rideshare_e2e/lib/pwa.mjs",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "2fc7d48c894eccda7ae7cb201956b2d52b5b7aba7403b831b38f289ace213853",
+      "lines": 145
+    },
+    {
+      "path": "tools/rideshare_e2e/pwa-preflight.test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "d178a16fdcfe36650039ccd399586b5b531c8a58fb799cfbb528370b3363dc3c",
+      "lines": 64
+    },
+    {
+      "path": "tools/rideshare_e2e/qa_server.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "9a878fa0e290ba86b0a7d3f3359735b38166ab95e1fef80fa6dfd551c9e00185",
+      "lines": 87
+    },
+    {
+      "path": "tools/rideshare_e2e/start-server.ps1",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4f8814ea123e0dcabb247b3e50ebf93e5cca1e18e161364fc84cf76175b47c24",
+      "lines": 47
     },
     {
       "path": "tools/stubs/BuildConfigStub.kt",
