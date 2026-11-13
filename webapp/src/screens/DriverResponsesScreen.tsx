@@ -15,9 +15,11 @@ import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
   acceptResponse,
+  consentToRequestTraveler,
   counterOffer,
   declineResponse,
   fetchMyResponses,
+  getRequestTravelerOffer,
   parseBargainHistory,
   withdrawResponse,
   type ResponseItem,
@@ -49,9 +51,12 @@ export default function DriverResponsesScreen() {
   const [counterFor, setCounterFor] = useState<number | null>(null);
   const [price, setPrice] = useState("");
   const [err, setErr] = useState("");
+  const [travelerOffer, setTravelerOffer] = useState<{ responseId: number; version: string; price: number } | null>(null);
+  const [travelerNotice, setTravelerNotice] = useState<number | null>(null);
 
   useEffect(() => {
     mounted.current = true; setRows([]); setCounterFor(null); setPrice(""); setErr(""); setBusyId(null);
+    setTravelerOffer(null); setTravelerNotice(null);
     return () => { mounted.current = false; loading.current?.abort(); acting.current?.abort(); inFlight.current = false; };
   }, [generation]);
 
@@ -85,12 +90,35 @@ export default function DriverResponsesScreen() {
     setBusyId(r.id);
     setErr("");
     try {
+      if (travelerOffer?.responseId === r.id) {
+        await consentToRequestTraveler(r.id, travelerOffer.version, generation, ac.signal);
+        if (!current() || ac.signal.aborted) return;
+        setTravelerNotice(r.id);
+        setTravelerOffer(null);
+        setBusyId(null);
+        load();
+        return;
+      }
       const { booking_id } = await acceptResponse(r.id, ac.signal);
       if (!current() || ac.signal.aborted) return;
       track("accept_response");
       navigate(`/trip/${booking_id}`);
     } catch (e) {
       if (!current()) return;
+      if (e instanceof ApiError && e.code === "request_traveler_confirmation_required") {
+        try {
+          const offer = await getRequestTravelerOffer(r.id, generation, ac.signal);
+          if (!current() || ac.signal.aborted) return;
+          if (offer.version && offer.price !== undefined && offer.last_offer_by === "passenger") {
+            setTravelerOffer({ responseId: r.id, version: offer.version, price: offer.price });
+            setBusyId(null);
+            return;
+          }
+        } catch {
+          if (!current() || ac.signal.aborted) return;
+        }
+      }
+      setTravelerOffer(null);
       setErr(
         e instanceof ApiError && e.message
           ? e.message
@@ -255,12 +283,18 @@ export default function DriverResponsesScreen() {
                     rounds={r.bargain_rounds}
                   />
 
-                  {live && (r.can_accept || r.can_counter) && (
+                  {travelerOffer?.responseId === r.id && (
+                    <p role="status">{appText("Подтверди встречную цену", "Ҡаршы хаҡты раҫла")} · {priceLabel(travelerOffer.price, ru)}</p>
+                  )}
+                  {(r.traveler_waiting_for_owner || travelerNotice === r.id) && (
+                    <p role="status">{appText("Ждём подтверждения владельца заявки.", "Ғариза хужаһының раҫлауын көтәбеҙ.")}</p>
+                  )}
+                  {live && !r.traveler_waiting_for_owner && travelerNotice !== r.id && (r.can_accept || r.can_counter) && (
                     <span className="bargain-turn bargain-turn--mine">
                       <IconBolt size={14} /> {appText("Сейчас твой ход", "Хәҙер һинең сират")}
                     </span>
                   )}
-                  {live && !r.can_accept && !r.can_counter && (
+                  {live && !r.traveler_waiting_for_owner && travelerNotice !== r.id && !r.can_accept && !r.can_counter && (
                     <span className="bargain-turn">
                       {appText("Ход пассажира — ждём ответа", "Юлаусы сираты — яуап көтәбеҙ")}
                     </span>
@@ -314,7 +348,9 @@ export default function DriverResponsesScreen() {
                             disabled={busyId === r.id}
                           >
                             <IconCheck size={16} />{" "}
-                            {appText("Принять цену", "Хаҡты ҡабул итеү")}
+                            {travelerOffer?.responseId === r.id
+                              ? appText("Подтвердить цену", "Хаҡты раҫлау")
+                              : appText("Принять цену", "Хаҡты ҡабул итеү")}
                           </button>
                         )}
                         {r.can_counter && (

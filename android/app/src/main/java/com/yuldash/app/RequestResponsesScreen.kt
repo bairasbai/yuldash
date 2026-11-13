@@ -15,6 +15,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.RequestTravelerApi
 import kotlinx.coroutines.launch
 
 // Экран откликов на заявку пассажира вынесен из RidesRequestsChatScreens.kt: обёртка выросла на
@@ -37,6 +39,7 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
     var loading by remember(requestId, session, ownerRole) { mutableStateOf(true) }
     var error by remember(requestId, session, ownerRole) { mutableStateOf(false) }
     var accepting by remember(requestId, session, ownerRole) { mutableStateOf(false) }
+    var travelerFor by remember(requestId, session, ownerRole) { mutableStateOf<Int?>(null) }
     var reloadTick by remember(requestId, session, ownerRole) { mutableStateOf(0) }
     var counterFor by remember(requestId, session, ownerRole) { mutableStateOf<com.yuldash.app.data.ResponseDto?>(null) }
     val failMsg = appText("Не получилось принять", "Ҡабул итеп булманы")
@@ -87,12 +90,18 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
             onFindRides = onBack,
             onAccept = { r ->
                 if (accepting || !current()) return@ResponsesContent
+                if (r.canConfirmTraveler) { travelerFor = r.id; return@ResponsesContent }
                 accepting = true; val id = r.id
                 scope.launch {
                     if (!current()) return@launch
                     ApiClient.acceptResponse(id)
                         .onSuccess { bid -> if (current()) onAccepted(bid) }
-                        .onFailure { if (current()) { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show(); accepting = false; reloadTick++ } }
+                        .onFailure {
+                            if (!current()) return@onFailure
+                            accepting = false
+                            if ((it as? ApiException)?.detailCode == RequestTravelerApi.CONFIRMATION_REQUIRED) travelerFor = id
+                            else { Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show(); reloadTick++ }
+                        }
                 }
             },
             // Торг: своя цена и «не договорились». Ошибку сервера показываем как есть — она
@@ -110,6 +119,11 @@ internal fun ResponsesScreen(requestId: Int, onBack: () -> Unit, onAccepted: (In
             },
             modifier = Modifier.padding(padding),
         )
+    }
+    travelerFor?.let { id ->
+        RequestTravelerDialog(id, session, ::current, onDismiss = { travelerFor = null }) { bookingId ->
+            if (current()) { travelerFor = null; onAccepted(bookingId) }
+        }
     }
     counterFor?.let { target ->
         CounterPriceDialog(

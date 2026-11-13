@@ -2581,8 +2581,9 @@ private fun PremiumResponseCard(
     onDecline: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val canTake = response.canAccept || (response.bargainRounds == 0 && response.lastOfferBy == "driver")
+    val canTake = response.canConfirmTraveler || response.canAccept || (response.bargainRounds == 0 && response.lastOfferBy == "driver")
     val canDecline = response.status == "offered" && (canTake || response.canCounter)
+    val canOpenBooking = response.status == "accepted" && response.canConfirmTraveler
     Surface(
         modifier = modifier.fillMaxWidth(),
         color = CanonSurface,
@@ -2625,7 +2626,9 @@ private fun PremiumResponseCard(
                     )
                 }
             }
-            if (canTake || response.canCounter || canDecline) {
+            if (canOpenBooking) {
+                TextButton(onClick = onAccept, enabled = !accepting) { Text(appText("Открыть бронь", "Бронде асыу")) }
+            } else if (canTake || response.canCounter || canDecline) {
                 ResponseActions(
                     price = response.onTable,
                     canAccept = canTake,

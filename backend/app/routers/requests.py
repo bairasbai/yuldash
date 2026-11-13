@@ -1034,6 +1034,8 @@ class ResponseOut(BaseModel):
     bargain_rounds: int = 0          # сколько встречных сделано
     can_counter: bool = False        # смотрящий может сделать встречное предложение
     can_accept: bool = False         # смотрящий может принять текущую цену
+    can_confirm_traveler: bool = False
+    traveler_waiting_for_owner: bool = False
     bargain_history: str = ""        # «d:500,p:400,d:450» — для строки «как шёл торг»
     # Доверие и контекст сделки. Все поля публичные и уже доступны в витрине поездок;
     # телефон, госномер и точные координаты сюда намеренно не попадают.
@@ -1071,6 +1073,7 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
     driver_ids = {r.driver_id for r in resps}
     drivers, profiles, ratings, trips = drivers_bundle(session, driver_ids)
     closed_segments = _closed_response_segments(session, resps, user)
+    traveler_rides = _traveler_response_rides(session, resps)
     out: list = []
     for r in resps:
         d = drivers.get(r.driver_id)
@@ -1079,8 +1082,16 @@ def request_responses(request_id: int, user: User = Depends(current_user), sessi
             session, r, req, user, d, avg, cnt,
             profile=profiles.get(r.driver_id), trips_count=trips.get(r.driver_id, 0),
             hide_segment=r.id in closed_segments,
+            traveler_ride=traveler_rides.get(r.ride_id),
         ))
     return out
+
+
+def _traveler_response_rides(session, responses):
+    ids = {r.ride_id for r in responses if r.ride_id and r.status == "offered" and (
+        r.traveler_driver_consent or r.traveler_owner_waiting
+    )}
+    return {ride.id: ride for ride in session.exec(select(Ride).where(Ride.id.in_(ids))).all()} if ids else {}
 
 
 def _closed_response_segments(session, responses, viewer):
@@ -1101,7 +1112,7 @@ def _closed_response_segments(session, responses, viewer):
 def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer: User,
                   d: Optional[User] = None, avg: float = 0.0, cnt: int = 0,
                   profile: Optional[DriverProfile] = None, trips_count: int = 0,
-                  hide_segment: bool = False) -> ResponseOut:
+                  hide_segment: bool = False, traveler_ride: Optional[Ride] = None) -> ResponseOut:
     """Карточка отклика глазами КОНКРЕТНОГО смотрящего: can_counter/can_accept зависят от того,
     чей сейчас ход. Без этого обе стороны видели бы активные кнопки одновременно и жали их
     вслепую — «принять» свою же цену для торга бессмысленно."""
@@ -1111,7 +1122,13 @@ def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer
     role = _bargain_role(r, req, viewer)
     last = (getattr(r, "last_offer_by", "") or "driver")
     live = r.status == "offered" and req.status == "active"
-    my_turn = bool(role) and live and last != role
+    version = None
+    if (role and live and request_traveler_mode(req) != "self" and
+            (r.traveler_owner_waiting or r.traveler_driver_consent) and (r.ride_id is None or traveler_ride)):
+        version = traveler_offer_version(req, r, traveler_ride)
+    driver_consented = version is not None and r.traveler_driver_consent == version
+    waiting_for_owner = version is not None and (driver_consented or r.traveler_owner_waiting == version)
+    my_turn = bool(role) and live and last != role and not waiting_for_owner
     # Показываем условия, которые предложены, даже если водитель позднее исправил свой рейс.
     # При принятии snapshot сравнивается с текущими условиями и изменённый отклик отклоняется.
     import json
@@ -1127,6 +1144,11 @@ def _response_out(session: Session, r: RequestResponse, req: RideRequest, viewer
         bargain_rounds=int(getattr(r, "bargain_rounds", 0) or 0),
         can_counter=my_turn and int(getattr(r, "bargain_rounds", 0) or 0) < _BARGAIN_MAX_TOTAL,
         can_accept=my_turn,
+        traveler_waiting_for_owner=waiting_for_owner,
+        can_confirm_traveler=role == "passenger" and request_traveler_mode(req) != "self" and (
+            (r.status == "accepted" and r.booking_id is not None) or
+            (live and (last == "driver" or driver_consented))
+        ),
         bargain_history=(getattr(r, "bargain_history", "") or ""),
         driver_verified=bool(d.verified) if d else False,
         driver_trips_count=max(0, int(trips_count or 0)),
@@ -1161,6 +1183,7 @@ def my_responses(user: User = Depends(current_user), session: Session = Depends(
         select(RideRequest).where(RideRequest.id.in_({x.request_id for x in resps}))).all()}
     drivers, profiles, ratings, trips = drivers_bundle(session, {user.id})
     closed_segments = _closed_response_segments(session, resps, user)
+    traveler_rides = _traveler_response_rides(session, resps)
     out: list = []
     for r in resps:
         req = reqs.get(r.request_id)
@@ -1170,6 +1193,7 @@ def my_responses(user: User = Depends(current_user), session: Session = Depends(
                 session, r, req, user, drivers.get(user.id), avg, cnt,
                 profile=profiles.get(user.id), trips_count=trips.get(user.id, 0),
                 hide_segment=r.id in closed_segments,
+                traveler_ride=traveler_rides.get(r.ride_id),
             ))
     return out
 

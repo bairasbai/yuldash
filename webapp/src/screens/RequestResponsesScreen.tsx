@@ -30,6 +30,7 @@ import { IconStar, IconCheck, IconClock, IconPencil, IconBolt } from "../compone
 import { priceLabel } from "../utils/format";
 import { track } from "../analytics";
 import PartialFeedNotice from "../components/PartialFeedNotice";
+import RequestTravelerForm from "../components/RequestTravelerForm";
 
 export default function RequestResponsesScreen() {
   const { appText, lang } = useLang();
@@ -50,6 +51,7 @@ export default function RequestResponsesScreen() {
   const [items, setItems] = useState<ResponseItem[]>([]);
   const [accepting, setAccepting] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [travelerFor, setTravelerFor] = useState<number | null>(null);
   // Мэтчинг: null = блок скрыт (эндпоинта ещё нет / нет доступа), [] = «пока нет совпадений».
   const [matches, setMatches] = useState<Ride[] | null>(null);
   const [matchesPartial, setMatchesPartial] = useState(false);
@@ -61,6 +63,7 @@ export default function RequestResponsesScreen() {
 
   useEffect(() => {
     mounted.current = true;
+    setTravelerFor(null);
     setItems([]); setMatches(null); setMatchesPartial(false); setOpenedRide(null); setCounterFor(null); setCounterPrice(""); setError(null); setAccepting(null); setBargaining(false);
     return () => { mounted.current = false; loading.current?.abort(); acting.current?.abort(); actionBusy.current = false; };
   }, [ownerKey]);
@@ -121,6 +124,11 @@ export default function RequestResponsesScreen() {
       navigate(`/trip/${res.booking_id}`);
     } catch (e) {
       if (!current()) return;
+      if (e instanceof ApiError && e.code === "request_traveler_confirmation_required") {
+        setTravelerFor(responseId);
+        setAccepting(null);
+        return;
+      }
       // 409 бывает по разным причинам (водитель отозвал, торг закрыт, ход другой стороны, пассажир на паузе…) —
       // человеку нужно слово сервера, а не наша догадка про «рейс изменился». Своя фраза — только если слов нет.
       setError(
@@ -242,7 +250,9 @@ export default function RequestResponsesScreen() {
                     <span
                       className={"bargain-turn" + (r.can_accept || r.can_counter ? " bargain-turn--mine" : "")}
                     >
-                      {r.can_accept || r.can_counter ? (
+                      {r.can_confirm_traveler ? (
+                        appText("Подтверди, кто едет", "Кем барғанын раҫла")
+                      ) : r.can_accept || r.can_counter ? (
                         <>
                           <IconBolt size={14} /> {appText("Твой ход", "Һинең сират")}
                         </>
@@ -255,6 +265,9 @@ export default function RequestResponsesScreen() {
                   {isAccepted ? (
                     <div className="offer-card__accepted">
                       <IconCheck size={18} /> {appText("Принят", "Ҡабул ителгән")}
+                      {r.can_confirm_traveler && <button type="button" className="btn-soft" onClick={() => setTravelerFor(r.id)}>
+                        {appText("Открыть бронь", "Бронде асыу")}
+                      </button>}
                     </div>
                   ) : !isOffered ? (
                     <p className="bargain-turn">
@@ -308,8 +321,8 @@ export default function RequestResponsesScreen() {
                       <button
                         type="button"
                         className="btn-primary"
-                        onClick={() => accept(r.id)}
-                        disabled={accepting != null || !r.can_accept}
+                        onClick={() => r.can_confirm_traveler ? setTravelerFor(r.id) : accept(r.id)}
+                        disabled={accepting != null || (!r.can_accept && !r.can_confirm_traveler)}
                       >
                         {accepting === r.id
                           ? appText("Принимаем…", "Ҡабул итәбеҙ…")
@@ -330,6 +343,10 @@ export default function RequestResponsesScreen() {
                       )}
                     </div>
                   )}
+
+                  {travelerFor === r.id && <RequestTravelerForm key={`${ownerKey}:${r.id}`}
+                    responseId={r.id} generation={generation} onClose={() => setTravelerFor(null)}
+                    onAccepted={(bookingId) => { if (current()) navigate(`/trip/${bookingId}`); }} />}
 
                   {isOffered && counterFor !== r.id && (
                     <button
