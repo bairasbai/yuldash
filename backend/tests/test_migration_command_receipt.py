@@ -4,8 +4,8 @@ import os
 import re
 
 from alembic import command
-from sqlalchemy import inspect
-from sqlmodel import Session, create_engine, select
+from sqlalchemy import inspect, text
+from sqlmodel import Session, create_engine
 
 from app.db import engine
 from app.models import Booking, CommandReceipt, Ride, User
@@ -70,15 +70,20 @@ def test_migration_up_down_up_preserves_existing_ride_and_booking(tmp_path, monk
             }
             assert inspector.get_foreign_keys("commandreceipt")[0]["options"]["ondelete"] == "CASCADE"
             check_legacy()
-            with Session(database) as session:
-                assert session.exec(select(CommandReceipt)).all() == []
+            # Проверяем схему этой ревизии. Модель приложения уже может содержать поля,
+            # которые добавляет более поздняя миграция.
+            with database.begin() as connection:
+                assert connection.execute(text("SELECT count(*) FROM commandreceipt")).scalar_one() == 0
                 if first:
-                    session.add(CommandReceipt(
-                        user_id=owner_id, request_key="migration-check-key",
-                        scope="booking.create", target_id=ride_id, payload_hash="0" * 64,
-                        state="applied", ref_kind="booking", ref_id=booking_id, ref_created_at=booking_created_at,
-                    ))
-                    session.commit()
+                    connection.execute(text("""
+                        INSERT INTO commandreceipt
+                            (user_id, request_key, scope, target_id, payload_hash, state,
+                             ref_kind, ref_id, ref_created_at, created_at)
+                        VALUES
+                            (:owner, 'migration-check-key', 'booking.create', :ride, :hash, 'applied',
+                             'booking', :booking, :booking_created_at, :now)
+                    """), dict(owner=owner_id, ride=ride_id, hash="0" * 64, booking=booking_id,
+                              booking_created_at=booking_created_at, now=utcnow()))
             if first:
                 command.downgrade(cfg, PREVIOUS)
                 assert not inspect(database).has_table("commandreceipt")

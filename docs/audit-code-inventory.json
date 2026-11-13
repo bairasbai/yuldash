@@ -83,7 +83,7 @@
     "infra_resource_config": 408,
     "public_site_promo": 91,
     "pwa_main": 335,
-    "test_support": 1311
+    "test_support": 1312
   },
   "counts_by_block": {
     "B01": 169,
@@ -94,7 +94,7 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 755,
+    "B09": 756,
     "B10": 408,
     "B11": 92
   },
@@ -9899,6 +9899,13 @@
       "block": "B02",
       "sha256": "8672a07bb72f365d74985b10448efe55fbf0b975d4b75c7db3058572aa262a9c",
       "lines": 65
+    },
+    {
+      "path": "backend/tests/test_migration_command_receipt.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "f08ac6c1289d22c35ba4dce230075b4a3d954d1478e557c735475600a7b720d8",
+      "lines": 92
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
