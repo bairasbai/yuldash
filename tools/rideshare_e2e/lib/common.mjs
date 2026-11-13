@@ -3,6 +3,7 @@ import { appendFileSync, mkdirSync, existsSync, readFileSync } from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 import { DatabaseSync } from "node:sqlite";
+import { checkPwaStand } from "./pwa-preflight.mjs";
 
 const here = dirname(fileURLToPath(import.meta.url));
 // tools/rideshare_e2e/lib → repo root; evidence stays in the git-ignored test-results/release.
@@ -34,7 +35,9 @@ export function log(step, data = {}) {
 export async function api(path, { method = "GET", body, token, headers = {} } = {}) {
   const h = { "Content-Type": "application/json", ...headers };
   if (token) h.Authorization = "Bearer " + token;
-  const r = await fetch(API + path, { method, headers: h, body: body === undefined ? undefined : JSON.stringify(body) });
+  const r = await fetch(API + path, {
+    method, headers: h, body: body === undefined ? undefined : JSON.stringify(body), redirect: "error",
+  });
   const text = await r.text();
   let json = null;
   try { json = JSON.parse(text); } catch {}
@@ -47,6 +50,12 @@ export function q1(sql, ...params) { return q(sql, ...params)[0]; }
 
 /** Wait for a NEW TgAuth row created by the client (after `afterId`), imitate the bot. */
 export async function tgBotLogin({ telegramId, firstName, phone, afterId = 0, timeout = 30000 }) {
+  const secret = process.env.RSACC_TELEGRAM_SECRET;
+  if (!secret) throw new Error("Set the local Telegram simulator secret before testing Telegram login");
+  const wireOrigin = "http://127.0.0.1:8000";
+  const stand = await checkPwaStand("http://127.0.0.1:4173", wireOrigin, wireOrigin, API, DB_PATH);
+  if (!stand.telegramMock) throw new Error("The selected stand did not start a Telegram simulator");
+  const headers = { "X-Telegram-Bot-Api-Secret-Token": secret };
   const t0 = Date.now();
   let row;
   while (Date.now() - t0 < timeout) {
@@ -57,10 +66,10 @@ export async function tgBotLogin({ telegramId, firstName, phone, afterId = 0, ti
   if (!row) throw new Error("client did not start a Telegram login (no new tgauth row)");
   const chat = { id: telegramId, type: "private" };
   const from = { id: telegramId, first_name: firstName, username: "" };
-  const start = await api("/telegram/webhook", { method: "POST", body: { update_id: Date.now(), message: { text: `/start ${row.request_id}`, from, chat } } });
+  const start = await api("/telegram/webhook", { method: "POST", headers, body: { update_id: Date.now(), message: { text: `/start ${row.request_id}`, from, chat } } });
   const m = /(\d{6})/.exec(start.json?.text || "");
   if (start.status !== 200 || !m) throw new Error("bot did not issue a code: " + start.status);
-  const contact = await api("/telegram/webhook", { method: "POST", body: { update_id: Date.now() + 1, message: { contact: { user_id: telegramId, phone_number: phone, first_name: firstName }, from, chat } } });
+  const contact = await api("/telegram/webhook", { method: "POST", headers, body: { update_id: Date.now() + 1, message: { contact: { user_id: telegramId, phone_number: phone, first_name: firstName }, from, chat } } });
   if (contact.status !== 200 || !/Номер сохранён/.test(contact.json?.text || "")) throw new Error("bot did not accept own contact");
   log("tg.bot", { tgauth_id: row.id, start_status: start.status, contact_status: contact.status });
   return { code: m[1], tgauthId: row.id };

@@ -1,29 +1,36 @@
 // PWA driver over real Chromium (Playwright). Profiles persist in the scratchpad (not evidence).
 import { createRequire } from "node:module";
-import { mkdirSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
-import { SCRATCH, EVID, log, sleep } from "./common.mjs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { API, DB_PATH, EVID, log, sleep } from "./common.mjs";
+import { checkPwaStand, verifyPwaClient } from "./pwa-preflight.mjs";
 export { log };
 
 const require = createRequire(import.meta.url);
 const { chromium } = require("C:/Users/Bayra/AppData/Local/npm-cache/_npx/381cec31605a419a/node_modules/playwright");
 export const CHROMIUM = "C:/Users/Bayra/AppData/Local/ms-playwright/chromium-1181/chrome-win/chrome.exe";
 export const PWA = "http://127.0.0.1:4173";
-export const PROFILE_ROOT = "C:/Users/Bayra/AppData/Local/Temp/rsacc24/pw";
+export const PROFILE_ROOT = join(dirname(DB_PATH), "pwa-profiles");
 
 export async function openProfile(name, { width = 390, height = 844, dark = false, fresh = false, headless = true, fontScale = 1 } = {}) {
-  // Short root: Chromium IndexedDB paths overflow MAX_PATH under the long scratchpad path.
-  const dir = join(PROFILE_ROOT, name);
-  if (fresh) { try { (await import("node:fs")).rmSync(dir, { recursive: true, force: true }); } catch {} }
-  mkdirSync(dir, { recursive: true });
+  const stand = await checkPwaStand(PWA, "http://127.0.0.1:8000", process.env.VITE_API_BASE, API, DB_PATH);
+  if (!/^[A-Za-z0-9_-]+$/.test(name ?? "")) throw new Error("Invalid test profile name");
+  // Account data is reused only within the same stand, which never allows registration of workers.
+  const profiles = join(PROFILE_ROOT, stand.runId);
+  mkdirSync(profiles, { recursive: true });
+  const dir = fresh ? mkdtempSync(join(profiles, name + "-")) : join(profiles, name);
   const ctx = await chromium.launchPersistentContext(dir, {
     executablePath: CHROMIUM, headless, viewport: { width, height }, deviceScaleFactor: 2,
     colorScheme: dark ? "dark" : "light", locale: "ru-RU", timezoneId: "Asia/Yekaterinburg",
-    serviceWorkers: "allow", args: ["--disable-features=Translate"],
+    serviceWorkers: "block", args: ["--disable-features=Translate", "--disable-background-networking", "--no-proxy-server"],
   });
-  // Hermetic stand: only loopback API/PWA; t.me and any other external host are aborted and noted.
   const external = [];
-  await ctx.route(/^https?:\/\/(?!127\.0\.0\.1|localhost)/, (route) => { external.push(route.request().url().slice(0, 80)); route.abort(); });
+  try {
+    await verifyPwaClient(ctx, stand, external);
+  } catch (error) {
+    await ctx.close();
+    throw error;
+  }
   const page = ctx.pages()[0] || (await ctx.newPage());
   ctx.on("page", (p) => { if (p !== page) p.close().catch(() => {}); });
   const consoleErrors = [];
@@ -78,8 +85,12 @@ export async function hasText(page, text) {
   return (await page.getByText(text).filter({ visible: true }).count()) > 0;
 }
 
-/** Real first-run path: intro → onboarding (role) → Telegram login via the bot imitation. */
-export async function pwaLogin(page, { role = "passenger", telegramId, firstName, phone, lang = "ru" }) {
+/** Real first-run path through onboarding and into the selected local login method. */
+export async function pwaLogin(page, { role = "passenger", telegramId, firstName, phone, lang = "ru", method = "telegram" }) {
+  if (method !== "sms" && method !== "telegram") throw new Error("Unknown local PWA login method");
+  if (method === "telegram" && !process.env.RSACC_TELEGRAM_SECRET) {
+    throw new Error("Set the local Telegram simulator secret or select the SMS test method");
+  }
   const { tgBotLogin, lastTgAuthId } = await import("./common.mjs");
   await page.goto(PWA + "/", { waitUntil: "domcontentloaded" });
   const skip = page.getByRole("button", { name: /Пропустить|Үткәреү|Ҡалдырыу/ }).first();
@@ -89,16 +100,40 @@ export async function pwaLogin(page, { role = "passenger", telegramId, firstName
     await skip.click();
     await page.waitForURL(/onboarding/, { timeout: 20000 });
     if (lang === "ba") { await page.getByRole("button", { name: /БАШ/ }).first().click(); await sleep(400); }
-    for (let i = 0; i < 3; i++) { await page.locator(".onb-next, button").filter({ hasText: /^(Далее|Алға)$/ }).filter({ visible: true }).first().click(); await sleep(450); }
+    for (let i = 0; i < 3; i++) { await page.locator(".onb-next, button").filter({ hasText: /^(Далее|Артабан)$/ }).filter({ visible: true }).first().click(); await sleep(450); }
     await page.locator(`[data-role=${role}]`).filter({ visible: true }).first().click();
     await sleep(300);
-    await page.getByRole("button", { name: /Telegram/ }).filter({ visible: true }).first().click();
+    await page.locator(".onb__next").click();
   } else {
     await page.goto(PWA + "/login", { waitUntil: "domcontentloaded" });   // intro already seen as a guest
   }
   await page.waitForURL(/login/, { timeout: 20000 });
+  const sms = page.getByRole("button", { name: /Войти по номеру телефона|Телефон номеры аша инеү/ });
+  const telegram = page.getByRole("button", { name: /Telegram/ }).filter({ visible: true }).first();
+  if (method === "sms") {
+    await sms.waitFor({ timeout: 12000 });
+    await sms.click();
+    await page.getByRole("textbox", { name: /Номер телефона|Телефон номеры/ }).fill(phone);
+    const requestCode = page.waitForResponse((response) =>
+      response.url() === process.env.VITE_API_BASE.replace(/\/+$/, "") + "/auth/request-code" &&
+      response.request().method() === "POST",
+    );
+    await page.getByRole("button", { name: /Получить код|Код алыу/ }).click();
+    const reply = await requestCode;
+    const code = (await reply.json()).dev_code;
+    if (reply.status() !== 200 || typeof code !== "string" || !/^\d{6}$/.test(code)) {
+      throw new Error("The local mock SMS did not issue a code");
+    }
+    const name = page.getByRole("textbox", { name: /^(Имя|Исем)$/ });
+    if (await name.isVisible()) await name.fill(firstName);
+    await page.getByRole("textbox", { name: /Код из SMS|SMS коды/ }).fill(code);
+    await page.getByRole("button", { name: /^(Войти|Инеү)$/ }).click();
+    await page.waitForURL((url) => !/login|onboarding|intro/.test(String(url)), { timeout: 30000 });
+    log("pwa.login", { role, url: page.url() });
+    return;
+  }
   const base = lastTgAuthId();
-  await page.getByRole("button", { name: /Telegram/ }).filter({ visible: true }).first().click();
+  await telegram.click({ timeout: 12000 });
   const { code } = await tgBotLogin({ telegramId, firstName, phone, afterId: base });
   await page.locator("input[autocomplete=one-time-code]").fill(code);
   await page.locator("input.login-input").first().fill(firstName);
