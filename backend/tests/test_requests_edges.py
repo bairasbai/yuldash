@@ -228,6 +228,37 @@ def test_admin_telegram_callback_declines_request_response(client, user_factory,
         assert s.get(RideRequest, request["id"]).status == "active"
 
 
+def test_admin_telegram_leaves_named_request_for_owner_confirmation(client, user_factory, monkeypatch):
+    passenger = user_factory("Synthetic applicant")
+    driver = user_factory("Synthetic driver", role=UserRole.driver)
+    named = client.post("/requests", headers=passenger["auth"], json={
+        "from_city": "Сибай", "to_city": "Уфа", "for_relative_name": "Тест Пассажир",
+    })
+    assert named.status_code == 200
+    request_id = named.json()["id"]
+    reply = client.post(f"/requests/{request_id}/respond", headers=driver["auth"], json={"price": 300})
+    assert reply.status_code == 200
+    response_id = reply.json()["id"]
+    messages = []
+    monkeypatch.setattr(settings, "telegram_webhook_secret", "secret")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "900000001")
+    monkeypatch.setattr("app.routers.auth._telegram_api", lambda method, payload: messages.append((method, payload)))
+
+    result = client.post("/telegram/webhook", headers={"x-telegram-bot-api-secret-token": "secret"},
+                         json={"callback_query": {"id": "named-request", "from": {"id": 900000001},
+                                                  "data": f"resp:ok:{response_id}"}})
+    assert result.status_code == 200
+    assert messages == [("answerCallbackQuery", {"callback_query_id": "named-request", "text":
+                         f"Отклик #{response_id} ждёт подтверждения пассажира владельцем заявки."})]
+    with Session(engine) as s:
+        response = s.get(RequestResponse, response_id)
+        assert response.status == "offered" and response.booking_id is None and response.traveler_owner_waiting
+        assert s.get(RideRequest, request_id).status == "active"
+        assert s.exec(select(Booking).where(Booking.passenger_id == passenger["id"])).first() is None
+    offer = client.get(f"/responses/{response_id}/traveler-confirmation", headers=passenger["auth"])
+    assert offer.json()["state"] == "waiting_for_owner" and offer.json()["for_another"] is False
+
+
 def _seed_rating(ratee_id: int, stars: int) -> None:
     with Session(engine) as s:
         # rater_id — реальный пользователь (не сам ratee): FK rating.rater_id→user.id PostgreSQL

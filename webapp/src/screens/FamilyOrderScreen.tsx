@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
-import { createRequest } from "../api/requests";
+import { createRequestForAnother } from "../api/requests";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCheck, IconHeart } from "../components/Icons";
 
@@ -47,13 +47,13 @@ export default function FamilyOrderScreen() {
     // и заметка самого человека. Телефона близкого в форме нет (17.10.2026).
     const parts = [appText("Заказ за близкого", "Яҡын кеше өсөн заказ"), comment.trim()].filter(Boolean);
     try {
-      const row = await createRequest({
+      const row = await createRequestForAnother({
         from_city: fromCity.trim(),
         to_city: toCity.trim(),
         for_relative_name: relName.trim(),
         comment: parts.join(". "),
         assisted: true,
-      });
+      }, generation);
       if (!current()) return;
       setCreatedId(row.id);
       setState("sent");

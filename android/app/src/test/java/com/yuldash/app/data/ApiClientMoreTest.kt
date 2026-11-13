@@ -60,11 +60,12 @@ class ApiClientMoreTest {
     private fun brokenJson() = MockResponse().setResponseCode(200).setBody("{не json")
 
     // ======================================================================
-    //  createRequest (POST /requests → id)
+    //  createRequest (POST /requests или /requests/for-another → id)
     // ======================================================================
 
     @Test
-    fun createRequest_postsSnakeCaseBody_andParsesId() = runBlocking {
+    fun createRequest_forAnotherChecksSupportAndPostsSnakeCaseBody() = runBlocking {
+        server.enqueue(json("""{"for_another":true}"""))
         server.enqueue(json("""{"id":501}"""))
         val res = ApiClient.createRequest(
             fromCity = "Уфа", toCity = "Сибай", seats = 2, category = "regular",
@@ -74,9 +75,12 @@ class ApiClientMoreTest {
         )
         assertTrue(res.isSuccess)
         assertEquals(501, res.getOrThrow())   // id → оптимистичный serverId заявки
+        val capability = server.takeRequest()
+        assertEquals("GET", capability.method)
+        assertEquals("/requests/capabilities", capability.path)
         val rec = server.takeRequest()
         assertEquals("POST", rec.method)
-        assertEquals("/requests", rec.path)
+        assertEquals("/requests/for-another", rec.path)
         val body = rec.body.readUtf8()
         assertTrue(body.contains("\"from_city\":\"Уфа\""))
         assertTrue(body.contains("\"to_city\":\"Сибай\""))
@@ -91,6 +95,20 @@ class ApiClientMoreTest {
     }
 
     @Test
+    fun createRequest_forAnotherWithoutSupportDoesNotPostAsSelf() = runBlocking {
+        server.enqueue(json("""{"for_another":false}"""))
+        val res = ApiClient.createRequest(
+            fromCity = "Уфа", toCity = "Сибай", seats = 1, category = "regular",
+            withKids = false, comment = "", maxPrice = 0, relativeName = "Бабушка",
+        )
+        val error = res.exceptionOrNull() as ApiException
+        assertEquals(409, error.status)
+        assertEquals("request_traveler_unsupported", error.detailCode)
+        assertEquals(1, server.requestCount)
+        assertEquals("/requests/capabilities", server.takeRequest().path)
+    }
+
+    @Test
     fun createRequest_omitsBlankOptionalFields() = runBlocking {
         // voice_url/transcript/for_relative_name/desired_at пустые → в теле их быть не должно.
         server.enqueue(json("""{"id":1}"""))
@@ -98,7 +116,10 @@ class ApiClientMoreTest {
             fromCity = "Уфа", toCity = "Бирск", seats = 1, category = "regular",
             withKids = false, comment = "", maxPrice = 0,
         ).getOrThrow()
-        val body = server.takeRequest().body.readUtf8()
+        val rec = server.takeRequest()
+        assertEquals("POST", rec.method)
+        assertEquals("/requests", rec.path)
+        val body = rec.body.readUtf8()
         assertFalse(body.contains("voice_url"))
         assertFalse(body.contains("transcript"))
         assertFalse(body.contains("for_relative_name"))

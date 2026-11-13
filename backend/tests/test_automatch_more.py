@@ -83,6 +83,37 @@ def test_сбой_на_одной_заявке_не_останавливает_�
         assert automatch.automatch_once(s) == []
 
 
+def test_automatch_waits_for_named_request_owner_without_creating_booking(client, user_factory, matching_on, monkeypatch):
+    from app.models import Booking, UserRole
+    from sqlmodel import select
+
+    passenger = user_factory()
+    driver = user_factory(role=UserRole.driver)
+    announced = []
+    monkeypatch.setattr(automatch, "notify_admin_telegram", announced.append)
+    with Session(engine) as s:
+        request_id, response_id = _ripe_request(s, passenger["id"], driver["id"])
+        request = s.get(RideRequest, request_id)
+        request.traveler_origin = "other"
+        request.for_relative_name = "Тест Пассажир"
+        s.commit()
+
+        assert (request_id, response_id) not in automatch.automatch_once(s, dry_run=True)
+        s.refresh(request)
+        response = s.get(RequestResponse, response_id)
+        assert response.traveler_owner_waiting is None
+        assert (request_id, response_id) not in automatch.automatch_once(s)
+        s.refresh(response)
+        pending_version = response.traveler_owner_waiting
+        assert pending_version and response.status == "offered" and response.booking_id is None
+        assert (request_id, response_id) not in automatch.automatch_once(s)
+        s.refresh(request)
+        s.refresh(response)
+        assert request.status == "active" and response.traveler_owner_waiting == pending_version
+        assert s.exec(select(Booking).where(Booking.passenger_id == passenger["id"])).first() is None
+    assert not any(f"заявке #{request_id}" in text for text in announced)
+
+
 def test_заявка_без_откликов_пропускается(client, user_factory, matching_on):
     from app.models import UserRole
     passenger = user_factory(role=UserRole.passenger)

@@ -288,8 +288,23 @@ class CompletedNavigationRestorationTest {
         checkDraft();assertEquals(0,posts("rate"))
     }
     @Test fun confirmedThanksSurvivesReceiptRoundTripWithoutAnotherPost() {
-        mount();text("Сказать «Рәхмәт»").performClick();await {posts("thanks")==1};pump();receipt();back();awaitCompleted()
-        text("Благодарность сохранена").assertIsDisplayed();text("Рәхмәт передано").performClick();assertEquals(1,posts("thanks"))
+        mount()
+        await { compose.onAllNodesWithTag("rideshareRatingCard").fetchSemanticsNodes().isNotEmpty() }
+        text("Квитанция")
+        val availableThanks = hasText("Сказать «Рәхмәт»") and hasClickAction() and isEnabled()
+        await { compose.onAllNodes(availableThanks).fetchSemanticsNodes().size == 1 }
+        compose.onNode(availableThanks).performClick()
+        await { posts("thanks") == 1 }
+        await { compose.onAllNodesWithText("Благодарность сохранена").fetchSemanticsNodes().isNotEmpty() }
+        pump();receipt();back();awaitCompleted()
+        await { compose.onAllNodesWithTag("rideshareRatingCard").fetchSemanticsNodes().isNotEmpty() }
+        text("Квитанция")
+        val sentThanks = hasText("Рәхмәт передано") and hasClickAction() and isEnabled()
+        await { compose.onAllNodes(sentThanks).fetchSemanticsNodes().size == 1 }
+        text("Благодарность сохранена").assertIsDisplayed()
+        compose.onNode(sentThanks).performClick()
+        pump()
+        assertEquals(1, posts("thanks"))
     }
     @Test fun savedCompositionWithRetainedVmRestoresReceiptBackAndDraft() {
         mount();draft();receipt();restoration.emulateSavedInstanceStateRestore();pump();back();awaitCompleted();checkDraft();assertEquals(0,posts("rate"))

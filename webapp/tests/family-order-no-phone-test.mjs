@@ -24,7 +24,7 @@ async function openForm(lang) {
     mocks: {
       "react-router-dom": `export const useNavigate=()=>p=>globalThis.__fo.nav.push(p);`,
       "/i18n/lang": langMock(lang),
-      "/api/requests": `export const createRequest=async(body)=>{globalThis.__fo.sent.push(body);return globalThis.__fo.reply;};`,
+      "/api/requests": `export const createRequestForAnother=async(body)=>{globalThis.__fo.sent.push(body);return globalThis.__fo.reply;};`,
       "/api/client": `export class ApiError extends Error{}; export const getSessionGeneration=()=>globalThis.__fo.generation;`,
     },
   });

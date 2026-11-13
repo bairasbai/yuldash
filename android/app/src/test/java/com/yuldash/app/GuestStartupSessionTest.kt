@@ -17,7 +17,9 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.SnapshotWiringCleanupGuard
 import com.yuldash.app.data.awaitOfflineWriteSnapshotReset02
+import com.yuldash.app.data.poisonOfflinePassportFixture03
 import com.yuldash.app.ui.theme.YuldashTheme
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -37,6 +39,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.net.InetAddress
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 
@@ -44,6 +47,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GuestStartupSessionTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
     @get:Rule val compose = createComposeRule()
     private val owner = object : ViewModelStoreOwner {
         override val viewModelStore = ViewModelStore()
@@ -55,16 +59,19 @@ class GuestStartupSessionTest {
     private val myRequests = privateRequests.getValue("/requests/mine")
     private val authenticatedMyRequests = AtomicInteger()
     private val authenticatedMeRequests = AtomicInteger()
+    private val logoutRequests = Semaphore(0)
     private val releasePrivateRequests = CountDownLatch(1)
     private lateinit var server: MockWebServer
     private lateinit var vm: YuldashViewModel
     private var contentSet = false
+    private var testSessionStarted = false
     private val originalMotion = CanonMotion.enabled
     @Volatile private var meStatus = 401
     @Volatile private var requestsStatus = 200
     @Volatile private var holdPrivateRequests = false
 
     @Before fun prepare() {
+        cleanupGuard.requireHealthy()
         val context: Context = ApplicationProvider.getApplicationContext()
         ApiClient.resetForTest()
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE).edit()
@@ -76,6 +83,10 @@ class GuestStartupSessionTest {
                     val path = request.requestUrl?.encodedPath
                     privateRequests[path]?.incrementAndGet()
                     val authenticated = request.getHeader("Authorization") == "Bearer local-startup-test-account"
+                    if (path == "/auth/logout" && request.method == "POST" && authenticated) {
+                        logoutRequests.release()
+                        return MockResponse().setResponseCode(200).setBody("{}")
+                    }
                     if (path == "/requests/mine") {
                         if (authenticated) {
                             authenticatedMyRequests.incrementAndGet()
@@ -110,8 +121,7 @@ class GuestStartupSessionTest {
             .build().toString().trimEnd('/')
         ApiClient.testTimeoutMs = 1_000
         ApiClient.init(context)
-        ApiClient.logout()
-        awaitOfflineWriteSnapshotReset02()
+        logoutOnFixture(expectRequest = ApiClient.isLoggedIn())
         ApiClient.sessionExpired.value = false
         CanonMotion.enabled = false
         vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
@@ -122,6 +132,7 @@ class GuestStartupSessionTest {
     }
 
     @After fun cleanup() {
+        cleanupGuard.requireHealthy()
         releasePrivateRequests.countDown()
         try {
             if (contentSet) {
@@ -132,16 +143,37 @@ class GuestStartupSessionTest {
             CanonMotion.enabled = originalMotion
             try {
                 owner.viewModelStore.clear()
-                ApiClient.logout()
             } finally {
-                try {
+                if (::server.isInitialized) {
+                    logoutOnFixture(expectRequest = testSessionStarted || ApiClient.isLoggedIn())
                     ApiClient.resetForTest()
                     ApiClient.testTimeoutMs = null
-                } finally {
-                    if (::server.isInitialized) server.shutdown()
+                    server.shutdown()
                 }
             }
         }
+    }
+
+    private fun logoutOnFixture(expectRequest: Boolean) {
+        check(ApiClient.testBaseUrl == "http://127.0.0.1:${server.port}")
+        ApiClient.logout()
+        // Seeing the POST proves its destination is fixed. Other background work can
+        // be cancelled by resetForTest and must not gate this fixture's logout.
+        try {
+            if (expectRequest) {
+                check(logoutRequests.tryAcquire(5, TimeUnit.SECONDS)) {
+                    "The synthetic logout did not reach its mock server; origin retained"
+                }
+            }
+            awaitOfflineWriteSnapshotReset02()
+        } catch (failure: Exception) {
+            poisonOfflinePassportFixture03(cleanupGuard, failure)
+        }
+    }
+
+    private fun signInOnFixture() {
+        ApiClient.saveToken("local-startup-test-account")
+        testSessionStarted = true
     }
 
     private fun mount() {
@@ -196,7 +228,7 @@ class GuestStartupSessionTest {
 
     @Test fun signedInColdStartStillLoadsTheProfileRole() {
         meStatus = 200
-        ApiClient.saveToken("local-startup-test-account")
+        signInOnFixture()
         mount()
         awaitState {
             meRequests.get() > 0 && vm.isAdmin.value && vm.localRequests.any { it.serverId == 72 }
@@ -259,7 +291,7 @@ class GuestStartupSessionTest {
         }
         meStatus = 200
         requestsStatus = 401
-        ApiClient.saveToken("local-startup-test-account")
+        signInOnFixture()
         mount()
     }
 
@@ -274,7 +306,7 @@ class GuestStartupSessionTest {
     }
 
     @Test fun expiredSignedInColdStartStillReturnsToLogin() {
-        ApiClient.saveToken("local-startup-test-account")
+        signInOnFixture()
         mount()
         awaitState {
             meRequests.get() > 0 && !ApiClient.isLoggedIn() && vm.screen.value == Screen.Login
