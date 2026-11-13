@@ -4794,8 +4794,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/TripChatRefusedSocketResyncTest.kt",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "14da94857ba0997602d8f1eb64f94da8a511c819fa913402cdd7933bee4e8157",
-      "lines": 149
+      "sha256": "0a7801477e5a157215b4934d69d332187a1d130023d1b412890938ab6da9f5b8",
+      "lines": 178
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/TripLocationHeartbeatTest.kt",
