@@ -100,6 +100,8 @@ export interface ResponseItem {
   bargain_rounds: number;
   can_counter: boolean; // смотрящий может предложить свою цену
   can_accept: boolean; // смотрящий может принять цену на столе
+  can_confirm_traveler?: boolean;
+  traveler_waiting_for_owner?: boolean;
   bargain_history: string; // «d:500,p:400,d:450»
   ride_id?: number | null;
   ride_from_city?: string | null;
@@ -131,6 +133,12 @@ export function parseBargainHistory(raw: string): BargainStep[] {
 
 export function createRequest(body: RequestInput): Promise<RideRequestRow> {
   return apiPost<RideRequestRow>("/requests", body);
+}
+
+export async function createRequestForAnother(body: RequestInput, generation: string): Promise<RideRequestRow> {
+  const capabilities = await apiGet<{ for_another?: boolean }>("/requests/capabilities", { _generation: generation, cache: "no-store" });
+  if (capabilities.for_another !== true) throw new Error("request_traveler_unsupported");
+  return apiPost<RideRequestRow>("/requests/for-another", body, { _generation: generation });
 }
 
 export function fetchMyRequests(signal?: AbortSignal): Promise<RideRequestRow[]> {
@@ -183,6 +191,48 @@ export function fetchRequestResponses(
 /** Принять отклик → создаётся бронь. Возвращает booking_id. */
 export function acceptResponse(responseId: number, signal?: AbortSignal): Promise<{ booking_id: number }> {
   return apiPost<{ booking_id: number }>(`/responses/${responseId}/accept`, undefined, { signal });
+}
+
+export interface RequestTravelerOffer {
+  state: "offered" | "waiting_for_owner" | "accepted";
+  version?: string;
+  booking_id?: number;
+  for_another?: boolean;
+  last_offer_by?: string;
+  driver_consented?: boolean;
+  price?: number;
+  seats?: number;
+  from_city?: string;
+  to_city?: string;
+  depart_at?: string;
+  no_minors?: boolean;
+}
+
+export interface RequestTravelerSelection {
+  version: string;
+  for_another: boolean;
+  traveler_name?: string;
+  minor_passenger: boolean;
+  minor_guardian_name?: string;
+  minor_guardian_phone?: string;
+}
+
+export function getRequestTravelerOffer(responseId: number, generation: string, signal?: AbortSignal) {
+  return apiGet<RequestTravelerOffer>(`/responses/${responseId}/traveler-confirmation`, {
+    _generation: generation, signal, cache: "no-store",
+  });
+}
+
+export function confirmRequestTraveler(responseId: number, body: RequestTravelerSelection, key: string, generation: string, signal?: AbortSignal) {
+  return apiPost<{ booking_id: number }>(`/responses/${responseId}/traveler-confirmation`, body, {
+    idempotencyKey: key, _generation: generation, signal,
+  });
+}
+
+export function consentToRequestTraveler(responseId: number, version: string, generation: string, signal?: AbortSignal) {
+  return apiPost<{ state: "waiting_for_owner" }>(`/responses/${responseId}/traveler-driver-consent`, { version }, {
+    _generation: generation, signal,
+  });
 }
 
 /** Мои отклики (водитель): GET /responses/mine — где я предложил цену и где ждут мой ход. */

@@ -1,19 +1,7 @@
 package com.yuldash.app
 
-// ═══════════════════ «Мои отклики» (водитель): торг о цене ═══════════════════
-// Водитель откликался на заявку и дальше не видел ничего: пассажир мог ответить встречной ценой,
-// а узнать об этом было можно только из пуша — пропустил уведомление, потерял поездку.
-// Здесь он видит все свои отклики, чью сейчас очередь ходить, как шёл торг, и может принять
-// встречную цену или предложить свою.
-//
-// ── Как читается экран (правки 2026-07-30) ─────────────────────────────────
-// Водитель открывает его между заказами, на ходу, одной рукой — значит ответ «где мой ход»
-// должен приходить раньше, чем он успеет вчитаться:
-//  • в шапке — счётчик «Твой ход: N», он же единственный повод сюда зайти;
-//  • в карточке порядок жёсткий: пилюля состояния → цена на столе → твой комментарий →
-//    плашка с ходом торга → действия (золото — согласие, контур — своя цена, тихо — отказ);
-//  • типографика и сетка — общие для обеих сторон торга (Bargain*, см. BargainUi.kt),
-//    чтобы пассажирский экран и водительский не разъехались по виду.
+// В «Моих откликах» водитель сначала видит, чей ход, затем цену и действия.
+// Типографика и сетка обеих сторон торга живут в BargainUi.kt.
 
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
@@ -75,6 +63,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.widget.Toast
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.RequestTravelerApi
 import com.yuldash.app.data.ResponseDto
 import kotlinx.coroutines.launch
 
@@ -93,7 +83,9 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
     var busy by remember(session, ownerRole) { mutableStateOf(false) }
     var tick by remember(session, ownerRole) { mutableStateOf(0) }
     var counterFor by remember(session, ownerRole) { mutableStateOf<ResponseDto?>(null) }
+    var travelerConsent by remember(session, ownerRole) { mutableStateOf<Triple<Int, String, Int>?>(null) }
     val failMsg = appText("Не получилось. Проверь сеть и повтори.", "Булманы. Селтәрҙе тикшереп ҡабатла.")
+    val waitingMsg = appText("Ждём подтверждения владельца заявки.", "Ғариза хужаһының раҫлауын көтәбеҙ.")
 
     LaunchedEffect(tick, session, ownerRole) {
         loading = true; error = false
@@ -124,7 +116,21 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
                     if (!current()) return@launch
                     ApiClient.acceptResponse(id)
                         .onSuccess { bid -> if (current()) { busy = false; tick++; onOpenTrip(bid) } }
-                        .onFailure { if (current()) { Toast.makeText(ctx, (it as? com.yuldash.app.data.ApiException)?.message ?: failMsg, Toast.LENGTH_LONG).show(); busy = false; tick++ } }
+                        .onFailure { failure ->
+                            if (!current()) return@onFailure
+                            if ((failure as? ApiException)?.detailCode == RequestTravelerApi.CONFIRMATION_REQUIRED) {
+                                val offer = RequestTravelerApi.offer(id, session).getOrNull()
+                                if (!current()) return@onFailure
+                                val version = offer?.optString("version").orEmpty()
+                                if (version.length == 64 && offer?.optString("last_offer_by") == "passenger") {
+                                    travelerConsent = Triple(id, version, offer.optInt("price"))
+                                    busy = false
+                                    return@onFailure
+                                }
+                            }
+                            Toast.makeText(ctx, serverSaid(failure, failMsg), Toast.LENGTH_LONG).show()
+                            busy = false; tick++
+                        }
                 }
             },
             onCounter = { r -> if (current() && !busy) counterFor = r },
@@ -142,6 +148,18 @@ internal fun DriverResponsesScreen(onBack: () -> Unit, onOpenTrip: (Int) -> Unit
         }
     }
 
+    travelerConsent?.let { (id, version, price) ->
+        RequestTravelerConsentDialog(price, busy, onDismiss = { travelerConsent = null }) {
+            if (busy || !current()) return@RequestTravelerConsentDialog
+            busy = true
+            scope.launch {
+                RequestTravelerApi.consent(id, version, session)
+                    .onSuccess { if (current()) Toast.makeText(ctx, waitingMsg, Toast.LENGTH_LONG).show() }
+                    .onFailure { if (current()) Toast.makeText(ctx, serverSaid(it, failMsg), Toast.LENGTH_LONG).show() }
+                if (current()) { busy = false; travelerConsent = null; tick++ }
+            }
+        }
+    }
     counterFor?.let { target ->
         CounterPriceDialog(
             current = target.onTable,
@@ -491,6 +509,7 @@ private fun DealPill(r: ResponseDto) {
     val label = when {
         agreed -> appText("Договорились", "Килештек")
         failed -> appText("Не договорились", "Килешмәнек")
+        r.travelerWaitingForOwner -> appText("Ждём владельца заявки", "Ғариза хужаһын көтәбеҙ")
         r.haggled -> appText("Идёт торг", "Һатыулашыу бара")
         else -> appText("Твой отклик", "Һинең яуабың")
     }

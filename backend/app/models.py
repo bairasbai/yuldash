@@ -467,6 +467,8 @@ class RideRequest(SQLModel, table=True):
     only_trusted: bool = False      # «только для своих»: заявку видят/берут лишь водители L3 (свои)
     comment: str = ""
     for_relative_name: Optional[str] = None
+    traveler_origin: Optional[str] = Field(default=None, max_length=8, exclude=True)
+    traveler_revision: Optional[int] = Field(default=None, exclude=True)
     voice_url: Optional[str] = None
     transcript: Optional[str] = None        # расшифровка голосовой заявки
     status: str = Field(default="active", index=True)   # горячий фильтр: /requests, авто-подбор (WHERE status='active') каждую минуту
@@ -946,6 +948,10 @@ class RequestResponse(SQLModel, table=True):
     dropoff_stop: Optional[str] = None
     route_snapshot: str = ""      # условия, которые пассажир видел до принятия
     booking_id: Optional[int] = Field(default=None, foreign_key="booking.id", index=True)
+    traveler_driver_consent: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    traveler_owner_waiting: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    traveler_accept_key: Optional[str] = Field(default=None, max_length=128, exclude=True)
+    traveler_accept_hash: Optional[str] = Field(default=None, max_length=64, exclude=True)
 
 
 # ---- Фаза 2: «Быстрый заказ» (такси-режим) — presence/тариф/заказ/matcher ----

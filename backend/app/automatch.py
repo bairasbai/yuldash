@@ -22,6 +22,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .db import engine
 from .models import DeviceToken, RequestResponse, RideRequest
+from .request_traveler import request_traveler_mode
 from .safety_logic import may_ride_together
 from .services import driver_rating, notify_admin_telegram
 from .timeutil import utcnow
@@ -43,7 +44,7 @@ def _proven_rating(avg: float, count: int) -> float:
     return (float(settings.automatch_rating_prior) * weight + avg * count) / (weight + count)
 
 
-def _best_response(session: Session, responses: list[RequestResponse]) -> RequestResponse:
+def _rank_responses(session: Session, responses: list[RequestResponse]) -> list[RequestResponse]:
     """Лучший отклик: водитель с оценками раньше водителя без них → выше надёжный балл
     за рулём (`_proven_rating`) → ниже цена (0/неуказанная — в конец) → раньше откликнулся.
 
@@ -72,7 +73,11 @@ def _best_response(session: Session, responses: list[RequestResponse]) -> Reques
         # Без оценок — после всех, у кого они есть: «нет данных» не награждаем, хотя надёжный
         # балл пустой истории (ровно априорный) бывает выше чужого настоящего, но низкого.
         return (count == 0, -_proven_rating(avg, count), price_rank, r.id)
-    return sorted(responses, key=rank)[0]
+    return sorted(responses, key=rank)
+
+
+def _best_response(session: Session, responses: list[RequestResponse]) -> RequestResponse:
+    return _rank_responses(session, responses)[0]
 
 
 def automatch_once(session: Session, dry_run: bool = False) -> list[tuple[int, int]]:
@@ -80,7 +85,7 @@ def automatch_once(session: Session, dry_run: bool = False) -> list[tuple[int, i
     Возвращает список (request_id, response_id) — что подобрано (или подобралось бы при dry_run)."""
     if not settings.automatch_enabled:
         return []
-    from .routers.requests import accept_request_response   # локальный импорт — без цикла на старте
+    from .routers.requests import accept_request_response, request_traveler_waiting
     cutoff = utcnow() - timedelta(seconds=settings.automatch_grace_sec)
     matched: list[tuple[int, int]] = []
     active = session.exec(select(RideRequest).where(RideRequest.status == "active")).all()
@@ -112,10 +117,19 @@ def automatch_once(session: Session, dry_run: bool = False) -> list[tuple[int, i
         # иначе один негодный отклик уводил бы всю заявку в except ниже, и человек без приложения
         # остался бы без машины при живых честных откликах (аудит 2026-08-12, волна 46).
         offers = [o for o in offers if may_ride_together(session, req.passenger_id, o.driver_id)]
+        needs_traveler = request_traveler_mode(req) != "self"
+        if needs_traveler:
+            offers = [o for o in offers if (o.last_offer_by or "driver") == "driver"]
         if not offers:
             continue
         # Пауза: дать другим водителям откликнуться, чтобы выбрать лучшего, а не первого попавшегося.
         if min(o.created_at for o in offers) > cutoff:
+            continue
+        if needs_traveler:
+            if not dry_run:
+                for best in _rank_responses(session, offers):
+                    if request_traveler_waiting(session, best.id):
+                        break
             continue
         best = _best_response(session, offers)
         if dry_run:

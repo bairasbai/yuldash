@@ -27,6 +27,8 @@ data class ResponseDto(
     val bargainRounds: Int = 0,        // сколько встречных сделано
     val canCounter: Boolean = false,   // я могу предложить свою цену
     val canAccept: Boolean = false,    // я могу принять то, что на столе
+    val canConfirmTraveler: Boolean = false,
+    val travelerWaitingForOwner: Boolean = false,
     val bargainHistory: String = "",   // «d:500,p:400,d:450»
     // Публичное доверие + контекст заявки для премиального экрана откликов.
     // Дефолты сохраняют совместимость со старым сервером и существующими тестами.
@@ -82,6 +84,8 @@ internal fun JSONObject.toResponseDto() = ResponseDto(
     lastOfferBy = optString("last_offer_by").ifBlank { "driver" },
     bargainRounds = optInt("bargain_rounds"),
     canCounter = optBoolean("can_counter"), canAccept = optBoolean("can_accept"),
+    canConfirmTraveler = optBoolean("can_confirm_traveler"),
+    travelerWaitingForOwner = optBoolean("traveler_waiting_for_owner"),
     bargainHistory = optString("bargain_history"),
     driverVerified = optBoolean("driver_verified"),
     driverTripsCount = optInt("driver_trips_count"),
