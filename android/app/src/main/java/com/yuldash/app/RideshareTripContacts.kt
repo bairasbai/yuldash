@@ -90,6 +90,13 @@ internal fun driverCanCallPassenger(d: BookingDetailsDto?, bookingStatus: String
     !terminal && d != null && d.role == "driver" && d.contactUnlocked && d.passengerPhone.isNotBlank() &&
         (bookingStatus.isBlank() || bookingStatus in CONTACT_STATUSES)
 
+internal fun driverGuardianContact(details: BookingDetailsDto?, bookingStatus: String): BookingDetailsDto? =
+    details?.takeIf {
+        it.role == "driver" && it.minorPassenger && it.contactUnlocked &&
+            bookingStatus in CONTACT_STATUSES && it.status in CONTACT_STATUSES &&
+            it.minorGuardianPhone.isNotBlank()
+    }
+
 /** Поздние details не откатывают уже известную посадку/закрытие брони. */
 internal fun offlinePassDetails(d: BookingDetailsDto?, bookingId: Int, status: String): BookingDetailsDto? =
     d?.takeIf { it.bookingId == bookingId && passengerContacts(it) != null && (status.isBlank() || it.status == status) }
@@ -212,6 +219,27 @@ internal fun ActiveTripContactsCard(contacts: TripContacts, modifier: Modifier =
             }
         }
     } }
+}
+
+@Composable
+internal fun DriverGuardianContactCard(details: BookingDetailsDto, isCurrent: () -> Boolean) {
+    val context = LocalContext.current
+    TripAuthorityContent(isCurrent) {
+        AppCard {
+            Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                ContactRow(
+                    icon = Icons.Default.Phone,
+                    label = appText("Взрослый на связи", "Оло кеше бәйләнештә"),
+                    value = details.minorGuardianName.ifBlank { details.minorGuardianPhone },
+                )
+                AppButton(
+                    text = appText("Позвонить взрослому", "Оло кешегә шылтыратырға"),
+                    onClick = { if (isCurrent()) dialDriver(context, details.minorGuardianPhone) },
+                    style = AppButtonStyle.Secondary,
+                )
+            }
+        }
+    }
 }
 
 @Composable

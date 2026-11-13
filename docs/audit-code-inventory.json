@@ -846,8 +846,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "f8ad4db6c9972a7a120c740ba9555a3ea07e0f478edb2d7bc2e51c8bc758b625",
-      "lines": 3570
+      "sha256": "676010f0179e3b2b7b788bd8d03d98cf1a043664b0e951a5e774a9db2bd105c9",
+      "lines": 3583
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
@@ -1511,8 +1511,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareTripContacts.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "f008bf372719617109166dfbea44f14d187b4ba4a8dafb3341d46a46b50e1577",
-      "lines": 233
+      "sha256": "1e326d888bb498df2dead5efb5a1535b69cd1bd50324d7043ea0cd3c25f53422",
+      "lines": 266
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareTripSteps.kt",
@@ -2547,8 +2547,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerContactsTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "f9f5efce6926cc58883b93911884731c9e386ab1f3e85862022ceeadbf1ed8b4",
-      "lines": 975
+      "sha256": "52ed16b147ecd4df61472b84f56fdcab058937977ea0e882952fc16ee70a93bb",
+      "lines": 993
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",

@@ -450,6 +450,24 @@ class ActiveTripPassengerContactsTest {
         compose.onAllNodesWithContentDescription("Позвонить").assertCountEquals(0)
     }
 
+    @Test fun driverCallsGuardianInsteadOfMinorPassenger() {
+        role = "driver"
+        val guardianPhone = "+12025550118"
+        detailsOverride = JSONObject(details()).put("minor_passenger", true)
+            .put("minor_guardian_name", "Тестовый взрослый")
+            .put("minor_guardian_phone", guardianPhone)
+            .put("passenger_phone", "")
+        openScreen()
+        waitForDetails()
+        scrollTo("Позвонить взрослому")
+        compose.onNodeWithText("Тестовый взрослый").assertIsDisplayed()
+        compose.onAllNodesWithContentDescription("Позвонить").assertCountEquals(0)
+        compose.onNodeWithText("Позвонить взрослому").performClick()
+        val dial = Shadows.shadowOf(context as Application).nextStartedActivity
+        assertEquals(android.content.Intent.ACTION_DIAL, dial.action)
+        assertEquals("tel:$guardianPhone", dial.dataString)
+    }
+
     @Test fun retryCodeCreatesCompletePassportFromAlreadyLoadedDetailsWithoutExistingCopy() {
         startWithoutCodeOrPassport()
         codeUnavailable = false

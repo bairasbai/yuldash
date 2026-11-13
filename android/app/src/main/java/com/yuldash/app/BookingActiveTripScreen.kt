@@ -1969,6 +1969,19 @@ internal fun ActiveTripContent(
             }
             // Пассажир до посадки: номер водителя и точка встречи. Без сети они в паспорте ниже.
             pickupDetails?.takeIf { it.role in setOf("passenger", "driver") && it.status in setOf("pending", "confirmed", "onboard") }?.let { d -> item(key = "trip-pickup-stop") { BookingSegmentNote(d.pickupStop, d.dropoffStop, d.rideHasStops, d.fromCity, d.toCity) } }
+            val guardianContact = authorityRevision.let {
+                if (role == "driver" && isTripChatActive()) {
+                    driverGuardianContact(currentTripPrivateDetails(bookingId), bookingStatus)
+                } else null
+            }
+            guardianContact?.let { contact ->
+                item(key = "trip-guardian-contact") {
+                    DriverGuardianContactCard(contact) {
+                        role == "driver" && isTripChatActive() &&
+                            driverGuardianContact(currentTripPrivateDetails(bookingId), bookingStatus) === contact
+                    }
+                }
+            }
             tripContacts?.takeIf { !boardingDone(status, bookingStatus) && !(offline && tripPass != null) }?.let { c ->
                 item(key = "trip-contacts") { ActiveTripContactsCard(c, Modifier.appearIn(1), showMeeting = !hasOwnPickup(pickupDetails), isCurrent = { isTripChatActive() && currentTripPrivateDetails(bookingId)?.let(::passengerContacts) == c }) }
             }
