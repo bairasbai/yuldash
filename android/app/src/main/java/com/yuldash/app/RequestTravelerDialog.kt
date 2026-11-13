@@ -2,11 +2,18 @@ package com.yuldash.app
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.RadioButton
+import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -18,7 +25,9 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.semantics.Role
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.RequestTravelerApi
@@ -110,8 +119,27 @@ internal fun RequestTravelerDialog(
                     }
                     val editable = !busy && original == null
                     if (!row.optBoolean("for_another")) {
-                        TextButton(onClick = { other = false; name = "" }, enabled = editable) { Text(appText("Еду я", "Мин барам")) }
-                        TextButton(onClick = { other = true }, enabled = editable) { Text(appText("Едет другой человек", "Башҡа кеше бара")) }
+                        Column(Modifier.fillMaxWidth().selectableGroup()) {
+                            listOf(false, true).forEach { forAnother ->
+                                Row(
+                                    Modifier.fillMaxWidth().heightIn(min = CanonSpace.huge).selectable(
+                                        selected = other == forAnother, enabled = editable, role = Role.RadioButton,
+                                        onClick = { other = forAnother; if (!forAnother) name = "" },
+                                    ),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    RadioButton(
+                                        selected = other == forAnother, onClick = null, enabled = editable,
+                                        colors = RadioButtonDefaults.colors(selectedColor = CanonGreen2, unselectedColor = CanonMuted),
+                                    )
+                                    Text(
+                                        if (forAnother) appText("Едет другой человек", "Башҡа кеше бара") else appText("Еду я", "Мин барам"),
+                                        modifier = Modifier.weight(1f).padding(start = CanonSpace.sm),
+                                        style = CanonBody, color = CanonText,
+                                    )
+                                }
+                            }
+                        }
                     }
                     if (other == true) OutlinedTextField(name, { name = it.take(120) }, Modifier.fillMaxWidth(), enabled = editable,
                         label = { Text(appText("Имя пассажира", "Юлсының исеме")) }, singleLine = true)
