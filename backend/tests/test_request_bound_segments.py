@@ -64,6 +64,37 @@ def test_bound_response_is_visible_before_accept_and_repeated_accept_returns_the
         assert len(session.exec(select(Ride).where(Ride.driver_id == driver["id"])).all()) == before
 
 
+def test_named_request_confirmation_keeps_one_booking_in_the_original_ride(client, deal):
+    driver, passenger, rid, _ = deal
+    named = client.post("/requests/for-another", headers=passenger["auth"], json={
+        "from_city": "Ургаза", "to_city": "Бурибай", "for_relative_name": "Тест Пассажир",
+    })
+    assert named.status_code == 200, named.text
+    reqid = named.json()["id"]
+    respid = offer(client, driver, reqid, rid)
+    path = f"/responses/{respid}/traveler-confirmation"
+    old = accept(client, passenger, respid)
+    assert old.status_code == 409 and old.json()["detail"]["code"] == "request_traveler_confirmation_required"
+    assert stored(rid, reqid, respid) == (3, "active", "offered", [])
+    offer_view = client.get(path, headers=passenger["auth"])
+    assert offer_view.status_code == 200 and offer_view.json()["ride_id"] == rid
+    assert offer_view.json()["for_another"] is True
+    headers = {**passenger["auth"], "Idempotency-Key": "test-traveler-bound-confirmation"}
+    body = {"version": offer_view.json()["version"], "for_another": True, "traveler_name": "Тест Пассажир"}
+
+    accepted = client.post(path, headers=headers, json=body)
+    assert accepted.status_code == 200, accepted.text
+    bid = accepted.json()["booking_id"]
+    assert client.post(path, headers=headers, json=body).json() == accepted.json()
+    assert client.get(path, headers=passenger["auth"]).json() == {"state": "accepted", "booking_id": bid}
+    assert stored(rid, reqid, respid) == (2, "matched", "accepted", [bid])
+    with Session(engine) as session:
+        booking = session.get(Booking, bid)
+        assert booking.ride_id == rid and booking.traveler_name == body["traveler_name"]
+        assert (booking.pickup_stop, booking.dropoff_stop, booking.price) == ("Ургаза", "Бурибай", 450)
+        assert session.exec(select(Ride.id).where(Ride.driver_id == driver["id"])).all() == [rid]
+
+
 def test_repeat_respond_cannot_silently_rebind_an_offer(client, deal):
     driver, _, rid, reqid = deal
     respid = offer(client, driver, reqid, rid)
