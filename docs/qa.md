@@ -169,7 +169,7 @@ QA-B05-001: собственный PostgreSQL/API, ASGI send-wrapper теряе�
 - Fault injection запрещает get/set/remove/key/length у обоих Storage, open/delete IndexedDB и Cache API документа. Это отказ браузерных API, не доказательство физической поломки диска/worker. Сначала сохранить RED настоящего предыдущего dist; отдельный положительный контроль нормального offline-паспорта обязателен.
 - Вызов обработчика Logout напрямую нужен для проверки отказа внутри logout, без root pointer-preflight. Настоящее касание — отдельный сценарий capture preflight. После quarantine восстановившийся probe не должен открыть private UI. Проверять отказ самой очистки и новый /me B + настоящий403 чужой брони online/offline.
 - Задержать настоящий CacheStorage.delete: после UIdeadline10s и двух Retry lock остаётся held, B publication pending. После разрешения удаления старый callback не публикуется; свежий вход B работает. Отдельно B, опубликованный до Retry A, должен сохраниться. Unit дополнительно задерживает оба deleteDatabase и закрытие outbox connection.
-- Для Android системный XML должен содержать поверхность WebView и не содержать Chrome onboarding; дочерний текст Chrome экспортирует не всегда, поэтому отсутствие AXтекста само по себе не провал UI. Видимость целевой PWA подтверждать реальными пикселями и парным DOM-снимком. Сохранять одновременно CDP PNG и adb screencap; только второй подтверждает видимость. CDP mouse — web-event, actual adb shell input tap по свежим native content bounds, CSSviewport и DOMrect — Android input. Не менять production-код, чтобы убрать окно Chrome.
+- Для Android системный XML должен содержать поверхность WebView и не содержать Chrome onboarding; дочерний текст Chrome экспортирует не всегда, поэтому отсутствие AXтекста само по себе не провал UI. Видимость целевой PWA подтверждать реальными пикселями и парным DOM-снимком. Сохранять одновременно CDP PNG и adb screencap; только второй подтверждает видимость. CDP mouse — web-event, фактический `& $adb -s $serial shell input tap` по свежим границам элементов, CSSviewport и DOMrect — Android input. Не менять production-код, чтобы убрать окно Chrome.
 - QA window.name управляет повторным внедрением отказа после полной навигации только в runner. Снимок состояния QA не должен сам без guard читать недоступный Storage. Это ошибки harness, их не считать продуктовым RED. Источник/границы/текущая приёмка — W1-STORAGE-01.
 <!-- W1-STORAGE-01 --> END
 
@@ -215,8 +215,7 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"         # local.properties н�
 Сначала ищи уже применявшийся стенд по `standard-ui-login01` в [реестре](audit-blocks.md). В ограниченном прогоне 06.11 использовался существующий `RootNative90`; это пример, а не обязательное имя AVD для всех компьютеров. Учитывай зарегистрированные `ANDROID_AVD_HOME`/`ANDROID_USER_HOME` и владельца эмулятора: отсутствие AVD в списке другого каталога не доказывает его отсутствие на компьютере. Чужую сессию, общий adb и ключи не трогать; новый тестовый контролёр ради повторения этого пути не нужен.
 
 1. Сервер — из `backend/` своего чекаута, после перечисленных предпусковых условий и с зарегистрированным владельцем/PID/портом. Команда запуска и значения dev/mock — в [backend/README.md](../backend/README.md); готовность БД/сервера проверить до входа через интерфейс.
-2. На экране «Нет связи с сервером», а в логе сервера ни одного запроса — обычно брандмауэр Windows.
-   Обход: `& $adb reverse tcp:8000 tcp:8000` и сборка с
+2. Если запрос не дошёл до сервера, проверь фактический адрес сборки, выбранное тестовое устройство, порт и журнал сервера. Если тестовый стенд использует перенаправление, задай его для своего устройства: `& $adb -s $serial reverse tcp:8000 tcp:8000`. Для этого маршрута используй сборку с
    `$env:YULDASH_DEBUG_API_BASE_URL='http://localhost:8000'`. Незашифрованный HTTP в debug разрешён
    только для `10.0.2.2`, `localhost`, `127.0.0.1`, `::1`
    (`android/app/src/debug/res/xml/network_security_config.xml`) — любой другой адрес режется молча.
@@ -229,7 +228,7 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"         # local.properties н�
    папки, когда твоя ветка туда влита, с `$env:YULDASH_DEBUG_API_BASE_URL='http://10.0.2.2:8000'`
    (иначе сборка возьмёт адрес сервера из `local.properties` основной папки — там может быть прод). Сам ключ агент не читает и не копирует (§11 `AGENTS.md`).
 
-5. Потеря сети через `adb reverse --remove` не обрывает уже открытый HTTP keep-alive-туннель.
+5. Потеря сети после удаления своего перенаправления через `& $adb -s $serial reverse --remove tcp:<порт>` не обрывает уже открытый HTTP keep-alive-туннель.
    Перед проверяемым нажатием дождись закрытия прежнего соединения (на стенде Uvicorn с его
    стандартным keep-alive5с — более5с) и сверь журнал настоящих запросов. Сам факт удаления
    перенаправления не доказывает отсутствие сети; незаметно успешный запрос нельзя записывать
@@ -249,57 +248,58 @@ $env:ANDROID_HOME="$env:LOCALAPPDATA\Android\Sdk"         # local.properties н�
 Экран с `imePadding()` / `WindowInsets.ime` включает `ResizeWindowForKeyboard()` — иначе на Android 15+ окно
 сдвигается целиком поверх нашего отступа (двойной скачок, шапка под строкой состояния). Сторож —
 `KeyboardResizeGuardTest`. Проверка на эмуляторе: касайся поля **у нижнего края** экрана — поле вверху окно не
-сдвигает и поломку не покажет; проще всего поднять шрифт (`adb shell settings put system font_scale 1.3`, потом
-вернуть `1.0`). Режим окна: `adb shell dumpsys window windows` → строка `sim={adjust=…}` у `MainActivity`
+сдвигает и поломку не покажет. Если нужен крупный шрифт, используй настройки своего тестового профиля и восстанови исходное значение после проверки.
+Режим окна на выбранном устройстве: `& $adb -s $serial shell dumpsys window windows` → строка `sim={adjust=…}` у `MainActivity`
 (`resize` — верно, `pan` — сдвигает). Заодно проверь, что кнопка формы достаётся прокруткой при открытой клавиатуре.
 
 ## ADB и эмулятор
 
 ```powershell
 $adb='C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe'
-& $adb devices
+& $adb devices -l
 ```
 
-Прошлый эмулятор: `emulator-5554` (Pixel 5, API 37.0, экран `1080x2340` — координаты тапов ниже под этот размер).
+Запиши в `$serial` идентификатор своего тестового устройства из списка и сверь владельца по `docs/locks.md`. Исторические координаты ниже относятся к экрану `1080x2340`, поэтому перед касаниями проверь размер выбранного экрана.
 
 Установить debug APK:
 
 ```powershell
-& $adb -s emulator-5554 install -r "$(git rev-parse --show-toplevel)\android\app\build\outputs\apk\debug\app-debug.apk"   # APK своего чекаута
+& $adb -s $serial install -r "$(git rev-parse --show-toplevel)\android\app\build\outputs\apk\debug\app-debug.apk"   # APK своего чекаута
 ```
 
 Запустить приложение:
 
 ```powershell
-& $adb -s emulator-5554 shell monkey -p com.yuldash.app 1
+& $adb -s $serial shell monkey -p com.yuldash.app 1
 ```
 
-Очистить данные (чтобы проверить первый запуск + онбординг заново):
+Для повторного онбординга очистку данных выполняй только в собственном одноразовом профиле с синтетическими данными. Сначала сверь идентификатор устройства и профиль:
 
 ```powershell
-& $adb -s emulator-5554 shell pm clear com.yuldash.app
-& $adb -s emulator-5554 shell monkey -p com.yuldash.app 1
+& $adb -s $serial shell pm clear com.yuldash.app
+& $adb -s $serial shell monkey -p com.yuldash.app 1
 ```
 
 ## Диагностика
 
-UI-dump (снимок экрана в XML):
+Для выгрузки экрана в XML задай `$qaDir` как зарегистрированную временную папку задачи. Используй свой тестовый профиль. После проверки убери свою выгрузку с устройства и из папки, сохрани нужные доказательства по общему правилу:
 
 ```powershell
-& $adb -s emulator-5554 shell uiautomator dump /sdcard/window.xml
-& $adb -s emulator-5554 pull /sdcard/window.xml "$env:TEMP\smoke-window.xml"
+$remoteDump = "/sdcard/yuldash-qa-$([guid]::NewGuid()).xml"
+& $adb -s $serial shell uiautomator dump $remoteDump
+& $adb -s $serial pull $remoteDump (Join-Path $qaDir 'smoke-window.xml')
 ```
 
 Поиск текста в dump:
 
 ```powershell
-Select-String -Path "$env:TEMP\smoke-window.xml" -Pattern "Куда поедем|Мои заявки|Уведомлений нет"
+Select-String -Path (Join-Path $qaDir 'smoke-window.xml') -Pattern "Куда поедем|Мои заявки|Уведомлений нет"
 ```
 
 Проверить отсутствие краша в логах:
 
 ```powershell
-& $adb -s emulator-5554 logcat -d -t 500 | Select-String -Pattern 'FATAL EXCEPTION|Process: com.yuldash.app'
+& $adb -s $serial logcat -d -t 500 | Select-String -Pattern 'FATAL EXCEPTION|Process: com.yuldash.app'
 ```
 
 Нет вывода → fatal-краша по фильтру нет.
@@ -318,7 +318,7 @@ Select-String -Path "$env:TEMP\smoke-window.xml" -Pattern "Куда поедем
 
 ```powershell
 $adb='C:\Users\Bayra\AppData\Local\Android\Sdk\platform-tools\adb.exe'
-& $adb -s emulator-5554 shell input tap 540 1380
+& $adb -s $serial shell input tap 540 1380
 ```
 
 ## Проверки по коду
