@@ -13,6 +13,7 @@ import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.TripPassAuthorityFixture
 import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.Outbox
@@ -41,6 +42,7 @@ class BookingConfirmationJourneyTest {
     private val requests = CopyOnWriteArrayList<Pair<String, String?>>()
     private val responseLedger = CopyOnWriteArrayList<String>()
     private val bookingBodies = CopyOnWriteArrayList<String>()
+    private val bookingKeys = CopyOnWriteArrayList<String>()
     private val tripStatuses = CopyOnWriteArrayList<String>()
     private var rejectBookingOnce = false
     private var conflictBooking = false
@@ -61,19 +63,34 @@ class BookingConfirmationJourneyTest {
                 override fun dispatch(request: RecordedRequest): MockResponse {
                     val path = request.requestUrl!!.encodedPath
                     requests.add("${request.method} $path" to request.getHeader("Authorization"))
+                    val bearer = request.getHeader("Authorization")
+                    val actor = when (bearer) {
+                        "Bearer ${TripPassAuthorityFixture.jwt(7)}" -> 7
+                        "Bearer ${TripPassAuthorityFixture.jwt(9)}" -> 9
+                        else -> null
+                    }
                     val body = when {
+                        path == "/me" && actor != null ->
+                            """{"id":$actor,"created_at":"2026-01-01T00:00:00Z","role":"${if (actor == 9) "driver" else "passenger"}"}"""
                         path == "/rides/near" -> """{"items":[{"id":7,"from_city":"Пункт А","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","seats_total":3,"seats_left":3,"price":750,"category":"regular","driver_id":9,"driver_name":"Тестовый водитель","driver_verified":true}],"count":1}"""
                         path in listOf("/requests/near", "/seasonal-events", "/popular-routes", "/rides") -> """{"items":[]}"""
-                        request.method == "POST" && path == "/bookings" -> {
+                        request.method == "POST" && path == "/bookings/commands/v1" -> {
+                            if (actor != 7) return response(path, "{}", 403)
+                            val key = request.getHeader("Idempotency-Key")
+                            if (key.isNullOrBlank()) return response(path, "{}", 422)
+                            bookingKeys.add(key)
                             bookingBodies.add(request.body.readUtf8())
                             if (rejectBookingOnce && bookingBodies.size == 1) return response(path, """{"detail":"Тестовый временный отказ брони"}""", 503)
                             if (conflictBooking) return response(path, """{"detail":{"ru":"У тебя уже есть бронь с другим количеством мест.","ba":"Һинең икенсе һандағы урындар менән бронең бар инде.","code":"booking_seats_conflict","booking_id":42}}""", 409)
-                            """{"id":42,"ride_id":7,"status":"$status"}"""
+                            """{"id":42,"ride_id":7,"passenger_id":7,"status":"$status"}"""
                         }
-                        path == "/bookings/42/confirm" -> {
-                            if (request.getHeader("Authorization") != "Bearer ${TripPassAuthorityFixture.jwt(9)}") return response(path, "{}", 403)
+                        request.method == "GET" && actor == 7 && path == "/command-intents/${bookingKeys.lastOrNull()}" && conflictBooking ->
+                            """{"state":"unseen","scope":null,"ref_id":null,"current":null}"""
+                        request.method == "POST" && path == "/bookings/42/commands/v1/confirm" -> {
+                            if (actor != 9) return response(path, "{}", 403)
+                            if (request.getHeader("Idempotency-Key").isNullOrBlank()) return response(path, "{}", 422)
                             status = "confirmed"
-                            "{}"
+                            """{"id":42,"ride_id":7,"passenger_id":7,"status":"confirmed"}"""
                         }
                         path == "/bookings/mine" -> """{"items":[{"id":42,"ride_id":7,"status":"$status","seats":1,"price":750,"from_city":"Пункт А","to_city":"Пункт Б","driver_name":"Тестовый водитель"}]}"""
                         path == "/bookings/42/trip-status" -> {
@@ -88,7 +105,7 @@ class BookingConfirmationJourneyTest {
                         path == "/bookings/42/rate" -> { ratingBodies.add(request.body.readUtf8()); "{}" }
                         path == "/driver/bookings" -> """{"items":[{"booking_id":42,"passenger_name":"Тестовый пассажир","route":"Пункт А → Пункт Б","status":"$status"}]}"""
                         path == "/driver/rides" -> """{"items":[{"id":7,"from_city":"Пункт А","to_city":"Пункт Б","depart_at":"2030-01-02T10:00:00+03:00","price":750,"seats_total":3,"seats_left":2,"status":"active"}]}"""
-                        path == "/bookings/42/details" -> JSONObject().put("booking_id", 42).put("ride_id", 7).put("role", "passenger")
+                        path == "/bookings/42/details" && actor == 7 -> JSONObject().put("booking_id", 42).put("ride_id", 7).put("role", "passenger")
                             .put("status", status).put("from_city", "Пункт А").put("to_city", "Пункт Б")
                             .put("contact_unlocked", status in setOf("confirmed", "onboard"))
                             .put("onboard_at", if (status == "onboard") "2031-02-03T09:00:00.123456Z" else JSONObject.NULL).toString()
@@ -104,6 +121,9 @@ class BookingConfirmationJourneyTest {
             start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         }
         TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'))
+        BookingCommandApi.init(context.getSharedPreferences("booking_confirmation_journey_commands", Context.MODE_PRIVATE).apply {
+            edit().clear().commit()
+        })
         ApiClient.testTimeoutMs = 1000
         vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
             @Suppress("UNCHECKED_CAST") override fun <T : ViewModel> create(modelClass: Class<T>): T =
@@ -184,7 +204,7 @@ class BookingConfirmationJourneyTest {
             settle()
             status == "confirmed" && requests.count { it.first == "GET /driver/bookings" } >= 2
         }
-        assertEquals(1, requests.count { it == ("POST /bookings/42/confirm" to "Bearer ${TripPassAuthorityFixture.jwt(9)}") })
+        assertEquals(1, requests.count { it == ("POST /bookings/42/commands/v1/confirm" to "Bearer ${TripPassAuthorityFixture.jwt(9)}") })
         // Условие выше ждёт, что повторный запрос броней УШЁЛ, а не что его ответ уже нарисован.
         // На быстрой машине разницы не видно; в CI кнопка «Подтвердить» ещё стояла на экране.
         compose.waitUntil(15000) {
@@ -270,20 +290,18 @@ class BookingConfirmationJourneyTest {
         mount()
         choosePublicRide()
         compose.onNodeWithText("Забронировать место").performClick()
-        compose.waitUntil(15000) {
-            settle()
-            org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Тестовый временный отказ брони"
-        }
+        waitForText("Повторить тот же запрос")
         compose.runOnIdle {
             assertEquals(Screen.Booking, vm.screen.value)
             assertEquals("7", vm.selectedRide.value?.id)
             assertNull(vm.activeBookingId.value)
             assertNull(vm.activeTrip.value)
         }
-        compose.onNodeWithText("Забронировать место").performClick()
+        compose.onNodeWithText("Повторить тот же запрос").performClick()
         compose.waitUntil(15000) { vm.activeBookingId.value == 42 }
         compose.onNodeWithText("Отменить бронь").assertIsDisplayed()
         assertEquals(2, bookingBodies.size)
+        assertEquals(listOf(bookingKeys.first(), bookingKeys.first()), bookingKeys.toList())
         assertEquals(JSONObject(bookingBodies[0]).toString(), JSONObject(bookingBodies[1]).toString())
     }
 
@@ -296,13 +314,11 @@ class BookingConfirmationJourneyTest {
         compose.onNodeWithText("Итого: 2 250 ₽").assertExists()
         // Кнопка называет выбранное число мест (приёмка #189).
         compose.onNodeWithText("Забронировать 3 места").performClick()
-        compose.waitUntil(15000) {
-            settle()
-            org.robolectric.shadows.ShadowToast.getTextOfLatestToast() == "Тестовый временный отказ брони"
-        }
-        compose.onNodeWithText("Забронировать 3 места").performClick()
+        waitForText("Повторить тот же запрос")
+        compose.onNodeWithText("Повторить тот же запрос").performClick()
         compose.waitUntil(15000) { vm.activeBookingId.value == 42 }
         assertEquals(2, bookingBodies.size)
+        assertEquals(listOf(bookingKeys.first(), bookingKeys.first()), bookingKeys.toList())
         val first = JSONObject(bookingBodies[0])
         assertEquals(3, first.getInt("seats"))
         assertEquals(2250, first.getInt("pay_amount"))
@@ -316,6 +332,9 @@ class BookingConfirmationJourneyTest {
         mount()
         choosePublicRide()
         compose.onNodeWithText("Забронировать место").performClick()
+        awaitInList("Открыть бронь")
+        compose.runOnIdle { assertNull(vm.activeBookingId.value) }
+        compose.onNodeWithText("Открыть бронь").performClick()
         compose.waitUntil(15000) { settle(); vm.activeBookingId.value == 42 }
         assertEquals(1, bookingBodies.size)
     }

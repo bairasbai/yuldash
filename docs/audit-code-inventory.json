@@ -2792,8 +2792,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingConfirmationJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "1b181ac13ef713f5002a830069c15f34d012af95ace1e0e961a29fea7445ccfb",
-      "lines": 442
+      "sha256": "b08810819ad2977c1c5a7f1a9da7c5e60e34284ebf4b6dce7b7b05388333e6b7",
+      "lines": 461
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingDecisionBarNarrowTest.kt",
@@ -2813,8 +2813,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingHistoryCleanupTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "6a03611090bdda3c9772077df3ee5eccd492c27cce4e0411913a6bf6736bc57e",
-      "lines": 122
+      "sha256": "adab05e0895f51fbac738dba64bfc574f26ca6be0a8c5a0a21e8e25386d30e68",
+      "lines": 182
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingLinkDestinationTest.kt",
@@ -2855,8 +2855,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingOfflineSaveTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "f1eae7cc118a294ebb88db4b8a0f70ff90f5390ee7608150bfa7e056b4a1c18d",
-      "lines": 202
+      "sha256": "1fe42074b2023144e10e679c5b9d17497f50c4d14cbe2f33032d7fb7228aef38",
+      "lines": 371
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingPendingRefreshTest.kt",
@@ -2883,8 +2883,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingTerminalPassTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "629932452b2487562416378867a3b2b40f6507f8fb662ef681c8e926dabad551",
-      "lines": 119
+      "sha256": "d38abf3ae271dfd023b97b0f666465875c6089d6757d367c4e31b7713f6fca4a",
+      "lines": 228
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BoostCarryTextTest.kt",
