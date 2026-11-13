@@ -73,6 +73,9 @@ def test_named_request_confirmation_keeps_one_booking_in_the_original_ride(clien
     reqid = named.json()["id"]
     respid = offer(client, driver, reqid, rid)
     path = f"/responses/{respid}/traveler-confirmation"
+    listed = f"/requests/{reqid}/responses"
+    assert client.get(listed, headers=driver["auth"]).status_code == 403
+    assert [row["id"] for row in client.get(listed, headers=passenger["auth"]).json()] == [respid]
     old = accept(client, passenger, respid)
     assert old.status_code == 409 and old.json()["detail"]["code"] == "request_traveler_confirmation_required"
     assert stored(rid, reqid, respid) == (3, "active", "offered", [])

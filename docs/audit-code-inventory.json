@@ -9456,8 +9456,8 @@
       "path": "backend/tests/test_every_shelf_asks_about_visibility.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "a1625b657cdd3d5752028575225092284a1682e3aab637124c858661541ab09f",
-      "lines": 142
+      "sha256": "a7d479285fea662643947d00bedb39ac66ca0dd1e3068b938fd8aeb4d3a152c6",
+      "lines": 144
     },
     {
       "path": "backend/tests/test_expired_papers_stop_the_boxes_too.py",
@@ -11087,8 +11087,8 @@
       "path": "backend/tests/test_request_bound_segments.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "e0f1597f714f503404b2069ff6c9ddc1be94e63db67343ab08e5839df96e2fe3",
-      "lines": 263
+      "sha256": "f57f4cd65c73b3f8fe4a5771e5cc8a85b54e6d2f8d22300af0db7b7ef845b8fc",
+      "lines": 266
     },
     {
       "path": "backend/tests/test_request_comment_is_checked.py",
