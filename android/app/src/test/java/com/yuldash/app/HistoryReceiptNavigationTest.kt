@@ -22,6 +22,7 @@ import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.cancelChildren
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.*
 import org.json.JSONObject
@@ -67,6 +68,9 @@ class HistoryReceiptNavigationTest {
         // Observe only the test-owned API coroutine job, never auth/key fields.
         val scope=ApiClient::class.java.getDeclaredField("bg").apply {isAccessible=true}.get(ApiClient) as CoroutineScope
         val parent=requireNotNull(scope.coroutineContext[Job])
+        // Navigation assertions are complete before cleanup. Cancel optional fire-and-forget
+        // work while the fixture still owns its origin, then require its jobs to drain.
+        parent.cancelChildren()
         try {
             withTimeout(10_000) {
                 while(true) {
