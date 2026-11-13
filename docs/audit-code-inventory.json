@@ -5179,8 +5179,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientMoreTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "f094fa6378f883ab19362f3366ebd1f2a3ec612d727445e54d8d7cc74592864b",
-      "lines": 588
+      "sha256": "604e60c817923aae7d770a11760e9420198ba61d39f45490c79aaac9c25cd55b",
+      "lines": 609
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/ApiClientNetworkTest.kt",
