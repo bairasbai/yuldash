@@ -2,7 +2,7 @@
 
 from typing import Annotated
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, Field, model_validator
 from sqlmodel import Session
 
@@ -28,7 +28,9 @@ class CloseIn(BaseModel):
 
 
 @router.get("/{key}")
-def get_intent(key: str, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def get_intent(key: str, response: Response, user: User = Depends(current_user),
+               session: Session = Depends(get_session)):
+    response.headers["Cache-Control"] = "no-store"
     return read_intent(session, user.id, key)
 
 

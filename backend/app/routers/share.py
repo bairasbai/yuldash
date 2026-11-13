@@ -159,7 +159,8 @@ def _booking_state(session: Session, share: TripShare) -> dict:
     ride = session.get(Ride, booking.ride_id) if booking else None
     if not booking or not ride:
         raise herr(404, "Ссылка не найдена", "Һылтанма табылманы")
-    first_name = _first_name(session, booking.passenger_id)
+    # В брони за другого имя фактического пассажира остаётся в приватных деталях.
+    first_name = _first_name(session, booking.passenger_id) if booking.traveler_name is None else ""
     if booking.status == BookingStatus.done:
         return _finished(first_name)
     if booking.status == BookingStatus.cancelled:

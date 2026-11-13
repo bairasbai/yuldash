@@ -223,8 +223,27 @@ def _view(session: Session, owner_id: int, receipt: CommandReceipt | None) -> di
     result_code = receipt.result_code
     if receipt.state == "applied" and current is None:
         result_code = "idempotency_result_gone"
-    return dict(state=receipt.state, scope=receipt.scope, ref_kind=receipt.ref_kind,
+    view = dict(state=receipt.state, scope=receipt.scope, ref_kind=receipt.ref_kind,
                 ref_id=receipt.ref_id, result_code=result_code, current=current)
+    if receipt.state == "rejected" and receipt.result_code == "booking_traveler_conflict":
+        booking_id = _visible_conflict_booking_id(session, owner_id, receipt)
+        if booking_id is not None:
+            view["booking_id"] = booking_id
+    return view
+
+
+def _visible_conflict_booking_id(session: Session, owner_id: int, receipt: CommandReceipt) -> int | None:
+    if receipt.conflict_booking_id is None:
+        return None
+    booking = session.get(Booking, receipt.conflict_booking_id, populate_existing=True)
+    if (booking is None or booking.created_at != receipt.conflict_booking_created_at
+            or booking.passenger_id != owner_id or booking.ride_id != receipt.target_id
+            or booking.status not in (BookingStatus.pending, BookingStatus.confirmed, BookingStatus.onboard)):
+        return None
+    ride = session.get(Ride, booking.ride_id, populate_existing=True)
+    if ride is None or is_blocked(session, owner_id, ride.driver_id):
+        return None
+    return booking.id
 
 
 def read_intent(session: Session, owner_id: int, key: str) -> dict:
@@ -232,10 +251,33 @@ def read_intent(session: Session, owner_id: int, key: str) -> dict:
 
 
 GUARDIAN_PHONE_INVALID = (400, "Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
+TRAVELER_WOMEN_ONLY = (
+    409, "В поездку «Только женщины» можно бронировать место только для себя.",
+    "«Тик ҡатын-ҡыҙ» сәфәренә урынды үҙең өсөн генә бронларға була.",
+)
+TRAVELER_NO_MINORS = (
+    409, "Водитель не берёт пассажиров младше 18 без сопровождения взрослого. Поищи другую поездку.",
+    "Водитель 18-ҙән кесе юлсыларҙы оло кеше оҙатыуынан башҡа алмай. Башҡа сәфәр эҙлә.",
+)
+TRAVELER_CONFLICT = (
+    409, "У тебя уже есть бронь с другими данными пассажира. Открой её или отмени и забронируй заново.",
+    "Һинең юлсы мәғлүмәттәре икенсе булған бронең бар. Уны ас йәки кире ал да яңынан бронла.",
+)
+
+
+class BookingTravelerConflict(HTTPException):
+    def __init__(self, booking: Booking):
+        status, ru, ba = TRAVELER_CONFLICT
+        super().__init__(status, dict(ru=ru, ba=ba, code="booking_traveler_conflict", booking_id=booking.id))
+        self.booking_id = booking.id
+        self.booking_created_at = booking.created_at
 
 
 _FINAL_REFUSALS = {
     "guardian_phone_invalid": GUARDIAN_PHONE_INVALID,
+    "booking_traveler_women_only": TRAVELER_WOMEN_ONLY,
+    "booking_traveler_no_minors": TRAVELER_NO_MINORS,
+    "booking_traveler_conflict": TRAVELER_CONFLICT,
     "ride_terms_changed": (409, "Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе."),
     "price_changed": (409, "Цена поездки изменилась.", "Сәфәр хаҡы үҙгәрҙе."),
     "seats_not_enough": (400, "На этом участке не хватило мест.", "Был участкала урындар етмәне."),
@@ -292,7 +334,8 @@ def _replay(session: Session, owner_id: int, command: Command, receipt: CommandR
             if response is not None:
                 raise response
         status, ru, ba = _FINAL_REFUSALS[receipt.result_code]
-        raise herr(status, ru, ba, code=receipt.result_code)
+        extra = {"booking_id": view["booking_id"]} if "booking_id" in view else {}
+        raise herr(status, ru, ba, code=receipt.result_code, **extra)
     if receipt.state == "closed_no_effect":
         raise herr(409, "Действие закрыто без выполнения.", "Ғәмәл башҡарылмайынса ябылды.",
                    code="idempotency_closed_no_effect")
@@ -304,11 +347,13 @@ def _replay(session: Session, owner_id: int, command: Command, receipt: CommandR
 
 def _save(session: Session, owner_id: int, command: Command, state: str, *,
           ref_id: int | None = None, ref_created_at: datetime | None = None,
-          result_code: str | None = None) -> CommandReceipt:
+          result_code: str | None = None, conflict: BookingTravelerConflict | None = None) -> CommandReceipt:
     receipt = CommandReceipt(user_id=owner_id, request_key=command.key, scope=command.scope.value,
                              target_id=command.target_id, payload_hash=command.payload_hash, state=state,
                              ref_kind=command.scope.ref_kind if ref_id is not None else None,
-                             ref_id=ref_id, ref_created_at=ref_created_at, result_code=result_code)
+                             ref_id=ref_id, ref_created_at=ref_created_at, result_code=result_code,
+                             conflict_booking_id=conflict.booking_id if conflict else None,
+                             conflict_booking_created_at=conflict.booking_created_at if conflict else None)
     session.add(receipt)
     session.flush()
     return receipt
@@ -370,7 +415,8 @@ def execute(session: Session, owner_id: int, command: Command, apply: Callable[[
             except HTTPException as error:
                 code = _final_refusal(error)
                 if code is not None:
-                    _save(session, owner_id, command, "rejected", result_code=code)
+                    conflict = error if isinstance(error, BookingTravelerConflict) else None
+                    _save(session, owner_id, command, "rejected", result_code=code, conflict=conflict)
                     session.commit()
                 raise
             session.commit()

@@ -194,11 +194,18 @@ def share_trip(booking_id: int, body: ShareIn, user: User = Depends(current_user
             raise herr(429, "Слишком много сообщений близким за сутки. Попробуй завтра.",
                        "Бер тәүлеккә яҡындарға хәбәр артыҡ күп. Иртәгә ҡабатла.")
         lang = sms_lang_of(session, user.id)
-        send_text(contact.phone, pick_lang(
-            lang,
-            f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {_live_link(share.token)}",
-            f"Юлдаш: {who} юлдаш менән бара. Сәфәрҙе күҙәт: {_live_link(share.token)}",
-        ))
+        link = _live_link(share.token)
+        if booking.traveler_name is not None:
+            message = pick_lang(
+                lang, f"Юлдаш: {who} отправил тебе ссылку на попутку: {link}",
+                f"Юлдаш: {who} һиңә юлдаш сәфәренә һылтанма ебәрҙе: {link}",
+            )
+        else:
+            message = pick_lang(
+                lang, f"Юлдаш: {who} едет с попутчиком. Следи за поездкой: {link}",
+                f"Юлдаш: {who} юлдаш менән бара. Сәфәрҙе күҙәт: {link}",
+            )
+        send_text(contact.phone, message)
         session.refresh(share)   # учёт SMS коммитил сессию — освежаем перед ответом
     return share
 
@@ -615,14 +622,13 @@ def notify_family_trip_status(session: Session, booking_id: int, passenger: User
         # PostgreSQL держит TripShare до отправки. Booking читаем без замка, чтобы не
         # нарушить Ride → Booking → TripShare. Устаревшее сообщение после отмены пропускаем.
         shares = _lock_family_shares(session, booking_id, contact_ids)
-        stale = False
-        if status in ("sat", "arrived"):
-            booking = session.get(Booking, booking_id, populate_existing=True)
-            stale = booking is None or booking.status == BookingStatus.cancelled
+        booking = session.get(Booking, booking_id, populate_existing=True)
+        stale = booking is None or (status in ("sat", "arrived") and booking.status == BookingStatus.cancelled)
         changed = {} if stale else _advance_family_shares(session, shares, status)
         session.flush()
         ids = [share.id for share in shares]
-        _send_family_status_sms(session, booking_id, passenger, status, shares, changed, sqlite=sqlite)
+        if booking is not None:
+            _send_family_status_sms(session, booking, passenger, status, shares, changed, sqlite=sqlite)
         if not sqlite:
             session.commit()
     return session.exec(select(TripShare).where(TripShare.id.in_(ids))).all() if ids else []
@@ -670,12 +676,12 @@ def _send_committed_family_status(session: Session, booking_id: int, passenger: 
         booking = session.get(Booking, booking_id, populate_existing=True)
         expected_status = BookingStatus.onboard if status == "arrived" else BookingStatus.done
         if booking is not None and booking.status == expected_status:
-            _send_family_status_sms(session, booking_id, passenger, status, shares, changed, sqlite=sqlite)
+            _send_family_status_sms(session, booking, passenger, status, shares, changed, sqlite=sqlite)
         if session.in_transaction():
             session.commit()
 
 
-def _send_family_status_sms(session: Session, booking_id: int, passenger: User, status: str,
+def _send_family_status_sms(session: Session, booking: Booking, passenger: User, status: str,
                             shares: list[TripShare], changed: dict[int, str], *, sqlite: bool) -> None:
     # Реально уведомляем близких по SMS о статусе поездки.
     status_text = {"sat": "сел в машину", "arrived": "доехал до места", "done": "завершил поездку",
@@ -691,6 +697,20 @@ def _send_family_status_sms(session: Session, booking_id: int, passenger: User, 
                       "cancelled_onboard": "— сәфәр юлда кире алынды. Шылтыратып, бөтәһе лә яҡшымы икәнен белеп ал",
                       }.get(status, status_text)
     who = passenger.name or passenger.phone
+    if booking.traveler_name is not None:
+        text_ru = {
+            "sat": "Пассажир сел в машину", "arrived": "Пассажир доехал до места",
+            "done": "Поездка завершена", "unsat": "Отметку посадки отменили",
+            "cancelled_onboard": "Поездку отменили в пути. Позвони заказчику и узнай, всё ли в порядке",
+        }.get(status, status)
+        text_ba = {
+            "sat": "Юлсы машинаға ултырҙы", "arrived": "Юлсы урынына етте",
+            "done": "Сәфәр тамамланды", "unsat": "Ултырыу билдәһе кире алынды",
+            "cancelled_onboard": "Сәфәр юлда кире алынды. Заказ биреүсегә шылтыратып, хәлде белеш",
+        }.get(status, status)
+    else:
+        text_ru, text_ba = f"{who} {status_text}", f"{who} {status_text_ba}"
+    booking_id = booking.id
     recipients = [(s.id, s.contact_id, s.created_at) for s in shares if s.last_status == changed.get(s.id)]
     for share_id, cid, created_at in recipients:
         if sqlite and not session.in_transaction():
@@ -716,7 +736,7 @@ def _send_family_status_sms(session: Session, booking_id: int, passenger: User, 
                 phone = c.phone
                 if sqlite:
                     session.commit()
-                send_text(phone, pick_lang(lang, f"Юлдаш: {who} {status_text}.", f"Юлдаш: {who} {status_text_ba}."))
+                send_text(phone, pick_lang(lang, f"Юлдаш: {text_ru}.", f"Юлдаш: {text_ba}."))
     if sqlite and session.in_transaction():
         session.commit()
 
@@ -735,16 +755,18 @@ def _guardian_sms_name(passenger: User) -> str:
     return name if len(name) <= _GUARDIAN_SMS_NAME_MAX else name[:_GUARDIAN_SMS_NAME_MAX - 1].rstrip() + "…"
 
 
-def guardian_sms_text(passenger: User, lang: str) -> str:
+def guardian_sms_text(passenger: User, lang: str, *, for_another: bool = False) -> str:
     """SMS взрослому за поездку несовершеннолетнего, которую отменили в пути (решение 24.10.2026).
     Только имя пассажира: ни его телефона, ни госномера, ни маршрута, ни координат — взрослый звонит
     пассажиру сам. Башкирский — черновик (docs/tasks.md, «Переводы на проверку»)."""
     who = _guardian_sms_name(passenger)
+    first_ru = "Поездку отменили в пути" if for_another else f"{who} — поездку отменили в пути"
+    first_ba = "Сәфәр юлда кире алынды" if for_another else f"{who} — сәфәр юлда кире алынды"
     return pick_lang(
         lang,
-        f"Юлдаш: {who} — поездку отменили в пути. Тебя указали взрослым за эту поездку. "
+        f"Юлдаш: {first_ru}. Тебя указали взрослым за эту поездку. "
         "Позвони и узнай, всё ли в порядке.",
-        f"Юлдаш: {who} — сәфәр юлда кире алынды. Һин был сәфәр өсөн яуаплы оло кеше. "
+        f"Юлдаш: {first_ba}. Һин был сәфәр өсөн яуаплы оло кеше. "
         "Шылтыратып, хәлен белеш.",
     )
 
@@ -778,7 +800,8 @@ def notify_guardian_cancelled_in_transit(session: Session, booking_id: int, pass
         return False
     if not may_send_family_sms(session, passenger.id, "guardian"):
         return False
-    send_text(phone, guardian_sms_text(passenger, sms_lang_of(session, passenger.id)))
+    send_text(phone, guardian_sms_text(passenger, sms_lang_of(session, passenger.id),
+                                       for_another=booking.traveler_name is not None))
     return True
 
 

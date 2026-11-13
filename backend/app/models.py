@@ -571,6 +571,7 @@ class Booking(SQLModel, table=True):
     minor_passenger: bool = False
     minor_guardian_name: str = ""     # кто из взрослых отвечает за поездку подростка
     minor_guardian_phone: str = ""    # ПДн: наружу отдаём только водителю этой брони
+    traveler_name: Optional[str] = Field(default=None, max_length=120)
     # Сервер сам сверил «подъезжаю» с живым GPS водителя и убедился, что он рядом с точкой подачи.
     # Пассажир видит это как «подтверждено по GPS» — слово водителя перестаёт быть единственным
     # доказательством (разбор конкурентов 2026-08-07: у inDrive «Я приехал» жмут за километры).
@@ -739,6 +740,8 @@ class CommandReceipt(SQLModel, table=True):
     # SQLite может повторно выдать удалённый номер. Сверяем дату создания исходной строки.
     ref_created_at: Optional[datetime] = None
     result_code: Optional[str] = Field(default=None, max_length=64)
+    conflict_booking_id: Optional[int] = None
+    conflict_booking_created_at: Optional[datetime] = None
     created_at: datetime = Field(default_factory=utcnow, index=True)
 
 
