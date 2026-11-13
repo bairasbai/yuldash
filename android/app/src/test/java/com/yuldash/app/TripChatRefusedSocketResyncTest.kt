@@ -48,6 +48,7 @@ class TripChatRefusedSocketResyncTest {
     private val sockets = CopyOnWriteArrayList<WebSocket>()
     private val refusedHandshakes = AtomicInteger()
     private val authenticated = CountDownLatch(1)
+    private val firstEmptyHistoryResponsePrepared = CountDownLatch(1)
     private val owner = object : LifecycleOwner {
         val registry = LifecycleRegistry(this)
         override val lifecycle: Lifecycle get() = registry
@@ -77,8 +78,11 @@ class TripChatRefusedSocketResyncTest {
                     }
                     val body = when (path) {
                         "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""
-                        "/bookings/42/messages" ->
-                            if (driverWrote) """{"items":[{"id":90,"sender_id":22,"text":"Я у подъезда"}]}""" else """{"items":[]}"""
+                        "/bookings/42/messages" -> if (driverWrote) {
+                            """{"items":[{"id":90,"sender_id":22,"text":"Я у подъезда"}]}"""
+                        } else {
+                            """{"items":[]}""".also { firstEmptyHistoryResponsePrepared.countDown() }
+                        }
                         "/bookings/42/boarding-code" -> """{"code":"1234"}"""
                         "/bookings/42/details" -> """{"booking_id":42,"ride_id":7,"role":"passenger","status":"confirmed"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
@@ -151,9 +155,10 @@ class TripChatRefusedSocketResyncTest {
             }
         }
         compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
-        // Первая история прочитана (за ней экран уже спросил детали брони), сокет хотя бы раз отклонён.
+        // Запросы деталей и истории запускаются независимо. Ждём именно чтение истории.
         waitFor { requests.contains("GET /bookings/42/details") && refusedHandshakes.get() >= 1 }
         waitFor { compose.onAllNodesWithText("Водитель отметит посадку").fetchSemanticsNodes().isNotEmpty() }
+        waitFor { firstEmptyHistoryResponsePrepared.count == 0L }
         assertEquals("Первая история — одно чтение", 1, historyReads())
         assertEquals("Сокет ещё не подключён", 1L, authenticated.count)
 
