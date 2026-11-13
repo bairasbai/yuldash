@@ -17,7 +17,9 @@ import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.SnapshotWiringCleanupGuard
 import com.yuldash.app.data.awaitOfflineWriteSnapshotReset02
+import com.yuldash.app.data.finishOfflineWriteFixture02
 import com.yuldash.app.ui.theme.YuldashTheme
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
@@ -44,6 +46,7 @@ import java.util.concurrent.atomic.AtomicInteger
 @Config(sdk = [34], application = Application::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 class GuestStartupSessionTest {
+    companion object { private val cleanupGuard = SnapshotWiringCleanupGuard() }
     @get:Rule val compose = createComposeRule()
     private val owner = object : ViewModelStoreOwner {
         override val viewModelStore = ViewModelStore()
@@ -55,6 +58,7 @@ class GuestStartupSessionTest {
     private val myRequests = privateRequests.getValue("/requests/mine")
     private val authenticatedMyRequests = AtomicInteger()
     private val authenticatedMeRequests = AtomicInteger()
+    private val logoutRequests = AtomicInteger()
     private val releasePrivateRequests = CountDownLatch(1)
     private lateinit var server: MockWebServer
     private lateinit var vm: YuldashViewModel
@@ -65,6 +69,7 @@ class GuestStartupSessionTest {
     @Volatile private var holdPrivateRequests = false
 
     @Before fun prepare() {
+        cleanupGuard.requireHealthy()
         val context: Context = ApplicationProvider.getApplicationContext()
         ApiClient.resetForTest()
         context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE).edit()
@@ -76,6 +81,10 @@ class GuestStartupSessionTest {
                     val path = request.requestUrl?.encodedPath
                     privateRequests[path]?.incrementAndGet()
                     val authenticated = request.getHeader("Authorization") == "Bearer local-startup-test-account"
+                    if (path == "/auth/logout" && authenticated) {
+                        logoutRequests.incrementAndGet()
+                        return MockResponse().setResponseCode(200).setBody("{}")
+                    }
                     if (path == "/requests/mine") {
                         if (authenticated) {
                             authenticatedMyRequests.incrementAndGet()
@@ -111,6 +120,7 @@ class GuestStartupSessionTest {
         ApiClient.testTimeoutMs = 1_000
         ApiClient.init(context)
         ApiClient.logout()
+        finishOfflineWriteFixture02(cleanupGuard) {}
         awaitOfflineWriteSnapshotReset02()
         ApiClient.sessionExpired.value = false
         CanonMotion.enabled = false
@@ -122,6 +132,7 @@ class GuestStartupSessionTest {
     }
 
     @After fun cleanup() {
+        cleanupGuard.requireHealthy()
         releasePrivateRequests.countDown()
         try {
             if (contentSet) {
@@ -132,13 +143,23 @@ class GuestStartupSessionTest {
             CanonMotion.enabled = originalMotion
             try {
                 owner.viewModelStore.clear()
-                ApiClient.logout()
             } finally {
-                try {
-                    ApiClient.resetForTest()
-                    ApiClient.testTimeoutMs = null
-                } finally {
-                    if (::server.isInitialized) server.shutdown()
+                if (::server.isInitialized) {
+                    val origin = "http://127.0.0.1:${server.port}"
+                    check(ApiClient.testBaseUrl == origin)
+                    val expectedLogoutRequests = logoutRequests.get() + if (ApiClient.isLoggedIn()) 1 else 0
+                    ApiClient.logout()
+                    // The logout coroutine reads its origin when it sends the request.
+                    finishOfflineWriteFixture02(cleanupGuard) {
+                        try {
+                            assertEquals("Logout must reach this fixture before releasing its origin",
+                                expectedLogoutRequests, logoutRequests.get())
+                        } finally {
+                            ApiClient.resetForTest()
+                            ApiClient.testTimeoutMs = null
+                            server.shutdown()
+                        }
+                    }
                 }
             }
         }

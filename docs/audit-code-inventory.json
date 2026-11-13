@@ -3317,8 +3317,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/GuestStartupSessionTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "e2573f61f6d90c9690e5fb38fbeb748d83a6f331b84a069e2b8e09d51c334dac",
-      "lines": 288
+      "sha256": "2336455cfc49803402701c17392438c4824f89d6bce462ad48496afa99d0ef0a",
+      "lines": 309
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HelpersEdgeTest.kt",
@@ -11136,8 +11136,8 @@
       "path": "backend/tests/test_request_traveler_gate.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "0696d403d3bc61f39d6b83b8f6c7b7d475dd6a66c51612982fff3dc6158795e8",
-      "lines": 104
+      "sha256": "0d772043ea530dcf0cddd4b3a775804d47078cc32119367b9c733425189781d4",
+      "lines": 195
     },
     {
       "path": "backend/tests/test_request_watch.py",
