@@ -95,6 +95,7 @@ def test_private_name_has_its_own_field_and_window(client, scene):
     assert "traveler_name" not in result.json() and TRAVELER not in result.text
     assert result.json()["passenger_id"] == owner["id"]
     assert bookings_and_seats(ride_id) == (1, 2)
+    completed_path = f"/bookings/{booking_id}/completed-traveler"
     for user in (driver, owner):
         own = details(client, booking_id, user)
         assert own.status_code == 200
@@ -102,8 +103,10 @@ def test_private_name_has_its_own_field_and_window(client, scene):
         assert own.json()["traveler_name"] == TRAVELER
         assert own.json()["traveler_name_remaining_ms"] == 30000
         assert own.json()["passenger_name"] == "Тест Заказчик"
+        assert client.get(completed_path, headers=user["auth"]).json()["traveler_name"] is None
     assert driver_row(client, booking_id, driver)["traveler_name"] == TRAVELER
     assert details(client, booking_id, stranger).status_code == 403
+    assert client.get(completed_path, headers=stranger["auth"]).status_code == 403
     assert TRAVELER not in client.get("/driver/bookings", headers=stranger["auth"]).text
     assert TRAVELER not in client.get(f"/rides/{ride_id}").text
     assert TRAVELER not in client.get("/bookings/mine", headers=owner["auth"]).text
@@ -117,12 +120,20 @@ def test_private_name_has_its_own_field_and_window(client, scene):
         session.commit()
     for user in (driver, owner):
         assert details(client, booking_id, user).json()["traveler_name"] == TRAVELER
+        completed = client.get(completed_path, headers=user["auth"])
+        assert completed.headers["Cache-Control"] == "no-store"
+        assert completed.json() == {
+            "booking_id": booking_id, "role": "driver" if user is driver else "passenger",
+            "traveler_name": TRAVELER, "traveler_name_remaining_ms": 30000,
+        }
         receipt = client.get(f"/trips/{booking_id}/receipt", headers=user["auth"])
         assert receipt.status_code == 200 and TRAVELER not in receipt.text
     set_ride_flags(ride_id, depart_at=utcnow()-timedelta(days=10))
     for user in (driver, owner):
         data = details(client, booking_id, user).json()
         assert data["traveler_name"] is None and data["traveler_name_remaining_ms"] is None
+        completed = client.get(completed_path, headers=user["auth"]).json()
+        assert completed["traveler_name"] is None and completed["traveler_name_remaining_ms"] is None
     assert driver_row(client, booking_id, driver)["traveler_name"] is None
 
 

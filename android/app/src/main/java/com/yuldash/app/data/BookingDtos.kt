@@ -106,7 +106,7 @@ internal fun parseBookingMineDto(o: JSONObject): BookingMineDto {
 
 
 /** Полная карточка брони. */
-internal fun parseBookingDetailsDto(o: JSONObject, startedElapsedMs: Long = android.os.SystemClock.elapsedRealtime()): BookingDetailsDto {
+internal fun parseBookingDetailsDto(o: JSONObject, startedElapsedMs: Long? = null): BookingDetailsDto {
     return BookingDetailsDto(
         bookingId = o.optInt("booking_id"),
         rideId = o.optInt("ride_id"),

@@ -1132,11 +1132,11 @@ object ApiClient {
     internal suspend fun getCompletedGuardianPhone(bookingId: Int, owner: Long): Result<String?> =
         getGuardianPhone(bookingId, owner, "done")
 
-    internal suspend fun readPrivateBookingDetails(bookingId: Int, owner: Long): Result<JSONObject> =
-        call("GET", "/bookings/$bookingId/details", null, auth = true, expectedGeneration = owner, freshRead = true)
+    internal suspend fun readCompletedTraveler(bookingId: Int, owner: Long): Result<JSONObject> =
+        call("GET", "/bookings/$bookingId/completed-traveler", null, auth = true, expectedGeneration = owner, freshRead = true)
 
     private suspend fun getGuardianPhone(bookingId: Int, owner: Long, status: String): Result<String?> =
-        readPrivateBookingDetails(bookingId, owner).mapCatching { body ->
+        call("GET", "/bookings/$bookingId/details", null, auth = true, expectedGeneration = owner, freshRead = true).mapCatching { body ->
                 if (!isCurrentSession(owner)) throw SessionChangedException()
                 if (body.opt("booking_id") != bookingId || body.opt("role") != "driver" ||
                     body.opt("status") != status || body.opt("minor_passenger") != true ||

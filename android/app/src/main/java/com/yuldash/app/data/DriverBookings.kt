@@ -70,7 +70,7 @@ internal fun DriverBookingDto.applyBoardingResult(result: BoardingResult, nowEla
 }
 
 /** Бронь глазами водителя. */
-internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long = android.os.SystemClock.elapsedRealtime()): DriverBookingDto {
+internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long? = null): DriverBookingDto {
     return DriverBookingDto(
         bookingId = o.optInt("booking_id"),
         noShowWaitSec = o.optInt("no_show_wait_sec").coerceAtLeast(0),

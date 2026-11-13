@@ -86,10 +86,12 @@ class PassengerProblemReportTest {
         server = MockWebServer().apply {
             dispatcher = object : Dispatcher() {
                 override fun dispatch(request: RecordedRequest): MockResponse {
-                    if (request.path != "/trips/42/receipt" || request.method != "GET")
+                    if (request.method != "GET" || request.path !in setOf("/trips/42/receipt", "/bookings/42/completed-traveler"))
                         return MockResponse().setResponseCode(404).setBody("{}")
                     if (request.getHeader("Authorization") != receiptBearer)
                         return MockResponse().setResponseCode(403).setBody("{}")
+                    if (request.path == "/bookings/42/completed-traveler")
+                        return MockResponse().setBody("""{"booking_id":42,"role":"passenger"}""")
                     receiptReads.incrementAndGet()
                     val value = receipt()
                     val body = JSONObject().put("booking_id", value.bookingId).put("ride_id", value.rideId)

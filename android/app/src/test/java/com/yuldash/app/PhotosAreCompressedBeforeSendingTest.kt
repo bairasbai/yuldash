@@ -64,7 +64,7 @@ class PhotosAreCompressedBeforeSendingTest {
 
     @Test
     fun `обычные фото не раздуты до размера документов`() {
-        val profile = File("src/main/java/com/yuldash/app/ProfileScreen.kt").readText()
+        val profile = File("src/main/java/com/yuldash/app/ProfilePhotoEncoding.kt").readText()
         val default = Regex("""maxSize:\s*Int\s*=\s*(\d+)""").find(profile)?.groupValues?.get(1)?.toInt()
         assertTrue("не нашёл планку сжатия по умолчанию", default != null)
         assertTrue(
