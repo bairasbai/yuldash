@@ -125,8 +125,8 @@
       "path": ".github/workflows/ci.yml",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "85fde6df4d1dbc1b11b665eacf4e947cbfcb9ee9b34e8391a2e3223478f83448",
-      "lines": 324
+      "sha256": "c8de613c6e837833b91944fdd0960d5ec8e05c61cde2d5ce1e0726e5297e4633",
+      "lines": 327
     },
     {
       "path": ".gitignore",
@@ -3030,8 +3030,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CompletedNavigationRestorationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "cc2aaa7de9f112050e39731a814aa0218e0316cb288f7d289a78b41602ada771",
-      "lines": 454
+      "sha256": "4aba71921077e64b7599f63d013f189dc7bd19420b427d6cac9964d35b0392ae",
+      "lines": 469
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ContrastGuardTest.kt",
@@ -3317,8 +3317,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/GuestStartupSessionTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "2336455cfc49803402701c17392438c4824f89d6bce462ad48496afa99d0ef0a",
-      "lines": 309
+      "sha256": "e71fad3a322001662282d006c1d4be974ffcf6bb720c8050319addcb30ec55b4",
+      "lines": 320
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HelpersEdgeTest.kt",
