@@ -8581,8 +8581,8 @@
       "path": "backend/tests/test_automatch_more.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "c44361aac522b4e7533d277ca09a3b3890f885c55d56db17481c1e26989b87cf",
-      "lines": 138
+      "sha256": "0f741a1b46e911fdbedac5df7b7829b42d3fbd67d8ed0014bba84fb37c3c4f7a",
+      "lines": 169
     },
     {
       "path": "backend/tests/test_automatch_picks_the_better_driver.py",
@@ -11157,8 +11157,8 @@
       "path": "backend/tests/test_requests_edges.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "95ce9820c0cdfb65706e65028a98e97c302f92fef6df01f0ab36adda3ae00907",
-      "lines": 314
+      "sha256": "bcb8bffe8fe299e88c6bf596f9844a54dc881d9f274bb99f1aa8b20dbf9fcc5a",
+      "lines": 345
     },
     {
       "path": "backend/tests/test_response_accept_races.py",
