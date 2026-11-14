@@ -82,8 +82,8 @@
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
-    "pwa_main": 341,
-    "test_support": 1316
+    "pwa_main": 342,
+    "test_support": 1317
   },
   "counts_by_block": {
     "B01": 171,
@@ -94,7 +94,7 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 763,
+    "B09": 765,
     "B10": 415,
     "B11": 92
   },
@@ -14146,7 +14146,7 @@
       "path": "webapp/src/App.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "2235fa96d0a6a1132c2abed5c0d08a1115d02256fcbee08a2728104c601e0af7",
+      "sha256": "78efa5d7ff029202ea04cbf045433523d1fffa7c84131c86363fc3e6715a427d",
       "lines": 1054
     },
     {
@@ -14216,7 +14216,7 @@
       "path": "webapp/src/api/client.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "7fd566a6948f971f5b19876cb2d698ed1982f213622fec2e824c1a854d8a9de1",
+      "sha256": "0216e6deb8f494c70a7bdb33da524099a5d1cd87ca241e33b261db9e8bdc0176",
       "lines": 528
     },
     {
@@ -14356,8 +14356,8 @@
       "path": "webapp/src/api/routeWatch.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "639580dce2368a36700d6e7549e6a0805806f2d76ce931edcf3c24cc15082010",
-      "lines": 40
+      "sha256": "848f2a135fe15bbde11a4eda082760649753e8df2c0c50660b75d2bf5a89f9c7",
+      "lines": 94
     },
     {
       "path": "webapp/src/api/safety.ts",
@@ -14699,8 +14699,8 @@
       "path": "webapp/src/components/NearbyRideCard.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "a60a641123b922e123113064c55ca4b2d117336d28c70154d17e42984b6eaa8a",
-      "lines": 215
+      "sha256": "7334384700ad5317d748102e125f5885a07f69355c493372a4b66cf683fa7b94",
+      "lines": 222
     },
     {
       "path": "webapp/src/components/OfflineBanner.tsx",
@@ -14902,8 +14902,8 @@
       "path": "webapp/src/components/RequireAuth.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "e89ec40991922ac151136723a66dfe1af290f647fd81641e4cfd7c99f7577e5a",
-      "lines": 39
+      "sha256": "3611c4aebe55091d9e5916b56f88130aae588bcc836a6ae8da72e550ea9f5876",
+      "lines": 42
     },
     {
       "path": "webapp/src/components/ResponseRouteNote.tsx",
@@ -15065,6 +15065,13 @@
       "block": "B02",
       "sha256": "58521a837f54f8beacfe1f515793e17fd54ba76116d1d744bc4c06606b134e70",
       "lines": 154
+    },
+    {
+      "path": "webapp/src/components/WatchRouteButton.tsx",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "0a7d28e166d1e59b11d33b14d34718b7467ab7f12303ec4695f64a1f528b7749",
+      "lines": 111
     },
     {
       "path": "webapp/src/components/WeatherWarningCard.tsx",
@@ -15644,8 +15651,8 @@
       "path": "webapp/src/screens/HomeScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "b36a030178af704b5e42e3fd1823c21207b2d80f47d9dc9db258369d9db35b61",
-      "lines": 589
+      "sha256": "7ee6b3fd359428274e006f3215b60f33587fc0ffe1f26d6a0c672e25bf3081d2",
+      "lines": 597
     },
     {
       "path": "webapp/src/screens/IncidentDetailScreen.tsx",
@@ -15882,15 +15889,15 @@
       "path": "webapp/src/screens/RidesScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "af79670f52c0b88cefa329145b84248921bb51f297e23d16f9ce0ffde4fe0629",
-      "lines": 171
+      "sha256": "d7a77576a9ca18eaa7c3807a682a521efe79cbda828dc5c615dd9cb9d2b8110d",
+      "lines": 172
     },
     {
       "path": "webapp/src/screens/RouteWatchesScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "ca779756588788a8fba4e03b0059d6a0921ecb35bb292b4b0156eaa9527545ba",
-      "lines": 216
+      "sha256": "ac4fe280b5e4e53695836c7bfe6a696ddf42071451b79392a6c0903d4eb497aa",
+      "lines": 308
     },
     {
       "path": "webapp/src/screens/RulesScreen.tsx",
@@ -17335,6 +17342,13 @@
       "lines": 140
     },
     {
+      "path": "webapp/tests/route-watch-identity-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "a6e5c46295684c1ce87de56df61da02b650eac092e36fe6838b7f8f7048e6abf",
+      "lines": 37
+    },
+    {
       "path": "webapp/tests/run-count-test.mjs",
       "kind": "test_support",
       "block": "B09",
@@ -17345,8 +17359,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "218163a571d3f67a5e7993e21972cacee9afe8728dfec182b04c1a869bbeb5f9",
-      "lines": 342
+      "sha256": "46d03402aa47a5e7b67ec89c99cb643d8f6cfe5721c8e5e8abc785cde08096d8",
+      "lines": 343
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",
