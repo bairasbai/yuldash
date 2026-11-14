@@ -47,12 +47,20 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.app.NotificationManagerCompat
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.RouteWatchDto
 import com.yuldash.app.data.createRouteWatch
 import com.yuldash.app.data.deleteRouteWatch
 import com.yuldash.app.data.getRouteWatches
 import kotlinx.coroutines.launch
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
 
 // Экран «Мои подписки» (F13) вынесен из SecondaryScreens.kt целиком: он вырос на сетевой защите
 // (вход владельца, поздний ответ, одноразовые изменения), а общий файл экранов расти не должен.
@@ -74,7 +82,7 @@ internal fun RouteWatchesScreen(
     val owner = ApiClient.sessionChanges.collectAsState().value
     var mounted by remember(owner) { mutableStateOf(true) }
     DisposableEffect(owner) { onDispose { mounted = false } }
-    var watches by remember(owner) { mutableStateOf<List<com.yuldash.app.data.RouteWatchDto>>(emptyList()) }
+    var watches by remember(owner) { mutableStateOf<List<RouteWatchDto>>(emptyList()) }
     var loading by remember(owner) { mutableStateOf(true) }
     var error by remember(owner) { mutableStateOf(false) }
     var from by rememberSaveable(owner) { mutableStateOf(prefillFrom) }
@@ -89,7 +97,7 @@ internal fun RouteWatchesScreen(
 
     fun current() = mounted && ApiClient.isCurrentSession(owner)
 
-    val savedMsg = appText("Готово! Сообщим, как появится поездка", "Әҙер! Сәфәр сыҡҡас, хәбәр итәбеҙ")
+    val savedMsg = appText("Подписка сохранена", "Яҙылыу һаҡланды")
     val failMsg = appText("Не получилось. Проверь сеть и повтори", "Булманы. Сетте тикшереп ҡабатла")
     val removedMsg = appText("Подписка удалена", "Яҙылыу юйылды")
 
@@ -149,8 +157,8 @@ internal fun RouteWatchesScreen(
             item {
                 Text(
                     appText(
-                        "Подпишись на маршрут — пришлём уведомление, как только водитель опубликует подходящую поездку.",
-                        "Маршрутҡа яҙыл — йөрөтөүсе тап килгән сәфәр баҫтырһа, шунда уҡ хәбәр итәбеҙ."
+                        "Следи за нужным маршрутом. Сообщения появятся в разделе «Уведомления».",
+                        "Кәрәкле маршрутты күҙәт. Хәбәрҙәр «Хәбәрҙәр» бүлегендә күренәсәк."
                     ),
                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                 )
@@ -176,6 +184,10 @@ internal fun RouteWatchesScreen(
                             Switch(checked = bothWays, onCheckedChange = { bothWays = it }, enabled = !submitting)
                         }
                         val needBothMsg = appText("Укажи откуда и куда", "Ҡайҙан һәм ҡайҙа икәнен яҙ")
+                        val invalidPlace = appText(
+                            "В названии места нужны хотя бы две буквы, без цифр и до 120 знаков.",
+                            "Урын исемендә кәм тигәндә ике хәреф булһын, һандарһыҙ һәм 120 тамғаға тиклем.",
+                        )
                         AppButton(
                             text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
                             onClick = {
@@ -183,6 +195,10 @@ internal fun RouteWatchesScreen(
                                 val f = from.trim(); val t = to.trim()
                                 if (f.isBlank() || t.isBlank()) {
                                     Toast.makeText(ctx, needBothMsg, Toast.LENGTH_SHORT).show()
+                                    return@AppButton
+                                }
+                                if (!validRouteWatchPlace(f) || !validRouteWatchPlace(t)) {
+                                    createError = invalidPlace
                                     return@AppButton
                                 }
                                 val direction = if (bothWays) "both" else "forward"
@@ -236,7 +252,7 @@ internal fun RouteWatchesScreen(
                 watches.isEmpty() -> item {
                     AppEmptyState(
                         title = appText("Пока нет подписок", "Әлегә яҙылыуҙар юҡ"),
-                        text = appText("Подпишись на нужный маршрут выше — не пропустишь новую поездку.", "Кәрәкле маршрутҡа яҙыл — яңы сәфәрҙе үткәрмәҫһең."),
+                        text = appText("Укажи маршрут выше, чтобы начать следить за поездками.", "Сәфәрҙәрҙе күҙәтер өсөн, өҫтә маршрутты күрһәт."),
                         icon = Icons.Default.NotificationsActive,
                     )
                 }
@@ -249,12 +265,13 @@ internal fun RouteWatchesScreen(
                     )
                 }
             }
+            item(key = "route-watch-notification-status") { RouteWatchNotificationStatus(watches.firstOrNull()) }
         }
     }
 }
 
 @Composable
-private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, deleting: Boolean, enabled: Boolean, onDelete: () -> Unit) {
+private fun RouteWatchRow(watch: RouteWatchDto, deleting: Boolean, enabled: Boolean, onDelete: () -> Unit) {
     val deleteLabel = appText("Удалить", "Юйыу")
     AppCard {
         Row(Modifier.padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -268,10 +285,19 @@ private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, deleting: B
                     color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp
                 )
                 Text(
-                    if (watch.direction == "both") appText("Туда и обратно", "Бара һәм ҡайта")
-                    else appText("Караулим поездку", "Сәфәрҙе күҙәтәбеҙ"),
+                    when (watch.watchKind) {
+                        "requests" -> appText("Заявки пассажиров", "Юлсылар ғаризалары")
+                        "both" -> appText("Поездки и заявки", "Сәфәрҙәр һәм ғаризалар")
+                        else -> appText("Поездки", "Сәфәрҙәр")
+                    },
                     color = CanonMuted, fontSize = 14.sp
                 )
+                watch.watchDate?.let(::parseIsoUtcMillis)?.let { millis ->
+                    val day = Instant.ofEpochMilli(millis).atZone(routeWatchZone).format(routeWatchDayFormat)
+                    Text(day, color = CanonMuted, style = CanonCaption)
+                }
+                val last = watch.lastNotifiedAt?.let(::formatDepart) ?: appText("Пока не было", "Әлегә булманы")
+                Text(appText("Последнее сообщение · $last", "Һуңғы хәбәр · $last"), color = CanonMuted, style = CanonCaption)
             }
             IconButton(onClick = onDelete, enabled = enabled) {
                 if (deleting) CircularProgressIndicator(
@@ -280,6 +306,63 @@ private fun RouteWatchRow(watch: com.yuldash.app.data.RouteWatchDto, deleting: B
                 )
                 else Icon(Icons.Default.Delete, contentDescription = appText("Удалить", "Юйыу"), tint = CanonRed)
             }
+        }
+    }
+}
+
+private val routeWatchZone = ZoneId.of("Asia/Yekaterinburg")
+private val routeWatchDayFormat = DateTimeFormatter.ofPattern("dd.MM.uuuu")
+
+internal fun validRouteWatchPlace(name: String): Boolean {
+    val codePoints = name.codePoints().toArray()
+    if (codePoints.size > 120 || codePoints.count { Character.isLetter(it) } < 2) return false
+    return codePoints.none {
+        when (Character.getType(it)) {
+            Character.DECIMAL_DIGIT_NUMBER.toInt(), Character.LETTER_NUMBER.toInt(), Character.OTHER_NUMBER.toInt() -> true
+            else -> false
+        }
+    }
+}
+
+@Composable
+private fun RouteWatchNotificationStatus(watch: RouteWatchDto?) {
+    val context = LocalContext.current
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val manager = remember(context) { NotificationManagerCompat.from(context) }
+    var systemAllowed by remember(manager) { mutableStateOf(manager.areNotificationsEnabled()) }
+    DisposableEffect(lifecycle, manager) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) systemAllowed = manager.areNotificationsEnabled()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+
+    AppCard {
+        Column(Modifier.padding(CanonSpace.lg), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+            val statusTexts = listOfNotNull(
+                appText("Уведомления на этом устройстве разрешены", "Был ҡоролмала хәбәрҙәр рөхсәт ителгән").takeIf { systemAllowed },
+                appText("Уведомления на этом устройстве выключены", "Был ҡоролмала хәбәрҙәр һүндерелгән").takeUnless { systemAllowed },
+                appText("Канал приложения зарегистрирован", "Ҡушымта каналы теркәлгән").takeIf { watch?.registeredPushApp == true },
+                appText("Канал браузера зарегистрирован", "Браузер каналы теркәлгән").takeIf { watch?.registeredPushWeb == true },
+                appText("Каналы приложения и браузера не зарегистрированы. Сообщения остаются в «Уведомлениях».",
+                    "Ҡушымта һәм браузер каналдары теркәлмәгән. Хәбәрҙәр «Хәбәрҙәр» бүлегендә ҡала.")
+                    .takeIf { watch?.registeredPushApp == false && watch.registeredPushWeb == false },
+            )
+            statusTexts.forEach { Text(it, color = CanonMuted, style = CanonCaption) }
+            val from = watch?.quietFrom
+            val to = watch?.quietTo
+            if (from != null && to != null && to > 0 && from != to) {
+                val hours = "${from.toString().padStart(2, '0')}:00–${to.toString().padStart(2, '0')}:00"
+                Text(appText("Тихие часы по Уфе · $hours. Сообщения остаются в «Уведомлениях» без звука.",
+                    "Өфө ваҡыты буйынса тыныс сәғәттәр · $hours. Хәбәрҙәр «Хәбәрҙәр» бүлегендә тауышһыҙ ҡала."),
+                    color = CanonMuted, style = CanonCaption)
+            }
+            if (!systemAllowed) AppButton(
+                text = appText("Открыть настройки телефона", "Телефон көйләүҙәрен асыу"),
+                onClick = { openNotificationSettings(context) },
+                style = AppButtonStyle.Secondary,
+            )
         }
     }
 }

@@ -80,7 +80,7 @@
   "counts_by_kind": {
     "android_main": 224,
     "backend_main": 112,
-    "infra_resource_config": 415,
+    "infra_resource_config": 416,
     "public_site_promo": 91,
     "pwa_main": 341,
     "test_support": 1316
@@ -95,7 +95,7 @@
     "B07": 144,
     "B08": 216,
     "B09": 763,
-    "B10": 415,
+    "B10": 416,
     "B11": 92
   },
   "excluded_counts": {
@@ -414,6 +414,13 @@
       "block": "B10",
       "sha256": "fc0d8925b6696d2e9a374e85bd9fb3f1c7a4d06bc90fb5089683243c314904fc",
       "lines": 141
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/RouteWatchStatusInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "344550f88b697dade8a7af7d3f601155bd8d29efce7a2a4315305c8133200f10",
+      "lines": 101
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/SafetyUnknownUiInstrumentedTest.kt",
@@ -1574,8 +1581,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RouteWatchesScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "263d60bcc5d893cf69e93f36e5db61fe33adf843c2d3154637cd94d0e3055bfb",
-      "lines": 285
+      "sha256": "8828fa0643cafdb7aefc5f130bc82cb614e495308de708baa1cc8346455d7169",
+      "lines": 368
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SavedPlacesScreen.kt",
@@ -2155,8 +2162,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/RouteWatchApi.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "6bc2f9dfc3d3ba3a6489557893e33706f3bff4b7a58e2bbfd2aab7d01b54e95b",
-      "lines": 59
+      "sha256": "56d076947ccd8d5da62f26035ebb6218cc70d14738257bc3374cca1e63ace9ad",
+      "lines": 78
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/SafetyApi.kt",
@@ -4290,8 +4297,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RouteWatchNetworkBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "dcfe765dd42b1d3262a559482c4e8b33ed8f8e2beb1e286306a81dfc3490012b",
-      "lines": 284
+      "sha256": "bee1d2e3ef78aea8d080d3160130c9106cd2d183fad30e58297e9380c208f435",
+      "lines": 306
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SafetyEverywhereGuardTest.kt",
@@ -7517,8 +7524,8 @@
       "path": "backend/app/routers/route_watch.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "4816aa7723ca3643669b662bae5c61254cb90222a2ecb09887d959a64412fc53",
-      "lines": 125
+      "sha256": "dc0e11b215367e34682cb167388499af1e0ca5e59ed9e46b5ac67d1270e9c167",
+      "lines": 167
     },
     {
       "path": "backend/app/routers/safety.py",
@@ -11346,8 +11353,8 @@
       "path": "backend/tests/test_route_watch.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "5746c7c2ece393e5963f18c6081215780c344d857366ed8f156dec7dc3fd7735",
-      "lines": 154
+      "sha256": "e535229cfd54c04b65cdf0ddeb2595610585bfcb10bd4fd6aa4c7ce38e170843",
+      "lines": 226
     },
     {
       "path": "backend/tests/test_route_watch_push_destination.py",
