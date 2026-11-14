@@ -740,8 +740,9 @@ class ActiveTripPassengerContactsTest {
         compose.onNodeWithText(phone).assertIsDisplayed()
         compose.waitUntil(15000) {
             settle()
-            compose.onAllNodesWithText("Повторить загрузку кода").fetchSemanticsNodes().isNotEmpty()
+            codeCalls.get() >= 1 && runCatching { scrollTo("Повторить загрузку кода") }.isSuccess
         }
+        compose.onNodeWithText("Повторить загрузку кода").assertIsDisplayed()
         assertNull(TripPassStore.load(context, 42)?.takeIf { it.boardingCode.isNotBlank() })
         assertNull(TripPassAuthorityFixture.durable(passSecure, 42))
         assertEquals(1, requests.count { it == "GET /bookings/42/boarding-code" })

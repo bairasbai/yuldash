@@ -83,11 +83,11 @@
     "infra_resource_config": 415,
     "public_site_promo": 91,
     "pwa_main": 338,
-    "test_support": 1314
+    "test_support": 1315
   },
   "counts_by_block": {
     "B01": 170,
-    "B02": 328,
+    "B02": 329,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -1483,8 +1483,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RequestTravelerDialog.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "6688804b4e07c43c0c4c89c4c2bd9112269ed6fe25bbcefc052c7312fc5459ed",
-      "lines": 169
+      "sha256": "0040007a502c05f7eead096673c7df51c73b4e75c66573a7777b31a762a09a03",
+      "lines": 197
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RequestsFeedScreen.kt",
@@ -2638,8 +2638,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerContactsTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "52ed16b147ecd4df61472b84f56fdcab058937977ea0e882952fc16ee70a93bb",
-      "lines": 993
+      "sha256": "3bfca4b21f24a84aaa33c8f359fa1a3a02212b2581d2b199288e419d5cf827d8",
+      "lines": 994
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",
@@ -4096,6 +4096,13 @@
       "block": "B01",
       "sha256": "c4e6c3e364965de17a5a50ad6d9c458c8a823dd0a2a4836a931381a38036999d",
       "lines": 91
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RequestTravelerChoiceTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "7360bdb6649a25309ef5802018e07a0978fc85ac3a2d62afc78f403750bf557e",
+      "lines": 131
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RequestWatchInboxTest.kt",
