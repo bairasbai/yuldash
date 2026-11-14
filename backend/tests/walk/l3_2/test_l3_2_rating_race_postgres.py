@@ -12,7 +12,7 @@
 """
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
-from threading import Barrier
+from threading import Barrier, Event
 
 import pytest
 from fastapi.testclient import TestClient
@@ -53,12 +53,13 @@ def _done_booking(client, user_factory):
     return pax, drv, booking["id"]
 
 
-def _post_rate(booking_id: int, auth: dict, stars: int):
+def _post_rate(booking_id: int, auth: dict, stars: int, from_notification: bool = False):
     # Своя TestClient на запрос (как test_otp_phone_concurrency.py): общий клиент гоняет
     # запросы одного транспорта по очереди, а нам нужны ДВА настоящих HTTP-вызова разом.
     request = TestClient(app, raise_server_exceptions=False)
     try:
-        return request.post(f"/bookings/{booking_id}/rate", headers=auth, json={"stars": stars})
+        return request.post(f"/bookings/{booking_id}/rate", headers=auth,
+                            json={"stars": stars, "from_notification": from_notification})
     finally:
         request.close()
 
@@ -93,6 +94,44 @@ def test_two_simultaneous_tabs_do_not_double_the_rating(client, user_factory, mo
         f"двойная отправка создала {len(rows)} оценки вместо одной (звёзды: {[r.stars for r in rows]}) — "
         "водителю задвоился голос одного пассажира в среднем рейтинге"
     )
-    # Победила одна из двух одновременных звёзд (какая именно — гонка, не фиксируем какая),
-    # но ровно одна, и она реально одна из отправленных.
     assert rows[0].stars in (3, 5)
+
+
+@pytest.mark.parametrize("first_stars", [3, 5])
+def test_notification_race_keeps_manual_rating_in_either_lock_order(client, user_factory, monkeypatch, first_stars):
+    passenger, _, booking = _done_booking(client, user_factory)
+    first_has_lock, let_first_finish, second_arrived = Event(), Event(), Event()
+    original = rating_service._lock_rating_slot
+    connections = []
+
+    def ordered_acquire(session, rater_id, booking_id, order_id):
+        connections.append(session.execute(text("SELECT pg_backend_pid()")).scalar_one())
+        if len(connections) == 1:
+            original(session, rater_id, booking_id, order_id)
+            first_has_lock.set()
+            assert let_first_finish.wait(10)
+        else:
+            second_arrived.set()
+            original(session, rater_id, booking_id, order_id)
+
+    monkeypatch.setattr(rating_service, "_lock_rating_slot", ordered_acquire)
+    second_stars = 8 - first_stars
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(_post_rate, booking, passenger["auth"], first_stars, first_stars == 5)
+        try:
+            assert first_has_lock.wait(10)
+            second = pool.submit(_post_rate, booking, passenger["auth"], second_stars, second_stars == 5)
+            assert second_arrived.wait(10)
+        finally:
+            let_first_finish.set()
+        results = {first_stars: first.result(timeout=10), second_stars: second.result(timeout=10)}
+
+    assert len(set(connections)) == 2
+    assert all(response.status_code == 200 for response in results.values())
+    assert results[5].json()["kept"] is (first_stars == 3)
+    assert results[5].json()["my_stars"] == (3 if first_stars == 3 else 5)
+    with Session(engine) as session:
+        rating = session.exec(select(Rating).where(
+            Rating.booking_id == booking, Rating.rater_id == passenger["id"],
+        )).one()
+        assert rating.stars == 3

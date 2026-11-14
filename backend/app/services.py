@@ -8,7 +8,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 """
 from collections import deque
 from collections.abc import Callable
-from datetime import timedelta
+from datetime import timedelta, timezone
 import base64
 import json
 import re
@@ -558,6 +558,27 @@ def _web_push_url(data: dict | None) -> str:
     }.get(kind, "/")
 
 
+def _rating_web_push(session: Session, recipient_id: int, data: dict | None) -> dict:
+    metadata = data or {}
+    if metadata.get("type") != "booking_done" or str(metadata.get("rate")) != "1":
+        return {}
+    try:
+        booking_id = int(str(metadata.get("id", "")))
+        until = int(str(metadata.get("rate_until", "")))
+    except ValueError:
+        return {}
+    if booking_id <= 0 or until <= int(utcnow().replace(tzinfo=timezone.utc).timestamp()):
+        return {}
+    recipient = session.get(User, recipient_id)
+    return {
+        "actions": [
+            {"action": "rate_five", "title": "5 ★"},
+            {"action": "rate_details", "title": "Иҫкәрмәләр бар" if recipient and recipient.language == "ba" else "Есть замечания"},
+        ],
+        "rate": {"booking_id": booking_id, "recipient_user_id": recipient_id, "until": until},
+    }
+
+
 def _send_web_push(session: Session, user_id: int, title: str, body: str,
                    data: dict | None = None) -> None:
     """Web Push во все браузеры человека. Тихо ничего, если VAPID-ключи не настроены.
@@ -597,6 +618,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
                  str((data or {}).get("id") or (data or {}).get("ref_id") or "")]
     tag = "-".join([x for x in tag_parts if x])
     message = {"title": title, "body": body, "tag": tag or None, "url": _web_push_url(data)}
+    if any(s.auth_session_id and s.binding_id for s in subs):
+        message.update(_rating_web_push(session, user_id, data))
     dead = []
     for s in subs:
         if s.auth_session_id and not s.binding_id:
