@@ -51,6 +51,7 @@ class RouteWatchNetworkBoundaryTest {
     @Volatile private var createCode = 200
     @Volatile private var getCode = 200
     @Volatile private var heldMethod: String? = null
+    @Volatile private var watchDetails = ""
 
     @Before fun prepare() {
         ApiClient.resetForTest()
@@ -66,7 +67,7 @@ class RouteWatchNetworkBoundaryTest {
                     requests += "$method $path" to bearer
                     // Capture the remote result before holding it: releasing A must not read B's state.
                     val body = if (exists && bearer == "Bearer $ownerA")
-                        """[{"id":7,"from_city":"Сибай","to_city":"Уфа","direction":"forward"}]""" else "[]"
+                        """[{"id":7,"from_city":"Сибай","to_city":"Уфа","direction":"forward"$watchDetails}]""" else "[]"
                     if (path.startsWith("/route-watch") && method == heldMethod && bearer == "Bearer $ownerA") {
                         held.countDown()
                         if (!release.await(20, TimeUnit.SECONDS)) fixtureFailures += "Held $method was not released"
@@ -134,6 +135,27 @@ class RouteWatchNetworkBoundaryTest {
     }
     private fun invoke(action: () -> Boolean) = compose.runOnIdle { action() }
     private fun finishedDelete() = await { shown("Пока нет подписок") }
+
+    @Test fun statusShowsRegisteredChannelsAndQuietHoursWithoutClaimingDelivery() {
+        watchDetails = ""","watch_kind":"requests","last_notified_at":null,"registered_push_channels":{"app":true,"web":true},"quiet_from":22,"quiet_to":7"""
+        mount()
+        assertTrue(shown("Заявки пассажиров"))
+        assertTrue(shown("Последнее сообщение · Пока не было"))
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Канал приложения зарегистрирован"))
+        assertTrue(shown("Канал приложения зарегистрирован"))
+        assertTrue(shown("Канал браузера зарегистрирован"))
+        assertTrue(shown("Тихие часы по Уфе · 22:00–07:00. Сообщения остаются в «Уведомлениях» без звука."))
+    }
+
+    @Test fun routeNamesRequireLettersAndRejectAllNumericCharacters() {
+        assertTrue(validRouteWatchPlace("Өфө"))
+        assertTrue(validRouteWatchPlace("Ургаза (район)"))
+        assertFalse(validRouteWatchPlace("А"))
+        assertFalse(validRouteWatchPlace("Уфа ⑤"))
+        assertFalse(validRouteWatchPlace("Сибай Ⅴ"))
+        assertTrue(validRouteWatchPlace("У".repeat(120)))
+        assertFalse(validRouteWatchPlace("У".repeat(121)))
+    }
 
     @Test fun lostDeleteAcknowledgementThenNotFoundReachesAbsence() {
         deletion = "lost-ack"
