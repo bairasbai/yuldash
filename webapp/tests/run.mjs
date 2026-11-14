@@ -190,6 +190,7 @@ const ALL_SUITES = [
   { test: "nearby-feed-test", src: null, out: null, bundle: false },
   // «Откуда»/«Куда»: разбор /rides/cities, перечитывание не чаще раза в 2 минуты, подпись «Откуда · X +N».
   { test: "nearby-cities-test", src: null, out: null, bundle: false },
+  { test: "search-history-test", src: null, out: null, bundle: false },
   // Ряд из четырёх чипов и шторки: роли для читалки, диалог с Esc, семь условий, стили только со шкалы, цель ≥ 48.
   { test: "nearby-filters-ui-test", src: null, out: null, bundle: false },
   // …и настоящая разметка этих компонентов (react-dom/server): строки-флажки, aria-checked, подписи чипов на двух языках.

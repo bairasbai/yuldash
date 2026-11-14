@@ -18,7 +18,7 @@ const mocks = {
     export const unsubscribeWebPush=async endpoint=>{globalThis.__events.push(['push-revoke',endpoint]);};`,
   "../utils/outbox": `export const clearOutbox=()=>globalThis.__events.push(['outbox-clear']);`,
   "../utils/formDraft": `export const clearAllDrafts=()=>globalThis.__events.push(['drafts-clear']);`,
-  "../utils/privacy": `export const syncPersonalSession=()=>{}; export const clearPersonalLocal=()=>globalThis.__events.push(['personal-clear']);`,
+  "../utils/privacy": `export const syncPersonalSession=()=>{}; export const clearPersonalSearchHistory=()=>{}; export const clearPersonalLocal=()=>globalThis.__events.push(['personal-clear']);`,
 };
 const bundled = await build({
   stdin: { contents: `export { AuthProvider } from './src/auth/AuthProvider.tsx';`,
