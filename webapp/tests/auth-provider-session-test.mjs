@@ -28,7 +28,7 @@ const mocks = {
   credentials: `export const subscribeSessionChanges=listener=>{globalThis.__authProviderSession.sessionChanged=listener;return()=>{};};`,
   outbox: `export const clearOutbox=()=>globalThis.__authProviderSession.clears.push('outbox');`,
   drafts: `export const clearAllDrafts=()=>globalThis.__authProviderSession.clears.push('drafts');`,
-  privacy: `export const syncPersonalSession=()=>{}; export const clearPersonalLocal=()=>globalThis.__authProviderSession.clears.push('personal');`,
+  privacy: `export const syncPersonalSession=()=>{}; export const clearPersonalSearchHistory=()=>{}; export const clearPersonalLocal=()=>globalThis.__authProviderSession.clears.push('personal');`,
 };
 const result = await build({entryPoints:[root+'src/auth/AuthProvider.tsx'],bundle:true,write:false,format:'esm',platform:'node',jsx:'automatic',plugins:[{name:'provider-boundary',setup(b){
   b.onResolve({filter:/.*/},a=>{const p=a.path;const k=Object.hasOwn(mocks,p)?p:p.endsWith('/api/client')?'client':p.endsWith('/api/auth')?'auth':p.endsWith('/push/webPush')?'push':p.endsWith('/utils/sessionCredentials')?'credentials':p.endsWith('/utils/outbox')?'outbox':p.endsWith('/utils/formDraft')?'drafts':p.endsWith('/utils/privacy')?'privacy':null;return k?{path:k,namespace:'boundary'}:null;});

@@ -27,7 +27,7 @@ import {
 import { disableLocalPushAfterLogout } from "../push/webPush";
 import { clearOutbox } from "../utils/outbox";
 import { clearAllDrafts } from "../utils/formDraft";
-import { clearPersonalLocal, syncPersonalSession } from "../utils/privacy";
+import { clearPersonalLocal, clearPersonalSearchHistory, syncPersonalSession } from "../utils/privacy";
 import { clearSessionCaches } from "../utils/sessionCaches";
 
 type Status = "loading" | "authed" | "guest" | "unavailable";
@@ -177,6 +177,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (epoch !== sessionEpoch() || storageFenced()) throw new Error("Session operation superseded");
       const generation = await setSession(access, refresh, permit, expectedGeneration, logoutToken);
       if (!generation || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
+      clearPersonalSearchHistory();
       syncPersonalSession(generation);
       confirmStorageSession(generation);
       setUser(me);
