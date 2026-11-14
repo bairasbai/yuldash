@@ -65,7 +65,9 @@ internal fun nearbySearch(
     fromCities: Set<String>,
     toCities: Set<String>,
     verifiedOnly: Boolean,
-): Any = listOf(from, to, date, conditions, fromCities, toCities, verifiedOnly)
+    seats: Int = 1,
+    owner: Long = 0L,
+): Any = listOf(from, to, date, conditions, fromCities, toCities, verifiedOnly, seats, owner)
 
 /** Карточки, счётчик и скрытые поездки относятся к одному поиску. */
 internal data class NearbyFeedResult(val search: Any, val page: NearbyPage, val failed: Boolean = false)
@@ -82,9 +84,10 @@ internal fun nearbyDropsOnFailure(shownFor: Any?, requested: Any): Boolean = sho
  * Условия и «только проверенные» режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер,
  * где их не знают (зеркало `matchesNearbyConditions` в nearbyFeed.ts сайта). Вынесено из MapScreen.kt.
  */
-internal fun nearbyShown(nearby: List<RideDto>, prefFilter: Set<String>, verifiedOnly: Boolean): List<RideDto> =
-    if (prefFilter.isEmpty() && !verifiedOnly) nearby else nearby.filter { d ->
+internal fun nearbyShown(nearby: List<RideDto>, prefFilter: Set<String>, verifiedOnly: Boolean, seats: Int = 1): List<RideDto> =
+    if (prefFilter.isEmpty() && !verifiedOnly && seats == 1) nearby else nearby.filter { d ->
         (!verifiedOnly || d.driverVerified) &&
+            (seats == 1 || (d.seatsOnSegment ?: maxOf(d.seatsLeft, d.seatsByLeg.maxOrNull() ?: 0)) >= seats) &&
             ("women" !in prefFilter || d.womenOnly || d.driverIsWoman) &&   // F9: женщины за рулём тоже подходят
             ("child" !in prefFilter || d.childSeat) &&
             ("pets" !in prefFilter || d.petsAllowed) &&

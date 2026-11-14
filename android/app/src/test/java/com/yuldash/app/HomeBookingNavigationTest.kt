@@ -285,16 +285,17 @@ class HomeBookingNavigationTest {
 
     @Test fun samePublicRideKeepsDraftAfterReturnAndSavedStateRestore() {
         val saver = StateRestorationTester(compose)
+        val submitTwoSeats = hasText("Забронировать 2 места") and isEnabled()
         mount(saver)
         openPublicRide(9)
         chooseTwoSeats()
         back()
         pump(1500)
         openPublicRide(9)
-        compose.onNodeWithText("Забронировать 2 места").assertIsEnabled()
+        await { compose.onAllNodes(submitTwoSeats).fetchSemanticsNodes().isNotEmpty() }
         saver.emulateSavedInstanceStateRestore()
-        pump(1500)
-        compose.onNodeWithText("Забронировать 2 места").assertIsEnabled().performClick()
+        await { compose.onAllNodes(submitTwoSeats).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(submitTwoSeats).performClick()
         await { posts(createPath) == 1 }
         val sent = JSONObject(bodies.single())
         assertEquals(9, sent.getInt("ride_id"))

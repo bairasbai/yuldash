@@ -1418,7 +1418,9 @@ private fun YuldashAppContent() {
                 val guestForm = displayedBookingId == null && !ApiClient.isLoggedIn()
                 key("booking-draft-v2", displayedOwner, displayedSession, displayedBookingId, displayedRide?.id, guestChoices) {
                 var frontSeat by remember(displayedRide?.id) { mutableStateOf(guestChoices?.front == true) }
-                var selectedSeats by rememberSaveable(displayedRide?.id, displayedSession) { mutableIntStateOf(guestChoices?.seats ?: 1) }
+                val seatSelection = vm.groupSeatSelection(displayedSession)
+                var selectedSeats by rememberBookingSeats(seatSelection?.revision ?: 0,
+                    guestChoices?.seats ?: seatSelection?.seats ?: FilterPrefs.loadSeats(context))
                 val meetingDraft = rememberBookingMeetingDraft(displayedRide, displayedSession, guestChoices)
                 val needsGuestReview = guestChoices?.review != null
                 if (guestChoices?.review != null) {
