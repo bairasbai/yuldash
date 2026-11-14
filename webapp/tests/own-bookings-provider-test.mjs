@@ -73,6 +73,7 @@ const mocks = {
   refusalhook: `export const useBookingRefusal=()=>{};`,
   // Карточка «Поездку отменили в пути» (23.10.2026) — свой набор cancelled-in-transit-test; здесь только заглушка.
   cancelledintransit: `export default "cancelledintransit";`,
+  notificationRating: `export default "notificationRating";`,
 };
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
@@ -88,7 +89,7 @@ const suffixes = {
   "/components/ShareTripCard":"share", "/components/TripChatCard":"tripchat",
   "/components/OfflineTripFallback":"offlinefallback", "/components/OfflineTripPass":"offline", "/utils/outbox":"outbox", "/utils/useBookingRefusal":"refusalhook", "/components/DriverLocationShare":"driverloc",
   "/components/DriverBoarding":"driverboarding", "/components/BoardingWait":"boardingwait", "/components/DriverBoardedDispute":"driverboardeddispute",
-  "/components/CancelledInTransitCard":"cancelledintransit",
+  "/components/CancelledInTransitCard":"cancelledintransit", "/components/NotificationRating":"notificationRating",
 };
 const result=await build({
   stdin:{contents:`export {OwnBookingsProvider,useOwnBooking,useRefreshOwnBookings} from "./src/booking/OwnBookingsProvider.tsx";

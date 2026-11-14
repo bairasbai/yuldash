@@ -2,6 +2,7 @@ import { getLanguage } from "../i18n/languagePreference";
 export { initializeSessionStorage, reconcileSession } from "../utils/sessionCredentials";
 import { SESSION_LOGOUT_TOKEN } from "../utils/sessionRecord";
 import type { TripPassOwner } from "../utils/tripPass";
+import { tokenPayload } from "../utils/tokenPayload";
 import {
   cachedSession, initializeSessionStorage, newSessionGeneration, persistSession, reconcileSession,
 } from "../utils/sessionCredentials";
@@ -213,14 +214,6 @@ export function refreshRejectedToken(rejected: string): Promise<boolean> {
   return runRefresh(getSessionGeneration(), rejected);
 }
 
-function tokenPayload(token: string | null): { sub?: unknown; sid?: unknown } | undefined {
-  if (!token) return;
-  try {
-    const payload = token.split(".")[1].replace(/-/g, "+").replace(/_/g, "/");
-    return JSON.parse(atob(payload));
-  } catch { return undefined; }
-}
-
 function tokenSubject(token: string | null): string | undefined {
   const subject = tokenPayload(token)?.sub;
   return typeof subject === "string" ? subject : undefined;
@@ -367,17 +360,21 @@ async function request<T>(
   path: string,
   init: RequestInit & {
     auth?: boolean; _retried?: boolean; _generation?: string; _userId?: number; _deletionConfirmation?: boolean;
+    _allowAttempt?: () => Promise<boolean>;
     onResponse?: (response: Response) => void;
   } = {}
 ): Promise<T> {
   const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), _userId,
-    _deletionConfirmation, onResponse, ...rest } = init;
+    _deletionConfirmation, _allowAttempt, onResponse, ...rest } = init;
   const checkSession = () => {
     if (auth && (_generation !== getSessionGeneration() || (_userId !== undefined && !tokenMatchesUser(getToken(), _userId)))) {
       throw new ApiError(409, genericByStatus(409, isBashkir()));
     }
   };
   if (auth) await reconcileSession();
+  if (_allowAttempt && !await _allowAttempt()) {
+    throw new ApiError(409, genericByStatus(409, isBashkir()), "command_scope_changed");
+  }
   checkSession();
   const sent = cachedSession();
   const sentToken = sent?.access ?? null;
@@ -491,11 +488,11 @@ export function apiPost<T>(
 export function apiCommand<T>(
   path: string,
   owner: { generation: string; userId: number },
-  opts: { signal?: AbortSignal; method: "GET" | "POST"; body?: string; key?: string },
+  opts: { signal?: AbortSignal; method: "GET" | "POST"; body?: string; key?: string; allowAttempt?: () => Promise<boolean> },
 ): Promise<T> {
   return request<T>(path, {
     method: opts.method, signal: opts.signal, body: opts.body, redirect: "error", cache: "no-store",
-    _generation: owner.generation, _userId: owner.userId,
+    _generation: owner.generation, _userId: owner.userId, _allowAttempt: opts.allowAttempt,
     headers: {
       ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(opts.key ? { "Idempotency-Key": opts.key } : {}),

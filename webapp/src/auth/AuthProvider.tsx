@@ -25,6 +25,7 @@ import {
   type Me,
 } from "../api/auth";
 import { disableLocalPushAfterLogout } from "../push/webPush";
+import { pruneRatingDraft } from "../push/rateDraft";
 import { clearOutbox } from "../utils/outbox";
 import { clearAllDrafts } from "../utils/formDraft";
 import { clearPersonalLocal, clearPersonalSearchHistory, syncPersonalSession } from "../utils/privacy";
@@ -48,6 +49,7 @@ interface AuthCtx {
 
 function clearSessionData(): void {
   const clearedGeneration = getSessionGeneration();
+  void pruneRatingDraft();
   // Неотправленные сообщения прошлого человека нельзя оставлять: на общем телефоне
   // они ушли бы ОТ НОВОГО аккаунта при первом же появлении сети.
   void Promise.resolve(sessionMutation(() => clearedGeneration === getSessionGeneration() ? clearOutbox() : undefined)).catch(() => { if (clearedGeneration === getSessionGeneration()) reportStorageFailure(); });
@@ -112,6 +114,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       retryGeneration = null;
       ac?.abort();
       syncPersonalSession(getSessionGeneration());
+      void pruneRatingDraft();
       setUser(null);
       if (!getToken()) {
         setStatus("guest");
@@ -179,6 +182,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       if (!generation || generation !== getSessionGeneration() || storageFenced()) throw new Error("Session operation superseded");
       clearPersonalSearchHistory();
       syncPersonalSession(generation);
+      void pruneRatingDraft();
       confirmStorageSession(generation);
       setUser(me);
       setStatus("authed");
