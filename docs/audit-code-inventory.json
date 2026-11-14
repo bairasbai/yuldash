@@ -7517,8 +7517,8 @@
       "path": "backend/app/routers/route_watch.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "4816aa7723ca3643669b662bae5c61254cb90222a2ecb09887d959a64412fc53",
-      "lines": 125
+      "sha256": "dc0e11b215367e34682cb167388499af1e0ca5e59ed9e46b5ac67d1270e9c167",
+      "lines": 167
     },
     {
       "path": "backend/app/routers/safety.py",
@@ -11346,8 +11346,8 @@
       "path": "backend/tests/test_route_watch.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "5746c7c2ece393e5963f18c6081215780c344d857366ed8f156dec7dc3fd7735",
-      "lines": 154
+      "sha256": "e535229cfd54c04b65cdf0ddeb2595610585bfcb10bd4fd6aa4c7ce38e170843",
+      "lines": 226
     },
     {
       "path": "backend/tests/test_route_watch_push_destination.py",
