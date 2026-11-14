@@ -47,6 +47,8 @@ import { rideShareKeep, subscribeRideShare, takeRidingFocus } from "../utils/rid
 import RideShareNote from "./RideShareNote";
 import { BookingTraveler } from "./BookingTraveler";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
+import { DriverStageRecovery } from "./DriverStageRecovery";
+import { useDriverStages } from "../utils/useDriverStages";
 import { completedContactsVisible, useCompletedContactExpiry } from "../utils/completedBookingPrivacy";
 
 /** RS-03 Б: предложение смены места от пассажира — ответ водителя.
@@ -247,6 +249,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
+  const stages = useDriverStages();
   useVisibleInterval(10000, reload, rows.some(row => row.status === "pending" || row.status === CONFIRMED || row.status === ONBOARD || Boolean(row.traveler_name)));
 
   const actionSending = useRef(false);
@@ -339,7 +342,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
   // Оценивать можно ТОЛЬКО завершённые поездки. Отменённые не показываем вовсе: ни открыть,
   // ни оценить их нельзя.
   const ratable = rows.filter((b) => String(b.status) === DONE);
-  if (riding.length === 0 && ratable.length === 0) return null;
+  if (riding.length === 0 && ratable.length === 0 && !stages.pending.length && !stages.notice && !stages.loadFailed) return null;
 
   /** Имя, рейтинг и маршрут — одинаково в обоих разделах (Android PassengerRow). */
   const passengerMain = (b: DriverBookingRow) => (
@@ -370,6 +373,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
   return (
     <>
+      <DriverStageRecovery stages={stages} onChanged={reload} />
       {riding.length > 0 && (
         <>
           <div data-riding-anchor=""><SectionHeader
@@ -393,7 +397,18 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
                   {/* Посадку отмечает водитель: «Сел» рядом с «Не вышел» (решение 17.10.2026). */}
                   {st === CONFIRMED && (
-                    <DriverBoarding bookingId={b.booking_id} rideId={b.ride_id} status={st} onChanged={reload} onError={setNote} />
+                    <DriverBoarding bookingId={b.booking_id} rideId={b.ride_id} status={st} onChanged={reload} onError={setNote}
+                      boardingBlocked={!stages.ready || stages.busy || stages.pending.some(row => row.bookingId === b.booking_id)}
+                      onBoard={async () => {
+                        const result = await stages.advance(b.booking_id, "boarded");
+                        if (result?.state !== "applied") return undefined;
+                        const fresh = result.trip;
+                        if (!fresh || fresh.status !== "onboard") {
+                          reload();
+                          return undefined;
+                        }
+                        return { ...fresh, ok: true, boarding_undo_sec: fresh.boarding_undo_sec ?? 0 };
+                      }} />
                   )}
 
                   {/* Не вышел. Отдельно от обычной отмены: это сигнал доверия, и водитель
