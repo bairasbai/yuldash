@@ -32,15 +32,18 @@ def test_group_size_bounds_and_default(client, path):
 def test_group_size_bypasses_unfiltered_cache(client, user_factory, monkeypatch):
     driver = user_factory("Group cache driver", role=UserRole.driver)
     one = _ride(driver, 1, origin="Кешево")
+    public = client.get("/rides", params={"from_city": "Кешево"}).json()
+    cached_ride = next(row for row in public if row["id"] == one)
     calls = []
-    cache = {}
+    # A cached ride with one seat is exactly the stale result a group must never see.
+    # Use the public cache payload to keep this independent of the size of the shared test feed.
+    cache = {"rides:active:v3": [cached_ride]}
 
     def get_cached(key):
         calls.append(key)
         return cache.get(key)
 
     monkeypatch.setattr(rides_router, "cache_get_json", get_cached)
-    monkeypatch.setattr(rides_router, "cache_set_json", lambda key, value, ttl: cache.update({key: value}))
     assert any(row["id"] == one for row in client.get("/rides").json())
     assert calls == ["rides:active:v3"]
     assert all(row["id"] != one for row in client.get("/rides", params={"seats": 2}).json())
