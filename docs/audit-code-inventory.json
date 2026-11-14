@@ -78,12 +78,12 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 224,
+    "android_main": 226,
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
     "pwa_main": 341,
-    "test_support": 1316
+    "test_support": 1317
   },
   "counts_by_block": {
     "B01": 171,
@@ -94,7 +94,7 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 763,
+    "B09": 766,
     "B10": 415,
     "B11": 92
   },
@@ -1238,7 +1238,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/MapScreen.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "fb3bc3919cd73ba73d40ec92217786b453c5a9336109dc5affbb4aff7f6219f6",
+      "sha256": "937e6bc192243938fcb3c2487620b903855520f865f4bd095adf59592e2092b0",
       "lines": 2224
     },
     {
@@ -1294,8 +1294,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/NearbyCityFilter.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "1be74cf9642ebadde65c15953710cd3d3147b6009b1eded03bed43ecb367fb6e",
-      "lines": 224
+      "sha256": "fa123250944a772dd2c102b5519d09187211b8f4b4b6040d2b07cdb5441b16a2",
+      "lines": 272
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyFeedSearch.kt",
@@ -1310,6 +1310,13 @@
       "block": "B09",
       "sha256": "78178bf605130f08add7dfbd1956a9ad43d8800d714816f4317711a834e4739b",
       "lines": 261
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/NearbySearchHistory.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "ab4c89e7b751c23763e7958429a428817b5ba313fe28b87d927fb7d425ee44d0",
+      "lines": 114
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyVerifiedOnly.kt",
@@ -1597,6 +1604,13 @@
       "block": "B09",
       "sha256": "93b43fd7103223152a5038e21002b8f771bc1f19536ad566844cdac2d8cf5d9c",
       "lines": 30
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/SearchHistory.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "895b300d34b8ef3a9153b7cea2f8fe87d9fe5b959b530fccc0755f1baec806f0",
+      "lines": 162
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SeasonalBanner.kt",
@@ -1945,7 +1959,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "a48d57d3fab1b97acd6c7687dcc6e1a6ea3a48298b0c850a5b0ce05d4bebfe36",
+      "sha256": "ccf0d45d0fef846e71707e0238d6f09ec2362078944b9a36d85732355b14d160",
       "lines": 7667
     },
     {
@@ -2169,8 +2183,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "88ec0c6e82108b2f66947b2224d20185ed919caeee8ac17f67672a2154f04262",
-      "lines": 99
+      "sha256": "f1bb3b55f27809a861634fe65dd6ad67b038f88e86a95456c636c6a87d459345",
+      "lines": 107
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
@@ -2792,8 +2806,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta07DriverFinishTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ab22ea505a33d1594361d83b62e18b5eebaa32d92c5acc2c11e114934579fc48",
-      "lines": 252
+      "sha256": "acfc00775a1932fa1f182dca5a29221125b627bdd4c5a87504ea6685cee80114",
+      "lines": 253
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta08ScheduledPayloadTest.kt",
@@ -3695,7 +3709,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/NearbyConditionsServerSideTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "8e7a522c587530e8500bcee90ad70f6072c9ece1073ecf2a49d156f5fd939f23",
+      "sha256": "8312a99d52ea6a6a8d716daf394237f8cf8e9f34103bb652fd9dd8401cdcddfd",
       "lines": 184
     },
     {
@@ -4306,6 +4320,13 @@
       "block": "B09",
       "sha256": "55bb69abe3111bd685e58253b6cd1f981f29b4969939b3192e849142689a60a4",
       "lines": 131
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/SearchHistoryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9a0b65be4838be7a2a1de3a0b13d0d815169ce48af5dc3dbabc600e9a658910d",
+      "lines": 115
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SeatOptionsTest.kt",

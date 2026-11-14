@@ -150,6 +150,7 @@ import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.lifecycle.Lifecycle
@@ -293,17 +294,20 @@ internal fun MapScreen(
         }
     }
     val filterCtx = LocalContext.current
+    val searchOwner by ApiClient.sessionChanges.collectAsState()
+    val searchScope by com.yuldash.app.data.OfflineTripSnapshots.owner.collectAsState()
+    val searchHistory = remember(filterCtx, searchOwner, searchScope) { NearbySearchHistoryState(filterCtx, searchOwner) }
+    LaunchedEffect(searchHistory) { searchHistory.load() }
     var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
     val verified = rememberNearbyVerified()   // «Только проверенные» из «Безопасности»: с 17.10.2026 вкл. по умолчанию (NearbyVerifiedOnly.kt)
     val cityFilter = rememberNearbyCityFilter(
-        reloadKey = nearbyReload,
+        reloadKey = nearbyReload, generation = searchOwner,
         hasNearbyRides = nearbyResult?.page?.let { it.items.isNotEmpty() || it.hiddenUnverified > 0 } == true,
     )
     // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
-    // чипы Сегодня/Завтра режут ленту до нужного дня (фильтрует сервер по depart_at).
     var dateFilter by remember { mutableStateOf<String?>(null) }
     // «Найти попутку»: выбранный на карусели маршрут сужает ленту ниже, лента выезжает на экран (NearbyFeedSearch.kt).
-    val routeSearch = remember { NearbyRouteSearchState() }
+    val routeSearch = remember(searchOwner) { NearbyRouteSearchState() }
     var findTick by remember { mutableIntStateOf(0) }
     val focusFrom = routeSearch.from(activeTrip)
     val focusTo = routeSearch.to(activeTrip)
@@ -394,7 +398,11 @@ internal fun MapScreen(
                         activeTrip = activeTrip,
                         rides = mapPins,
                         onRideTap = { selectedRide = it },
-                        onFind = { route -> routeSearch.choose(route); findTick++ },
+                        onFind = { route ->
+                            routeSearch.choose(route)
+                            route?.let { searchHistory.record(cityFilter.popularRoute(it), refine = false) }
+                            findTick++
+                        },
                         onDriver = onDriver,
                         adRoute = adRoute,
                         onClearRoute = { adRoute = null },
@@ -486,15 +494,7 @@ internal fun MapScreen(
                     }
                 }
                 item(key = "nearby_filters") {
-                    // УСЛОВИЕ ПОКАЗА (2026-08-03, найдено независимой проверкой). Раньше здесь стояло
-                    // просто `nearby.isNotEmpty()` — и это был тупик: выбрал «Сегодня», на сегодня
-                    // поездок нет → выдача пуста → строка фильтров исчезает ВМЕСТЕ с кнопкой «Все дни»,
-                    // и снять фильтр нечем (в пустой заглушке только «Обновить», а он повторяет тот же
-                    // запрос). То же с «Детским креслом» и любым другим условием.
-                    // Поэтому: фильтры видно, пока есть ЧТО фильтровать, хоть один фильтр включён (путь назад)
-                    // ИЛИ на сервере есть города с поездками — тогда «Откуда» ведёт к ним, даже если рядом пусто.
-                    // Нет ни поездок, ни фильтров, ни городов — ряд прячем: кнопкам нечего делать.
-                    if (nearbyResult?.page?.items?.isNotEmpty() == true || dateFilter != null || prefFilter.isNotEmpty() || cityFilter.offered) {
+                    if (nearbyResult?.page?.items?.isNotEmpty() == true || dateFilter != null || prefFilter.isNotEmpty() || cityFilter.offered || searchHistory.showHistoryChip) {
                       // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа.
                       val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
                       // ПОЯСНЕНИЕ (2026-08-03, «где ближайшая поездка?»): два ряда фильтров выталкивали
@@ -502,7 +502,7 @@ internal fun MapScreen(
                       // вопроса вместо двенадцати чипов: где, куда, когда, какие условия
                       // (NearbyFiltersPanel.kt). «Когда» видно ВСЕГДА — путь назад со «Сегодня» на «Все дни».
                       Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
-                          NearbyCityChips(cityFilter, chipTouch)
+                          NearbyCityChips(cityFilter, chipTouch, searchHistory) { routeSearch.clear(); findTick++ }
                           NearbyWhenChip(dateFilter, { dateFilter = it }, chipTouch)
                           NearbyConditionsChip(prefFilter, { prefFilter = it }, verifiedOnly, nearbyFilterCount, chipTouch)
                       }
