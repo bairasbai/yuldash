@@ -82,7 +82,7 @@
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
-    "pwa_main": 341,
+    "pwa_main": 343,
     "test_support": 1316
   },
   "counts_by_block": {
@@ -94,7 +94,7 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 763,
+    "B09": 765,
     "B10": 415,
     "B11": 92
   },
@@ -14237,8 +14237,8 @@
       "path": "webapp/src/api/discovery.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "3069fa939f56f91e1a9c7beccfdc4c9e5898e4f7d8daa4a506cd21c3608781e9",
-      "lines": 240
+      "sha256": "95f56470c75edd302de4c375c4ca16cf6a7e22ea76e993a83a4849fec373addf",
+      "lines": 245
     },
     {
       "path": "webapp/src/api/driver.ts",
@@ -14349,8 +14349,8 @@
       "path": "webapp/src/api/rides.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "636e6566a17e5e34276adade2fcc1deb48bdf6ac45ff6dc9a91f6fb12247f28e",
-      "lines": 145
+      "sha256": "7ea8f113d842b47bc037ab7f657a61895f1d9b80a9661ce004dae7c1cd2137c3",
+      "lines": 167
     },
     {
       "path": "webapp/src/api/routeWatch.ts",
@@ -14692,8 +14692,8 @@
       "path": "webapp/src/components/NearbyFilters.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "f4949fae2341697707e8013e0d98a33a50ee70c3e530219aeb5285dd73e52691",
-      "lines": 435
+      "sha256": "396e703fa9eb555dbec6705e71d68eb146669c0f2d628eb61f9c88820c5d5d51",
+      "lines": 460
     },
     {
       "path": "webapp/src/components/NearbyRideCard.tsx",
@@ -14701,6 +14701,13 @@
       "block": "B02",
       "sha256": "a60a641123b922e123113064c55ca4b2d117336d28c70154d17e42984b6eaa8a",
       "lines": 215
+    },
+    {
+      "path": "webapp/src/components/NearbySeatsCard.tsx",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "9c0852b088177b1086ebe4ff4167ed7b555790bfeaa917a83766387dd7f20a2f",
+      "lines": 25
     },
     {
       "path": "webapp/src/components/OfflineBanner.tsx",
@@ -14930,8 +14937,8 @@
       "path": "webapp/src/components/RideSheet.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "e02868e90b07c9686ca1e07fb77d2f5f636f0a90367d86b5b48376628996b45d",
-      "lines": 688
+      "sha256": "ee5736a6b6a12bab8857c1fdb5c4b896db73e7a0bec0da2f07d28bd6abb32dd7",
+      "lines": 700
     },
     {
       "path": "webapp/src/components/RoadsideHelp.tsx",
@@ -15161,8 +15168,8 @@
       "path": "webapp/src/filterPrefs.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "022cf0d43535fc1ae1c6092e89cb324d444f61a7b336814d76d4aa946a64528e",
-      "lines": 122
+      "sha256": "677c84416dd488554e193139415ca1fa78f8193db78650747e3e14ca9f73dae2",
+      "lines": 128
     },
     {
       "path": "webapp/src/flags.ts",
@@ -15238,8 +15245,15 @@
       "path": "webapp/src/nearbyFeed.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "2ea0bdb4defccaff6c17f26dfa4a23e222e86dc0dc4d5302441d267500141a2a",
-      "lines": 430
+      "sha256": "d31b77b3aaff13159cf5629cd0dcb1754eb81a2d1d32e36330d08b2558051881",
+      "lines": 436
+    },
+    {
+      "path": "webapp/src/nearbySeats.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "4d7c1ae8e0da86c834a620bdd4854619dc090195fac48164db0088955930a4f9",
+      "lines": 32
     },
     {
       "path": "webapp/src/offlineLayout.css",
@@ -15630,8 +15644,8 @@
       "path": "webapp/src/screens/FiltersScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "e5da42917dce657389091b33c291ccf36ad6cd6e5b52562428d85bf4bcfcb92c",
-      "lines": 58
+      "sha256": "c2210b1a8261c88f6896a9c618b7c638bce009662d3bfaaba90c227f193fb99e",
+      "lines": 69
     },
     {
       "path": "webapp/src/screens/HelpScreen.tsx",
@@ -15644,8 +15658,8 @@
       "path": "webapp/src/screens/HomeScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "b36a030178af704b5e42e3fd1823c21207b2d80f47d9dc9db258369d9db35b61",
-      "lines": 589
+      "sha256": "a0778a5cbc940e066719b5a0da810e8acd7f72d3c0137f894bf193d113b68dfe",
+      "lines": 619
     },
     {
       "path": "webapp/src/screens/IncidentDetailScreen.tsx",
@@ -15875,8 +15889,8 @@
       "path": "webapp/src/screens/RideDetailScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "88e5ca9aa7f8f5f649cb75163eff094a1496f57b5929436fea3f3045449a0f20",
-      "lines": 100
+      "sha256": "8bb22b426ce9c880794d41f87aeb95fcd9e06d7bc25f3189897013e3cd655f21",
+      "lines": 102
     },
     {
       "path": "webapp/src/screens/RidesScreen.tsx",
@@ -16085,8 +16099,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "dbc1ae7cebc5654f603cc66bb62a13b8ac6dda299ac16ac6fe35426a06f06932",
-      "lines": 21175
+      "sha256": "2303acb2d34bbf8f974901006bbf81e288ed553dee12c024507dfbc9d1a3cca5",
+      "lines": 21181
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -16939,8 +16953,8 @@
       "path": "webapp/tests/filter-reset-keeps-trusted-test.mjs",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "e750741dc375763b283ee99bcd67273e4ab20c994928136be59148ef75b8fba4",
-      "lines": 215
+      "sha256": "80fab1cde82a4edb1ea9719d88e8d5fb3b57d8a1dad26bba09f35a0b8a27ae1d",
+      "lines": 226
     },
     {
       "path": "webapp/tests/fmt-test.mjs",
@@ -17037,8 +17051,8 @@
       "path": "webapp/tests/multiseat-booking-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "f60183e77b81eb2b86c7b16750e090acb6cba8d27015fe7ab6fcddd578074811",
-      "lines": 136
+      "sha256": "0132694ba85d662ac9f512fef685b3cf60938ff02d156435e5dd4d303ff314e0",
+      "lines": 146
     },
     {
       "path": "webapp/tests/nearby-cities-test.mjs",
@@ -17051,15 +17065,15 @@
       "path": "webapp/tests/nearby-feed-tails-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "39a9e908cc979803124bdd48244f247e44a38261040fe402ff18b99d3cbd6867",
+      "sha256": "32be86bfc2d0906a9ba73c0904c277240a5f343f09e3d63cd4575cf95a33fde2",
       "lines": 580
     },
     {
       "path": "webapp/tests/nearby-feed-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "becf87813a73b9418fa36d19ed63b8992aa55ac121ac7f797187fa72108db2d9",
-      "lines": 419
+      "sha256": "1af2c043196c9b6935aaaa3469e86bb228a233720091452d6a2ad9dc638b928b",
+      "lines": 441
     },
     {
       "path": "webapp/tests/nearby-filters-render-test.mjs",
@@ -17072,7 +17086,7 @@
       "path": "webapp/tests/nearby-filters-ui-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "f2a73e61505701e11c4872eb8a1e18baf88e6a8f975177b6d5ec9bf70a9c6b8d",
+      "sha256": "dea20e7404f184ea1e8561d7fe03b23016dd102c1988d5236697de7f92873f22",
       "lines": 231
     },
     {

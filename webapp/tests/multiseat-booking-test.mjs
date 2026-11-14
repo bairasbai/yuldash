@@ -118,7 +118,7 @@ for (const lang of ["ru", "ba"]) {
     s.props = { ...s.props, ride: { ...ride, seats_left: 2 } }; s.render(); await s.settle();
     // RS-02 В: число не трогаем молча — выбранное 3 остаётся, бронь заблокирована, рядом действие.
     assert.equal(cta(s).props.disabled, true, "бронь при seats > доступных заблокирована");
-    assert.ok(text(s.tree).includes(lang === "ru" ? "уменьшите число" : "һанын кәмет"), "предупреждение на месте");
+    assert.ok(text(s.tree).includes(lang === "ru" ? "Вас 3, свободно 2 места." : "Һеҙ 3 кеше, 2 буш урын бар."), "показаны размер группы и остаток");
     const shrink = all(s.tree).find(n => n.type === "button" && text(n).includes(lang === "ru" ? "Уменьшить до 2" : "2 тиклем кәметеү"));
     assert.ok(shrink, "кнопка «Уменьшить до 2» на месте");
     shrink.props.onClick(); await s.settle();
@@ -131,6 +131,16 @@ for (const lang of ["ru", "ba"]) {
     reset(); const s = mount(Sheet, { ride, onClose() {} }); s.render();
     selector(s).props.onChange({ target: { value: "3" } }); await s.settle();
     h.generation = "b"; s.render(); await s.settle(); assert.equal(selector(s).props.value, 1); s.unmount();
+  });
+  await t.test(`${lang}: карточка сохраняет три места из фильтра при остатке в два`, async () => {
+    reset();
+    const s = mount(Sheet, { ride: { ...ride, seats_left: 2 }, initialSeats: 3, onClose() {} });
+    s.render();
+    assert.equal(cta(s).props.disabled, true);
+    assert.ok(text(s.tree).includes((lang === "ru" ? "Итого: " : "Бөтәһе: ") + "1500"));
+    await cta(s).props.onClick();
+    assert.equal(h.sent.length, 0);
+    s.unmount();
   });
 }
 t.done();

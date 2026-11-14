@@ -74,7 +74,8 @@ export default function RideDetailScreen() {
   }, [load]);
   const close = () => navigate("/map");
   const currentRoute = loadedRoute.owner === ownerGeneration && Object.is(loadedRoute.rideId, rideId);
-  const available = ride && (!ride.status || ride.status === "active") && ride.seats_left > 0;
+  const available = ride && (!ride.status || ride.status === "active") &&
+    (ride.seats_left > 0 || ride.seats_by_leg?.some((free) => free > 0));
   const showRecovery = currentRoute && Number.isSafeInteger(rideId) && rideId > 0 &&
     (status === "gone" || status === "error" || (status === "ready" && !available));
   // A changed route invalidates the old span and its points, while the passenger and seat choices still apply.
@@ -91,6 +92,7 @@ export default function RideDetailScreen() {
     {currentRoute && status === "gone" && <p role="status" className="sheet__note">{appText("Поездка недоступна", "Сәфәрҙе асып булмай")}</p>}
     {currentRoute && status === "ready" && ride && (available
       ? <RideSheet key={ownerGeneration + ":" + ride.id} ride={ride} onClose={close}
+          initialSeats={restoredSelection?.seats}
           initialSelection={initialSelection} initialGuestOptions={initialGuestOptions}
           initialRouteChanged={restoredSelection !== null && initialSelection === null} />
       : <p role="status" className="sheet__note">{appText("Поездка больше недоступна для бронирования.", "Сәфәрҙе бүтән бронлап булмай.")}</p>)}

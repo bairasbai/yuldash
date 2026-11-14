@@ -14,7 +14,7 @@ const root = fileURLToPath(new URL("../", import.meta.url));
 const bundle = await build({
   stdin: {
     contents:
-      "export * from './src/api/client'; export * from './src/nearbyFeed'; export { fetchRidesNear, nearQueryString } from './src/api/discovery';",
+      "export * from './src/api/client'; export * from './src/nearbyFeed'; export * from './src/nearbySeats'; export { fetchRidesNear, nearQueryString } from './src/api/discovery';",
     resolveDir: root,
     loader: "ts",
   },
@@ -59,6 +59,28 @@ async function test(name, run) {
 const ru = (a) => a;
 const ba = (_a, b) => b;
 const NO_FILTERS = { coords: null, day: null, conditions: [], verifiedOnly: false, fromCities: [], toCities: [] };
+
+await test("число мест меняет запрос, страницу и scope «Показать»", async ({ m }) => {
+  const grouped = { ...NO_FILTERS, seats: 3 };
+  assert.equal(new URLSearchParams(m.nearQueryString(m.nearbyQuery(grouped, 30))).get("seats"), "3");
+  assert.equal(new URLSearchParams(m.nearQueryString({ seats: 1 })).get("seats"), null);
+  assert.notEqual(m.nearbyContextKey(grouped), m.nearbyContextKey(NO_FILTERS));
+  assert.notEqual(m.nearbyRevealKey(grouped), m.nearbyRevealKey(NO_FILTERS));
+  assert.equal(m.rideFitsGroup({ seats_on_segment: 2, seats_left: 3, seats_by_leg: [2, 4] }, 3), false);
+  assert.equal(m.rideFitsGroup({ seats_on_segment: null, seats_left: 1, seats_by_leg: [1, 4] }, 4), true);
+});
+
+await test("подсказка считает рейсы ровно на рекомендуемое число мест", async ({ m }) => {
+  const response = { count: 0, items: [], hidden_by_seats: 5, max_free_seats: 3, count_at_max_free: 2 };
+  const suggestion = m.smallerGroup(response, 4);
+  assert.deepEqual(suggestion, { seats: 3, rides: 2 });
+  assert.equal(m.smallerGroupLabel(suggestion, true), "Есть 2 поездки, где свободно 3 места.");
+  assert.equal(m.smallerGroup(response, 3), null);
+  assert.equal(m.smallerGroup({ ...response, count_at_max_free: 9 }, 4), null);
+  const state = { loading: false, error: false, fetched: 0, shown: 0, conditionsOn: false, cityActive: false, seatsOn: true };
+  assert.equal(m.nearbyFeedState({ ...state, smallerGroupAvailable: true }), "seats");
+  assert.equal(m.nearbyFeedState(state), "filtered");
+});
 
 // ---------------------------------------------------------------- параметры запроса ленты
 
