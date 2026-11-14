@@ -21,6 +21,7 @@ internal object BookingCommandApi {
         prefs = storage
         RidePublicationApi.init(storage)
         BookingDecisionApi.init(storage)
+        DriverStageApi.init(storage)
     }
 
     suspend fun book(rideId: Int, body: JSONObject, expectedGeneration: Long,
@@ -161,7 +162,8 @@ internal object BookingCommandApi {
                         ?.let { return@withGeneration listOf(it.account) }
                     // Capture only keys present before DELETE. A later account may reuse the numeric ID.
                     val accountPrefix = CommandIntent.accountPrefix(base, id)
-                    val storagePrefixes = listOf(CommandIntent.prefKey(""), RidePublicationIntent.prefKey(""), BookingDecisionStore.prefKey(""))
+                    val storagePrefixes = listOf(CommandIntent.prefKey(""), RidePublicationIntent.prefKey(""), BookingDecisionStore.prefKey("")) +
+                        DriverStageApi.Stage.entries.map { DriverStageApi.prefKey(it, "") }
                     runCatching {
                         prefs?.all?.keys.orEmpty().mapNotNull { key ->
                             storagePrefixes.firstOrNull { key.startsWith(it + accountPrefix) }?.let(key::removePrefix)
@@ -183,6 +185,7 @@ internal object BookingCommandApi {
             runCatching { store.purge(it) }
             RidePublicationApi.purge(it)
             BookingDecisionApi.purge(it)
+            DriverStageApi.purge(it)
         }
     }
 

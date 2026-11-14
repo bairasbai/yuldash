@@ -7,9 +7,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.TripPass
@@ -77,7 +81,8 @@ class RideshareDriverExecutionJourneyTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 if (request.path?.startsWith("/bookings/42/") == true &&
                     request.getHeader("Authorization") != "Bearer " + TripPassAuthorityFixture.jwt(7)) return MockResponse().setResponseCode(403)
-                if (request.path == "/bookings/42/driver-status") {
+                if (request.path == "/me") return MockResponse().setBody("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
+                if (request.path in setOf("/bookings/42/driver-status", "/bookings/42/commands/v1/driver-status")) {
                     val status = JSONObject(request.body.readUtf8()).getString("status")
                     posted += status
                     if (status == rejectedStatus) return MockResponse().setResponseCode(refusal)
@@ -94,7 +99,7 @@ class RideshareDriverExecutionJourneyTest {
                             .put("boarding_undo_sec", 0).put("boarding_undo_pending", false).put("boarding_undo_wait_sec", 0)
                         else -> JSONObject().put("ok", true).put("driver_phase", phase)
                     }
-                    return MockResponse().setBody(ack.toString())
+                    return MockResponse().setBody(ack.put("id", 42).toString())
                 }
                 val body = when (request.path) {
                     "/bookings/42/role" -> JSONObject().put("role", "driver").put("status", bookingStatus).put("driver_phase", phase)
@@ -114,6 +119,7 @@ class RideshareDriverExecutionJourneyTest {
         server.start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
         serverStarted = true
         TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'), 7)
+        BookingCommandApi.init(MemoryDiskPreferences())
         sessionInstalled = true
         ApiClient.testTrace = ownTrace
         // Old persisted bytes are untrusted legacy data, never a driver's passenger passport.
@@ -251,7 +257,7 @@ class RideshareDriverExecutionJourneyTest {
     }
 
     /** Boarding never marked: the driver still closes the trip himself, next to «Пассажир сел». */
-    @Test fun refusedCompletionKeepsTheLegacyCopyAndRetriesOnlyAfterConfirmation() {
+    @Test fun lostCompletionKeepsTheLegacyCopyAndRetriesOnlyTheSavedRequest() {
         phase = "arriving"
         rejectedStatus = "done"
         refusal = 503
@@ -267,10 +273,10 @@ class RideshareDriverExecutionJourneyTest {
         assertLegacyCopyPresent()
         assertEquals(0, Outbox.count(context, 42))
         rejectedStatus = ""
-        openFinishConfirmation("Завершить поездку")
         assertEquals(listOf("done"), posted.toList())
         assertLegacyCopyPresent()
-        compose.onNodeWithText("Да, завершить").performClick()
+        compose.onNodeWithTag("activeTripList").performScrollToNode(hasText("Повторить отправку"))
+        compose.onNodeWithText("Повторить отправку").performClick()
         waitFor("Поездка завершена")
         awaitLegacyCopyRemoved()
         assertEquals(listOf("done", "done"), posted.toList())

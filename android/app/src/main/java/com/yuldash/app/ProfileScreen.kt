@@ -2966,6 +2966,7 @@ internal fun DriverCabinetContent(
     val passengersServed = archive.filter { it.status == "done" }.sumOf { it.seatsBooked ?: (it.seatsTotal - it.seatsLeft).coerceAtLeast(0) }
     // F1: подтверждение отмены — отмена каскадно снимает брони пассажиров, случайный тап недопустим.
     val boardingActions = remember(boardingOwner) { DriverCabinetBoardingActions() }
+    val stageRecovery = rememberDriverStageRecovery(boardingOwner, enabled = true)
     var cancelTarget by remember { mutableStateOf<Ride?>(null) }
     cancelTarget?.let { target ->
         AlertDialog(
@@ -2998,6 +2999,11 @@ internal fun DriverCabinetContent(
         verticalArrangement = Arrangement.spacedBy(12.dp),
         contentPadding = PaddingValues(bottom = 24.dp)
     ) {
+        if (stageRecovery.visible) item(key = "driver-stage-recovery") {
+            DriverStageRecovery(boardingOwner, stageRecovery) { bookingId, fresh ->
+                onBoardingResult?.invoke(bookingId, BoardingResult(fresh.status, fresh.boardingUndoSec, fresh.boardingUndo))
+            }
+        }
         item {
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
@@ -3307,7 +3313,7 @@ internal fun DriverCabinetContent(
                             noShowAt = b.noShowAt, noShowNeedsArriving = b.noShowNeedsArriving,
                             arrivingOpensAt = b.arrivingOpensAt, boardingUndo = b.boardingUndo,
                             boardingScope = boardingScope, boardingOwner = boardingOwner,
-                            boardingActions = boardingActions,
+                            boardingActions = boardingActions, stageRecovery = stageRecovery,
                             boardingUndoDeadlineElapsedMs = b.boardingUndoDeadlineElapsedMs,
                             onBoardingResult = onBoardingResult?.let { apply -> { result -> apply(b.bookingId, result) } },
                         )

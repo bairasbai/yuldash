@@ -1679,7 +1679,9 @@ object ApiClient {
                 }
             "trip_status" -> OfflineTripSnapshotHooks.tripStatus(action.bookingId, action.payload, generation) {
                 call("POST", "/bookings/${action.bookingId}/trip-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation) }
-            "driver_status" -> OfflineTripSnapshotHooks.driverStatus(action.bookingId, action.payload, generation) {
+            "driver_status" -> if (action.payload == "done" || action.payload == "boarded") {
+                DriverStageApi.reconcileLegacy(action, generation)
+            } else OfflineTripSnapshotHooks.driverStatus(action.bookingId, action.payload, generation) {
                 call("POST", "/bookings/${action.bookingId}/driver-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation) }
             else -> Result.success(Unit)
         }
@@ -1697,9 +1699,7 @@ object ApiClient {
         OfflineTripSnapshotHooks.code(bookingId)
 
     /** Роль в брони: "driver" | "passenger" — экран активной поездки показывает нужные кнопки. */
-    suspend fun getBookingRole(bookingId: Int): Result<String> =
-        OfflineTripSnapshotHooks.state(bookingId).result.map { it.role }
-
+    suspend fun getBookingRole(bookingId: Int): Result<String> = getTripState(bookingId).map { it.role }
     /** Состояние активной поездки (для live-баннера): роль + статус брони + подфаза водителя
      *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
     suspend fun getTripState(bookingId: Int): Result<TripStateDto> =

@@ -261,7 +261,10 @@ check(
 // что в подсказке «Поездку отменили в пути». Раньше сайт писал «Застряли» / «Юлда ҡалдыҡ».
 const stuckLabel = 'appText("Застрял на трассе", "Юлда ҡалдым")';
 check(
-  ak("BookingActiveTripScreen.kt").includes(stuckLabel) && web("components/RoadsideHelp.tsx").includes(stuckLabel),
+  ak("BookingActiveTripScreen.kt").includes("RoadsideHelpAction(key = bookingId") &&
+    ak("RoadsideHelp.kt").includes("RoadsideHelpButton(") &&
+    ak("RideshareWinterHelp.kt").includes(stuckLabel) &&
+    web("components/RoadsideHelp.tsx").includes(stuckLabel),
   "кнопка «Застрял на трассе» / «Юлда ҡалдым» одинакова в приложении и на сайте"
 );
 check(

@@ -127,6 +127,10 @@ const definitions = {
   useLang: `()=>({lang:h.lang,appText:(ru,ba)=>{if(!ba)throw Error('missing Bashkir: '+ru);return h.lang==='ba'?ba:ru}})`,
   useParams: `()=>({id:String(h.bookingId)})`, useNavigate: `()=>p=>h.navigation.push(p)`, useAuth: `()=>({user:{id:h.userId}})`,
   getSessionGeneration: `()=>h.generation`, getToken: `()=>"fixture"`, refreshRejectedToken: `async()=>false`, ApiError: `h.ApiError`,
+  useDriverStages: `()=>({ready:true,busy:false,pending:[],advance:async(id,stage)=>{
+    if(stage==="done"){h.trip.status="done";h.details.status="done";return {state:"applied",trip:{...h.trip},appliedStage:stage};}
+    const result=await h.markBoardedForStage(id);return {state:"applied",trip:result,appliedStage:stage};
+  }})`,
   fetchBookingDetails: `(...args)=>h.passStorage.fetchBookingDetails(...args)`,
   fetchTripState: `(...args)=>h.passStorage.fetchTripState(...args)`,
   fetchBoardingCode: `(...args)=>h.passStorage.fetchBoardingCode(...args)`,
@@ -192,6 +196,7 @@ h.components.ShareTripCard = await compile('components/ShareTripCard.tsx');
 h.components.StatusPill = await compile('components/StatusPill.tsx', 'StatusPill');
 h.components.OfflineTripPass = await compile('components/OfflineTripPass.tsx');
 h.components.BoardingWait = await compile('components/BoardingWait.tsx');
+h.markBoardedForStage = eval(definitions.markBoarded);
 h.components.DriverBoarding = await compile('components/DriverBoarding.tsx');
 h.components.PassengerBoardingUndo = await compile('components/PassengerBoardingUndo.tsx');
 h.matchesBoardingUndo = await compile('utils/boardingUndo.ts', 'isConfirmedBoardingUndo');

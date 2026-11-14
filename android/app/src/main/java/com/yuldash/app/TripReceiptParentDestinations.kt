@@ -7,6 +7,7 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.TipInfoDto
 import com.yuldash.app.data.TripReceiptDto
+import kotlinx.coroutines.CoroutineScope
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -29,6 +30,7 @@ internal fun ActiveTripScreen(
     // Поездка кончилась, а экран остаётся (отмена в пути): живое гео и маршрут на карте — гасить сразу.
     onTripStopped: () -> Unit = {},
     onDriverFinished: (suspend (Int) -> Boolean)? = null,
+    driverStageScope: CoroutineScope? = null,
     isCurrentParent: (() -> Boolean)? = null,
     isCurrentReceiptParent: (() -> Boolean)? = null,
 ) {
@@ -48,7 +50,7 @@ internal fun ActiveTripScreen(
         val hint = terminalHint?.takeIf { it.bookingId == bookingId && it.status in setOf("done", "cancelled") }
             ?: InTransitCancels.hint(bookingId, tripSession)
         ActiveTripContent(ride, contacts, bookingId, onBack, onTripEnd, onSos, onSupport, onOpenReceipt, tripSession, chatOpen, onChatOpenChange,
-            hint, onTripStopped, onTrustedContacts, onDriverFinished, isCurrentParent, isCurrentReceiptParent)
+            hint, onTripStopped, onTrustedContacts, onDriverFinished, driverStageScope, isCurrentParent, isCurrentReceiptParent)
     }
 }
 
@@ -78,6 +80,7 @@ internal fun RideshareCompletedScreen(
     openLostItem: suspend (Int) -> Result<Unit> = { ApiClient.bookingLostItem(it).map { Unit } },
     isCurrentParent: (() -> Boolean)? = null,
     isCurrentReceiptParent: (() -> Boolean)? = null,
+    driverStageRecovery: (@Composable () -> Unit)? = null,
 ) {
     val currentSession by ApiClient.sessionChanges.collectAsState()
     val completedSession = remember(bookingId) { currentSession }
@@ -89,7 +92,7 @@ internal fun RideshareCompletedScreen(
     key(bookingId, completedSession, ride) {
         RideshareCompletedSession(bookingId, ride, fallbackRole, fallbackPayMethod, fallbackPayAmount,
             onClose, onOpenReceipt, onSupport, loadReceipt, rateBooking, loadThanks, sendThanks,
-            openLostItem, completedSession, isCurrentParent, isCurrentReceiptParent)
+            openLostItem, completedSession, isCurrentParent, isCurrentReceiptParent, driverStageRecovery)
     }
 }
 
