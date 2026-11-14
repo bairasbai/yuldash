@@ -83,7 +83,7 @@
     "infra_resource_config": 415,
     "public_site_promo": 91,
     "pwa_main": 341,
-    "test_support": 1316
+    "test_support": 1317
   },
   "counts_by_block": {
     "B01": 171,
@@ -91,7 +91,7 @@
     "B03": 123,
     "B04": 82,
     "B05": 62,
-    "B06": 102,
+    "B06": 103,
     "B07": 144,
     "B08": 216,
     "B09": 763,
@@ -7258,15 +7258,15 @@
       "path": "backend/app/rate_reminder.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "52170373fc8bd7f57e0e0cebeb47df576859319c392c4b2711a44e0f9e94b811",
-      "lines": 260
+      "sha256": "bf9e2e6da3082d35fa2c14b155c3d3acb34b107caab23cb7a4295bd4d6a0effb",
+      "lines": 282
     },
     {
       "path": "backend/app/rating_service.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "8a12537e854a16f2074a66baa9e85a852cc19e60b884ab1ddde02adf11d0f8e4",
-      "lines": 185
+      "sha256": "583f4e761c3ac0e690f95dde22b0da48b91beb9319648915d2a475562db1a068",
+      "lines": 248
     },
     {
       "path": "backend/app/relative_phone_comment.py",
@@ -7405,8 +7405,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "5242e1ea3abf024f412f2da6ffaf9aabab155eebfff42f7e0ecf4c8217783749",
-      "lines": 970
+      "sha256": "94cdf405e78d3f611039315ffe5e97867e17019743319a0c21f3d5eb74c08d00",
+      "lines": 972
     },
     {
       "path": "backend/app/routers/health.py",
@@ -7426,7 +7426,7 @@
       "path": "backend/app/routers/instant.py",
       "kind": "backend_main",
       "block": "B03",
-      "sha256": "be5c8eba594b3b4935fe3cd18abd2a16f215e339f87d40a581f07f8c3bed1d2e",
+      "sha256": "f435b2ac650e0ebe982ff1a979e0a6c2965df78746e0e9a16212ce782a6a0d9d",
       "lines": 1584
     },
     {
@@ -7629,8 +7629,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "8d5b58a709b2efa18d1bc00c8e3ce2fed47059f0315c07c1bde7194ee788ec29",
-      "lines": 2245
+      "sha256": "502cc2d0988b4faef7d70b5ea4a557fe5db1e748b03d85107db4f2d5c20ceb46",
+      "lines": 2268
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -10881,6 +10881,13 @@
       "lines": 454
     },
     {
+      "path": "backend/tests/test_rate_from_notification.py",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "b38b451bde4d08961a1dc822e9805599aaab5c90576f86062753c743690f6b59",
+      "lines": 157
+    },
+    {
       "path": "backend/tests/test_rate_limit.py",
       "kind": "test_support",
       "block": "B09",
@@ -12872,8 +12879,8 @@
       "path": "backend/tests/walk/l3_2/test_l3_2_rating_race_postgres.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "db7bb6e3d9135d8b7fa5697132c39c58b15f284e968e5d4216fd7fcc4ea26089",
-      "lines": 98
+      "sha256": "9faa69dfd2012d9a61b4c6165bf2bce581a8d4bbb9391a695a281f44c3ac2d9e",
+      "lines": 137
     },
     {
       "path": "backend/tests/walk/l3_2/test_l3_2_trust_pause_invite.py",
