@@ -185,7 +185,7 @@ private fun openDayPicker(context: Context, today: LocalDate, current: String?, 
 
 /** Кнопка шторки: сколько поездок покажет лента с этими условиями (сервер уже посчитал — `count`). */
 @Composable
-private fun showRidesLabel(total: Int): String =
+internal fun showRidesLabel(total: Int): String =
     if (total > 0) appText("Показать $total ${pluralRu(total, "поездку", "поездки", "поездок")}", "$total сәфәрҙе күрһәтергә")
     else appText("Нет поездок с такими условиями", "Был шарттар менән сәфәр юҡ")   // 0 — честно, а не «Готово»
 

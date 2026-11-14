@@ -39,7 +39,7 @@ class NearbyConditionsServerSideTest {
         )
         assertTrue(
             "смена условий (и «Показать» непроверенных) не сбрасывает порцию и не перезапрашивает ленту",
-            src.contains("userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) { nearbyLimit = NEARBY_PAGE }"),
+            src.contains("LaunchedEffect(search, userLatKey, userLngKey) { nearbyLimit = NEARBY_PAGE }"),
         )
     }
 
@@ -59,9 +59,10 @@ class NearbyConditionsServerSideTest {
         val src = mapScreen()
         assertTrue(
             "пусто при включённом фильтре снова показывает «поездок нет»",
-            src.contains("""if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty""""),
+            src.contains("""else if (canReset) "filtered" else "empty""""),
         )
-        assertTrue("кнопка «Сбросить фильтры» не снимает города", src.contains("onClick = { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null }"))
+        assertTrue("кнопка «Сбросить фильтры» не снимает города и число мест",
+            src.contains("onClick = resetFilters") && src.contains("prefFilter = emptySet(); cityFilter.clear(); dateFilter = null; changeSeats(1)"))
         assertTrue(
             "первая поездка должна обновить города, даже если водитель ещё не проверен",
             src.contains("reloadKey = nearbyReload,") &&
@@ -85,7 +86,7 @@ class NearbyConditionsServerSideTest {
         )
         assertTrue(
             "ряд фильтров прячется, когда рядом пусто, — до города «Откуда» не добраться",
-            src.contains("prefFilter.isNotEmpty() || cityFilter.offered || searchHistory.showHistoryChip) {"),
+            src.contains("canReset || cityFilter.offered || searchHistory.showHistoryChip) {"),
         )
     }
 
@@ -97,7 +98,7 @@ class NearbyConditionsServerSideTest {
         val searchLine = src.lines().firstOrNull { "val search = " in it }.orEmpty()
         assertTrue(
             "в поиск ленты входят не все выборы человека (маршрут, день, условия, города, «только проверенные»)",
-            searchLine.contains("nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly)"),
+            searchLine.contains("nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly, seats, searchOwner)"),
         )
         // Решение лида 17.10.2026: позиция меняется сама, пока человек едет, — это не его выбор.
         assertFalse("позиция снова в поиске — человек в автобусе увидит «нет сети» вместо списка", "userLat" in searchLine || "userLng" in searchLine)
@@ -110,7 +111,7 @@ class NearbyConditionsServerSideTest {
         )
         assertTrue(
             "сдвиг позиции (или «Показать» непроверенных) больше не обновляет ленту — список «рядом» устареет",
-            src.contains("LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) {"),
+            src.contains("LaunchedEffect(search, userLatKey, userLngKey, nearbyReload, nearbyLimit) {"),
         )
     }
 

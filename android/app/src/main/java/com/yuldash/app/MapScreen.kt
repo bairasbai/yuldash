@@ -295,25 +295,29 @@ internal fun MapScreen(
     }
     val filterCtx = LocalContext.current
     val searchOwner by ApiClient.sessionChanges.collectAsState()
+    val seatVm: YuldashViewModel = androidx.lifecycle.viewmodel.compose.viewModel()
+    val defaultSeats = remember(searchOwner) { FilterPrefs.loadSeats(filterCtx) }
+    val seats = seatVm.seatsForSearch(searchOwner) ?: defaultSeats
+    fun changeSeats(value: Int) { seatVm.selectGroupSize(searchOwner, value) }
+    fun bookNearbyRide(ride: Ride) = ApiClient.runIfUnchangedSession(searchOwner) { onBookRide(ride) }
     val searchScope by com.yuldash.app.data.OfflineTripSnapshots.owner.collectAsState()
     val searchHistory = remember(filterCtx, searchOwner, searchScope) { NearbySearchHistoryState(filterCtx, searchOwner) }
     LaunchedEffect(searchHistory) { searchHistory.load() }
-    var prefFilter by remember { mutableStateOf(FilterPrefs.load(filterCtx)) }  // фильтр «Ближайших»: старт из настроек «Фильтры по умолчанию»
+    var prefFilter by remember(searchOwner) { mutableStateOf(FilterPrefs.load(filterCtx)) }
     val verified = rememberNearbyVerified()   // «Только проверенные» из «Безопасности»: с 17.10.2026 вкл. по умолчанию (NearbyVerifiedOnly.kt)
     val cityFilter = rememberNearbyCityFilter(
         reloadKey = nearbyReload, generation = searchOwner,
         hasNearbyRides = nearbyResult?.page?.let { it.items.isNotEmpty() || it.hiddenUnverified > 0 } == true,
     )
-    // F4: «когда едем» — null = все дни, иначе YYYY-MM-DD. Поездки в РБ планируют за 1-3 дня;
     var dateFilter by remember { mutableStateOf<String?>(null) }
     // «Найти попутку»: выбранный на карусели маршрут сужает ленту ниже, лента выезжает на экран (NearbyFeedSearch.kt).
     val routeSearch = remember(searchOwner) { NearbyRouteSearchState() }
     var findTick by remember { mutableIntStateOf(0) }
     val focusFrom = routeSearch.from(activeTrip)
     val focusTo = routeSearch.to(activeTrip)
-    val verifiedSearch = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verified.saved)
+    val verifiedSearch = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verified.saved, seats, searchOwner)
     val verifiedOnly = verified.verifiedOnlyFor(verifiedSearch)   // «Показать» снимает его только для этого поиска; сменил поиск — забыто
-    val search = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly)
+    val search = nearbySearch(focusFrom, focusTo, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly, seats, searchOwner)
     val latestSearch by rememberUpdatedState(search)
     val currentNearby = nearbyResult?.takeIf { it.search == search }
     val nearby = currentNearby?.page?.items.orEmpty()
@@ -321,6 +325,9 @@ internal fun MapScreen(
     val nearbyTotal = currentNearby?.page?.total ?: 0
     val nearbyFilterCount = currentNearby?.takeUnless { it.failed && it.page.items.isEmpty() }?.page?.total
     val nearbyHidden = currentNearby?.page?.hiddenUnverified ?: 0
+    val smallerGroup = currentNearby?.takeUnless { it.failed }?.page?.smallerGroup(seats)
+    val canReset = prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null || seats > 1
+    val resetFilters: () -> Unit = { ApiClient.runIfUnchangedSession(searchOwner) { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null; changeSeats(1) } }
     val userLat = LocationPrefs.lastLat   // читаем в локальные val → подписка на изменение позиции
     val userLng = LocationPrefs.lastLng
     // Огрублённый ключ позиции (~1.1 км, 2 знака): перезапрашиваем «рядом» только при заметном
@@ -329,15 +336,15 @@ internal fun MapScreen(
     val userLatKey = userLat?.let { kotlin.math.round(it * 100) }
     val userLngKey = userLng?.let { kotlin.math.round(it * 100) }
     // Сбрасываем страницу при смене маршрута/позиции/дня (новый контекст → снова с начала).
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) { nearbyLimit = NEARBY_PAGE }
-    LaunchedEffect(focusFrom, focusTo, userLatKey, userLngKey, nearbyReload, nearbyLimit, dateFilter, prefFilter, cityFilter.from, cityFilter.to, verifiedOnly) {
+    LaunchedEffect(search, userLatKey, userLngKey) { nearbyLimit = NEARBY_PAGE }
+    LaunchedEffect(search, userLatKey, userLngKey, nearbyReload, nearbyLimit) {
         if (nearby.isEmpty()) nearbyLoading = true   // спиннер только когда показывать нечего; авто-обновление с данными — молча, без мигания
         // Радиус — только когда знаем позицию. Выбран город «Откуда»/«Куда» — ни радиуса, ни маршрута с карусели:
         // место задаёт сам человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
         val radius = if (userLat != null && userLng != null && !cityFilter.active) NEARBY_RADIUS_KM else null
         val result = ApiClient.getNearbyRidesPaged(focusFrom.takeUnless { cityFilter.active }, focusTo.takeUnless { cityFilter.active }, userLat, userLng, radius, nearbyLimit,
-            date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly, fromCities = cityFilter.from, toCities = cityFilter.to)
-        if (!isActive || latestSearch != search) return@LaunchedEffect
+            date = dateFilter, conditions = prefFilter, verifiedOnly = verifiedOnly, fromCities = cityFilter.from, toCities = cityFilter.to, seats = seats)
+        if (!isActive || latestSearch != search || ApiClient.queueSessionGeneration() != searchOwner) return@LaunchedEffect
         result.onSuccess { nearbyResult = NearbyFeedResult(search, it) }
             .onFailure {
                 val previousPage = nearbyResult?.takeUnless { nearbyDropsOnFailure(it.search, search) }?.page
@@ -380,7 +387,7 @@ internal fun MapScreen(
     }
     // Условия режет сервер (getNearbyRidesPaged); здесь — подстраховка на старый сервер, где их не знают (nearbyShown).
     // remember: пересчитываем только при смене списка/фильтра, а не на каждой рекомпозиции экрана.
-    val shownNearby = remember(nearby, prefFilter, verifiedOnly) { nearbyShown(nearby, prefFilter, verifiedOnly) }
+    val shownNearby = remember(nearby, prefFilter, verifiedOnly, seats) { nearbyShown(nearby, prefFilter, verifiedOnly, seats) }
     // Пины-ценники на карте = те же «Ближайшие» (реальные поездки), макс 20 чтобы не захламлять.
     val mapPins = remember(shownNearby) { shownNearby.take(20).map { it.toUiRide() } }
     // Box-обёртка: Scaffold + не-модальная карточка выбранной поездки поверх (чтобы карта с маршрутом была видна).
@@ -494,34 +501,26 @@ internal fun MapScreen(
                     }
                 }
                 item(key = "nearby_filters") {
-                    if (nearbyResult?.page?.items?.isNotEmpty() == true || dateFilter != null || prefFilter.isNotEmpty() || cityFilter.offered || searchHistory.showHistoryChip) {
-                      // Тач-цель ≥48dp (§4.5) + зазор справа у каждого чипа.
+                    if (nearby.isNotEmpty() || canReset || cityFilter.offered || searchHistory.showHistoryChip) {
                       val chipTouch = Modifier.heightIn(min = 48.dp).padding(end = 8.dp)
-                      // ПОЯСНЕНИЕ (2026-08-03, «где ближайшая поездка?»): два ряда фильтров выталкивали
-                      // карточки поездок за нижний край — поэтому ряд ОДИН. С 16.10.2026 в нём четыре
-                      // вопроса вместо двенадцати чипов: где, куда, когда, какие условия
-                      // (NearbyFiltersPanel.kt). «Когда» видно ВСЕГДА — путь назад со «Сегодня» на «Все дни».
                       Row(modifier = Modifier.horizontalScroll(rememberScrollState())) {
                           NearbyCityChips(cityFilter, chipTouch, searchHistory) { routeSearch.clear(); findTick++ }
                           NearbyWhenChip(dateFilter, { dateFilter = it }, chipTouch)
+                          NearbySeatsChip(seats, { ApiClient.runIfUnchangedSession(searchOwner) { changeSeats(it) } }, nearbyFilterCount, chipTouch, searchOwner)
                           NearbyConditionsChip(prefFilter, { prefFilter = it }, verifiedOnly, nearbyFilterCount, chipTouch)
                       }
                     }
                 }
                 item {
-                    // Состояния ленты: загрузка → скелетоны, пусто/нет сети → карточка-заглушка,
-                    // фильтры всё срезали → подсказка, иначе — карусель. Переход между состояниями
-                    // мягкий (скелетоны не «хлопают» в карточки, а растворяются друг в друга).
+                    if (seats > 1) NearbySeatsHint(seats)
                     val nearbyState = when {
                         currentNearby == null || (nearbyLoading && nearby.isEmpty()) -> "loading"
-                        // Проверенных нет, а непроверенные на этот поиск есть — «Есть N поездок… показать?» (NearbyVerifiedOnly.kt).
                         nearbyUnverifiedHint(nearby.size, nearbyError, verifiedOnly, nearbyHidden) -> "unverified"
-                        // Пусто при включённом фильтре — «filtered» со сбросом (приёмка PR147). «Только проверенные» без спрятанных поездок — не в счёт: честнее «пусто» с «Обновить».
-                        nearby.isEmpty() -> if (nearbyError) "error" else if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) "filtered" else "empty"
+                        nearby.isEmpty() -> if (nearbyError) "error" else if (smallerGroup != null) "seats" else if (seats > 1) "empty" else if (canReset) "filtered" else "empty"
                         shownNearby.isEmpty() -> "filtered"
                         else -> "list"
                     }
-                    Box(Modifier.appearIn(3)) {
+                    Column(Modifier.appearIn(3)) {
                         AnimatedContent(
                             targetState = nearbyState,
                             transitionSpec = { fadeIn(tween(CanonMotion.NORMAL)) togetherWith fadeOut(tween(CanonMotion.QUICK)) },
@@ -539,37 +538,21 @@ internal fun MapScreen(
                             )
                             "unverified" -> if (currentNearby != null && nearbyHidden > 0) NearbyUnverifiedCard(nearbyHidden,
                                 onShow = { if (latestSearch == search) verified.reveal(verifiedSearch) },
-                                onReset = if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) ({ prefFilter = emptySet(); cityFilter.clear(); dateFilter = null }) else null)
+                                onReset = resetFilters.takeIf { canReset })
+                            "seats" -> if (smallerGroup != null) NearbySeatsCard(seats, smallerGroup, { if (latestSearch == search) ApiClient.runIfUnchangedSession(searchOwner) { changeSeats(it) } }) { onRouteWatch(focusFrom, focusTo) }
                             "filtered" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
                                     appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                                 )
-                                if (prefFilter.isNotEmpty() || cityFilter.active || dateFilter != null) {
-                                    Surface(
-                                        onClick = { prefFilter = emptySet(); cityFilter.clear(); dateFilter = null },
-                                        shape = RoundedCornerShape(14.dp),
-                                        color = CanonSurface,
-                                        border = BorderStroke(1.dp, CanonBorder)
-                                    ) {
-                                        Row(
-                                            modifier = Modifier.heightIn(min = 48.dp).padding(horizontal = 16.dp),
-                                            verticalAlignment = Alignment.CenterVertically
-                                        ) {
-                                            Icon(Icons.Default.Close, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
-                                            Spacer(Modifier.width(8.dp))
-                                            // BA-draft
-                                            Text(appText("Сбросить фильтры", "Фильтрҙы бушат"), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                                        }
-                                    }
-                                }
+                                if (seats > 1) NearbySeatsWatch { onRouteWatch(focusFrom, focusTo) }
+                                if (canReset) NearbyResetFilters(onClick = resetFilters)
                             }
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                                 itemsIndexed(shownNearby, key = { i, dto -> "${dto.id}#$i" }) { i, dto ->
                                     NearbyRideCard(dto = dto, soonest = i == 0,
-                                        onOpen = { if (latestSearch == search) onBookRide(dto.toUiRide()) })
+                                        onOpen = { if (latestSearch == search) bookNearbyRide(dto.toUiRide()) })
                                 }
-                                // «Показать ещё» — когда сервер сообщил, что есть ещё: условия он уже учёл в count (DESIGN023).
                                 if (nearby.size < nearbyTotal) {
                                     item(key = "nearby_more") {
                                         NearbyMoreCard(loading = nearbyLoading) { if (latestSearch == search) nearbyLimit += NEARBY_PAGE }
@@ -577,6 +560,9 @@ internal fun MapScreen(
                                 }
                             }
                         }
+                        }
+                        if (canReset && (nearbyState == "empty" || nearbyState == "seats")) {
+                            NearbyResetFilters(onClick = resetFilters)
                         }
                     }
                 }
@@ -637,7 +623,7 @@ internal fun MapScreen(
                         ride = ride,
                         compact = true,
                         fullWidth = true,
-                        onBook = { selectedRide = null; onBookRide(ride) },
+                        onBook = { selectedRide = null; bookNearbyRide(ride) },
                         onShare = { onShareRide(ride) },
                         onBoost = { selectedRide = null; onBoost() }
                     )

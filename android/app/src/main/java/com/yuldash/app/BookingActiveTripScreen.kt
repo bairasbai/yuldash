@@ -730,7 +730,7 @@ internal fun BookingScreen(
             }
             if (!canRepeatOriginal) {
                 pickupStopItem(ride, bookingId, details, pickupStop, onPickupStopChange, dropoffStop, onDropoffStopChange)
-                bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange)
+                bookingSeatCountItem(ride, bookingId, selectedSeats, bookingBusy, pickupStop, dropoffStop, onSeatsChange, onFindAnotherRide)
             }
             // RS-03 А: точное место по желанию — только при создании брони (смена потом — RS-03 Б).
             if (ride != null && bookingId == null && !canRepeatOriginal && onGuestBooking == null) {

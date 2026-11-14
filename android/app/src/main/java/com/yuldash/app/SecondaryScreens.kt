@@ -1125,17 +1125,6 @@ internal fun PaymentStepRow(n: String, text: String) {
     }
 }
 
-/** Фильтры по умолчанию для «Ближайших поездок» — хранятся в SharedPreferences. */
-internal object FilterPrefs {
-    private const val PREF = "yuldash_filters"
-    private const val KEY = "default_filters"
-    fun load(ctx: Context): Set<String> =
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).getStringSet(KEY, emptySet())?.toSet() ?: emptySet()
-    fun save(ctx: Context, set: Set<String>) {
-        ctx.getSharedPreferences(PREF, Context.MODE_PRIVATE).edit().putStringSet(KEY, set).apply()
-    }
-}
-
 /**
  * Настройки приложения — реальные тумблеры (Уведомления/Звуки/Безопасность), хранятся на диске.
  * Уведомления/Звуки читает [com.yuldash.app.data.FcmService] перед показом пуша (клиентское заглушение).
@@ -1154,37 +1143,6 @@ internal object AppPrefs {
     fun setNotifications(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("notifications", v).apply()
     fun setSounds(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("sounds", v).apply()
     fun setVerifiedOnly(ctx: Context, v: Boolean) = sp(ctx).edit().putBoolean("verified_only", v).apply()
-}
-
-/** Экран «Фильтры по умолчанию»: тумблеры условий, сохраняются и применяются к «Ближайшим». */
-@Composable
-internal fun FiltersScreen(onBack: () -> Unit) {
-    val ctx = LocalContext.current
-    var sel by remember { mutableStateOf(FilterPrefs.load(ctx)) }
-    fun toggle(k: String) {
-        sel = if (k in sel) sel - k else sel + k
-        FilterPrefs.save(ctx, sel)
-    }
-    Scaffold(containerColor = CanonBg, topBar = { ScreenTopBar(appText("Фильтры по умолчанию", "Ғәҙәти фильтрҙар"), onBack) }) { padding ->
-        LazyColumn(
-            Modifier.padding(padding).padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-            contentPadding = PaddingValues(vertical = 16.dp)
-        ) {
-            item { Text(appText("Эти условия применятся к «Ближайшим поездкам» автоматически при открытии карты.", "Был шарттар карта асылғанда «Яҡын сәфәрҙәргә» автомат ҡулланыла."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp) }
-            item {
-                SettingsGroup {
-                    SettingSwitchRow(Icons.Default.Woman, appText("Только женщины", "Тик ҡатын-ҡыҙ"), appText("Показывать только поездки для женщин", "Тик ҡатын-ҡыҙ өсөн сәфәрҙәр"), "women" in sel) { toggle("women") }
-                    SettingSwitchRow(Icons.Default.ChildCare, appText("Детское кресло", "Балалар ултырғысы"), appText("Есть детское кресло или бустер", "Балалар ултырғысы бар"), "child" in sel) { toggle("child") }
-                    SettingSwitchRow(Icons.Default.Pets, appText("С животным", "Хайуан менән"), appText("Можно ехать с питомцем", "Хайуан менән барырға мөмкин"), "pets" in sel) { toggle("pets") }
-                    SettingSwitchRow(Icons.Default.Luggage, appText("Багаж", "Йөк"), appText("Есть место под багаж", "Багаж өсөн урын бар"), "baggage" in sel) { toggle("baggage") }
-                    SettingSwitchRow(Icons.Default.AcUnit, appText("Кондиционер", "Кондиционер"), appText("Есть кондиционер в салоне", "Салонда кондиционер бар"), "ac" in sel) { toggle("ac") }
-                    SettingSwitchRow(Icons.Default.Block, appText("Некурящий", "Тартмаусы"), appText("Показывать поездки без курения", "Тартыуһыҙ сәфәрҙәр генә"), "nosmoke" in sel) { toggle("nosmoke") }
-                    SettingSwitchRow(Icons.Default.VolumeOff, appText("Тихая поездка", "Тыныс сәфәр"), appText("Едем без лишних разговоров и громкой музыки", "Артыҡ һөйләшеүһеҙ, ҡысҡырып музыкаһыҙ"), "quiet" in sel) { toggle("quiet") }
-                }
-            }
-        }
-    }
 }
 
 @Composable
@@ -2342,4 +2300,3 @@ private fun ExpandableHelpRow(icon: androidx.compose.ui.graphics.vector.ImageVec
         }
     }
 }
-
