@@ -2834,8 +2834,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta07DriverFinishTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "8b35e4955d7b6aeb61ac341d1466a9832fbd33957c2811c340cd4390a1ec918b",
-      "lines": 259
+      "sha256": "03ca59f7105e25920965e149ae8c5fb42ea1dcff5fe832227b7e07ccb9560e0e",
+      "lines": 267
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta08ScheduledPayloadTest.kt",
@@ -3219,8 +3219,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/DriverFinishRideTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ad22721c3bbcd6d282ebdd9606bcfb83b0408ac822dcab19838a09c31c90b218",
-      "lines": 171
+      "sha256": "8c9014cb354cd1020e41d7fb5a675b3bdfd2dd72404c808e76b6b2079c44947a",
+      "lines": 178
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/EmptyStateLeadsGuardTest.kt",
@@ -4003,8 +4003,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ProfileDeep4ContentTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "64121a1289f1cebc4b6fa790fbd38efa1d228bf170bb17fcd1a3fd299aaa216c",
-      "lines": 450
+      "sha256": "28904ebfe2336e6b40273d0ea4932b5caa507b813cde7e3085f14a8978d4e2ac",
+      "lines": 477
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ProfileDeepContentTest.kt",

@@ -4,6 +4,8 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -83,7 +85,8 @@ class AuditDelta07DriverFinishTest {
                         """{"role":"driver","status":"$bookingStatus","driver_phase":"departed","arrival_verified":false,"alone_with_driver":false}"""
                     )
                     request.method == "GET" && path == "/bookings/7707/messages" -> json("""{"items":[]}""")
-                    request.method == "GET" && path == "/bookings/7707/boarding-code" -> json("""{"code":""}""")
+                    // A confirmed booking has a code. A blank reply revokes live trip actions.
+                    request.method == "GET" && path == "/bookings/7707/boarding-code" -> json("""{"code":"1234"}""")
                     request.method == "GET" && path == "/bookings/7707/details" -> json(
                         """{"booking_id":7707,"ride_id":7,"role":"driver","status":"confirmed","contact_unlocked":true}"""
                     )
@@ -164,7 +167,12 @@ class AuditDelta07DriverFinishTest {
         waitForText("Подъезжаю")
         composeRule.onNodeWithText("Подъезжаю").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Завершить поездку").assertIsDisplayed().performClick()
+        val finish = hasText("Завершить поездку") and isEnabled()
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            composeRule.onAllNodes(finish).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNode(finish).assertIsDisplayed().performClick()
         composeRule.onNodeWithText("Завершить поездку?").assertIsDisplayed()
         assertEquals(emptyList<String>(), synchronized(sentStatuses) { sentStatuses.toList() })
 

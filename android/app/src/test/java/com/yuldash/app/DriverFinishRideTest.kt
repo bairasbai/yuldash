@@ -4,6 +4,9 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
@@ -119,11 +122,15 @@ class DriverFinishRideTest {
                 }
             }
         }
-        waitForText("Завершить поездку")
+        // Completion is disabled until the saved command check has finished.
+        composeRule.waitUntil(timeoutMillis = 15_000) {
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            composeRule.onAllNodes(hasText("Завершить поездку") and isEnabled()).fetchSemanticsNodes().isNotEmpty()
+        }
     }
 
     private fun confirmFinish() {
-        composeRule.onNodeWithText("Завершить поездку").performClick()
+        composeRule.onNodeWithText("Завершить поездку").assertIsEnabled().performClick()
         composeRule.onNodeWithText("Да, завершить").assertIsDisplayed().performClick()
     }
 
