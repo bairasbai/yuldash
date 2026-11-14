@@ -78,12 +78,12 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 224,
+    "android_main": 229,
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
     "pwa_main": 341,
-    "test_support": 1316
+    "test_support": 1318
   },
   "counts_by_block": {
     "B01": 171,
@@ -94,7 +94,7 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 763,
+    "B09": 770,
     "B10": 415,
     "B11": 92
   },
@@ -846,14 +846,14 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "47e29f48dbcc51e9f4ecf07b3507c2df24518b99bf98e91677bb0676407b6a98",
+      "sha256": "1b808fedb81556ebf6977bf753a1a2bb1dac3f2ebe861f907f73cd9aab79fdcb",
       "lines": 3476
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "9876d913a2f10d0e4d69f8219ac05370be7e2d92a88d60d8bb96c29b49feb97c",
+      "sha256": "e5087a658e6c6a684ae9a6ac73b0322a07c3b0ef019d7597e340fe4325ab8a6c",
       "lines": 298
     },
     {
@@ -881,8 +881,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingSeatCount.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "f559b946b6cf25786f4b553bbf765a066bce8d395f13bce7f753105e2bd022d7",
-      "lines": 75
+      "sha256": "9d31ff6f841d7248c145aa5054f688e55b2835e4aa483fc38dd7f024f7b18499",
+      "lines": 111
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingShareSheet.kt",
@@ -1123,6 +1123,13 @@
       "lines": 27
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/FiltersScreen.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "83e05423ad50fb59a0fb30a717e0d22e595cae7edfb934009325e02f6d4a0606",
+      "lines": 87
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/ForceUpdateScreen.kt",
       "kind": "android_main",
       "block": "B09",
@@ -1238,8 +1245,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MapScreen.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "fb3bc3919cd73ba73d40ec92217786b453c5a9336109dc5affbb4aff7f6219f6",
-      "lines": 2224
+      "sha256": "9007f6fa03eba17e5aa37f0b3cd65dfd08b03c05477e56e77e2759cc69d283bf",
+      "lines": 2210
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MeetingPointPicker.kt",
@@ -1294,22 +1301,36 @@
       "path": "android/app/src/main/java/com/yuldash/app/NearbyCityFilter.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "1be74cf9642ebadde65c15953710cd3d3147b6009b1eded03bed43ecb367fb6e",
-      "lines": 224
+      "sha256": "fa123250944a772dd2c102b5519d09187211b8f4b4b6040d2b07cdb5441b16a2",
+      "lines": 272
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyFeedSearch.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "87341ef36ca74bf1942897fd420e2cd92dcd9790733a69f3bf3dae8877d3d7db",
-      "lines": 114
+      "sha256": "7523ece526ab770f4b9cd8149552e921b9a1b1098f4233c763a5f84f3a2936d4",
+      "lines": 117
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyFiltersPanel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "78178bf605130f08add7dfbd1956a9ad43d8800d714816f4317711a834e4739b",
+      "sha256": "5f2d7afb9e8a5e7ccff3fd724fc5d0f0fb0ba9476c80846bd08b50ded25c3090",
       "lines": 261
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/NearbySearchHistory.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "ab4c89e7b751c23763e7958429a428817b5ba313fe28b87d927fb7d425ee44d0",
+      "lines": 114
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/NearbySeats.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "8c808bf09f55d3508685ededf2d2a098cfe29f28cfbbefc11dde69a43d459173",
+      "lines": 104
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyVerifiedOnly.kt",
@@ -1511,8 +1532,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "7b1c359bdd7e0efcbf51e90bbbdf63030e65e5f49398683cbfb7ec010dd62206",
-      "lines": 3237
+      "sha256": "38672e043ac8dc64ce5d9d6626a46bc3b75055d741b23548086f7f9b07d7a0ab",
+      "lines": 3240
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
@@ -1599,6 +1620,13 @@
       "lines": 30
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/SearchHistory.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "895b300d34b8ef3a9153b7cea2f8fe87d9fe5b959b530fccc0755f1baec806f0",
+      "lines": 162
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/SeasonalBanner.kt",
       "kind": "android_main",
       "block": "B09",
@@ -1616,8 +1644,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "dba26b50dbf98287928b911f3d590c54722a9b02de6d42875354788bb1ff9593",
-      "lines": 2345
+      "sha256": "713fcc2bf19da2810bdb36caebf756320e9fef3069795c46a322b916ca6c5bc2",
+      "lines": 2302
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SecureImageRequest.kt",
@@ -1917,8 +1945,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "1d5485d65d2c48e405da9edddb52d1af9fdea3acfc6f9a2ce4e57a3dd490f709",
-      "lines": 2718
+      "sha256": "0d8522246aa46b19b432331d6289d96f68fa9dbc2d83cd4f2a6f028e01c9705f",
+      "lines": 2720
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1931,8 +1959,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "403684a56436a19ce08c2a23567d7fec2e72c88c3d539ad021cdd24e0fc04db9",
-      "lines": 490
+      "sha256": "612b9d2e612d8998e21adaa577de96f835e04077796ae78ed8ccb5d346def2fe",
+      "lines": 499
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -1945,7 +1973,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "a48d57d3fab1b97acd6c7687dcc6e1a6ea3a48298b0c850a5b0ce05d4bebfe36",
+      "sha256": "4ef82fd4ce1c91141d15eece40d0db188d1185be3f3c776d335eaaed9645750f",
       "lines": 7667
     },
     {
@@ -2068,6 +2096,13 @@
       "lines": 86
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/data/NearbyPage.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "8d7455095aaac09831def4fd64cb239eb5ec460393b6f990157c4353c3f45a62",
+      "lines": 16
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/data/NetworkMonitor.kt",
       "kind": "android_main",
       "block": "B09",
@@ -2169,8 +2204,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "88ec0c6e82108b2f66947b2224d20185ed919caeee8ac17f67672a2154f04262",
-      "lines": 99
+      "sha256": "539071646167518304d6d047b1df63fc9a87a172b06bf378c74e979a84e33a63",
+      "lines": 107
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
@@ -3345,8 +3380,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/HomeBookingNavigationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "f2dbcc9c2272ad0e56b5d9330d885f8772642353cac31ef96700cae6843685fe",
-      "lines": 666
+      "sha256": "024c23740d72aeba0c7cb0a9a476ebd70445077356c411143e95346df047ba0e",
+      "lines": 667
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",
@@ -3695,8 +3730,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/NearbyConditionsServerSideTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "8e7a522c587530e8500bcee90ad70f6072c9ece1073ecf2a49d156f5fd939f23",
-      "lines": 184
+      "sha256": "0c830b252beab01871036e75b3a620e7222da241ac10547bc1b7621217d68a78",
+      "lines": 185
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/NearbyFiltersPanelTest.kt",
@@ -3704,6 +3739,13 @@
       "block": "B09",
       "sha256": "1c92f2e14c136884b5514cc8e5e44ffc006bd5bcc09643fd7c088b2264848c9d",
       "lines": 267
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/NearbySeatsTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "3bdebd8119fbdc7277422a64ae3b98bf463144d25a2c8d0bf476f7f00d7a4c5f",
+      "lines": 29
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/NearbyVerifiedOnlyMapTest.kt",
@@ -4306,6 +4348,13 @@
       "block": "B09",
       "sha256": "55bb69abe3111bd685e58253b6cd1f981f29b4969939b3192e849142689a60a4",
       "lines": 131
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/SearchHistoryTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9a0b65be4838be7a2a1de3a0b13d0d815169ce48af5dc3dbabc600e9a658910d",
+      "lines": 115
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/SeatOptionsTest.kt",

@@ -20,6 +20,14 @@ import androidx.lifecycle.ViewModel
  * тогда десятки существующих переходов `screen = Screen.X` и чтений не меняются (минимальный диф).
  */
 internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel() {
+    internal data class GroupSeatSelection(val owner: Long, val seats: Int, val revision: Int)
+    private val groupSize = mutableStateOf<GroupSeatSelection?>(null)
+    internal fun groupSeatSelection(owner: Long): GroupSeatSelection? = groupSize.value?.takeIf { it.owner == owner }
+    internal fun seatsForSearch(owner: Long): Int? = groupSeatSelection(owner)?.seats
+    internal fun selectGroupSize(owner: Long, seats: Int) {
+        val last = groupSeatSelection(owner)
+        if (last?.seats != seats) groupSize.value = GroupSeatSelection(owner, seats, (last?.revision ?: 0) + 1)
+    }
 
     // Только память текущего окна: без черновика SOS и без SavedStateHandle.
     internal data class SosReturnOrigin(val principalId: Int, val generation: Long)
@@ -411,6 +419,7 @@ internal class YuldashViewModel(private val saved: SavedStateHandle) : ViewModel
      * (имена+телефоны) и заявки прошлого пользователя. Реклама (partnerAds/adStats) — публичная, не PII.
      */
     fun clearUserData() {
+        groupSize.value = null
         visibleSosOrigin = null
         guestBookingLogin.value = null
         pendingGuestBooking.value = null

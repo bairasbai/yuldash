@@ -87,7 +87,7 @@ internal class BookingRecoveryState(val generation: Long) {
     }
 
     private fun requireFreshTerms(code: String?) {
-        if (code in setOf("price_changed", "ride_terms_changed", "booking_traveler_women_only",
+        if (code in setOf("price_changed", "ride_terms_changed", "seats_not_enough", "booking_traveler_women_only",
             "booking_traveler_no_minors")) requireFreshTerms()
     }
 
