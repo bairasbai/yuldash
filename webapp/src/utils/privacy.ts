@@ -12,12 +12,15 @@ import { reportStorageFailure } from "./storageHealth";
 //  где заводятся.
 // ================================================================
 
+export const SEARCH_HISTORY_KEY = "yuldash.searchHistory";
+
 /** Ключи одного человека — уходят вместе с ним. */
 const PERSONAL_KEYS = [
   "yuldash.sos.pending", // только ключ/отпечаток повтора SOS текущего входа, без текста и места
   "yuldash.outbox.changed", // только сигнал обновления очереди, без текста сообщений
   "yuldash.consents", // согласия 152-ФЗ: их даёт человек, а не телефон
   "yuldash.role", // пассажир/водитель — роль этого человека
+  SEARCH_HISTORY_KEY, // последние выбранные маршруты
   "yuldash.filterPrefs", // маршруты, которые он ищет: куда ездит — личное
   "yuldash.taxi.activeOrder", // номер его заказа такси
   "yuldash.push.web.enabled", // привязка уведомлений к его подписке
@@ -70,6 +73,11 @@ export function syncPersonalSession(generation: string): void {
     reportStorageFailure();
     /* Хранилище может быть недоступно в приватном режиме. */
   }
+}
+
+export function clearPersonalSearchHistory(): void {
+  try { localStorage.removeItem(SEARCH_HISTORY_KEY); }
+  catch { reportStorageFailure(); }
 }
 
 export function clearPersonalLocal(): void {

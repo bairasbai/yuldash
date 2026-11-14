@@ -21124,3 +21124,52 @@ button.settings-row:active {
   gap: var(--space-sm);
   margin-top: var(--space-xs);
 }
+
+/* История маршрутов в шторке городов. Кнопка удаления отделена от повтора. */
+.search-history__title {
+  margin: 0;
+  color: var(--text);
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+}
+.search-history__row,
+.search-history__actions {
+  display: flex;
+  gap: var(--space-xs);
+}
+.search-history__row .nbs-row {
+  flex: 1;
+  min-width: 0;
+}
+.search-history__row .nbs-row__label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-history__row {
+  animation: fadeIn var(--motion-quick) ease both;
+}
+@keyframes searchHistoryLeave {
+  to { opacity: 0; transform: translateX(var(--space-xs)); }
+}
+.search-history__row.is-removing {
+  animation: searchHistoryLeave var(--motion-quick) ease both;
+}
+@media (prefers-reduced-motion: reduce) {
+  .search-history__row,
+  .search-history__row.is-removing { animation: none; }
+}
+.search-history .btn-ghost,
+.search-history__remove {
+  min-height: 48px;
+}
+.search-history__remove {
+  display: inline-grid;
+  place-items: center;
+  flex: none;
+  min-width: 48px;
+  border: 0;
+  border-radius: var(--radius-item);
+  background: var(--surface);
+  color: var(--text);
+}
