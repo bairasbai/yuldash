@@ -304,7 +304,7 @@ const F = await load(
     [/\/i18n\/lang$/, LANG],
     [/\/CityField$/, `export default "CityField";`],
     [/\/conditionIcons$/, `export const ConditionIcon = "ConditionIcon";`],
-    [/\/Icons$/, `export const IconCalendar = "Icon", IconCheck = "Icon", IconClose = "Icon", IconFlag = "Icon", IconPin = "Icon", IconShield = "Icon", IconTune = "Icon";`],
+    [/\/Icons$/, `export const IconCalendar = "Icon", IconCheck = "Icon", IconClose = "Icon", IconFlag = "Icon", IconPin = "Icon", IconShield = "Icon", IconTune = "Icon", IconTrash = "Icon";`],
     [/\/api\/discovery$/, `export const fetchRideCities = async () => globalThis.__rt.cities;`],
   ]
 );

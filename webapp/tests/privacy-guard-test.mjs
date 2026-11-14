@@ -68,6 +68,9 @@ const CLEARED_ELSEWHERE = new Set([
 ]);
 
 const privacy = files.find((f) => f.name === "privacy.ts")?.code ?? "";
+const personalKeys = privacy.match(/const PERSONAL_KEYS = \[([\s\S]*?)\];/)?.[1] ?? "";
+check(personalKeys.includes("SEARCH_HISTORY_KEY"), "история поиска входит в общую очистку личных данных");
+
 check(privacy.length > 0, "список чистки найден");
 
 const allKeys = new Set();

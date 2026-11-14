@@ -26,6 +26,10 @@ import {
   type NearbyCondition,
 } from "../nearbyFeed";
 import CityField from "./CityField";
+import SearchHistory from "./SearchHistory";
+import { getSessionGeneration } from "../api/client";
+import { recordSearch, searchRouteKey, type SearchRoute } from "../utils/searchHistory";
+import { storageFenced } from "../utils/storageHealth";
 import { useSheetExit } from "./useSheetExit";
 import { ConditionIcon } from "./conditionIcons";
 import { IconCalendar, IconCheck, IconClose, IconFlag, IconPin, IconShield, IconTune } from "./Icons";
@@ -303,38 +307,59 @@ export function NearbyConditionsList({
  * Чипы «Откуда» и «Куда» в общем ряду. Нет городов с поездками (старый сервер, пустая база) —
  * не рисуем ничего: пустая шторка хуже.
  */
-export function NearbyCityChips({ filter }: { filter: NearbyCityFilter }) {
+export function NearbyCityChips({ filter, hasHistory = false, onRepeat }: {
+  filter: NearbyCityFilter; hasHistory?: boolean; onRepeat?: () => void;
+}) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
-  const [sheetFor, setSheetFor] = useState<"from" | "to" | null>(null);
-  if (!filter.offered) return null;
-  const isFrom = sheetFor === "from";
+  const [sheet, setSheet] = useState<{ side: "from" | "to"; generation: string; original: string } | null>(null);
+  const generation = getSessionGeneration();
+  const open = (side: "from" | "to") => setSheet({ side, generation, original: searchRouteKey(filter) });
+  const current = sheet?.generation === generation && !storageFenced() ? sheet : null;
+  if (!filter.offered && !hasHistory) return null;
+  const isFrom = current?.side === "from";
+  const accepts = () => current !== null && current.generation === getSessionGeneration() && !storageFenced();
+  function close() {
+    setSheet(null);
+    if (!accepts()) return;
+    filter.dropUnchosenFound();
+    if (current && current.original !== searchRouteKey(filter)) {
+      const labels = Object.fromEntries([...filter.fromOptions, ...filter.toOptions, ...filter.found].map(city => [city.ru, city.ba]));
+      void recordSearch(current.generation, { from: filter.from, to: filter.to, labels });
+    }
+  }
+  function repeat(route: SearchRoute) {
+    if (!accepts() || !current) return;
+    setSheet(null);
+    for (const [ru, ba] of Object.entries(route.labels ?? {})) filter.addFound({ ru, ba });
+    filter.setFrom([...route.from]);
+    filter.setTo([...route.to]);
+    onRepeat?.();
+  }
   return (
     <>
       <FeedChip
         icon={<IconPin size={15} />}
         label={cityChipLabel(appText("Откуда", "Ҡайҙан"), chosenNames(filter.from, filter.fromOptions, filter.found, ru))}
         on={filter.from.length > 0}
-        onClick={() => setSheetFor("from")}
+        onClick={() => open("from")}
       />
       <FeedChip
         icon={<IconFlag size={15} />}
         label={cityChipLabel(appText("Куда", "Ҡайҙа"), chosenNames(filter.to, filter.toOptions, filter.found, ru))}
         on={filter.to.length > 0}
-        onClick={() => setSheetFor("to")}
+        onClick={() => open("to")}
       />
-      {sheetFor && (
+      {current && (
         <NearbyCitySheet
+          generation={current.generation}
+          accepts={accepts}
+          onRepeat={repeat}
           title={isFrom ? appText("Откуда", "Ҡайҙан") : appText("Куда", "Ҡайҙа")}
           anyLabel={isFrom ? appText("Все города", "Бөтә ҡалалар") : appText("Любое направление", "Теләһә ҡайҙа")}
           filter={filter}
           isFrom={isFrom}
-          onClose={() => {
-            setSheetFor(null);
-            // Найденные поиском и не выбранные уходят вместе со шторкой: иначе деревня, найденная и тут же
-            // снятая, висела строкой в «Откуда» и всплывала в «Куда». Выбранные остаются — по ним подписан чип.
-            filter.dropUnchosenFound();
-          }}
+          onClose={close}
         />
       )}
     </>
@@ -347,12 +372,18 @@ export function NearbyCityChips({ filter }: { filter: NearbyCityFilter }) {
  * поиском, потом города, где поездки есть сейчас. Можно несколько.
  */
 function NearbyCitySheet({
+  generation,
+  accepts,
+  onRepeat,
   title,
   anyLabel,
   filter,
   isFrom,
   onClose,
 }: {
+  generation: string;
+  accepts: () => boolean;
+  onRepeat: (route: SearchRoute) => void;
   title: string;
   anyLabel: string;
   filter: NearbyCityFilter;
@@ -363,16 +394,20 @@ function NearbyCitySheet({
   const [query, setQuery] = useState("");
   const chosen = isFrom ? filter.from : filter.to;
   const options = isFrom ? filter.fromOptions : filter.toOptions;
-  const setChosen = isFrom ? filter.setFrom : filter.setTo;
+  const setChosen = (cities: string[]) => {
+    if (accepts()) (isFrom ? filter.setFrom : filter.setTo)(cities);
+  };
   return (
     <NearbySheet title={title} onClose={onClose}>
       {(close) => (
         <>
+          <SearchHistory generation={generation} filter={filter} onRepeat={onRepeat} />
           <CityField
             label={appText("Найти город или деревню", "Ҡала йәки ауыл табыу")}
             value={query}
             onChange={setQuery}
             onPick={(s) => {
+              if (!accepts()) return;
               filter.addFound({ ru: s.name_ru, ba: s.name_ba || s.name_ru });
               if (!chosen.includes(s.name_ru)) setChosen([...chosen, s.name_ru]);
               setQuery(""); // выбрали — поле свободно для следующего города

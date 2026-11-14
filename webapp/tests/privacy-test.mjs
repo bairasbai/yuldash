@@ -29,6 +29,7 @@ const check = (ok, label, extra = "") => {
 const personal = {
   "yuldash.consents": '{"offer":true,"privacy":true,"geo":true}',
   "yuldash.role": "driver",
+  "yuldash.searchHistory": '{"generation":"guest","entries":[]}',
   "yuldash.filterPrefs": '{"from":"Баймак","to":"Сибай"}',
   "yuldash.taxi.activeOrder": "8123",
   "yuldash.push.web.enabled": "1",
