@@ -35,6 +35,7 @@ import java.net.InetAddress
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicInteger
 
 /**
@@ -59,6 +60,7 @@ class ActiveTripPassengerContactsTest {
     private val freshCodeReturned = CountDownLatch(1)
     private val releaseOrderedDetails = CountDownLatch(1)
     private val onboardDetailsHeld = CountDownLatch(1)
+    private val releaseLaterRolePoll = CountDownLatch(1)
     private val releaseOnboardDetails = CountDownLatch(1)
     private val firstDetailsHeld = CountDownLatch(1)
     private val releaseFirstDetails = CountDownLatch(1)
@@ -95,6 +97,8 @@ class ActiveTripPassengerContactsTest {
     @Volatile private var holdFirstDetails = false
     @Volatile private var holdHistory = false
     @Volatile private var holdFirstRole = false
+    @Volatile private var freezeRoleAfterBoarding = false
+    private val reportedOnboard = AtomicBoolean(false)
     private val phone = "+7 900 111-22-33"
     private val pickup = "У ТЦ «Мега», главный вход"
     private var alightingNote = ""
@@ -135,9 +139,16 @@ class ActiveTripPassengerContactsTest {
                         val rows = if (pickupPointsEmpty) "[]" else """[{"id":7,"city":"$city","title_ru":"Ориентир $city","title_ba":"Урын $city"}]"""
                         return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"items":$rows}""")
                     }
-                    if (request.path == "/bookings/42/role" && roleCalls.incrementAndGet() == 1 && holdFirstRole) {
-                        firstRoleHeld.countDown()
-                        if (!releaseFirstRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                    if (request.path == "/bookings/42/role") {
+                        if (roleCalls.incrementAndGet() == 1 && holdFirstRole) {
+                            firstRoleHeld.countDown()
+                            if (!releaseFirstRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        }
+                        // This test controls one boarding transition; later routine refreshes belong to the next poll period.
+                        if (freezeRoleAfterBoarding && status == "onboard" && !reportedOnboard.compareAndSet(false, true)) {
+                            if (!releaseLaterRolePoll.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        }
+                        return MockResponse().setHeader("Content-Type", "application/json").setBody(roleJson())
                     }
                     if (request.path == "/bookings/42/boarding-code") {
                         val attempt = codeCalls.incrementAndGet()
@@ -181,7 +192,6 @@ class ActiveTripPassengerContactsTest {
                         if (!releaseHistory.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                     }
                     val body = when (request.path) {
-                        "/bookings/42/role" -> roleJson()
                         "/trips/42/receipt" -> JSONObject().put("booking_id", 42).put("ride_id", 17)
                             .put("role", role).put("from_city", "Город А").put("to_city", "Город Б")
                             .put("depart_at", "2031-02-03T09:00:00").put("seats", 1).put("amount", agreementAmount ?: 700)
@@ -213,6 +223,7 @@ class ActiveTripPassengerContactsTest {
         releaseSecondCity.countDown()
         releaseFirstCity.countDown()
         compose.runOnIdle { mounted.value = false }
+        releaseLaterRolePoll.countDown()
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         ApiClient.logout()
         ApiClient.resetForTest()
@@ -518,6 +529,7 @@ class ActiveTripPassengerContactsTest {
         oldRetryCode = "1111"
         holdFreshCode = true
         holdOnboardDetails = true
+        freezeRoleAfterBoarding = true
         scrollTo("Повторить загрузку кода")
         compose.onNodeWithText("Повторить загрузку кода").performClick()
         compose.waitUntil(15000) { settle(); retryHeld.count == 0L }

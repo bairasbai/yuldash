@@ -927,12 +927,12 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
     # Тот же срок и та же логика, что у попутки: обе двери зовут одну функцию, иначе они
     # снова разъедутся — здесь молча терялись отзыв и метки (волна 57).
     guard_rating_window(order.done_at or order.created_at)
-    avg, cnt = rating_service.apply_rating(
+    result = rating_service.apply_rating(
         session, user, ratee_id, stars=body.stars, text=body.text, tags=body.tags,
         order_id=order_id, place="review",
         happened_at=(order.done_at or order.created_at))
     # Анонимность: rater не раскрываем, отдаём только агрегат оценённого.
-    return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
+    return {"ratee_id": ratee_id, "rating": round(result.avg, 1), "count": result.count}
 
 
 # --------- очередь «рядом никого» ---------

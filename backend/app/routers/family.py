@@ -807,6 +807,7 @@ class RateIn(BaseModel):
     # Быстрые метки, CSV («polite,ontime»). Длину режем уже на входе, чтобы мегабайтная строка
     # не доехала до валидатора; сам список фильтрует safety_logic.clean_tags.
     tags: str = Field("", max_length=300)
+    from_notification: bool = False
 
 
 @router.post("/bookings/{booking_id}/rate")
@@ -817,14 +818,14 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     метки — сразу: они из закрытого списка, оскорбить ими нельзя."""
     b = session.get(Booking, booking_id)
     if not b:
-        raise herr(404, "Бронь не найдена", "Бронь табылманы")
+        raise herr(404, "Бронь не найдена", "Бронь табылманы", code="booking_not_found")
     ride = session.get(Ride, b.ride_id)
     if user.id == b.passenger_id and ride:
         ratee_id = ride.driver_id          # пассажир → водитель
     elif ride and user.id == ride.driver_id:
         ratee_id = b.passenger_id          # водитель → пассажир
     else:
-        raise herr(403, "Нельзя оценить эту поездку", "Был сәфәрҙе баһалап булмай")
+        raise herr(403, "Нельзя оценить эту поездку", "Был сәфәрҙе баһалап булмай", code="rating_forbidden")
     # Оценить можно только ЗАВЕРШЁННУЮ поездку — иначе можно забронировать и сразу накрутить
     # рейтинг водителю, не съездив (репутация «между своими» = продукт). Проверка ПОСЛЕ участника:
     # чужой получает 403, а участник недозавершённой — 409.
@@ -832,19 +833,20 @@ def rate_booking(booking_id: int, body: RateIn, user: User = Depends(current_use
     # снял поездку перед прибытием — иначе так уходили от плохого отзыва. Водителю — нет.
     if not booking_rating_open(b, ride, user.id):
         raise herr(409, "Оценить можно только завершённую поездку",
-                   "Тик тамамланған сәфәрҙе генә баһаларға була")
+                   "Тик тамамланған сәфәрҙе генә баһаларға була", code="ride_not_rateable")
     in_transit = b.status != BookingStatus.done
     # Срок на оценку. Считаем от времени выезда: у брони своего «завершено в» нет, а поездка —
     # это про день выезда. Оценка через год говорит уже не о поездке (волна 57). У отменённой в
     # пути — тот же якорь и тот же срок, что у завершённой (решение 24.10.2026).
     guard_rating_window(ride.depart_at if ride else None)
-    avg, cnt = apply_rating(session, user, ratee_id, stars=body.stars, text=body.text,
+    result = apply_rating(session, user, ratee_id, stars=body.stars, text=body.text,
                             tags=body.tags, booking_id=booking_id, place="review",
                             happened_at=(ride.depart_at if ride else None),
                             # Без пуша «рейтинг просел» водителю сразу после того, как он высадил
                             # человека: по нему понятно, кто поставил (проверка плана 24.10.2026).
-                            advise=not in_transit)
-    return {"ratee_id": ratee_id, "rating": round(avg, 1), "count": cnt}
+                            advise=not in_transit, only_if_new=body.from_notification)
+    return {"ratee_id": ratee_id, "rating": round(result.avg, 1), "count": result.count,
+            "kept": result.kept, "my_stars": result.my_stars}
 
 
 # ---- «Сказать рәхмәт» (чаевые водителю) ----

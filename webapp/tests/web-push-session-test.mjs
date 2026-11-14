@@ -7,7 +7,7 @@ import { runInNewContext } from 'node:vm';
 import { fileURLToPath } from 'node:url';
 
 const bundle = await build({
-  stdin: { contents: "export * from './src/api/client'; export * from './src/push/webPush'; export * from './src/utils/sessionRecord';",
+  stdin: { contents: "export * from './src/api/client'; export * from './src/push/webPush'; export * from './src/utils/sessionRecord'; export * from './src/push/rateDraft'; export * from './src/api/notificationRating';",
     resolveDir: fileURLToPath(new URL('../', import.meta.url)), loader: 'ts' },
   bundle: true, write: false, platform: 'node', format: 'esm',
   define: { 'import.meta.env': '{"VITE_VAPID_PUBLIC_KEY":"AQID"}' },
@@ -204,7 +204,7 @@ const idA = "a".repeat(64), idB = "b".repeat(64);
 const bindA = "1".repeat(32), bindB = "2".repeat(32);
 const bindingReply = id => Response.json({ ok: true, binding_id: id });
 
-function worker(locks = { request: async (_name, fn) => fn() }) {
+function worker(locks = { request: async (_name, fn) => fn() }, maxActions = 2) {
   const handlers = new Map(), notifications = [], targets = [];
   const self = {
     navigator: { locks },
@@ -221,7 +221,7 @@ function worker(locks = { request: async (_name, fn) => fn() }) {
     clients: { matchAll: async () => [], openWindow: async url => { targets.push(url); } },
   };
   runInNewContext(readFileSync(new URL("../public/push-sw.js", import.meta.url), "utf8"), {
-    self, indexedDB, URL, atob,
+    self, indexedDB, URL, atob, Notification: { maxActions },
   });
   return {
     notifications, targets,
@@ -358,6 +358,126 @@ await check("notification with missing storage or old payload exposes no private
   assert.equal(await env.api.enableWebPush(), "ok", "worker must not create an empty database before the app");
   await sw.dispatch("push", { data: { json: () => { throw Error("invalid JSON"); } } });
   assert.equal(sw.notifications.at(-1).body, undefined);
+});
+
+async function ratingNotification(env, overrides = {}, actionLimit = 2) {
+  navigator.locks = { request: async (_name, run) => run() };
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  const sw = worker(navigator.locks, actionLimit);
+  await sw.dispatch("push", { data: { json: () => ({
+    url: "/trip/17", session_id: idA, binding_id: bindA,
+    rate: { booking_id: 17, recipient_user_id: 42, until: Math.ceil(Date.now() / 1000) + 300 },
+    actions: [{ action: "rate_five", title: "5 ★" }, { action: "rate_details", title: "Иҫкәрмәләр бар" }],
+    ...overrides,
+  }) } });
+  return { sw, notification: sw.notifications.at(-1) };
+}
+
+await check("quick rating click creates one draft for its own booking, with no HTTP write", async env => {
+  const { sw, notification } = await ratingNotification(env);
+  assert.equal(JSON.stringify(notification.actions), JSON.stringify([
+    { action: "rate_five", title: "5 ★" }, { action: "rate_details", title: "Иҫкәрмәләр бар" },
+  ]));
+  assert.equal(await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), undefined);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  assert.deepEqual(sw.targets, ["https://pwa.invalid/trip/17"]);
+  assert.equal(await env.api.takeRatingDraft(18, 42, env.api.getSessionGeneration()), undefined);
+  assert.equal(await env.api.takeRatingDraft(17, 43, env.api.getSessionGeneration()), undefined);
+  const reads = await Promise.all([env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration())]);
+  assert.equal(reads.filter(Boolean).length, 1);
+  assert.match(reads.find(Boolean).bindingId, /^1{32}$/);
+  assert.deepEqual(env.calls.map(call => call.path), ["/push/web/subscribe"]);
+});
+
+await check("the regular link, details action, and browsers without buttons create no draft", async env => {
+  const { sw, notification } = await ratingNotification(env, { url: "/trip/17?rate=5" });
+  assert.equal(notification.actions, undefined);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  assert.equal(await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), undefined);
+  const plain = await ratingNotification(env);
+  for (const action of ["", "rate_details"]) {
+    await plain.sw.dispatch("notificationclick", { notification: plain.notification, action });
+  }
+  assert.equal(await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), undefined);
+  const unsupported = await ratingNotification(env, {}, 0);
+  assert.equal(unsupported.notification.actions, undefined);
+  await unsupported.sw.dispatch("notificationclick", { notification: unsupported.notification });
+  assert.deepEqual(unsupported.sw.targets, ["https://pwa.invalid/trip/17"]);
+  const omitted = await ratingNotification(env, { actions: [] });
+  assert.equal(omitted.notification.actions, undefined);
+  await omitted.sw.dispatch("notificationclick", { notification: omitted.notification, action: "rate_five" });
+  assert.equal(await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), undefined);
+});
+
+await check("a wrong recipient, expired notification, and changed binding cannot leave a draft", async env => {
+  for (const rate of [
+    { booking_id: 17, recipient_user_id: 43, until: Math.ceil(Date.now() / 1000) + 300 },
+    { booking_id: 17, recipient_user_id: 42, until: 1 },
+    { booking_id: 18, recipient_user_id: 42, until: Math.ceil(Date.now() / 1000) + 300 },
+  ]) {
+    const { sw, notification } = await ratingNotification(env, { rate });
+    assert.equal(notification.actions, undefined);
+    await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+    assert.equal(await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), undefined);
+  }
+  const { sw, notification } = await ratingNotification(env);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  const draft = await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration());
+  assert.equal(await env.api.isCurrentRatingDraft(draft), true);
+  assert.equal(await env.api.isCurrentRatingDraft({ ...draft, expiresAt: Date.now() - 1 }), false);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  await env.api.setSession(null, null);
+  await env.api.pruneRatingDraft();
+  await env.api.setSession(scopedAccess(idB), "refresh-B");
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  assert.equal(sw.targets.at(-1), "/");
+  assert.equal(await env.api.isCurrentRatingDraft(draft), false);
+  assert.equal(await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration()), undefined);
+});
+
+await check("manual retry reports the existing stars and a malformed receipt cannot imply success", async env => {
+  const { sw, notification } = await ratingNotification(env);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  const draft = await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration());
+  const signal = new AbortController().signal;
+  env.reply = async call => {
+    if (call.path.endsWith("/details")) return Response.json({
+      booking_id: 17, can_rate: true, status: "done", role: "driver", my_stars: 3,
+    });
+    throw new TypeError("response lost");
+  };
+  assert.deepEqual(await env.api.fetchNotificationRatingState(17, draft, signal), { allowed: true, stars: 3 });
+  await assert.rejects(() => env.api.rateBookingFromNotification(draft, signal));
+  env.reply = async () => Response.json({ kept: true, my_stars: 3 });
+  assert.deepEqual(await env.api.rateBookingFromNotification(draft, signal), { kept: true, stars: 3 });
+  env.reply = async () => Response.json({ kept: false, my_stars: 3 });
+  assert.equal(await env.api.rateBookingFromNotification(draft, signal), undefined);
+  env.reply = async () => new Response("", { status: 200 });
+  assert.equal(await env.api.rateBookingFromNotification(draft, signal), undefined);
+  const posts = env.calls.filter(call => call.path === "/bookings/17/rate");
+  assert.deepEqual(posts.map(call => JSON.parse(call.body)), Array.from({ length: 4 }, () => ({
+    stars: 5, from_notification: true,
+  })));
+});
+
+await check("replacing the browser binding during auth refresh blocks the second rating POST", async env => {
+  const { sw, notification } = await ratingNotification(env);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  const draft = await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration());
+  const endpoint = (await env.api.readWebPushBinding()).endpoint;
+  env.api.setRefreshHandler(async () => {
+    const access = scopedAccess(idA).replace(".fixture", ".refreshed");
+    await env.api.writeWebPushBinding(draft.generation, {
+      generation: draft.generation, sessionId: idA, bindingId: bindB, endpoint,
+    });
+    return { access, refresh: "refreshed" };
+  });
+  env.reply = async () => new Response(null, { status: 401 });
+  await assert.rejects(() => env.api.rateBookingFromNotification(draft, new AbortController().signal),
+    { code: "command_scope_changed" });
+  assert.equal(env.calls.filter(call => call.path === "/bookings/17/rate").length, 1);
 });
 
 console.log(`Web Push session cases: ${serial - failed} passed, ${failed} failed`);

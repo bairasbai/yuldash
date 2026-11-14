@@ -25,6 +25,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import NotificationRating from "../components/NotificationRating";
 import { useLang } from "../i18n/lang";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { MeetingActions } from "../components/MeetingActions";
@@ -1132,6 +1133,10 @@ export default function ActiveTripScreen() {
       )}
 
       {/* Оценка при завершении */}
+      {st === "done" && details.booking_id === bookingId && user?.id && (
+        <NotificationRating key={bookingId} bookingId={bookingId} userId={user.id} generation={sessionGeneration}
+          onRated={() => setRated(true)} onEdit={() => setRated(false)} />
+      )}
       {st === "done" && !rated && (
         <div className="rate-card">
           <div className="rate-card__title">

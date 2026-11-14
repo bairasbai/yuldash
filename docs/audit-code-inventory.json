@@ -82,8 +82,8 @@
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
-    "pwa_main": 341,
-    "test_support": 1316
+    "pwa_main": 345,
+    "test_support": 1317
   },
   "counts_by_block": {
     "B01": 171,
@@ -91,10 +91,10 @@
     "B03": 123,
     "B04": 82,
     "B05": 62,
-    "B06": 102,
+    "B06": 103,
     "B07": 144,
-    "B08": 216,
-    "B09": 763,
+    "B08": 218,
+    "B09": 765,
     "B10": 415,
     "B11": 92
   },
@@ -2638,8 +2638,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerContactsTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "3bfca4b21f24a84aaa33c8f359fa1a3a02212b2581d2b199288e419d5cf827d8",
-      "lines": 994
+      "sha256": "86d6af4f5076719f4dd79dc759a3442de67364d0d5e8eeead9d96509c5aae553",
+      "lines": 1006
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripPassengerStatusFailureTest.kt",
@@ -7258,15 +7258,15 @@
       "path": "backend/app/rate_reminder.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "52170373fc8bd7f57e0e0cebeb47df576859319c392c4b2711a44e0f9e94b811",
-      "lines": 260
+      "sha256": "bf9e2e6da3082d35fa2c14b155c3d3acb34b107caab23cb7a4295bd4d6a0effb",
+      "lines": 282
     },
     {
       "path": "backend/app/rating_service.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "8a12537e854a16f2074a66baa9e85a852cc19e60b884ab1ddde02adf11d0f8e4",
-      "lines": 185
+      "sha256": "583f4e761c3ac0e690f95dde22b0da48b91beb9319648915d2a475562db1a068",
+      "lines": 248
     },
     {
       "path": "backend/app/relative_phone_comment.py",
@@ -7405,8 +7405,8 @@
       "path": "backend/app/routers/family.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "5242e1ea3abf024f412f2da6ffaf9aabab155eebfff42f7e0ecf4c8217783749",
-      "lines": 970
+      "sha256": "94cdf405e78d3f611039315ffe5e97867e17019743319a0c21f3d5eb74c08d00",
+      "lines": 972
     },
     {
       "path": "backend/app/routers/health.py",
@@ -7426,7 +7426,7 @@
       "path": "backend/app/routers/instant.py",
       "kind": "backend_main",
       "block": "B03",
-      "sha256": "be5c8eba594b3b4935fe3cd18abd2a16f215e339f87d40a581f07f8c3bed1d2e",
+      "sha256": "f435b2ac650e0ebe982ff1a979e0a6c2965df78746e0e9a16212ce782a6a0d9d",
       "lines": 1584
     },
     {
@@ -7629,8 +7629,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "8d5b58a709b2efa18d1bc00c8e3ce2fed47059f0315c07c1bde7194ee788ec29",
-      "lines": 2245
+      "sha256": "502cc2d0988b4faef7d70b5ea4a557fe5db1e748b03d85107db4f2d5c20ceb46",
+      "lines": 2268
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -10881,6 +10881,13 @@
       "lines": 454
     },
     {
+      "path": "backend/tests/test_rate_from_notification.py",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "b38b451bde4d08961a1dc822e9805599aaab5c90576f86062753c743690f6b59",
+      "lines": 157
+    },
+    {
       "path": "backend/tests/test_rate_limit.py",
       "kind": "test_support",
       "block": "B09",
@@ -12872,8 +12879,8 @@
       "path": "backend/tests/walk/l3_2/test_l3_2_rating_race_postgres.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "db7bb6e3d9135d8b7fa5697132c39c58b15f284e968e5d4216fd7fcc4ea26089",
-      "lines": 98
+      "sha256": "9faa69dfd2012d9a61b4c6165bf2bce581a8d4bbb9391a695a281f44c3ac2d9e",
+      "lines": 137
     },
     {
       "path": "backend/tests/walk/l3_2/test_l3_2_trust_pause_invite.py",
@@ -14132,8 +14139,8 @@
       "path": "webapp/public/push-sw.js",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "de3508b89396c1e175cdefeaf4601cb31a353d206ca86980d0f51653edf14ff9",
-      "lines": 116
+      "sha256": "a6ba4afb9e28e0923e35e8891563b997faf13cb83123441379e30224b6eb3c4c",
+      "lines": 171
     },
     {
       "path": "webapp/server-setup.sh",
@@ -14216,8 +14223,8 @@
       "path": "webapp/src/api/client.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "7fd566a6948f971f5b19876cb2d698ed1982f213622fec2e824c1a854d8a9de1",
-      "lines": 528
+      "sha256": "1df4e1697129985954753a519df7f64d0c36fb1dca2c8da891a4df7c524b4200",
+      "lines": 525
     },
     {
       "path": "webapp/src/api/coupons.ts",
@@ -14288,6 +14295,13 @@
       "block": "B01",
       "sha256": "c0b9f323c11c535711a294066bd3637e75c30f0bd9f47ccf317686695e1ce381",
       "lines": 35
+    },
+    {
+      "path": "webapp/src/api/notificationRating.ts",
+      "kind": "pwa_main",
+      "block": "B08",
+      "sha256": "7d2bc9d60a3dc9e0ce27f7944da450985588f3b33c8454cec204c2dbe2c3dc04",
+      "lines": 34
     },
     {
       "path": "webapp/src/api/notifications.ts",
@@ -14433,8 +14447,8 @@
       "path": "webapp/src/auth/AuthProvider.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "457de07c7105ecf66cb27465e32caacf1a56fc219dc300f3d7e0bf1d78e73764",
-      "lines": 243
+      "sha256": "74406544c2d351de7b373a1d2dde7ec1474a441cffb0306b4f09be5f59e13939",
+      "lines": 247
     },
     {
       "path": "webapp/src/benefitOwner.ts",
@@ -14701,6 +14715,13 @@
       "block": "B02",
       "sha256": "a60a641123b922e123113064c55ca4b2d117336d28c70154d17e42984b6eaa8a",
       "lines": 215
+    },
+    {
+      "path": "webapp/src/components/NotificationRating.tsx",
+      "kind": "pwa_main",
+      "block": "B08",
+      "sha256": "79d1dc64318c99636b9355b41631cbc3fd5d7de0f5669ceb6fe51f6ddcca919f",
+      "lines": 128
     },
     {
       "path": "webapp/src/components/OfflineBanner.tsx",
@@ -15249,6 +15270,13 @@
       "lines": 5
     },
     {
+      "path": "webapp/src/push/rateDraft.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "f28b360ff0ed1d18a470210c55fcc2661ee2ca88954a50104c7d55c92b9db0a8",
+      "lines": 92
+    },
+    {
       "path": "webapp/src/push/webPush.ts",
       "kind": "pwa_main",
       "block": "B06",
@@ -15259,8 +15287,8 @@
       "path": "webapp/src/screens/ActiveTripScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "7424fe8aaa6c2f0bdd8849e5af854785958ac26f4308504c7f0564ee3ae95ae6",
-      "lines": 1214
+      "sha256": "7f7cf9f6911151809052db44db330b63e74a766f622a9c8c1c6b5de9aad4f4b2",
+      "lines": 1219
     },
     {
       "path": "webapp/src/screens/AdEditorScreen.tsx",
@@ -16432,6 +16460,13 @@
       "lines": 46
     },
     {
+      "path": "webapp/src/utils/tokenPayload.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "7d79827539a78a34b93de5208bc8cbc76c144e30adeba685c7c48519bb2a600b",
+      "lines": 7
+    },
+    {
       "path": "webapp/src/utils/tripChat.d.ts",
       "kind": "pwa_main",
       "block": "B05",
@@ -17184,8 +17219,8 @@
       "path": "webapp/tests/own-bookings-provider-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "f7f261cab7ea99f192cfa1236f90a15e47201fc08958d0225f47e1485e1437fa",
-      "lines": 297
+      "sha256": "006edadc4f428f32a9acdca23caa8a2ea1836cc79a4dc26227a1cdde2c0bcd4b",
+      "lines": 310
     },
     {
       "path": "webapp/tests/own-front-seat-test.mjs",
@@ -17576,8 +17611,8 @@
       "path": "webapp/tests/web-push-session-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "a37fe734036dfe2b80a637887e47441507c13cbaec318fab55ee304d07661f1b",
-      "lines": 364
+      "sha256": "3222af542d999d68d27473af0c078a3c205cd32bbe00fb6d7e3d2763d9ae06f9",
+      "lines": 484
     },
     {
       "path": "webapp/tests/winter-check-reload-test.mjs",
