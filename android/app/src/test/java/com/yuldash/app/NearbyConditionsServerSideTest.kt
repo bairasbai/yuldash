@@ -77,7 +77,7 @@ class NearbyConditionsServerSideTest {
             "при выбранном городе остался радиус 50 км — «Куда · Сибай» из Уфы даст ложное «поездок нет»",
             src.contains("userLng != null && !cityFilter.active) NEARBY_RADIUS_KM"),
         )
-        assertTrue("чипов городов нет в ряду фильтров", src.contains("NearbyCityChips(cityFilter, chipTouch)"))
+        assertTrue("чипов городов нет в ряду фильтров", src.contains("NearbyCityChips(cityFilter, chipTouch, searchHistory)"))
         assertTrue("нет чипа «Когда»", src.contains("NearbyWhenChip(dateFilter, { dateFilter = it }, chipTouch)"))
         assertTrue(
             "чип «Фильтры» не получает условия, «только проверенные» или счёт поездок",
@@ -85,7 +85,7 @@ class NearbyConditionsServerSideTest {
         )
         assertTrue(
             "ряд фильтров прячется, когда рядом пусто, — до города «Откуда» не добраться",
-            src.contains("prefFilter.isNotEmpty() || cityFilter.offered) {"),
+            src.contains("prefFilter.isNotEmpty() || cityFilter.offered || searchHistory.showHistoryChip) {"),
         )
     }
 

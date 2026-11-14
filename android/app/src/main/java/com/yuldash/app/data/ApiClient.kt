@@ -807,7 +807,7 @@ object ApiClient {
             write(editor)
             editor.remove(SosRetryIntent.PREF_KEY)
         }
-        if (saved) sosRetryIntent = SosRetryIntent(selected)
+        if (saved) sosRetryIntent = SosRetryIntent(selected).also { appCtx?.let(com.yuldash.app.SearchHistory::clearForNewSession) }
         return OfflineTripSnapshotHooks.authWriteResult(saved)
     }
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
