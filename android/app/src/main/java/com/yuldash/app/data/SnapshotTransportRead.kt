@@ -52,7 +52,7 @@ internal class SnapshotTransportRead(
         /** Status/undo POST denials also revoke before body IO; these contexts never mint a permit. */
         fun denialFor(path: String, generation: Long, auth: Boolean): SnapshotTransportRead? {
             if (!auth) return null
-            val match = Regex("^/bookings/([1-9][0-9]*)/(driver-status|trip-status|cancel|no-show|confirm|boarded/undo(?:/respond)?)$").matchEntire(path) ?: return null
+            val match = Regex("^/bookings/([1-9][0-9]*)/(?:commands/v1/driver-status|driver-status|trip-status|cancel|no-show|confirm|boarded/undo(?:/respond)?)$").matchEntire(path) ?: return null
             val id = match.groupValues[1].toIntOrNull() ?: return null
             return SnapshotTransportRead(id, SnapshotAuthorityKind.ROLE, generation, OfflineTripSnapshots)
         }

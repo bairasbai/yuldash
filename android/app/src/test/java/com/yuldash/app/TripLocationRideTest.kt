@@ -266,9 +266,16 @@ class TripLocationRideTest {
     @Test fun noShowThroughApiClientSurvivesTheEarlyChannelClose() =
         closingStepSurvivesTheEarlyChannelClose { ApiClient.markNoShow(101) }
 
-    @Test fun queuedFinishSurvivesTheEarlyChannelClose() = closingStepSurvivesTheEarlyChannelClose {
-        ApiClient.sendQueuedAction(com.yuldash.app.data.OutboxAction(1L, 101, "driver_status", "done", System.currentTimeMillis()),
-            ApiClient.queueSessionGeneration())
+    @Test fun oldQueuedFinishDoesNotMutateTheBooking() = runBlocking {
+        val generation = ApiClient.queueSessionGeneration()
+        assertTrue(ApiClient.sendQueuedAction(
+            com.yuldash.app.data.OutboxAction(1L, 101, "driver_status", "done", System.currentTimeMillis()),
+            generation,
+        ).isFailure)
+        val read = server.takeRequest(2, java.util.concurrent.TimeUnit.SECONDS)
+        assertEquals("GET", read?.method)
+        assertEquals("/bookings/101/role", read?.path)
+        assertEquals(1, server.requestCount)
     }
 
     @Test fun noNetworkPausesAndRetriesWithoutExtendingPermission() {

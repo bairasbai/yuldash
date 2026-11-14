@@ -205,7 +205,8 @@ await t.test("настоящий кабинет: первый NoShow до GPS-с
  const r=gpsRig();r.rows=[row(101,"confirmed",{passenger_name:"Айгуль",route:"Сибай → Уфа",passenger_rating:null,my_stars:0}),row(102,"onboard",{passenger_name:"Бота",route:"Сибай → Уфа",passenger_rating:null,my_stars:0})];
  const http=deferred();const order=[];globalThis.__cabGrant={r,http,order};
  const View=await bundleComponent("src/components/DriverPassengers.tsx",{mocks:{
-  "/i18n/lang":langMock("ru"),"/api/client":`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__cabGrant.r.session;`,
+  "/utils/useDriverStages":`export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
+    "/i18n/lang":langMock("ru"),"/api/client":`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__cabGrant.r.session;`,
   "/api/bookings":`export const fetchDriverBookings=async()=>structuredClone(globalThis.__cabGrant.r.rows);export const markNoShow=()=>{globalThis.__cabGrant.order.push("HTTP");return globalThis.__cabGrant.http.promise;};export const markArriving=async()=>({});export const rateBooking=async()=>({});export const answerMeetingPoint=async()=>({});`,
   "/utils/driverActions":`export const beginDriverClick=(...args)=>{globalThis.__cabGrant.order.push("CLICK");return globalThis.__cabGrant.r.share.beginClick(...args);};export const finishDriverClick=(...args)=>{void globalThis.__cabGrant.r.share.finishClick(...args);};`,
   "/utils/rideShareStore":`export const rideShareKeep=rows=>globalThis.__cabGrant.r.share.keep(rows);export const subscribeRideShare=fn=>globalThis.__cabGrant.r.share.subscribe(fn);export const takeRidingFocus=()=>false;`
@@ -223,7 +224,11 @@ for(const remains of [true,false])await t.test(`настоящий ActiveTrip: �
   export const apiGet=async path=>{const f=globalThis.__finishGrant;if(path.endsWith("/details"))return {booking_id:42,ride_id:7,role:"driver",status:f.status,from_city:"Сибай",to_city:"Уфа",depart_at:"2030-01-01T10:00:00",seats:1,price:700,driver_name:"Водитель",passenger_name:"Айгуль",pay_method:"cash"};
    if(path.endsWith("/role"))return {role:"driver",status:f.status,driver_phase:"departed"};if(path.endsWith("/boarding-code"))return {code:"1234"};throw new Error("synthetic absent "+path);};`;
  const View=await bundleComponent("src/screens/ActiveTripScreen.tsx",{real:["/api/bookings","/utils/boardingUndo","/utils/tripLocationShare","/utils/tripDetailsSync.js","/utils/inTransitCancel"],mocks:{
-  "/i18n/lang":langMock("ru"),"react-router-dom":`export const useNavigate=()=>p=>globalThis.__finishGrant.nav.push(p);export const useParams=()=>({id:"42"});`,
+  "/utils/useDriverStages":`export const useDriverStages=()=>({ready:true,busy:false,pending:[],advance:async(id,status)=>{
+      const f=globalThis.__finishGrant;f.order.push("HTTP");f.phases.push([id,status]);f.status="done";
+      return {state:"applied",trip:{role:"driver",status:"done",driver_phase:""},appliedStage:status};
+    }});`,
+    "/i18n/lang":langMock("ru"),"react-router-dom":`export const useNavigate=()=>p=>globalThis.__finishGrant.nav.push(p);export const useParams=()=>({id:"42"});`,
   "/auth/AuthProvider":`export const useAuth=()=>({user:{id:1}});`,"/api/client":client,"./client":client,
   "/api/chat":`export const openTripLocation=()=>({close(){}});`,"/booking/OwnBookingsProvider":`export const useRefreshOwnBookings=()=>()=>{};`,"/analytics":`export const track=()=>{};`,
   "/api/driver":`export const setDriverStatus=async(id,status)=>{const f=globalThis.__finishGrant;f.order.push("HTTP");f.phases.push([id,status]);f.status="done";return {ok:true};};`,

@@ -159,6 +159,7 @@ internal suspend fun restoreBookingSnapshotNavigation(
                     chatOpen = chatOpen, onChatOpenChange = { if (currentLive()) vm.showTripChat(it) },
                     onBack = { if (currentLive()) onBack() }, onTripEnd = { if (currentLive()) onTripEnd() },
                     onDriverFinished = { id -> if (currentLive()) vm.driverFinishedBooking(id) else false },
+                    driverStageScope = scope,
                     onSos = { if (currentLive()) onSos() }, onSupport = { if (currentLive()) onSupport() },
                     onTrustedContacts = { if (currentLive()) onTrustedContacts() }, onTripStopped = { if (currentLive()) onTripStopped() },
                     onOpenReceipt = { if (currentReceipt(it)) onOpenReceipt(it) })

@@ -82,7 +82,6 @@ import androidx.compose.material.icons.filled.ChildCare
 import androidx.compose.material.icons.filled.Woman
 import androidx.compose.material.icons.filled.SmokingRooms
 import androidx.compose.material.icons.filled.Luggage
-import androidx.compose.material.icons.filled.AcUnit
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material.icons.filled.AddBox
 import androidx.compose.material.icons.filled.Bolt
@@ -271,6 +270,7 @@ import com.yandex.mapkit.map.MapObjectTapListener
 import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.DriverStageApi
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.MeetingPointInput
@@ -1427,6 +1427,7 @@ internal fun ActiveTripContent(
     chatOpen: Boolean?, onChatOpenChange: ((Boolean) -> Unit)?,
     terminalHint: ActiveTripTerminalHint?,
     onTripStopped: () -> Unit, onTrustedContacts: () -> Unit, onDriverFinished: (suspend (Int) -> Boolean)?,
+    driverStageScope: kotlinx.coroutines.CoroutineScope? = null,
     isCurrentParent: (() -> Boolean)?,
     isCurrentReceiptParent: (() -> Boolean)?,
 ) {
@@ -1737,16 +1738,48 @@ internal fun ActiveTripContent(
     // Один шов для всех status-CTA: новая закреплённая кнопка B и старые сценарии используют
     // тот же серверный переход, очередь без сети и очистку офлайн-паспорта.
     val gpsAction = rememberDriverGpsAction(bookingId)
+    val stageRecovery = rememberDriverStageRecovery(tripSession, role == "driver" && bookingId != null, bookingId)
     fun updateTripStatus(st: String) {
         val bid = bookingId
         if (!isTripChatActive()) return
         val queueSession = tripSession
+        val driverStage = if (role == "driver") when (st) {
+            "boarded" -> DriverStageApi.Stage.Boarded
+            "done" -> DriverStageApi.Stage.Done
+            else -> null
+        } else null
+        if (driverStage != null && bid != null && stageRecovery.blocked(bid)) {
+            if (st == "done") { driverFinishing = false; showDriverFinishConfirmation = false }
+            return
+        }
         val gpsTicket = if (role == "driver" && bid != null) gpsAction.begin(bid) else null
         if (role == "driver") {
             if (bid == null) {
                 bookingStatus = when (st) { "done" -> "done"; "boarded" -> "onboard"; else -> bookingStatus }
-            } else voiceScope.launch { try {
+            } else (if (driverStage != null) driverStageScope ?: voiceScope else voiceScope).launch { try {
                 if (!isTripSessionCurrent()) return@launch
+                if (driverStage != null) {
+                    stageRecovery.busy = true
+                    stageRecovery.feedback = null
+                    stageRecovery.error = null
+                    val result = DriverStageApi.advance(queueSession, bid, driverStage)
+                    if (!ApiClient.isCurrentSession(queueSession)) return@launch
+                    val fresh = result.getOrNull()?.trip
+                    val terminal = fresh?.status in setOf("done", "cancelled")
+                    if (terminal) DriverGpsActions.closed(bid)
+                    gpsAction.finish(gpsTicket, if (st == "done") terminal else fresh?.status == "onboard", closed = terminal)
+                    if (fresh?.status == "done" && onDriverFinished?.invoke(bid) == true) return@launch
+                    if (!isTripSessionCurrent()) return@launch
+                    result.onSuccess { stageRecovery.feedback = it }.onFailure { stageRecovery.error = it }
+                    stageRecovery.reload++
+                    if (fresh != null && acceptBookingStatus(fresh.status, fresh.boardingUndo, fresh.boardingUndoSec)) {
+                        boardingGate.actionCommitted()
+                        role = fresh.role; driverPhase = fresh.driverPhase; arrivalVerified = fresh.arrivalVerified
+                        aloneWithDriver = fresh.aloneWithDriver; peerId = fresh.peerId; boardingUndoSec = fresh.boardingUndoSec
+                        inTransit.accept(fresh)
+                    }
+                    return@launch
+                }
                 ApiClient.driverStatus(bid, st)
                     .also { gpsAction.finish(gpsTicket, it.isSuccess, closed = st == "done") }
                     .onSuccess {
@@ -1782,7 +1815,13 @@ internal fun ActiveTripContent(
                                            Toast.LENGTH_LONG).show()
                         }
                     }
-            } finally { if (st == "done") { driverFinishing = false; showDriverFinishConfirmation = false } } }
+            } finally {
+                if (driverStage != null) {
+                    DriverGpsActions.fail(gpsTicket)
+                    stageRecovery.busy = false
+                }
+                if (st == "done") { driverFinishing = false; showDriverFinishConfirmation = false }
+            } }
         } else {
             val previousStatus = status
             status = st
@@ -1839,6 +1878,11 @@ internal fun ActiveTripContent(
             fallbackPayAmount = payAmount,
             isCurrentParent = ::isTripSessionCurrent,
             isCurrentReceiptParent = ::isTripReceiptSessionCurrent,
+            driverStageRecovery = if (role == "driver" && stageRecovery.visible) ({
+                DriverStageRecovery(tripSession, stageRecovery, driverStageScope) { id, fresh ->
+                    if (fresh.status == "done") onDriverFinished?.invoke(id)
+                }
+            }) else null,
             onClose = onTripEnd,
             onOpenReceipt = { onOpenReceipt(bookingId) },
             onSupport = onSupport,
@@ -1913,10 +1957,14 @@ internal fun ActiveTripContent(
             if (canChangeTripStatus) {
                 ActiveTripDecisionBar(
                     primaryText = activeTripActionLabel(nextTripStatus),
+                    primaryEnabled = role != "driver" || bookingId == null || nextTripStatus !in setOf("boarded", "done") || !stageRecovery.blocked(bookingId),
+                    finishEnabled = bookingId == null || !stageRecovery.blocked(bookingId),
                     onMessage = { showChatView(true) },   // переписка — отдельным экраном, как в мессенджерах
                     unread = chat.unread,
                     onPrimary = {
-                        if (isTripSessionCurrent()) {
+                        if (isTripSessionCurrent() &&
+                            (role != "driver" || bookingId == null || nextTripStatus !in setOf("boarded", "done") ||
+                                !stageRecovery.blocked(bookingId))) {
                             if (role == "driver" && nextTripStatus == "done") showDriverFinishConfirmation = true
                             else updateTripStatus(nextTripStatus)
                         }
@@ -1924,7 +1972,11 @@ internal fun ActiveTripContent(
                     finishText = if (activeTripShowsDriverFinish(role, driverPhase, nextTripStatus)) {
                         appText("Завершить поездку", "Сәфәрҙе тамамлау")
                     } else null,
-                    onFinish = { if (isTripSessionCurrent()) showDriverFinishConfirmation = true },
+                    onFinish = {
+                        if (isTripSessionCurrent() && (bookingId == null || !stageRecovery.blocked(bookingId))) {
+                            showDriverFinishConfirmation = true
+                        }
+                    },
                     boarding = activeTripBoardingSlot(role, bookingStatus, bookingId, peerId, if (role == "driver") "" else ride?.driver.orEmpty().ifBlank { tripPass?.driverName.orEmpty() },
                         boardingUndoSec, undoTerms = boardingUndo, onUndone = { r -> if (isTripSessionCurrent() && boardingGate.resultIsCurrent(bookingStatus, r) && acceptBookingStatus(r.status, r.undo, r.undoSec)) boardingGate.actionCommitted() }),
                 )
@@ -1932,11 +1984,23 @@ internal fun ActiveTripContent(
         },
     ) { padding ->
         LazyColumn(
-            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding(),  // поле отзыва (демо без брони) не прячется за клавиатурой
+            modifier = Modifier.padding(padding).padding(horizontal = 16.dp).imePadding().testTag("activeTripList"), // поле отзыва (демо без брони) не прячется за клавиатурой
             state = activeTripListState,
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(bottom = 24.dp)
         ) {
+            if (role == "driver" && stageRecovery.visible) item(key = "trip-driver-stage-recovery") {
+                DriverStageRecovery(tripSession, stageRecovery, driverStageScope) { id, fresh ->
+                    if (fresh.status == "done") onDriverFinished?.invoke(id)
+                    if (id == bookingId && isTripSessionCurrent() &&
+                        acceptBookingStatus(fresh.status, fresh.boardingUndo, fresh.boardingUndoSec)) {
+                        boardingGate.actionCommitted()
+                        role = fresh.role; driverPhase = fresh.driverPhase; arrivalVerified = fresh.arrivalVerified
+                        aloneWithDriver = fresh.aloneWithDriver; peerId = fresh.peerId; boardingUndoSec = fresh.boardingUndoSec
+                        inTransit.accept(fresh)
+                    }
+                }
+            }
             if (role == "driver" && bookingId != null && bookingStatus in setOf("confirmed", "onboard")) item(key = "driver-gps-share") { DriverRideShareButton(bookingId, pickupDetails?.rideId ?: 0) }
             item(key = "boarding-code-save") {
                 AnimatedVisibility(visible = codeSaveFailed && terminalBooking == null) {
@@ -2420,70 +2484,6 @@ internal fun parseIsoUtcMillis(iso: String): Long? = try {
     }
 } catch (e: Exception) {
     null
-}
-
-/** F12 «Зимний протокол»: сейчас морозная ночь? Зима по МЕСЯЦУ (ноя–мар) + ночное время
- *  (20:00–07:00) по календарю устройства. Без внешних API/погоды в v1 — простое и честное правило. */
-internal fun isFrostyWinterNight(now: java.util.Calendar = java.util.Calendar.getInstance()): Boolean {
-    val month = now.get(java.util.Calendar.MONTH)   // 0=янв … 11=дек
-    val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
-    val winter = month == java.util.Calendar.NOVEMBER || month == java.util.Calendar.DECEMBER ||
-        month == java.util.Calendar.JANUARY || month == java.util.Calendar.FEBRUARY || month == java.util.Calendar.MARCH
-    val night = hour >= 20 || hour < 7
-    return winter && night
-}
-
-/** Спокойный баннер морозной ночи: напомнить взять тепло и проверить заряд. Тон — заботливый, не тревожный. */
-@Composable
-internal fun FrostyNightBanner(modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = CanonMint),
-        shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.flat),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.AcUnit, contentDescription = appText("Морозная ночь", "Һыуыҡ төн"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText("Морозная ночь", "Һыуыҡ төн"), fontWeight = FontWeight.Bold, color = CanonGreen2)
-                Text(
-                    appText(
-                        "Возьми тёплые вещи и проверь заряд телефона перед дорогой. Поделись поездкой со своими.",
-                        "Йылы кейем ал һәм юлға сыҡҡанға тиклем телефон зарядын тикшер. Сәфәреңде үҙеңдекеләр менән уртаҡлаш.",
-                    ),
-                    color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
-                )
-            }
-        }
-    }
-}
-
-/** F12 «Застрял на трассе»: заметная, но спокойная (амбер), отдельный уровень от красной паники SOS.
- *  Состояния: обычная / отправка / отправлено. Двуязычие внутри. */
-@Composable
-internal fun RoadsideHelpButton(sending: Boolean, sent: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier) {
-    OutlinedButton(
-        onClick = onClick,
-        enabled = !sending && !sent,
-        modifier = modifier.fillMaxWidth().heightIn(min = 50.dp),
-        shape = RoundedCornerShape(14.dp),
-        colors = ButtonDefaults.outlinedButtonColors(containerColor = CanonWarnBg, contentColor = CanonWarn),
-        border = BorderStroke(1.dp, CanonWarn),
-    ) {
-        if (sending) {
-            CircularProgressIndicator(modifier = Modifier.size(18.dp), strokeWidth = 2.dp, color = CanonWarn)
-            Spacer(Modifier.width(8.dp))
-            Text(appText("Отправляем…", "Ебәрелә…"), color = CanonWarn, fontWeight = FontWeight.Bold)
-        } else {
-            Icon(if (sent) Icons.Default.CheckCircle else Icons.Default.Warning, contentDescription = null, tint = CanonWarn, modifier = Modifier.size(20.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(
-                if (sent) appText("Помощь позвана", "Ярҙам саҡырылды") else appText("Застрял на трассе", "Юлда ҡалдым"),
-                color = CanonWarn, fontWeight = FontWeight.Bold,
-            )
-        }
-    }
 }
 
 @Composable
