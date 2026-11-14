@@ -635,6 +635,7 @@ def search_rides(
     women_only: Optional[bool] = None,
     baggage: Optional[bool] = None,
     date: Optional[date_type] = None,   # F4: «когда едем» — только поездки этого дня (YYYY-MM-DD)
+    seats: int = Query(1, ge=1, le=8),
     limit: Optional[int] = None,        # пагинация (опц., обратносовместимо: None = все)
     offset: int = 0,
     user: Optional[User] = Depends(current_user_optional),   # есть токен → прячем заблокированных
@@ -646,7 +647,7 @@ def search_rides(
     # фильтр заблокированных — поверх, per-user (кеш не портим).
     no_filter = (
         not any([from_city, to_city, category, pets_allowed, child_seat, women_only, baggage, date])
-        and limit is None
+        and seats == 1 and limit is None
     )
     if no_filter:
         cached = cache_get_json("rides:active:v3")   # v3: +terms_version/seats_by_leg (RS-02 А)
@@ -664,7 +665,7 @@ def search_rides(
         # сразу занятой под одного пассажира и всё равно висела в списке. Человек открывает
         # карточку, жмёт «Забронировать» и получает отказ — выглядит как поломка приложения.
         # RS-02 А: «место есть» = на всём пути ИЛИ хотя бы на одном участке.
-        ride_seats.any_free_sql(),
+        ride_seats.any_free_sql(seats),
     )
     # «Откуда»/«Куда» — и по остановкам (18.10.2026, `stop_search`): широкое условие в SQL, точная
     # проверка порядка и допустимых остановок — `route_fit` после выборки.
@@ -738,7 +739,7 @@ def search_rides(
                     # RS-02 А: место нужно на участке запроса; участок неоднозначен —
                     # общий отсев «хоть на одном» уже сделан в SQL.
                     sp = _definite_span(row, fit, entry)
-                    if sp is not None and ride_seats.free_on(row, (sp[0], sp[1]), sp[2]) < 1:
+                    if sp is not None and ride_seats.free_on(row, (sp[0], sp[1]), sp[2]) < seats:
                         continue
                     fits[row.id] = fit
                     page_ids.append(row.id)
@@ -1156,6 +1157,7 @@ def rides_near(
     lng: Optional[float] = None,
     radius_km: Optional[float] = None,
     date: Optional[date_type] = None,   # F4: «когда едем» — только поездки этого дня (YYYY-MM-DD)
+    seats: int = Query(1, ge=1, le=8),
     limit: Optional[int] = None,        # пагинация «показать ещё» (опц., None = все)
     offset: int = 0,
     conditions: Optional[str] = None,   # условия пассажира через запятую: child,pets,baggage,ac,nosmoke,quiet,women
@@ -1236,6 +1238,7 @@ def rides_near(
     dist_by_id: dict = {}
     matched_by_id: dict = {}
     dropoff_by_id: dict = {}
+    free_by_id: dict[int, int] = {}
     by_query = any(fv for fv, *_ in routes)
     # Ответ по поездке зависит только от её маршрута (запрос и точка человека на весь вызов одни):
     # считаем один раз на «вид маршрута», а не на каждую из 12 000 строк (P2-2, приёмка PR #188 —
@@ -1259,13 +1262,16 @@ def rides_near(
             continue
         # RS-02 А: место нужно на участке запроса; участок неоднозначен — «хоть на одном» уже в SQL.
         sp = _marks_span(r, matched, dropoff, entry)
-        if sp is not None and ride_seats.free_on(r, (sp[0], sp[1]), sp[2]) < 1:
+        free = ride_seats.free_on(r, (sp[0], sp[1]), sp[2]) if sp is not None else None
+        if free is not None and free < 1:
             continue
         if radius_km is not None and dist is not None and dist > radius_km:
             continue
         dist_by_id[r[0]] = dist
         matched_by_id[r[0]] = matched
         dropoff_by_id[r[0]] = dropoff
+        if seats > 1:
+            free_by_id[r.id] = free if free is not None else ride_seats.max_free(r)
         kept.append(r)
     # Прячем до подсчёта total/пагинации: заблокированных, водителей на паузе (бронь им всё
     # равно не подтвердить) и «только для своих» (видит лишь L3). Связку с клиникой снимаем
@@ -1277,9 +1283,20 @@ def rides_near(
     # а не голое «поездок нет». Старое приложение лишнее поле просто не читает.
     hidden_unverified: Optional[int] = None
     if verified_only:
-        shown = [r for r in kept if r.driver_ok]
-        hidden_unverified = len(kept) - len(shown)
-        kept = shown
+        hidden_unverified = sum(
+            not r.driver_ok and (seats == 1 or free_by_id[r.id] >= seats) for r in kept
+        )
+        kept = [r for r in kept if r.driver_ok]
+    seat_summary: dict = {}
+    if seats > 1:
+        short = [free_by_id[r.id] for r in kept if 0 < free_by_id[r.id] < seats]
+        most = max(short, default=None)
+        seat_summary = {
+            "hidden_by_seats": len(short),
+            "max_free_seats": most,
+            "count_at_max_free": short.count(most) if most is not None else 0,
+        }
+        kept = [r for r in kept if free_by_id[r.id] >= seats]
     total = len(kept)
     eff_limit = min(max(1, limit), 200) if limit is not None else DEFAULT_FEED_LIMIT
     page_ids = [r.id for r in kept[max(0, offset):max(0, offset) + eff_limit]]
@@ -1308,7 +1325,7 @@ def rides_near(
     # бесследно терялась. Поймано пробой: лента уже молчала, а «рядом» всё ещё отдавало
     # `partner_id` анониму (аудит 2026-08-08, волна 22).
     items = hide_health_hint(items, user)
-    out: dict = {"count": total, "items": items}   # count = всего (чтобы клиент знал, есть ли «ещё»)
+    out: dict = {"count": total, "items": items, **seat_summary}   # count = всего (есть ли «ещё»)
     if hidden_unverified is not None:
         out["hidden_unverified"] = hidden_unverified   # только при verified_only: без фильтра прятать нечего
     return out
