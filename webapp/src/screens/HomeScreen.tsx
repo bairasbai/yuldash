@@ -11,6 +11,10 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { getSessionGeneration } from "../api/client";
+import { readSearchHistory, recordSearch, subscribeSearchHistory } from "../utils/searchHistory";
+import { SEARCH_HISTORY_KEY } from "../utils/privacy";
+import { storageFenced } from "../utils/storageHealth";
 import { useLang } from "../i18n/lang";
 import ScreenHeader from "../components/ScreenHeader";
 import ModeSwitch from "../components/ModeSwitch";
@@ -58,9 +62,31 @@ export default function HomeScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
-  const { isAuthed } = useAuth();
-
-  const { user } = useAuth();
+  const { isAuthed, user } = useAuth();
+  const searchOwner = getSessionGeneration();
+  const nearbyHeader = useRef<HTMLDivElement>(null);
+  const [historyOwner, setHistoryOwner] = useState("");
+  const hasHistory = !!searchOwner && historyOwner === searchOwner && !storageFenced();
+  useEffect(() => {
+    let revision = 0;
+    const refresh = () => {
+      const requested = ++revision;
+      void readSearchHistory(searchOwner).then(rows => {
+        if (requested === revision) setHistoryOwner(rows?.length ? searchOwner : "");
+      });
+    };
+    const onStorage = (event: StorageEvent) => {
+      if (event.key === SEARCH_HISTORY_KEY || event.key === null) refresh();
+    };
+    const stop = subscribeSearchHistory(refresh);
+    window.addEventListener?.("storage", onStorage);
+    refresh();
+    return () => {
+      revision++;
+      stop();
+      window.removeEventListener?.("storage", onStorage);
+    };
+  }, [searchOwner]);
 
   // Запуск волнами: пока доставка выключена, вкладка «Курьер» остаётся на главной и говорит
   // «скоро» на месте, а не ведёт в экран посылок, где всё упирается в отказ сервера.
@@ -133,6 +159,13 @@ export default function HomeScreen() {
   const [reloadTick, setReloadTick] = useState(0);
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
   const cityFilter = useNearbyCityFilter(reloadTick);
+  const previousSearchOwner = useRef(searchOwner);
+  useEffect(() => {
+    if (previousSearchOwner.current === searchOwner) return;
+    previousSearchOwner.current = searchOwner;
+    cityFilter.clear();
+  }, [searchOwner, cityFilter.clear]);
+
 
   /** Поиск с сохранённой настройкой: по его ключу (без места) «Показать» действует только здесь. */
   const savedFilters = useMemo<NearbyFilters>(
@@ -377,10 +410,11 @@ export default function HomeScreen() {
           Ряд виден, пока есть что фильтровать, или включён хоть один фильтр (путь назад), или на
           сервере есть города с поездками — «Откуда» ведёт к ним, даже если рядом пусто.
           «Когда» видно ВСЕГДА: это путь назад со «Сегодня» на «Все дни». */}
-      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0, citiesOffered: cityFilter.offered, nearOnly }) && (
+      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0, citiesOffered: cityFilter.offered || hasHistory, nearOnly }) && (
         <div className="nearby-filters">
           <div className="nearby-filters__row" role="group" aria-label={appText("Фильтры ленты", "Таҫма фильтрҙары")}>
-            <NearbyCityChips filter={cityFilter} />
+            <NearbyCityChips key={searchOwner} filter={cityFilter} hasHistory={hasHistory}
+              onRepeat={() => requestAnimationFrame(() => nearbyHeader.current?.scrollIntoView({ block: "start" }))} />
             <NearbyWhenChip day={day} onChange={setDay} />
             <NearbyConditionsChip chosen={conditions} onChange={setConditions} verifiedOnly={verifiedOnly} total={total} />
             {/* Только в вебе: браузер не знает место без разрешения — чип просит его и сужает выдачу. */}
@@ -459,7 +493,13 @@ export default function HomeScreen() {
                 key={`${r.from.id}-${r.to.id}`}
                 type="button"
                 className="chip"
-                onClick={() => navigate(`/rides/feed?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`)}
+                onClick={() => {
+                  void recordSearch(searchOwner, {
+                    from: [r.from.name_ru], to: [r.to.name_ru],
+                    labels: { [r.from.name_ru]: r.from.name_ba ?? "", [r.to.name_ru]: r.to.name_ba ?? "" },
+                  }, false);
+                  navigate(`/rides/feed?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`);
+                }}
               >
                 {a} → {b}
               </button>
@@ -473,7 +513,7 @@ export default function HomeScreen() {
           Числа настоящие, с сервера; пусто — полосы просто нет. */}
       <CommunityFeedStrip />
 
-      <div className="nearby-header">
+      <div ref={nearbyHeader} className="nearby-header">
         <h2 className="section-title">{appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр")}</h2>
         {rides.length > 0 && (
           <span className="nearby-header__count">{appText(`${shownRides.length} рядом`, `${shownRides.length} яҡында`)}</span>

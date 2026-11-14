@@ -82,8 +82,8 @@
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
-    "pwa_main": 339,
-    "test_support": 1315
+    "pwa_main": 341,
+    "test_support": 1316
   },
   "counts_by_block": {
     "B01": 171,
@@ -94,7 +94,7 @@
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 760,
+    "B09": 763,
     "B10": 415,
     "B11": 92
   },
@@ -14433,8 +14433,8 @@
       "path": "webapp/src/auth/AuthProvider.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "bdfa8efbdf8dcada156f902b82a53fc33b059df1ff82a09aac8a4775afb0dae6",
-      "lines": 242
+      "sha256": "457de07c7105ecf66cb27465e32caacf1a56fc219dc300f3d7e0bf1d78e73764",
+      "lines": 243
     },
     {
       "path": "webapp/src/benefitOwner.ts",
@@ -14692,8 +14692,8 @@
       "path": "webapp/src/components/NearbyFilters.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "60179829e46639b832bd89dd9661e512cb04cf03009a438f7ca381b20751a240",
-      "lines": 400
+      "sha256": "f4949fae2341697707e8013e0d98a33a50ee70c3e530219aeb5285dd73e52691",
+      "lines": 435
     },
     {
       "path": "webapp/src/components/NearbyRideCard.tsx",
@@ -14960,6 +14960,13 @@
       "block": "B09",
       "sha256": "bf6f69040e459faab6354da56f9ab48d822da193db63b101c5bbb6ab3327bae5",
       "lines": 26
+    },
+    {
+      "path": "webapp/src/components/SearchHistory.tsx",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "20ce7cf170da49f57bc016348729aa867e0131920d295c8842460f454317f760",
+      "lines": 158
     },
     {
       "path": "webapp/src/components/SeatOptions.tsx",
@@ -15637,8 +15644,8 @@
       "path": "webapp/src/screens/HomeScreen.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "cc68161b451594289ffc60d50cd89cbdf75a2c54d1e7c014b2185a1b0b6b13ca",
-      "lines": 549
+      "sha256": "b36a030178af704b5e42e3fd1823c21207b2d80f47d9dc9db258369d9db35b61",
+      "lines": 589
     },
     {
       "path": "webapp/src/screens/IncidentDetailScreen.tsx",
@@ -16078,8 +16085,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "062913b19233aafffa4c0a2b2db722e59ef5735d7e582b242af50d767dfd03b2",
-      "lines": 21126
+      "sha256": "dbc1ae7cebc5654f603cc66bb62a13b8ac6dda299ac16ac6fe35426a06f06932",
+      "lines": 21175
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -16330,8 +16337,8 @@
       "path": "webapp/src/utils/privacy.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "e1ea45740247ad5491b45295700580c682ec5f9968d97a4c404111be2d889d92",
-      "lines": 88
+      "sha256": "adeae4ccdd30ac76ad34325a7dc4d639c525fa4301061b0a302db596c79fb29b",
+      "lines": 97
     },
     {
       "path": "webapp/src/utils/profileRole.ts",
@@ -16346,6 +16353,13 @@
       "block": "B02",
       "sha256": "00ed084829105b5dd226e9d235b5e0b30dd86e1ecf866a3207daac966c9758dd",
       "lines": 26
+    },
+    {
+      "path": "webapp/src/utils/searchHistory.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "bec415593123fc70c8843fe52249ce3c3d290b6898bee251353afe5b29d106b5",
+      "lines": 135
     },
     {
       "path": "webapp/src/utils/seatOptions.ts",
@@ -16547,14 +16561,14 @@
       "path": "webapp/tests/auth-provider-cross-tab-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "a2f63bdd263b99c331daff929fe9506d54577d823425dbd341b1499bbd906977",
+      "sha256": "d20f159e291c4f1cac4bf148759cb99b8ec4eb73dd41a122e808cd5615fc6fea",
       "lines": 124
     },
     {
       "path": "webapp/tests/auth-provider-session-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "466ae9d2d7ddf7a0239d0ba58b088618f91816bd7c1855d1bfe9f3742943fefa",
+      "sha256": "f5913d339e209a5c0e1422ab03a214daf874ef70cfae7a12a14a8693a73d2fce",
       "lines": 95
     },
     {
@@ -16995,7 +17009,7 @@
       "path": "webapp/tests/logout-without-worker-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "b9395b76507a5a3b369c6af1c2456c07bca4dea4f48037a025ec9bd5abf04933",
+      "sha256": "57075068550b2f53ef928db506bdeee4fd2b59c4fbab244e5eb1d3688c881847",
       "lines": 67
     },
     {
@@ -17037,7 +17051,7 @@
       "path": "webapp/tests/nearby-feed-tails-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "364be69dc374134a91fc488d3877868b0cfeb7d3406112f893ed9c291e12fc45",
+      "sha256": "39a9e908cc979803124bdd48244f247e44a38261040fe402ff18b99d3cbd6867",
       "lines": 580
     },
     {
@@ -17233,15 +17247,15 @@
       "path": "webapp/tests/privacy-guard-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "222f372004539c06e0ce82be31065e2db26bbc8cdb56670f799fea6fcf3ef938",
-      "lines": 131
+      "sha256": "ade8cb55640916be352b224a5e3fd946050a6f2580514361d7e8e059a3c50980",
+      "lines": 135
     },
     {
       "path": "webapp/tests/privacy-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "81359977efd9315b06a5bcdb6e1b51dd8a79082c77dfd76802a333da794d0f84",
-      "lines": 97
+      "sha256": "36be7613d592be35f4af835e52a52e4e5bcf68fd3fca744e48f6e9eaeb8c0cd5",
+      "lines": 102
     },
     {
       "path": "webapp/tests/profile-role-test.mjs",
@@ -17331,8 +17345,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7ab04c7807200bee078d355b3aefd8188831ee12bb66b3bd687553790dbc1585",
-      "lines": 341
+      "sha256": "218163a571d3f67a5e7993e21972cacee9afe8728dfec182b04c1a869bbeb5f9",
+      "lines": 342
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",
@@ -17340,6 +17354,13 @@
       "block": "B09",
       "sha256": "9f6d502580f1b9bff91a7cfaf7e168791438eb37940171989a7d2e654741e6e4",
       "lines": 77
+    },
+    {
+      "path": "webapp/tests/search-history-test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "9454c718379fffeb1a46ac2d1fa6031818909823e32d0aa906283f56672dfd78",
+      "lines": 118
     },
     {
       "path": "webapp/tests/seat-options-test.mjs",
