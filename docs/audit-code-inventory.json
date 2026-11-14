@@ -881,7 +881,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingSeatCount.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "6d4250b044dfca1c5665fc7463985b28a17355cdca3eb822c4754c4693ec6f55",
+      "sha256": "9d31ff6f841d7248c145aa5054f688e55b2835e4aa483fc38dd7f024f7b18499",
       "lines": 111
     },
     {
@@ -1945,8 +1945,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "f240d2dfa58f0589d631f1f1373537b06483b8549a80262d16cab85af7b9a614",
-      "lines": 2718
+      "sha256": "0d8522246aa46b19b432331d6289d96f68fa9dbc2d83cd4f2a6f028e01c9705f",
+      "lines": 2720
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1959,8 +1959,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashViewModel.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "a002d0d9f011a322a8d0a9c664158b190e2c445c6507e19d52aa134fd7f7a483",
-      "lines": 494
+      "sha256": "612b9d2e612d8998e21adaa577de96f835e04077796ae78ed8ccb5d346def2fe",
+      "lines": 499
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/Analytics.kt",
@@ -3380,8 +3380,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/HomeBookingNavigationTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "f2dbcc9c2272ad0e56b5d9330d885f8772642353cac31ef96700cae6843685fe",
-      "lines": 666
+      "sha256": "024c23740d72aeba0c7cb0a9a476ebd70445077356c411143e95346df047ba0e",
+      "lines": 667
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/HomeDestinationBoundaryTest.kt",

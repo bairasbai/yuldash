@@ -24,7 +24,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 
 @Composable
-internal fun rememberBookingSeats(revision: Long, initial: Int) = key(revision) {
+internal fun rememberBookingSeats(searchSelection: Int, initial: Int) = key(searchSelection, initial) {
     rememberSaveable { mutableIntStateOf(initial) }
 }
 
