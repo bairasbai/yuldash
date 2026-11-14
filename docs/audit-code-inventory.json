@@ -17296,8 +17296,8 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "6128eac773675b95d55ed758ed1d7d6a1f1509437ef9398c99c4d9dbdc95e2a2",
-      "lines": 289
+      "sha256": "43eb987a6e8370ef206b257ff79a5b4b68cb5cc9f6a04eafcbaba4796e66e717",
+      "lines": 296
     },
     {
       "path": "webapp/tests/passenger-trip-location-test.mjs",
