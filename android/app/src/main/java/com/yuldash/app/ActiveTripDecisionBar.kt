@@ -44,6 +44,8 @@ internal fun ActiveTripDecisionBar(
     onFinish: () -> Unit = {},
     unread: Int = 0,   // новые сообщения собеседника — бейдж на «Написать», чтобы не пропустить
     boarding: (@Composable () -> Unit)? = null,
+    primaryEnabled: Boolean = true,
+    finishEnabled: Boolean = true,
 ) {
     val largeText = LocalDensity.current.fontScale >= 1.2f
     Surface(color = CanonSurface, shadowElevation = CanonDepth.sheet) {
@@ -60,7 +62,7 @@ internal fun ActiveTripDecisionBar(
                     )
                     if (unread > 0) UnreadBadge(unread, Modifier.align(Alignment.TopEnd).offset(x = CanonSpace.xs, y = -CanonSpace.xs))
                 }
-                if (primaryText != null) AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight)
+                if (primaryText != null) AppButton(text = primaryText, onClick = onPrimary, icon = Icons.Default.KeyboardArrowRight, enabled = primaryEnabled)
             } else {
                 Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     Box(Modifier.weight(0.9f).fillMaxHeight()) {
@@ -77,6 +79,7 @@ internal fun ActiveTripDecisionBar(
                         AppButton(
                             text = primaryText,
                             onClick = onPrimary,
+                            enabled = primaryEnabled,
                             modifier = Modifier.weight(1.35f).fillMaxHeight(),
                             icon = Icons.Default.KeyboardArrowRight,
                             fillWidth = false,
@@ -88,6 +91,7 @@ internal fun ActiveTripDecisionBar(
                 AppButton(
                     text = finishText,
                     onClick = onFinish,
+                    enabled = finishEnabled,
                     style = AppButtonStyle.Secondary,
                     height = 48.dp,
                 )

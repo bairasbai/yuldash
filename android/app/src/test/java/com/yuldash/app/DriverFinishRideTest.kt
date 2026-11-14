@@ -9,6 +9,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.TripPassAuthorityFixture
 import com.yuldash.app.data.MemoryDiskPreferences
@@ -66,16 +67,17 @@ class DriverFinishRideTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    request.method == "GET" && path == "/me" -> json("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
                     request.method == "GET" && path == "/bookings/7707/role" -> json(
                         """{"role":"driver","status":"$bookingStatus","driver_phase":"departed","arrival_verified":false,"alone_with_driver":false}"""
                     )
                     request.method == "GET" && path == "/bookings/7707/messages" -> json("""{"items":[]}""")
                     request.method == "GET" && path == "/bookings/7707/boarding-code" -> json("""{"code":"1234"}""")
                     request.method == "GET" && path == "/bookings/7707/details" -> json("""{"booking_id":7707,"ride_id":7,"role":"driver","status":"$bookingStatus","contact_unlocked":true,"pay_method":"negotiate","from_city":"А","to_city":"Б","depart_at":"2026-11-20T09:00:00Z","seats":1,"price":500}""")
-                    request.method == "POST" && path == "/bookings/7707/driver-status" -> {
+                    request.method == "POST" && path in setOf("/bookings/7707/driver-status", "/bookings/7707/commands/v1/driver-status") -> {
                         sent += request.body.readUtf8()
                         bookingStatus = "done"
-                        json("""{"ok":true,"status":"done"}""")
+                        json("""{"ok":true,"id":7707,"status":"done"}""")
                     }
                     path == "/trips/7707/receipt" -> json("""{"booking_id":7707,"ride_id":7,"role":"driver","amount":700,"paid":false}""")
                     path == "/bookings/7707/tip" -> json("""{"already_thanked":false}""")
@@ -85,6 +87,7 @@ class DriverFinishRideTest {
         }
         server.start()
         TripPassAuthorityFixture.installSession(server.url("/").toString().trimEnd('/'), 7)
+        BookingCommandApi.init(MemoryDiskPreferences())
         runBlocking {
             ApiClient.getTripState(7707).getOrThrow()
             val details = ApiClient.getBookingDetails(7707).getOrThrow()

@@ -11,6 +11,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.TripPassAuthorityFixture
 import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.data.MemoryDiskPreferences
@@ -63,6 +64,7 @@ class AuditDelta07DriverFinishTest {
     private lateinit var server: MockWebServer
     private val sentStatuses = Collections.synchronizedList(mutableListOf<String>())
     private val mounted = mutableStateOf(true)
+    @Volatile private var bookingStatus = "confirmed"
 
     @Before
     fun setup() {
@@ -76,15 +78,16 @@ class AuditDelta07DriverFinishTest {
             override fun dispatch(request: RecordedRequest): MockResponse {
                 val path = request.path.orEmpty()
                 return when {
+                    request.method == "GET" && path == "/me" -> json("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
                     request.method == "GET" && path == "/bookings/7707/role" -> json(
-                        """{"role":"driver","status":"confirmed","driver_phase":"departed","arrival_verified":false,"alone_with_driver":false}"""
+                        """{"role":"driver","status":"$bookingStatus","driver_phase":"departed","arrival_verified":false,"alone_with_driver":false}"""
                     )
                     request.method == "GET" && path == "/bookings/7707/messages" -> json("""{"items":[]}""")
                     request.method == "GET" && path == "/bookings/7707/boarding-code" -> json("""{"code":""}""")
                     request.method == "GET" && path == "/bookings/7707/details" -> json(
                         """{"booking_id":7707,"ride_id":7,"role":"driver","status":"confirmed","contact_unlocked":true}"""
                     )
-                    request.method == "POST" && path == "/bookings/7707/driver-status" -> {
+                    request.method == "POST" && path in setOf("/bookings/7707/driver-status", "/bookings/7707/commands/v1/driver-status") -> {
                         val body = request.body.readUtf8()
                         sentStatuses += body
                         when {
@@ -92,7 +95,10 @@ class AuditDelta07DriverFinishTest {
                                 """{"detail":"too far"}""",
                                 code = 409,
                             )
-                            body.contains("\"status\":\"done\"") -> json("""{"ok":true,"status":"done"}""")
+                            body.contains("\"status\":\"done\"") -> {
+                                bookingStatus = "done"
+                                json("""{"ok":true,"id":7707,"status":"done"}""")
+                            }
                             else -> json("""{"detail":"unexpected status"}""", code = 422)
                         }
                     }
@@ -104,6 +110,7 @@ class AuditDelta07DriverFinishTest {
         serverStarted = true
         TripPassAuthorityFixture.installSession(
             server.url("/").newBuilder().host("127.0.0.1").build().toString().trimEnd('/'), 7)
+        BookingCommandApi.init(MemoryDiskPreferences())
         sessionInstalled = true
         ApiClient.testTimeoutMs = 1_000
         ApiClient.testTrace = ownTrace

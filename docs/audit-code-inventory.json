@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 224,
+    "android_main": 230,
     "backend_main": 112,
     "infra_resource_config": 415,
     "public_site_promo": 91,
     "pwa_main": 342,
-    "test_support": 1317
+    "test_support": 1320
   },
   "counts_by_block": {
-    "B01": 171,
-    "B02": 334,
+    "B01": 172,
+    "B02": 339,
     "B03": 123,
     "B04": 82,
     "B05": 62,
-    "B06": 102,
+    "B06": 103,
     "B07": 144,
-    "B08": 216,
-    "B09": 760,
+    "B08": 217,
+    "B09": 761,
     "B10": 415,
     "B11": 92
   },
@@ -657,8 +657,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDecisionBar.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "ea92bf7db458825bac7bf1757de779478963594846f637197e67cd725ee81943",
-      "lines": 97
+      "sha256": "4ea022366b40c6a4548e11c98485cafeb12e243138f70b0438f23fa35cbb2dd7",
+      "lines": 101
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDetails.kt",
@@ -846,7 +846,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "47e29f48dbcc51e9f4ecf07b3507c2df24518b99bf98e91677bb0676407b6a98",
+      "sha256": "04fddcb95a6c0010b88e5e19b3f44300ecdbcbdab33db026b74a77128ec4c77b",
       "lines": 3476
     },
     {
@@ -1065,6 +1065,13 @@
       "block": "B02",
       "sha256": "8c5115e08bdd1ec7c9c76987ff5e432b59c41fd0dc82a604a0be5d93c57a84a9",
       "lines": 597
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverStageRecovery.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "f863cca17a7eaa16fb9172ffabfd4cc533ee65684e34e9c1f7a19c40fc1e9bc8",
+      "lines": 160
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/DriverTaxiRidesScreen.kt",
@@ -1326,6 +1333,13 @@
       "lines": 154
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/OfflineTripSnapshotNavigation.kt",
+      "kind": "android_main",
+      "block": "B01",
+      "sha256": "cf02838f38f7e8c105841cbea20d7261698adea98e082b385eddc8a9b6a0a6ca",
+      "lines": 169
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/OutboxAutoFlush.kt",
       "kind": "android_main",
       "block": "B01",
@@ -1441,8 +1455,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "2d1af1d877ed67e0ed6cb5709ec29e6eb9ccd8d8387e6b93e154c41a2bcca20e",
-      "lines": 4721
+      "sha256": "5b4758d4ad16de3a23a4f419c33b2dea11cbd890c261357425173b16eb80389c",
+      "lines": 4727
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1518,15 +1532,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "aa6d8de39c2a811bc43ce824dc31e56a2b2730642121768307353ba02bf5f714",
-      "lines": 588
+      "sha256": "8cbd23e8cca228aac4ca8dc336a47667b93ac359efc174b474367a3926170eb9",
+      "lines": 600
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "9d9e6cd51680361d87843dae8883af97bbb9f10afb7011c6ac3ffe041a66db0f",
-      "lines": 1042
+      "sha256": "da19f652879fc23b0248daf610b4aa10864ae63c6f3f94aa7981aeb99c8d4197",
+      "lines": 1048
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareDecline.kt",
@@ -1562,6 +1576,13 @@
       "block": "B02",
       "sha256": "d8c310488b9e07a38690474e6a9269232de86c5257a7d5ef3993b86f9184d673",
       "lines": 52
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RideshareWinterHelp.kt",
+      "kind": "android_main",
+      "block": "B08",
+      "sha256": "7072e7b45081485e3a09c98da6318f614d9f04872c035ccba59d7e23df0e7603",
+      "lines": 94
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RoadsideHelp.kt",
@@ -1851,6 +1872,13 @@
       "lines": 297
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/TripReceiptParentDestinations.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "35a4a3bba0d6702a04bb69b19c4d850384087575ba0a94851174ab7bce69e852",
+      "lines": 98
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/TripReceiptScreen.kt",
       "kind": "android_main",
       "block": "B02",
@@ -1945,7 +1973,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "a48d57d3fab1b97acd6c7687dcc6e1a6ea3a48298b0c850a5b0ce05d4bebfe36",
+      "sha256": "c8bcaa57c27653cf7def5c27b72a6df8be2a8721098c2d2f14cb9ab303dc5414",
       "lines": 7667
     },
     {
@@ -1966,8 +1994,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/BookingCommandApi.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "7a9839f9b4b47897123f674f35387a973c1f79e9e40fb89dbdc21504a32ce69e",
-      "lines": 272
+      "sha256": "722cf025f483e94e450b64a786f7d2b293f13e9c27354912b97f492c2757bb33",
+      "lines": 275
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/BookingCommandOutcome.kt",
@@ -2031,6 +2059,13 @@
       "block": "B02",
       "sha256": "cb1a0942dfef650b93306d36c146d34de8f9a5a7f8a2634e4aa42b812487ed9e",
       "lines": 109
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/DriverStageApi.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "e746f9d715331009a62201775f52f77bb228557758335d4fd5ac8bd6e0683668",
+      "lines": 191
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
@@ -2099,7 +2134,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/OfflineTripSnapshotHooks.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "979e55d6ac04fa779544840baa091c13d0209999bdd405ffb13b2081daeeb6dd",
+      "sha256": "0c7a7be375a6358fc25cc4553ead3314ceafc234ac38d336e3fa950d5395696c",
       "lines": 199
     },
     {
@@ -2173,6 +2208,13 @@
       "lines": 99
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/data/SnapshotTransportRead.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "1d9b80b71b1cc7bb1e1b6318ec2d7ac04c14da9f08dd675cf79408c55fbc4bc9",
+      "lines": 60
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
       "kind": "android_main",
       "block": "B08",
@@ -2190,8 +2232,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "126dce98a11ecc34b818729d7d3ea80f16b253564ef7a7388167baf8cb13e085",
-      "lines": 519
+      "sha256": "15b3402baa3c1417cc9377db4c034e00057c3bbf90f6d05d589adb0361ebc6fb",
+      "lines": 560
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
@@ -2792,8 +2834,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta07DriverFinishTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ab22ea505a33d1594361d83b62e18b5eebaa32d92c5acc2c11e114934579fc48",
-      "lines": 252
+      "sha256": "8b35e4955d7b6aeb61ac341d1466a9832fbd33957c2811c340cd4390a1ec918b",
+      "lines": 259
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta08ScheduledPayloadTest.kt",
@@ -3172,6 +3214,13 @@
       "block": "B02",
       "sha256": "2c108b1c2c85bb9277f63da9f9f5b33009fa234d35175a668201d7b67ddab56b",
       "lines": 105
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/DriverFinishRideTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "ad22721c3bbcd6d282ebdd9606bcfb83b0408ac822dcab19838a09c31c90b218",
+      "lines": 171
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/EmptyStateLeadsGuardTest.kt",
@@ -4227,8 +4276,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareDriverExecutionJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "3776e9b4350ec2c4aef102475eccf1f1922589c035ca2caad44d93cfe505e8be",
-      "lines": 278
+      "sha256": "7c523d476a8c280a301dd86bca4fc4f9c081058c5cceec89edfa19a014567e7c",
+      "lines": 284
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareRatingReopenTest.kt",
@@ -4819,6 +4868,13 @@
       "lines": 162
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/TripLocationRideTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "0fc775c4d4caa0225517c19f96a50bdd122ab8ccc4c4d4eb7fca8ba811126951",
+      "lines": 362
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/TripLocationTerminalTest.kt",
       "kind": "test_support",
       "block": "B06",
@@ -5356,6 +5412,13 @@
       "block": "B02",
       "sha256": "824862d9671e31ae614b5c6a3bdaf27bcadd896f13b4abb4af2860a319d152cf",
       "lines": 65
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/DriverStageApiTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "1328b6d339cbaaec3456e2891b4a50d9d49f4e442bc242ca73fa6aa12cf83458",
+      "lines": 159
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/GeocoderAndNetworkTest.kt",

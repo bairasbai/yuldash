@@ -297,9 +297,25 @@ object Outbox {
     private var seq = System.currentTimeMillis()
     // Только ID, без текста: общий отправитель мог снять отказанное сообщение раньше экрана.
     private val refusedActions = mutableSetOf<Long>()
+    private const val STALE_DRIVER_STAGE = "stale_driver_stage"
+
+    @Synchronized fun staleDriverStages(context: Context, expectedGeneration: Long): Set<Int> =
+        if (expectedGeneration == ApiClient.queueSessionGeneration())
+            readAll(context)?.filter { it.kind == STALE_DRIVER_STAGE }?.map { it.bookingId }.orEmpty().toSet()
+        else emptySet()
+
+    @Synchronized fun dismissStaleDriverStage(context: Context, bookingId: Int, expectedGeneration: Long): Boolean {
+        if (expectedGeneration != ApiClient.queueSessionGeneration()) return false
+        val current = readAll(context) ?: return false
+        return writeAll(context, current.filterNot { it.kind == STALE_DRIVER_STAGE && it.bookingId == bookingId })
+    }
+
+    private fun OutboxAction.isLegacyDriverStage() = kind == "driver_status" && payload in setOf("boarded", "done")
 
     init {
-        ApiClient.onSessionReset { synchronized(this) { refusedActions.clear() } }
+        ApiClient.onSessionReset { synchronized(this) {
+            refusedActions.clear()
+        } }
     }
 
     /** Меняется при любом изменении очереди → Compose перечитывает [count]. */
@@ -389,10 +405,10 @@ object Outbox {
 
     /** Сколько действий в очереди по конкретной брони (для плашки «N в очереди»). */
     @Synchronized fun count(context: Context, bookingId: Int): Int =
-        readAll(context)?.count { it.bookingId == bookingId } ?: 0
+        readAll(context)?.count { it.bookingId == bookingId && it.kind != STALE_DRIVER_STAGE } ?: 0
 
     /** Есть ли вообще что отправлять (любая бронь) — чтобы не дёргать flush на пустой очереди при старте (M4). */
-    @Synchronized fun hasPending(context: Context): Boolean = readAll(context)?.isNotEmpty() == true
+    @Synchronized fun hasPending(context: Context): Boolean = readAll(context)?.any { it.kind != STALE_DRIVER_STAGE } == true
 
     /** Действие ещё ждёт отправки. Очередь не прочиталась — считаем, что ждёт: не прячем неотправленное. */
     @Synchronized fun contains(context: Context, action: OutboxAction): Boolean =
@@ -510,12 +526,14 @@ object Outbox {
                 if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
                 val current = readAll(context) ?: return@withLock changed
                 val now = System.currentTimeMillis()
-                val fresh = current.filter { it.kind == "message" || now - it.createdAt <= STATUS_MAX_AGE_MS }
+                val fresh = current.filter {
+                    it.kind == "message" || it.kind == STALE_DRIVER_STAGE || it.isLegacyDriverStage() || now - it.createdAt <= STATUS_MAX_AGE_MS
+                }
                 if (fresh.size != current.size) {
                     if (!writeAll(context, fresh)) return@withLock changed
                     changed = true
                 }
-                fresh.firstOrNull()
+                fresh.firstOrNull { it.kind != STALE_DRIVER_STAGE }
             } ?: break
             if (!shouldContinue()) return@withLock changed
             val result = ApiClient.sendQueuedAction(action, session)
@@ -527,8 +545,11 @@ object Outbox {
                 // Merge with the live queue: messages added during HTTP must not be overwritten.
                 val current = readAll(context) ?: return@withLock changed
                 val remaining = current.filterNot { it.id == action.id }
+                val saved = if (failure != null && action.isLegacyDriverStage() && current.contains(action)) {
+                    remaining + action.copy(kind = STALE_DRIVER_STAGE, payload = "", requestKey = "")
+                } else remaining
                 // Acknowledge this completed request even if its UI closed during HTTP.
-                if (!writeAll(context, remaining)) return@withLock changed
+                if (!writeAll(context, saved)) return@withLock changed
                 if (failure != null) refusedActions.add(action.id) else refusedActions.remove(action.id)
                 changed = true
             }
