@@ -12,6 +12,7 @@ import { useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { loadFilters, saveFilters, type FilterPrefs } from "../filterPrefs";
+import { GROUP_SIZES } from "../nearbySeats";
 import { NEARBY_CONDITIONS, toggleCondition, type NearbyCondition } from "../nearbyFeed";
 import { SubHeader } from "./ConsentsScreen";
 import { SettingsGroup, SettingSwitchRow } from "../components/cabinetUi";
@@ -23,10 +24,13 @@ export default function FiltersScreen() {
   const [prefs, setPrefs] = useState<FilterPrefs>(() => loadFilters());
 
   // Любое изменение сразу пишем в localStorage — «настройка живёт».
-  function toggle(key: NearbyCondition) {
-    const next = { ...prefs, conditions: toggleCondition(prefs.conditions, key) };
+  function update(next: FilterPrefs) {
     setPrefs(next);
     saveFilters(next);
+  }
+
+  function toggle(key: NearbyCondition) {
+    update({ ...prefs, conditions: toggleCondition(prefs.conditions, key) });
   }
 
   return (
@@ -40,6 +44,13 @@ export default function FiltersScreen() {
             "Был шарттар карта асылғанда «Яҡын сәфәрҙәргә» автомат ҡулланыла."
           )}
         </p>
+        <label className="field">
+          <span className="field__label">{appText("Сколько вас обычно едет", "Ғәҙәттә нисәү бараһығыҙ")}</span>
+          <select className="field__input" value={prefs.seats}
+            onChange={(event) => update({ ...prefs, seats: Number(event.target.value) })}>
+            {GROUP_SIZES.map((count) => <option key={count} value={count}>{count}</option>)}
+          </select>
+        </label>
         <SettingsGroup>
           {NEARBY_CONDITIONS.map((c) => (
             <SettingSwitchRow

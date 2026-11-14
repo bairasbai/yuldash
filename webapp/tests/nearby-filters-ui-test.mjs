@@ -103,7 +103,7 @@ await test("строка-галочка: роль checkbox/radio и aria-checked
   assert.match(panel, /role\?: "checkbox" \| "radio"/);
   assert.match(panel, /role = "checkbox"/, "по умолчанию — флажок (города, условия)");
   // День — выбор одного из четырёх (три быстрых и «Другая дата…»): строки задаются двумя местами в разметке.
-  assert.equal((code(panel).match(/role="radio"/g) ?? []).length, 2);
+  assert.equal((code(panel).match(/role="radio"/g) ?? []).length, 3);
   assert.match(panel, /role="radiogroup"/);
 });
 

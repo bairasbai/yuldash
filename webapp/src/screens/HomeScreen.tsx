@@ -23,11 +23,14 @@ import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
 import NearbyRideCard, { NearbySkeletonCard, NearbyMoreCard, NearbyEmptyCard, NearbyUnverifiedCard } from "../components/NearbyRideCard";
 import { NearbyChip } from "../components/adminUi";
-import { NearbyCityChips, NearbyConditionsChip, NearbyWhenChip } from "../components/NearbyFilters";
+import { NearbyCityChips, NearbyConditionsChip, NearbySeatsChip, NearbyWhenChip } from "../components/NearbyFilters";
+import NearbySeatsCard from "../components/NearbySeatsCard";
 import CommunityFeedStrip from "../components/CommunityFeedStrip";
 import { fetchRidesNear, fetchRequestsNear, type NearRequest, type NearRide } from "../api/discovery";
 import type { Ride } from "../api/rides";
 import { loadFilters } from "../filterPrefs";
+import { pluralRu } from "../utils/format";
+import { rideFitsGroup, smallerGroup, type SmallerGroup } from "../nearbySeats";
 import {
   canShowMore,
   filtersRowVisible,
@@ -144,6 +147,8 @@ export default function HomeScreen() {
    * «по умолчанию», меняют на экране «Фильтры».
    */
   const [conditions, setConditions] = useState<NearbyCondition[]>(() => loadFilters().conditions);
+  const [seats, setSeats] = useState(() => loadFilters().seats);
+  const [seatsResult, setSeatsResult] = useState<{ key: string; owner: string; seats: number; group: SmallerGroup | null } | null>(null);
   /**
    * «Проверенные водители на карте» из раздела «Безопасность»: здесь её не переключают, только читают.
    * С 17.10.2026 включена по умолчанию у всех, кто не выбирал (решение Александра), — значит, и у гостя:
@@ -164,15 +169,17 @@ export default function HomeScreen() {
     if (previousSearchOwner.current === searchOwner) return;
     previousSearchOwner.current = searchOwner;
     cityFilter.clear();
+    setSeats(loadFilters().seats);
+    setSheet(null);
   }, [searchOwner, cityFilter.clear]);
 
 
   /** Поиск с сохранённой настройкой: по его ключу (без места) «Показать» действует только здесь. */
   const savedFilters = useMemo<NearbyFilters>(
-    () => ({ coords: me, day, conditions, verifiedOnly: storedVerifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
-    [me, day, conditions, storedVerifiedOnly, cityFilter.from, cityFilter.to]
+    () => ({ coords: me, day, conditions, seats, verifiedOnly: storedVerifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
+    [me, day, conditions, seats, storedVerifiedOnly, cityFilter.from, cityFilter.to]
   );
-  const revealKey = nearbyRevealKey(savedFilters);
+  const revealKey = JSON.stringify([searchOwner, nearbyRevealKey(savedFilters)]);
   const verifiedOnly = nearbyVerifiedOnly(storedVerifiedOnly, revealedFor, revealKey);
   // Сменил день, условие или город — «Показать» забыто: вернулся к прежнему поиску — снова только проверенные.
   useEffect(() => setRevealedFor((r) => nearbyKeepReveal(r, revealKey)), [revealKey]);
@@ -181,17 +188,22 @@ export default function HomeScreen() {
    * Сколько поездок просим. Растёт кнопкой «Показать ещё» и сам возвращается к первой порции, когда
    * поменялся день, место, условие или город: лимит помнит, для какого поиска он набран.
    */
-  const contextKey = nearbyContextKey(filters);
+  const contextKey = JSON.stringify([searchOwner, nearbyContextKey(filters)]);
   const [pageState, setPageState] = useState({ key: contextKey, limit: NEARBY_PAGE });
   // Другой поиск — снова первая порция. Меняем прямо при отрисовке (а не в эффекте), чтобы лента
   // не просила сервер дважды: сначала со старым лимитом, потом с новым.
   if (pageState.key !== contextKey) setPageState({ key: contextKey, limit: NEARBY_PAGE });
   const limit = pageState.key === contextKey ? pageState.limit : NEARBY_PAGE;
+  const group = seatsResult?.key === contextKey && status === "ready" ? seatsResult.group : null;
+  const staleOwner = seatsResult !== null && seatsResult.owner !== searchOwner;
+  const waitingForSeats = staleOwner || ((seatsResult?.seats ?? 1) !== seats && status !== "error");
+  const hasResettableFilter = conditions.length > 0 || cityFilter.active || day != null || seats > 1;
 
   /** Условия режет сервер; здесь — подстраховка на старый сервер, где их не знают (`shownNearby` в MapScreen.kt). */
   const shownRides = useMemo(
-    () => (conditions.length === 0 && !verifiedOnly ? rides : rides.filter((r) => matchesNearbyConditions(r, conditions, verifiedOnly))),
-    [rides, conditions, verifiedOnly]
+    () => waitingForSeats ? [] : conditions.length === 0 && !verifiedOnly && seats === 1 ? rides :
+      rides.filter((r) => matchesNearbyConditions(r, conditions, verifiedOnly) && (seats === 1 || rideFitsGroup(r, seats))),
+    [rides, conditions, verifiedOnly, seats, waitingForSeats]
   );
 
   /** Сброс из пустой ленты: снимает условия и города. «Только проверенные» — настройка «Безопасности», её не трогаем. */
@@ -199,10 +211,11 @@ export default function HomeScreen() {
     setConditions([]);
     cityFilter.clear();
     setDay(null);
+    setSeats(1);
   }
 
   const feedState = nearbyFeedState({
-    loading: status === "loading",
+    loading: status === "loading" || waitingForSeats,
     error: status === "error",
     fetched: rides.length,
     shown: shownRides.length,
@@ -210,7 +223,8 @@ export default function HomeScreen() {
     cityActive: cityFilter.active,
     dayOn: day != null,
     verifiedOnly,
-    hiddenUnverified,
+    hiddenUnverified: seatsResult?.key === contextKey ? hiddenUnverified : 0,
+    seatsOn: seats > 1, smallerGroupAvailable: group != null,
   });
 
   // Последний запрос ленты: новый отменяет прежний, и запоздавший ответ не затрёт свежий.
@@ -222,21 +236,24 @@ export default function HomeScreen() {
       inflight.current?.abort();
       const ac = new AbortController();
       inflight.current = ac;
-      const key = nearbyContextKey(filters);
+      const key = contextKey;
+      const generation = getSessionGeneration();
+      const active = () => !ac.signal.aborted && generation === getSessionGeneration();
       // Тихое обновление — для авто-перезагрузки: карта не должна моргать
       // скелетоном каждые полминуты у человека на глазах.
       if (!quiet) setStatus("loading");
       fetchRidesNear(nearbyQuery(filters, limit), ac.signal)
         .then((r) => {
-          if (ac.signal.aborted) return;
+          if (!active()) return;
           shownKey.current = key;
           setRides(r.items);
           setTotal(r.count);
           setHiddenUnverified(r.hidden_unverified ?? 0);
+          setSeatsResult({ key, owner: searchOwner, seats: filters.seats ?? 1, group: smallerGroup(r, filters.seats ?? 1) });
           setStatus("ready");
         })
         .catch((e) => {
-          if (ac.signal.aborted || e?.name === "AbortError") return;
+          if (!active() || e?.name === "AbortError") return;
           // Тихая перезагрузка ТОГО ЖЕ поиска не стирает показанную карту: сеть моргнула — человек
           // продолжает видеть поездки, а не экран ошибки. А сменил фильтр, день, город или место —
           // старый список под новым чипом неправда: убираем его, лента скажет «нет сети» с «Повторить».
@@ -247,11 +264,12 @@ export default function HomeScreen() {
             setRides([]);
             setTotal(0);
             setHiddenUnverified(0);
+            setSeatsResult(null);
           }
           setStatus("error");
         });
     },
-    [filters, limit]
+    [contextKey, filters, limit, searchOwner]
   );
 
   useEffect(() => {
@@ -410,12 +428,13 @@ export default function HomeScreen() {
           Ряд виден, пока есть что фильтровать, или включён хоть один фильтр (путь назад), или на
           сервере есть города с поездками — «Откуда» ведёт к ним, даже если рядом пусто.
           «Когда» видно ВСЕГДА: это путь назад со «Сегодня» на «Все дни». */}
-      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0, citiesOffered: cityFilter.offered || hasHistory, nearOnly }) && (
+      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0 || seats > 1, citiesOffered: cityFilter.offered || hasHistory, nearOnly }) && (
         <div className="nearby-filters">
           <div className="nearby-filters__row" role="group" aria-label={appText("Фильтры ленты", "Таҫма фильтрҙары")}>
             <NearbyCityChips key={searchOwner} filter={cityFilter} hasHistory={hasHistory}
               onRepeat={() => requestAnimationFrame(() => nearbyHeader.current?.scrollIntoView({ block: "start" }))} />
             <NearbyWhenChip day={day} onChange={setDay} />
+            <NearbySeatsChip seats={seats} onChange={setSeats} />
             <NearbyConditionsChip chosen={conditions} onChange={setConditions} verifiedOnly={verifiedOnly} total={total} />
             {/* Только в вебе: браузер не знает место без разрешения — чип просит его и сужает выдачу. */}
             <span className="nearby-filters__div" aria-hidden />
@@ -515,10 +534,15 @@ export default function HomeScreen() {
 
       <div ref={nearbyHeader} className="nearby-header">
         <h2 className="section-title">{appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр")}</h2>
-        {rides.length > 0 && (
+        {!staleOwner && rides.length > 0 && (
           <span className="nearby-header__count">{appText(`${shownRides.length} рядом`, `${shownRides.length} яҡында`)}</span>
         )}
       </div>
+      {seats > 1 && (
+        <p className="nearby-seats-hint">
+          {appText(`Показаны поездки, где свободно ${seats} ${pluralRu(seats, "место", "места", "мест")} и больше.`, `${seats} һәм күберәк буш урынлы сәфәрҙәр күрһәтелә.`)}
+        </p>
+      )}
 
       {/* Состояния ленты: скелетоны → пусто/нет сети карточкой → условия или города всё срезали → карусель. */}
       {feedState === "loading" && (
@@ -529,26 +553,32 @@ export default function HomeScreen() {
       )}
       {feedState === "error" && <NearbyEmptyCard error onRetry={retry} />}
       {feedState === "empty" && <NearbyEmptyCard error={false} onRetry={retry} />}
+      {feedState === "seats" && group && <NearbySeatsCard requested={seats} group={group} onSearch={setSeats} />}
       {/* Проверенных нет, а непроверенные на этот поиск есть: «Показать» — только для этого поиска,
           настройка «Безопасности» не меняется (NearbyUnverifiedCard в NearbyVerifiedOnly.kt). */}
       {feedState === "unverified" && (
         <NearbyUnverifiedCard
           hidden={hiddenUnverified}
           onShow={() => setRevealedFor(revealKey)}
-          onReset={conditions.length > 0 || cityFilter.active || day != null ? resetFeedFilters : undefined}
+          onReset={hasResettableFilter ? resetFeedFilters : undefined}
         />
       )}
       {feedState === "filtered" && (
         <div className="nearby-filtered">
-          <p role="status">{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
-          {(conditions.length > 0 || cityFilter.active || day != null) && (
+          <p role="status">{seats > 1
+            ? appText(`Для группы из ${seats} поездок нет.`, `${seats} кешелек төркөмгә сәфәр юҡ.`)
+            : appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
+          {hasResettableFilter && (
             <button type="button" className="nearby-filtered__reset" onClick={resetFeedFilters}>
               <IconClose size={20} /> {appText("Сбросить фильтры", "Фильтрҙы бушат")}
             </button>
           )}
+          {seats > 1 && <Link className="nearby-filtered__reset" to="/route-watches">
+            {appText("Следить за маршрутом", "Маршрутты күҙәтеү")}
+          </Link>}
           {/* «Только проверенные» сбросом не снимается — если именно она всё срезала (старый сервер),
               говорим, где её выключить. */}
-          {conditions.length === 0 && !cityFilter.active && day == null && verifiedOnly && (
+          {!hasResettableFilter && verifiedOnly && (
             <Link className="nearby-filtered__reset" to="/safety">
               {appText("Включено «Проверенные водители на карте». Выключить можно в «Безопасности»", "«Картала раҫланған йөрөтөүселәр» ҡабыҙылған. Һүндерергә «Хәүефһеҙлек» бүлегендә була")}
             </Link>
@@ -583,7 +613,7 @@ export default function HomeScreen() {
       {/* Партнёр рядом — тариф «Город». Город берём тот, где человек ищет поездку. */}
       <PartnerAdSlot placement="nearby" city={shownRides[0]?.from_city} />
 
-      {sheet && <RideSheet ride={sheet} onClose={() => setSheet(null)} />}
+      {sheet && <RideSheet ride={sheet} initialSeats={seats} onClose={() => setSheet(null)} />}
     </>
   );
 }
