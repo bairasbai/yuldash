@@ -371,7 +371,7 @@ async function openBooking(details) {
       "react-router-dom": `export const Navigate="Navigate";export const useNavigate=()=>p=>{};export const useParams=()=>({id:"42"});`,
       "/i18n/lang": langMock("ru"),
       "/api/bookings": `export const fetchBookingDetails=async()=>(${JSON.stringify(details)});export const cancelBooking=async()=>({});`,
-      "/api/client": `export class ApiError extends Error{}`,
+      "/api/client": `export class ApiError extends Error{} export const getSessionGeneration=()=>"fixture";`,
       "/booking/OwnBookingsProvider": `export const useRefreshOwnBookings=()=>()=>{};`,
     },
   });

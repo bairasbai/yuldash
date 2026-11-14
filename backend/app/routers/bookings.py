@@ -37,6 +37,7 @@ from ..services import (booking_and_ride_for_user, geocode_city, haversine_km, i
                         lock_booking_and_ride_for_user, notify_map_changed, push_notification, user_rating)
 from ..rating_service import booking_rating_open, rating_allowed_now
 from ..request_traveler import normalize_traveler_name
+from .. import timeutil
 from ..timeutil import utcnow
 from ..trust_service import INSIDER_LEVEL, trust_level
 
@@ -426,6 +427,7 @@ class BookingDetailsOut(BaseModel):
     role: str
     status: str
     contact_unlocked: bool
+    completed_contact_remaining_ms: Optional[int] = None
     from_city: str
     to_city: str
     depart_at: str
@@ -975,6 +977,13 @@ def completed_traveler(booking_id: int, response: Response, user: User = Depends
     return {"booking_id": booking.id, "role": role, **_traveler_details(booking, ride, visible)}
 
 
+def _completed_contact_remaining_ms(booking: Booking, ride: Ride, now: datetime) -> Optional[int]:
+    if booking.status != BookingStatus.done:
+        return None
+    deadline = completed_booking_contacts_deadline(booking, ride)
+    return max(0, int((deadline - now).total_seconds() * 1000)) if deadline is not None else None
+
+
 @router.get("/bookings/{booking_id}/details", response_model=BookingDetailsOut)
 def booking_details(booking_id: int, response: Response, user: User = Depends(current_user),
                     session: Session = Depends(get_session)):
@@ -991,7 +1000,8 @@ def booking_details(booking_id: int, response: Response, user: User = Depends(cu
     passenger = session.get(User, booking.passenger_id)
     profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == ride.driver_id)).first()
     driver_car = f"{profile.car_make} {profile.car_model}".strip() if profile else ""
-    unlocked = booking_contacts_open(booking, ride)
+    now = timeutil.utcnow()
+    unlocked = booking_contacts_open(booking, ride, now)
     is_driver = ride.driver_id == user.id
     in_transit = cancelled_in_transit(booking)
     # Машина и госномер остаются у пассажира, которого высадили в пути (23.10.2026): по ним родные
@@ -1033,6 +1043,7 @@ def booking_details(booking_id: int, response: Response, user: User = Depends(cu
         "role": "driver" if ride.driver_id == user.id else "passenger",
         "status": booking.status.value if hasattr(booking.status, "value") else booking.status,
         "contact_unlocked": unlocked,
+        "completed_contact_remaining_ms": _completed_contact_remaining_ms(booking, ride, now) if unlocked else None,
         "from_city": ride.from_city,
         "to_city": ride.to_city,
         "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
@@ -1163,7 +1174,7 @@ def _my_rating_of(session: Session, booking_id: int, user_id: int) -> Optional[R
 
 
 @router.get("/trips/{booking_id}/receipt")
-def trip_receipt(booking_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def trip_receipt(booking_id: int, response: Response, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Квитанция завершённой поездки (по брони): маршрут, дата/время, сумма и способ оплаты,
     имя водителя. Только участник брони (пассажир/водитель) — анти-IDOR. Незавершённая → 409.
 
@@ -1183,11 +1194,14 @@ def trip_receipt(booking_id: int, user: User = Depends(current_user), session: S
     amount = booking.pay_amount if booking.pay_amount is not None else booking.price
     # Исторический выбор не восстанавливаем из нынешнего маршрута/справочника: NULL и "" различаются.
     # Пассажир видит свои места; водителю — то же окно связи, что в деталях и списке броней.
-    segment_visible = role != "driver" or booking_contacts_open(booking, ride)
+    response.headers["Cache-Control"] = "no-store"
+    now = timeutil.utcnow()
+    segment_visible = role != "driver" or booking_contacts_open(booking, ride, now)
     return {
         "booking_id": booking.id,
         "ride_id": ride.id,
         "role": role,
+        "completed_contact_remaining_ms": _completed_contact_remaining_ms(booking, ride, now) if role == "driver" and segment_visible else None,
         "from_city": ride.from_city,
         "to_city": ride.to_city,
         "pickup_stop": booking.pickup_stop if segment_visible else None,
@@ -2468,6 +2482,7 @@ def driver_bookings(response: Response, user: User = Depends(current_user), sess
     } if bookings else {}
     entry = snapshot_cached()
     out: list = []
+    now = timeutil.utcnow()
     for b in bookings:
         ride = rides_by_id.get(b.ride_id)
         passenger = passengers_by_id.get(b.passenger_id)
@@ -2476,7 +2491,7 @@ def driver_bookings(response: Response, user: User = Depends(current_user), sess
         # Место посадки — только у живых и недавно завершённых броней, как контакты взрослого (P3):
         # отменённая бронь села пассажирки водителю больше не показывает.
         stop_visible = b.status != BookingStatus.cancelled and (
-            b.status != BookingStatus.done or booking_contacts_open(b, ride))
+            b.status != BookingStatus.done or booking_contacts_open(b, ride, now))
         out.append({
             "booking_id": b.id,
             # Своя поездка этой брони: «Снять поездку» предупреждает, сколько её пассажиров уже
@@ -2495,6 +2510,7 @@ def driver_bookings(response: Response, user: User = Depends(current_user), sess
             "from_city": ride.from_city if ride else "",
             "to_city": ride.to_city if ride else "",
             "status": b.status,
+            "completed_contact_remaining_ms": _completed_contact_remaining_ms(b, ride, now) if stop_visible else None,
             # 0 = ещё не оценивал. Иначе — сколько звёзд поставил (оценку можно изменить).
             "my_stars": my_stars.get(b.id, 0),
             "front_seat": bool(b.front_seat),   # «просит переднее место» в карточке заявки

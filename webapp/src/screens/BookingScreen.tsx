@@ -15,6 +15,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Navigate, useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { getSessionGeneration } from "../api/client";
 import {
   fetchBookingDetails,
   type BookingDetails,
@@ -32,18 +33,32 @@ import { useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import { bookingLinkPath } from "../utils/bookingLink";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
+import { completedContactsVisible, useCompletedContactExpiry } from "../utils/completedBookingPrivacy";
 import { BookingTraveler } from "../components/BookingTraveler";
 import ShareTripCard from "../components/ShareTripCard";
+function shouldRefreshDetails(details: BookingDetails): boolean {
+  return details.status === "pending" || details.status === "confirmed" || details.status === "onboard" ||
+    (details.status === "done" && Boolean(details.traveler_name));
+}
+
 export default function BookingScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { id } = useParams();
   const bookingId = Number(id);
+  const generation = getSessionGeneration();
   const refreshOwnBookings = useRefreshOwnBookings();
 
   const [status, setStatus] = useState<"loading" | "error" | "ready">("loading");
   const [d, setD] = useState<BookingDetails | null>(null);
+  const [loadedGeneration, setLoadedGeneration] = useState(generation);
+  const deadline = d?.status === "done" ? d.completedContactDeadline : undefined;
+  useCompletedContactExpiry([deadline]);
+  const completedAccess = d?.status !== "done" || completedContactsVisible(deadline);
+  const contactUnlocked = d?.contact_unlocked && completedAccess;
+  const driverCarColor = completedAccess ? d?.driver_car_color : undefined;
+  const driverPlate = completedAccess ? d?.driver_plate : undefined;
   const requestVersion = useRef(0);
   const activeRequest = useRef<AbortController | null>(null);
   const latest = useRef({ bookingId, status, d, cancelling: false });
@@ -68,7 +83,8 @@ export default function BookingScreen() {
       }
       fetchBookingDetails(bookingId, signal)
         .then((res) => {
-          if (signal?.aborted || version !== requestVersion.current) return;
+          if (signal?.aborted || version !== requestVersion.current || generation !== getSessionGeneration()) return;
+          setLoadedGeneration(generation);
           setD(res);
           setStatus("ready");
         })
@@ -77,7 +93,7 @@ export default function BookingScreen() {
           if (!keepVisible) setStatus("error");
         });
     },
-    [bookingId, abortRequest]
+    [bookingId, abortRequest, generation]
   );
 
   useEffect(() => {
@@ -102,24 +118,25 @@ export default function BookingScreen() {
   const cancelling = passengerCancellation?.sending === true;
   latest.current = { bookingId, status, d, cancelling };
   const refreshDetails = status === "ready" && d?.booking_id === bookingId && !cancelling &&
-    (d.status === "pending" || (d.status !== "cancelled" && Boolean(d.traveler_name)));
-  const refreshPending = useCallback(() => {
+    shouldRefreshDetails(d);
+  const refreshVisibleDetails = useCallback(() => {
     const current = latest.current;
     if (document.visibilityState !== "visible" || current.bookingId !== bookingId || current.status !== "ready"
-      || !current.d || (current.d.status !== "pending" && !current.d.traveler_name) ||
+      || !current.d || !shouldRefreshDetails(current.d) ||
       current.cancelling || activeRequest.current) return;
     const controller = new AbortController();
     activeRequest.current = controller;
     const version = ++requestVersion.current;
     fetchBookingDetails(bookingId, controller.signal).then(res => {
-      if (controller.signal.aborted || version !== requestVersion.current) return;
+      if (controller.signal.aborted || version !== requestVersion.current || generation !== getSessionGeneration()) return;
+      setLoadedGeneration(generation);
       setD(res);
       if (res.status !== current.d?.status) refreshOwnBookings();
     }).catch(() => { /* A quiet retry must not hide already loaded details. */ }).finally(() => {
       if (activeRequest.current === controller) activeRequest.current = null;
     });
-  }, [bookingId, refreshOwnBookings]);
-  useVisibleInterval(10000, refreshPending, refreshDetails);
+  }, [bookingId, generation, refreshOwnBookings]);
+  useVisibleInterval(10000, refreshVisibleDetails, refreshDetails);
   useEffect(() => {
     if (!refreshDetails) return;
     const onVisibility = () => { if (document.visibilityState !== "visible") abortRequest(); };
@@ -129,7 +146,8 @@ export default function BookingScreen() {
 
   // Водитель по ссылке на бронь — не на пассажирскую «Бронь» с «Отменить бронь». Пассажир, которого
   // высадили в пути (`cancelled_in_transit`, 23.10.2026), — на экран поездки: там SOS, «Застряли» и машина.
-  const driverPath = status === "ready" && d ? bookingLinkPath(d.role, d.status, bookingId, d.cancelled_in_transit === true) : null;
+  const currentDetails = d?.booking_id === bookingId && loadedGeneration === generation;
+  const driverPath = status === "ready" && d && currentDetails ? bookingLinkPath(d.role, d.status, bookingId, d.cancelled_in_transit === true) : null;
   if (driverPath) return <Navigate to={driverPath} replace />;
 
   return (
@@ -139,9 +157,9 @@ export default function BookingScreen() {
         onBack={() => navigate(-1)}
       />
 
-      {status === "loading" && <LoadingList count={2} />}
+      {(status === "loading" || (status === "ready" && !currentDetails)) && <LoadingList count={2} />}
       {status === "error" && <ErrorState onRetry={() => load()} />}
-      {status === "ready" && d && (
+      {status === "ready" && d && currentDetails && (
         <div className="trip">
           <div className="trip__routecard">
             <p className="list-row__sub">{appText("Рейс водителя", "Йөрөтөүсенең сәфәре")}</p>
@@ -182,7 +200,7 @@ export default function BookingScreen() {
             </div>
           )}
 
-          {d.booking_id === bookingId && d.status !== "cancelled" && <BookingTraveler name={d.traveler_name}
+          {d.status !== "cancelled" && completedAccess && <BookingTraveler name={d.traveler_name}
             deadline={d.travelerNameDeadline} />}
           <div className="info-list">
             <div className="info-row">
@@ -196,20 +214,20 @@ export default function BookingScreen() {
                 )}
               </span>
             </div>
-            {(d.driver_car || d.driver_car_color) && (
+            {(d.driver_car || driverCarColor) && (
               <div className="info-row">
                 <span className="info-row__k">{appText("Машина", "Машина")}</span>
                 <span className="info-row__v">
-                  {[d.driver_car_color, d.driver_car].filter(Boolean).join(" ")}
+                  {[driverCarColor, d.driver_car].filter(Boolean).join(" ")}
                 </span>
               </div>
             )}
             {/* Госномер отдельной строкой: его сверяют глазами у машины, а не вычитывают
                 из описания. Приходит только после подтверждения брони. */}
-            {d.driver_plate && (
+            {driverPlate && (
               <div className="info-row">
                 <span className="info-row__k">{appText("Госномер", "Дәүләт номеры")}</span>
-                <span className="info-row__v">{d.driver_plate}</span>
+                <span className="info-row__v">{driverPlate}</span>
               </div>
             )}
             {/* Переднее место, если просили: пассажир помнит, водитель видит в той же брони. */}
@@ -232,7 +250,7 @@ export default function BookingScreen() {
             </div>
           </div>
 
-          {d.contact_unlocked ? (
+          {contactUnlocked ? (
             <div className="unlock-card">
               {d.driver_phone && (
                 <a className="btn-primary" href={`tel:${d.driver_phone}`} style={{ display: "flex", width: "100%", gap: 8 }}>
@@ -245,7 +263,7 @@ export default function BookingScreen() {
                 </p>
               )}
             </div>
-          ) : (
+          ) : d.status !== "done" && (
             <div className="auth__note" style={{ marginTop: 14 }}>
               <IconLock size={15} />{" "}
               {appText(

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { completedContactsVisible, useCompletedContactExpiry } from "../utils/completedBookingPrivacy";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { fetchReceipt, reportBookingLostItem, type TripReceipt } from "../api/bookings";
 import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
@@ -112,9 +113,12 @@ export default function TripReceiptScreen() {
   const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
   const driverReceipt = state.kind === "ready" && state.r.role === "driver";
   const r = state.kind === "ready" ? state.r : null;
+  const deadline = driverReceipt ? r?.completedContactDeadline : undefined;
+  useCompletedContactExpiry([deadline]);
   const pickup = r?.pickup_stop === "" ? r.from_city : r?.pickup_stop;
   const dropoff = r?.dropoff_stop === "" ? r.to_city : r?.dropoff_stop;
-  const hasSegment = typeof pickup === "string" && !!pickup.trim() && typeof dropoff === "string" && !!dropoff.trim();
+  const hasSegment = (!driverReceipt || completedContactsVisible(deadline)) &&
+    typeof pickup === "string" && !!pickup.trim() && typeof dropoff === "string" && !!dropoff.trim();
   const ownStars = ratedStars > 0 ? ratedStars
     : Number.isInteger(r?.my_stars) && r!.my_stars! >= 1 && r!.my_stars! <= 5 ? r!.my_stars : null;
 

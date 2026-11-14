@@ -16,9 +16,10 @@ const api = readFileSync(ROOT + "src/api/bookings.ts", "utf8");
 
 await t.test("звонок пассажиру — только водителю, только при открытой связи и не после отмены", () => {
   assert.ok(
-    /st !== "cancelled" && details\.role === "driver" && details\.contact_unlocked && details\.passenger_phone/.test(src),
+    /st !== "cancelled" && details\.role === "driver" && contactUnlocked && details\.passenger_phone/.test(src),
     "условие показа строки звонка"
   );
+  assert.ok(src.includes("const contactUnlocked = details?.contact_unlocked && completedAccess"));
   assert.ok(src.includes("href={`tel:${details.passenger_phone}`}"), "звонок идёт на номер пассажира");
   assert.ok(src.includes('appText("Пассажир", "Пассажир")'), "подпись строки на двух языках");
 });

@@ -113,6 +113,27 @@ def test_lost_item_extension_uses_the_existing_boundary_without_renewing_it(clie
         assert session.get(Booking, bid).lost_item_until == until
 
 
+@pytest.mark.parametrize("remaining_ms,extends", [(3210, False), (3210, True), (0, False), (-1, False)])
+def test_private_pwa_views_share_one_uncached_contact_window(client, receipt, remaining_ms, extends):
+    driver, passenger, make = receipt
+    end = NOW + timedelta(milliseconds=remaining_ms)
+    depart = NOW - timedelta(days=30) if extends else end - timedelta(hours=settings.chat_after_trip_hours)
+    bid, _, _ = make(depart=depart, lost_item_until=end if extends else None)
+    expected = remaining_ms if remaining_ms >= 0 else None
+    seen = [get_receipt(client, driver, bid), client.get(f"/bookings/{bid}/details", headers=driver["auth"]),
+            client.get("/driver/bookings", headers=driver["auth"])]
+    for reply in seen:
+        assert reply.status_code == 200, reply.text
+        assert reply.headers["cache-control"] == "no-store"
+        row = reply.json()
+        if isinstance(row, list):
+            row = next(item for item in row if item["booking_id"] == bid)
+        assert row["completed_contact_remaining_ms"] == expected
+    own = get_receipt(client, passenger, bid).json()
+    assert own["completed_contact_remaining_ms"] is None
+    assert (own["pickup_stop"], own["dropoff_stop"]) == ("Ургаза", "Бурибай")
+
+
 def test_each_party_keeps_their_own_rating_and_amount_fallback(client, receipt):
     driver, passenger, make = receipt
     bid, _, _ = make(amount=None)

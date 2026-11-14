@@ -30,7 +30,7 @@ async function open(lang, rows = ROWS) {
     mocks: {
       "/i18n/lang": langMock(lang),
       "/api/bookings": `export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=async()=>globalThis.__dpRows;export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
-      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`,
+      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}} export const getSessionGeneration=()=>"fixture";`,
     },
   });
   globalThis.__dpRows = rows;

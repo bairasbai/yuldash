@@ -32,7 +32,7 @@ async function open(lang, rows = [{ ...fresh }, { ...rated }]) {
         export const rateBooking=async(id,n)=>{globalThis.__rated.push([id,n]);if(globalThis.__rateHold)await globalThis.__rateHold;
           const f=globalThis.__rateFail;if(f)throw new ApiError(f.status??500,f.message??"Сервер устал");
           const r=globalThis.__dpRows.find(x=>x.booking_id===id);if(r)r.my_stars=n;return {};};`,
-      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}}`,
+      "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}} export const getSessionGeneration=()=>"fixture";`,
     },
   });
   globalThis.__dpRows = rows;

@@ -12,7 +12,7 @@ const definitions={
   useLang:`()=>({lang:h.lang,appText:(ru,ba)=>h.lang==='ba'?ba:ru})`,
   useParams:`()=>({id:'42'})`,useNavigate:`()=>()=>{}`,
   useAuth:`()=>({user:{id:7}})`,
-  fetchBookingDetails:`async id=>({id,status:'done',role:'passenger',from_city:'A',to_city:'B',depart_at:'2026-09-12T10:00:00Z',driver_name:'Test',price:100,seats:1})`,
+  fetchBookingDetails:`async id=>({booking_id:id,status:'done',role:'passenger',from_city:'A',to_city:'B',depart_at:'2026-09-12T10:00:00Z',driver_name:'Test',price:100,seats:1})`,
   rateBooking:`async(...args)=>{h.calls.push(args);if(h.fail)throw new Error('network offline');return {ok:true}}`,
   ratingTags:`()=>[]`,
   isTerminalBookingStatus:`st=>st==='done'||st==='cancelled'`,

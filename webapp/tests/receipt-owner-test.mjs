@@ -16,8 +16,11 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
   get share() { return h.share ? async data => { h.shares.push(data); return h.share(data); } : undefined; },
   clipboard: { writeText: async value => { h.clips.push(value); return h.clip(value); } },
 } });
-const timers = new Map(); let timerId = 0;
-globalThis.window = { location: { pathname: "/trips/42/receipt", href: "" }, setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id) };
+const timers = new Map(); const focusListeners = new Set(); let timerId = 0;
+globalThis.window = { location: { pathname: "/trips/42/receipt", href: "" }, setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id),
+  addEventListener: (event, fn) => { if (event === "focus") focusListeners.add(fn); },
+  removeEventListener: (event, fn) => { if (event === "focus") focusListeners.delete(fn); },
+};
 const mocks = lang => ({
   "/i18n/lang": langMock(lang),
   "react-router-dom": `export const useNavigate=()=> (...a)=>globalThis.__receiptOwner.routes.push(a),useParams=()=>({id:String(globalThis.__receiptOwner.bookingId)});`,
@@ -38,7 +41,7 @@ const shareButton = s => all(s.tree).find(n => n.type === "button" && (text(n).i
 const thanksButton = s => all(s.tree).find(n => n.type === "button" && (text(n).includes("Сказать рәхмәт") || text(n).includes("Рәхмәт әйтеү")));
 
 for (const lang of ["ru", "ba"]) {
-  const Screen = await bundleComponent("src/screens/TripReceiptScreen.tsx", { mocks: mocks(lang) });
+  const Screen = await bundleComponent("src/screens/TripReceiptScreen.tsx", { mocks: mocks(lang), real: ["/utils/completedBookingPrivacy"] });
   const Pay = await bundleComponent("src/components/PayTripCard.tsx", { mocks: mocks(lang) });
   const Sbp = await bundleComponent("src/components/SbpPay.tsx", { mocks: mocks(lang) });
   await t.test(`${lang}: receipt distinguishes own segment and parent ride, displays only my rating 1..5`, async () => {
@@ -47,6 +50,48 @@ for (const lang of ["ru", "ba"]) {
     assert.ok(text(s.tree).includes(lang === "ru" ? "Рейс водителя" : "Йөрөтөүсенең сәфәре"));
     assert.ok(text(s.tree).includes(lang === "ru" ? "Участок пассажира" : "Юлсының юл өлөшө"));
     assert.ok(text(s.tree).includes(lang === "ru" ? "Твоя оценка" : "Һинең баһаң")); assert.ok(text(s.tree).includes("4")); s.unmount();
+  });
+  await t.test(`${lang}: open driver receipt hides both stops when the server window expires`, async () => {
+    reset();
+    const deadline = { monotonic: performance.now() + 60_000, wall: Date.now() + 60_000 };
+    h.receipt = async id => receipt(id, { role: "driver", completedContactDeadline: deadline });
+    const s = open(Screen);
+    await s.settle();
+    assert.ok(text(s.tree).includes("Ургаза"));
+    const realNow = performance.now;
+    try {
+      performance.now = () => deadline.monotonic;
+      for (const expire of [...timers.values()]) expire();
+      await s.settle();
+      assert.match(text(s.tree), /Сибай.*Акъяр/);
+      assert.doesNotMatch(text(s.tree), /Ургаза|Бурибай/);
+      assert.equal(h.calls.filter(call => call.kind === "receipt").length, 1);
+    } finally {
+      performance.now = realNow;
+      s.unmount();
+    }
+  });
+  await t.test(`${lang}: driver receipt hides stale stops after sleep even with a stopped monotonic clock`, async () => {
+    reset();
+    const deadline = { monotonic: performance.now() + 3_600_000, wall: Date.now() + 60_000 };
+    h.receipt = async id => receipt(id, { role: "driver", completedContactDeadline: deadline });
+    const s = open(Screen);
+    await s.settle();
+    assert.match(text(s.tree), /Ургаза.*Бурибай/);
+    const wallNow = Date.now;
+    try {
+      Date.now = () => deadline.wall;
+      for (const resume of focusListeners) resume();
+      await s.settle();
+      assert.doesNotMatch(text(s.tree), /Ургаза|Бурибай/);
+      Date.now = wallNow;
+      s.render();
+      assert.doesNotMatch(text(s.tree), /Ургаза|Бурибай/, "перевод часов не открывает тот же снимок");
+      assert.equal(h.calls.filter(call => call.kind === "receipt").length, 1);
+    } finally {
+      Date.now = wallNow;
+      s.unmount();
+    }
   });
   await t.test(`${lang}: own completed rating is shown for each integer 1..5`, async () => {
     for (const stars of [1, 2, 3, 4, 5]) {
