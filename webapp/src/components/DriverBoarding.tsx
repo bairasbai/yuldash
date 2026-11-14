@@ -35,6 +35,8 @@ export default function DriverBoarding({
   variant = "card",
   onChanged,
   onError,
+  onBoard,
+  boardingBlocked = false,
   children,
 }: {
   bookingId: number;
@@ -49,6 +51,8 @@ export default function DriverBoarding({
   onChanged: (result?: BoardingResult) => void | Promise<void>;
   /** Отказ сервера или сети — показывает родитель, рядом с остальными сообщениями. */
   onError: (text: string) => void;
+  onBoard?: () => Promise<BoardingResult | null | undefined>;
+  boardingBlocked?: boolean;
   /** Что показать «в пути», когда отменить уже нельзя (разбор в кабинете водителя). */
   children?: ReactNode;
 }) {
@@ -73,7 +77,7 @@ export default function DriverBoarding({
     return () => clearTimeout(t);
   }, [status, left]);
 
-  async function run(action: () => Promise<BoardingResult>, fail: { ru: string; ba: string }, boarding = false) {
+  async function run(action: () => Promise<BoardingResult | null | undefined>, fail: { ru: string; ba: string }, boarding = false) {
     if (sending.current) return;
     sending.current = true; setBusy(true);
     const click = boarding ? beginDriverClick(bookingId, rideId, false) : null;
@@ -81,8 +85,9 @@ export default function DriverBoarding({
     try {
       const result = await action();
       if (pendingClick.current !== click) return;
-      finishDriverClick(click, true);
+      finishDriverClick(click, result?.status === "onboard" || (!boarding && result != null));
       pendingClick.current = null;
+      if (!result) return;
       setRequested(result.boarding_undo_pending === true);
       await onChanged(result);
     } catch (e) {
@@ -102,9 +107,9 @@ export default function DriverBoarding({
       <button
         type="button"
         className={chip ? "chip" : "btn-soft btn-soft--sm"}
-        disabled={busy}
+        disabled={busy || boardingBlocked}
         onClick={() =>
-          void run(() => markBoarded(bookingId), {
+          void run(onBoard ?? (() => markBoarded(bookingId)), {
             ru: "Не получилось отметить. Проверь сеть.",
             ba: "Билдәләп булманы. Селтәрҙе тикшер.",
           }, true)

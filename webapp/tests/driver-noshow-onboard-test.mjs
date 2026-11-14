@@ -16,6 +16,8 @@ const modules = {
   react: `const h=globalThis.__drvPax; export function useState(v){const i=h.si++; if(!(i in h.states))h.states[i]=typeof v==='function'?v():v; return [h.states[i],x=>h.states[i]=typeof x==='function'?x(h.states[i]):x]}; export function useRef(v){const i=h.ri++;return h.refs[i]??=( {current:v} )}; export const useEffect=fn=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props,key)=>({type,props:props??{},key}); export const jsxs=jsx;`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>{if(!ba||!ba.trim())throw new Error('одноязычная строка: '+ru);return ru},t:k=>k});`,
+  stageRecovery: `export const DriverStageRecovery=()=>null;`,
+  stageHook: `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
   client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError; export const getSessionGeneration=()=>"fixture";`,
   bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve(); export const answerMeetingPoint=async()=>({});`,
   states: `export const LoadingList='loading';`,
@@ -38,6 +40,8 @@ const result = await build({
         const key = Object.hasOwn(modules, p) ? p
           : p.endsWith("/i18n/lang") ? "lang"
           : p.endsWith("/api/client") ? "client"
+          : p.endsWith("/utils/useDriverStages") ? "stageHook"
+          : p.endsWith("/DriverStageRecovery") ? "stageRecovery"
           : p.endsWith("/api/bookings") ? "bookings"
           : p.endsWith("/States") ? "states"
           : p.endsWith("/Icons") ? "icons"
