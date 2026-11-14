@@ -2883,8 +2883,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/BookingConfirmationJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "98f25a7c2853553ed5d9df0bbedb0cf2a61d7d4dc41e9bb04f01cd494e89671d",
-      "lines": 461
+      "sha256": "8f6afc7d86611f0a866cd4f078c85c646c386c7c3e2422288c67ff0bb55bf7b2",
+      "lines": 466
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/BookingDecisionBarNarrowTest.kt",
@@ -3030,8 +3030,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CompletedNavigationRestorationTest.kt",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "4aba71921077e64b7599f63d013f189dc7bd19420b427d6cac9964d35b0392ae",
-      "lines": 469
+      "sha256": "78518f3e491e52c3016917b159751879820e18fff361d76183cb81c391a8b54d",
+      "lines": 478
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ContrastGuardTest.kt",
