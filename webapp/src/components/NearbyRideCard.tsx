@@ -9,6 +9,8 @@ import { useLang } from "../i18n/lang";
 import type { NearRide } from "../api/discovery";
 import { SmallAvatar } from "./adminUi";
 import InviteDriverCallout from "./InviteDriverCallout";
+import WatchRouteButton from "./WatchRouteButton";
+import type { WatchRoute } from "../api/routeWatch";
 import { IconBolt, IconBox, IconCar, IconClock, IconHospital, IconIdCard, IconShield, IconStar } from "./Icons";
 import { YuRoute, YuWomenOnly } from "./BrandIcons";
 import { pluralRu } from "../utils/format";
@@ -172,7 +174,7 @@ export function NearbyMoreCard({ loading, onMore }: { loading: boolean; onMore: 
 }
 
 /** NearbyEmptyCard: нет поездок / не удалось загрузить; на настоящей пустоте — «Позови водителя». */
-export function NearbyEmptyCard({ error, onRetry }: { error: boolean; onRetry: () => void }) {
+export function NearbyEmptyCard({ error, onRetry, watch }: { error: boolean; onRetry: () => void; watch?: WatchRoute }) {
   const { appText } = useLang();
   return (
     <div className="nrc-empty">
@@ -182,6 +184,7 @@ export function NearbyEmptyCard({ error, onRetry }: { error: boolean; onRetry: (
       <button type="button" className="btn-ghost nrc-empty__retry" onClick={onRetry}>
         {error ? appText("Повторить", "Ҡабатлау") : appText("Обновить", "Яңыртыу")}
       </button>
+      {!error && watch && <WatchRouteButton route={watch} />}
       {!error && <InviteDriverCallout />}
     </div>
   );
@@ -193,7 +196,9 @@ export function NearbyEmptyCard({ error, onRetry }: { error: boolean; onRetry: (
  * настройка «Безопасности» не меняется. «Показать» — обводкой: безопасный выбор уже сделан, второй —
  * осознанный. Включены другие фильтры — ниже «Сбросить фильтры», путь назад, как в «с такими условиями».
  */
-export function NearbyUnverifiedCard({ hidden, onShow, onReset }: { hidden: number; onShow: () => void; onReset?: () => void }) {
+export function NearbyUnverifiedCard({ hidden, onShow, onReset, watch }: {
+  hidden: number; onShow: () => void; onReset?: () => void; watch?: WatchRoute;
+}) {
   const { appText } = useLang();
   return (
     <div className="nrc-empty nrc-unverified">
@@ -211,6 +216,7 @@ export function NearbyUnverifiedCard({ hidden, onShow, onReset }: { hidden: numb
           {appText("Сбросить фильтры", "Фильтрҙы бушат")}
         </button>
       )}
+      {watch && <WatchRouteButton route={watch} />}
     </div>
   );
 }

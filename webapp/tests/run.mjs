@@ -187,6 +187,7 @@ const ALL_SUITES = [
   // Что уходит на сервер (условия, проверенные, города, день, радиус), «Показать ещё» по count, состояния
   // ленты и сброс, «Показать N поездок» с плюралом, подписи чипов, подстраховка на старый сервер.
   { test: "nearby-feed-test", src: null, out: null, bundle: false },
+  { test: "route-watch-identity-test", src: "src/api/routeWatch.ts", out: "route-watch-identity.mjs", bundle: true },
   // «Откуда»/«Куда»: разбор /rides/cities, перечитывание не чаще раза в 2 минуты, подпись «Откуда · X +N».
   { test: "nearby-cities-test", src: null, out: null, bundle: false },
   { test: "search-history-test", src: null, out: null, bundle: false },
