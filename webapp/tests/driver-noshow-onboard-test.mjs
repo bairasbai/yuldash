@@ -16,7 +16,7 @@ const modules = {
   react: `const h=globalThis.__drvPax; export function useState(v){const i=h.si++; if(!(i in h.states))h.states[i]=typeof v==='function'?v():v; return [h.states[i],x=>h.states[i]=typeof x==='function'?x(h.states[i]):x]}; export function useRef(v){const i=h.ri++;return h.refs[i]??=( {current:v} )}; export const useEffect=fn=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props,key)=>({type,props:props??{},key}); export const jsxs=jsx;`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>{if(!ba||!ba.trim())throw new Error('одноязычная строка: '+ru);return ru},t:k=>k});`,
-  client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError;`,
+  client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError; export const getSessionGeneration=()=>"fixture";`,
   bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve(); export const answerMeetingPoint=async()=>({});`,
   states: `export const LoadingList='loading';`,
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
@@ -73,8 +73,8 @@ const boardingOf = (row) => all(row).find((n) => n.type === "DriverBoarding");
 const noShowOf = (row) => all(row).find((n) => n.type === "DriverNoShow");
 const DISPUTE = /Если пассажир на самом деле не садился — сообщи о проблеме/;
 h.rows = rows;
-// Состояния компонента по порядку useState: boot, rows, busyId, note, disputeId, filedIds.
-h.states = ["ready", rows, null, "", null, []];
+// Состояния компонента по порядку useState: boot, rows with owner, expiry tick, busyId, note.
+h.states = ["ready", { session: "fixture", rows }, 0, null, "", null, []];
 
 let tree = render();
 const confirmedRow = rowOf(tree, 1);
@@ -120,7 +120,7 @@ const before = h.fetches;
 noShowOf(rowOf(tree, 1)).props.onConfirm();
 await tick(); await tick();
 assert.deepEqual(h.noShows, [1]);
-assert.equal(h.states[3], "Пассажир уже отмечен в машине — неявку не отметить.", "показан ответ сервера");
+assert.equal(h.states[4], "Пассажир уже отмечен в машине — неявку не отметить.", "показан ответ сервера");
 assert.equal(h.fetches, before + 1, "после 409 список перечитан — кнопка сменится на разбор");
 
 // «Сел» / «Отменить» прошли — DriverBoarding просит перечитать: без аргументов (ответ действия —
@@ -129,12 +129,12 @@ const beforeReload = h.fetches;
 boardingOf(rowOf(tree, 1)).props.onChanged({ ok: true, status: "onboard", boarding_undo_sec: 300 });
 assert.equal(h.fetches, beforeReload + 1, "после «Сел» список перечитан");
 boardingOf(rowOf(tree, 1)).props.onError("Посадку можно отметить за 30 минут до выезда — не раньше");
-assert.equal(h.states[3], "Посадку можно отметить за 30 минут до выезда — не раньше");
+assert.equal(h.states[4], "Посадку можно отметить за 30 минут до выезда — не раньше");
 
 // Поездка с остановками (18.10.2026): признак из строки уходит в «Не пришёл», а «Подъезжаю» с карточки —
 // тот же driver-status, что на экране поездки; после него список перечитан (придёт новый срок).
-h.states = ["ready", [{ ...rows[0], booking_id: 4, no_show_at: null, no_show_needs_arriving: true,
-  arriving_opens_at: "2030-01-01T04:30:00", arriving_wait_sec: 120, no_show_wait_sec: 0 }], null, "", null, []];
+h.states = ["ready", { session: "fixture", rows: [{ ...rows[0], booking_id: 4, no_show_at: null, no_show_needs_arriving: true,
+  arriving_opens_at: "2030-01-01T04:30:00", arriving_wait_sec: 120, no_show_wait_sec: 0 }] }, 0, null, "", null, []];
 tree = render();
 const stopCtl = noShowOf(rowOf(tree, 4));
 assert.equal(stopCtl.props.needsArriving, true, "признак «сначала Подъезжаю» — из строки брони");
@@ -146,11 +146,11 @@ stopCtl.props.onArriving();
 await tick(); await tick();
 assert.deepEqual(h.arrivings, [4], "«Подъезжаю» ушла по этой брони");
 assert.equal(h.fetches, beforeArriving + 1, "после «Подъезжаю» список перечитан");
-assert.equal(h.states[3], "Пассажир уведомлён", "как тост в приложении: водитель видит, что уведомление ушло");
+assert.equal(h.states[4], "Пассажир уведомлён", "как тост в приложении: водитель видит, что уведомление ушло");
 assert.deepEqual(h.noShows, [1], "неявка не отправлялась");
 
 // Старый сервер без passenger_id и без boarding_undo_sec: объяснение есть, «Не пришёл» по-прежнему нет.
-h.states = ["ready", [{ ...rows[1], booking_id: 3, passenger_id: undefined, boarding_undo_sec: undefined }], null, "", null, []];
+h.states = ["ready", { session: "fixture", rows: [{ ...rows[1], booking_id: 3, passenger_id: undefined, boarding_undo_sec: undefined }] }, 0, null, "", null, []];
 tree = render();
 assert.equal(noShowOf(rowOf(tree, 3)), undefined);
 assert.equal(boardingOf(rowOf(tree, 3)).props.undoSec, 0, "старый сервер — отменять нечего");

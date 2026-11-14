@@ -25,7 +25,7 @@
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   answerMeetingPoint,
   fetchDriverBookings,
@@ -47,6 +47,7 @@ import { rideShareKeep, subscribeRideShare, takeRidingFocus } from "../utils/rid
 import RideShareNote from "./RideShareNote";
 import { BookingTraveler } from "./BookingTraveler";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
+import { completedContactsVisible, useCompletedContactExpiry } from "../utils/completedBookingPrivacy";
 
 /** RS-03 Б: предложение смены места от пассажира — ответ водителя.
  *  «Согласиться» применяет точку, «Оставить прежнее» — отклоняет; после ответа кабинет
@@ -174,12 +175,16 @@ const CONFIRMED = "confirmed";
 const ONBOARD = "onboard";
 /** Поездка завершена — только её и можно оценить (иначе рейтинг накручивается без поездки). */
 const DONE = "done";
+const NO_ROWS: DriverBookingRow[] = [];
 
 /** @param onOpenTrip «Открыть поездку» — экран поездки водителя по этой брони (Android onOpenTrip). */
 export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpenTrip: (bookingId: number) => void; reloadKey?: number }) {
   const { appText } = useLang();
   const [boot, setBoot] = useState<"loading" | "ready" | "hidden">("loading");
-  const [rows, setRows] = useState<DriverBookingRow[]>([]);
+  const session = getSessionGeneration();
+  const [loaded, setLoaded] = useState<{ session: string; rows: DriverBookingRow[] }>({ session, rows: NO_ROWS });
+  const rows = loaded.session === session ? loaded.rows : NO_ROWS;
+  useCompletedContactExpiry(rows.map(row => row.status === "done" ? row.completedContactDeadline : undefined));
   const [busyId, setBusyId] = useState<number | null>(null);
   const [note, setNote] = useState("");
   /** Оценка в ДВА шага, как в Android (ProfileScreen.kt): выбрал звёзды → «Отправить оценку».
@@ -203,17 +208,17 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
     const request = ++rowsRequest.current;
     fetchDriverBookings(signal)
       .then((r) => {
-        if (signal?.aborted || request !== rowsRequest.current) return;
-        setRows(r);
+        if (signal?.aborted || request !== rowsRequest.current || session !== getSessionGeneration()) return;
+        setLoaded({ session, rows: r });
         setBoot("ready");
       })
       .catch((e) => {
-        if (signal?.aborted || request !== rowsRequest.current || e?.name === "AbortError") return;
+        if (signal?.aborted || request !== rowsRequest.current || session !== getSessionGeneration() || e?.name === "AbortError") return;
         // Нет ручки или нет поездок — блок просто не появляется. Пустая карточка
         // «пассажиров нет» в кабинете, где и поездок ещё нет, только мешает.
         setBoot("hidden");
       });
-  }, []);
+  }, [session]);
 
   useEffect(() => {
     if (!focusAfter || typeof document === "undefined") return;
@@ -242,7 +247,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
 
   /** После «Сел» / «Отменить» — перечитать список (без аргументов: ответ действия не сигнал отмены). */
   const reload = useCallback(() => load(), [load]);
-  useVisibleInterval(10000, reload, rows.some(row => Boolean(row.traveler_name)));
+  useVisibleInterval(10000, reload, rows.some(row => row.status === "pending" || row.status === CONFIRMED || row.status === ONBOARD || Boolean(row.traveler_name)));
 
   const actionSending = useRef(false);
   const pendingClick = useRef<ReturnType<typeof beginDriverClick>>(null);
@@ -295,13 +300,17 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
     setRateNote(null);
     try {
       await rateBooking(id, n);
+      if (session !== getSessionGeneration()) return;
       // Сразу показываем поставленную (сервер вернёт её же как my_stars при перечитывании).
-      setRows((rs) => rs.map((r) => (r.booking_id === id ? { ...r, my_stars: n } : r)));
+      setLoaded(current => current.session === session ? {
+        session, rows: current.rows.map(row => row.booking_id === id ? { ...row, my_stars: n } : row),
+      } : current);
       setPicked(({ [id]: _sent, ...rest }) => rest);
       setRateNote({ id, text: appText("Спасибо за оценку", "Баһа өсөн рәхмәт") });
       setFocusAfter({ id, to: "edit" });
       load();
     } catch (e) {
+      if (session !== getSessionGeneration()) return;
       // Не ушло — возвращаем как было: на экране не должна остаться «поставленная» оценка,
       // которой нет на сервере.
       setPicked((p) => ({ ...p, [id]: b.my_stars }));
@@ -352,7 +361,8 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
           {appText(`${b.seats} ${pluralRu(b.seats!, "место", "места", "мест")} · ${b.price} ₽`, `${b.seats} урын · ${b.price} ₽`)}
         </div>
       )}
-      <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />
+      {(b.status !== "done" || completedContactsVisible(b.completedContactDeadline)) &&
+        <BookingSegmentNote pickupStop={b.pickup_stop} dropoffStop={b.dropoff_stop} rideHasStops={b.ride_has_stops} from={b.from_city} to={b.to_city} />}
       <MeetingPointNote b={b} />
       <DriverProposalAnswer b={b} onDone={reload} />
     </div>

@@ -9,6 +9,7 @@ import { apiGet, apiPost, getAccountSession, isAccountSession } from "./client";
 import { observeTripPass, observeTripPassList, readTripPassRevision, readTripPassRevisions, saveTripPassCode, saveTripPassPayment } from "../utils/offlineTripPass";
 import type { TripPassOwner } from "../utils/tripPass";
 import { driverStep, emitDriverAction } from "../utils/driverActions";
+import { readContactClock, setCompletedContactDeadline, type CompletedContactWindow } from "../utils/completedBookingPrivacy";
 
 export type BookingStatus =
   | "pending"
@@ -84,7 +85,7 @@ export interface BookingRow {
 }
 
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
-export interface BookingDetails extends BoardingUndoTerms {
+export interface BookingDetails extends BoardingUndoTerms, CompletedContactWindow {
   /** Сервер разрешил оценку; чужие звёзды не раскрываются. */
   can_rate?: boolean;
   my_stars?: number;
@@ -215,7 +216,7 @@ export interface TripState extends BoardingUndoTerms {
 }
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
-export interface TripReceipt {
+export interface TripReceipt extends CompletedContactWindow {
   pickup_stop?: string | null;
   dropoff_stop?: string | null;
   my_stars?: number | null;
@@ -289,9 +290,10 @@ export async function fetchBookingDetails(
 ): Promise<BookingDetails> {
   const owner = getAccountSession();
   const revision = await readTripPassRevision(owner, id);
-  const started = performance.now();
+  const started = readContactClock();
   const details = await apiGet<BookingDetails>(`/bookings/${id}/details`, { signal, cache: "no-store", _generation: owner?.generation });
-  setTravelerNameDeadline(details, started);
+  setCompletedContactDeadline(details, started);
+  setTravelerNameDeadline(details, started.monotonic);
   if (details.booking_id === id && (details.role === "driver" || details.role === "passenger")) {
     const snapshot = saveOffline && details.contact_unlocked &&
       (details.status === "confirmed" || details.status === "onboard")
@@ -430,8 +432,11 @@ export function ratingTags(
 }
 
 /** Квитанция. 404 (нет эндпоинта на проде) / 409 (не завершена) → мягкая деградация. */
-export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripReceipt> {
-  return apiGet<TripReceipt>(`/trips/${id}/receipt`, { signal });
+export async function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripReceipt> {
+  const started = readContactClock();
+  const receipt = await apiGet<TripReceipt>(`/trips/${id}/receipt`, { signal, cache: "no-store" });
+  setCompletedContactDeadline(receipt, started);
+  return receipt;
 }
 
 // ================================================================
@@ -452,7 +457,7 @@ export function fetchReceipt(id: number, signal?: AbortSignal): Promise<TripRece
  * версия, ждавшая `{ items }`, всегда получала undefined, и блок «Ждут твоего ответа»
  * молчал бы при живых бронях.
  */
-export interface DriverBookingRow extends BoardingUndoTerms {
+export interface DriverBookingRow extends BoardingUndoTerms, CompletedContactWindow {
   from_city?: string;
   to_city?: string;
   pickup_stop?: string | null;
@@ -531,9 +536,12 @@ export type DriverBooking = DriverBookingRow;
 export async function fetchDriverBookings(signal?: AbortSignal): Promise<DriverBookingRow[]> {
   const owner = getAccountSession();
   const revisions = await readTripPassRevisions(owner);
-  const started = performance.now();
+  const started = readContactClock();
   const rows = await apiGet<DriverBookingRow[]>("/driver/bookings", { signal, cache: "no-store", _generation: owner?.generation });
-  rows.forEach(row => setTravelerNameDeadline(row, started));
+  for (const row of rows) {
+    setCompletedContactDeadline(row, started);
+    setTravelerNameDeadline(row, started.monotonic);
+  }
   const relevant = rows.flatMap(row => row.status === "done" || row.status === "cancelled" || row.status === "onboard"
     ? [{ id: row.booking_id, status: row.status as "done" | "cancelled" | "onboard", onboard_at: row.onboard_at }] : []);
   await observeTripPassList(owner, relevant, signal, revisions);

@@ -161,6 +161,7 @@ const definitions = {
   isTerminalBookingStatus: `s=>s==='done'||s==='cancelled'`,
   shouldApplyBookingDetails: `(...args)=>h.detailsSync.shouldApplyBookingDetails(...args)`, shouldRefreshBookingDetails: `(...args)=>h.detailsSync.shouldRefreshBookingDetails(...args)`,
   reconcilePaymentDraft: `(draft)=>draft`, useRouteWeather: `()=>null`,
+  completedContactsVisible: "(deadline)=>deadline?.monotonic>performance.now()&&deadline?.wall>Date.now()",
   useVisibleInterval: `(ms,fn)=>{h.interval=fn}`,
   openTripLocation: `(id,point)=>{const connection={id,point,closed:false};h.locationConnections.push(connection);return {close(){connection.closed=true}}}`,
   driverInTransit: `(...args)=>h.driverTransit(...args)`, wsBase: `()=>"ws://fixture"`, tripLocationUrl: `()=>"ws://fixture/location"`,
@@ -838,12 +839,22 @@ for (const lang of ['ru', 'ba']) for (const role of ['passenger', 'driver']) {
   await test(`${lang}/${role}: done retains server-authorized contacts and receipt, while a closed server window hides contacts`, async () => {
     reset({ lang, role }); withPrivateDetails(role); await settle(Active);
     h.trip.status = 'done'; h.details.status = 'done';
+    h.details.completed_contact_remaining_ms = 60_000;
     await h.interval(); await settle(Active);
     assert.ok(telLinks().includes(role === 'passenger' ? 'tel:+79990000000' : 'tel:+79990000001'), 'done не запрещает разрешённую сервером связь');
     if (role === 'passenger') assert.ok(text(h.tree).includes('QA001') && text(h.tree).includes('PRIVATE MEETING'));
     assert.equal(storedPass(42), null); assert.ok(h.locationShares.every(s => s.stopped)); assert.ok(h.locationConnections.every(c => c.closed));
     const label = lang === 'ba' ? 'Сәфәр квитанцияһы' : 'Квитанция поездки';
     assert.ok(button(label)); button(label).props.onClick(); assert.deepEqual(h.navigation, ['/receipt/42']);
+    const now = performance.now;
+    try {
+      performance.now = () => now.call(performance) + 60_000;
+      await settle(Active);
+      assert.deepEqual(telLinks(), [], 'открытый экран скрывает телефон по истечении окна');
+      assert.ok(!text(h.tree).includes('QA001') && !text(h.tree).includes('PRIVATE MEETING'));
+    } finally {
+      performance.now = now;
+    }
     await settle(Empty);
     h.details = { ...h.details, contact_unlocked: false, driver_phone: '', driver_plate: '', pickup: '', minor_guardian_name: '', minor_guardian_phone: '' };
     await settle(Active);

@@ -27,12 +27,13 @@ check(
   "значимый переход перечитывает телефон, место встречи и оплату"
 );
 check(
-  screen.includes('details.role === "passenger" && details.contact_unlocked && details.driver_plate') &&
+  screen.includes("const contactUnlocked = details?.contact_unlocked && completedAccess") &&
+    screen.includes('details.role === "passenger" && contactUnlocked && details.driver_plate') &&
     screen.includes('{details.driver_plate}'),
   "пассажир сверяет номер машины прямо в поездке, только после подтверждения"
 );
 check(
-  screen.includes('details.role === "passenger" && details.contact_unlocked && details.driver_car') &&
+  screen.includes('details.role === "passenger" && contactUnlocked && details.driver_car') &&
     screen.includes('[details.driver_car_color, details.driver_car]'),
   "машина и цвет показаны вместе с контактом водителя"
 );

@@ -280,16 +280,16 @@ export default function DriverCabinetScreen() {
     const request = ++pendingRequest.current;
     fetchDriverBookings(signal)
       .then((rows) => {
-        if (signal?.aborted || request !== pendingRequest.current) return;
+        if (signal?.aborted || request !== pendingRequest.current || generation !== getSessionGeneration()) return;
         setPending(rows.filter((b) => b.status === "pending"));
         setOnboard(rows.filter((b) => b.status === "onboard"));
       })
       .catch((e) => {
-        if (signal?.aborted || request !== pendingRequest.current || e?.name === "AbortError") return;
+        if (signal?.aborted || request !== pendingRequest.current || generation !== getSessionGeneration() || e?.name === "AbortError") return;
         setPending([]);
         // «В машине» не стираем: последнее известное предупреждение лучше, чем никакого.
       });
-  }, []);
+  }, [generation]);
 
   useEffect(() => {
     if (passengersReload === 0) return;
@@ -334,7 +334,7 @@ export default function DriverCabinetScreen() {
     load(ac.signal);
     return () => ac.abort();
   }, [load]);
-  useVisibleInterval(10000, loadPending, pending.some(row => Boolean(row.traveler_name)));
+  useVisibleInterval(10000, loadPending, pending.length > 0 || onboard.length > 0);
 
   async function toggleOnline() {
     if (!driver || onlineBusy) return;

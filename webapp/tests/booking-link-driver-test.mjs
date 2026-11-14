@@ -36,7 +36,7 @@ const mocks = {
   icons: `export const IconArrow='i',IconPhone='i',IconPin='i',IconCheck='i',IconLock='i';`,
   format: `export const formatWhen=()=>'когда',priceLabel=()=>'цена',payMethodLabel=()=>'оплата';`,
   ads: `export const PartnerAdSlot='ad';`,
-  client: `export class ApiError extends Error {}`,
+  client: `export class ApiError extends Error{} export const getSessionGeneration=()=>"fixture";`,
   analytics: `export const track=()=>{};`,
   own: `export const useRefreshOwnBookings=()=>()=>{};`,
   interval: `export const useVisibleInterval=()=>{};`,
