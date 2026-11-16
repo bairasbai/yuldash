@@ -1,0 +1,57 @@
+[launch] ВНИМАНИЕ: REVIEW_PHONE/REVIEW_CODE пусты — ревьюер Google Play / RuStore не сможет войти, сборку отклонят
+[launch] ВНИМАНИЕ: MIN_APP_VERSION_CODE=0 — принудительное обновление выключено, ломающий релиз будет некому раскатить
+[launch] ВНИМАНИЕ: Комиссия с водителей включена (такси 15.0%), а сайт и оферта обещают «0 ₽ комиссия сервиса» — либо обновите тексты (web/components/lang.tsx, StructuredData.tsx, legal-content.ts), либо поставьте процент в 0. Список мест — docs/tasks.md, раздел проверки сайта
+[launch] справочник НП: добавлено сёл — 6506
+2026-11-16 16:17:31,836 INFO yuldash: [REQ] POST /instant/orders/1/messages -> 200 127ms
+OBSERVATION {"case": "taxi-lost-item", "rest_status": 200, "ws_registered": true, "handler_disconnected": true, "persisted_texts": ["REST lost item control"]}
+F
+=================================== FAILURES ===================================
+_____________________ test_taxi_lost_item_ws_matches_rest ______________________
+
+client = <starlette.testclient.TestClient object at 0x7f7ace218950>
+user_factory = <function user_factory.<locals>.make at 0x7f7acd6a4720>
+monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7f7acc390650>
+
+    def test_taxi_lost_item_ws_matches_rest(client, user_factory, monkeypatch):
+        driver=user_factory('Diagnostic Taxi', role=UserRole.driver)
+        pax=user_factory('Diagnostic Passenger')
+        with Session(engine) as s:
+            order=InstantOrder(passenger_id=pax['id'], driver_id=driver['id'], status=InstantOrderStatus.done, lost_item_until=utcnow()+timedelta(hours=1))
+            s.add(order); s.commit(); s.refresh(order); oid=order.id
+        control=client.post(f'/instant/orders/{oid}/messages', headers=pax['auth'], json={'text':'REST lost item control'})
+        assert control.status_code == 200, control.text
+        registered=Event(); disconnected=Event()
+        original_register=chat.manager.register; original_disconnect=chat.manager.disconnect
+        key=chat._order_chat_key(oid)
+        def register(channel, ws):
+            original_register(channel, ws)
+            if channel == key: registered.set()
+        def disconnect(channel, ws):
+            original_disconnect(channel, ws)
+            if channel == key: disconnected.set()
+        monkeypatch.setattr(chat.manager, 'register', register)
+        monkeypatch.setattr(chat.manager, 'disconnect', disconnect)
+        with client.websocket_connect(f'/ws/instant/{oid}/chat') as ws:
+            ws.send_json({'type':'auth','token':pax['token']})
+            assert registered.wait(2), 'WS auth did not register within bounded wait'
+            ws.send_json({'type':'message','text':'WS lost item message'})
+            assert disconnected.wait(2), 'Handler did not terminate within bounded wait; no long wait attempted'
+        with Session(engine) as s:
+            texts=[m.text for m in s.exec(select(Message).where(Message.order_id==oid)).all()]
+        print('OBSERVATION', json.dumps({'case':'taxi-lost-item','rest_status':control.status_code,'ws_registered':registered.is_set(),'handler_disconnected':disconnected.is_set(),'persisted_texts':texts}))
+>       assert 'WS lost item message' in texts, 'Accepted lost-item WS drops message despite REST write window'
+E       AssertionError: Accepted lost-item WS drops message despite REST write window
+E       assert 'WS lost item message' in ['REST lost item control']
+
+../docs/audit-evidence/taxi-lost-item-20261116/test_lost_item_ws.py:51: AssertionError
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/1/messages -> 200 127ms
+=============================== warnings summary ===============================
+../../../../../tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED ../docs/audit-evidence/taxi-lost-item-20261116/test_lost_item_ws.py::test_taxi_lost_item_ws_matches_rest
+1 failed, 1 warning in 1.68s
