@@ -116,3 +116,24 @@ VALIDATION. Рабочие payment/ledger endpoints не изменены.
 Полный `detect-secrets scan --all-files experiments/taxi_drafts`: одно проверенное
 ложное срабатывание на публичную константу пакета4 (см. уточнение в начале),
 других findings нет; реальных секретов не обнаружено.
+
+## Пакет6 — отмена и проверка no-show
+
+База remote95fa6591aaf69b3fd953f5cc80c1e0a5ef9c76ea / local406bca9be.
+Только cancellation_review.py, test_cancellation_review.py и README/VALIDATION.
+Ни существующий таймер, ни формула отмены не скопированы и не изменены.
+
+- Независимая план-приёмка: ACCEPT с отдельным текущим контекстом и fail-closed
+  неизвестными доказательствами. План-reviewer не нашёл06-criteria в checkout;
+  автор прочитал сохранённый отдельный документ и сверил указанные пункты.
+- Stdlib suite **82 tests PASS** (10 новых), Ruff F/diff-check PASS.
+- Проверены изменения всех существенных consent-полей, missing/expired/future,
+  no-show граница/ранний предзаказ/повтор, unknown pickup/contact/presence,
+  onboard/present, stale generation/revision и противоречивые времена.
+- Runtime/плата/страйки/реальное согласие/геопроверки, backend/Android/E2E/CI:
+  **NOT_IMPLEMENTED / NOT_RUN**.
+
+Независимая кодовая приёмка свежим gpt-6.1-sol: **ACCEPT**, блокирующих находок нет.
+Рецензент повторил82 tests, Ruff F и diff. Полный scan --all-files повторён:
+только известное ложное срабатывание market_signals.py:110 на публичную константу,
+других findings нет. Сканы/проверки не выполняли денежных операций.
