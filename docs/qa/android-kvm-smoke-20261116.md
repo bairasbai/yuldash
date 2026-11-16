@@ -18,3 +18,9 @@ Test: TaxiDriverCancelledInstrumentedTest#freePassengerCancel_showsNoCompensatio
 - [Emulator action](https://github.com/ReactiveCircus/android-emulator-runner/tree/a421e43855164a8197daf9d8d40fe71c6996bb0d)
 
 Статус до публикации: YAML parsed, bash syntax checked; runtime ещё не выполнен. Финальный verdict определяется job logs на точном SHA, не прежним CI. Никакие audit acceptance статусы не повышаются.
+
+## Фактический результат первого запуска
+
+[Run 43896683745](https://github.com/bairasbai/yuldash/actions/runs/43896683745), commit `5499f31a7b419bd370802975e151f8bde2202996`, 16.11.2026 15:28 UTC. Ubuntu24.04 image20261111.127.1, runner2.338.2. Checkout PASS; preflight FAIL: `PermissionError: [Errno 13] Permission denied: '/dev/kvm'` при os.open(O_RDWR). KVM device exists, но доступ не получен. APK build, emulator boot, install и instrumentation SKIPPED. Это не доказательство несовместимости APK или отсутствия virtualization у GitHub.
+
+Права устройства не изменялись, software fallback и повтор не запускались. Для продолжения требуется отдельное согласование конкретного временного предоставления runner-user доступа к /dev/kvm; затем новый preflight и ограниченный smoke. Main и repository settings не менялись. Журнал прочитан напрямую через job logs API, archives не скачивались. Actions token был Contents:read/Metadata:read. Документационный коммит не должен запускать повтор (paths filter).
