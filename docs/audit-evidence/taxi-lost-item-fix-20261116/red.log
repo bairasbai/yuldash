@@ -1,0 +1,162 @@
+FFFF...F.....                                                            [100%]
+=================================== FAILURES ===================================
+__ test_lost_item_message_saved_once_broadcast_and_correct_push[done-driver] ___
+
+client = <starlette.testclient.TestClient object at 0x7fbd6f2ebdd0>
+case = [REDACTED: synthetic authenticated test fixture]
+actor = 'driver', status = <InstantOrderStatus.done: 'done'>
+
+    @pytest.mark.parametrize('actor', ['driver', 'passenger'])
+    @pytest.mark.parametrize('status', [InstantOrderStatus.done, InstantOrderStatus.cancelled])
+    def test_lost_item_message_saved_once_broadcast_and_correct_push(client, case, actor, status):
+        change(case, status=status)
+        oid = case['oid']
+        rest = client.post(f'/instant/orders/{oid}/messages', headers=case[actor]['auth'],
+                           json={'text': 'REST control'})
+        assert rest.status_code == 200
+        case['pushes'].clear()
+        case['pushed'].clear()
+        with client.websocket_connect(f'/ws/instant/{oid}/chat') as ws:
+            auth(ws, case, actor)
+            ws.send_json({'type': 'message', 'text': 'WS lost item'})
+>           assert case['pushed'].wait(2), 'WS message was not pushed within bounded wait'
+E           AssertionError: WS message was not pushed within bounded wait
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x7fbd6f58b800: unset>.wait
+
+tests/test_taxi_lost_item_ws.py:93: AssertionError
+---------------------------- Captured stdout setup -----------------------------
+[launch] ВНИМАНИЕ: REVIEW_PHONE/REVIEW_CODE пусты — ревьюер Google Play / RuStore не сможет войти, сборку отклонят
+[launch] ВНИМАНИЕ: MIN_APP_VERSION_CODE=0 — принудительное обновление выключено, ломающий релиз будет некому раскатить
+[launch] ВНИМАНИЕ: Комиссия с водителей включена (такси 15.0%), а сайт и оферта обещают «0 ₽ комиссия сервиса» — либо обновите тексты (web/components/lang.tsx, StructuredData.tsx, legal-content.ts), либо поставьте процент в 0. Список мест — docs/tasks.md, раздел проверки сайта
+[launch] справочник НП: добавлено сёл — 6506
+----------------------------- Captured stderr call -----------------------------
+2026-11-16 16:27:32,887 INFO yuldash: [REQ] POST /instant/orders/1/messages -> 200 133ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/1/messages -> 200 133ms
+_ test_lost_item_message_saved_once_broadcast_and_correct_push[done-passenger] _
+
+client = <starlette.testclient.TestClient object at 0x7fbd6f2ebdd0>
+case = [REDACTED: synthetic authenticated test fixture]
+actor = 'passenger', status = <InstantOrderStatus.done: 'done'>
+
+    @pytest.mark.parametrize('actor', ['driver', 'passenger'])
+    @pytest.mark.parametrize('status', [InstantOrderStatus.done, InstantOrderStatus.cancelled])
+    def test_lost_item_message_saved_once_broadcast_and_correct_push(client, case, actor, status):
+        change(case, status=status)
+        oid = case['oid']
+        rest = client.post(f'/instant/orders/{oid}/messages', headers=case[actor]['auth'],
+                           json={'text': 'REST control'})
+        assert rest.status_code == 200
+        case['pushes'].clear()
+        case['pushed'].clear()
+        with client.websocket_connect(f'/ws/instant/{oid}/chat') as ws:
+            auth(ws, case, actor)
+            ws.send_json({'type': 'message', 'text': 'WS lost item'})
+>           assert case['pushed'].wait(2), 'WS message was not pushed within bounded wait'
+E           AssertionError: WS message was not pushed within bounded wait
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x7fbd6f466c90: unset>.wait
+
+tests/test_taxi_lost_item_ws.py:93: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-11-16 16:27:35,014 INFO yuldash: [REQ] POST /instant/orders/2/messages -> 200 26ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/2/messages -> 200 26ms
+_ test_lost_item_message_saved_once_broadcast_and_correct_push[cancelled-driver] _
+
+client = <starlette.testclient.TestClient object at 0x7fbd6f2ebdd0>
+case = [REDACTED: synthetic authenticated test fixture]
+actor = 'driver', status = <InstantOrderStatus.cancelled: 'cancelled'>
+
+    @pytest.mark.parametrize('actor', ['driver', 'passenger'])
+    @pytest.mark.parametrize('status', [InstantOrderStatus.done, InstantOrderStatus.cancelled])
+    def test_lost_item_message_saved_once_broadcast_and_correct_push(client, case, actor, status):
+        change(case, status=status)
+        oid = case['oid']
+        rest = client.post(f'/instant/orders/{oid}/messages', headers=case[actor]['auth'],
+                           json={'text': 'REST control'})
+        assert rest.status_code == 200
+        case['pushes'].clear()
+        case['pushed'].clear()
+        with client.websocket_connect(f'/ws/instant/{oid}/chat') as ws:
+            auth(ws, case, actor)
+            ws.send_json({'type': 'message', 'text': 'WS lost item'})
+>           assert case['pushed'].wait(2), 'WS message was not pushed within bounded wait'
+E           AssertionError: WS message was not pushed within bounded wait
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x7fbd6f464b60: unset>.wait
+
+tests/test_taxi_lost_item_ws.py:93: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-11-16 16:27:37,090 INFO yuldash: [REQ] POST /instant/orders/3/messages -> 200 9ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/3/messages -> 200 9ms
+_ test_lost_item_message_saved_once_broadcast_and_correct_push[cancelled-passenger] _
+
+client = <starlette.testclient.TestClient object at 0x7fbd6f2ebdd0>
+case = [REDACTED: synthetic authenticated test fixture]
+actor = 'passenger', status = <InstantOrderStatus.cancelled: 'cancelled'>
+
+    @pytest.mark.parametrize('actor', ['driver', 'passenger'])
+    @pytest.mark.parametrize('status', [InstantOrderStatus.done, InstantOrderStatus.cancelled])
+    def test_lost_item_message_saved_once_broadcast_and_correct_push(client, case, actor, status):
+        change(case, status=status)
+        oid = case['oid']
+        rest = client.post(f'/instant/orders/{oid}/messages', headers=case[actor]['auth'],
+                           json={'text': 'REST control'})
+        assert rest.status_code == 200
+        case['pushes'].clear()
+        case['pushed'].clear()
+        with client.websocket_connect(f'/ws/instant/{oid}/chat') as ws:
+            auth(ws, case, actor)
+            ws.send_json({'type': 'message', 'text': 'WS lost item'})
+>           assert case['pushed'].wait(2), 'WS message was not pushed within bounded wait'
+E           AssertionError: WS message was not pushed within bounded wait
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x7fbd6dd8aa50: unset>.wait
+
+tests/test_taxi_lost_item_ws.py:93: AssertionError
+----------------------------- Captured stderr call -----------------------------
+2026-11-16 16:27:39,157 INFO yuldash: [REQ] POST /instant/orders/4/messages -> 200 12ms
+------------------------------ Captured log call -------------------------------
+INFO     yuldash:middleware.py:317 [REQ] POST /instant/orders/4/messages -> 200 12ms
+__________________ test_order_finishes_after_handshake[True] ___________________
+
+client = <starlette.testclient.TestClient object at 0x7fbd6f2ebdd0>
+case = [REDACTED: synthetic authenticated test fixture]
+finish_with_window = True
+
+    @pytest.mark.parametrize('finish_with_window', [True, False])
+    def test_order_finishes_after_handshake(client, case, finish_with_window):
+        change(case, status=InstantOrderStatus.accepted, lost_item_until=None)
+        with client.websocket_connect(f"/ws/instant/{case['oid']}/chat") as ws:
+            auth(ws, case)
+            change(case, status=InstantOrderStatus.done,
+                   lost_item_until=utcnow() + timedelta(hours=1) if finish_with_window else None)
+            ws.send_json({'type': 'message', 'text': 'after finish'})
+            event = case['pushed'] if finish_with_window else case['disconnected']
+>           assert event.wait(2), 'No bounded completion after state transition'
+E           AssertionError: No bounded completion after state transition
+E           assert False
+E            +  where False = wait(2)
+E            +    where wait = <threading.Event at 0x7fbd6f48afc0: unset>.wait
+
+tests/test_taxi_lost_item_ws.py:130: AssertionError
+=============================== warnings summary ===============================
+../../../../../tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ============================
+FAILED tests/test_taxi_lost_item_ws.py::test_lost_item_message_saved_once_broadcast_and_correct_push[done-driver]
+FAILED tests/test_taxi_lost_item_ws.py::test_lost_item_message_saved_once_broadcast_and_correct_push[done-passenger]
+FAILED tests/test_taxi_lost_item_ws.py::test_lost_item_message_saved_once_broadcast_and_correct_push[cancelled-driver]
+FAILED tests/test_taxi_lost_item_ws.py::test_lost_item_message_saved_once_broadcast_and_correct_push[cancelled-passenger]
+FAILED tests/test_taxi_lost_item_ws.py::test_order_finishes_after_handshake[True]
+5 failed, 8 passed, 1 warning in 12.71s
