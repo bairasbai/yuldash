@@ -1,0 +1,14 @@
+======================================================================
+FAIL: test_run_case_reads_current_source_not_same_timestamp_bytecode (test_audit_mutation.MutationReplayTest.test_run_case_reads_current_source_not_same_timestamp_bytecode)
+----------------------------------------------------------------------
+Traceback (most recent call last):
+  File "/workspace/scratch/bb7b759a56b3/yuldash-mutation-cache-20261116/tools/tests/test_audit_mutation.py", line 77, in test_run_case_reads_current_source_not_same_timestamp_bytecode
+    self.assertEqual(code, 1, output)
+AssertionError: 0 != 1 : .                                                                        [100%]
+1 passed in 0.00s
+
+
+----------------------------------------------------------------------
+Ran 1 test in 0.307s
+
+FAILED (failures=1)

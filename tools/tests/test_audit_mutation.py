@@ -59,6 +59,24 @@ class MutationReplayTest(unittest.TestCase):
         self.assertIn("MUTATIONS KILLED 1/1", proc.stdout)
         self.assertEqual((self.root / SOURCE).read_bytes(), CODE)
 
+    def test_run_case_reads_current_source_not_same_timestamp_bytecode(self):
+        import importlib.util
+        import py_compile
+        spec = importlib.util.spec_from_file_location("audit_mutation", SCRIPT)
+        mod = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(mod)
+        target = self.root / SOURCE
+        original_stat = target.stat()
+        py_compile.compile(str(target), doraise=True,
+                           invalidation_mode=py_compile.PycInvalidationMode.TIMESTAMP)
+        # A same-size mutation within the timestamp-cache granularity must still run.
+        target.write_bytes(CODE.replace(b"a + b", b"a - b"))
+        os.utime(target, ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns))
+        mutation = {"id": "cache", "runner": "pytest", "args": ["tests/test_calc.py"]}
+        code, output = mod.run_case(self.root, mutation, 30)
+        self.assertEqual(code, 1, output)
+        self.assertIn("1 failed", output)
+
     def test_breakage_no_test_notices_fails_the_replay(self):
         proc = self.run_cli("replay", "--spec", self.spec({"find": "x * 2", "replace": "x * 3"}))
         self.assertNotEqual(proc.returncode, 0)

@@ -1,0 +1,27 @@
+{
+  "base_commit": "bc363d8a01d6a0be4cc8ab090f6695f2d3063a87",
+  "base_tree": "49c7d13fe9035b7fae8680b06dead4e87229372e",
+  "date": "2026-11-16",
+  "scope": "B10 mutation pytest source cache isolation",
+  "source_sha256": {
+    "tools/audit_mutation.py": "e88672f1ff03f59a27b76bec5928c4d4d9befeaf010076f0969b899d5132a300",
+    "tools/tests/test_audit_mutation.py": "2e788ad4fe69d4ae7988ccdb6ff86c0a91769d73759a9215d13689751df2290a"
+  },
+  "red": {
+    "exit": 1,
+    "result": "one deterministic regression failed; stale bytecode executed"
+  },
+  "green": {
+    "exit": 0,
+    "tests": 43,
+    "skipped": 1
+  },
+  "ruff": "PASS F",
+  "diff_check": "PASS",
+  "secret_scan": "0 findings across both changed Python files",
+  "review": "accepted bounded B10 only",
+  "limits": [
+    "optional PostgreSQL tool test skipped",
+    "not application acceptance"
+  ]
+}

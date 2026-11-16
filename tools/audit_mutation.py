@@ -139,14 +139,20 @@ def run_case(root, mutation, timeout):
         if env.get("DATABASE_URL", "").startswith("postgres"):
             env.pop("DATABASE_URL")
         cmd = [python, "-m", "pytest", "-q", "-p", "no:cacheprovider", *mutation["args"]]
-        if mutation.get("db") == "postgres":
-            with FreshPostgres(mutation["id"]) as url:
-                env["DATABASE_URL"] = url
+        # Same-size edits in one timestamp tick can otherwise load stale .pyc
+        # from the baseline instead of the deliberate breakage. A fresh cache
+        # namespace avoids reading it without deleting the checkout's caches.
+        with tempfile.TemporaryDirectory(prefix="yuldash-mutation-pycache-") as cache:
+            env["PYTHONPYCACHEPREFIX"] = cache
+            env["PYTHONDONTWRITEBYTECODE"] = "1"
+            if mutation.get("db") == "postgres":
+                with FreshPostgres(mutation["id"]) as url:
+                    env["DATABASE_URL"] = url
+                    proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8",
+                                          errors="replace", timeout=timeout)
+            else:
                 proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8",
                                       errors="replace", timeout=timeout)
-        else:
-            proc = subprocess.run(cmd, cwd=cwd, env=env, capture_output=True, text=True, encoding="utf-8",
-                                  errors="replace", timeout=timeout)
         return proc.returncode, proc.stdout + proc.stderr
     env.setdefault("JAVA_HOME", DEFAULT_JAVA_HOME)
     held = acquire("gradle", f"mutation {mutation['id']}", timeout)
