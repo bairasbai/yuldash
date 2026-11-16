@@ -1,0 +1,60 @@
+name: Android KVM offline smoke
+on:
+  push:
+    branches: [ci/android-kvm-smoke-20261116]
+    paths:
+      - .github/workflows/android-kvm-smoke.yml
+      - scripts/ci/android-kvm-smoke.sh
+permissions:
+  contents: read
+concurrency:
+  group: android-kvm-smoke-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  offline-smoke:
+    if: github.repository == 'bairasbai/yuldash'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:1
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+      - name: KVM device preflight (no software fallback)
+        run: |
+          test -c /dev/kvm
+          test -r /dev/kvm && test -w /dev/kvm
+          python3 - <<'PY'
+          import os, fcntl
+          fd = os.open('/dev/kvm', os.O_RDWR)
+          version = fcntl.ioctl(fd, 0xAE00)
+          assert version == 12, version
+          os.close(fd)
+          print('KVM_API_VERSION=12')
+          PY
+          uname -m
+          df -h .
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools
+      - name: Build isolated offline debug APKs
+        run: bash scripts/ci/android-kvm-smoke.sh build
+      - name: KVM boot, install and exactly one offline fixture
+        uses: ReactiveCircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2
+        with:
+          api-level: '35'
+          target: google_apis
+          arch: x86_64
+          profile: pixel_2
+          cores: 2
+          ram-size: 2048M
+          emulator-boot-timeout: 300
+          disable-linux-hw-accel: false
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -accel on -camera-back none -camera-front none
+          pre-emulator-launch-script: ${ANDROID_HOME}/emulator/emulator -accel-check
+          script: bash scripts/ci/android-kvm-smoke.sh test
