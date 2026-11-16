@@ -4,6 +4,16 @@
 Область: только `experiments/taxi_drafts/**` и добавленные ссылки в
 `docs/tasks.md`, `docs/decisions.md`.
 
+### Уточнение secret-scan при пакете5
+
+Прежние команды scan каталога без `--all-files` могли пропускать ещё не tracked
+новые файлы. Поэтому прежнее «0 findings» не доказывает их полный охват.
+В пакете5 весь `experiments/taxi_drafts` повторно проверен с `--all-files`:
+одно эвристическое срабатывание на `market_signals.py:110`, публичную строковую
+константу `NOT_IMPLEMENTED_pricing_authorization_and_service_safety`. Это код
+ограничения результата, не секрет. Других findings нет. Сканер не отключался,
+исключения/allowlist не добавлялись. Повтор покрывает и исходники пакетов1–4.
+
 - Независимая проверка плана до кода, отдельный `gpt-6.1-sol`: **ACCEPT** для
   ограниченного offline-пакета, не для всех функций. Условия: сравнение полей,
   aware-time, свежесть/направление ETA, неизвестные статусы fail-closed,
@@ -84,3 +94,25 @@ VALIDATION. Вводный текст README обновлён под четыр�
 Независимая кодовая приёмка свежим gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
 Рецензент лично повторил57 tests, Ruff F и diff. Secret-scan
 experiments/taxi_drafts: **0 findings**, exit0.
+
+## Пакет5 — подтверждения денежных фактов
+
+База remotef7f8197d8d2ff3a18a36c0b6fea5e45eb04d94af / local1ce3c7516,
+одинаковое дерево. Только payment_facts.py, test_payment_facts.py и README/
+VALIDATION. Рабочие payment/ledger endpoints не изменены.
+
+- Независимая план-приёмка: ACCEPT с fail-closed totals, точным dedup, отдельными
+  unknown/pending и явным направлением возврата.
+- Stdlib suite **72 tests PASS** (15 новых), Ruff F/diff-check PASS.
+- Проверены exact duplicate/status conflict/reused evidence, перестановки,
+  совместный over-refund, unknown/failed originals, unknown reserve/failed release,
+  scope/method/time, bool/float/zero/blank evidence, отсутствие paid/debt состояния.
+- Provider/DB/фактическая оплата/возврат, full backend/Android/E2E/CI:
+  **NOT_IMPLEMENTED / NOT_RUN**. Только синтетические offline fixtures.
+
+Независимая кодовая приёмка свежим gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
+Рецензент повторил72 tests, Ruff F и diff; дополнительно проверил лимит именно
+исходного collection, границы pending/unknown и24 перестановки конфликтов.
+Полный `detect-secrets scan --all-files experiments/taxi_drafts`: одно проверенное
+ложное срабатывание на публичную константу пакета4 (см. уточнение в начале),
+других findings нет; реальных секретов не обнаружено.
