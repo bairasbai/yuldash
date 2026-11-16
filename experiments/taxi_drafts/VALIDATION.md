@@ -155,3 +155,22 @@ VALIDATION. Рабочие payment/ledger endpoints не изменены.
 Рецензент повторил93 tests, Ruff F и diff. Полный scan --all-files повторён:
 только известное ложное срабатывание market_signals.py:110 на публичную константу,
 других findings нет. Внешних вызовов в проверках не было.
+
+## Пакет8 — привязка и свежесть readiness evidence
+
+База remote7faa7f607efed8e619c5e4f0926188bae3084e53 / localde94b3930.
+Только readiness_evidence.py, test_readiness_evidence.py и README/VALIDATION.
+Сверены существующие eligible/offer и относящиеся положения актуального плана08.
+
+- Независимая план-приёмка: ACCEPT с request time boundary, всем набором checks,
+  явным ONBOARD outcome и без runtime-гарантии свежести источника.
+- Stdlib suite **103 tests PASS** (10 новых), Ruff F/diff-check PASS.
+- Проверены каждый missing/unknown/FAIL, duplicate, все поля scope, переименование
+  старого batch, новый accept после отзыва, expiry/future, старый FAIL и onboard.
+- Authoritative eligibility/данные/назначение/транзакции, full backend/Android/CI:
+  **NOT_IMPLEMENTED / NOT_RUN**. Реальным водителям допуск не менялся.
+
+Независимая кодовая приёмка свежим gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
+Рецензент повторил103 tests, Ruff F и diff. Полный scan --all-files повторён:
+только известная публичная константа market_signals.py:110 (false positive),
+других findings нет. Runtime-импортов пакета не найдено.
