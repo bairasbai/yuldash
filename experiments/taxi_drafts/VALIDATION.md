@@ -137,3 +137,21 @@ VALIDATION. Рабочие payment/ledger endpoints не изменены.
 Рецензент повторил82 tests, Ruff F и diff. Полный scan --all-files повторён:
 только известное ложное срабатывание market_signals.py:110 на публичную константу,
 других findings нет. Сканы/проверки не выполняли денежных операций.
+
+## Пакет7 — журнал инцидента/SOS
+
+База remote36eda8dfacd173c606e7efc9f38e03709aaeb40a / localc068fb01.
+Только incident_lifecycle.py, test_incident_lifecycle.py и README/VALIDATION.
+
+- Независимая план-приёмка: ACCEPT с конкретным responsible channel, монотонным
+  временем, fail-closed journal и без отождествления handled с помощью/closed.
+- Stdlib suite **93 tests PASS** (11 новых), Ruff F/diff-check PASS.
+- Проверены accepted-only, failure/retry/поздний failure, audited close/reopen,
+  wrong owner/channel/scope, gaps/conflicts,24 перестановки, future/time и repr.
+- Реальные SOS/уведомления/вызовы/операторы/помощь, full backend/Android/E2E/CI:
+  **NOT_IMPLEMENTED / NOT_RUN**. Внешних вызовов не было.
+
+Независимая кодовая приёмка свежим gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
+Рецензент повторил93 tests, Ruff F и diff. Полный scan --all-files повторён:
+только известное ложное срабатывание market_signals.py:110 на публичную константу,
+других findings нет. Внешних вызовов в проверках не было.
