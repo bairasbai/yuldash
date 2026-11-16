@@ -48,3 +48,21 @@ README/этому отчёту. Shared docs/цены/БД/runtime не меня�
 Независимая кодовая приёмка, свежий gpt-6.1-sol: **ACCEPT** для offline-пакета,
 P0/P1/P2 нет; рецензент лично повторил33 tests, Ruff F и diff.
 Secret-scan `experiments/taxi_drafts`: **0 findings**, exit0.
+
+## Пакет3 — модель экономики на синтетических входах
+
+База remote207e61629a9f0592c53059437b03b70e00a69464 / localfc95c284,
+одинаковое дерево. Только economics_preview.py, test_economics_preview.py и
+дополнения README/VALIDATION. Цены, runtime и журналы других агентов не меняются.
+
+- Независимая план-приёмка: ACCEPT для сценарной модели, не доказанной экономики.
+- Stdlib suite **45 tests PASS** (12 новых), Ruff F и diff-check PASS.
+- Проверены неизвестные расходы/объёмы, exact fee на B+A, failed attempts,
+  нулевой объём с расходами, отрицательная маржа, ceiling break-even, 100% A
+  водителю, неизменный gross при промо платформы, четыре класса без magic multiplier.
+- Реальные ставки/затраты, налоги/договоры, прибыль/cashflow, нагрузка и пилот:
+  **NOT_RUN / NOT_IMPLEMENTED**. Полные backend/Android/CI не запускались.
+
+Независимая кодовая приёмка, свежий gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
+Рецензент повторил45 tests и diff-check; его окружение не нашло Ruff, поэтому
+Ruff PASS выше только авторский. Secret-scan experiments/taxi_drafts: **0 findings**.
