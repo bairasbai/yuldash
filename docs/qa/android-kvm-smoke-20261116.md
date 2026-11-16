@@ -24,3 +24,18 @@ Test: TaxiDriverCancelledInstrumentedTest#freePassengerCancel_showsNoCompensatio
 [Run 43896683745](https://github.com/bairasbai/yuldash/actions/runs/43896683745), commit `5499f31a7b419bd370802975e151f8bde2202996`, 16.11.2026 15:28 UTC. Ubuntu24.04 image20261111.127.1, runner2.338.2. Checkout PASS; preflight FAIL: `PermissionError: [Errno 13] Permission denied: '/dev/kvm'` при os.open(O_RDWR). KVM device exists, но доступ не получен. APK build, emulator boot, install и instrumentation SKIPPED. Это не доказательство несовместимости APK или отсутствия virtualization у GitHub.
 
 Права устройства не изменялись, software fallback и повтор не запускались. Для продолжения требуется отдельное согласование конкретного временного предоставления runner-user доступа к /dev/kvm; затем новый preflight и ограниченный smoke. Main и repository settings не менялись. Журнал прочитан напрямую через job logs API, archives не скачивались. Actions token был Contents:read/Metadata:read. Документационный коммит не должен запускать повтор (paths filter).
+
+## Разрешённый повтор: PASS ограниченного offline smoke
+
+Байрас отдельно разрешил предоставление доступа к /dev/kvm только в одноразовом GitHub runner. [Run 43902023837](https://github.com/bairasbai/yuldash/actions/runs/43902023837), commit `017715d87cfa10e77b4e5cf5ddcc9ab34551c744`, 16.11.2026 15:57–16:05 UTC: SUCCESS. Применён только ACL `u:$(id -un):rw` к устройству; никаких изменений main, repository settings или личного компьютера.
+
+Прямые job logs `133420841622` подтверждают:
+- KVM_API_VERSION=12 и emulator accel-check: KVM installed and usable.
+- BUILD SUCCESSFUL in 5m45s; обоим APK проверено отсутствие INTERNET/sharedUserId до установки.
+- BOOT=PASS, ABI=x86_64, API=35; обе установки Success, повторная проверка installed permissions PASS.
+- Exact test `com.yuldash.app.TaxiDriverCancelledInstrumentedTest#freePassengerCancel_showsNoCompensationAndRecoveryAction`: tests=1, failures=0, skipped=0; instrumentation protocol проверен, SMOKE=PASS.
+- Эмулятор завершён, cleanup выполнен. APK/CI archives не скачивались.
+
+Хеши временных offline APK из лога: debug `f89efcefb4d2fbab6edd05d79afdc1ecd1d21c56ad88032d7b1f70fe9f51e6e7`; androidTest `66e6a58fab1ad1c48077906658b2888ca8068f2176e32559778e29f52a1ec660`.
+
+Предел доказательства: один синтетический сценарий экрана отмены такси, RU, с временным no-INTERNET manifest overlay и plain Application. Это не проверка штатной сетевой сборки, полного такси, попуток, Amio, GPS/MapKit/FCM/оплаты/физического телефона. Audit acceptance статусы не повышены. Warning Node20 actions forced Node24 отмечен в логе, но job завершился success; будущие обновления actions делать отдельным проверенным шагом.
