@@ -30,3 +30,21 @@ PWA/web сборки, PostgreSQL-конкурентность, E2E, нагруз
 P2 документации исправлены: секции добавлены перед старыми заголовками, а не
 внутри их содержимого; создан данный файл проверки. Проверенная ревизия фиксируется коммитом этого пакета; файл не
 самоссылочный. Ни merge, ни deploy не выполнялись.
+
+## Пакет2 — восстановление после потерянного ответа
+
+База remote8120af541f3bf24bb9e830d0ae2daa2a755afae5 (local169ada963, одинаковое
+дерево). Изменения только `recovery.py`, `tests/test_recovery.py` и добавления к
+README/этому отчёту. Shared docs/цены/БД/runtime не меняются.
+
+- Независимая план-приёмка: ACCEPT для offline classifier, не runtime recovery.
+- Та же команда unittest: **33 tests PASS** (19 первого пакета +14 новых), exit0.
+- Ruff F: PASS. Diff whitespace: PASS.
+- Новые проверки: late response другого запроса/аккаунта/сессии; unknown не absent;
+  отсутствие заказа не receipt; TTL/future; конфликт revision; сохранение якоря;
+  lost body/new key/other account; истёкшая replay guarantee; повтор без мутаций.
+- Полные backend/Android/E2E/CI и реальный recovery/retry: **NOT_RUN**.
+
+Независимая кодовая приёмка, свежий gpt-6.1-sol: **ACCEPT** для offline-пакета,
+P0/P1/P2 нет; рецензент лично повторил33 tests, Ruff F и diff.
+Secret-scan `experiments/taxi_drafts`: **0 findings**, exit0.
