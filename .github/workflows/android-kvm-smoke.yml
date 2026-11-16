@@ -24,6 +24,8 @@ jobs:
       - name: KVM device preflight (no software fallback)
         run: |
           test -c /dev/kvm
+          # Owner approved temporary runner-user-only access, 2026-11-16.
+          sudo setfacl -m "u:$(id -un):rw" /dev/kvm
           test -r /dev/kvm && test -w /dev/kvm
           python3 - <<'PY'
           import os, fcntl
