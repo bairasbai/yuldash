@@ -66,3 +66,21 @@ Secret-scan `experiments/taxi_drafts`: **0 findings**, exit0.
 Независимая кодовая приёмка, свежий gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
 Рецензент повторил45 tests и diff-check; его окружение не нашло Ruff, поэтому
 Ruff PASS выше только авторский. Secret-scan experiments/taxi_drafts: **0 findings**.
+
+## Пакет4 — качество агрегатов и safety-сигналов
+
+База remote30bfd876857014be1a77aa3afdcf88c043c765bf / local0f72ad288,
+одинаковое дерево. Только market_signals.py, test_market_signals.py и README/
+VALIDATION. Вводный текст README обновлён под четыре последовательных пакета.
+
+- Независимая план-приёмка: ACCEPT только для offline-классификатора.
+- Stdlib suite **57 tests PASS** (12 новых), Ruff F/diff-check PASS.
+- Проверены unknown/partial/failure отдельно от0 supply, нулевой спрос, точное
+  окно/контекст, TTL/future/min observations, собственная свежесть safety,
+  приоритет ограничений с сохранением причин деградации, все четыре класса.
+- Реальное получение/формирование сигналов, ценообразование, safety workflow,
+  full backend/Android/CI: **NOT_IMPLEMENTED / NOT_RUN**.
+
+Независимая кодовая приёмка свежим gpt-6.1-sol: **ACCEPT**, P0/P1/P2 нет.
+Рецензент лично повторил57 tests, Ruff F и diff. Secret-scan
+experiments/taxi_drafts: **0 findings**, exit0.
