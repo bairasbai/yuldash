@@ -80,12 +80,17 @@ def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
         if dry_run:
             done.append(o.id)
             continue
+        order_id = o.id
         try:
             fresh = isv.activate_scheduled(session, o)
             if fresh.status not in (S.scheduled, S.cancelled):
                 done.append(fresh.id)
         except Exception as e:  # noqa: BLE001 — один заказ не должен ронять прогон
-            log.warning(f"[TAXI-WORKER] активация предзаказа #{o.id}: {type(e).__name__}: {e}")
+            # После failed flush Session непригодна даже для чтения o.id.
+            # Откатываем только незавершённую транзакцию и продолжаем другие заказы.
+            session.rollback()
+            # DB-ошибка может содержать параметры запроса: не пишем их в лог.
+            log.warning(f"[TAXI-WORKER] активация предзаказа #{order_id}: {type(e).__name__}")
     return done
 
 

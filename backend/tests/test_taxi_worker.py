@@ -99,6 +99,48 @@ def test_cancelled_scheduled_order_is_not_reported_activated(client, user_factor
     assert _get(due).status == S.cancelled
 
 
+def test_scheduled_activation_recovers_after_failed_transaction(client, user_factory, monkeypatch):
+    """Сбой записи одного предзаказа не блокирует следующего пассажира."""
+    broken_pax = user_factory("BrokenScheduledTransaction")
+    next_pax = user_factory("NextScheduledTransaction")
+    when = utcnow() - timedelta(minutes=1)
+    broken = _order(broken_pax["id"], status=S.scheduled, scheduled_at=when)
+    following = _order(next_pax["id"], status=S.scheduled, scheduled_at=when)
+    activate = tw.isv.activate_scheduled
+    attempted = []
+
+    def fail_once(session, order):
+        attempted.append(order.id)
+        if order.id == broken:
+            # Реальная ошибка NOT NULL при flush переводит Session в failed state.
+            order.passenger_id = None
+            session.add(order)
+            session.flush()
+        return activate(session, order)
+
+    monkeypatch.setattr(tw.isv, "activate_scheduled", fail_once)
+    with Session(engine) as session:
+        execute = session.exec
+
+        def ordered_candidates(statement, *args, **kwargs):
+            # Только первая выборка worker: порядок SQL без ORDER BY не обещан.
+            # Все дальнейшие запросы сервиса и настоящая ошибка flush не подменяются.
+            monkeypatch.setattr(session, "exec", execute)
+            return execute(statement.order_by(M.InstantOrder.id.asc()), *args, **kwargs)
+
+        monkeypatch.setattr(session, "exec", ordered_candidates)
+        activated = tw.activate_due_scheduled(session)
+        assert following in activated
+        assert broken not in activated
+        # Та же Session остаётся пригодной к последующим задачам worker.
+        assert session.get(M.InstantOrder, following).status == S.expired
+    assert broken in attempted and following in attempted
+    assert attempted.index(broken) < attempted.index(following)
+    assert _get(broken).status == S.scheduled
+    assert _get(broken).passenger_id == broken_pax["id"]
+    assert _get(following).status == S.expired
+
+
 # ============================ 2. Зависшие заказы ============================
 def test_stuck_order_is_closed_and_unblocks_both(client, user_factory):
     """У водителя сел телефон: заказ «в пути» 7 часов. Раньше висел вечно — отменить мог
