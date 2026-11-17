@@ -24,6 +24,8 @@
 проверка `rowcount`. Здесь тесты зовут функции напрямую с уже терминальным заказом — это и
 есть та ситуация, в которой воркер оказывается с устаревшей строкой на руках.
 """
+from datetime import timedelta
+
 import fakeredis
 import pytest
 from sqlmodel import Session
@@ -156,3 +158,49 @@ def test_offer_still_advances_to_the_next_driver(client, user_factory, fake_redi
     assert _status(oid) == S.expired      # следующего кандидата нет — «рядом никого»
     with Session(engine) as s:
         assert s.get(InstantOrder, oid).current_offer_driver_id is None
+
+
+@pytest.mark.parametrize("change", ["extended", "cleared", "accepted"])
+def test_lazy_offer_timeout_rechecks_stale_snapshot(client, user_factory, fake_redis, monkeypatch, change):
+    """Чтение заказа не снимает обновлённое предложение по старому ORM-снимку."""
+    pax = user_factory("LazyChangedPax")
+    drv = user_factory("LazyChangedDrv", role=UserRole.driver)
+    old = utcnow() - timedelta(minutes=5)
+    future = utcnow() + timedelta(minutes=5)
+    oid = _order(pax["id"], S.offered, current_offer_driver_id=drv["id"],
+                 offered_at=old, offer_expires_at=old)
+    transitions = []
+    advance = isv.advance_after_no_accept
+
+    def track_advance(session, order, notify=True):
+        transitions.append(order.id)
+        return advance(session, order, notify=notify)
+
+    monkeypatch.setattr(isv, "advance_after_no_accept", track_advance)
+    with Session(engine) as session:
+        stale = session.get(InstantOrder, oid)
+        with Session(engine) as other:
+            changed = other.get(InstantOrder, oid)
+            if change == "accepted":
+                changed.status = S.accepted
+                changed.driver_id = drv["id"]
+            else:
+                changed.offer_expires_at = future if change == "extended" else None
+            other.add(changed)
+            other.commit()
+        result = isv.reconcile_offer(session, stale)
+        assert result.status == (S.accepted if change == "accepted" else S.offered)
+        assert result.offer_expires_at == (old if change == "accepted" else future if change == "extended" else None)
+        assert result.current_offer_driver_id == drv["id"]
+    assert transitions == []
+    assert _status(oid) == (S.accepted if change == "accepted" else S.offered)
+
+
+def test_lazy_offer_timeout_still_advances_expired_offer(client, user_factory, fake_redis):
+    pax = user_factory("LazyExpiredPax")
+    old = utcnow() - timedelta(minutes=5)
+    oid = _order(pax["id"], S.offered, offered_at=old, offer_expires_at=old)
+    with Session(engine) as session:
+        result = isv.reconcile_offer(session, session.get(InstantOrder, oid))
+        assert result.status == S.expired  # следующего водителя нет
+    assert _status(oid) == S.expired

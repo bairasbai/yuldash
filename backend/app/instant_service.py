@@ -3330,8 +3330,13 @@ def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool 
 def reconcile_offer(session: Session, order: InstantOrder) -> InstantOrder:
     """Ленивый таймаут: если оффер протух — двигаем к следующему кандидату.
     Так работает без фонового воркера (arq) — на чтении заказа/поллинге оффера."""
-    if order.status == S.offered and order.offer_expires_at and order.offer_expires_at < utcnow():
-        return advance_after_no_accept(session, order)
+    now = utcnow()
+    if order.status == S.offered and order.offer_expires_at and order.offer_expires_at < now:
+        # Поллинг мог загрузить старый оффер до принятия/продления в другой Session.
+        # Обновляем поля под блокировкой до проверки и перехода, как фоновый таймер.
+        session.refresh(order, with_for_update=True)
+        if order.status == S.offered and order.offer_expires_at and order.offer_expires_at < now:
+            return advance_after_no_accept(session, order)
     return order
 
 
