@@ -116,7 +116,8 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
             continue
         try:
             fresh = session.exec(
-                select(InstantOrder).where(InstantOrder.id == o.id).with_for_update()
+                select(InstantOrder).where(InstantOrder.id == o.id)
+                .execution_options(populate_existing=True).with_for_update()
             ).first()
             if not fresh or fresh.status in _TERMINAL or _last_move_at(fresh) > cutoff:
                 continue                                # успели закрыть/сдвинуть параллельно

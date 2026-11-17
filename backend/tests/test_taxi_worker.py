@@ -168,6 +168,48 @@ def test_fresh_order_not_closed(client, user_factory):
     assert _get(oid).status == S.onboard
 
 
+@pytest.mark.parametrize("change", ["moved", "finished"])
+def test_stuck_order_rechecks_concurrent_change(client, user_factory, monkeypatch, change):
+    """Живая или завершённая поездка не отменяется по старому снимку воркера."""
+    pax = user_factory("StuckChangedPax")
+    drv = user_factory("StuckChangedDrv", role=M.UserRole.driver)
+    old = utcnow() - timedelta(hours=7)
+    oid = _order(pax["id"], driver_id=drv["id"], status=S.accepted,
+                 created_at=old, accepted_at=old)
+    moved_at = utcnow()
+    notifications, shares, releases = [], [], []
+    monkeypatch.setattr(tw, "push_notification", lambda *a, **kw: notifications.append(kw))
+    monkeypatch.setattr(tw.isv, "_notify_order_shares", lambda *a: shares.append(a[-1]))
+    monkeypatch.setattr(tw.promo_ride, "release_ids", lambda ids: releases.extend(ids))
+    with Session(engine) as session:
+        execute = session.exec
+        calls = 0
+
+        def change_before_lock(statement, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                with Session(engine) as other:
+                    order = other.get(M.InstantOrder, oid)
+                    order.status = S.onboard if change == "moved" else S.done
+                    if change == "moved":
+                        order.onboard_at = moved_at
+                    other.add(order)
+                    other.commit()
+            return execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(session, "exec", change_before_lock)
+        assert oid not in tw.close_stuck_orders(session)
+    saved = _get(oid)
+    assert saved.status == (S.onboard if change == "moved" else S.done)
+    assert saved.cancelled_at is None
+    if change == "moved":
+        assert saved.onboard_at == moved_at
+    assert notifications == []
+    assert shares == []
+    assert releases == []
+
+
 def test_stuck_without_driver_becomes_expired(client, user_factory):
     """Заказ завис ДО назначения водителя → это не «отмена», а «истёк»: винить некого."""
     pax = user_factory("StuckNoDrv")
