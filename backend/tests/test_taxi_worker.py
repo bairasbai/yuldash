@@ -483,6 +483,49 @@ def test_stale_offer_moves_on(client, user_factory):
     assert _get(oid).status != S.offered
 
 
+def test_stale_offer_recovers_failed_transaction(client, user_factory, monkeypatch):
+    """Один failed flush не останавливает переход остальных истёкших предложений."""
+    first_pax = user_factory("OfferBrokenPax")
+    second_pax = user_factory("OfferFollowingPax")
+    old = utcnow() - timedelta(minutes=20)
+    first = _order(first_pax["id"], status=S.offered, offered_at=old,
+                   offer_expires_at=old, from_text="synthetic-private-location")
+    second = _order(second_pax["id"], status=S.offered, offered_at=old, offer_expires_at=old)
+    advance = tw.isv.advance_after_no_accept
+    attempted, warnings = [], []
+    monkeypatch.setattr(tw.isv, "_redis", lambda: None)
+    monkeypatch.setattr(tw.log, "warning", lambda message: warnings.append(message))
+
+    def fail_first(session, order, notify=True):
+        attempted.append(order.id)
+        if order.id == first:
+            order.passenger_id = None
+            session.add(order)
+            session.flush()  # Настоящий failed flush, а не искусственный raise.
+        return advance(session, order, notify=notify)
+
+    monkeypatch.setattr(tw.isv, "advance_after_no_accept", fail_first)
+    with Session(engine) as session:
+        execute = session.exec
+
+        def ordered_candidates(statement, *args, **kwargs):
+            monkeypatch.setattr(session, "exec", execute)
+            return execute(statement.order_by(M.InstantOrder.id.asc()), *args, **kwargs)
+
+        monkeypatch.setattr(session, "exec", ordered_candidates)
+        moved = tw.advance_stale_offers(session)
+        assert first not in moved and second in moved
+        assert session.get(M.InstantOrder, second).status == S.expired
+    assert attempted.index(first) < attempted.index(second)
+    assert _get(first).passenger_id == first_pax["id"]
+    assert _get(first).status == S.offered
+    assert _get(first).offer_expires_at == old
+    assert _get(second).status == S.expired
+    assert len(warnings) == 1 and "IntegrityError" in warnings[0]
+    assert "synthetic-private-location" not in warnings[0]
+    assert "UPDATE " not in warnings[0]
+
+
 # ============================ Общий прогон ============================
 def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
     """Полный прогон не падает на пустых данных, а --dry-run ничего не меняет."""

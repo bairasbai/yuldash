@@ -297,11 +297,14 @@ def advance_stale_offers(session: Session, dry_run: bool = False) -> list:
         if dry_run:
             moved.append(o.id)
             continue
+        order_id = o.id
         try:
             isv.advance_after_no_accept(session, o, notify=False)
             moved.append(o.id)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] сдвиг оффера #{o.id}: {type(e).__name__}: {e}")
+            session.rollback()
+            # Failed flush expires ORM fields; keep SQL parameters out of logs.
+            log.warning(f"[TAXI-WORKER] сдвиг оффера #{order_id}: {type(e).__name__}")
     return moved
 
 

@@ -85,3 +85,12 @@ finish_expired_waits восстанавливает Session после ошиб�
 После смены облака зависимости заново установлены из requirements.txt в отдельный venv; версии проекта не изменялись. Команда и изоляция как выше: уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён.
 Ruff, diff-check PASS; detect-secrets двух изменённых Python-файлов: находок нет.
 SQLite, не PostgreSQL-конкурентность. Реальные push/SMS, Android/UI, нагрузка и production не проверены.
+
+## Истёкшие предложения: восстановление после failed flush
+
+База 26ba14e0e6955623bc4b73789d3957504acf2cca; ветка fix/friday-taxi-offer-rollback-20261117.
+advance_stale_offers восстанавливает Session при сбое перехода одного заказа. ID берётся до try, warning без SQL-параметров.
+Регрессия вызывает настоящий NOT NULL failed flush первого заказа; второй проходит реальный advance_after_no_accept и завершается expired при отсутствии Redis/водителей. До: 1 FAILED; после и независимо: 25 PASS, exit 0. Reviewer: блокеров нет.
+Полный backend на ec491221b453f9b15d78ef23b7972ea1d6166de2: 6856 PASS, 119 skipped, 804 warnings, exit 0, 664.45 секунды.
+Команда и изоляция как выше: уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён. Ruff, diff-check PASS; detect-secrets двух Python-файлов: находок нет.
+SQLite, не PostgreSQL-конкурентность. Назначение реального следующего водителя, доставка push, Android/UI и нагрузка не проверены.
