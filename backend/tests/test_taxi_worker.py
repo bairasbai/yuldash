@@ -64,6 +64,41 @@ def test_future_scheduled_order_untouched(client, user_factory):
     assert _get(oid).status == S.scheduled
 
 
+def test_busy_scheduled_order_is_not_reported_activated(client, user_factory):
+    """Занятый пассажир: предзаказ остаётся в очереди, сводка не обещает запуск."""
+    pax = user_factory("BusyScheduledPax")
+    live = _order(pax["id"], status=S.onboard)
+    due = _order(pax["id"], status=S.scheduled,
+                 scheduled_at=utcnow() - timedelta(minutes=1))
+    with Session(engine) as s:
+        assert due not in tw.activate_due_scheduled(s)
+    assert _get(due).status == S.scheduled
+    # Освободившийся пассажир не теряет предзаказ: следующий проход активирует его.
+    with Session(engine) as s:
+        current = s.get(M.InstantOrder, live)
+        current.status = S.done
+        s.add(current)
+        s.commit()
+        assert due in tw.activate_due_scheduled(s)
+    assert _get(due).status == S.expired  # поиск запущен, свободных водителей нет
+
+
+def test_cancelled_scheduled_order_is_not_reported_activated(client, user_factory, monkeypatch):
+    """Отказ активации с отменой не является успешным поиском."""
+    pax = user_factory("CancelledScheduledPax")
+    due = _order(pax["id"], status=S.scheduled,
+                 scheduled_at=utcnow() - timedelta(minutes=1))
+    def cancel(session, order):
+        order.status = S.cancelled
+        session.add(order)
+        session.commit()
+        return order
+    monkeypatch.setattr(tw.isv, "activate_scheduled", cancel)
+    with Session(engine) as s:
+        assert due not in tw.activate_due_scheduled(s)
+    assert _get(due).status == S.cancelled
+
+
 # ============================ 2. Зависшие заказы ============================
 def test_stuck_order_is_closed_and_unblocks_both(client, user_factory):
     """У водителя сел телефон: заказ «в пути» 7 часов. Раньше висел вечно — отменить мог

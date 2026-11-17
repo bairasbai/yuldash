@@ -61,7 +61,12 @@ def _last_move_at(o: InstantOrder):
 
 # ----------------------------- 1. Предзаказы -----------------------------
 def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
-    """scheduled с наступившим временем → запускаем поиск. Возврат: id активированных."""
+    """scheduled с наступившим временем → запускаем поиск.
+
+    Возврат: id обработанных заказов, ушедших из scheduled без отмены (поиск без
+    водителей может сразу дать expired). Это не гарантия найденной машины.
+    В dry_run возвращаются только кандидаты, без активации и проверки занятости.
+    """
     now = utcnow()
     rows = session.exec(
         select(InstantOrder).where(
@@ -76,8 +81,9 @@ def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
             done.append(o.id)
             continue
         try:
-            isv.activate_scheduled(session, o)
-            done.append(o.id)
+            fresh = isv.activate_scheduled(session, o)
+            if fresh.status not in (S.scheduled, S.cancelled):
+                done.append(fresh.id)
         except Exception as e:  # noqa: BLE001 — один заказ не должен ронять прогон
             log.warning(f"[TAXI-WORKER] активация предзаказа #{o.id}: {type(e).__name__}: {e}")
     return done
