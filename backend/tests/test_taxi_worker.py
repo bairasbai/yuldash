@@ -483,6 +483,55 @@ def test_stale_offer_moves_on(client, user_factory):
     assert _get(oid).status != S.offered
 
 
+@pytest.mark.parametrize("change", ["accepted", "extended", "new_offer"])
+def test_stale_offer_rechecks_changed_candidate(client, user_factory, monkeypatch, change):
+    """Таймер не снимает новое/продлённое предложение и не считает принятый заказ сдвинутым."""
+    from types import SimpleNamespace
+
+    pax = user_factory("ChangedOfferPax")
+    drv = user_factory("ChangedOfferDrv", role=M.UserRole.driver)
+    old = utcnow() - timedelta(minutes=20)
+    future = utcnow() + timedelta(minutes=5)
+    recent = utcnow()
+    oid = _order(pax["id"], status=S.offered, current_offer_driver_id=drv["id"],
+                 offered_at=old, offer_expires_at=old)
+    transitions = []
+    advance = tw.isv.advance_after_no_accept
+
+    def track_advance(session, order, notify=True):
+        transitions.append(order.id)
+        return advance(session, order, notify=notify)
+
+    monkeypatch.setattr(tw.isv, "advance_after_no_accept", track_advance)
+    with Session(engine) as session:
+        execute = session.exec
+
+        def change_after_selection(statement, *args, **kwargs):
+            monkeypatch.setattr(session, "exec", execute)
+            rows = execute(statement, *args, **kwargs).all()
+            with Session(engine) as other:
+                order = other.get(M.InstantOrder, oid)
+                if change == "accepted":
+                    order.status = S.accepted
+                    order.driver_id = drv["id"]
+                elif change == "extended":
+                    order.offer_expires_at = future
+                else:
+                    order.offered_at = recent
+                other.add(order)
+                other.commit()
+            return SimpleNamespace(all=lambda: rows)
+
+        monkeypatch.setattr(session, "exec", change_after_selection)
+        assert oid not in tw.advance_stale_offers(session)
+    saved = _get(oid)
+    assert saved.status == (S.accepted if change == "accepted" else S.offered)
+    assert saved.current_offer_driver_id == drv["id"]
+    assert saved.offer_expires_at == (future if change == "extended" else old)
+    assert saved.offered_at == (recent if change == "new_offer" else old)
+    assert transitions == []
+
+
 def test_stale_offer_recovers_failed_transaction(client, user_factory, monkeypatch):
     """Один failed flush не останавливает переход остальных истёкших предложений."""
     first_pax = user_factory("OfferBrokenPax")

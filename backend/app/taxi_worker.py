@@ -299,8 +299,16 @@ def advance_stale_offers(session: Session, dry_run: bool = False) -> list:
             continue
         order_id = o.id
         try:
-            isv.advance_after_no_accept(session, o, notify=False)
-            moved.append(o.id)
+            fresh = session.exec(
+                select(InstantOrder).where(InstantOrder.id == order_id)
+                .execution_options(populate_existing=True).with_for_update()
+            ).first()
+            if (not fresh or fresh.status != S.offered or fresh.offer_expires_at is None
+                    or fresh.offer_expires_at >= now
+                    or (fresh.offered_at and fresh.offered_at > stale_before)):
+                continue
+            isv.advance_after_no_accept(session, fresh, notify=False)
+            moved.append(order_id)
         except Exception as e:  # noqa: BLE001
             session.rollback()
             # Failed flush expires ORM fields; keep SQL parameters out of logs.

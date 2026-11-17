@@ -94,3 +94,12 @@ advance_stale_offers восстанавливает Session при сбое пе
 Полный backend на ec491221b453f9b15d78ef23b7972ea1d6166de2: 6856 PASS, 119 skipped, 804 warnings, exit 0, 664.45 секунды.
 Команда и изоляция как выше: уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён. Ruff, diff-check PASS; detect-secrets двух Python-файлов: находок нет.
 SQLite, не PostgreSQL-конкурентность. Назначение реального следующего водителя, доставка push, Android/UI и нагрузка не проверены.
+
+## Повторная проверка предложения перед переходом таймера
+
+База 2b4a5bc46eb06237c91f2edfc1b9326927a39cec; ветка fix/friday-taxi-offer-state-recheck-20261117.
+advance_stale_offers повторно читает статус и сроки под FOR UPDATE с populate_existing. Принятый заказ не попадает в отчёт переходов; продлённое или свежее предложение не снимается по старому снимку.
+Три регрессии сохраняют изменение другой Session после первичной выборки: accepted/extended/new_offer. До: 3 FAILED; после и независимо: 28 PASS, exit 0. Reviewer: блокирующих замечаний нет.
+Полный backend на fae089af7f99254c596c7451c0afda09adacf0b1: 6859 PASS, 119 skipped, 804 warnings, exit 0, 717.18 секунды. Прогон начат после освобождения тяжёлого слота Амио, не параллельно с его FULL.
+Команда и изоляция как выше: уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён. Ruff, diff-check PASS; detect-secrets двух Python-файлов: находок нет.
+SQLite подтверждает повторное чтение/условия, но не ожидание PostgreSQL row lock. Пропущенные после lock строки удерживают блокировку до следующего commit/rollback или закрытия Session; отдельный риск задержки. Ленивый reconcile_offer и другие пути этим пакетом не проверены. Android/UI, реальные push, нагрузка не проверены.
