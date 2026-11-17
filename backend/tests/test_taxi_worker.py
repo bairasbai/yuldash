@@ -212,6 +212,45 @@ def test_retry_respects_interval(client, user_factory):
         assert oid not in tw.retry_waiting_orders(s)
 
 
+def test_retry_recovers_after_failed_transaction(client, user_factory, monkeypatch, caplog):
+    """Ошибка записи поиска одного пассажира не блокирует очередь ожидания."""
+    broken_pax = user_factory("BrokenRetryTransaction")
+    next_pax = user_factory("NextRetryTransaction")
+    until = utcnow() + timedelta(minutes=30)
+    broken = _order(broken_pax["id"], status=S.expired, wait_until=until)
+    following = _order(next_pax["id"], status=S.expired, wait_until=until)
+    matching = tw.isv.start_matching
+    attempted = []
+
+    def fail_once(session, order, **kwargs):
+        attempted.append(order.id)
+        if order.id == broken:
+            order.from_text = "synthetic-private-route-marker"
+            order.passenger_id = None
+            session.add(order)
+            session.flush()
+        return matching(session, order, **kwargs)
+
+    monkeypatch.setattr(tw.isv, "start_matching", fail_once)
+    with Session(engine) as session:
+        execute = session.exec
+
+        def ordered_candidates(statement, *args, **kwargs):
+            monkeypatch.setattr(session, "exec", execute)
+            return execute(statement.order_by(M.InstantOrder.id.asc()), *args, **kwargs)
+
+        monkeypatch.setattr(session, "exec", ordered_candidates)
+        retried = tw.retry_waiting_orders(session)
+        assert following in retried
+        assert broken not in retried
+        assert session.get(M.InstantOrder, following).retry_count == 1
+    assert attempted.index(broken) < attempted.index(following)
+    assert _get(broken).passenger_id == broken_pax["id"]
+    assert _get(broken).from_text == "Баймак"
+    assert _get(broken).retry_count == 0
+    assert "synthetic-private-route-marker" not in caplog.text
+
+
 def test_wait_expires_with_honest_message(client, user_factory):
     """Время вышло, машины так и нет → закрываем честно, а не держим человека в неведении."""
     pax = user_factory("WaitOver")

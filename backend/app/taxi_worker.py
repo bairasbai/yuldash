@@ -189,6 +189,7 @@ def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
         if dry_run:
             retried.append(o.id)
             continue
+        order_id = o.id
         try:
             fresh = isv.start_matching(session, o, notify=False)
             session.execute(
@@ -210,7 +211,9 @@ def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
                 except Exception:  # noqa: BLE001
                     pass
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] перезапуск поиска #{o.id}: {type(e).__name__}: {e}")
+            session.rollback()
+            # Failed flush expires ORM fields; never read them or SQL parameters here.
+            log.warning(f"[TAXI-WORKER] перезапуск поиска #{order_id}: {type(e).__name__}")
     return retried
 
 
