@@ -168,6 +168,72 @@ def test_fresh_order_not_closed(client, user_factory):
     assert _get(oid).status == S.onboard
 
 
+@pytest.mark.parametrize("failure_at", ["close", "shares", "push"])
+def test_stuck_worker_recovers_failed_transaction(client, user_factory, monkeypatch, failure_at):
+    """Ошибка записи/уведомления одного заказа не прерывает закрытие следующих."""
+    first_pax = user_factory("StuckBrokenPax")
+    second_pax = user_factory("StuckFollowingPax")
+    old = utcnow() - timedelta(hours=7)
+    first = _order(first_pax["id"], status=S.searching, created_at=old, searching_at=old,
+                   from_text="synthetic-private-location")
+    second = _order(second_pax["id"], status=S.searching, created_at=old, searching_at=old)
+    released, messages, warnings = [], [], []
+    failed = False
+
+    def break_transaction(session):
+        nonlocal failed
+        if failed:
+            return
+        failed = True
+        order = session.get(M.InstantOrder, first)
+        order.passenger_id = None
+        session.add(order)
+        session.flush()  # Настоящее нарушение NOT NULL, Session становится failed.
+
+    def shares(session, order, event):
+        if failure_at == "shares" and order.id == first:
+            break_transaction(session)
+
+    def push(session, uid, *args, **kwargs):
+        if failure_at == "push" and kwargs["ref_id"] == first:
+            break_transaction(session)
+        messages.append(kwargs["ref_id"])
+
+    monkeypatch.setattr(tw.isv, "_notify_order_shares", shares)
+    monkeypatch.setattr(tw, "push_notification", push)
+    monkeypatch.setattr(tw.promo_ride, "release_ids", lambda ids: released.extend(ids))
+    monkeypatch.setattr(tw.log, "warning", lambda message: warnings.append(message))
+    with Session(engine) as session:
+        execute = session.exec
+        commit = session.commit
+
+        def ordered_candidates(statement, *args, **kwargs):
+            monkeypatch.setattr(session, "exec", execute)
+            return execute(statement.order_by(M.InstantOrder.id.asc()), *args, **kwargs)
+
+        def fail_first_commit():
+            if failure_at == "close" and not failed:
+                break_transaction(session)
+            return commit()
+
+        monkeypatch.setattr(session, "exec", ordered_candidates)
+        monkeypatch.setattr(session, "commit", fail_first_commit)
+        closed = tw.close_stuck_orders(session)
+        assert second in closed
+        assert (first in closed) == (failure_at != "close")
+        assert session.get(M.InstantOrder, second).status == S.expired
+    assert failed
+    assert _get(first).passenger_id == first_pax["id"]
+    assert _get(first).status == (S.searching if failure_at == "close" else S.expired)
+    assert _get(second).status == S.expired
+    assert second in messages
+    assert released == closed
+    if failure_at == "close":
+        assert first not in messages
+        assert len(warnings) == 1 and "IntegrityError" in warnings[0]
+    assert all("synthetic-private-location" not in line and "UPDATE " not in line for line in warnings)
+
+
 @pytest.mark.parametrize("change", ["moved", "finished"])
 def test_stuck_order_rechecks_concurrent_change(client, user_factory, monkeypatch, change):
     """Живая или завершённая поездка не отменяется по старому снимку воркера."""

@@ -114,6 +114,7 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
         if dry_run:
             closed.append(o.id)
             continue
+        order_id = o.id
         try:
             fresh = session.exec(
                 select(InstantOrder).where(InstantOrder.id == o.id)
@@ -140,8 +141,8 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
             # Функция «поделиться поездкой» существует ровно ради случая «что-то пошло не так».
             try:
                 isv._notify_order_shares(session, fresh, "cancelled")
-            except Exception:  # noqa: BLE001 — SMS вторичны, закрытие заказа важнее
-                pass
+            except Exception:  # noqa: BLE001 — закрытие уже сохранено
+                session.rollback()
             for uid in {fresh.passenger_id, fresh.driver_id} - {None}:
                 try:
                     push_notification(
@@ -154,9 +155,11 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
                         ref_kind="instant", ref_id=fresh.id,
                     )
                 except Exception:  # noqa: BLE001 — пуш вторичен
-                    pass
+                    session.rollback()
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] закрытие зависшего #{o.id}: {type(e).__name__}: {e}")
+            session.rollback()
+            # Failed flush expires ORM fields; do not log SQL parameters.
+            log.warning(f"[TAXI-WORKER] закрытие зависшего #{order_id}: {type(e).__name__}")
     # Поездки не было → промокод возвращаем. Он даётся раз в жизни аккаунта, и сжигать его
     # за заказ, который закрыла сама система, нечестно (то же правило, что при отмене).
     # dry-run только показывает кандидатов: отдельная сессия release_ids иначе всё равно
