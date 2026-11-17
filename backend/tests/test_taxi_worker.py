@@ -261,6 +261,44 @@ def test_wait_expires_with_honest_message(client, user_factory):
     assert o.status == S.expired and o.wait_until is None
 
 
+@pytest.mark.parametrize("change", ["extended", "accepted"])
+def test_expired_wait_rechecks_concurrent_change(client, user_factory, monkeypatch, change):
+    """Не закрываем ожидание, продлённое или принятое после выборки воркера."""
+    pax = user_factory("WaitChanged")
+    oid = _order(pax["id"], status=S.searching, wait_until=utcnow() - timedelta(minutes=1))
+    future = utcnow() + timedelta(minutes=30)
+    notifications = []
+    releases = []
+    monkeypatch.setattr(tw, "push_notification", lambda *a, **kw: notifications.append(kw))
+    monkeypatch.setattr(tw.promo_ride, "release_ids", lambda ids: releases.extend(ids))
+    with Session(engine) as session:
+        execute = session.exec
+        calls = 0
+
+        def change_before_lock(statement, *args, **kwargs):
+            nonlocal calls
+            calls += 1
+            if calls == 2:
+                with Session(engine) as other:
+                    order = other.get(M.InstantOrder, oid)
+                    if change == "extended":
+                        order.wait_until = future
+                    else:
+                        order.status = S.accepted
+                    other.add(order)
+                    other.commit()
+            return execute(statement, *args, **kwargs)
+
+        monkeypatch.setattr(session, "exec", change_before_lock)
+        assert oid not in tw.finish_expired_waits(session)
+    saved = _get(oid)
+    assert saved.status == (S.searching if change == "extended" else S.accepted)
+    if change == "extended":
+        assert saved.wait_until == future
+    assert notifications == []
+    assert releases == []
+
+
 # ============================ 4. Протухшие офферы ============================
 def test_stale_offer_moves_on(client, user_factory):
     """Оффер висит без ответа, приложение пассажира закрыто → подбор всё равно идёт дальше."""

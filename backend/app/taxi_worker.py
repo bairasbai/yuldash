@@ -234,9 +234,11 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
             continue
         try:
             fresh = session.exec(
-                select(InstantOrder).where(InstantOrder.id == o.id).with_for_update()
+                select(InstantOrder).where(InstantOrder.id == o.id)
+                .execution_options(populate_existing=True).with_for_update()
             ).first()
-            if not fresh or fresh.wait_until is None or fresh.status not in (S.expired, S.searching):
+            if (not fresh or fresh.wait_until is None or fresh.wait_until > now
+                    or fresh.status not in (S.expired, S.searching)):
                 continue
             fresh.wait_until = None
             fresh.status = S.expired
