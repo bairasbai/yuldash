@@ -648,3 +648,43 @@ def test_retry_push_failure_does_not_poison_following_order(client, user_factory
     assert _get(first).status == S.offered
     assert _get(first).retry_count == 1
     assert _get(second).retry_count == 1
+
+
+@pytest.mark.parametrize("task", [
+    "activate_due_scheduled", "close_stuck_orders", "retry_waiting_orders",
+    "finish_expired_waits", "advance_stale_offers",
+])
+def test_taxi_dry_run_has_no_writes_or_side_effects(client, user_factory, monkeypatch, task):
+    """Просмотр кандидатов не меняет БД и не запускает побочные сервисы."""
+    from sqlalchemy import event
+    now = utcnow()
+    old = now - timedelta(hours=24)
+    candidates = {
+        "activate_due_scheduled": dict(status=S.scheduled, scheduled_at=old),
+        "close_stuck_orders": dict(status=S.searching, created_at=old, searching_at=old),
+        "retry_waiting_orders": dict(status=S.expired, wait_until=now + timedelta(hours=1), searching_at=old),
+        "finish_expired_waits": dict(status=S.searching, wait_until=old),
+        "advance_stale_offers": dict(status=S.offered, offered_at=old, offer_expires_at=old),
+    }
+    pax = user_factory("DryContractPax")
+    oid = _order(pax["id"], **candidates[task])
+    before = _get(oid).model_dump()
+    def forbidden(*args, **kwargs):
+        pytest.fail("dry-run invoked a mutating service")
+    for owner, name in [
+        (tw.isv, "activate_scheduled"), (tw.isv, "start_matching"),
+        (tw.isv, "advance_after_no_accept"), (tw.isv, "_notify_order_shares"),
+        (tw, "push_notification"), (tw.promo_ride, "release_ids"),
+    ]:
+        monkeypatch.setattr(owner, name, forbidden)
+    def forbid_writes(conn, cursor, statement, parameters, context, executemany):
+        assert not (context.isinsert or context.isupdate or context.isdelete), "dry-run wrote SQL"
+    event.listen(engine, "before_cursor_execute", forbid_writes)
+    try:
+        with Session(engine) as session:
+            monkeypatch.setattr(session, "commit", forbidden)
+            assert getattr(tw, task)(session, dry_run=True) == [oid]
+            assert not session.new and not session.dirty and not session.deleted
+        assert _get(oid).model_dump() == before
+    finally:
+        event.remove(engine, "before_cursor_execute", forbid_writes)
