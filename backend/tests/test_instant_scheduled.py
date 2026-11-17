@@ -48,15 +48,22 @@ def test_reject_too_far(client, user_factory):
 def test_list_only_mine(client, user_factory):
     a = user_factory("SchedA")
     b = user_factory("SchedB")
-    ra = _schedule(client, a, utcnow() + timedelta(hours=5)).json()
-    _schedule(client, b, utcnow() + timedelta(hours=5))
-    mine = client.get("/instant/scheduled", headers=a["auth"]).json()
-    ids = [o["id"] for o in mine["scheduled"]]
-    assert ra["id"] in ids
-    # чужой предзаказ не виден
-    assert all(o["id"] == ra["id"] or True for o in mine["scheduled"])
-    b_view = client.get("/instant/scheduled", headers=b["auth"]).json()
-    assert ra["id"] not in [o["id"] for o in b_view["scheduled"]]
+    when = utcnow() + timedelta(hours=5)
+    a_response = _schedule(client, a, when)
+    b_response = _schedule(client, b, when)
+    assert a_response.status_code == 200, a_response.text
+    assert b_response.status_code == 200, b_response.text
+    ra, rb = a_response.json(), b_response.json()
+    assert ra["id"] != rb["id"]
+    # Проверяем обе стороны: чужой заказ запрещён, собственный не потерян.
+    for passenger, own, other in ((a, ra, rb), (b, rb, ra)):
+        response = client.get("/instant/scheduled", headers=passenger["auth"])
+        assert response.status_code == 200, response.text
+        view = response.json()
+        ids = [order["id"] for order in view["scheduled"]]
+        assert ids == [own["id"]]
+        assert other["id"] not in ids
+        assert view["activated"] == []
 
 
 def test_cancel_scheduled(client, user_factory):
