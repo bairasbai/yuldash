@@ -369,6 +369,69 @@ def test_wait_expires_with_honest_message(client, user_factory):
     assert o.status == S.expired and o.wait_until is None
 
 
+@pytest.mark.parametrize("failure_at", ["close", "push"])
+def test_wait_finish_recovers_failed_transaction(client, user_factory, monkeypatch, failure_at):
+    """Ошибка записи/уведомления одного заказа не прерывает закрытие следующих."""
+    first_pax = user_factory("WaitFinishBrokenPax")
+    second_pax = user_factory("WaitFinishFollowingPax")
+    old = utcnow() - timedelta(minutes=10)
+    first = _order(first_pax["id"], status=S.searching, wait_until=old,
+                   from_text="synthetic-private-location")
+    second = _order(second_pax["id"], status=S.searching, wait_until=old)
+    released, messages, warnings = [], [], []
+    failed = False
+
+    def break_transaction(session):
+        nonlocal failed
+        if failed:
+            return
+        failed = True
+        order = session.get(M.InstantOrder, first)
+        order.passenger_id = None
+        session.add(order)
+        session.flush()  # Настоящее нарушение NOT NULL, Session становится failed.
+
+    def push(session, uid, *args, **kwargs):
+        if failure_at == "push" and kwargs["ref_id"] == first:
+            break_transaction(session)
+        messages.append(kwargs["ref_id"])
+
+    monkeypatch.setattr(tw, "push_notification", push)
+    monkeypatch.setattr(tw.promo_ride, "release_ids", lambda ids: released.extend(ids))
+    monkeypatch.setattr(tw.log, "warning", lambda message: warnings.append(message))
+    with Session(engine) as session:
+        execute = session.exec
+        commit = session.commit
+
+        def ordered_candidates(statement, *args, **kwargs):
+            monkeypatch.setattr(session, "exec", execute)
+            return execute(statement.order_by(M.InstantOrder.id.asc()), *args, **kwargs)
+
+        def fail_first_commit():
+            if failure_at == "close" and not failed:
+                break_transaction(session)
+            return commit()
+
+        monkeypatch.setattr(session, "exec", ordered_candidates)
+        monkeypatch.setattr(session, "commit", fail_first_commit)
+        closed = tw.finish_expired_waits(session)
+        assert second in closed
+        assert (first in closed) == (failure_at != "close")
+        assert session.get(M.InstantOrder, second).status == S.expired
+    assert failed
+    assert _get(first).passenger_id == first_pax["id"]
+    assert _get(first).status == (S.searching if failure_at == "close" else S.expired)
+    assert _get(first).wait_until == (old if failure_at == "close" else None)
+    assert _get(second).wait_until is None
+    assert _get(second).status == S.expired
+    assert second in messages
+    assert released == closed
+    if failure_at == "close":
+        assert first not in messages
+        assert len(warnings) == 1 and "IntegrityError" in warnings[0]
+    assert all("synthetic-private-location" not in line and "UPDATE " not in line for line in warnings)
+
+
 @pytest.mark.parametrize("change", ["extended", "accepted"])
 def test_expired_wait_rechecks_concurrent_change(client, user_factory, monkeypatch, change):
     """Не закрываем ожидание, продлённое или принятое после выборки воркера."""

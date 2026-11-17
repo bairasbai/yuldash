@@ -236,6 +236,7 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
         if dry_run:
             finished.append(o.id)
             continue
+        order_id = o.id
         try:
             fresh = session.exec(
                 select(InstantOrder).where(InstantOrder.id == o.id)
@@ -261,9 +262,11 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
                     ref_kind="instant", ref_id=fresh.id,
                 )
             except Exception:  # noqa: BLE001
-                pass
+                session.rollback()
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] закрытие ожидания #{o.id}: {type(e).__name__}: {e}")
+            session.rollback()
+            # Failed flush expires ORM fields; never log SQL parameters.
+            log.warning(f"[TAXI-WORKER] закрытие ожидания #{order_id}: {type(e).__name__}")
     # Ждали до конца и машины так и не нашлось — скидку возвращаем: человек не виноват,
     # что рядом никого. Обещано в шапке `promo_ride`, а звалось только при отмене.
     # В режиме просмотра не должно быть побочных commit через отдельную сессию промокода.

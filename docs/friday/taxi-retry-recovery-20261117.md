@@ -75,3 +75,13 @@ SQLite проверяет последовательное чередовани�
 Полный backend на 761773cc9ba42532fef6c807fb0c9809089c6d53: 6853 PASS, 119 skipped, 804 warnings, exit 0, 625.08 секунды. Команда и изоляция как выше; уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён.
 Ruff, diff-check PASS; detect-secrets двух Python-файлов: находок нет.
 Прежний риск failed Session в close_stuck_orders из предыдущего раздела исправлен только этим пакетом. PostgreSQL, реальные SMS/FCM, Android/UI и нагрузка не проверены. Это не полная приёмка режима такси.
+
+## Завершение ожидания: восстановление после ошибки транзакции
+
+База 27cfc841cb555221408cf43be277e304c35001cc; ветка fix/friday-taxi-wait-finish-rollback-20261117.
+finish_expired_waits восстанавливает Session после ошибки завершения ожидания и push. Сохранённое закрытие остаётся в finished; несохранённое не получает возврат скидки. ID захвачен до try, warning без SQL-параметров.
+Две регрессии вызывают настоящий NOT NULL failed flush. До: 2 FAILED; после и независимо: 24 PASS, exit 0. Reviewer также независимо воспроизвёл оба отказа старой функции в памяти процесса. Блокеров нет.
+Полный backend на e041eeec54083c875c1cb2bbf83157ba7ff6eeec: 6855 PASS, 119 skipped, 804 warnings, exit 0, 722.89 секунды.
+После смены облака зависимости заново установлены из requirements.txt в отдельный venv; версии проекта не изменялись. Команда и изоляция как выше: уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён.
+Ruff, diff-check PASS; detect-secrets двух изменённых Python-файлов: находок нет.
+SQLite, не PostgreSQL-конкурентность. Реальные push/SMS, Android/UI, нагрузка и production не проверены.
