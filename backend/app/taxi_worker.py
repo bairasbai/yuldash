@@ -213,7 +213,7 @@ def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
                         ref_kind="instant", ref_id=fresh.id,
                     )
                 except Exception:  # noqa: BLE001
-                    pass
+                    session.rollback()
         except Exception as e:  # noqa: BLE001
             session.rollback()
             # Failed flush expires ORM fields; never read them or SQL parameters here.

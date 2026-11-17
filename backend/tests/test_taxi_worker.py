@@ -603,3 +603,48 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
                          # молчание перестало быть способом похоронить разбор.
                          "incidents_escalated", "declares_reminded",
                          "people_waiting"}
+
+
+@pytest.mark.parametrize("failure_at", ["flush", "pending"])
+def test_retry_push_failure_does_not_poison_following_order(client, user_factory, monkeypatch, failure_at):
+    """Успешный поиск сохранён, а сбой уведомления не мешает следующему заказу."""
+    pax1 = user_factory("RetryPushFirst")
+    pax2 = user_factory("RetryPushSecond")
+    future = utcnow() + timedelta(minutes=30)
+    first = _order(pax1["id"], status=S.expired, wait_until=future)
+    second = _order(pax2["id"], status=S.expired, wait_until=future)
+    attempts, notifications = [], []
+
+    def match(session, order, notify=False):
+        attempts.append(order.id)
+        order.status = S.offered
+        session.add(order)
+        session.commit()
+        return order
+
+    def push(session, uid, *args, **kwargs):
+        if kwargs["ref_id"] == first:
+            order = session.get(M.InstantOrder, first)
+            order.passenger_id = None
+            session.add(order)
+            if failure_at == "flush":
+                session.flush()
+            raise RuntimeError("synthetic notification failure")
+        notifications.append(kwargs["ref_id"])
+
+    monkeypatch.setattr(tw.isv, "start_matching", match)
+    monkeypatch.setattr(tw, "push_notification", push)
+    with Session(engine) as session:
+        execute = session.exec
+        def ordered(statement, *args, **kwargs):
+            monkeypatch.setattr(session, "exec", execute)
+            return execute(statement.order_by(M.InstantOrder.id.asc()), *args, **kwargs)
+        monkeypatch.setattr(session, "exec", ordered)
+        assert tw.retry_waiting_orders(session) == [first, second]
+        assert session.get(M.InstantOrder, second).status == S.offered
+    assert attempts == [first, second]
+    assert notifications == [second]
+    assert _get(first).passenger_id == pax1["id"]
+    assert _get(first).status == S.offered
+    assert _get(first).retry_count == 1
+    assert _get(second).retry_count == 1

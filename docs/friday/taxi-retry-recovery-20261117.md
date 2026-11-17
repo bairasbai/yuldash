@@ -112,3 +112,12 @@ reconcile_offer обновляет устаревшее состояние че�
 Полный backend на e86a9c1d1746cdf6b5775f83eb9470c15041a05b: 6863 PASS, 119 skipped, 804 warnings, exit 0, 761.03 секунды. Прогон начат после освобождения слота Амио.
 Команда и изоляция как выше: уникальный TMPDIR, TZ=UTC, без proxy vars, TCP запрещён. Ruff, diff-check PASS; detect-secrets instant_service.py и test_taxi_status_never_resurrects.py: находок нет.
 Проверены текущие два читающих обработчика. Если переход не нужен, row lock удерживается до конца запроса/Session; возможна небольшая задержка конкурирующего изменения. Широкого изменения транзакций нет, доказанного performance-дефекта нет. SQLite не доказывает PostgreSQL-блокировки; Android/UI, реальные push и нагрузка не проверены.
+
+## Уведомление при повторном поиске: восстановление Session
+
+База ce9f07de9aed87efaaa0e1ef47dce8e969394052; ветка fix/friday-taxi-retry-push-rollback-20261121; кандидат 265c288.
+Пакет не содержит приостановленные изменения retry-state. При сбое push после commit повторного поиска выполняется rollback незавершённой транзакции уведомления; уже сохранённый offered и retry_count остаются.
+Две регрессии: настоящий NOT NULL failed flush и исключение с pending некорректной ORM-записью. Обе до исправления FAILED (PendingRollbackError / IntegrityError), после исправления оба тестовых файла: 41 passed, exit 0. Начальная ошибочная команда из корня не нашла tests/ и не считается RED; продуктовый RED получен из backend/.
+Команда: env -u DATABASE_URL -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY TZ=UTC /tmp/taxi-next-venv/bin/python -m pytest tests/test_taxi_worker.py tests/test_taxi_status_never_resurrects.py -q --disable-socket --allow-unix-socket.
+Ruff app --select F и diff-check PASS, detect-secrets двух Python-файлов: 0 находок. Независимая приёмка свежим gpt-6.1-sol: принято, находок P0/P1/P2 нет, самостоятельные 41 passed. Полный backend на 989346dfa4b046824837ac4932c533522ea24411 (код 265c288): 6865 passed, 119 skipped, 804 warnings, exit 0, 656.41 секунды. Прогон после освобождения слота Амио, без наложения тяжёлых тестов. Команда: те же env и pytest-флаги, весь tests/, уникальный TMPDIR=/tmp/taxi-retry-push-full; также удалены строчные proxy vars. Локальные gate PASS; удалённый CI этим не подтверждён.
+SQLite, push заменён тестовым обработчиком. PostgreSQL-конкурентность, реальная доставка push, Android/UI, нагрузка и production этим пакетом не проверены.
