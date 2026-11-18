@@ -22,7 +22,7 @@ from typing import Optional
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import case, update
+from sqlalchemy import case, inspect, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 from sqlmodel import Session, select
@@ -1871,17 +1871,51 @@ def _assigned_search_revision(session: Session, order_id: int) -> int:
 
 
 def _bump_search_revision(session: Session, order: InstantOrder) -> int:
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id, _can_increment_search_revision())
-        .values(search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1)
-        .execution_options(synchronize_session=False)
-    )
-    if result.rowcount == 0:
-        raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
-    revision = _assigned_search_revision(session, order.id)
-    session.refresh(order, attribute_names=["search_revision"])
-    return revision
+    # Do not flush/adopt a caller's pending generation or unrelated dirty fields.
+    # The caller owns the transaction and must roll it back after a conflict.
+    with session.no_autoflush:
+        if inspect(order).attrs.search_revision.history.has_changes():
+            raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+        order_id = order.id
+        if session.get_bind().dialect.name == "sqlite":
+            # SQLite ignores FOR UPDATE. This guarded no-op obtains its writer
+            # lock before returning the fresh scalar; valid rows do see an extra
+            # UPDATE (including triggers). The guard is still BIGINT-specific.
+            result = session.execute(
+                update(InstantOrder)
+                .where(InstantOrder.id == order_id, _can_increment_search_revision())
+                .values(search_revision=InstantOrder.search_revision)
+                .returning(InstantOrder.search_revision)
+                .execution_options(synchronize_session=False)
+            )
+            try:
+                row = result.one_or_none()  # (None,) is a row, not missing.
+            finally:
+                result.close()
+        else:
+            result = session.execute(
+                select(InstantOrder.search_revision)
+                .where(InstantOrder.id == order_id).with_for_update()
+            )
+            try:
+                row = result.one_or_none()
+            finally:
+                result.close()
+        if row is None or (row[0] is not None and
+                           (type(row[0]) is not int or not 0 <= row[0] < _MAX_SEARCH_REVISION)):
+            raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+        previous = row[0]
+        revision = 1 if previous is None else previous + 1
+        result = session.execute(
+            update(InstantOrder)
+            .where(InstantOrder.id == order_id, InstantOrder.search_revision == previous)
+            .values(search_revision=revision)
+            .execution_options(synchronize_session=False)
+        )
+        if result.rowcount != 1:
+            raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+        session.refresh(order, attribute_names=["search_revision"])
+        return revision
 
 
 def _assigned_search_owner(session: Session, order_id: int) -> tuple[int, str | None]:
