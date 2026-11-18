@@ -21816,3 +21816,9 @@ RS-FIX PWA08 final marker13 ownerRoot shellPID=4016 birthUTC=2026-11-05T19:58:28
 WIP plan only after published reader 5059ae50. Plan: docs/friday/taxi-matcher-finalizer-lab-20261118.md. Independent review before code; no activation/admission bypass/production changes. Gates: plan -> isolated implementation -> scoped/PG independent -> FULL -> separate branch. Driver-wide reservation and all-writer rollout remain blockers.
 
 Publication lab local gates PASS: runtime9f0380c/tests9c34aad; author scoped95 PASS, independent126 PASS; real PG192 PASS author/independent. FULL8ac9d51:7482 PASS/311 SKIP,actualexit0,709.53s. Uncalled only; admission/reservation/wiring/rollout remain blockers. Separate branch publication follows exact-tree verification.
+
+## Friday: driver reservation protocol diagnostics (2026-11-18)
+
+WIP test-only plan after publication lab2200b7c9. docs/friday/taxi-driver-reservation-protocol-20261118.md. Review User→Order cooperative serialization, mixed writer and RR/admission boundaries; no runtime API/wiring/activation. New PG + independent acceptance before separate publication.
+
+Driver protocol diagnostics ecd76bc: independent review PASS; author/independent actual PG205 PASS (11.11/10.21s), exit0/cleanup. RC cooperative serialized; concrete RR double publication, mixed writer and profile-online counterexamples reproduced. App unchanged, no new FULL; no production reservation/admission claim. Plan docs/friday/taxi-driver-reservation-protocol-20261118.md.
