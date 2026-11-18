@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi tried semantics (план, не runtime)
+
+База 87c68cc; docs/friday-taxi-tried-semantics-plan-20261118.md. Сравнение attempted/committed/delivered history; рекомендация отдельного committed exclusion протокола с per-cycle mode и default-off rollout, без компенсации SREM. Независимое docs-only review PASS; по умолчанию сохранить общий sliding TTL 3600, представление ещё не выбрано.
+
 ## 2026-11-18 — taxi tried PostgreSQL rollback (проверено test-only)
 
 База3fdcf93; test/friday-taxi-tried-rollback-postgres-20261118. Авторский/независимый PG25 PASS; независимый SQLite182 PASS/4skip. Подтверждены ограничения, не исправление. План docs/friday/taxi-tried-rollback-postgres-20261118.md: реальный deferred COMMIT refusal и modeled lost ACK aftercommit, legacy/tokenized, влияние на retry. Без runtime компенсации/архитектуры/production.
