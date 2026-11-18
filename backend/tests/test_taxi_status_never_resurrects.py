@@ -204,3 +204,48 @@ def test_lazy_offer_timeout_still_advances_expired_offer(client, user_factory, f
         result = isv.reconcile_offer(session, session.get(InstantOrder, oid))
         assert result.status == S.expired  # следующего водителя нет
     assert _status(oid) == S.expired
+
+
+@pytest.mark.parametrize("reason", ["", "far"])
+@pytest.mark.parametrize("window", ["stale", "before_update"])
+def test_stale_decline_preserves_reassigned_offer(client, user_factory, monkeypatch, reason, window):
+    """Запоздалый отказ прежнего водителя не снимает оффер нового получателя."""
+    pax = user_factory("DeclineRacePax")
+    first = user_factory("DeclineRaceFirst", role=UserRole.driver)
+    second = user_factory("DeclineRaceSecond", role=UserRole.driver)
+    old_expiry = utcnow() + timedelta(minutes=1)
+    new_expiry = old_expiry + timedelta(minutes=1)
+    oid = _order(pax["id"], S.offered, current_offer_driver_id=first["id"],
+                 offer_expires_at=old_expiry)
+    attempts = []
+    def next_offer(session, order, notify=True):
+        attempts.append(order.id)
+        return order
+    monkeypatch.setattr(isv, "try_offer_next", next_offer)
+    with Session(engine) as session:
+        stale = session.get(InstantOrder, oid)
+        assert stale.current_offer_driver_id == first["id"]
+        def reassign():
+            with Session(engine) as other:
+                changed = other.get(InstantOrder, oid)
+                changed.current_offer_driver_id = second["id"]
+                changed.offer_expires_at = new_expiry
+                other.add(changed)
+                other.commit()
+        if window == "stale":
+            reassign()
+        else:
+            execute = session.execute
+            def change_before_update(statement, *args, **kwargs):
+                if getattr(statement, "is_update", False):
+                    monkeypatch.setattr(session, "execute", execute)
+                    reassign()
+                return execute(statement, *args, **kwargs)
+            monkeypatch.setattr(session, "execute", change_before_update)
+        isv.decline_offer(session, oid, first["id"], reason=reason)
+    with Session(engine) as check:
+        saved = check.get(InstantOrder, oid)
+        assert saved.status == S.offered
+        assert saved.current_offer_driver_id == second["id"]
+        assert saved.offer_expires_at == new_expiry
+    assert attempts == []

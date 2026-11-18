@@ -3309,17 +3309,22 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     return try_offer_next(session, order, notify)
 
 
-def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True,
+                            *, expected_driver_id: int | None = None) -> InstantOrder:
     """Оффер отклонён/протух → назад в searching → следующий кандидат.
 
     Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
     из фоновой пачки воскрешал заказ, который водитель уже принял (заказ отбирался у него
     посреди подачи) или который пассажир уже отменил."""
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status == S.offered)
-        .values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None)
+    statement = update(InstantOrder).where(
+        InstantOrder.id == order.id, InstantOrder.status == S.offered,
     )
+    if expected_driver_id is not None:
+        # Проверка получателя в самом UPDATE переживает stale ORM и commit причины отказа.
+        statement = statement.where(InstantOrder.current_offer_driver_id == expected_driver_id)
+    result = session.execute(statement.values(
+        status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
+    ))
     session.commit()
     order = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
@@ -3356,7 +3361,7 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
             session.commit()
         except Exception:  # noqa: BLE001
             session.rollback()
-    return advance_after_no_accept(session, order)
+    return advance_after_no_accept(session, order, expected_driver_id=driver_id)
 
 
 # ============================ Push / приватность ============================
