@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi first-cycle init lab (локально проверено)
+
+План docs/friday/taxi-tried-history-init-lab-20261118.md, helper98039b4. Только pristine created→searching+history атомарно в caller transaction, без активации/общегоrotate/reassign. Новыйorder — precondition, UUID лишь практическиуникален. Independent scoped71PASS, author/independentPG121PASS. FULL92e586e:7418PASS240skip,exit0. Helper не подключён; production admission/reassign/rollout не доказаны.
+
 ## 2026-11-18 — taxi atomic SQL history write lab (локально проверено)
 
 План docs/friday/taxi-tried-history-write-lab-20261118.md, uncalled helperb833b0a. Existing caller transaction + own savepoint, typed mismatch, no outercommit; full expiredreset/add/sliding renewal. Никаких writers/flags/activation. Independent scoped71PASS, PG78PASS; первый fixtureFAIL сохранён и исправлен. FULLe2e3111:7404PASS197skip,exit0. Primitive не подключён, outer commit остаётся у caller.
