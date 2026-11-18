@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi expiry cleanup generation (проверено локально)
+
+База9e76530, отдельная ветка fix/friday-taxi-expiry-cleanup-generation-20261118. Runtime d38cece; независимые130scoped+12realPGPASS; FULL7047PASS/131skip/exit0 на533908f. Два точных RED сохранены. План docs/friday/taxi-expiry-cleanup-plan-20261118.md: fresh revision/status guard под row lock после expiry commit, условная очистка, release before push; независимая проверка, регрессии/PG/FULL. Полную Redis/DB атомарность и late network DELETE не обещать.
+
 ## 2026-11-18 — taxi revision PostgreSQL concurrency (проверено локально)
 
 База6791f9c, отдельная test-only ветка test/friday-taxi-search-revision-postgres-20261118.

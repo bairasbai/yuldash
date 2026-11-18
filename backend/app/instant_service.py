@@ -3170,10 +3170,11 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
     пассажир УЖЕ нажал «подождать», он в курсе; повторять ему «рядом никого» каждые
     две минуты — спам, из-за которого выключают уведомления."""
+    order_id = order.id
     searching_at, search_round, offer_token = expected_search
     result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status == S.searching,
+        .where(InstantOrder.id == order_id, InstantOrder.status == S.searching,
                InstantOrder.searching_at == searching_at,
                InstantOrder.search_round == search_round,
                InstantOrder.offer_token == offer_token,
@@ -3181,16 +3182,31 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
         .values(status=S.expired, expired_at=utcnow(), current_offer_driver_id=None, offer_expires_at=None)
     )
     session.commit()
-    fresh = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
-        return fresh  # подбор проиграл отмене/принятию/новому офферу
-    _cleanup_tried(order.id)
+        return session.get(InstantOrder, order_id)  # CAS проигран — никаких effects
+    # Expiry уже committed. Новый поиск мог начаться до cleanup по общему order_id.
+    # Сериализуем успешный DELETE с новым DB writer; сетевой timeout/поздний DELETE
+    # не дают Redis/DB атомарности и остаются отдельной границей.
+    try:
+        fresh = session.exec(
+            select(InstantOrder).where(InstantOrder.id == order_id)
+            .execution_options(populate_existing=True).with_for_update()
+        ).first()
+        if fresh is None or fresh.status != S.expired or fresh.search_revision != expected_revision:
+            return fresh
+        passenger_id = fresh.passenger_id
+        payload = _status_data(fresh, "expired")
+        _cleanup_tried(order_id)
+    finally:
+        # Только новая read-транзакция: expiry не откатывается. Не держим row lock
+        # во время push и освобождаем его также при ошибке SELECT/cleanup.
+        session.rollback()
     if notify:
-        push_bilingual(session, fresh.passenger_id,
+        push_bilingual(session, passenger_id,
                        "Рядом никого", "Яҡында водитель юҡ",
                        "Пока не нашли водителя. Попробуй ещё раз или оставь заявку.",
                        "Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
-                       data=_status_data(fresh, "expired"))
+                       data=payload)
     return fresh
 
 
