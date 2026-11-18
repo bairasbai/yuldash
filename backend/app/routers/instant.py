@@ -9,7 +9,8 @@ from typing import Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
-from sqlalchemy import update
+from sqlalchemy import String, cast, func, inspect, literal, update
+from sqlalchemy.orm.attributes import set_committed_value
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
@@ -941,27 +942,84 @@ def rate_order(order_id: int, body: RateIn, user: User = Depends(current_user),
 
 
 # --------- очередь «рядом никого» ---------
+_WAIT_SOURCE_FIELDS = ("id", "passenger_id", "status", "search_revision", "wait_until")
+
+
+def _wait_snapshot_conflict():
+    return herr(409, "Заказ изменился. Обнови экран и попробуй снова.",
+                "Заказ үҙгәрҙе. Экранды яңырт та тағы ҡабатла.",
+                code="wait_snapshot_conflict")
+
+
+def _capture_wait_snapshot(session: Session, order_id: int, user_id: int):
+    # Passive precondition before SQL: a dirty PK retains its old identity key.
+    local = session.identity_map.get(session.identity_key(InstantOrder, order_id))
+    if local is not None:
+        state = inspect(local)
+        if (state.deleted or local in session.deleted
+                or any(state.attrs[name].history.has_changes() for name in _WAIT_SOURCE_FIELDS)):
+            raise _wait_snapshot_conflict()
+    columns = [getattr(InstantOrder, name) for name in _WAIT_SOURCE_FIELDS]
+    sqlite = session.get_bind().dialect.name == "sqlite"
+    if sqlite:
+        columns.extend((cast(InstantOrder.wait_until, String).label("wait_raw"),
+                        func.typeof(InstantOrder.wait_until).label("wait_storage")))
+    with session.no_autoflush:
+        result = session.execute(select(*columns).where(InstantOrder.id == order_id))
+        try:
+            snapshot = result.one_or_none()
+        finally:
+            result.close()
+    if snapshot is None:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if snapshot.passenger_id != user_id:
+        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
+    if snapshot.status not in (S.expired, S.searching):
+        raise herr(409, "Ожидание доступно, пока машина не найдена",
+                   "Машина табылғанға тиклем генә көтөп була")
+    if snapshot.wait_until is not None:
+        if type(snapshot.wait_until) is not datetime or (not sqlite and snapshot.wait_until.tzinfo is not None):
+            raise ValueError("Unsupported wait timestamp")
+        if sqlite and (snapshot.wait_storage != "text" or type(snapshot.wait_raw) is not str):
+            raise ValueError("Unsupported SQLite wait timestamp storage")
+    return snapshot
+
+
+def _apply_wait_snapshot(session: Session, snapshot, deadline: datetime) -> None:
+    predicates = [getattr(InstantOrder, name) == getattr(snapshot, name)
+                  for name in _WAIT_SOURCE_FIELDS]
+    if session.get_bind().dialect.name == "sqlite":
+        # Match the original storage spelling, not a normalized datetime rebind.
+        predicates[-1] = (cast(InstantOrder.wait_until, String).collate("BINARY")
+                          == literal(snapshot.wait_raw, type_=String)) if snapshot.wait_until is not None else InstantOrder.wait_until.is_(None)
+        predicates.append(func.typeof(InstantOrder.wait_until) == literal(snapshot.wait_storage, type_=String))
+    with session.no_autoflush:
+        result = session.execute(
+            update(InstantOrder).where(*predicates)
+            .values(wait_until=deadline).returning(InstantOrder.id)
+            .execution_options(synchronize_session="fetch")
+        )
+        try:
+            matched = result.scalars().all()
+        finally:
+            result.close()
+        if matched != [snapshot.id]:
+            # Request close/direct caller rollback releases this transaction.
+            raise _wait_snapshot_conflict()
+        local = session.identity_map.get(session.identity_key(InstantOrder, snapshot.id))
+        if local is not None and local not in session.deleted and not inspect(local).deleted:
+            set_committed_value(local, "wait_until", deadline)
+
+
 @router.post("/instant/orders/{order_id}/wait")
 def wait_for_driver(order_id: int, user: User = Depends(current_user),
                     session: Session = Depends(get_session)):
-    """«Подожду машину» после «рядом никого».
-
-    Раньше отказ был мгновенным и окончательным: свободных водителей нет → заказ сразу expired,
-    повтора поиска не было вообще. В райцентре ночью на линии 2-3 водителя и оба заняты — это
-    не исключение, а норма: человек получал отказ за 2 секунды и уходил к конкуренту.
-    Теперь пассажир ставит заказ в очередь, а фоновый воркер (app/taxi_worker.py) спокойно
-    перезапускает поиск до order_wait_max_min минут и пушит, как только машина найдётся."""
-    order = session.get(InstantOrder, order_id)
-    if not order:
-        raise herr(404, "Заказ не найден", "Заказ табылманы")
-    if order.passenger_id != user.id:                     # анти-IDOR: ждать можно только свой заказ
-        raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
-    if order.status not in (isv.S.expired, isv.S.searching):
-        raise herr(409, "Ожидание доступно, пока машина не найдена",
-                   "Машина табылғанға тиклем генә көтөп була")
-    order.wait_until = utcnow() + timedelta(minutes=isv.settings.order_wait_max_min)
-    session.add(order)
+    """Renew the initially observed wait snapshot, not a client episode token."""
+    snapshot = _capture_wait_snapshot(session, order_id, user.id)
+    deadline = utcnow() + timedelta(minutes=isv.settings.order_wait_max_min)
+    _apply_wait_snapshot(session, snapshot, deadline)
     session.commit()
+    order = session.get(InstantOrder, order_id)
     session.refresh(order)
     return {"ok": True, "wait_until": order.wait_until,
             "wait_minutes": isv.settings.order_wait_max_min,

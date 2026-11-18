@@ -1,18 +1,17 @@
-"""Diagnostic: a delayed real /wait can reopen a worker-closed wait episode.
+"""Protected-after-read regression; historical reopening diagnostics remain in git/logs.
 
-PASS records the current limitation, NOT a fix or authorization to activate a
-pending consumer. Router clock is paused after its real status/ownership read;
+The original 40b74c2/8887806 diagnostic observed reopening. This explicit
+expectation change covers only the captured nonNULL deadline, not client replay. Router clock is paused after its real status/ownership read;
 worker SQL/commit, authentication and subsequent HTTP write remain unmocked.
 """
 
 from concurrent.futures import ThreadPoolExecutor
-from datetime import timedelta
 from threading import Event
 
 import pytest
 from sqlmodel import Session
 
-from app import instant_service as isv, taxi_worker
+from app import taxi_worker
 from app.db import engine
 from app.models import InstantOrderStatus as S
 from app.routers import instant as router
@@ -24,7 +23,7 @@ terminal_case = terminal.terminal_case
 
 
 @pytest.mark.parametrize("closure", ["worker", "order_again"])
-def test_known_gap_delayed_wait_reopens_closed_episode_without_pending(
+def test_protected_after_read_wait_rejects_closed_observed_deadline(
     terminal_case, client, monkeypatch, closure
 ):
     make, passenger, _, now, _ = terminal_case
@@ -75,13 +74,12 @@ def test_known_gap_delayed_wait_reopens_closed_episode_without_pending(
             # Join before own-order fixture teardown, including failed assertions.
             response = request.result(timeout=20)
     assert calls == [True]
-    assert response.status_code == 200, response.text
-    assert response.json()["ok"] is True
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == {
+        "code": "wait_snapshot_conflict",
+        "ru": "Заказ изменился. Обнови экран и попробуй снова.",
+        "ba": "Заказ үҙгәрҙе. Экранды яңырт та тағы ҡабатла.",
+    }  # BA wording is a draft, not native linguistic QA.
     after = terminal.snapshot(oid)
-    expected_deadline = now + timedelta(minutes=isv.settings.order_wait_max_min)
-    assert after["wait_until"] == expected_deadline and expected_deadline > now
-    assert after["status"] == S.expired
-    assert after["search_revision"] == before["search_revision"]
-    assert terminal.pending(after) == terminal.CLEAR
-    # A new wait episode exists, but this inactive slice has no producer. The
-    # stale request was not rejected by an episode CAS; no safety claim follows.
+    assert after == closed
+    assert after["wait_until"] is None and terminal.pending(after) == terminal.CLEAR
