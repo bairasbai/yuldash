@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi SQL history GC lab (локально проверено)
+
+План docs/friday/taxi-tried-history-gc-lab-20261118.md, uncalled helper095fe28. Ownerlock/fresh SQLclock, bounded deletion count не latency, own transaction. Нет scheduler/writers/активации, GC budget/whole-set reset-before-renew остаются blockers. Независимый scoped51 PASS, author/independent PG47 PASS, FULL64f7c1a:7373 PASS/166skip,exit0. P2 clock-probe исправлен, runtime blockers нет. Helper не подключён.
+
 ## 2026-11-18 — taxi inactive SQL history schema (локально проверено)
 
 План docs/friday/taxi-tried-sql-schema-20261118.md, schema candidate 5a67dbd. Bound row-local history не доказан; normalized set + nullable version/shared expiry, без runtime readers/writers/init. Независимая приёмка PASS, PG27 author/independent PASS. Первый FULL3FAIL сохранён; точечные guards corrections с negative controls проверены68+20. FULL2 на3b1a361:7356 PASS/146skip,exit0. Не rollbackfix; GC остаётся activation blocker.
