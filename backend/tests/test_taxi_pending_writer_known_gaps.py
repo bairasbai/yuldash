@@ -1,4 +1,4 @@
-"""Known-gap diagnostics on actual writers, not a resume producer or a fix.
+"""Fixed existing-pending transfer plus remaining accepted/terminal gaps.
 
 The complete pending tuple is synthetic fixture data. Empty fake Redis means
 real matcher lookup reaches real no-driver expiry; no commit/CAS/helper mocks.
@@ -135,10 +135,18 @@ def assert_stale_pending(before, after, revision, status):
         assert after[field] == before[field], field
 
 
+def assert_transferred_pending(before, after, revision, status):
+    assert after["status"] == status
+    assert after["search_revision"] == after["matching_resume_revision"] == revision
+    # These fixtures have a past deadline; transfer must not postpone it.
+    assert after["matching_resume_next_at"] == before["matching_resume_next_at"]
+    assert after["matching_resume_attempts"] == before["matching_resume_attempts"]
+    for field in UNCHANGED:
+        assert after[field] == before[field], field
+
+
 @pytest.mark.parametrize("operation", ["start", "advance", "destination", "fallback"])
-def test_known_gap_search_writers_leave_old_pending_after_actual_change(
-    seeded, operation
-):
+def test_fixed_transfer_search_writers_keep_existing_pending_current(seeded, operation):
     create, _, _, now = seeded
     oid, before = create(S.offered if operation == "advance" else S.searching)
     with engine.connect() as held:
@@ -164,7 +172,7 @@ def test_known_gap_search_writers_leave_old_pending_after_actual_change(
                 assert price is None or price >= order.ride_price
                 isv.add_fallback_category(session, order, "standard")
             after = snapshot(oid, held)
-    assert_stale_pending(before, after, 42, S.expired)
+    assert_transferred_pending(before, after, 42, S.expired)
     assert after["expired_at"] is not None
     assert (
         after["current_offer_driver_id"] is None and after["offer_expires_at"] is None
@@ -187,7 +195,7 @@ def test_known_gap_search_writers_leave_old_pending_after_actual_change(
         assert after["fallback_categories"] != before["fallback_categories"]
 
 
-def test_known_gap_offered_fallback_preserves_offer_but_not_pending_generation(seeded):
+def test_fixed_transfer_offered_fallback_preserves_offer_and_pending_generation(seeded):
     create, _, _, _ = seeded
     oid, before = create(S.offered)
     with Session(engine) as session:
@@ -196,7 +204,7 @@ def test_known_gap_offered_fallback_preserves_offer_but_not_pending_generation(s
         assert price is None or price >= order.ride_price
         isv.add_fallback_category(session, order, "standard")
     after = snapshot(oid)
-    assert_stale_pending(before, after, 42, S.offered)
+    assert_transferred_pending(before, after, 42, S.offered)
     for field in (
         "offer_token",
         "current_offer_driver_id",

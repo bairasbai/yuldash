@@ -1898,6 +1898,71 @@ def _assigned_search_revision(session: Session, order_id: int) -> int:
     return session.exec(select(InstantOrder.search_revision).where(InstantOrder.id == order_id)).one()
 
 
+_RESUME_PENDING_FIELDS = (
+    "matching_resume_revision", "matching_resume_next_at", "matching_resume_attempts",
+)
+
+
+def _pending_columns() -> tuple:
+    return tuple(getattr(InstantOrder, name) for name in _RESUME_PENDING_FIELDS)
+
+
+def _pending_capture_columns(session: Session) -> tuple:
+    columns = _pending_columns()
+    if session.get_bind().dialect.name == "sqlite":
+        # DateTime decoding loses storage spelling; capture raw ownership in the
+        # same locked row, not with a separate read or a semantic time conversion.
+        stamp = InstantOrder.matching_resume_next_at
+        return (*columns, cast(stamp, String).label("resume_next_raw"),
+                func.typeof(stamp).label("resume_next_storage"))
+    return columns
+
+
+def _pending_local(session: Session, order_id: int):
+    # Identity lookup and passive history only: never load an object for transfer.
+    local = session.identity_map.get(session.identity_key(InstantOrder, order_id))
+    if local is None:
+        return None, True
+    state = inspect(local)
+    clean = (state.persistent and state.session is session and not state.deleted
+             and local not in session.deleted
+             and not any(state.attrs[name].history.has_changes() for name in _RESUME_PENDING_FIELDS))
+    return local, clean
+
+
+def _pending_transfer(session: Session, order_id: int, previous: int | None,
+                      pending: tuple, revision: int) -> tuple[dict, tuple]:
+    # This transfers an existing structurally valid tuple, never creates/repairs one.
+    _, clean = _pending_local(session, order_id)
+    pending_revision, next_at, attempts = pending[:3]
+    sqlite = session.get_bind().dialect.name == "sqlite"
+    if (not clean or type(previous) is not int or not 0 <= previous < _MAX_SEARCH_REVISION
+            or type(pending_revision) is not int or pending_revision != previous
+            or type(next_at) is not datetime or next_at.tzinfo is not None
+            or type(attempts) is not int or not 0 <= attempts <= 2**31 - 1
+            or (sqlite and (pending[4] != "text" or type(pending[3]) is not str))):
+        return {}, ()
+    # Called only after the existing owner lock, and only for an eligible transfer.
+    now = utcnow()
+    if type(now) is not datetime or now.tzinfo is not None:
+        raise ValueError("Pending transfer clock must be a naive UTC datetime")
+    values = dict(zip(_RESUME_PENDING_FIELDS, (revision, min(next_at, now), attempts)))
+    predicates = tuple(column == value for column, value in zip(_pending_columns(), pending[:3]))
+    if sqlite:
+        stamp = InstantOrder.matching_resume_next_at
+        predicates = (predicates[0],
+                      cast(stamp, String).collate("BINARY") == literal(pending[3], type_=String),
+                      func.typeof(stamp) == literal("text", type_=String), predicates[2])
+    return values, predicates
+
+
+def _sync_transferred_pending(session: Session, order_id: int) -> None:
+    local, clean = _pending_local(session, order_id)
+    if local is not None and clean:
+        with session.no_autoflush:
+            session.refresh(local, attribute_names=["search_revision", *_RESUME_PENDING_FIELDS])
+
+
 def _bump_search_revision(session: Session, order: InstantOrder) -> int:
     # Do not flush/adopt a caller's pending generation or unrelated dirty fields.
     # The caller owns the transaction and must roll it back after a conflict.
@@ -1914,7 +1979,7 @@ def _bump_search_revision(session: Session, order: InstantOrder) -> int:
                 .where(InstantOrder.id == order_id,
                        _can_increment_search_revision(session.get_bind().dialect.name))
                 .values(search_revision=InstantOrder.search_revision)
-                .returning(InstantOrder.search_revision)
+                .returning(InstantOrder.search_revision, *_pending_capture_columns(session))
                 .execution_options(synchronize_session=False)
             )
             try:
@@ -1923,7 +1988,7 @@ def _bump_search_revision(session: Session, order: InstantOrder) -> int:
                 result.close()
         else:
             result = session.execute(
-                select(InstantOrder.search_revision)
+                select(InstantOrder.search_revision, *_pending_capture_columns(session))
                 .where(InstantOrder.id == order_id).with_for_update()
             )
             try:
@@ -1935,15 +2000,18 @@ def _bump_search_revision(session: Session, order: InstantOrder) -> int:
             raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
         previous = row[0]
         revision = 1 if previous is None else previous + 1
+        pending_values, pending_cas = _pending_transfer(session, order_id, previous, tuple(row[1:]), revision)
         result = session.execute(
             update(InstantOrder)
-            .where(InstantOrder.id == order_id, InstantOrder.search_revision == previous)
-            .values(search_revision=revision)
+            .where(InstantOrder.id == order_id, InstantOrder.search_revision == previous, *pending_cas)
+            .values(search_revision=revision, **pending_values)
             .execution_options(synchronize_session=False)
         )
         if result.rowcount != 1:
             raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
         session.refresh(order, attribute_names=["search_revision"])
+        if pending_values:
+            _sync_transferred_pending(session, order_id)
         return revision
 
 
@@ -1966,7 +2034,8 @@ def _prepare_search_entry(session: Session, order_id: int) -> None:
 
 def _locked_search_entry(session: Session, order_id: int, predicates: tuple,
                          *, valid_lifecycle: bool) -> tuple | None:
-    columns = (InstantOrder.status, InstantOrder.search_revision, InstantOrder.tried_lifecycle)
+    columns = (InstantOrder.status, InstantOrder.search_revision, InstantOrder.tried_lifecycle,
+               *_pending_capture_columns(session))
     conditions = (InstantOrder.id == order_id,
                   _can_increment_search_revision(session.get_bind().dialect.name), *predicates)
     if session.get_bind().dialect.name == "sqlite":
@@ -3122,19 +3191,25 @@ def _reassign_after_driver_cancel(session: Session, order_id: int,
         predicates = (InstantOrder.status == S.cancelled,)
         source = _locked_search_entry(session, order_id, predicates, valid_lifecycle=True)
         if source is not None:
+            next_revision = 1 if source[1] is None else source[1] + 1
+            pending_values, pending_cas = _pending_transfer(
+                session, order_id, source[1], source[3:], next_revision)
             result = session.execute(
                 update(InstantOrder)
-                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source))
+                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source), *pending_cas)
                 .values(status=S.searching, searching_at=utcnow(), search_round=0,
-                        search_revision=1 if source[1] is None else source[1] + 1,
+                        search_revision=next_revision,
                         tried_lifecycle=_new_tried_lifecycle(),
                         reassigns=InstantOrder.reassigns + 1,
                         driver_id=None, accepted_at=None, arriving_at=None,
                         waiting_started_at=None, current_offer_driver_id=None, offer_expires_at=None,
                         cancel_by="", cancel_reason="", cancelled_at=None, cancel_fee_kop=0)
+                .values(**pending_values)
                 .execution_options(synchronize_session="fetch")
             )
             won = result.rowcount == 1
+            if won and pending_values:
+                _sync_transferred_pending(session, order_id)
         else:
             won = False
         revision, lifecycle = _assigned_search_owner(session, order_id) if won else (None, None)
@@ -3710,16 +3785,22 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
         predicates = (InstantOrder.status.in_(_MATCHABLE),)
         source = _locked_search_entry(session, order_id, predicates, valid_lifecycle=True)
         if source is not None:
+            next_revision = 1 if source[1] is None else source[1] + 1
+            pending_values, pending_cas = _pending_transfer(
+                session, order_id, source[1], source[3:], next_revision)
             result = session.execute(
                 update(InstantOrder)
-                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source))
+                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source), *pending_cas)
                 .values(status=S.searching, searching_at=utcnow(), search_round=0,
-                        search_revision=1 if source[1] is None else source[1] + 1,
+                        search_revision=next_revision,
                         tried_lifecycle=case((InstantOrder.status == S.searching, InstantOrder.tried_lifecycle),
                                              else_=_new_tried_lifecycle()))
+                .values(**pending_values)
                 .execution_options(synchronize_session="fetch")
             )
             won = result.rowcount == 1
+            if won and pending_values:
+                _sync_transferred_pending(session, order_id)
         else:
             won = False
         revision, lifecycle = _assigned_search_owner(session, order_id) if won else (None, None)
@@ -3755,14 +3836,20 @@ def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool 
         # then the matcher itself refuses lookup. Do not tighten it here.
         source = _locked_search_entry(session, order_id, predicates, valid_lifecycle=False)
         if source is not None:
+            next_revision = 1 if source[1] is None else source[1] + 1
+            pending_values, pending_cas = _pending_transfer(
+                session, order_id, source[1], source[3:], next_revision)
             result = session.execute(
                 update(InstantOrder)
-                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source))
+                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source), *pending_cas)
                 .values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
-                        search_revision=1 if source[1] is None else source[1] + 1)
+                        search_revision=next_revision)
+                .values(**pending_values)
                 .execution_options(synchronize_session="fetch")
             )
             won = result.rowcount == 1
+            if won and pending_values:
+                _sync_transferred_pending(session, order_id)
         else:
             won = False
         revision, lifecycle = _assigned_search_owner(session, order_id) if won else (None, None)
