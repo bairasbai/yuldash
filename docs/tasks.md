@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi offer dispatch boundary (диагностики проверены)
+
+База 44427ff; test/friday-taxi-offer-dispatch-boundary-20261118. Диагностические 2 PASS подтверждают дефекты, не исправление; независимый scoped 197 PASS, runtime/schema неизменны. План docs/friday/taxi-offer-dispatch-boundary-20261118.md: диагностировать postcommit recipient/generation mismatch, затем отдельный reviewed guard/snapshot план. Пока без runtime; адресные ограничения, paused/main/production границы сохраняются.
+
 ## 2026-11-18 — taxi address tail privacy (проверено локально)
 
 База cb21ef5; fix/friday-taxi-address-tail-privacy-20261118. Runtime 13841fc: авторские 196 + 368 PASS, независимые 235 PASS, PG дважды по 17 PASS; FULL на 24465ee: 7293 PASS, 136 skipped, exit 0. Подтверждён старый leak дома в destination с квартирой. План docs/friday/taxi-address-tail-privacy-20261118.md: общий узкий sanitizer хвоста, числовые названия улиц сохранять, empty-safe fallback, realpush/blurredpayload/authorizedexact tests. Независимый review/scoped/FULL, не универсальная гарантия свободного текста; main/prod/paused untouched.
