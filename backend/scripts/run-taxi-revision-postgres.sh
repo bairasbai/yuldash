@@ -2,9 +2,9 @@
 # Disposable local PostgreSQL only. Never accepts an existing DATABASE_URL.
 set -euo pipefail
 # Only named fixed suites; reject arbitrary pytest arguments before any bootstrap.
-(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|matching-resume-known-gaps]" >&2; exit 64; }
+(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|actual-schema-pg-type-rehearsal|matching-resume-known-gaps]" >&2; exit 64; }
 mode="${1-regression}"
-case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
+case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|actual-schema-pg-type-rehearsal|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
 export YULDASH_TEST_PG_MODE="$mode"
 cd "$(dirname "$0")/.."
 : "${YULDASH_TEST_PG_BIN:?Set the directory of installed trusted PostgreSQL binaries}"
@@ -53,7 +53,7 @@ from pathlib import Path
 import psycopg2
 root = Path(sys.argv[1])
 databases = ["yuldash_revision_fixture"]
-if os.environ.get("YULDASH_TEST_PG_MODE") == "actual-schema-baseline":
+if os.environ.get("YULDASH_TEST_PG_MODE") in ("actual-schema-baseline", "actual-schema-pg-type-rehearsal"):
     databases += ["yuldash_schema_chain_fixture", "yuldash_schema_init_fixture"]
 # Explicit loopback and fresh credentials; no URL or service inherited.
 connection = psycopg2.connect(host="127.0.0.1", port=int(sys.argv[2]), password=(root / "password").read_text(), user="yuldash_test", dbname="postgres")
@@ -90,7 +90,9 @@ password="$(cat "$runtime/password")"
 export DATABASE_URL="postgresql+psycopg2://yuldash_test:$password@127.0.0.1:$port/yuldash_revision_fixture"
 unset password
 export YULDASH_TEST_PG_DATA="$runtime/data" TMPDIR="$runtime/tmp"
-if [[ "$mode" == "actual-schema-baseline" ]]; then
+if [[ "$mode" == "actual-schema-pg-type-rehearsal" ]]; then
+  "$python" -m pytest --noconftest tests/test_taxi_actual_schema_pg_type_rehearsal.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+elif [[ "$mode" == "actual-schema-baseline" ]]; then
   "$python" -m pytest --noconftest tests/test_taxi_actual_schema_baseline.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
 elif [[ "$mode" == "route-capture-locks" ]]; then
   "$python" -m pytest tests/test_taxi_route_capture_locks.py tests/test_taxi_locked_revision_bump.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
