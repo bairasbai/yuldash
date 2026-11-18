@@ -819,13 +819,17 @@ def close_stale_orders(now=None) -> int:
             "WHERE status = 'onboard' AND created_at < :cut"
         ), {"cut": cut}).all()]
         closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'cancelled' "
+            "UPDATE instantorder SET status = 'cancelled', "
+            "matching_resume_revision = NULL, matching_resume_next_at = NULL, "
+            "matching_resume_attempts = NULL "
             "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
         ), {"cut": cut}).rowcount or 0
         # done_at обязателен: без него поездка выпадает из заработка водителя и из стажа для
         # лесенки комиссии — комиссию бы взяли, а поездку человек в своей истории не нашёл.
         closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
+            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now), "
+            "matching_resume_revision = NULL, matching_resume_next_at = NULL, "
+            "matching_resume_attempts = NULL "
             "WHERE status = 'onboard' AND created_at < :cut"
         ), {"cut": cut, "now": now}).rowcount or 0
         stale_scheduled = [r[0] for r in conn.execute(text(

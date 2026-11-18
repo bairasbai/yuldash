@@ -186,13 +186,13 @@ def test_pg_actual_cancel_first_blocks_pending_transfer_and_waiter_effects(
     after = writers.known.snapshot(oid)
     assert after["status"] == "cancelled"
     assert after["search_revision"] == original["search_revision"]
-    assert writers.pending(after) == writers.pending(original)
+    assert writers.pending(after) == (None, None, None)
     assert not any(thread == waiter_info["thread"] for thread, _ in effects)
-    # Retained terminal pending is a known activation blocker, not clear success.
+    # Fixed terminal disposition; this does not activate a producer or consumer.
 
 
 @pytest.mark.parametrize("commit_transfer", (False, True))
-def test_pg_transfer_first_actual_cancel_waits_then_retains_known_terminal_gap(
+def test_pg_transfer_first_actual_cancel_waits_then_clears_pending(
     pending_case, commit_transfer
 ):
     make, passenger, _, _ = pending_case
@@ -224,8 +224,8 @@ def test_pg_transfer_first_actual_cancel_waits_then_retains_known_terminal_gap(
     expected = 42 if commit_transfer else 41
     assert after["status"] == "cancelled"
     assert after["search_revision"] == expected
-    assert writers.pending(after) == (expected, original["matching_resume_next_at"], 3)
-    # This is not a promise that accepted/terminal dispositions clear obligations.
+    assert writers.pending(after) == (None, None, None)
+    # The explicit cancellation, not transfer itself, clears this obligation.
 
 
 @pytest.mark.parametrize("following", ("bump", "cancel"))
@@ -298,4 +298,7 @@ def test_pg_actual_advance_first_then_bump_or_cancel_observes_committed_transfer
     expected = 43 if following == "bump" else 42
     assert after["status"] == ("searching" if following == "bump" else "cancelled")
     assert after["search_revision"] == expected
-    assert writers.pending(after) == (expected, original["matching_resume_next_at"], 3)
+    assert writers.pending(after) == (
+        (expected, original["matching_resume_next_at"], 3)
+        if following == "bump" else (None, None, None)
+    )

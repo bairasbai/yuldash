@@ -223,7 +223,7 @@ def test_fixed_transfer_offered_fallback_preserves_offer_and_pending_generation(
 
 
 @pytest.mark.parametrize("operation", ["accept", "cancel", "timeout"])
-def test_known_gap_accepted_or_terminal_retains_seeded_pending(seeded, operation):
+def test_fixed_selected_accepted_or_terminal_clears_seeded_pending(seeded, operation):
     create, passenger, driver, now = seeded
     old = now - timedelta(hours=taxi_worker.settings.order_stuck_hours + 1)
     kwargs = (
@@ -257,7 +257,9 @@ def test_known_gap_accepted_or_terminal_retains_seeded_pending(seeded, operation
     expected = {"accept": S.accepted, "cancel": S.cancelled, "timeout": S.expired}[
         operation
     ]
-    assert_stale_pending(before, after, 41, expected)
+    assert after["status"] == expected and after["search_revision"] == 41
+    assert tuple(after[k] for k in PENDING) == (None, None, None)
+    assert all(after[k] == before[k] for k in UNCHANGED)
     assert (
         after["current_offer_driver_id"] is None and after["offer_expires_at"] is None
     )

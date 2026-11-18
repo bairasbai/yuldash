@@ -396,7 +396,7 @@ def test_real_sqlite_after_capture_trigger_causes_exact_pending_cas_loser(
             c.commit()
 
 
-def test_actual_driver_cancel_reassign_transfers_and_keeps_terminal_gap_separate(
+def test_actual_driver_cancel_clears_before_reassign_without_new_producer(
     pending_case,
 ):
     make, _, driver, now = pending_case
@@ -406,8 +406,7 @@ def test_actual_driver_cancel_reassign_transfers_and_keeps_terminal_gap_separate
     with Session(engine) as s:
         isv.cancel_order(s, oid, isv.Actor.driver, driver["id"], "synthetic cancel")
     after = known.snapshot(oid)
-    assert after["search_revision"] == 42 and after["matching_resume_revision"] == 42
-    assert after["matching_resume_attempts"] == 3
+    assert after["search_revision"] == 42 and pending(after) == (None, None, None)
     assert after["reassigns"] == before["reassigns"] + 1
 
 
@@ -661,7 +660,8 @@ def test_actual_authenticated_http_pending_transfer_boundaries(
     """Synthetic intent, real authenticated route/decline/cancel service chains.
 
     Empty presence produces terminal no-driver expiry after the transfer. The
-    retained tuple demonstrates transfer only, explicitly NOT terminal clearing.
+    retained tuple on route/decline demonstrates transfer only, not blanket expiry
+    clearing. Driver cancellation clears before reassign; no producer recreates it.
     """
     make, passenger, driver, now = pending_case
     if path == "waypoints":
@@ -687,7 +687,11 @@ def test_actual_authenticated_http_pending_transfer_boundaries(
     after = known.snapshot(oid)
     assert after["status"] == S.expired
     assert after["search_revision"] == 42
-    assert pending(after) == (42, before["matching_resume_next_at"], 3)
+    assert pending(after) == (
+        (None, None, None)
+        if path == "driver_cancel"
+        else (42, before["matching_resume_next_at"], 3)
+    )
     if path == "waypoints":
         assert isv.parse_waypoints(after["waypoints_json"])[-1] == {
             "lat": 52.595,

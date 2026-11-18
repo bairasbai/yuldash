@@ -452,7 +452,8 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     # заказ, а матчер отправлял к подъезду ДВУХ разных водителей: одну машину он берёт, вторая
     # уезжает пустой и получает страйк ни за что (аудит 2026-08-07). Нажал «заказать заново» —
     # значит старого больше не ждёт: гасим очередь до создания нового заказа.
-    session.execute(
+    isv._clear_pending_on_owner_update(
+        session,
         update(InstantOrder)
         .where(InstantOrder.passenger_id == user.id,
                InstantOrder.status == S.expired,

@@ -130,6 +130,7 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
             fresh.current_offer_driver_id = None
             fresh.offer_expires_at = None
             fresh.wait_until = None
+            isv._assign_pending_clear(fresh)
             session.add(fresh)
             session.commit()
             closed.append(fresh.id)
@@ -248,6 +249,7 @@ def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
             fresh.wait_until = None
             fresh.status = S.expired
             fresh.expired_at = fresh.expired_at or utcnow()
+            isv._assign_pending_clear(fresh)
             session.add(fresh)
             session.commit()
             finished.append(fresh.id)

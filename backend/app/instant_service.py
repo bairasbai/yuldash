@@ -24,6 +24,7 @@ from uuid import uuid4
 
 from sqlalchemy import BigInteger, LargeBinary, String, case, cast, inspect, literal, type_coerce, update
 from sqlalchemy.engine import Connection
+from sqlalchemy.orm.attributes import flag_modified, set_committed_value
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 from sqlmodel import Session, select
 
@@ -1903,6 +1904,42 @@ _RESUME_PENDING_FIELDS = (
 )
 
 
+def _assign_pending_clear(order: InstantOrder) -> None:
+    # A stale loaded NULL must still overwrite a newer stored obligation in the
+    # same final-status flush. Assignment first also supports unloaded scalars.
+    for name in _RESUME_PENDING_FIELDS:
+        setattr(order, name, None)
+        flag_modified(order, name)
+
+
+def _clear_pending_on_owner_update(session: Session, statement) -> tuple[int, ...]:
+    """Clear only actual winning owners; no commit, target load or pending repair."""
+    with session.no_autoflush:
+        result = session.execute(
+            statement.values(**dict.fromkeys(_RESUME_PENDING_FIELDS))
+            .returning(InstantOrder.id)
+            # Intentional auto -> fetch: evaluate may match stale local losers.
+            .execution_options(synchronize_session="fetch")
+        )
+        try:
+            matched_ids = tuple(result.scalars().all())
+        finally:
+            result.close()
+        for order_id in matched_ids:
+            local = session.identity_map.get(session.identity_key(InstantOrder, order_id))
+            if local is None:
+                continue
+            state = inspect(local)
+            if (not state.persistent or state.session is not session or state.deleted
+                    or local in session.deleted):
+                continue
+            # Authoritative closure supersedes dirty pending only. Fetch handles
+            # owner fields; never erase unrelated caller histories with refresh.
+            for name in _RESUME_PENDING_FIELDS:
+                set_committed_value(local, name, None)
+        return matched_ids
+
+
 def _pending_columns() -> tuple:
     return tuple(getattr(InstantOrder, name) for name in _RESUME_PENDING_FIELDS)
 
@@ -2399,6 +2436,7 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
         order.stop_started_at = None
 
     order.status = S.done
+    _assign_pending_clear(order)
     order.done_at = now
     # Поездку пересчитали по факту; компенсация за подачу остаётся — водитель к пассажиру
     # доехал полностью, независимо от того, где закончилась сама поездка.
@@ -3009,20 +3047,22 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
             values["price_final"] = order.price_estimate + ожидание_коп // 100
 
     # Атомарно: сдвигаем статус ТОЛЬКО если он всё ещё source. Иначе гонку проиграли.
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order_id, InstantOrder.status == source)
-        .values(**values)
-    )
+    statement = (update(InstantOrder)
+                 .where(InstantOrder.id == order_id, InstantOrder.status == source)
+                 .values(**values))
+    if target in (S.accepted, S.done):
+        won = bool(_clear_pending_on_owner_update(session, statement))
+    else:
+        won = session.execute(statement).rowcount != 0
     assignment = None
-    if target == S.accepted and result.rowcount:
+    if target == S.accepted and won:
         # Scalar SELECT читает выигравший UPDATE под его lock, не stale identity map.
         assignment = tuple(session.exec(select(
             InstantOrder.search_revision, InstantOrder.driver_id,
             InstantOrder.accepted_at, InstantOrder.offer_token, InstantOrder.tried_lifecycle,
         ).where(InstantOrder.id == order_id)).one())
     session.commit()
-    if result.rowcount == 0:
+    if not won:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
     if target == S.accepted:
         notification = None
@@ -3112,15 +3152,16 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         values["cancel_fee_kop"] = cancel_fee_with_pickup_kop(session, order, now)
     прежний_статус = order.status
     бросивший = order.driver_id
-    result = session.execute(
+    won = bool(_clear_pending_on_owner_update(
+        session,
         update(InstantOrder)
         .where(InstantOrder.id == order_id, InstantOrder.status == order.status)
-        .values(**values)
-    )
+        .values(**values),
+    ))
     cleanup_lifecycle = (session.exec(select(InstantOrder.tried_lifecycle)
-                         .where(InstantOrder.id == order_id)).one() if result.rowcount else None)
+                         .where(InstantOrder.id == order_id)).one() if won else None)
     session.commit()
-    if result.rowcount == 0:
+    if not won:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
     # Поступок водителя фиксируем ОТДЕЛЬНЫМ событием, до всякого переназначения: заказ может
     # уйти дальше и перезаписать свои поля новым водителем, а бросил его этот.
