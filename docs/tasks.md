@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi late effects: диагностический пакет проверен
+
+База 02e3126, отдельная test-only ветка test/friday-taxi-late-effects-boundaries-20261118. Кандидат ac13c9f: авторские и независимые 78 scoped PASS/exit 0; P0/P1/P2 нет. Два новых PASS подтверждают известные дефекты, не защиту. Документ: docs/friday/taxi-late-effects-boundaries-20261118.md. Runtime, схема и зависимости не меняются. Выполненный план: воспроизвести неопределённый DELETE после timeout и задержанный accepted push на настоящих service-переходах; отдельно инвентаризировать Redis lifecycle/read/write/cleanup и клиентскую обработку; независимая приёмка тестов и плана, scoped проверки и сохранение. Наблюдаемый дефект не считать исправлением, модель транспорта не выдавать за реальный Redis/FCM эксперимент. Приостановленные действия, main/production/существующие БД не затрагивать.
+
 ## 2026-11-18 — taxi accept cleanup generation (проверено локально)
 
 Базаbd019ea, ветка fix/friday-taxi-accept-cleanup-generation-20261118. Runtime6618aab; независимые104+10scoped и14realPGPASS; FULL7059PASS/133skip/exit0 на2fc89e7. Две точные RED-регрессии реального accept→cancel→reassign сохранены. План docs/friday/taxi-accept-cleanup-plan-20261118.md: guardassignment и cleanupподlock, freeze notificationfacts, release; независимаяприёмка/scoped/PG/FULL. Terminalcancel/lateRedisDELETE/latepush/mixedversion не объявлять исправленными.
