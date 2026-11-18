@@ -1180,6 +1180,12 @@ class InstantOrder(SQLModel, table=True):
     tried_history_expires_at: Optional[datetime] = Field(
         default=None, sa_column=Column(DateTime(timezone=False), nullable=True),
     )
+    # Неактивная база resume intent: никаких initialization/writer/worker semantics здесь.
+    matching_resume_revision: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    matching_resume_next_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
+    matching_resume_attempts: Optional[int] = Field(default=None, sa_column=Column(Integer, nullable=True))
     search_round: int = 0
     # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
     # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а
