@@ -528,3 +528,17 @@ Main, PR, merge, deploy и действующая реализация не из
 #### Amio: только общая сводка сохранённого состояния
 
 По сверке координатора **checkpoint v216** подтверждает изолированный default-off logout seam. Последующий механический перенос также независимо принят и сохранён отдельным проверенным checkpoint. Новая factory остаётся **WIP, тестовые прогоны NOT_RUN**. Это не native/UI-интеграция, production activation или готовое durable recovery. Приватные детали, внутренние пути, Library IDs и ссылки доступа в этот GitHub-журнал не перенесены. Ранее записанные checkpoints сохраняются как исторические срезы, новая сводка не переоценивает их задним числом.
+
+
+### Дополнение: узкий PWA pickup-status фикс и границы сведения ветки
+
+Сверены exact commit [35dec48d820202a9beee66fe3afaf13e75a0f331](https://github.com/bairasbai/yuldash/commit/35dec48d820202a9beee66fe3afaf13e75a0f331) и pinned [compare ecfc6aae…35dec48d](https://github.com/bairasbai/yuldash/compare/ecfc6aaeecf2cb8f6498eb9eb198dcef5e8679f8...35dec48d820202a9beee66fe3afaf13e75a0f331). Это разные объёмы:
+- Сам кандидат **35dec48d меняет только 3 файла**: `webapp/src/screens/InstantOrderScreen.tsx`, `webapp/tests/taxi-pickup-label-mounted-test.mjs`, `docs/friday/taxi-pwa-honest-pickup-status-20261118.md`.
+- Pinned compare целой истории содержит **71 commit / 167 files / 5 Alembic migrations**: ck_instant_offer_token, cl_instant_search_revision, cm_instant_tried_lifecycle, cn_instant_tried_history, co_instant_matching_resume. Это не состав узкого ETA исправления и не разрешение применить миграции.
+- В ancestry кандидата через тот же compare подтверждены ранее опубликованные `6464d1c` (PWA wait reconcile), `64b824a` (/wait CAS), `1513a91` (compound reference). Наличие этих предков не означает, что они уже есть на локальной целевой ветке Байраса.
+
+**Scope исправления:** убрана только числовая подпись «мин до подачи» при accepted/arriving, которая ошибочно брала длительность пассажирского маршрута `order.eta_min`. Существующие RU/BA заголовки, progress и onboard subtitle сохранены. Новый ETA не рассчитывается; routing/ranking/backend/Android не менялись.
+
+**Проверки на исходной кандидатной базе:** author и independent mounted RED: 14 scenario groups, 12 FAIL / 2 onboard PASS; после исправления обе GREEN: 14 PASS. Существующий npm check: 158 suites / 2956 printed checks, exit 0; build (tsc + vite) exit 0. Новый mounted test является отдельным gate, не автоматически частью npm check. Первая jsdom setup failure сохранена отдельно, не названа продуктовым RED. Visual browser QA **NOT_RUN**; remote CI этим не подтверждён.
+
+**Сведение выполняет Байрас:** ради этого фикса нельзя считать merge всей накопленной ветки эквивалентом переноса трёх файлов. Возможен overlap в `InstantOrderScreen.tsx`, особенно с wait-reconcile и местными правками. Нужна проверка diff/зависимостей выбранного переноса без перезаписи чужого экрана, затем mounted regression, затронутые тесты, полный check и build **на итоговой локальной цели**. Прежние PASS не переносятся на новую комбинацию автоматически. Локальные файлы Байраса не читались и не изменялись; merge, main, production и миграции не выполнялись. Durable continuation/cutover этим исправлением не завершены.
