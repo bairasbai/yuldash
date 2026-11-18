@@ -3310,7 +3310,8 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
 
 
 def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True,
-                            *, expected_driver_id: int | None = None) -> InstantOrder:
+                            *, expected_driver_id: int | None = None,
+                            expected_offer_times: tuple[datetime | None, datetime | None] | None = None) -> InstantOrder:
     """Оффер отклонён/протух → назад в searching → следующий кандидат.
 
     Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
@@ -3322,6 +3323,12 @@ def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool 
     if expected_driver_id is not None:
         # Проверка получателя в самом UPDATE переживает stale ORM и commit причины отказа.
         statement = statement.where(InstantOrder.current_offer_driver_id == expected_driver_id)
+    if expected_offer_times is not None:
+        offered_at, expires_at = expected_offer_times
+        statement = statement.where(
+            InstantOrder.offered_at == offered_at,
+            InstantOrder.offer_expires_at == expires_at,
+        )
     result = session.execute(statement.values(
         status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
     ))
@@ -3353,6 +3360,8 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
     if order.status != S.offered or order.current_offer_driver_id != driver_id:
         # оффер уже не актуален (принят/протух/отдан другому) — не ошибка
         return order
+    # Сохраняем поколение ДО commit/rollback аналитики, которые истекают ORM-снимок.
+    expected_offer_times = (order.offered_at, order.offer_expires_at)
     if reason:
         # Журнал причин (разбор №2). Пишем ДО перехода, но отдельным try: сорвавшаяся запись
         # статистики не должна мешать водителю отказаться — отказ важнее аналитики.
@@ -3361,7 +3370,9 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
             session.commit()
         except Exception:  # noqa: BLE001
             session.rollback()
-    return advance_after_no_accept(session, order, expected_driver_id=driver_id)
+    return advance_after_no_accept(
+        session, order, expected_driver_id=driver_id, expected_offer_times=expected_offer_times,
+    )
 
 
 # ============================ Push / приватность ============================

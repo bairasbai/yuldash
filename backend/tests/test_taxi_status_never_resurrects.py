@@ -249,3 +249,74 @@ def test_stale_decline_preserves_reassigned_offer(client, user_factory, monkeypa
         assert saved.current_offer_driver_id == second["id"]
         assert saved.offer_expires_at == new_expiry
     assert attempts == []
+
+
+@pytest.mark.parametrize("reason", ["", "far"])
+@pytest.mark.parametrize("window", ["stale", "before_update"])
+@pytest.mark.parametrize("changed_field", ["offered_at", "offer_expires_at"])
+def test_old_decline_preserves_new_offer_to_same_driver(client, user_factory, monkeypatch, reason, window, changed_field):
+    """Новый срок того же получателя — другое предложение, не старый отказ."""
+    pax = user_factory("SameOfferPax")
+    driver = user_factory("SameOfferDriver", role=UserRole.driver)
+    old_at = utcnow() - timedelta(minutes=1)
+    new_at = utcnow()
+    new_expiry = new_at + timedelta(minutes=1)
+    oid = _order(pax["id"], S.offered, current_offer_driver_id=driver["id"],
+                 offered_at=old_at, offer_expires_at=new_at)
+    attempts = []
+    def next_offer(session, order, notify=True):
+        attempts.append(order.id)
+        return order
+    monkeypatch.setattr(isv, "try_offer_next", next_offer)
+    with Session(engine) as session:
+        stale = session.get(InstantOrder, oid)
+        assert stale.offered_at == old_at
+        def reoffer():
+            with Session(engine) as other:
+                changed = other.get(InstantOrder, oid)
+                if changed_field == "offered_at":
+                    changed.offered_at = new_at
+                else:
+                    changed.offer_expires_at = new_expiry
+                other.add(changed)
+                other.commit()
+        if window == "stale":
+            reoffer()
+        else:
+            execute = session.execute
+            def change_before_update(statement, *args, **kwargs):
+                if getattr(statement, "is_update", False):
+                    monkeypatch.setattr(session, "execute", execute)
+                    reoffer()
+                return execute(statement, *args, **kwargs)
+            monkeypatch.setattr(session, "execute", change_before_update)
+        isv.decline_offer(session, oid, driver["id"], reason=reason)
+    with Session(engine) as check:
+        saved = check.get(InstantOrder, oid)
+        assert saved.status == S.offered
+        assert saved.current_offer_driver_id == driver["id"]
+        assert saved.offered_at == (new_at if changed_field == "offered_at" else old_at)
+        assert saved.offer_expires_at == (new_expiry if changed_field == "offer_expires_at" else new_at)
+    assert attempts == []
+
+
+@pytest.mark.parametrize("reason", ["", "far"])
+@pytest.mark.parametrize("nullable_times", [False, True])
+def test_decline_current_generation_still_advances(client, user_factory, monkeypatch, reason, nullable_times):
+    """Старые записи без времён и обычный текущий оффер по-прежнему отклоняются."""
+    pax = user_factory("CurrentGenerationPax")
+    driver = user_factory("CurrentGenerationDriver", role=UserRole.driver)
+    now = utcnow()
+    oid = _order(pax["id"], S.offered, current_offer_driver_id=driver["id"],
+                 offered_at=None if nullable_times else now,
+                 offer_expires_at=None if nullable_times else now + timedelta(minutes=1))
+    attempts = []
+    def next_offer(session, order, notify=True):
+        attempts.append(order.id)
+        return order
+    monkeypatch.setattr(isv, "try_offer_next", next_offer)
+    with Session(engine) as session:
+        result = isv.decline_offer(session, oid, driver["id"], reason=reason)
+        assert result.status == S.searching
+        assert result.current_offer_driver_id is None
+    assert attempts == [oid]
