@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi status reconcile contract (проверено test-only)
+
+База 0ec0439; test/friday-taxi-status-reconcile-contract-20261118. Авторские 4 PASS, независимые 204 scoped PASS; runtime/client не менялись. План docs/friday/taxi-status-reconcile-contract-20261118.md: late status push и настоящий HTTP refresh/auth/privacy, без runtime/client изменений и без ordering гарантий.
+
 ## 2026-11-18 — taxi offer dispatch snapshot (проверено локально)
 
 База 9090989; fix/friday-taxi-offer-dispatch-snapshot-20261118. Runtime 59b8f58: независимые 336 scoped и PG21 PASS; FULL на 42a54dd — 7318 PASS, 140 skipped, exit 0. Reviewed snapshot/guard план: docs/friday/taxi-offer-dispatch-snapshot-20261118.md. Отдельная реализация и приёмка, guard не атомарен с сетью, поздняя доставка вне гарантии.
