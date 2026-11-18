@@ -22,7 +22,7 @@ from typing import Optional
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import case, inspect, update
+from sqlalchemy import LargeBinary, case, cast, inspect, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 from sqlmodel import Session, select
@@ -1918,6 +1918,58 @@ def _bump_search_revision(session: Session, order: InstantOrder) -> int:
         return revision
 
 
+def _entry_order_id(order: InstantOrder) -> int:
+    state = inspect(order)
+    if state.attrs.search_revision.history.has_changes() or state.identity is None:
+        raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+    return state.identity[0]
+
+
+def _prepare_search_entry(session: Session, order_id: int) -> None:
+    # Reassign receives an id, but must not flush a dirty generation already in
+    # this Session. Identity-map lookup does not load expired attributes.
+    local = session.identity_map.get(session.identity_key(InstantOrder, order_id))
+    if local is not None:
+        _entry_order_id(local)
+    if session.autoflush:
+        session.flush()
+
+
+def _locked_search_entry(session: Session, order_id: int, predicates: tuple,
+                         *, valid_lifecycle: bool) -> tuple | None:
+    columns = (InstantOrder.status, InstantOrder.search_revision, InstantOrder.tried_lifecycle)
+    conditions = (InstantOrder.id == order_id, _can_increment_search_revision(), *predicates)
+    if session.get_bind().dialect.name == "sqlite":
+        if valid_lifecycle:
+            lifecycle = InstantOrder.tried_lifecycle
+            conditions += ((lifecycle.is_(None) | (
+                (func.typeof(lifecycle) == "text")
+                & (func.length(lifecycle) == 32)
+                & (func.length(cast(lifecycle, LargeBinary)) == 32)
+                & ~lifecycle.op("GLOB")("*[^0-9a-f]*")
+            )),)
+        statement = (update(InstantOrder).where(*conditions)
+                     .values(search_revision=InstantOrder.search_revision)
+                     .returning(*columns).execution_options(synchronize_session=False))
+    else:
+        statement = select(*columns).where(*conditions).with_for_update()
+    result = session.execute(statement)
+    try:
+        row = result.one_or_none()
+    finally:
+        result.close()
+    if row is None or (valid_lifecycle and not _valid_tried_lifecycle(row[2])):
+        return None
+    if row[1] is not None and (type(row[1]) is not int or not 0 <= row[1] < _MAX_SEARCH_REVISION):
+        return None
+    return tuple(row)
+
+
+def _entry_owner_cas(source: tuple) -> tuple:
+    return (InstantOrder.status == source[0], InstantOrder.search_revision == source[1],
+            InstantOrder.tried_lifecycle == source[2])
+
+
 def _assigned_search_owner(session: Session, order_id: int) -> tuple[int, str | None]:
     # Оба scalar принадлежат одному UPDATE и снимаются до освобождения его lock.
     return tuple(session.exec(select(InstantOrder.search_revision, InstantOrder.tried_lifecycle)
@@ -3002,27 +3054,29 @@ def _reassign_after_driver_cancel(session: Session, order_id: int,
     Возврат None — заказ за это время успели тронуть (пассажир отменил сам, воркер закрыл);
     тогда обычный путь отмены отработает как раньше.
     """
-    source = session.exec(select(InstantOrder.status, InstantOrder.tried_lifecycle)
-                          .where(InstantOrder.id == order_id).with_for_update()).first()
-    if source is None or source[0] != S.cancelled or not _valid_tried_lifecycle(source[1]):
-        # Как и прежний UPDATE-noop, завершаем транзакцию, не откатывая работу caller.
-        session.commit()
-        return None
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order_id, InstantOrder.status == S.cancelled,
-               _can_increment_search_revision())
-        .values(status=S.searching, searching_at=utcnow(), search_round=0,
-                search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1,
-                tried_lifecycle=_new_tried_lifecycle(),
-                reassigns=InstantOrder.reassigns + 1,
-                driver_id=None, accepted_at=None, arriving_at=None,
-                waiting_started_at=None, current_offer_driver_id=None, offer_expires_at=None,
-                cancel_by="", cancel_reason="", cancelled_at=None, cancel_fee_kop=0)
-    )
-    revision, lifecycle = _assigned_search_owner(session, order_id) if result.rowcount else (None, None)
+    _prepare_search_entry(session, order_id)
+    with session.no_autoflush:
+        predicates = (InstantOrder.status == S.cancelled,)
+        source = _locked_search_entry(session, order_id, predicates, valid_lifecycle=True)
+        if source is not None:
+            result = session.execute(
+                update(InstantOrder)
+                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source))
+                .values(status=S.searching, searching_at=utcnow(), search_round=0,
+                        search_revision=1 if source[1] is None else source[1] + 1,
+                        tried_lifecycle=_new_tried_lifecycle(),
+                        reassigns=InstantOrder.reassigns + 1,
+                        driver_id=None, accepted_at=None, arriving_at=None,
+                        waiting_started_at=None, current_offer_driver_id=None, offer_expires_at=None,
+                        cancel_by="", cancel_reason="", cancelled_at=None, cancel_fee_kop=0)
+                .execution_options(synchronize_session="fetch")
+            )
+            won = result.rowcount == 1
+        else:
+            won = False
+        revision, lifecycle = _assigned_search_owner(session, order_id) if won else (None, None)
     session.commit()
-    if result.rowcount == 0:
+    if not won:
         return None
     order = session.get(InstantOrder, order_id)
     if not _owns_search(order, revision, lifecycle):
@@ -3587,25 +3641,28 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     раз предлагать заказ ЗА КРУГ». Он копился за всю жизнь заказа, и очередь «подожду машину»
     после 8 суммарных офферов замолкала навсегда — полоска «ищем машину» живая, а сервер уже
     никому не предлагает, даже если свободный водитель стоит в ста метрах."""
-    order_id = order.id
-    source = session.exec(select(InstantOrder.status, InstantOrder.tried_lifecycle)
-                          .where(InstantOrder.id == order_id).with_for_update()).first()
-    if source is None or source[0] not in _MATCHABLE or not _valid_tried_lifecycle(source[1]):
-        session.commit()  # прежняя commit-семантика no-op; не откатываем изменения caller
-        return session.get(InstantOrder, order_id)
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE),
-               _can_increment_search_revision())
-        .values(status=S.searching, searching_at=utcnow(), search_round=0,
-                search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1,
-                tried_lifecycle=case((InstantOrder.status == S.searching, InstantOrder.tried_lifecycle),
-                                     else_=_new_tried_lifecycle()))
-    )
-    revision, lifecycle = _assigned_search_owner(session, order_id) if result.rowcount else (None, None)
-    session.commit()
-    order = session.get(InstantOrder, order.id)
-    if not _owns_search(order, revision, lifecycle):
+    order_id = _entry_order_id(order)
+    _prepare_search_entry(session, order_id)
+    with session.no_autoflush:
+        predicates = (InstantOrder.status.in_(_MATCHABLE),)
+        source = _locked_search_entry(session, order_id, predicates, valid_lifecycle=True)
+        if source is not None:
+            result = session.execute(
+                update(InstantOrder)
+                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source))
+                .values(status=S.searching, searching_at=utcnow(), search_round=0,
+                        search_revision=1 if source[1] is None else source[1] + 1,
+                        tried_lifecycle=case((InstantOrder.status == S.searching, InstantOrder.tried_lifecycle),
+                                             else_=_new_tried_lifecycle()))
+                .execution_options(synchronize_session="fetch")
+            )
+            won = result.rowcount == 1
+        else:
+            won = False
+        revision, lifecycle = _assigned_search_owner(session, order_id) if won else (None, None)
+    session.commit()  # Retain ordinary no-op commit semantics for caller work.
+    order = session.get(InstantOrder, order_id)
+    if order is None or not _owns_search(order, revision, lifecycle):
         return order        # заказ успели закрыть/принять — поиск не начинаем
     return try_offer_next(session, order, notify)
 
@@ -3619,29 +3676,36 @@ def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool 
     Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
     из фоновой пачки воскрешал заказ, который водитель уже принял (заказ отбирался у него
     посреди подачи) или который пассажир уже отменил."""
-    statement = update(InstantOrder).where(
-        InstantOrder.id == order.id, InstantOrder.status == S.offered,
-        _can_increment_search_revision(),
-    )
+    order_id = _entry_order_id(order)
+    _prepare_search_entry(session, order_id)
+    predicates = (InstantOrder.status == S.offered,)
     if expected_driver_id is not None:
-        # Проверка получателя в самом UPDATE переживает stale ORM и commit причины отказа.
-        statement = statement.where(InstantOrder.current_offer_driver_id == expected_driver_id)
+        predicates += (InstantOrder.current_offer_driver_id == expected_driver_id,)
     if expected_offer_token is not None:
-        statement = statement.where(InstantOrder.offer_token == expected_offer_token)
+        predicates += (InstantOrder.offer_token == expected_offer_token,)
     if expected_offer_times is not None:
         offered_at, expires_at = expected_offer_times
-        statement = statement.where(
-            InstantOrder.offered_at == offered_at,
-            InstantOrder.offer_expires_at == expires_at,
-        )
-    result = session.execute(statement.values(
-        status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
-        search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1,
-    ))
-    revision, lifecycle = _assigned_search_owner(session, order.id) if result.rowcount else (None, None)
+        predicates += (InstantOrder.offered_at == offered_at,
+                       InstantOrder.offer_expires_at == expires_at)
+    with session.no_autoflush:
+        # Preserve the legacy advance contract: malformed lifecycle may advance,
+        # then the matcher itself refuses lookup. Do not tighten it here.
+        source = _locked_search_entry(session, order_id, predicates, valid_lifecycle=False)
+        if source is not None:
+            result = session.execute(
+                update(InstantOrder)
+                .where(InstantOrder.id == order_id, *predicates, *_entry_owner_cas(source))
+                .values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
+                        search_revision=1 if source[1] is None else source[1] + 1)
+                .execution_options(synchronize_session="fetch")
+            )
+            won = result.rowcount == 1
+        else:
+            won = False
+        revision, lifecycle = _assigned_search_owner(session, order_id) if won else (None, None)
     session.commit()
-    order = session.get(InstantOrder, order.id)
-    if not _owns_search(order, revision, lifecycle):
+    order = session.get(InstantOrder, order_id)
+    if order is None or not _owns_search(order, revision, lifecycle):
         return order        # заказ уже не в оффере (принят/отменён/закрыт) — не трогаем
     return try_offer_next(session, order, notify)
 
