@@ -2,9 +2,9 @@
 # Disposable local PostgreSQL only. Never accepts an existing DATABASE_URL.
 set -euo pipefail
 # Only named fixed suites; reject arbitrary pytest arguments before any bootstrap.
-(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|matching-resume-known-gaps]" >&2; exit 64; }
+(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|matching-resume-known-gaps]" >&2; exit 64; }
 mode="${1-regression}"
-case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
+case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
 export YULDASH_TEST_PG_MODE="$mode"
 cd "$(dirname "$0")/.."
 : "${YULDASH_TEST_PG_BIN:?Set the directory of installed trusted PostgreSQL binaries}"
@@ -48,10 +48,13 @@ if ! "$YULDASH_TEST_PG_BIN/pg_ctl" -D "$runtime/data" -l "$runtime/postgres.log"
 fi
 started=1
 "$python" - "$runtime" "$port" <<'PYBOOT'
-import sys
+import os, sys
 from pathlib import Path
 import psycopg2
 root = Path(sys.argv[1])
+databases = ["yuldash_revision_fixture"]
+if os.environ.get("YULDASH_TEST_PG_MODE") == "actual-schema-baseline":
+    databases += ["yuldash_schema_chain_fixture", "yuldash_schema_init_fixture"]
 # Explicit loopback and fresh credentials; no URL or service inherited.
 connection = psycopg2.connect(host="127.0.0.1", port=int(sys.argv[2]), password=(root / "password").read_text(), user="yuldash_test", dbname="postgres")
 connection.autocommit = True
@@ -63,28 +66,33 @@ try:
         cursor.execute("SELECT inet_server_addr()")
         if str(cursor.fetchone()[0]) != "127.0.0.1":
             raise RuntimeError("Only loopback is permitted")
-        cursor.execute("CREATE DATABASE yuldash_revision_fixture")
+        for database in databases:
+            # Names are fixed above, never supplied by a caller or DSN.
+            cursor.execute('CREATE DATABASE "' + database + '"')
 finally:
     connection.close()
-# Verify the newly created fixed database BEFORE pytest imports conftest/app.
-connection = psycopg2.connect(host="127.0.0.1", port=int(sys.argv[2]), password=(root / "password").read_text(), user="yuldash_test", dbname="yuldash_revision_fixture")
-try:
-    with connection.cursor() as cursor:
-        cursor.execute("SELECT current_database(), inet_server_addr(), inet_server_port()")
-        name, host, port = cursor.fetchone()
-        if name != "yuldash_revision_fixture" or str(host) != "127.0.0.1" or port != int(sys.argv[2]):
-            raise RuntimeError("Refusing unexpected test database")
-        cursor.execute("SHOW data_directory")
-        if Path(cursor.fetchone()[0]).resolve() != root / "data":
-            raise RuntimeError("Refusing unknown database cluster")
-finally:
-    connection.close()
+# Verify every newly created fixed database BEFORE pytest imports any app code.
+for database in databases:
+    connection = psycopg2.connect(host="127.0.0.1", port=int(sys.argv[2]), password=(root / "password").read_text(), user="yuldash_test", dbname=database)
+    try:
+        with connection.cursor() as cursor:
+            cursor.execute("SELECT current_database(), inet_server_addr(), inet_server_port()")
+            name, host, port = cursor.fetchone()
+            if name != database or str(host) != "127.0.0.1" or port != int(sys.argv[2]):
+                raise RuntimeError("Refusing unexpected test database")
+            cursor.execute("SHOW data_directory")
+            if Path(cursor.fetchone()[0]).resolve() != root / "data":
+                raise RuntimeError("Refusing unknown database cluster")
+    finally:
+        connection.close()
 PYBOOT
 password="$(cat "$runtime/password")"
 export DATABASE_URL="postgresql+psycopg2://yuldash_test:$password@127.0.0.1:$port/yuldash_revision_fixture"
 unset password
 export YULDASH_TEST_PG_DATA="$runtime/data" TMPDIR="$runtime/tmp"
-if [[ "$mode" == "route-capture-locks" ]]; then
+if [[ "$mode" == "actual-schema-baseline" ]]; then
+  "$python" -m pytest --noconftest tests/test_taxi_actual_schema_baseline.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+elif [[ "$mode" == "route-capture-locks" ]]; then
   "$python" -m pytest tests/test_taxi_route_capture_locks.py tests/test_taxi_locked_revision_bump.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
 elif [[ "$mode" == "entry-writer-locks" ]]; then
   "$python" -m pytest tests/test_taxi_entry_writer_locks.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
