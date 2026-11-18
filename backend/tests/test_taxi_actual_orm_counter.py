@@ -405,7 +405,22 @@ def _guard_payload(engine, report):
     from app import instant_service as service
 
     pid = _person(engine)
-    values = [None, 0, 2, 9, 10, 100, 2**63 - 2, 2**63 - 1, 2**63, 10**40 + 1]
+    values = [
+        None,
+        0,
+        2,
+        9,
+        10,
+        100,
+        10**18 - 1,
+        10**18,
+        2**63 - 2,
+        2**63 - 1,
+        10**19,
+        10**128 - 1,
+        2**63,
+        10**40 + 1,
+    ]
     report["guard_truth"] = []
     with Session(engine) as s:
         orders = [
@@ -423,7 +438,8 @@ def _guard_payload(engine, report):
         matches = set(
             s.execute(
                 select(InstantOrder.id).where(
-                    InstantOrder.id.in_(ids), service._can_increment_search_revision()
+                    InstantOrder.id.in_(ids),
+                    service._can_increment_search_revision(engine.dialect.name),
                 )
             ).scalars()
         )
@@ -433,25 +449,9 @@ def _guard_payload(engine, report):
             report["guard_truth"].append(
                 {"value": value, "observed": observed, "bigint_python": python_expected}
             )
-        if engine.dialect.name == "postgresql":
-            assert all(
-                r["observed"] == r["bigint_python"] for r in report["guard_truth"]
-            )
-        else:
-            # Exact diagnostic expectation from the actual expression's TEXT
-            # coalesce/comparison semantics; not a numeric-domain protection.
-            assert [r["observed"] for r in report["guard_truth"]] == [
-                False,
-                True,
-                True,
-                True,
-                True,
-                True,
-                True,
-                False,
-                False,
-                True,
-            ]
+        # Fixed-guard control. Published prior TEXT mismatch reports remain
+        # historical evidence, not the expected behavior of the new helper.
+        assert all(r["observed"] == r["bigint_python"] for r in report["guard_truth"])
         for oid in ids[-2:]:
             order = s.get(InstantOrder, oid)
             before = _observe(engine, oid)

@@ -22,7 +22,7 @@ from typing import Optional
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import LargeBinary, case, cast, inspect, update
+from sqlalchemy import BigInteger, LargeBinary, String, case, cast, inspect, literal, type_coerce, update
 from sqlalchemy.engine import Connection
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 from sqlmodel import Session, select
@@ -1860,9 +1860,37 @@ def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
 _MAX_SEARCH_REVISION = 2**63 - 1
 
 
-def _can_increment_search_revision():
-    revision = func.coalesce(InstantOrder.search_revision, 0)
-    return (revision >= 0) & (revision < _MAX_SEARCH_REVISION)
+def _can_increment_search_revision(dialect_name: str):
+    if dialect_name != "sqlite":
+        # Preserve the existing numeric fallback; this is not a storage validator.
+        revision = func.coalesce(InstantOrder.search_revision, 0)
+        return (revision >= 0) & (revision < _MAX_SEARCH_REVISION)
+
+    column = InstantOrder.search_revision
+    storage_type = func.typeof(column)
+    # type_coerce controls bind typing, not SQLite's physical column affinity.
+    # REAL retains the old lock eligibility; fresh Python validation still rejects it.
+    numeric = type_coerce(column, BigInteger)
+    numeric_eligible = (
+        storage_type.in_(("integer", "real"))
+        & (numeric >= literal(0, type_=BigInteger))
+        & (numeric < literal(_MAX_SEARCH_REVISION, type_=BigInteger))
+    )
+    text = type_coerce(column, String)
+    length = func.length(text)
+    maximum = str(_MAX_SEARCH_REVISION)
+    text_eligible = (
+        (storage_type == "text")
+        & (length >= 1)
+        & (func.length(cast(text, LargeBinary)) == length)
+        & ~text.op("GLOB")(literal("*[^0-9]*", type_=String))
+        & ((text == literal("0", type_=String))
+           | text.op("GLOB")(literal("[1-9]*", type_=String)))
+        & ((length < len(maximum))
+           | ((length == len(maximum))
+              & (text.collate("BINARY") < literal(maximum, type_=String))))
+    )
+    return column.is_(None) | numeric_eligible | text_eligible
 
 
 def _assigned_search_revision(session: Session, order_id: int) -> int:
@@ -1883,7 +1911,8 @@ def _bump_search_revision(session: Session, order: InstantOrder) -> int:
             # UPDATE (including triggers). The guard is still BIGINT-specific.
             result = session.execute(
                 update(InstantOrder)
-                .where(InstantOrder.id == order_id, _can_increment_search_revision())
+                .where(InstantOrder.id == order_id,
+                       _can_increment_search_revision(session.get_bind().dialect.name))
                 .values(search_revision=InstantOrder.search_revision)
                 .returning(InstantOrder.search_revision)
                 .execution_options(synchronize_session=False)
@@ -1938,7 +1967,8 @@ def _prepare_search_entry(session: Session, order_id: int) -> None:
 def _locked_search_entry(session: Session, order_id: int, predicates: tuple,
                          *, valid_lifecycle: bool) -> tuple | None:
     columns = (InstantOrder.status, InstantOrder.search_revision, InstantOrder.tried_lifecycle)
-    conditions = (InstantOrder.id == order_id, _can_increment_search_revision(), *predicates)
+    conditions = (InstantOrder.id == order_id,
+                  _can_increment_search_revision(session.get_bind().dialect.name), *predicates)
     if session.get_bind().dialect.name == "sqlite":
         if valid_lifecycle:
             lifecycle = InstantOrder.tried_lifecycle

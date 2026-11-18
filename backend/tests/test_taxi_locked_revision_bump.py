@@ -78,7 +78,7 @@ def _candidate_model(c, oid):
     # Real SQL lock/write. Fully consume RETURNING: (None,) != missing row.
     row = c.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == oid, isv._can_increment_search_revision())
+        .where(InstantOrder.id == oid, isv._can_increment_search_revision(c.dialect.name))
         .values(search_revision=InstantOrder.search_revision)
         .returning(InstantOrder.search_revision)
     ).first()
@@ -121,7 +121,7 @@ def test_probe_valid_candidate_two_updates_legacy_one_and_rollback(sqlite_audit,
     # not monkeypatched runtime and not future runtime acceptance.
     c.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == oid, isv._can_increment_search_revision())
+        .where(InstantOrder.id == oid, isv._can_increment_search_revision(c.dialect.name))
         .values(search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1)
     )
     assert _events(c, audit) == [(old, expected)]
