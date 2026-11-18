@@ -3877,7 +3877,6 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
     человек с башкирским интерфейсом получал сначала русский, а свой язык через точку
     в середине. Записи в Центре уведомлений эти переходы не оставляют намеренно — человек
     смотрит в экран заказа, и лента засорилась бы каждым шагом."""
-    route = f"{order.from_text or ''} → {order.to_text or ''}".strip(" →")
     wait = settings.wait_free_minutes
     titles = {
         S.accepted: ("Водитель найден 🚗", "Водитель табылды 🚗",
@@ -3887,7 +3886,8 @@ def _notify_transition(session: Session, order: InstantOrder, target: S) -> None
                      f"Водитель ждёт. Бесплатное ожидание — {wait} мин",
                      f"Водитель көтә. Түләүһеҙ көтөү — {wait} мин"),
         S.onboard: ("В пути", "Юлда", "Хорошей поездки!", "Хәйерле юл!"),
-        S.done: ("Поездка завершена", "Сәфәр тамамланды", route, route),
+        # Уведомление может появиться вне приложения: точный маршрут остаётся в карточке/чеке.
+        S.done: ("Поездка завершена", "Сәфәр тамамланды", "", ""),
     }
     if target in titles:
         title_ru, title_ba, body_ru, body_ba = titles[target]

@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi done push privacy (проверено локально)
+
+База b070fc0; fix/friday-taxi-done-push-privacy-20261118. Runtime e293552, independent430scoped/PG21 PASS; FULL0e2e0c8:7333 PASS,140 skipped,exit0. План docs/friday/taxi-done-push-privacy-20261118.md: проверить точный route в done notification, минимально убрать из этого payload без изменения authorized GET и других каналов. Runtime только после RED/review.
+
 ## 2026-11-18 — taxi status reconcile contract (проверено test-only)
 
 База 0ec0439; test/friday-taxi-status-reconcile-contract-20261118. Авторские 4 PASS, независимые 204 scoped PASS; runtime/client не менялись. План docs/friday/taxi-status-reconcile-contract-20261118.md: late status push и настоящий HTTP refresh/auth/privacy, без runtime/client изменений и без ordering гарантий.
