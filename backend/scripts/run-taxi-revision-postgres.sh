@@ -2,9 +2,9 @@
 # Disposable local PostgreSQL only. Never accepts an existing DATABASE_URL.
 set -euo pipefail
 # Only named fixed suites; reject arbitrary pytest arguments before any bootstrap.
-(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat]" >&2; exit 64; }
+(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|matching-resume-known-gaps]" >&2; exit 64; }
 mode="${1-regression}"
-case "$mode" in regression|driver-slot-app-compat) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
+case "$mode" in regression|driver-slot-app-compat|generation-representation|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
 export YULDASH_TEST_PG_MODE="$mode"
 cd "$(dirname "$0")/.."
 : "${YULDASH_TEST_PG_BIN:?Set the directory of installed trusted PostgreSQL binaries}"
@@ -84,7 +84,11 @@ password="$(cat "$runtime/password")"
 export DATABASE_URL="postgresql+psycopg2://yuldash_test:$password@127.0.0.1:$port/yuldash_revision_fixture"
 unset password
 export YULDASH_TEST_PG_DATA="$runtime/data" TMPDIR="$runtime/tmp"
-if [[ "$mode" == "driver-slot-app-compat" ]]; then
+if [[ "$mode" == "generation-representation" ]]; then
+  "$python" -m pytest --noconftest tests/test_taxi_generation_representation_spike.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+elif [[ "$mode" == "matching-resume-known-gaps" ]]; then
+  "$python" -m pytest tests/test_taxi_matching_resume_known_gaps.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+elif [[ "$mode" == "driver-slot-app-compat" ]]; then
   "$python" -m pytest tests/test_taxi_driver_slot_app_compat_postgres.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
 else
   "$python" -m pytest tests/test_taxi_search_revision_postgres.py tests/test_taxi_expiry_cleanup_postgres.py tests/test_taxi_accept_cleanup_postgres.py tests/test_taxi_tried_lifecycle_postgres.py tests/test_taxi_offer_dispatch_postgres.py tests/test_taxi_tried_rollback_postgres.py tests/test_taxi_tried_history_schema_postgres.py tests/test_taxi_tried_history_gc_postgres.py tests/test_taxi_tried_history_write_postgres.py tests/test_taxi_tried_history_init_postgres.py tests/test_taxi_tried_history_reader_postgres.py tests/test_taxi_offer_publication_postgres.py tests/test_taxi_driver_reservation_protocol_postgres.py tests/test_taxi_driver_slot_invariant_postgres.py tests/test_taxi_matching_resume_schema_postgres.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
