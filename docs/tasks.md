@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi inactive SQL history schema (локально проверено)
+
+План docs/friday/taxi-tried-sql-schema-20261118.md, schema candidate 5a67dbd. Bound row-local history не доказан; normalized set + nullable version/shared expiry, без runtime readers/writers/init. Независимая приёмка PASS, PG27 author/independent PASS. Первый FULL3FAIL сохранён; точечные guards corrections с negative controls проверены68+20. FULL2 на3b1a361:7356 PASS/146skip,exit0. Не rollbackfix; GC остаётся activation blocker.
+
 ## 2026-11-18 — taxi tried semantics (план, не runtime)
 
 База 87c68cc; docs/friday-taxi-tried-semantics-plan-20261118.md. Сравнение attempted/committed/delivered history; рекомендация отдельного committed exclusion протокола с per-cycle mode и default-off rollout, без компенсации SREM. Независимое docs-only review PASS; по умолчанию сохранить общий sliding TTL 3600, представление ещё не выбрано.

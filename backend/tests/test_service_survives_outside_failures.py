@@ -161,6 +161,15 @@ def test_оплата_переживает_отказ_провайдера():
     assert "503" in блок, "нет мягкого ответа «попробуй ещё раз»"
 
 
+def _history_primary_key_supports_set_lookup(table):
+    """Only the reviewed history set's exact unique PK may replace an extra index."""
+    if table is None or table.name != "instanttriedexclusion":
+        return False
+    columns = list(table.primary_key.columns)
+    return ([c.name for c in columns] == ["order_id", "lifecycle", "driver_id"]
+            and all(not c.nullable for c in columns))
+
+
 def test_растущие_таблицы_имеют_индексы():
     """Без индекса лента живёт до первых тысяч поездок, а потом ложится."""
     модели = (APP_DIR / "models.py").read_text(encoding="utf-8")
@@ -173,6 +182,10 @@ def test_растущие_таблицы_имеют_индексы():
         кон = модели.find("\nclass ", нач + 10)
         блок = модели[нач: кон if кон > 0 else len(модели)]
         if "index=True" not in блок:
+            if имя == "InstantTriedExclusion":
+                from app.models import InstantTriedExclusion
+                assert _history_primary_key_supports_set_lookup(InstantTriedExclusion.__table__)
+                continue
             без_индексов.append(имя)
 
     # Журнал дневной сводки растёт по строке в день — ему индекс не нужен.

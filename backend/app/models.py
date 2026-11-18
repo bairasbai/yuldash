@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, text
+from sqlalchemy import BigInteger, CheckConstraint, Column, DateTime, ForeignKey, Integer, Index, JSON, String, UniqueConstraint, text
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -1175,6 +1175,11 @@ class InstantOrder(SQLModel, table=True):
     search_revision: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
     # Только аддитивная схема: Redis lifecycle writers ещё не включены.
     tried_lifecycle: Optional[str] = Field(default=None, max_length=32)
+    # Неактивная SQL history foundation: без инициализации, backfill и runtime readers.
+    tried_history_version: Optional[int] = Field(default=None, sa_column=Column(Integer, nullable=True))
+    tried_history_expires_at: Optional[datetime] = Field(
+        default=None, sa_column=Column(DateTime(timezone=False), nullable=True),
+    )
     search_round: int = 0
     # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
     # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а
@@ -1222,6 +1227,15 @@ class InstantOrder(SQLModel, table=True):
     # «Сказать рәхмәт» после такси-заказа (дедуп). Раньше благодарность была только у попуток —
     # водителю такси, который помог занести коляску, сказать спасибо было нечем.
     thanked: bool = False
+
+
+class InstantTriedExclusion(SQLModel, table=True):
+    """Неактивный set исключений по циклу; driver_id не связан FK с удаляемым user."""
+    order_id: int = Field(sa_column=Column(
+        Integer, ForeignKey("instantorder.id", ondelete="CASCADE"), primary_key=True, nullable=False,
+    ))
+    lifecycle: str = Field(sa_column=Column(String(32), primary_key=True, nullable=False))
+    driver_id: int = Field(sa_column=Column(Integer, primary_key=True, nullable=False))
 
 
 class RouteWatch(SQLModel, table=True):

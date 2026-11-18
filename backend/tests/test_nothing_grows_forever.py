@@ -9,14 +9,16 @@
 Отличить одно от другого было НЕЛЬЗЯ: и то и другое выглядело как молчание.
 
 Этот сторож заставляет решать явно. Новая таблица → красный тест, пока её не отнесут либо
-к чистке, либо к `cleanup.KEEP_FOREVER` с человеческой причиной. Тот же приём, что самопроверка
+к чистке, к `cleanup.KEEP_FOREVER` или к проверенному `cleanup.OWNED_RETENTION`
+с человеческой причиной. Ownership не обещает ограниченный срок: живой parent удерживает child. Тот же приём, что самопроверка
 в тесте удаления аккаунта: она уже дважды поймала забытую таблицу раньше, чем это сделал человек.
 """
 from sqlmodel import SQLModel
 
 import app.models  # noqa: F401 — импорт наполняет metadata всеми таблицами
-from app.cleanup import KEEP_FOREVER, _ALLOWED_TABLES, _rules
+from app.cleanup import OWNED_RETENTION, KEEP_FOREVER, _ALLOWED_TABLES, _rules
 from app.timeutil import utcnow
+from test_cleanup_covers_every_foreign_key import _validated_owned_retention
 
 
 def _cleaned_tables() -> set:
@@ -25,9 +27,10 @@ def _cleaned_tables() -> set:
 
 
 def test_у_каждой_таблицы_есть_решение_о_сроке_хранения():
-    """Либо чистим, либо записали причину, почему храним вечно. Молчания быть не должно."""
+    """Чистка, бессрочное решение либо структурно проверенное владение; не гарантия TTL."""
     all_tables = set(SQLModel.metadata.tables)
-    decided = _cleaned_tables() | set(KEEP_FOREVER)
+    owned = _validated_owned_retention(SQLModel.metadata, OWNED_RETENTION)
+    decided = _cleaned_tables() | set(KEEP_FOREVER) | {child for child, _col, _parent in owned}
     forgotten = sorted(all_tables - decided)
 
     assert forgotten == [], (

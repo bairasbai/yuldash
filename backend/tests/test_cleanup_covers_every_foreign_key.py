@@ -28,8 +28,30 @@ import pytest
 from sqlmodel import SQLModel
 
 import app.models  # noqa: F401 — регистрирует таблицы в metadata
-from app.cleanup import _rules
+from app.cleanup import OWNED_RETENTION, _rules
 from app.timeutil import utcnow
+
+
+def _validated_owned_retention(metadata, registry):
+    """Named ownership only; malformed/changed registry or actual FK fails closed."""
+    owned = set()
+    for child, entry in registry.items():
+        assert child == "instanttriedexclusion.order_id", "unreviewed ownership exemption"
+        assert entry["parent"] == "instantorder.id", "ownership parent changed"
+        assert len(entry["reason"]) >= 40, "ownership requires an explicit retention limitation"
+        table_name, column_name = child.split(".")
+        assert table_name in metadata.tables
+        table = metadata.tables[table_name]
+        assert column_name in table.c
+        fks = list(table.c[column_name].foreign_keys)
+        assert len(fks) == 1
+        fk = fks[0]
+        assert fk.target_fullname == entry["parent"]
+        assert fk.ondelete == "CASCADE", "ownership needs an actual CASCADE FK"
+        # Resolve the reference too: a dangling declaration is not ownership.
+        assert fk.column.name == "id" and fk.column.table.name == "instantorder"
+        owned.add((table_name, column_name, fk.column.table.name))
+    return owned
 
 
 def _referencing_columns(table: str) -> set[tuple[str, str]]:
@@ -57,7 +79,10 @@ def test_rule_guards_every_foreign_key(table: str):
 
     where = " ".join(r[2] for r in rules)
     missing = []
+    owned = _validated_owned_retention(SQLModel.metadata, OWNED_RETENTION)
     for ref_table, ref_col in sorted(_referencing_columns(table)):
+        if (ref_table, ref_col, table) in owned:
+            continue
         # Ищем упоминание пары «таблица.колонка» в любом NOT EXISTS этого правила:
         # алиас произвольный, поэтому цепляемся за FROM <таблица> и за <алиас>.<колонка>.
         pattern = rf"FROM\s+{ref_table}\s+(\w+)\s+WHERE\s+\1\.{ref_col}\s*="

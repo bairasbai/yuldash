@@ -66,6 +66,17 @@ RECENT_PLACE_DAYS = 180   # «недавние адреса» человека: 
 # и переживать удаление контактов. Держим 30 дней — с запасом к суткам счёта, но это не архив.
 FAMILY_SMS_DAYS = 30
 
+# Структурное владение, НЕ ограниченный срок хранения и НЕ KEEP_FOREVER.
+# Пока schema-only: writers отсутствуют. Долгоживущий parent удерживает child;
+# самостоятельный GC/retention обязателен до активации будущего SQL history.
+OWNED_RETENTION = {
+    "instanttriedexclusion.order_id": {
+        "parent": "instantorder.id",
+        "reason": "Неактивная schema-only без writer; CASCADE при физическом удалении parent. "
+                  "Не bounded retention: долгоживущий parent сохраняет history; GC — blocker активации.",
+    },
+}
+
 # Таблицы, которые мы храним БЕССРОЧНО, и причина у каждой. Список нужен не для красоты:
 # рядом стоит сторож (`tests/test_nothing_grows_forever.py`), который требует, чтобы КАЖДАЯ
 # таблица была либо в ночной чистке, либо здесь — с человеческой причиной. Новая таблица
