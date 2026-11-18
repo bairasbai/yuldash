@@ -21828,3 +21828,9 @@ Driver protocol diagnostics ecd76bc: independent review PASS; author/independent
 WIP docs/test-only proposal: docs/friday/taxi-driver-slot-invariant-20261118.md. Compare same-table CASE UNIQUE occupancy with cooperative lock limits; isolated fixture schema only after independent review. No app DDL/runtime/activation. Admission/migration/account-delete compatibility remain blockers.
 
 Driver-slot SQL experiment checked: tests204e685 corrected51d5e5b. Initial PG250PASS1FAIL preserved (overlapping CHECK attribution), isolated exact constraint test fix reviewed. AuthorPG2/independentPG251PASS11.25/11.27s actualexit0, schema/clustercleanup. App unchanged/no newFULL/no migration. CASE UNIQUE remains candidate, account-delete shape incompatibility/admission/rollout blockers explicit.
+
+## Friday: driver-slot actual app compatibility (2026-11-18)
+
+WIP plan docs/friday/taxi-driver-slot-app-compat-20261118.md. Dedicated allowlisted fresh-disposable-PG suite, transient candidate index/CHECK only there, actual storage/legacy matcher and authenticated account-delete API diagnostics. No runtime/model/migration changes or production schema access. Independent plan before code.
+
+Actual app compatibility final0083749: dedicated PG5PASS author2.00s/independent2.37s; unchanged default251PASS11.07s/12.61s, allactualexit0/DDLcluster cleanup. OriginalfixtureFAIL4PASS1FAIL and3PASS2FAIL preserved; exactnullable media trace fixed. Actualauthenticateddelete index-only200oldtoken401 vsstrict23514rollbackSafetyProfile; legacy23505beforeRedis/push. Diagnostic only/no runtime/migrations/no newFULL. Separate publication after exacttree.

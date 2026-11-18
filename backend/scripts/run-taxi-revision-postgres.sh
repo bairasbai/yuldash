@@ -1,6 +1,11 @@
 #!/usr/bin/env bash
 # Disposable local PostgreSQL only. Never accepts an existing DATABASE_URL.
 set -euo pipefail
+# Only named fixed suites; reject arbitrary pytest arguments before any bootstrap.
+(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat]" >&2; exit 64; }
+mode="${1-regression}"
+case "$mode" in regression|driver-slot-app-compat) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
+export YULDASH_TEST_PG_MODE="$mode"
 cd "$(dirname "$0")/.."
 : "${YULDASH_TEST_PG_BIN:?Set the directory of installed trusted PostgreSQL binaries}"
 python="${YULDASH_TEST_PYTHON:-python}"
@@ -61,9 +66,26 @@ try:
         cursor.execute("CREATE DATABASE yuldash_revision_fixture")
 finally:
     connection.close()
+# Verify the newly created fixed database BEFORE pytest imports conftest/app.
+connection = psycopg2.connect(host="127.0.0.1", port=int(sys.argv[2]), password=(root / "password").read_text(), user="yuldash_test", dbname="yuldash_revision_fixture")
+try:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT current_database(), inet_server_addr(), inet_server_port()")
+        name, host, port = cursor.fetchone()
+        if name != "yuldash_revision_fixture" or str(host) != "127.0.0.1" or port != int(sys.argv[2]):
+            raise RuntimeError("Refusing unexpected test database")
+        cursor.execute("SHOW data_directory")
+        if Path(cursor.fetchone()[0]).resolve() != root / "data":
+            raise RuntimeError("Refusing unknown database cluster")
+finally:
+    connection.close()
 PYBOOT
 password="$(cat "$runtime/password")"
 export DATABASE_URL="postgresql+psycopg2://yuldash_test:$password@127.0.0.1:$port/yuldash_revision_fixture"
 unset password
 export YULDASH_TEST_PG_DATA="$runtime/data" TMPDIR="$runtime/tmp"
-"$python" -m pytest tests/test_taxi_search_revision_postgres.py tests/test_taxi_expiry_cleanup_postgres.py tests/test_taxi_accept_cleanup_postgres.py tests/test_taxi_tried_lifecycle_postgres.py tests/test_taxi_offer_dispatch_postgres.py tests/test_taxi_tried_rollback_postgres.py tests/test_taxi_tried_history_schema_postgres.py tests/test_taxi_tried_history_gc_postgres.py tests/test_taxi_tried_history_write_postgres.py tests/test_taxi_tried_history_init_postgres.py tests/test_taxi_tried_history_reader_postgres.py tests/test_taxi_offer_publication_postgres.py tests/test_taxi_driver_reservation_protocol_postgres.py tests/test_taxi_driver_slot_invariant_postgres.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+if [[ "$mode" == "driver-slot-app-compat" ]]; then
+  "$python" -m pytest tests/test_taxi_driver_slot_app_compat_postgres.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+else
+  "$python" -m pytest tests/test_taxi_search_revision_postgres.py tests/test_taxi_expiry_cleanup_postgres.py tests/test_taxi_accept_cleanup_postgres.py tests/test_taxi_tried_lifecycle_postgres.py tests/test_taxi_offer_dispatch_postgres.py tests/test_taxi_tried_rollback_postgres.py tests/test_taxi_tried_history_schema_postgres.py tests/test_taxi_tried_history_gc_postgres.py tests/test_taxi_tried_history_write_postgres.py tests/test_taxi_tried_history_init_postgres.py tests/test_taxi_tried_history_reader_postgres.py tests/test_taxi_offer_publication_postgres.py tests/test_taxi_driver_reservation_protocol_postgres.py tests/test_taxi_driver_slot_invariant_postgres.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+fi
