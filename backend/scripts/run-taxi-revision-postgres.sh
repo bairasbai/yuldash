@@ -2,9 +2,9 @@
 # Disposable local PostgreSQL only. Never accepts an existing DATABASE_URL.
 set -euo pipefail
 # Only named fixed suites; reject arbitrary pytest arguments before any bootstrap.
-(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|matching-resume-known-gaps]" >&2; exit 64; }
+(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|matching-resume-known-gaps]" >&2; exit 64; }
 mode="${1-regression}"
-case "$mode" in regression|driver-slot-app-compat|generation-representation|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
+case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
 export YULDASH_TEST_PG_MODE="$mode"
 cd "$(dirname "$0")/.."
 : "${YULDASH_TEST_PG_BIN:?Set the directory of installed trusted PostgreSQL binaries}"
@@ -84,7 +84,9 @@ password="$(cat "$runtime/password")"
 export DATABASE_URL="postgresql+psycopg2://yuldash_test:$password@127.0.0.1:$port/yuldash_revision_fixture"
 unset password
 export YULDASH_TEST_PG_DATA="$runtime/data" TMPDIR="$runtime/tmp"
-if [[ "$mode" == "generation-representation" ]]; then
+if [[ "$mode" == "generation-adapter" ]]; then
+  "$python" -m pytest --noconftest tests/test_taxi_generation_adapter_lab.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+elif [[ "$mode" == "generation-representation" ]]; then
   "$python" -m pytest --noconftest tests/test_taxi_generation_representation_spike.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
 elif [[ "$mode" == "matching-resume-known-gaps" ]]; then
   "$python" -m pytest tests/test_taxi_matching_resume_known_gaps.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
