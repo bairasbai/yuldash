@@ -18,6 +18,7 @@ import json
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
+from uuid import uuid4
 
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -3166,7 +3167,7 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order.id)
-        .values(status=S.offered, offered_at=now,
+        .values(status=S.offered, offered_at=now, offer_token=uuid4().hex,
                 current_offer_driver_id=did,
                 offer_expires_at=now + timedelta(seconds=settings.instant_offer_ttl_sec),
                 search_round=order.search_round + 1)
@@ -3311,7 +3312,8 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
 
 def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True,
                             *, expected_driver_id: int | None = None,
-                            expected_offer_times: tuple[datetime | None, datetime | None] | None = None) -> InstantOrder:
+                            expected_offer_times: tuple[datetime | None, datetime | None] | None = None,
+                            expected_offer_token: str | None = None) -> InstantOrder:
     """Оффер отклонён/протух → назад в searching → следующий кандидат.
 
     Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
@@ -3323,6 +3325,8 @@ def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool 
     if expected_driver_id is not None:
         # Проверка получателя в самом UPDATE переживает stale ORM и commit причины отказа.
         statement = statement.where(InstantOrder.current_offer_driver_id == expected_driver_id)
+    if expected_offer_token is not None:
+        statement = statement.where(InstantOrder.offer_token == expected_offer_token)
     if expected_offer_times is not None:
         offered_at, expires_at = expected_offer_times
         statement = statement.where(
@@ -3352,13 +3356,16 @@ def reconcile_offer(session: Session, order: InstantOrder) -> InstantOrder:
     return order
 
 
-def decline_offer(session: Session, order_id: int, driver_id: int, reason: str = "") -> InstantOrder:
+def decline_offer(session: Session, order_id: int, driver_id: int, reason: str = "",
+                  *, expected_offer_token: str | None = None) -> InstantOrder:
     """Водитель отклонил оффер → следующий кандидат. Идемпотентно."""
     order = session.get(InstantOrder, order_id)
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.status != S.offered or order.current_offer_driver_id != driver_id:
         # оффер уже не актуален (принят/протух/отдан другому) — не ошибка
+        return order
+    if expected_offer_token is not None and order.offer_token != expected_offer_token:
         return order
     # Сохраняем поколение ДО commit/rollback аналитики, которые истекают ORM-снимок.
     expected_offer_times = (order.offered_at, order.offer_expires_at)
@@ -3372,6 +3379,7 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
             session.rollback()
     return advance_after_no_accept(
         session, order, expected_driver_id=driver_id, expected_offer_times=expected_offer_times,
+        expected_offer_token=expected_offer_token,
     )
 
 
@@ -3949,6 +3957,8 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "searching_at": order.searching_at.isoformat() if order.searching_at else None,
         "driver_id": order.driver_id,
         "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else None,
+        "offer_token": (order.offer_token if order.status == S.offered
+                        and order.current_offer_driver_id == viewer.id else None),
         "cancel_by": order.cancel_by,
         "cancel_reason": order.cancel_reason,
         # B8-8: отмена после открытия телефона/чата — клиент показывает пассажиру мягкий

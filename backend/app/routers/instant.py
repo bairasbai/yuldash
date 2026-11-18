@@ -787,6 +787,7 @@ class DeclineIn(BaseModel):
     нет и не будет, иначе водители начнут просто уходить в офлайн вместо честного отказа.
     """
     reason: Optional[str] = Field(None, max_length=32)
+    expected_offer_token: Optional[str] = Field(None, min_length=32, max_length=32, pattern=r"^[0-9a-f]{32}$")
 
 
 # Причины отказа от оффера. Закрытый список — свободный текст никто не читает и не агрегирует.
@@ -807,7 +808,10 @@ def decline(order_id: int, body: DeclineIn | None = None,
     reason = ((body.reason if body else "") or "").strip().lower()
     if reason and reason not in _DECLINE_REASONS:
         reason = "other"      # незнакомое значение не роняет отказ: отказаться важнее, чем классифицировать
-    order = isv.decline_offer(session, order_id, user.id, reason=reason)
+    order = isv.decline_offer(
+        session, order_id, user.id, reason=reason,
+        expected_offer_token=body.expected_offer_token if body else None,
+    )
     return isv.order_payload(session, order, user, actor_authorized=True)
 
 

@@ -1170,6 +1170,7 @@ class InstantOrder(SQLModel, table=True):
     # Текущий оффер (кому сейчас предложено) + дедлайн ответа + счётчик кругов подбора.
     current_offer_driver_id: Optional[int] = Field(default=None, foreign_key="user.id")
     offer_expires_at: Optional[datetime] = None
+    offer_token: Optional[str] = Field(default=None, max_length=32)  # Не credential: идентификатор предложения.
     search_round: int = 0
     # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
     # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а

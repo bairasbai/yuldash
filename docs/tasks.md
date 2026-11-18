@@ -1,3 +1,7 @@
+## Пятница: optional offer token — совместимая серверная база
+
+Реализованоdd46efa:nullabletoken+локальнаямиграция,rotation,currentdriverpayload,optionaldeclineCAS.119 scoped PASS и независимо PASS, 1 Alembic head, secrets 0; FULL 6908 passed / 119 skipped / exit 0. Legacyбезtoken без изменений,Android/PWA/main/prod нетронуты. Порядокбудущегоrollout/ограничения:docs/friday/taxi-retry-recovery-20261117.md.
+
 ## Пятница: исследование поколения оффера тому же водителю
 
 Узкий snapshot-CAS реализован657d12d:8RED→97scopedPASS, независимо97PASS без замечаний; FULL6886PASS/119skipped/exit0. Защита только от смены после серверного чтения, не delayed HTTP до чтения. Отдельный API/client план описан, не реализован. Разделены серверное окно после чтения и запоздалый HTTP без идентификатора поколения. См. docs/friday/taxi-retry-recovery-20261117.md.
