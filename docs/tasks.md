@@ -1,3 +1,7 @@
+## Пятница: контракт writers перед token rollout
+
+Подготовлено fc98694: inventory единственного offered writer и отдельного timer-процесса; 6 новых сервисных контрактов, 125 scoped PASS. Runtime неизменён. Operational checklist и границы в docs/friday/taxi-retry-recovery-20261117.md; независимая приёмка 125 PASS и docs приняты без замечаний. Никакой выкладки или принудительности.
+
 ## Пятница: optional offer token — совместимая серверная база
 
 Реализованоdd46efa:nullabletoken+локальнаямиграция,rotation,currentdriverpayload,optionaldeclineCAS.119 scoped PASS и независимо PASS, 1 Alembic head, secrets 0; FULL 6908 passed / 119 skipped / exit 0. Legacyбезtoken без изменений,Android/PWA/main/prod нетронуты. Порядокбудущегоrollout/ограничения:docs/friday/taxi-retry-recovery-20261117.md.

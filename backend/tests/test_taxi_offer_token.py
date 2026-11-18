@@ -168,3 +168,50 @@ def test_token_migration_preserves_rows_and_is_idempotent(tmp_path):
             assert connection.execute(text("SELECT status FROM instantorder")).scalar_one() == "offered"
     finally:
         db.dispose()
+
+
+@pytest.mark.parametrize("entrypoint", ["initial", "retry", "next", "scheduled", "reassign", "lazy"])
+def test_all_offer_writer_entrypoints_rotate_before_notify(client, user_factory, fake_redis, monkeypatch, entrypoint):
+    """Каждый сервисный путь выдаёт новый token и сохраняет его до уведомления."""
+    from app.timeutil import utcnow
+    driver, _, payload = _offered_order(client, user_factory, fake_redis, "WriterTokenDriver", "WriterTokenPax")
+    oid = payload["id"]
+    calls = []
+    monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [driver["id"]])
+    monkeypatch.setattr(isv, "_notify_reassign", lambda *args: None)
+    def observe_committed_token(session, order, recipient):
+        with Session(engine) as observer:
+            saved = observer.get(InstantOrder, oid)
+            assert saved.status == S.offered
+            assert saved.current_offer_driver_id == recipient == driver["id"]
+            assert saved.offer_token == order.offer_token
+            calls.append(saved.offer_token)
+    monkeypatch.setattr(isv, "_push_offer", observe_committed_token)
+    with Session(engine) as session:
+        order = session.get(InstantOrder, oid)
+        previous_token = order.offer_token
+        if entrypoint in ("initial", "retry", "scheduled", "reassign"):
+            order.status = {"initial": S.created, "retry": S.expired,
+                            "scheduled": S.scheduled, "reassign": S.cancelled}[entrypoint]
+            order.current_offer_driver_id = None
+            order.offer_expires_at = None
+        if entrypoint == "scheduled":
+            order.scheduled_at = utcnow() - timedelta(minutes=1)
+        if entrypoint == "lazy":
+            order.offer_expires_at = utcnow() - timedelta(minutes=1)
+        session.add(order)
+        session.commit()
+        if entrypoint in ("initial", "retry"):
+            result = isv.start_matching(session, order, notify=False)
+        elif entrypoint == "next":
+            result = isv.advance_after_no_accept(session, order, notify=False)
+        elif entrypoint == "scheduled":
+            result = isv.activate_scheduled(session, order)
+        elif entrypoint == "reassign":
+            result = isv._reassign_after_driver_cancel(session, oid, None)
+        else:
+            result = isv.reconcile_offer(session, order)
+        assert result.status == S.offered
+        assert re.fullmatch(r"[0-9a-f]{32}", result.offer_token)
+        assert result.offer_token != previous_token
+        assert calls == [result.offer_token]
