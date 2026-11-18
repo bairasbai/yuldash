@@ -1,4 +1,4 @@
-"""Schema compatibility only: revision is not yet rotated/enforced by writers."""
+"""Schema compatibility and legacy HTTP support with internal revision writers."""
 import importlib.util
 from io import StringIO
 from pathlib import Path
@@ -69,13 +69,13 @@ def test_revision_ddl_is_bigint_and_nullable_on_postgresql_without_connecting():
 
 
 @pytest.mark.usefixtures("fake_redis")
-def test_model_and_legacy_decline_work_without_revision_exposure_or_enforcement(client, user_factory):
+def test_model_and_legacy_decline_work_without_client_revision_exposure(client, user_factory):
     driver, _, payload = _offered_order(client, user_factory, isv._redis(), "RevisionBaseDriver", "RevisionBasePax")
     oid = payload["id"]
     assert "search_revision" not in payload
     with Session(engine) as session:
         order = session.get(InstantOrder, oid)
-        assert order.search_revision is None
+        assert order.search_revision == 1
         order.search_revision = 2**40
         session.add(order)
         session.commit()
@@ -85,4 +85,4 @@ def test_model_and_legacy_decline_work_without_revision_exposure_or_enforcement(
     assert response.status_code == 200
     assert "search_revision" not in response.json()
     with Session(engine) as session:
-        assert session.get(InstantOrder, oid).search_revision == 2**40, "foundation does not pretend writers are integrated"
+        assert session.get(InstantOrder, oid).search_revision == 2**40 + 1, "legacy decline rotates the internal generation without a new client field"

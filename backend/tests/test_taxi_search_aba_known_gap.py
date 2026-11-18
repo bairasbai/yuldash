@@ -1,7 +1,4 @@
-"""Executable boundary of the snapshot fix, pending a durable search generation.
-
-These strict xfails record a known gap, not a passing safety guarantee.
-"""
+"""Regression: identical legacy search snapshots still have distinct revisions."""
 import pytest
 from sqlmodel import Session
 
@@ -12,13 +9,8 @@ from app.timeutil import utcnow
 from test_taxi_status_never_resurrects import _order, fake_redis  # noqa: F401
 
 
-class KnownSearchABA(AssertionError):
-    """Only the reproduced writer overwrite is an expected failure."""
-
-
 @pytest.mark.parametrize("has_candidate", [True, False])
 @pytest.mark.usefixtures("fake_redis")
-@pytest.mark.xfail(strict=True, raises=KnownSearchABA, reason="Identical search snapshot ABA needs a durable generation; plan only")
 def test_identical_search_restart_rejects_old_candidate_result(client, user_factory, monkeypatch, has_candidate):
     passenger = user_factory("IdenticalSearchPassenger")
     driver = user_factory("IdenticalSearchDriver", role=UserRole.driver)
@@ -45,6 +37,5 @@ def test_identical_search_restart_rejects_old_candidate_result(client, user_fact
         before = (original.searching_at, original.search_round, original.offer_token)
         result = writer(old, original)
         assert observed["after"] == before, "fixture must reproduce the indistinguishable snapshot"
-        if result.status != S.searching:
-            assert result.status == (S.offered if has_candidate else S.expired), "unexpected failure mode"
-            raise KnownSearchABA(f"old lookup overwrote the new search: {result.status.value}")
+        assert result.status == S.searching, "old lookup must not overwrite the newer generation"
+        assert result.search_revision == 2

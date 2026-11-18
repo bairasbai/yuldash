@@ -1,3 +1,12 @@
+
+## 2026-11-18 — taxi search revision writers (проверено локально)
+
+База `3e4fec6`, ветка `fix/friday-taxi-search-revision-writers-20261118`.
+Runtime44f0bd8; независимые232+56PASS, correction100+2PASS; повторный FULL7039PASS/119skip/exit0 на7f1a1b2. GitHub публикация проверяется отдельно; rollout/реальная миграция не выполнялись.
+1. Независимо проверить план атомарного SQL increment всех search writers, NULL-init и overflow.
+2. Реализовать revision CAS для offered/expired, владение продолжением после commit, атомарную смену критериев/цены/reclamp; без изменения формул. Offered fallback без снижения цены сохраняет действующее предложение.
+3. Регрессии исходного ABA, legacy NULL, overflow/rollback и всех writers; scoped и независимая приёмка, затем согласованный FULL и отдельная публикация.
+Ограничения: real DB/main/prod не трогать; приостановленные пакеты не повторять. Mixed old writers, Redis atomicity и delayed push не объявлять решёнными.
 ## Пятница: search_revision foundation, локальные gates PASS
 
 NullableBIGINT+аддитивнаямиграция6812013; безwriterincrement/CAS/enforcement/backfill. Независимо51scoped+финальные7PASS; FULLна03a9f00:6981PASS/119skipped/2knownABA XFAIL/exit0. Отдельнаяпубликация, безреальноймиграции/main/prod. Следующийэтап — всеwriters иCAS поревизии.

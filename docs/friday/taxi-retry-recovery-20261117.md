@@ -290,3 +290,25 @@ Scoped51 PASS, exit0; fresh reviewer независимо51 PASS, P0/P1/P2 не�
 ### Revision foundation FULL завершён
 
 Финальное усиление legacy INSERT независимо7 PASS. Новый полный backend прогон на03a9f00 (schema/model6812013, тестa1256ee):6981 passed,119 skipped,2 known ABA xfailed,804 warnings,exit0,617.01s. TMPDIR=/tmp/taxi-revision-base-full, pytest tests -q --disable-socket --allow-unix-socket; DATABASE_URL/proxy env удалены,TZ=UTC. Реальные БД не использовались. Heavy-слот согласован и освобождён. Runtime/schema послеFULLне менялись. Это локальный FULL без coverage порога, не реальная PostgreSQL migration и не remoteCI. Готовится отдельная публикация совместимой основы; ABA и writer integration остаются следующим этапом.
+
+## Atomic search revision writers — кандидат 44f0bd8
+
+База3e4fec6, ветка fix/friday-taxi-search-revision-writers-20261118. План9b53c98 независимо прочитан до кода, обязательные замечания по fresh scalar и ownership до reassign effects выполнены. Исходный RED c14d72e:26FAIL/8PASS без setup errors. Расширены до50 регрессий. Runtime44f0bd8 атомарно вращает revision у entry/route/fallback writers, инициализирует legacyNULL доlookup и сравнивает revision в offered/expired CAS; overflow/negative failclosed, MAX existing matcher может завершиться. Fallback без снижения цены сохраняет текущий offered; формулы неизменны, цена/reclamp атомарны.
+
+132 scoped PASS, exit0 (7.12s); ruff app/tests F и diffcheck PASS. Исходные два ABA strict XFAIL сначала далиXPASS; после доказанного успеха заменены обычными assertions searching/revision2. Теперь эти сценарии реально PASS, а не ожидаемые отказы. Legacy HTTP не требует clientrevision, internal revision1 и decline increment проверены. Независимая приёмка реализации и FULL ещё не завершены, публикации нет. Нет realPG concurrency proof, mixed-fleet гарантии, Redis atomicity или устранения delayedpush.
+
+Независимый reviewer runtime44f0bd8:232 PASS,exit0,9.33s; P0/P1/P2 не обнаружены. Дополнительно6 fallback regressions: сохранение offered без удешевления при increment, pricedrop continuation, rollback и видимость старого committed состояния до reclamp. Авторский финальный файл56 PASS,exit0,1.93s; runtime не менялся. Финальная независимая проверка6cases и FULL ожидаются.
+
+### Первый revision FULL: отказы и доказательная коррекция
+
+FULL на858ad68:7037 PASS,119 skipped,2 FAIL,804 warnings,exit1,616.91s. Публикация не начата. Runtime не менялся при исправлении:
+- `test_согласие_на_класс_без_удешевления_предложение_не_рвёт` создавал searching с recipient, хотя проверял сохранение действующего offered. Адресные44 теста воспроизвели только этот отказ. Fixture исправлен на offered, продуктовые assertions сохранены; searching+новые критерии теперь намеренно продолжают подбор, отдельный regression это проверяет.
+- Новый MAX matcher оставлял offered в общей временной тестовой БД. После старения более3мин worker вновь пытался его сдвинуть (overflow корректно запрещал переход), а чужой regression ожидал глобально пустой список вызовов. Немедленный91 scoped былPASS. Точная пара MAX matcher[True]→worker extended с часами worker+4мин воспроизвела1FAIL/1PASS на постороннем id1. После autouse cleanup только новых тестовых order_id та же пара2PASS. Production worker и его assertions не изменены.
+
+Correctionf3bd704:100 scoped PASS,exit0,3.14s; deterministic pair2PASS,exit0,1.32s; ruff/diffcheckPASS. Новый полный прогон обязателен, предыдущий не считается зелёным. Независимая проверка коррекции ожидается.
+
+### Revision writers FULL повторно завершён
+
+Коррекция f3bd704 независимо принята:100 PASS и2 PASS clock-probe,exit0. Повторный FULL на7f1a1b2 (runtime44f0bd8, fixturesf3bd704):7039 passed,119 skipped,804 warnings,exit0,625.43s. XFAIL больше нет: оба исходных ABA сценария обычные PASS. TMPDIR=/tmp/taxi-revision-writers-full2, pytest tests -q --disable-socket --allow-unix-socket; DATABASE_URL/proxy unset,TZ=UTC. Прогон локальный SQLite/fakeredis, не PostgreSQL concurrency, без coverage threshold. Ruff/diffcheckPASS, credential-pattern scan изменённогоdiff0. Слот освобождён Амио. Готовится отдельная публикация, main/production не затрагиваются.
+
+Миграция nullable BIGINT находится в предыдущем schema пакете; здесь не запускалась на реальной БД. Для deployment потребуется отдельно разрешённая миграция и обновление всех API/worker/manual writers с завершением старых in-flight задач. Смешанная старая/новая версия и rollback старого writer не дают заявленной защиты. Redis cleanup/distributed transaction и delayed postcommit push остаются отдельными границами.

@@ -191,7 +191,7 @@ def test_согласие_на_класс_без_удешевления_пред
     водитель = user_factory("ОферВодитель2", role=UserRole.driver)
     пассажир = user_factory("ОферПассажир2")
     with Session(engine) as s:
-        заказ = InstantOrder(passenger_id=пассажир["id"], status=S.searching,
+        заказ = InstantOrder(passenger_id=пассажир["id"], status=S.offered,
                              from_lat=50.0000, from_lng=55.0000,
                              to_lat=50.2000, to_lng=55.2000,
                              price_estimate=1, category="comfort",
