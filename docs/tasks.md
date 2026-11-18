@@ -1,3 +1,7 @@
+## Пятница: план durable search revision, не runtime fix
+
+Отдельный plan/test-only пакет от8abe8b7: 16 PASS / 2 strict XFAIL, два известных ABA-сценария отдельно подтверждены RED. План в docs/friday/taxi-search-generation-plan-20261118.md: монотонная revision, inventory writers, критерии/порядок destination и waypoints, mixed-fleet ограничения. Миграции/runtime пока не менялись; независимая приёмка плана/diagnostic boundary PASS.
+
 ## Пятница: search snapshot, локальные gates PASS
 
 Runtime f15cd57: старый lookup не завершает различимый новый поиск. Независимо scoped128PASS; FULL на681e326:6952PASS/119skipped/exit0. Публикация отдельной веткой, без main/prod; прежние WIP-записи исторические. Полностью совпавший tuple/ABA не защищён, границы в recovery report.

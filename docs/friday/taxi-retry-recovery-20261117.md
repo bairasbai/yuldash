@@ -254,3 +254,11 @@ Runtime f15cd57649c55e71cdd2557d7f705612d49e468a сохраняет scalar tuple
 ### Search snapshot: независимая приёмка и FULL
 
 Свежий независимый reviewer повторил scoped:128 PASS, exit0, P0/P1/P2 нет в заявленном объёме. Новый полный backend прогон на681e326 (runtime f15cd57649c55e71cdd2557d7f705612d49e468a): 6952 passed,119 skipped,804 warnings,exit0,635.01s. TMPDIR=/tmp/taxi-search-full, pytest tests -q --disable-socket --allow-unix-socket, DATABASE_URL/proxy env удалены,TZ=UTC. Изолированная SQLite; heavy-слот получен от Amio и возвращён после завершения. Это локальный FULL без coverage порога; PostgreSQL concurrency и удалённый CI не заявлены. Runtime после FULL не менялся, готовится отдельная публикация без merge/deploy.
+
+## План следующего этапа: durable search revision
+
+База8abe8b7 (tree опубликованного746499c), ветка test/friday-taxi-search-aba-plan-20261118. Runtime не изменён. В test_taxi_search_aba_known_gap.py два строгих XFAIL фиксируют полный совпавший snapshot при настоящем повторном start_matching с замороженным временем; они не считаются исправленной защитой. `--runxfail` дал 2 RED именно по offered/expired вместо нового searching, обычный адресный прогон 16 PASS / 2 XFAIL / exit0. Ожидается только специальный KnownSearchABA, ошибки fixture и другие исключения не скрываются.
+
+Подробный план: [taxi-search-generation-plan-20261118.md](taxi-search-generation-plan-20261118.md). Предпочтение: монотонная BIGINT revision с атомарным increment всех writers; никакая миграция/реализация сейчас не выполнялась. При inventory выявлен отдельный sequencing prerequisite destination/waypoints до полной criteria-generation гарантии. Начальное read-only предположение о применимости этих helpers лишь к принятой поездке исправлено после прямой сверки router/status guards. Формулы/тарифы не менялись. Fresh review пакета ожидается.
+
+Fresh review ABA-plan: принято как план/диагностическая граница, 16 PASS / 2 XFAIL и независимо 2 точных RED с --runxfail. Усилены обычные assertions, чтобы неожиданный статус не скрывался XFAIL. Runtime/schema diff пустой. Новый FULL не запускался; предыдущие 6952 PASS/119skipped остаются историческим результатом неизменённого runtime, не результатом этого test-only пакета.
