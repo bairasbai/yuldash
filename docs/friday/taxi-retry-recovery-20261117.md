@@ -202,3 +202,27 @@ Read-only исследование обнаружило единственный
 ### Отдельные непроверенные риски, не исправления этого пакета
 
 try_offer_next UPDATE сейчас ограничен id, не статусом/поколением: token не доказывает race-safety всей машины состояний. Fallback более дешёвого класса очищает recipient/expiry без нового matching; возможное зависание требует отдельного воспроизведения, здесь не подтверждено. Нет утверждения о готовности production или обновлении его writers. Приостановленные пакеты, main и реальные БД не затрагивались.
+
+## Новый независимый этап: race внутри writer подтверждён, исправления ещё нет
+
+Ветка test/friday-taxi-offer-writer-race-20261118 основана на 34215f1, без непроверенных клиентских пакетов и без приостановленных изменений. Изолированный test_taxi_offer_writer_race.py воспроизводит штатную passenger cancel в другой Session внутри задержанного candidates. Cancel коммитит cancelled, затем try_offer_next безусловно пишет offered. Результат: RED, 1 failed / 1 warning / 1.22 s, assertion cancelled != offered. Первичная ошибка импорта Actor в самом тесте исправлена до этого прогона; она не считается доказательством дефекта.
+
+Команда из backend: env -u DATABASE_URL -u HTTP_PROXY -u HTTPS_PROXY -u ALL_PROXY -u http_proxy -u https_proxy -u all_proxy TMPDIR=/tmp/taxi-writer-race TZ=UTC /tmp/taxi-next-venv/bin/python -m pytest tests/test_taxi_offer_writer_race.py -q --disable-socket --allow-unix-socket. Настоящие сервисы/БД не использовались; fake Redis и временная SQLite. Диагностический тест намеренно пока красный, не публиковать пакет как проверенное исправление.
+
+Независимый read-only reviewer подтвердил реальное окно: start_matching/advance_after_no_accept коммитят searching до подбора, освобождая прежний row lock. try_offer_next UPDATE ограничен только id. Аналогичный безусловный writer есть в _expire_no_drivers. Минимальный будущий scope должен рассмотреть оба выхода, rowcount и отсутствие push/cleanup у проигравшего. Для полной защиты поколения searching одного status недостаточно: searching_at не обновляется каждым переходом, а Redis tried-set меняется до UPDATE. Нужно отдельно доказать ABA-поколение и побочные эффекты; исправление ещё не реализовано.
+
+Клиентский recovery пакет создан отдельно: client-token-20261118.bundle, git bundle verify PASS; содержит Android cb378e1, PWA af56796 и late-accept 337c365, требует базу 34215f1. SHA256: 0895803b4cbe54baf9a67b089a4252542287c43c6922fa84399300c8f32e9006. Desktop остаётся offline, из локальных браузеров найден только ранее заблокированный Chromium; повторов его запуска не было. Полные UI gates не заменены DOM-тестом и не объявлены зелёными.
+
+### Продолжение writer race: минимальное исправление принято scoped
+
+Родитель поручил исправить подтверждённое окно. Runtime 41cdd447d289ca22d4956b0dd3bcbe5dbddac76c: try_offer_next и _expire_no_drivers теперь обновляют только status=searching, проверяют rowcount. Проигравший возвращает свежую строку без offer/expired push, cleanup или SADD. SADD успешного writer выполняется после SQL CAS, но до commit: блокировка строки не даёт параллельному decline увидеть offered раньше tried-set. Первая промежуточная версия послеcommitSADD уточнена до полного прогона.
+
+15 новых writer-сценариев: две штатные отмены в другой Session во время candidates; 12 комбинаций changed-status cancelled/accepted/offered и выходов candidate/empty/no_redis/limit; observer проверяет SADD до публикации offered. Прежний token rotation тест теперь использует штатный advance_after_no_accept вместо прямого вызова writer на offered. Все исходные проверки token сохранены.
+
+Scoped пяти файлов 133 PASS / 1 существующее warning / exit 0. Свежий независимый reviewer повторил 133 PASS, P0/P1/P2 в этом объёме не нашёл. Ruff app и новый тест, diff check, secrets scan трёх Python-файлов (0 findings) PASS. FULL ещё не выполнен; публикация до него не выполняется.
+
+Границы: это status-CAS, не защита searching ABA. Redis-вызов теперь под DB row lock; риск Redis изменён, а commit БД не состоялся сохраняется. Атомарность двух хранилищ, отсутствие позднего push после успешного commit и настоящая PostgreSQL concurrency не доказаны. Приостановленные пакеты не повторялись.
+
+### FULL writer CAS завершён
+
+Новый полный backend прогон на 79c65b513d8382ec87daa9ec1b2440d99262e744 (runtime 41cdd447d289ca22d4956b0dd3bcbe5dbddac76c): 6929 passed, 119 skipped, 804 warnings, exit 0, 602.14 s. Команда как scoped, но pytest tests -q; TMPDIR=/tmp/taxi-writer-full, --disable-socket --allow-unix-socket. Запущен после явного освобождения слота Amio, завершён без прерывания; слот возвращён. Это локальный gate без coverage порога и без PostgreSQL; удалённый CI отдельно не подтверждён. Runtime после FULL не менялся. Готовится новая отдельная ветка; merge/deploy не выполнялись.

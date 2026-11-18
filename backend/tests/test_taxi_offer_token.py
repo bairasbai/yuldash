@@ -82,7 +82,7 @@ def test_token_rotates_for_same_driver_and_delayed_request_is_noop(client, user_
         monkeypatch.setattr(isv, "utcnow", lambda: fixed)
         monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [driver["id"]])
         monkeypatch.setattr(isv, "_push_offer", lambda *args: None)
-        new = isv.try_offer_next(session, current)
+        new = isv.advance_after_no_accept(session, current)
         new_token = new.offer_token
         assert new.offered_at == fixed and new_token != old_token
         # Продление срока — то же предложение, token не меняется.

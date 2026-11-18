@@ -1,3 +1,15 @@
+## Пятница: writer status-CAS, локальные gates PASS
+
+Runtime 41cdd44, scoped и независимо 133 PASS; FULL на79c65b5: 6929 PASS / 119 skipped / exit0. Исправлено воскрешение отменённого заказа в обоих выходах writer. Публикация отдельной веткой, без main/prod. Границы и доказательства в docs/friday/taxi-retry-recovery-20261117.md. Предыдущие WIP-записи ниже являются историей.
+
+## Пятница: writer status-CAS, FULL в очереди
+
+Runtime 41cdd44: защита обоих выходов writer от сменившегося статуса, effects только победителю; SADD до commit. 15 новых регрессий, scoped 133 PASS, независимо 133 PASS. FULL ожидает heavy-слот. Публикации пока нет, searching ABA и distributed atomicity не заявлены.
+
+## Пятница: writer race подтверждён, WIP RED
+
+Независимая ветка от 34215f1: test/friday-taxi-offer-writer-race-20261118. Штатная отмена во время candidates перезаписывается try_offer_next: диагностическая регрессия RED. Runtime не менялся, публикации нет. Рассмотреть также _expire_no_drivers, rowcount, Redis side effects и searching-generation отдельно. Подробности в docs/friday/taxi-retry-recovery-20261117.md.
+
 ## Пятница: контракт writers перед token rollout
 
 Подготовлено fc98694: inventory единственного offered writer и отдельного timer-процесса; 6 новых сервисных контрактов, 125 scoped PASS. Runtime неизменён. Operational checklist и границы в docs/friday/taxi-retry-recovery-20261117.md; независимая приёмка 125 PASS и docs приняты без замечаний. Никакой выкладки или принудительности.
