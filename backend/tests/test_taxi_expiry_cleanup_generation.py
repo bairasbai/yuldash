@@ -174,7 +174,7 @@ def test_missing_order_after_expiry_commit_has_no_cleanup_or_notification(client
                 other.delete(current)
                 other.commit()
         monkeypatch.setattr(session, "commit", delete_after_commit)
-        result = isv._expire_no_drivers(session, order, expected_search=expected, expected_revision=60)
+        result = isv._expire_no_drivers(session, order, expected_search=expected, expected_revision=60, expected_lifecycle=None)
         assert result is None
         assert session.get(InstantOrder, oid) is None
     assert effects == []

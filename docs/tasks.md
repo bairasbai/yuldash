@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi tried lifecycle writers (проверено локально)
+
+База6e08f6c; ветка fix/friday-taxi-tried-lifecycle-writers-20261118. Runtime1f4f3fa: независимые236scoped+17PGPASS; FULL7136PASS/136skip/exit0 наc7823eb. Default-off, productionактивациинет. План docs/friday/taxi-tried-lifecycle-writers-20261118.md: default-off opt-in new-cycle namespace, existingnonNULLhonor, activeNULLlegacyнепереносить; всеRedisread/write/cleanup capturedlifecycle и CAS. Независимыйreview, RED/регрессии/PG/FULL передпубликацией. Безреальноймиграции/production/mixedfleetгарантий, pushотдельно.
+
 ## 2026-11-18 — taxi tried lifecycle schema (проверено локально)
 
 База 9b988c3; feat/friday-taxi-tried-lifecycle-base-20261118. Runtime f54e856, независимые51scopedPASS, FULL7069PASS/133skip/exit0 на8a060cb. OnlinePG migration не выполнялась. План docs/friday/taxi-tried-lifecycle-base-20261118.md: nullable String(32), миграция без backfill/default/активации, изолированные migration/legacy HTTP tests; независимая оценка, scoped/FULL и отдельная публикация. Реальную БД не мигрировать. Redis протокол/push/mixed writers остаются без новой защиты.

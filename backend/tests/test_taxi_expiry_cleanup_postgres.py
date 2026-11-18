@@ -40,13 +40,13 @@ def test_pg_expiry_cleanup_blocks_restart_and_releases_on_error(client, user_fac
     monkeypatch.setattr(isv, "candidates", lambda redis, session, order, **kwargs:
                         [new_driver["id"]] if order.search_revision == 81 else [])
 
-    def held_cleanup(order_id):
+    def held_cleanup(order_id, lifecycle=None):
         assert order_id == oid
         cleanup_entered.set()
         assert release_cleanup.wait(10), "coordinator must release cleanup"
         if unexpected_cleanup_error:
             raise RuntimeError("synthetic unexpected cleanup callback failure")
-        real_cleanup(order_id)
+        real_cleanup(order_id, lifecycle)
     monkeypatch.setattr(isv, "_cleanup_tried", held_cleanup)
 
     def expiry_worker():

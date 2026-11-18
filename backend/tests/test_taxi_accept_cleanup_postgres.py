@@ -46,13 +46,13 @@ def test_pg_accept_cleanup_blocks_cancel_reassign_and_releases_on_error(client, 
     monkeypatch.setattr(isv, "_push_offer", lambda session, order, did: offers.append((order.search_revision, did)))
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [new_driver["id"]])
 
-    def held_cleanup(order_id):
+    def held_cleanup(order_id, lifecycle=None):
         assert order_id == oid
         cleanup_entered.set()
         assert release_cleanup.wait(10)
         if unexpected_cleanup_error:
             raise RuntimeError("synthetic unexpected accept cleanup failure")
-        real_cleanup(order_id)
+        real_cleanup(order_id, lifecycle)
     monkeypatch.setattr(isv, "_cleanup_tried", held_cleanup)
 
     def accept_worker():

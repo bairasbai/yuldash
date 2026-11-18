@@ -215,12 +215,12 @@ def test_accept_notifications_use_values_captured_before_read_lock_release(clien
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: status_pushes.append(kwargs["data"]))
     monkeypatch.setattr("app.services.push_notification", lambda *args, **kwargs: observed.append((args, kwargs)))
     real_cleanup = isv._cleanup_tried
-    def record_accepted_values(order_id):
+    def record_accepted_values(order_id, lifecycle=None):
         with Session(engine) as observer:
             order = observer.get(InstantOrder, order_id)
             assert order.status == S.accepted
             before.append(values(order))
-        real_cleanup(order_id)
+        real_cleanup(order_id, lifecycle)
     monkeypatch.setattr(isv, "_cleanup_tried", record_accepted_values)
     with Session(engine) as session:
         real_rollback = session.rollback

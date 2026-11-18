@@ -21,7 +21,7 @@ from typing import Optional
 from types import SimpleNamespace
 from uuid import uuid4
 
-from sqlalchemy import update
+from sqlalchemy import case, update
 from sqlmodel import Session, select
 
 from sqlalchemy import func
@@ -1881,8 +1881,26 @@ def _bump_search_revision(session: Session, order: InstantOrder) -> int:
     return revision
 
 
-def _owns_search(order: InstantOrder, revision: int | None) -> bool:
-    return revision is not None and order.status == S.searching and order.search_revision == revision
+def _assigned_search_owner(session: Session, order_id: int) -> tuple[int, str | None]:
+    # Оба scalar принадлежат одному UPDATE и снимаются до освобождения его lock.
+    return tuple(session.exec(select(InstantOrder.search_revision, InstantOrder.tried_lifecycle)
+                             .where(InstantOrder.id == order_id)).one())
+
+
+def _owns_search(order: InstantOrder, revision: int | None, lifecycle: str | None) -> bool:
+    return (revision is not None and order.status == S.searching
+            and order.search_revision == revision and order.tried_lifecycle == lifecycle)
+
+
+def _valid_tried_lifecycle(lifecycle: str | None) -> bool:
+    return lifecycle is None or (isinstance(lifecycle, str)
+                                 and re.fullmatch(r"[0-9a-f]{32}", lifecycle) is not None)
+
+
+def _new_tried_lifecycle():
+    # CASE использует свежую строку БД. Выключение флага не отменяет уже включённый namespace.
+    rotate = True if settings.taxi_tried_lifecycle_enabled else InstantOrder.tried_lifecycle.is_not(None)
+    return case((rotate, uuid4().hex), else_=None)
 
 
 def _lock_route_mutation(session: Session, order: InstantOrder) -> None:
@@ -1897,22 +1915,23 @@ def _lock_route_mutation(session: Session, order: InstantOrder) -> None:
         raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
 
 
-def _invalidate_route_search(session: Session, order: InstantOrder) -> tuple[int, str] | None:
+def _invalidate_route_search(session: Session, order: InstantOrder) -> tuple[int, str, str | None] | None:
     if order.status not in (S.searching, S.offered):
         return None
-    revision = _bump_search_revision(session, order)
+    _bump_search_revision(session, order)
+    revision, lifecycle = _assigned_search_owner(session, order.id)
     # Сохраняем прежний token guard в дополнение к монотонному поколению.
     owner = uuid4().hex
     order.status = S.searching
     order.current_offer_driver_id = None
     order.offer_expires_at = None
     order.offer_token = owner
-    return revision, owner
+    return revision, owner, lifecycle
 
 
 def _continue_route_search(session: Session, order: InstantOrder,
-                           owner: tuple[int, str] | None) -> InstantOrder:
-    if owner is not None and _owns_search(order, owner[0]) and order.offer_token == owner[1]:
+                           owner: tuple[int, str, str | None] | None) -> InstantOrder:
+    if owner is not None and _owns_search(order, owner[0], owner[2]) and order.offer_token == owner[1]:
         return try_offer_next(session, order)
     return order
 
@@ -2316,8 +2335,10 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     price = _category_price(session, order, cat)
     cheaper = price is not None and price < order_ride_price(order)
     revision = None
+    lifecycle = None
     if (added or cheaper) and order.status in (S.searching, S.offered):
-        revision = _bump_search_revision(session, order)
+        _bump_search_revision(session, order)
+        revision, lifecycle = _assigned_search_owner(session, order.id)
     order.fallback_categories = cc.dump_classes(cats)
     if cheaper:
         # База считается по ТОМУ ЖЕ классу: иначе в чеке «наценка» окажется разницей между
@@ -2346,7 +2367,7 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     promo_ride.reclamp(session, order, commit=False)
     session.commit()
     session.refresh(order)
-    if _owns_search(order, revision):
+    if _owns_search(order, revision, lifecycle):
         # Продолжаем тот же круг: start_matching сбросил бы лимит и search_round.
         order = try_offer_next(session, order)
     return {"price": order.price_estimate,
@@ -2777,7 +2798,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         # Scalar SELECT читает выигравший UPDATE под его lock, не stale identity map.
         assignment = tuple(session.exec(select(
             InstantOrder.search_revision, InstantOrder.driver_id,
-            InstantOrder.accepted_at, InstantOrder.offer_token,
+            InstantOrder.accepted_at, InstantOrder.offer_token, InstantOrder.tried_lifecycle,
         ).where(InstantOrder.id == order_id)).one())
     session.commit()
     if result.rowcount == 0:
@@ -2792,12 +2813,12 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
             if fresh is None:
                 return None
             current_assignment = (fresh.search_revision, fresh.driver_id,
-                                  fresh.accepted_at, fresh.offer_token)
+                                  fresh.accepted_at, fresh.offer_token, fresh.tried_lifecycle)
             if current_assignment != assignment or fresh.status not in UNLOCKED:
                 return fresh
             # Обычное продвижение той же поездки не мешает очистке. Новый поиск
             # после отмены уже владеет другим tried — старый accept его не удаляет.
-            _cleanup_tried(order_id)
+            _cleanup_tried(order_id, assignment[4])
             if fresh.status == S.accepted:
                 # rollback истечёт ORM: уведомления не должны перечитать цену/подачу
                 # другого назначения. Только значения, без SQLAlchemy instance state.
@@ -2875,6 +2896,8 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         .where(InstantOrder.id == order_id, InstantOrder.status == order.status)
         .values(**values)
     )
+    cleanup_lifecycle = (session.exec(select(InstantOrder.tried_lifecycle)
+                         .where(InstantOrder.id == order_id)).one() if result.rowcount else None)
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
@@ -2892,7 +2915,7 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         fresh = _reassign_after_driver_cancel(session, order_id, бросивший)
         if fresh is not None:
             return fresh        # заказ снова в поиске: промокод и цена остаются при нём
-    _cleanup_tried(order_id)
+    _cleanup_tried(order_id, cleanup_lifecycle)
     fresh = session.get(InstantOrder, order_id)
     # Поездки не было → скидка по промокоду возвращается пассажиру. Один код даётся на всю жизнь
     # аккаунта, и сжечь его из-за того, что водитель не приехал, было бы нечестно.
@@ -2936,60 +2959,75 @@ def _reassign_after_driver_cancel(session: Session, order_id: int,
     того же человека, и дорожать на ровном месте он не должен.
 
     Бросившего добавляем в список «уже предлагали»: круг подбора не должен вернуть заказ
-    ему же через минуту. Поэтому `_cleanup_tried` здесь НЕ зовём — наоборот, дополняем.
+    ему же через минуту. `_cleanup_tried` здесь НЕ зовём: добавляем его в новый цикл.
+    Legacy NULL сохраняет прежний общий ключ; nonNULL историю прошлого цикла не копирует.
 
     Возврат None — заказ за это время успели тронуть (пассажир отменил сам, воркер закрыл);
     тогда обычный путь отмены отработает как раньше.
     """
+    source = session.exec(select(InstantOrder.status, InstantOrder.tried_lifecycle)
+                          .where(InstantOrder.id == order_id).with_for_update()).first()
+    if source is None or source[0] != S.cancelled or not _valid_tried_lifecycle(source[1]):
+        # Как и прежний UPDATE-noop, завершаем транзакцию, не откатывая работу caller.
+        session.commit()
+        return None
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order_id, InstantOrder.status == S.cancelled,
                _can_increment_search_revision())
         .values(status=S.searching, searching_at=utcnow(), search_round=0,
                 search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1,
+                tried_lifecycle=_new_tried_lifecycle(),
                 reassigns=InstantOrder.reassigns + 1,
                 driver_id=None, accepted_at=None, arriving_at=None,
                 waiting_started_at=None, current_offer_driver_id=None, offer_expires_at=None,
                 cancel_by="", cancel_reason="", cancelled_at=None, cancel_fee_kop=0)
     )
-    revision = _assigned_search_revision(session, order_id) if result.rowcount else None
+    revision, lifecycle = _assigned_search_owner(session, order_id) if result.rowcount else (None, None)
     session.commit()
     if result.rowcount == 0:
         return None
     order = session.get(InstantOrder, order_id)
-    if not _owns_search(order, revision):
+    if not _owns_search(order, revision, lifecycle):
         return order
     if cancelled_driver_id:
         try:
             r = _redis()
-            r.sadd(_tried_key(order_id), int(cancelled_driver_id))
-            r.expire(_tried_key(order_id), 3600)
+            r.sadd(_tried_key(order_id, lifecycle), int(cancelled_driver_id))
+            r.expire(_tried_key(order_id, lifecycle), 3600)
         except Exception:  # noqa: BLE001 — Redis лёг: хуже, чем «повторно предложим», не будет
             pass
     _notify_reassign(session, order)
-    if not _owns_search(order, revision):
+    if not _owns_search(order, revision, lifecycle):
         return order
     return try_offer_next(session, order)
 
 
 # ============================ Matcher (подбор + офферы) ============================
-def _tried_key(order_id: int) -> str:
-    return f"instant:order:{order_id}:tried"
+def _tried_key(order_id: int, lifecycle: str | None = None) -> str:
+    if not _valid_tried_lifecycle(lifecycle):
+        raise ValueError("Invalid tried lifecycle")
+    base = f"instant:order:{order_id}:tried"
+    return base if lifecycle is None else f"{base}:{lifecycle}"
 
 
-def _tried_set(r, order_id: int) -> set:
+def _tried_set(r, order_id: int, lifecycle: str | None = None) -> set:
+    if not _valid_tried_lifecycle(lifecycle):
+        return set()
     try:
-        return {int(x) for x in r.smembers(_tried_key(order_id))}
+        return {int(x) for x in r.smembers(_tried_key(order_id, lifecycle))}
     except Exception:  # noqa: BLE001
         return set()
 
 
-def _cleanup_tried(order_id: int) -> None:
+def _cleanup_tried(order_id: int, lifecycle: str | None = None) -> None:
+    if not _valid_tried_lifecycle(lifecycle):
+        return
     r = _redis()
     if r is None:
         return
     try:
-        r.delete(_tried_key(order_id))
+        r.delete(_tried_key(order_id, lifecycle))
     except Exception:  # noqa: BLE001
         pass
 
@@ -3200,7 +3238,7 @@ def candidates(r, session: Session, order: InstantOrder, exclude: set) -> list:
 
 def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True,
                        *, expected_search: tuple[datetime | None, int, str | None],
-                       expected_revision: int) -> InstantOrder:
+                       expected_revision: int, expected_lifecycle: str | None) -> InstantOrder:
     """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
 
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
@@ -3214,7 +3252,8 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
                InstantOrder.searching_at == searching_at,
                InstantOrder.search_round == search_round,
                InstantOrder.offer_token == offer_token,
-               InstantOrder.search_revision == expected_revision)
+               InstantOrder.search_revision == expected_revision,
+               InstantOrder.tried_lifecycle == expected_lifecycle)
         .values(status=S.expired, expired_at=utcnow(), current_offer_driver_id=None, offer_expires_at=None)
     )
     session.commit()
@@ -3228,11 +3267,12 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
             select(InstantOrder).where(InstantOrder.id == order_id)
             .execution_options(populate_existing=True).with_for_update()
         ).first()
-        if fresh is None or fresh.status != S.expired or fresh.search_revision != expected_revision:
+        if (fresh is None or fresh.status != S.expired or fresh.search_revision != expected_revision
+                or fresh.tried_lifecycle != expected_lifecycle):
             return fresh
         passenger_id = fresh.passenger_id
         payload = _status_data(fresh, "expired")
-        _cleanup_tried(order_id)
+        _cleanup_tried(order_id, expected_lifecycle)
     finally:
         # Только новая read-транзакция: expiry не откатывается. Не держим row lock
         # во время push и освобождаем его также при ошибке SELECT/cleanup.
@@ -3296,23 +3336,29 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
 
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
+    order_id = order.id
+    lifecycle = order.tried_lifecycle
+    if not _valid_tried_lifecycle(lifecycle):
+        return order
     if order.status != S.searching:
         return order
     if order.search_revision is None:
         # Только первый инициализатор legacy строки получает право продолжения.
         # Stale NULL caller не принимает на себя уже начатое другим поколение.
         session.refresh(order, with_for_update=True)
-        if order.status != S.searching or order.search_revision is not None:
+        if (order.status != S.searching or order.search_revision is not None
+                or order.tried_lifecycle != lifecycle):
             return order
         result = session.execute(
             update(InstantOrder)
             .where(InstantOrder.id == order.id, InstantOrder.status == S.searching,
-                   InstantOrder.search_revision.is_(None))
+                   InstantOrder.search_revision.is_(None),
+                   InstantOrder.tried_lifecycle == lifecycle)
             .values(search_revision=1)
         )
         session.commit()
         session.refresh(order)
-        if result.rowcount == 0 or not _owns_search(order, 1):
+        if result.rowcount == 0 or not _owns_search(order, 1, lifecycle):
             return order
     expected_revision = order.search_revision
     if not 0 <= expected_revision <= _MAX_SEARCH_REVISION:
@@ -3326,14 +3372,14 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     r = _redis()
     if r is None:
         return _expire_no_drivers(session, order, notify, expected_search=expected_search,
-                                  expected_revision=expected_revision)
+                                  expected_revision=expected_revision, expected_lifecycle=lifecycle)
     if search_round >= settings.instant_max_offers:
         return _expire_no_drivers(session, order, notify, expected_search=expected_search,
-                                  expected_revision=expected_revision)
-    cands = candidates(r, session, order, exclude=_tried_set(r, order.id))
+                                  expected_revision=expected_revision, expected_lifecycle=lifecycle)
+    cands = candidates(r, session, order, exclude=_tried_set(r, order_id, lifecycle))
     if not cands:
         return _expire_no_drivers(session, order, notify, expected_search=expected_search,
-                                  expected_revision=expected_revision)
+                                  expected_revision=expected_revision, expected_lifecycle=lifecycle)
     did = cands[0]
     now = utcnow()
     result = session.execute(
@@ -3342,7 +3388,8 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
                InstantOrder.searching_at == searching_at,
                InstantOrder.search_round == search_round,
                InstantOrder.offer_token == offer_token,
-               InstantOrder.search_revision == expected_revision)
+               InstantOrder.search_revision == expected_revision,
+               InstantOrder.tried_lifecycle == lifecycle)
         .values(status=S.offered, offered_at=now, offer_token=uuid4().hex,
                 current_offer_driver_id=did,
                 offer_expires_at=now + timedelta(seconds=settings.instant_offer_ttl_sec),
@@ -3352,8 +3399,8 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
         # Побочный эффект только победителя, пока UPDATE ещё удерживает строку.
         # После commit оффер уже виден параллельному decline: tried должен быть готов.
         try:
-            r.sadd(_tried_key(order.id), did)
-            r.expire(_tried_key(order.id), 3600)
+            r.sadd(_tried_key(order_id, lifecycle), did)
+            r.expire(_tried_key(order_id, lifecycle), 3600)
         except Exception:  # noqa: BLE001
             pass
     session.commit()
@@ -3484,17 +3531,25 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     раз предлагать заказ ЗА КРУГ». Он копился за всю жизнь заказа, и очередь «подожду машину»
     после 8 суммарных офферов замолкала навсегда — полоска «ищем машину» живая, а сервер уже
     никому не предлагает, даже если свободный водитель стоит в ста метрах."""
+    order_id = order.id
+    source = session.exec(select(InstantOrder.status, InstantOrder.tried_lifecycle)
+                          .where(InstantOrder.id == order_id).with_for_update()).first()
+    if source is None or source[0] not in _MATCHABLE or not _valid_tried_lifecycle(source[1]):
+        session.commit()  # прежняя commit-семантика no-op; не откатываем изменения caller
+        return session.get(InstantOrder, order_id)
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE),
                _can_increment_search_revision())
         .values(status=S.searching, searching_at=utcnow(), search_round=0,
-                search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1)
+                search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1,
+                tried_lifecycle=case((InstantOrder.status == S.searching, InstantOrder.tried_lifecycle),
+                                     else_=_new_tried_lifecycle()))
     )
-    revision = _assigned_search_revision(session, order.id) if result.rowcount else None
+    revision, lifecycle = _assigned_search_owner(session, order_id) if result.rowcount else (None, None)
     session.commit()
     order = session.get(InstantOrder, order.id)
-    if not _owns_search(order, revision):
+    if not _owns_search(order, revision, lifecycle):
         return order        # заказ успели закрыть/принять — поиск не начинаем
     return try_offer_next(session, order, notify)
 
@@ -3527,10 +3582,10 @@ def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool 
         status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
         search_revision=func.coalesce(InstantOrder.search_revision, 0) + 1,
     ))
-    revision = _assigned_search_revision(session, order.id) if result.rowcount else None
+    revision, lifecycle = _assigned_search_owner(session, order.id) if result.rowcount else (None, None)
     session.commit()
     order = session.get(InstantOrder, order.id)
-    if not _owns_search(order, revision):
+    if not _owns_search(order, revision, lifecycle):
         return order        # заказ уже не в оффере (принят/отменён/закрыт) — не трогаем
     return try_offer_next(session, order, notify)
 

@@ -92,6 +92,8 @@ class Settings(BaseSettings):
     sos_escalate_after_min: int = 10         # не принят за N минут → повторный сигнал
     # Фоновый воркер такси (app/taxi_worker.py) — закрывает зависшие заказы и активирует предзаказы.
     taxi_worker_enabled: bool = True
+    # Только новые циклы NULL→namespace; существующие lifecycle обслуживаются и при False.
+    taxi_tried_lifecycle_enabled: bool = False
     order_stuck_hours: int = 6               # заказ «в пути» дольше N часов → авто-закрытие (телефон сел)
     order_offer_stale_min: int = 3           # оффер висит дольше N минут без ответа → двигаем дальше
     order_wait_max_min: int = 20             # сколько максимум ждём машину в очереди «рядом никого»
