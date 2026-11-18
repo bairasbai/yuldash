@@ -2,9 +2,9 @@
 # Disposable local PostgreSQL only. Never accepts an existing DATABASE_URL.
 set -euo pipefail
 # Only named fixed suites; reject arbitrary pytest arguments before any bootstrap.
-(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|actual-schema-pg-type-rehearsal|actual-schema-pg-domain-rehearsal|actual-schema-close-observation|storage-check-contract|matching-resume-known-gaps]" >&2; exit 64; }
+(( $# <= 1 )) || { echo "Usage: $0 [regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|actual-schema-pg-type-rehearsal|actual-schema-pg-domain-rehearsal|actual-schema-close-observation|storage-check-contract|actual-orm-counter|matching-resume-known-gaps]" >&2; exit 64; }
 mode="${1-regression}"
-case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|actual-schema-pg-type-rehearsal|actual-schema-pg-domain-rehearsal|actual-schema-close-observation|storage-check-contract|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
+case "$mode" in regression|driver-slot-app-compat|generation-representation|generation-adapter|generation-migration-rehearsal|resume-composition|durable-writer-known-gaps|locked-revision-bump|entry-writer-locks|route-capture-locks|actual-schema-baseline|actual-schema-pg-type-rehearsal|actual-schema-pg-domain-rehearsal|actual-schema-close-observation|storage-check-contract|actual-orm-counter|matching-resume-known-gaps) ;; *) echo "Unknown test mode" >&2; exit 64;; esac
 export YULDASH_TEST_PG_MODE="$mode"
 cd "$(dirname "$0")/.."
 : "${YULDASH_TEST_PG_BIN:?Set the directory of installed trusted PostgreSQL binaries}"
@@ -53,7 +53,7 @@ from pathlib import Path
 import psycopg2
 root = Path(sys.argv[1])
 databases = ["yuldash_revision_fixture"]
-if os.environ.get("YULDASH_TEST_PG_MODE") in ("actual-schema-baseline", "actual-schema-pg-type-rehearsal", "actual-schema-pg-domain-rehearsal", "actual-schema-close-observation", "storage-check-contract"):
+if os.environ.get("YULDASH_TEST_PG_MODE") in ("actual-schema-baseline", "actual-schema-pg-type-rehearsal", "actual-schema-pg-domain-rehearsal", "actual-schema-close-observation", "storage-check-contract", "actual-orm-counter"):
     databases += ["yuldash_schema_chain_fixture", "yuldash_schema_init_fixture"]
 # Explicit loopback and fresh credentials; no URL or service inherited.
 connection = psycopg2.connect(host="127.0.0.1", port=int(sys.argv[2]), password=(root / "password").read_text(), user="yuldash_test", dbname="postgres")
@@ -90,7 +90,9 @@ password="$(cat "$runtime/password")"
 export DATABASE_URL="postgresql+psycopg2://yuldash_test:$password@127.0.0.1:$port/yuldash_revision_fixture"
 unset password
 export YULDASH_TEST_PG_DATA="$runtime/data" TMPDIR="$runtime/tmp"
-if [[ "$mode" == "storage-check-contract" ]]; then
+if [[ "$mode" == "actual-orm-counter" ]]; then
+  "$python" -m pytest --noconftest tests/test_taxi_actual_orm_counter.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
+elif [[ "$mode" == "storage-check-contract" ]]; then
   "$python" -m pytest --noconftest tests/test_taxi_storage_check_postgres.py tests/test_taxi_storage_check_sqlite.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1
 elif [[ "$mode" == "actual-schema-close-observation" ]]; then
   "$python" -m pytest --noconftest tests/test_taxi_pg_close_observation.py -q --disable-socket --allow-unix-socket --allow-hosts=127.0.0.1

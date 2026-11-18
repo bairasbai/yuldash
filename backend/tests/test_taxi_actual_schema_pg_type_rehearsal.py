@@ -62,6 +62,7 @@ def _base_url():
         "actual-schema-pg-domain-rehearsal",
         "actual-schema-close-observation",
         "storage-check-contract",
+        "actual-orm-counter",
     }
     url = make_url(os.environ["DATABASE_URL"])
     assert url.drivername == "postgresql+psycopg2"
