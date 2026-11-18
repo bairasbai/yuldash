@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi atomic SQL history write lab (локально проверено)
+
+План docs/friday/taxi-tried-history-write-lab-20261118.md, uncalled helperb833b0a. Existing caller transaction + own savepoint, typed mismatch, no outercommit; full expiredreset/add/sliding renewal. Никаких writers/flags/activation. Independent scoped71PASS, PG78PASS; первый fixtureFAIL сохранён и исправлен. FULLe2e3111:7404PASS197skip,exit0. Primitive не подключён, outer commit остаётся у caller.
+
 ## 2026-11-18 — taxi SQL history GC lab (локально проверено)
 
 План docs/friday/taxi-tried-history-gc-lab-20261118.md, uncalled helper095fe28. Ownerlock/fresh SQLclock, bounded deletion count не latency, own transaction. Нет scheduler/writers/активации, GC budget/whole-set reset-before-renew остаются blockers. Независимый scoped51 PASS, author/independent PG47 PASS, FULL64f7c1a:7373 PASS/166skip,exit0. P2 clock-probe исправлен, runtime blockers нет. Helper не подключён.
