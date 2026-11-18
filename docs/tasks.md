@@ -21822,3 +21822,9 @@ Publication lab local gates PASS: runtime9f0380c/tests9c34aad; author scoped95 P
 WIP test-only plan after publication lab2200b7c9. docs/friday/taxi-driver-reservation-protocol-20261118.md. Review User→Order cooperative serialization, mixed writer and RR/admission boundaries; no runtime API/wiring/activation. New PG + independent acceptance before separate publication.
 
 Driver protocol diagnostics ecd76bc: independent review PASS; author/independent actual PG205 PASS (11.11/10.21s), exit0/cleanup. RC cooperative serialized; concrete RR double publication, mixed writer and profile-online counterexamples reproduced. App unchanged, no new FULL; no production reservation/admission claim. Plan docs/friday/taxi-driver-reservation-protocol-20261118.md.
+
+## Friday: enforceable driver-slot design (2026-11-18)
+
+WIP docs/test-only proposal: docs/friday/taxi-driver-slot-invariant-20261118.md. Compare same-table CASE UNIQUE occupancy with cooperative lock limits; isolated fixture schema only after independent review. No app DDL/runtime/activation. Admission/migration/account-delete compatibility remain blockers.
+
+Driver-slot SQL experiment checked: tests204e685 corrected51d5e5b. Initial PG250PASS1FAIL preserved (overlapping CHECK attribution), isolated exact constraint test fix reviewed. AuthorPG2/independentPG251PASS11.25/11.27s actualexit0, schema/clustercleanup. App unchanged/no newFULL/no migration. CASE UNIQUE remains candidate, account-delete shape incompatibility/admission/rollout blockers explicit.
