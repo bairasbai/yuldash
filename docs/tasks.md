@@ -1,3 +1,11 @@
+## Пятница: route ordering, локальные gates PASS
+
+Runtime940da7c: маршрут и reclamp публикуются атомарно до replacement matching. Независимо scoped118PASS; FULL наa5eb32c:6974PASS/119skipped/2knownABA XFAIL/exit0. Отдельная публикация без main/prod. Следующий пакет — совместимая durable revision, а не повтор приостановленных действий.
+
+## Пятница: route ordering, P1 закрыт, FULL ожидается
+
+Runtime940da7c: destination/waypoints сохраняют маршрут+invalidation+reclamp одним commit до нового matching. 22 новых PASS, независимый scoped118PASS, ruff/secrets/diffPASS. Durable revision отдельным следующим пакетом. Полные доказательства/границы в docs/friday/taxi-retry-recovery-20261117.md.
+
 ## Пятница: план durable search revision, не runtime fix
 
 Отдельный plan/test-only пакет от8abe8b7: 16 PASS / 2 strict XFAIL, два известных ABA-сценария отдельно подтверждены RED. План в docs/friday/taxi-search-generation-plan-20261118.md: монотонная revision, inventory writers, критерии/порядок destination и waypoints, mixed-fleet ограничения. Миграции/runtime пока не менялись; независимая приёмка плана/diagnostic boundary PASS.

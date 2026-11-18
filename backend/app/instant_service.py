@@ -1852,6 +1852,37 @@ def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
     }
 
 
+def _lock_route_mutation(session: Session, order: InstantOrder) -> None:
+    """Router держит lock с расчёта quote; прямой stale helper не обходит переход."""
+    def source(o):
+        return (o.status, o.driver_id, o.destination_changed_at, o.to_lat, o.to_lng,
+                o.waypoints_json, o.category, o.pricing_k, o.ride_price, o.price_estimate,
+                o.pending_to_lat, o.pending_to_lng, o.pending_to_text, o.pending_price)
+    expected = source(order)
+    session.refresh(order, with_for_update=True)
+    if source(order) != expected or order.status not in _DESTINATION_CHANGEABLE:
+        raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+
+
+def _invalidate_route_search(order: InstantOrder) -> str | None:
+    if order.status not in (S.searching, S.offered):
+        return None
+    # В searching token наружу не выдаётся. Владение продолжением отличает смену
+    # маршрута при одинаковых часах/round; это ещё не durable search_revision.
+    owner = uuid4().hex
+    order.status = S.searching
+    order.current_offer_driver_id = None
+    order.offer_expires_at = None
+    order.offer_token = owner
+    return owner
+
+
+def _continue_route_search(session: Session, order: InstantOrder, owner: str | None) -> InstantOrder:
+    if owner is not None and order.status == S.searching and order.offer_token == owner:
+        return try_offer_next(session, order)
+    return order
+
+
 def apply_destination(session: Session, order: InstantOrder, new_to: tuple, to_text: str,
                       quote: dict, now: Optional[datetime] = None) -> InstantOrder:
     """Переписать адрес и цену заказа. Вызывать только с уже посчитанным `quote`.
@@ -1859,6 +1890,7 @@ def apply_destination(session: Session, order: InstantOrder, new_to: tuple, to_t
     Цена может и упасть — так и задумано: платим за проеденное, а не за обещанное. Водителя
     от этого защищает право отказаться («Не смогу»), а не удержание денег за непроеденное.
     """
+    _lock_route_mutation(session, order)
     now = now or utcnow()
     order.to_lat, order.to_lng = float(new_to[0]), float(new_to[1])
     if to_text:
@@ -1874,21 +1906,23 @@ def apply_destination(session: Session, order: InstantOrder, new_to: tuple, to_t
     # Новый адрес — новое подтверждение. Прошлое «Понял» относилось к прошлому адресу.
     order.destination_ack_at = None
     _clear_pending_destination(order)
+    search_owner = _invalidate_route_search(order)
     session.add(order)
-    session.commit()
-    session.refresh(order)
+    session.flush()
     # Цена упала (или выросла) — потолок скидки «не больше доли цены» мог стать меньше
     # уже зафиксированной суммы. Только УМЕНЬШАЕМ (аудит leaf-1.3, B-2): иначе на подешевевшей
     # поездке скидка осталась бы от старой, более высокой цены, и остаток сверх комиссии
     # платформа доплатила бы водителю из своего кармана — больше, чем без промокода вообще.
-    promo_ride.reclamp(session, order)
+    promo_ride.reclamp(session, order, commit=False)
+    session.commit()
     session.refresh(order)
-    return order
+    return _continue_route_search(session, order, search_owner)
 
 
 def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
                     quote: dict, now: Optional[datetime] = None) -> InstantOrder:
     """Записать новый набор остановок и пересчитанную цену."""
+    _lock_route_mutation(session, order)
     now = now or utcnow()
     order.waypoints_json = dump_waypoints(points)
     set_ride_price(order, int(quote["price"]), quote.get("base_price"))
@@ -1897,13 +1931,14 @@ def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
     order.destination_changed_at = now
     # Маршрут изменился — прежнее «Понял» относилось к прежнему маршруту.
     order.destination_ack_at = None
+    search_owner = _invalidate_route_search(order)
     session.add(order)
+    session.flush()
+    # См. apply_destination — тот же потолок скидки после той же смены цены (B-2).
+    promo_ride.reclamp(session, order, commit=False)
     session.commit()
     session.refresh(order)
-    # См. apply_destination — тот же потолок скидки после той же смены цены (B-2).
-    promo_ride.reclamp(session, order)
-    session.refresh(order)
-    return order
+    return _continue_route_search(session, order, search_owner)
 
 
 def toggle_stop(session: Session, order: InstantOrder,

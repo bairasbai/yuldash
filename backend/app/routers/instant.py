@@ -1014,7 +1014,10 @@ def change_destination(order_id: int, body: DestinationIn,
     междугородной или цена выросла втрое, сначала спрашиваем водителя: пять часов за руль
     и ночёвка в чужом городе — это не «поменял адрес», а другая работа.
     """
-    order = session.get(InstantOrder, order_id)
+    order = session.exec(
+        select(InstantOrder).where(InstantOrder.id == order_id)
+        .execution_options(populate_existing=True).with_for_update()
+    ).first()
     if not order or order.passenger_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
 
@@ -1044,12 +1047,6 @@ def change_destination(order_id: int, body: DestinationIn,
                                         body.to_text, quote)
         isv.notify_driver_destination(session, order, quote, pending=True)
         return {**quote, "applied": False, "waiting_driver": True}
-
-    # Предложение уже висит у водителя со старым адресом — отзываем, иначе он примет заказ,
-    # которого не видел. Дальше обычный поиск подхватит заказ уже с новым адресом.
-    if order.status == S.offered:
-        isv.advance_after_no_accept(session, order, notify=False)
-        session.refresh(order)
 
     isv.apply_destination(session, order, (body.to_lat, body.to_lng), body.to_text, quote)
     if order.driver_id:
@@ -1097,7 +1094,10 @@ def withdraw_destination(order_id: int, user: User = Depends(current_user),
 def accept_destination(order_id: int, user: User = Depends(current_user),
                        session: Session = Depends(get_session)):
     """Водитель согласился на крупную смену (межгород / тройная цена)."""
-    order = session.get(InstantOrder, order_id)
+    order = session.exec(
+        select(InstantOrder).where(InstantOrder.id == order_id)
+        .execution_options(populate_existing=True).with_for_update()
+    ).first()
     if not order or order.driver_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.pending_to_lat is None or order.pending_to_lng is None:
@@ -1160,7 +1160,10 @@ def set_waypoints(order_id: int, body: WaypointsIn,
 
     Проеденные остановки не трогаем: их уже проехали, спорить не о чем.
     """
-    order = session.get(InstantOrder, order_id)
+    order = session.exec(
+        select(InstantOrder).where(InstantOrder.id == order_id)
+        .execution_options(populate_existing=True).with_for_update()
+    ).first()
     if not order or order.passenger_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     blocked = isv.can_change_destination(order)
