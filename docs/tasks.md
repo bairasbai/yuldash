@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi tried PostgreSQL rollback (проверено test-only)
+
+База3fdcf93; test/friday-taxi-tried-rollback-postgres-20261118. Авторский/независимый PG25 PASS; независимый SQLite182 PASS/4skip. Подтверждены ограничения, не исправление. План docs/friday/taxi-tried-rollback-postgres-20261118.md: реальный deferred COMMIT refusal и modeled lost ACK aftercommit, legacy/tokenized, влияние на retry. Без runtime компенсации/архитектуры/production.
+
 ## 2026-11-18 — taxi done push privacy (проверено локально)
 
 База b070fc0; fix/friday-taxi-done-push-privacy-20261118. Runtime e293552, independent430scoped/PG21 PASS; FULL0e2e0c8:7333 PASS,140 skipped,exit0. План docs/friday/taxi-done-push-privacy-20261118.md: проверить точный route в done notification, минимально убрать из этого payload без изменения authorized GET и других каналов. Runtime только после RED/review.
