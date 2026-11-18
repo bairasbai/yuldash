@@ -18,6 +18,7 @@ import json
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
+from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import update
@@ -2771,16 +2772,51 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         .where(InstantOrder.id == order_id, InstantOrder.status == source)
         .values(**values)
     )
+    assignment = None
+    if target == S.accepted and result.rowcount:
+        # Scalar SELECT читает выигравший UPDATE под его lock, не stale identity map.
+        assignment = tuple(session.exec(select(
+            InstantOrder.search_revision, InstantOrder.driver_id,
+            InstantOrder.accepted_at, InstantOrder.offer_token,
+        ).where(InstantOrder.id == order_id)).one())
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
     if target == S.accepted:
-        _cleanup_tried(order_id)
+        notification = None
+        try:
+            fresh = session.exec(
+                select(InstantOrder).where(InstantOrder.id == order_id)
+                .execution_options(populate_existing=True).with_for_update()
+            ).first()
+            if fresh is None:
+                return None
+            current_assignment = (fresh.search_revision, fresh.driver_id,
+                                  fresh.accepted_at, fresh.offer_token)
+            if current_assignment != assignment or fresh.status not in UNLOCKED:
+                return fresh
+            # Обычное продвижение той же поездки не мешает очистке. Новый поиск
+            # после отмены уже владеет другим tried — старый accept его не удаляет.
+            _cleanup_tried(order_id)
+            if fresh.status == S.accepted:
+                # rollback истечёт ORM: уведомления не должны перечитать цену/подачу
+                # другого назначения. Только значения, без SQLAlchemy instance state.
+                notification = SimpleNamespace(
+                    id=fresh.id, passenger_id=fresh.passenger_id,
+                    from_text=fresh.from_text, to_text=fresh.to_text,
+                    pickup_fee_kop=fresh.pickup_fee_kop, pickup_km=fresh.pickup_km,
+                    price_estimate=fresh.price_estimate,
+                )
+        finally:
+            # Новая read-транзакция; committed accept не откатывается.
+            session.rollback()
+        if notification is not None:
+            _notify_transition(session, notification, target)
+            # Сначала «Водитель найден», затем деньги, но уже вне row lock.
+            _notify_pickup_fee(session, notification, pickup_fee_before)
+        return fresh
     fresh = session.get(InstantOrder, order_id)
     _notify_transition(session, fresh, target)
-    if target == S.accepted:
-        # После «Водитель найден», а не вместо: сначала главная новость, потом деньги.
-        _notify_pickup_fee(session, fresh, pickup_fee_before)
     return fresh
 
 

@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi accept cleanup generation (проверено локально)
+
+Базаbd019ea, ветка fix/friday-taxi-accept-cleanup-generation-20261118. Runtime6618aab; независимые104+10scoped и14realPGPASS; FULL7059PASS/133skip/exit0 на2fc89e7. Две точные RED-регрессии реального accept→cancel→reassign сохранены. План docs/friday/taxi-accept-cleanup-plan-20261118.md: guardassignment и cleanupподlock, freeze notificationfacts, release; независимаяприёмка/scoped/PG/FULL. Terminalcancel/lateRedisDELETE/latepush/mixedversion не объявлять исправленными.
+
 ## 2026-11-18 — taxi expiry cleanup generation (проверено локально)
 
 База9e76530, отдельная ветка fix/friday-taxi-expiry-cleanup-generation-20261118. Runtime d38cece; независимые130scoped+12realPGPASS; FULL7047PASS/131skip/exit0 на533908f. Два точных RED сохранены. План docs/friday/taxi-expiry-cleanup-plan-20261118.md: fresh revision/status guard под row lock после expiry commit, условная очистка, release before push; независимая проверка, регрессии/PG/FULL. Полную Redis/DB атомарность и late network DELETE не обещать.
