@@ -1992,16 +1992,49 @@ def _new_tried_lifecycle():
     return case((rotate, uuid4().hex), else_=None)
 
 
+_ROUTE_OWNER_FIELDS = (
+    "status", "search_revision", "driver_id", "destination_changed_at", "to_lat", "to_lng",
+    "waypoints_json", "category", "pricing_k", "ride_price", "price_estimate",
+    "pending_to_lat", "pending_to_lng", "pending_to_text", "pending_price",
+)
+
+
 def _lock_route_mutation(session: Session, order: InstantOrder) -> None:
-    """Router держит lock с расчёта quote; прямой stale helper не обходит переход."""
-    def source(o):
-        return (o.status, o.search_revision, o.driver_id, o.destination_changed_at, o.to_lat, o.to_lng,
-                o.waypoints_json, o.category, o.pricing_k, o.ride_price, o.price_estimate,
-                o.pending_to_lat, o.pending_to_lng, o.pending_to_text, o.pending_price)
-    expected = source(order)
-    session.refresh(order, with_for_update=True)
-    if source(order) != expected or order.status not in _DESTINATION_CHANGEABLE:
-        raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+    """Capture a loaded clean owner before any implicit SQL or SQLite refresh."""
+    with session.no_autoflush:
+        state = inspect(order)
+        if (not state.persistent or state.session is not session or state.identity is None
+                or state.deleted or order in session.deleted
+                or any(state.attrs[attr.key].history.has_changes()
+                       for attr in state.mapper.column_attrs)
+                or any(name not in state.dict or name in state.expired_attributes
+                       or name in state.unloaded for name in _ROUTE_OWNER_FIELDS)):
+            raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+        order_id = state.identity[0]
+        expected = tuple(state.dict[name] for name in _ROUTE_OWNER_FIELDS)
+        if session.get_bind().dialect.name == "sqlite":
+            # FOR UPDATE is ignored on SQLite. Lock before refresh, without
+            # incrementing accepted-route generations or adopting a new owner.
+            result = session.execute(
+                update(InstantOrder)
+                .where(InstantOrder.id == order_id,
+                       InstantOrder.status.in_(_DESTINATION_CHANGEABLE),
+                       *(getattr(InstantOrder, name) == value
+                         for name, value in zip(_ROUTE_OWNER_FIELDS, expected)))
+                .values(search_revision=InstantOrder.search_revision)
+                .returning(InstantOrder.id)
+                .execution_options(synchronize_session=False)
+            )
+            try:
+                matched = result.one_or_none()
+            finally:
+                result.close()
+            if matched is None:
+                raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
+        session.refresh(order, with_for_update=True)
+        current = tuple(state.dict[name] for name in _ROUTE_OWNER_FIELDS)
+        if current != expected or current[0] not in _DESTINATION_CHANGEABLE:
+            raise herr(409, "Заказ изменился. Попробуй ещё раз", "Заказ үҙгәрҙе. Ҡабатлап ҡара")
 
 
 def _invalidate_route_search(session: Session, order: InstantOrder) -> tuple[int, str, str | None] | None:

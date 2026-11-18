@@ -437,17 +437,13 @@ def test_pg_actual_helper_lock_wait_reads_fresh_revision(bump_order, first_commi
 
 
 @pytest.mark.parametrize("kind", ["destination", "waypoints"])
-def test_known_boundary_sqlite_route_fields_can_change_after_cancel(
+def test_sqlite_route_capture_blocks_cancel_after_refresh(
     bump_order, monkeypatch, kind
 ):
-    """Diagnostic: cancelled remains cancelled, but old route work still writes.
+    """Regression of saved old-helper boundary: competing cancel is now BUSY.
 
-    This source is searching: assigning searching again is not an ORM status
-    change, so this case does NOT demonstrate status resurrection. Revision and
-    route mutation after cancellation show the narrower stale-criteria boundary
-    observed on this candidate; no baseline equivalence claim is made here.
-    The interleave is after real route refresh, before helper lock acquisition.
-    PostgreSQL holds that earlier row lock, so this is explicitly SQLite-only.
+    The controlled interleave remains after the real route refresh. Actual
+    cancellation cannot commit before the captured route writer releases lock.
     """
     import fakeredis
     from app import services
@@ -471,11 +467,23 @@ def test_known_boundary_sqlite_route_fields_can_change_after_cancel(
             def after_route_refresh(instance, *args, **kwargs):
                 real_refresh(instance, *args, **kwargs)
                 if kwargs.get("with_for_update") and not seen:
-                    with Session(engine) as cancel_session:
-                        cancelled = isv.cancel_order(
-                            cancel_session, oid, isv.Actor.passenger, passenger["id"]
-                        )
-                        assert cancelled.status == S.cancelled
+                    from sqlalchemy.exc import OperationalError
+                    from test_taxi_route_capture_locks import _fast_busy
+
+                    with (
+                        engine.connect() as contender,
+                        _fast_busy(contender),
+                        Session(bind=contender) as cancel_session,
+                    ):
+                        with pytest.raises(OperationalError) as error:
+                            isv.cancel_order(
+                                cancel_session,
+                                oid,
+                                isv.Actor.passenger,
+                                passenger["id"],
+                            )
+                        assert error.value.orig.sqlite_errorcode & 255 == 5
+                        cancel_session.rollback()
                     with engine.connect() as observer:
                         seen.append(
                             observer.execute(
@@ -487,15 +495,15 @@ def test_known_boundary_sqlite_route_fields_can_change_after_cancel(
 
             monkeypatch.setattr(session, "refresh", after_route_refresh)
             result = _apply(session, order, kind, quote)
-            assert seen == [S.cancelled]
-            assert result.status == S.cancelled
+            assert seen == [S.searching]
+            assert result.status == S.expired
         with engine.connect() as observer:
             row = observer.execute(
                 select(InstantOrder.status, InstantOrder.search_revision).where(
                     InstantOrder.id == oid
                 )
             ).one()
-            assert row == (S.cancelled, 21)
+            assert row == (S.expired, 21)
             after_route = observer.execute(
                 select(
                     InstantOrder.to_lat,
