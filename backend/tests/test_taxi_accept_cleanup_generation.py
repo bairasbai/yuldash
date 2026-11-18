@@ -45,7 +45,7 @@ def test_old_accept_effects_do_not_touch_reassigned_offer(client, user_factory, 
     redis.sadd(key, old_driver["id"])
     offers, acceptance_notices, reassign_notices, pickup_notices, restarted = [], [], [], [], []
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [new_driver["id"]])
-    monkeypatch.setattr(isv, "_push_offer", lambda session, order, did: offers.append((order.search_revision, did)))
+    monkeypatch.setattr(isv, "_push_offer", lambda session, snapshot: offers.append((snapshot.search_revision, snapshot.current_offer_driver_id)))
     monkeypatch.setattr(isv, "_notify_transition", lambda session, order, target: acceptance_notices.append(target))
     monkeypatch.setattr(isv, "_notify_reassign", lambda *args: reassign_notices.append(True))
     monkeypatch.setattr(isv, "_notify_pickup_fee", lambda *args: pickup_notices.append(True))

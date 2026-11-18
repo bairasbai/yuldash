@@ -6,6 +6,7 @@ from sqlmodel import Session
 
 from app import instant_service as isv
 from app.db import engine
+from test_taxi_offer_dispatch_snapshot import _prepare_offered_snapshot
 from app.models import InstantOrder, InstantOrderStatus as S, UserRole
 from test_taxi_status_never_resurrects import _order, fake_redis  # noqa: F401
 from test_taxi_accept_cleanup_generation import _cleanup_accept_orders  # noqa: F401
@@ -58,12 +59,13 @@ def test_real_matcher_push_contains_committed_offer_token_and_absolute_expiry(cl
 
 
 @pytest.fixture
-def direct_offer(user_factory):
+def direct_offer(user_factory, monkeypatch):
+    monkeypatch.setattr(isv, "utcnow", lambda: datetime(2025, 11, 18, 12, 0, 0))
     passenger = user_factory("DirectOfferMetadataPassenger")
     driver = user_factory("DirectOfferMetadataDriver", role=UserRole.driver)
     oid = _order(passenger["id"], S.offered, search_revision=1,
                  current_offer_driver_id=driver["id"], offer_token="a" * 32,
-                 offer_expires_at=datetime(2026, 1, 2, 3, 4, 5, 123456))
+                 offer_expires_at=datetime(2030, 1, 2, 3, 4, 5, 123456))
     return oid, driver
 
 
@@ -76,7 +78,7 @@ def _capture_transport(monkeypatch):
 
 
 @pytest.mark.parametrize("token,expiry", [
-    (None, None), (None, datetime(2026, 1, 2, 3, 4, 5, 123456)), ("a" * 32, None),
+    (None, None), (None, datetime(2030, 1, 2, 3, 4, 5, 123456)), ("a" * 32, None),
 ])
 def test_legacy_null_offer_fields_are_omitted_independently(client, direct_offer, monkeypatch, token, expiry):
     oid, driver = direct_offer
@@ -85,7 +87,7 @@ def test_legacy_null_offer_fields_are_omitted_independently(client, direct_offer
         order = session.get(InstantOrder, oid)
         session.expunge(order)
         order.offer_token, order.offer_expires_at = token, expiry
-        isv._push_offer(session, order, driver["id"])
+        isv._push_offer(session, _prepare_offered_snapshot(session, order, driver["id"]))
     assert len(sent) == 1
     payload = sent[0][1]
     assert ("offer_token" in payload) == (token is not None)
@@ -103,15 +105,19 @@ def test_legacy_null_offer_fields_are_omitted_independently(client, direct_offer
     (datetime(2026, 1, 2, 3, 4, 5, 123456, tzinfo=timezone(timedelta(hours=5))), "2026-01-01T22:04:05.123456Z"),
     (datetime(2026, 1, 2, 3, 4, 5, tzinfo=timezone(timedelta(hours=-3, minutes=-30))), "2026-01-02T06:34:05.000000Z"),
 ])
-def test_offer_deadline_is_absolute_utc_with_microseconds_not_extended_on_late_send(client, direct_offer, monkeypatch, expiry, expected):
+def test_offer_deadline_is_absolute_utc_with_microseconds(client, direct_offer, monkeypatch, expiry, expected):
     oid, driver = direct_offer
     sent = _capture_transport(monkeypatch)
-    monkeypatch.setattr(isv, "utcnow", lambda: datetime(2026, 11, 18, 12, 0, 0))
+    monkeypatch.setattr(isv, "utcnow", lambda: datetime(2025, 11, 18, 12, 0, 0))
     with Session(engine) as session:
         order = session.get(InstantOrder, oid)
         session.expunge(order)
-        order.offer_expires_at = expiry
-        isv._push_offer(session, order, driver["id"])
+        # Persist canonical UTC (SQLite drops timezone information); dispatch
+        # consumes only the real database factory snapshot, never a replacement.
+        order.offer_expires_at = (expiry.astimezone(timezone.utc).replace(tzinfo=None)
+                                 if expiry.tzinfo is not None else expiry)
+        snapshot = _prepare_offered_snapshot(session, order, driver["id"])
+        isv._push_offer(session, snapshot)
     assert sent[0][1]["offer_expires_at"] == expected
     assert sent[0][1]["ttl_sec"] == str(isv.settings.instant_offer_ttl_sec), "legacy TTL field remains unchanged"
 
@@ -128,6 +134,8 @@ def test_offer_generation_is_captured_before_passenger_helper_mutates_order(clie
             order.offer_token = None
             order.offer_expires_at = None
         initial_token, initial_expiry = order.offer_token, order.offer_expires_at
+        snapshot = _prepare_offered_snapshot(session, order, driver["id"])
+        session.expunge(order)  # Pure caller-object mutation, distinct from committed DB replacement.
         calls = []
         def stats_with_concurrent_refresh(*args, **kwargs):
             calls.append(True)
@@ -135,7 +143,7 @@ def test_offer_generation_is_captured_before_passenger_helper_mutates_order(clie
             order.offer_expires_at = datetime(2030, 1, 1, 0, 0, 0, 987654)
             return original_stats(*args, **kwargs)
         monkeypatch.setattr(isv, "passenger_stats", stats_with_concurrent_refresh)
-        isv._push_offer(session, order, driver["id"])
+        isv._push_offer(session, snapshot)
         assert calls == [True]
         assert order.offer_token == "b" * 32
     payload = sent[0][1]

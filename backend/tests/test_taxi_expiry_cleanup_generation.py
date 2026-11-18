@@ -29,7 +29,7 @@ def test_expiry_postcommit_effects_cannot_touch_new_offered_generation(client, u
     driver = user_factory("ExpiryGenerationDriver", role=UserRole.driver)
     oid = _order(passenger["id"], S.searching, searching_at=utcnow(), search_revision=10)
     offers, notifications, restarted = [], [], []
-    monkeypatch.setattr(isv, "_push_offer", lambda session, order, did: offers.append((order.id, order.search_revision, did)))
+    monkeypatch.setattr(isv, "_push_offer", lambda session, snapshot: offers.append((snapshot.id, snapshot.search_revision, snapshot.current_offer_driver_id)))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: notifications.append(kwargs.get("data")))
     # Both generations use the real matcher and real UPDATE/SADD paths. Only
     # external candidate discovery is controlled: old empty, restarted has driver.

@@ -33,6 +33,7 @@ from sqlmodel import Session
 import app.instant_service as isv
 import app.services as svc
 from app.db import engine
+from test_taxi_offer_dispatch_snapshot import _prepare_offered_snapshot
 from app.models import InstantOrder, ParcelDelivery, UserRole
 from app.timeutil import utcnow
 
@@ -68,7 +69,7 @@ def test_пуш_не_выдаёт_номер_дома(client, user_factory, пу
     пуши.clear()
 
     with Session(engine) as s:
-        isv._push_offer(s, s.get(InstantOrder, oid), водитель["id"])
+        isv._push_offer(s, _prepare_offered_snapshot(s, s.get(InstantOrder, oid), водитель["id"]))
 
     оффер = [p for p in пуши if p[0] == "Новый заказ"]
     assert оффер, f"оффер не ушёл: {пуши}"
@@ -93,7 +94,7 @@ def test_карточка_и_пуш_говорят_одно_и_то_же(client,
 
     with Session(engine) as s:
         заказ = s.get(InstantOrder, oid)
-        isv._push_offer(s, заказ, водитель["id"])
+        isv._push_offer(s, _prepare_offered_snapshot(s, заказ, водитель["id"]))
         # Карточку до принятия смотреть нельзя (403 — «нет доступа к заказу»), поэтому
         # сравниваем с той же обрезалкой, которой пользуется карточка.
         как_в_карточке = isv.street_only(заказ.to_text)

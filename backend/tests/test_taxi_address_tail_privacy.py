@@ -4,6 +4,7 @@ from sqlmodel import Session
 
 from app import instant_service as isv
 from app.db import engine
+from test_taxi_offer_dispatch_snapshot import _prepare_offered_snapshot
 from app.models import InstantOrder, InstantOrderStatus as S, User, UserRole
 from test_taxi_status_never_resurrects import _order, fake_redis  # noqa: F401
 from test_taxi_accept_cleanup_generation import _cleanup_accept_orders  # noqa: F401
@@ -32,7 +33,7 @@ def test_real_offer_push_has_literal_safe_addresses(client, address_order, monke
     monkeypatch.setattr(isv, "send_push", lambda session, user_id, title, body, **kwargs:
                         sent.append((title, body, kwargs["data"], kwargs["data_only"])))
     with Session(engine) as session:
-        isv._push_offer(session, session.get(InstantOrder, oid), driver["id"])
+        isv._push_offer(session, _prepare_offered_snapshot(session, session.get(InstantOrder, oid), driver["id"]))
     assert len(sent) == 1
     title, body, data, data_only = sent[0]
     assert title == "Новый заказ" and data_only is True
@@ -130,7 +131,7 @@ def test_only_exact_addresses_use_empty_data_and_existing_push_fallback(client, 
         order.to_text = exact
         session.add(order)
         session.commit()
-        isv._push_offer(session, order, driver["id"])
+        isv._push_offer(session, _prepare_offered_snapshot(session, order, driver["id"]))
     assert len(sent) == 1
     title, body, data, data_only = sent[0]
     assert title == "Новый заказ" and data_only is True

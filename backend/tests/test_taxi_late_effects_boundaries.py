@@ -25,7 +25,7 @@ def late_effect_setup(user_factory, monkeypatch):
     offers = []
     # Actual cancellation/reassign/matcher UPDATE and SADD stay in use.
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [next_driver["id"]])
-    monkeypatch.setattr(isv, "_push_offer", lambda session, order, did: offers.append((order.search_revision, did)))
+    monkeypatch.setattr(isv, "_push_offer", lambda session, snapshot: offers.append((snapshot.search_revision, snapshot.current_offer_driver_id)))
     monkeypatch.setattr("app.services.push_notification", lambda *args, **kwargs: None)
     return oid, first_driver, next_driver, offers
 

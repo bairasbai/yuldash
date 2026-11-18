@@ -179,7 +179,8 @@ def test_all_offer_writer_entrypoints_rotate_before_notify(client, user_factory,
     calls = []
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [driver["id"]])
     monkeypatch.setattr(isv, "_notify_reassign", lambda *args: None)
-    def observe_committed_token(session, order, recipient):
+    def observe_committed_token(session, order):
+        recipient = order.current_offer_driver_id
         with Session(engine) as observer:
             saved = observer.get(InstantOrder, oid)
             assert saved.status == S.offered

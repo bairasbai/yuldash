@@ -32,7 +32,7 @@ def test_replacement_offer_contains_committed_new_route(client, user_factory, mo
         session.commit()
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [driver["id"]])
 
-    def observe_push(session, order, recipient):
+    def observe_push(session, order):
         assert clamped, "replacement must follow reclamp"
         with Session(engine) as observer:
             fresh = observer.get(InstantOrder, oid)

@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi offer dispatch snapshot (проверено локально)
+
+База 9090989; fix/friday-taxi-offer-dispatch-snapshot-20261118. Runtime 59b8f58: независимые 336 scoped и PG21 PASS; FULL на 42a54dd — 7318 PASS, 140 skipped, exit 0. Reviewed snapshot/guard план: docs/friday/taxi-offer-dispatch-snapshot-20261118.md. Отдельная реализация и приёмка, guard не атомарен с сетью, поздняя доставка вне гарантии.
+
 ## 2026-11-18 — taxi offer dispatch boundary (диагностики проверены)
 
 База 44427ff; test/friday-taxi-offer-dispatch-boundary-20261118. Диагностические 2 PASS подтверждают дефекты, не исправление; независимый scoped 197 PASS, runtime/schema неизменны. План docs/friday/taxi-offer-dispatch-boundary-20261118.md: диагностировать postcommit recipient/generation mismatch, затем отдельный reviewed guard/snapshot план. Пока без runtime; адресные ограничения, paused/main/production границы сохраняются.

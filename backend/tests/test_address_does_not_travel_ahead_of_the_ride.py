@@ -36,6 +36,7 @@ from sqlmodel import Session
 
 from app import instant_service
 from app.db import engine
+from test_taxi_offer_dispatch_snapshot import _prepare_offered_snapshot
 from app.models import InstantOrder, UserRole
 from test_instant import fake_redis  # noqa: F401 — matcher needs driver presence
 
@@ -73,7 +74,7 @@ def test_адрес_подачи_не_светится_на_чужих_теле�
     oid = _заказ(client, пассажирка)
 
     with Session(engine) as s:
-        instant_service._push_offer(s, s.get(InstantOrder, oid), водитель["id"])
+        instant_service._push_offer(s, _prepare_offered_snapshot(s, s.get(InstantOrder, oid), водитель["id"]))
 
     assert перехват_пушей, "предложение заказа вообще не ушло — сломали работу"
     пуш = перехват_пушей[-1]
@@ -95,7 +96,7 @@ def test_водитель_всё_же_понимает_куда_ехать(clien
     oid = _заказ(client, пассажирка)
 
     with Session(engine) as s:
-        instant_service._push_offer(s, s.get(InstantOrder, oid), водитель["id"])
+        instant_service._push_offer(s, _prepare_offered_snapshot(s, s.get(InstantOrder, oid), водитель["id"]))
 
     текст = перехват_пушей[-1]["текст"]
     assert "Ленина" in текст, f"водитель не видит даже улицу подачи: {текст!r}"
@@ -103,7 +104,8 @@ def test_водитель_всё_же_понимает_куда_ехать(clien
     assert "₽" in текст, f"водитель не видит заработок: {текст!r}"
 
 
-def test_согласившийся_водитель_получает_точный_адрес(client, user_factory, fake_redis):
+@pytest.mark.usefixtures("fake_redis")
+def test_согласившийся_водитель_получает_точный_адрес(client, user_factory):
     """Иначе он не найдёт человека у подъезда — прятать надо ДО согласия, а не после."""
     пассажирка = user_factory("ТаксиГульнара3")
     водитель = user_factory("ТаксиВодитель3", role=UserRole.driver)

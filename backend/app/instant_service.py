@@ -15,6 +15,7 @@
 """
 import re
 import json
+from dataclasses import dataclass, fields
 from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
@@ -22,6 +23,8 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 from sqlalchemy import case, update
+from sqlalchemy.engine import Connection
+from sqlalchemy.pool import SingletonThreadPool, StaticPool
 from sqlmodel import Session, select
 
 from sqlalchemy import func
@@ -3396,6 +3399,7 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
                                   expected_revision=expected_revision, expected_lifecycle=lifecycle)
     did = cands[0]
     now = utcnow()
+    issued_token = uuid4().hex
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order.id, InstantOrder.status == S.searching,
@@ -3404,12 +3408,19 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
                InstantOrder.offer_token == offer_token,
                InstantOrder.search_revision == expected_revision,
                InstantOrder.tried_lifecycle == lifecycle)
-        .values(status=S.offered, offered_at=now, offer_token=uuid4().hex,
+        .values(status=S.offered, offered_at=now, offer_token=issued_token,
                 current_offer_driver_id=did,
                 offer_expires_at=now + timedelta(seconds=settings.instant_offer_ttl_sec),
                 search_round=search_round + 1)
     )
+    snapshot = None
     if result.rowcount:
+        snapshot = _capture_offer_snapshot(session, order_id, did)
+        if snapshot is not None and (
+            snapshot.offer_token != issued_token or snapshot.search_revision != expected_revision
+            or snapshot.tried_lifecycle != lifecycle
+        ):
+            snapshot = None  # неожиданное поколение не принимаем как своё
         # Побочный эффект только победителя, пока UPDATE ещё удерживает строку.
         # После commit оффер уже виден параллельному decline: tried должен быть готов.
         _remember_tried(r, order_id, did, lifecycle)
@@ -3417,7 +3428,8 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     fresh = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
         return fresh  # не посылаем оффер и не меняем tried-set проигравшего подбора
-    _push_offer(session, fresh, did)
+    if snapshot is not None:
+        _push_offer(session, snapshot)
     return fresh
 
 
@@ -3664,12 +3676,82 @@ def passenger_stats(session: Session, passenger_id: int) -> tuple:
     return rating, int(done_orders or 0) + int(done_bookings or 0)
 
 
-def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
+@dataclass(frozen=True, slots=True)
+class _OfferSnapshot:
+    id: int
+    passenger_id: int
+    current_offer_driver_id: int
+    status: S
+    offer_token: str | None
+    offer_expires_at: datetime | None
+    search_revision: int | None
+    tried_lifecycle: str | None
+    created_at: datetime
+    price_estimate: int
+    price_final: int | None
+    from_text: str
+    to_text: str
+    pickup_fee_kop: int
+    options_fee_kop: int
+    weather_fee_kop: int
+
+
+def _capture_offer_snapshot(session: Session, order_id: int, driver_id: int) -> _OfferSnapshot | None:
+    # Matcher вызывает только после своего успешного UPDATE, пока он держит строку.
+    # Scalar SELECT не берёт значения из потенциально stale identity map.
+    names = tuple(field.name for field in fields(_OfferSnapshot))
+    row = session.exec(select(*(getattr(InstantOrder, name) for name in names))
+                       .where(InstantOrder.id == order_id)).first()
+    if row is None:
+        return None
+    values = dict(zip(names, row))
+    if values["status"] != S.offered or values["current_offer_driver_id"] != driver_id:
+        return None
+    if values["created_at"] is None:
+        values["created_at"] = utcnow()  # один fallback для всех вычислений этого снимка
+    return _OfferSnapshot(**values)
+
+
+def _offer_snapshot_is_current(session: Session, snapshot: _OfferSnapshot) -> bool:
+    if snapshot.status != S.offered:
+        return False
+    try:
+        bind = session.get_bind()
+        # Shared DBAPI connection нельзя независимо закрыть/rollback без риска для caller.
+        # Такие тестовые/single-connection setups пропускают push, а не проверку поколения.
+        if isinstance(bind, Connection) or isinstance(bind.pool, (StaticPool, SingletonThreadPool)):
+            return False
+        with Session(bind=bind) as guard:
+            current = guard.exec(select(
+                InstantOrder.status, InstantOrder.current_offer_driver_id,
+                InstantOrder.offer_token, InstantOrder.search_revision,
+                InstantOrder.tried_lifecycle, InstantOrder.offer_expires_at,
+            ).where(InstantOrder.id == snapshot.id)).first()
+            expected = (S.offered, snapshot.current_offer_driver_id, snapshot.offer_token,
+                        snapshot.search_revision, snapshot.tried_lifecycle, snapshot.offer_expires_at)
+            if current is None or tuple(current) != expected:
+                return False
+            if snapshot.offer_expires_at is not None:
+                expiry = snapshot.offer_expires_at
+                expiry = expiry.replace(tzinfo=timezone.utc) if expiry.tzinfo is None else expiry.astimezone(timezone.utc)
+                now = utcnow()
+                now = now.replace(tzinfo=timezone.utc) if now.tzinfo is None else now.astimezone(timezone.utc)
+                if expiry <= now:
+                    return False
+        return True  # read Session уже закрыта; сеть не удерживает её транзакцию
+    except Exception:  # noqa: BLE001 — не удалось доказать актуальность: не отправляем
+        return False
+
+
+def _push_offer(session: Session, order: _OfferSnapshot) -> None:
     """Оффер водителю — data-only payload с серверным gross/fee/net.
 
     Клиент не вычисляет комиссию сам: push и GET /instant/driver/offer используют один
     Decimal-расчёт и одну ступень комиссии, зафиксированную на created_at заказа.
     """
+    if not isinstance(order, _OfferSnapshot):
+        raise TypeError("Offer dispatch requires an immutable snapshot")
+    driver_id = order.current_offer_driver_id
     # Совместимые metadata: снимок уже выданного предложения, не новый срок.
     # Helpers/transport могут задержаться; не перечитываем поколение после них.
     offer_token, offer_expires_at = order.offer_token, order.offer_expires_at
@@ -3686,7 +3768,7 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
     p_rating, p_trips = passenger_stats(session, order.passenger_id)
     gross_kop = max(int(order.price_estimate), 0) * 100
     fee_percent = debt_mod.driver_fee_percent(
-        session, driver_id, order.created_at or utcnow()
+        session, driver_id, order.created_at
     )
     fee_kop = debt_mod.order_commission_kop(order, fee_percent)
     net_kop = max(gross_kop - fee_kop, 0)
@@ -3710,10 +3792,7 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
     # Водителю на этом шаге хватает улицы: он решает, ехать ли в тот конец. Точный адрес,
     # подъезд и комментарий он получит в карточке сразу после «Беру».
     from_shown = pickup_street_only(order.from_text) if order.from_text else ""
-    send_push(
-        session, driver_id, "Новый заказ",
-        f"{from_shown or 'Точка А'} → {to_shown or 'Точка Б'} · чистыми {net_text}",
-        data={
+    data = {
             "type": "instant_offer",
             "order_id": str(order.id),
             **generation,
@@ -3729,9 +3808,12 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
             # Рейтинг/опыт пассажира (B7a-4): "" = новичок без оценок.
             "passenger_rating": "" if p_rating is None else str(p_rating),
             "passenger_trips": str(p_trips),
-        },
-        data_only=True,
-    )
+    }
+    body = f"{from_shown or 'Точка А'} → {to_shown or 'Точка Б'} · чистыми {net_text}"
+    # Последняя read-проверка после всех helpers. Она не атомарна с transport/delivery.
+    if not _offer_snapshot_is_current(session, order):
+        return
+    send_push(session, driver_id, "Новый заказ", body, data=data, data_only=True)
 
 
 # «Поделиться поездкой» (B7b-2): SMS близким на ключевых переходах заказа. В отличие от

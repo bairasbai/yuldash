@@ -45,7 +45,7 @@ def test_pg_tokenized_accept_cleanup_blocks_reassign_and_releases_on_error(clien
     real_cleanup = isv._cleanup_tried
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: None)
     monkeypatch.setattr("app.services.push_notification", lambda *args, **kwargs: None)
-    monkeypatch.setattr(isv, "_push_offer", lambda session, order, did: offers.append((order.search_revision, did)))
+    monkeypatch.setattr(isv, "_push_offer", lambda session, snapshot: offers.append((snapshot.search_revision, snapshot.current_offer_driver_id)))
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [new_driver["id"]])
 
     def held_cleanup(order_id, captured_lifecycle=None):

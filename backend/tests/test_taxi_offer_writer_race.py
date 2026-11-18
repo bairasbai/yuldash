@@ -21,7 +21,7 @@ def test_candidate_lookup_cancellation_is_not_overwritten(client, user_factory, 
     cleanups = []
     monkeypatch.setattr(isv, "_cleanup_tried", lambda *args: cleanups.append(args))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: pushes.append("expired"))
-    monkeypatch.setattr(isv, "_push_offer", lambda *args: pushes.append(args[-1]))
+    monkeypatch.setattr(isv, "_push_offer", lambda session, snapshot: pushes.append(snapshot.current_offer_driver_id))
 
     def candidates_after_cancel(*args, **kwargs):
         # Candidate lookup can block while the separate cancel request commits.

@@ -36,7 +36,7 @@ def test_pg_expiry_cleanup_blocks_restart_and_releases_on_error(client, user_fac
     pids, lock, offers = {}, Lock(), []
     real_cleanup = isv._cleanup_tried
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: None)
-    monkeypatch.setattr(isv, "_push_offer", lambda session, order, did: offers.append((order.search_revision, did)))
+    monkeypatch.setattr(isv, "_push_offer", lambda session, snapshot: offers.append((snapshot.search_revision, snapshot.current_offer_driver_id)))
     monkeypatch.setattr(isv, "candidates", lambda redis, session, order, **kwargs:
                         [new_driver["id"]] if order.search_revision == 81 else [])
 
