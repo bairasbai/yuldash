@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi address tail privacy (проверено локально)
+
+База cb21ef5; fix/friday-taxi-address-tail-privacy-20261118. Runtime 13841fc: авторские 196 + 368 PASS, независимые 235 PASS, PG дважды по 17 PASS; FULL на 24465ee: 7293 PASS, 136 skipped, exit 0. Подтверждён старый leak дома в destination с квартирой. План docs/friday/taxi-address-tail-privacy-20261118.md: общий узкий sanitizer хвоста, числовые названия улиц сохранять, empty-safe fallback, realpush/blurredpayload/authorizedexact tests. Независимый review/scoped/FULL, не универсальная гарантия свободного текста; main/prod/paused untouched.
+
 ## 2026-11-18 — taxi offer push generation (проверено локально)
 
 База1d4f002; feat/friday-taxi-offer-push-generation-20261118. Runtimea4e30dd, независимые170+21scoped/17PGPASS; FULL7167PASS/136skip/exit0 на0fc8be3. План docs/friday/taxi-offer-push-generation-20261118.md: optionaltoken+storedabsoluteUTCexpiry, legacycompat/snapshot/no leaseextension, независимыеtests/FULL. Clientprotectionнеобещать, production/pausedне трогать.
