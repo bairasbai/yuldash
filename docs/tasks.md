@@ -21809,3 +21809,10 @@ RS-FIX Android08 diagnostic ownerRoot shellPID=34740 birthUTC=2026-11-05T19:48:2
 RS-FIX Android09 UI ownerRoot shellPID=24336 birthUTC=2026-11-05T19:52:17.4016695Z cwd=C:\Users\Bayra\.codex\worktrees\rs-plans-20261024\Yuldash/android; DRAFT12 Home28green, assemble+compileAndroidTest, PINNED=true, soleGradle, normalTEMP.
 RS-FIX Android10 final units ownerRoot shellPID=29256 birthUTC=2026-11-05T19:55:16.1580874Z cwd=C:\Users\Bayra\.codex\worktrees\rs-plans-20261024\Yuldash/android; same73classes+4newDRAFT12, old8secureBackingOPEN; PINNED=false, unitonlyAPK09cef00unchangedverify.
 RS-FIX PWA08 final marker13 ownerRoot shellPID=4016 birthUTC=2026-11-05T19:58:28.4068688Z cwd=C:\Users\Bayra\.codex\worktrees\rs-plans-20261024\Yuldash/webapp; check/types/build07 mandatorycapturedgeneration; envFilefalse inlineAPI40127 andemptyexternalkeys, portsnone.
+
+
+## Friday: atomic matcher finalizer lab (2026-11-18)
+
+WIP plan only after published reader 5059ae50. Plan: docs/friday/taxi-matcher-finalizer-lab-20261118.md. Independent review before code; no activation/admission bypass/production changes. Gates: plan -> isolated implementation -> scoped/PG independent -> FULL -> separate branch. Driver-wide reservation and all-writer rollout remain blockers.
+
+Publication lab local gates PASS: runtime9f0380c/tests9c34aad; author scoped95 PASS, independent126 PASS; real PG192 PASS author/independent. FULL8ac9d51:7482 PASS/311 SKIP,actualexit0,709.53s. Uncalled only; admission/reservation/wiring/rollout remain blockers. Separate branch publication follows exact-tree verification.
