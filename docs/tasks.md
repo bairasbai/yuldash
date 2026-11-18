@@ -1,3 +1,11 @@
+## Пятница: fallback progress, локальные gates PASS
+
+Runtime7dd217d, scoped111PASS и freshreview PASS. FULL на7a9a13e:6936PASS/119skipped/exit0. Формулы и тарифы не менялись; после более дешёвого класса поиск больше не остаётся offered без получателя/таймера. Отдельная публикация без main/prod; предыдущие WIP записи ниже исторические.
+
+## Пятница: fallback не оставляет orphan offered, FULL ожидается
+
+Runtime7dd217d: после снижения цены корректный restart того же круга, без смены формул/тарифов; fresh row-lock/status recheck. HTTP RED→7 новых PASS, scoped111PASS, независимая приёмка PASS. Новый FULL в отдельном слоте, публикация до завершения не выполняется. Границы в docs/friday/taxi-retry-recovery-20261117.md.
+
 ## Пятница: writer status-CAS, локальные gates PASS
 
 Runtime 41cdd44, scoped и независимо 133 PASS; FULL на79c65b5: 6929 PASS / 119 skipped / exit0. Исправлено воскрешение отменённого заказа в обоих выходах writer. Публикация отдельной веткой, без main/prod. Границы и доказательства в docs/friday/taxi-retry-recovery-20261117.md. Предыдущие WIP-записи ниже являются историей.

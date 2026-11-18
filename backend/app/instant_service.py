@@ -2227,6 +2227,12 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     «Эконом 240 ₽» на экране и должен заплатить ровно 240, кто бы ни приехал. Это же снимает
     вопрос «а если приедет Комфорт»: приедет — повезёт, доплаты не будет.
     """
+    # Router мог прочитать оффер до параллельного accept/cancel. Цену и инвалидирование
+    # меняем только по свежей строке, под тем же row-lock, что переходы заказа.
+    session.refresh(order, with_for_update=True)
+    if order.status not in (S.created, S.searching, S.offered):
+        raise herr(409, "Заказ уже не в поиске", "Заказ инде эҙләүҙә түгел")
+    restart_offer = False
     cat = (category or "").strip().lower()
     allowed = set(_FALLBACK_ALLOWED.get(order.category or "standard", ()))
     if cat not in allowed:
@@ -2259,6 +2265,9 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
         # обещанного, — это причина уйти из сервиса навсегда.
         order.current_offer_driver_id = None
         order.offer_expires_at = None
+        if order.status == S.offered:
+            order.status = S.searching
+            restart_offer = True
     session.add(order)
     session.commit()
     session.refresh(order)
@@ -2266,6 +2275,9 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     # скидки по промокоду чиним вслед за ней, только вниз (аудит leaf-1.3, B-2).
     promo_ride.reclamp(session, order)
     session.refresh(order)
+    if restart_offer:
+        # Продолжаем тот же круг: start_matching сбросил бы лимит и search_round.
+        order = try_offer_next(session, order)
     return {"price": order.price_estimate,
             "categories": sorted(order_categories(order))}
 

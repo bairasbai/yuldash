@@ -226,3 +226,17 @@ Scoped пяти файлов 133 PASS / 1 существующее warning / exi
 ### FULL writer CAS завершён
 
 Новый полный backend прогон на 79c65b513d8382ec87daa9ec1b2440d99262e744 (runtime 41cdd447d289ca22d4956b0dd3bcbe5dbddac76c): 6929 passed, 119 skipped, 804 warnings, exit 0, 602.14 s. Команда как scoped, но pytest tests -q; TMPDIR=/tmp/taxi-writer-full, --disable-socket --allow-unix-socket. Запущен после явного освобождения слота Amio, завершён без прерывания; слот возвращён. Это локальный gate без coverage порога и без PostgreSQL; удалённый CI отдельно не подтверждён. Runtime после FULL не менялся. Готовится новая отдельная ветка; merge/deploy не выполнялись.
+
+## Следующий независимый этап: cheaper fallback продолжает подбор
+
+База ea7b7f5 (tree опубликованного 76905fc), ветка test/friday-taxi-fallback-offer-progress-20261118. Подтверждён isolated HTTP RED: POST alternatives при снижении цены очищал current_offer_driver_id/offer_expires_at, но сохранял status=offered. Ни caller, ни lazy reconcile, ни worker stale-offer не продолжали matching: они требуют непустой expiry. С worker заказ в итоге лишь закрывается stuck-cleanup (по умолчанию через 6 часов), без него может оставаться так бессрочно. Первая проба теста не снизила цену из-за дальности маршрута и не считается воспроизведением; после фикса fixture на короткий маршрут получен точный orphan-offered RED.
+
+До реализации отдельный независимый reviewer принял минимальный план без изменения pricing semantics. Runtime 7dd217d7b1a8fa562bbaabb8b67040573b316745: fresh refresh под row-lock и повтор статуса внутри service; при реальном снижении цены offered атомарно переводится в searching вместе со снятием старого предложения. После commit/reclamp вызывается try_offer_next, не start_matching, поэтому счётчик/лимит текущего круга не сбрасывается. Без изменения цены оффер не перезапускается. Формулы, тарифы, расчёт базы/скидки, структура API-ответа не изменены.
+
+7 регрессий: достижимый HTTP сценарий; кандидат/нет кандидатов с сохранением round; свежий token и old-token decline; unchanged-price offer; stale fallback после настоящих accept/cancel не меняет статус/деньги; старый водитель не принимает переотправленный другому оффер (строго recipient guard 403 с соответствующим текстом). Первоначальное ожидание 409 у последнего теста исправлено по реальному контракту _guard_actor, не ослаблено до произвольной ошибки.
+
+Scoped 111 PASS, 2 warnings, exit0. Свежий reviewer независимо повторил первые110 PASS и отдельно финальные7 PASS; блокирующих замечаний нет. Ruff app/new test, diff check, secrets scan двухPythonфайлов0 PASS. FULL ещё не завершён, публикация до него не выполняется. Границы: SQLite не проверяет реальные PostgreSQL locks; delayed same-driver accept не получает token и не защищён этим пакетом. Никакой общей generation/ABA/distributed-atomicity гарантии. Main, production, клиенты и приостановленные пакеты не менялись.
+
+### Fallback FULL завершён
+
+Новый полный backend прогон на7a9a13e (runtime7dd217d): 6936 passed, 119 skipped, 804 warnings, exit0, 604.36s. Изолированная SQLite, TMPDIR=/tmp/taxi-fallback-full, pytest tests -q --disable-socket --allow-unix-socket; DATABASE_URL и proxy env удалены, TZ=UTC. Слот согласован с Amio и освобождён после фактического exit. Runtime после прогона не менялся. Это локальный FULL без coverage порога; PostgreSQL-конкурентность и удалённый CI отдельно не подтверждены. Готовится отдельная публикация без merge/deploy.
