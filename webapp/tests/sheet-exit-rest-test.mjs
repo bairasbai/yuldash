@@ -137,7 +137,7 @@ await test("стили: затемнение — position: fixed с inset: 0; и
 /** Подмена всего, что файл импортирует, кроме `real`: компонент — строка-имя, функция — свой ответ из over. */
 function autoStubs(file, over = [], real = []) {
   const src = readFileSync(root + "src/" + file, "utf8");
-  const list = [[/^react$/, REACT], [/^react\/jsx-runtime$/, JSX], [/^react-dom$/, PORTAL], [/\/i18n\/lang$/, LANG_SWITCH], ...over];
+  const list = [[/^react$/, REACT + "\nexport const useSyncExternalStore=(_subscribe,get)=>get();"], [/^react\/jsx-runtime$/, JSX], [/^react-dom$/, PORTAL], [/\/i18n\/lang$/, LANG_SWITCH], ...over];
   const escape = (x) => x.replace(/[.*+?^${}()|[\]\\/]/g, "\\$&");
   const seen = new Set();
   for (const m of src.matchAll(/(?:^|\n)\s*(?:import|export)\s+(type\s+)?([^;]*?)\s+from\s+"([^"]+)"/g)) {
@@ -216,7 +216,7 @@ const Driver = await load(
 
 const Taxi = await load(
   "src/screens/InstantOrderScreen.tsx",
-  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {}`]], SHEET_EXIT)
+  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {} export const getSessionGeneration=()=>"sheet-owner";`]], SHEET_EXIT)
 );
 
 // ---------------------------------------------------------------- 5. код вручения (посылки)

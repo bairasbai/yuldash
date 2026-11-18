@@ -11,15 +11,20 @@ for(const [,clause,path] of source.matchAll(/import\s+([\s\S]*?)\s+from\s+"([^"]
 }
 mocks.react=`const h=()=>globalThis.__taxiBoot;
 export const useState=initial=>{const s=h(),i=s.cursor++;if(!(i in s.slots))s.slots[i]=typeof initial==='function'?initial():initial;return[s.slots[i],v=>{s.slots[i]=typeof v==='function'?v(s.slots[i]):v;s.dirty=true;}];};
+export const useSyncExternalStore=(_subscribe,get)=>get();
 export const useRef=v=>{const s=h(),i=s.cursor++;return s.slots[i]??={current:v};};
 const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]));
 export const useCallback=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps))s.slots[i]={fn,deps};return s.slots[i].fn;};
 export const useEffect=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps)){s.effects.push(()=>{old?.cleanup?.();s.slots[i]={deps,cleanup:fn()};});}};`;
-mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(type,props)=>({type,props});export const jsxs=jsx;`;
+mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(type,props)=>type?.name==='OwnedInstantOrderScreen'?type(props):({type,props});export const jsxs=jsx;`;
 mocks['../i18n/lang']=`export const useLang=()=>({lang:'ru',appText:globalThis.__taxiBoot.appText});`;
 mocks['../features']=`export const useFeatures=()=>({taxi:globalThis.__taxiBoot.taxi!==false,ready:true});`;
 mocks['react-router-dom']=`export const useNavigate=()=>()=>{};`;
-mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`;
+mocks['../api/client']=`export const getSessionGeneration=()=> 'bootstrap-owner'; export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`;
+// These legacy boot/GPS controls run the real owned body under a stable owner.
+// Auth races/read fencing are proved by the separate actual React mounted gate.
+mocks['../auth/AuthProvider']=`export const useAuth=()=>({status:'authed',user:{id:1}});`;
+mocks['../utils/waitConflictReconcile']=`export const useWaitConflictReconcile=()=>({state:'idle',reconciled:false,read:()=>{},reconcile:async()=>{},ticket:()=>0,canPublish:()=>true,invalidate:()=>{}});`;
 mocks['../api/instant']+=`
 export const fetchMyOrders=(...args)=>{const h=globalThis.__taxiBoot;h.orderCalls++;return h.orders();};
 export const fetchTaxiAvailability=()=>{const h=globalThis.__taxiBoot;h.availabilityCalls++;return h.availability();};`;

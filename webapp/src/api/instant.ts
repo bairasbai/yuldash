@@ -393,13 +393,13 @@ export function cancelScheduled(id: number): Promise<InstantOrder> {
 }
 
 /** GET /instant/orders/mine — заказы пассажира (свежие сверху). */
-export function fetchMyOrders(limit = 20, signal?: AbortSignal): Promise<InstantOrder[]> {
-  return apiGet<InstantOrder[]>(`/instant/orders/mine?limit=${limit}`, { signal });
+export function fetchMyOrders(limit = 20, signal?: AbortSignal, generation?: string): Promise<InstantOrder[]> {
+  return apiGet<InstantOrder[]>(`/instant/orders/mine?limit=${limit}`, { signal, _generation: generation });
 }
 
 /** GET /instant/orders/{id} — детали заказа (обе стороны + кандидат-оффер). */
-export function fetchInstantOrder(id: number, signal?: AbortSignal): Promise<InstantOrder> {
-  return apiGet<InstantOrder>(`/instant/orders/${id}`, { signal });
+export function fetchInstantOrder(id: number, signal?: AbortSignal, generation?: string): Promise<InstantOrder> {
+  return apiGet<InstantOrder>(`/instant/orders/${id}`, { signal, _generation: generation, cache: "no-store" });
 }
 
 /** POST /instant/orders/{id}/cancel — отмена (обе стороны). reason опционален. */
@@ -859,8 +859,8 @@ export interface WaitResult {
  * В райцентре ночью на линии две-три машины, и обе заняты — это норма, а не сбой.
  * Заказ встаёт в очередь, фоновый воркер продолжает искать и пушит, когда найдётся.
  */
-export function waitForDriver(orderId: number): Promise<WaitResult> {
-  return apiPost<WaitResult>(`/instant/orders/${orderId}/wait`);
+export function waitForDriver(orderId: number, options?: { signal?: AbortSignal; _generation?: string }): Promise<WaitResult> {
+  return apiPost<WaitResult>(`/instant/orders/${orderId}/wait`, undefined, options);
 }
 
 /**

@@ -18,7 +18,7 @@
 // ================================================================
 import { useEffect, useRef, useState } from "react";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
 import {
   changeDestination,
   imComing,
@@ -727,50 +727,103 @@ export function WinterCheckAnswer({ orderId, onDone }: { orderId: number; onDone
  * Раньше отказ был мгновенным и окончательным: человек получал «никого нет» за две
  * секунды и уходил к конкуренту. Теперь заказ встаёт в очередь, а поиск продолжается сам.
  */
-export function WaitForCarCard({ order, onWaiting, onCancelled, onNewOrder }: {
+export function WaitForCarCard({ order, generation, onConflict, onWaiting, onCancelled, onNewOrder }: {
+  generation: string; onConflict: () => Promise<void>;
   order: InstantOrder; onWaiting: () => void; onCancelled: () => void; onNewOrder: () => void;
 }) {
   const { appText } = useLang();
   const [busy, setBusy] = useBusy();
   const [note, setNote] = useState("");
+  const [success, setSuccess] = useState<{ minutes: number; deadline: string } | null>(null);
   const [waitUntil, setWaitUntil] = useState(order.wait_until);
   const inFlight = useRef(false);
-  useEffect(() => { setWaitUntil(order.wait_until); }, [order.wait_until]);
+  const mounted = useRef(true);
+  const operation = useRef(0);
+  const controller = useRef<AbortController | null>(null);
+  const [, tick] = useState(0);
+  const current = () => mounted.current && generation === getSessionGeneration();
+  useEffect(() => {
+    mounted.current = true;
+    return () => {
+      mounted.current = false;
+      ++operation.current;
+      controller.current?.abort();
+    };
+  }, [order.id, generation]);
+  // Only a confirmed wait owns this bounded local deadline timer.
+  useEffect(() => {
+    const deadline = serverMs(waitUntil);
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const check = () => {
+      if (!current() || !Number.isFinite(deadline)) return;
+      const remaining = deadline - Date.now();
+      if (remaining <= 0) { tick(n => n + 1); return; }
+      timer = setTimeout(check, Math.min(remaining + 1, 30_000));
+    };
+    if (deadline > Date.now()) check();
+    return () => { if (timer !== undefined) clearTimeout(timer); };
+  }, [waitUntil, order.id, generation]);
+  // Every received server snapshot is authoritative, including NULL → NULL
+  // after a locally successful POST. Deadline-only deps would miss that read.
+  useEffect(() => {
+    setWaitUntil(order.wait_until);
+    setSuccess(previous => previous?.deadline === order.wait_until ? previous : null);
+  }, [order]);
   const waiting = serverMs(waitUntil) > Date.now();
 
   async function stopWaiting(after: () => void) {
-    if (inFlight.current) return;
+    if (!current() || inFlight.current) return;
+    const op = ++operation.current;
+    const owns = () => current() && op === operation.current;
     inFlight.current = true;
     setBusy(true);
     setNote("");
+    setSuccess(null);
     try {
       await cancelInstantOrder(order.id, "changed_mind");
+      if (!owns()) return;
       setWaitUntil(null);
       after();
     } catch {
+      if (!owns()) return;
       setNote(appText("Не получилось остановить поиск. Заказ ещё в очереди — попробуй снова.",
         "Эҙләүҙе туҡтатып булманы. Заказ әле сиратта — тағы ҡабатла."));
     } finally {
-      inFlight.current = false;
-      setBusy(false);
+      if (owns()) {
+        inFlight.current = false;
+        setBusy(false);
+      }
     }
   }
 
   async function wait() {
-    if (inFlight.current) return;
+    if (!current() || inFlight.current) return;
+    const op = ++operation.current;
+    const owns = () => current() && op === operation.current;
     inFlight.current = true;
     setBusy(true);
     setNote("");
+    setSuccess(null);
     try {
-      const result = await waitForDriver(order.id);
+      const own = new AbortController();
+      controller.current = own;
+      const result = await waitForDriver(order.id, { signal: own.signal, _generation: generation });
+      if (!owns()) return;
       setWaitUntil(result.wait_until);
-      setNote(appText(`Ждём машину ещё ${result.wait_minutes} минут.`, `Машинаны тағы ${result.wait_minutes} минут көтәбеҙ.`));
+      setSuccess({ minutes: result.wait_minutes, deadline: result.wait_until });
       onWaiting();
-    } catch {
+    } catch (error) {
+      if (!owns()) return;
+      if (error instanceof ApiError && error.status === 409 && error.code === "wait_snapshot_conflict") {
+        await onConflict();
+        return;
+      }
       setNote(appText("Не получилось встать в очередь. Попробуй ещё раз.", "Сиратҡа баҫып булманы. Тағы ҡабатла."));
     } finally {
-      inFlight.current = false;
-      setBusy(false);
+      if (owns()) {
+        inFlight.current = false;
+        setBusy(false);
+      }
     }
   }
 
@@ -794,10 +847,11 @@ export function WaitForCarCard({ order, onWaiting, onCancelled, onNewOrder }: {
         {waiting ? appText("Не ждать машину", "Машинаны көтмәҫкә") : appText("Подождать машину", "Машинаны көтөү")}
       </button>
       <button type="button" className="btn-ghost" disabled={busy} onClick={() => {
-        if (inFlight.current) return;
+        if (!current() || inFlight.current) return;
         if (waiting) return stopWaiting(onNewOrder);
         onNewOrder();
       }}>{appText("Попробовать снова", "Ҡабат ҡарау")}</button>
+      {waiting && success !== null && success.deadline === waitUntil && <div className="notice" role="status">{appText(`Ждём машину ещё ${success.minutes} минут.`, `Машинаны тағы ${success.minutes} минут көтәбеҙ.`)}</div>}
       {note && (
         <div className="notice" role="status">
           {note}

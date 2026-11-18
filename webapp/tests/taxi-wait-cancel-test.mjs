@@ -8,6 +8,7 @@ const h=globalThis.__waitCard={states:[],refs:[],effects:[],si:0,ri:0,cancels:[]
 const prelude=`const h=globalThis.__waitCard;const __jsx=(type,props,...children)=>({type,props:{...props,children}}),__fragment='fragment';
 const useState=v=>{const i=h.si++;if(!(i in h.states))h.states[i]=typeof v==='function'?v():v;return[h.states[i],x=>h.states[i]=x]};
 const useRef=v=>{const i=h.ri++;return h.refs[i]??={current:v}};const useEffect=fn=>h.effects.push(fn);const useBusy=()=>useState(false);
+const getSessionGeneration=()=> 'wait-test-owner'; class ApiError extends Error {}
 const useLang=()=>({appText:(ru,ba)=>ru});const IconCar='icon';const serverMs=v=>v?new Date(v.endsWith('Z')?v:v+'Z').getTime():NaN;
 const waitForDriver=id=>{h.waits.push(id);return h.wait(id)};const cancelInstantOrder=(id,reason)=>{h.cancels.push(id);return h.cancel(id)};
 `;
@@ -17,7 +18,7 @@ const all=n=>!n||typeof n!=='object'?[]:[n,...[n.props?.children].flat(Infinity)
 const text=n=>[n.props?.children].flat(Infinity).filter(v=>typeof v==='string').join('');
 const find=(tree,label)=>all(tree).find(n=>n.type==='button'&&text(n).includes(label));
 const queued={id:18,status:'expired',wait_until:new Date(Date.now()+1200000).toISOString()};
-const props={order:queued,onWaiting:()=>h.refreshes++,onCancelled:()=>h.closed++,onNewOrder:()=>h.retried++};
+const props={generation:"wait-test-owner",onConflict:async()=>{},order:queued,onWaiting:()=>h.refreshes++,onCancelled:()=>h.closed++,onNewOrder:()=>h.retried++};
 const render=()=>{h.si=h.ri=0;h.effects=[];return WaitForCarCard(props)};
 let tree=render();
 assert.ok(find(tree,'Не ждать машину'),'У активной очереди есть отмена');

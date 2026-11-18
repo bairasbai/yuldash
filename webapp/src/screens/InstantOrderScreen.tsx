@@ -11,10 +11,13 @@
 //  Мягкая деградация: instant/* появятся на проде после мержа
 //  release-2026-07 → до этого 404/405 → «Такси скоро».
 // ================================================================
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
+import { subscribeSessionChanges } from "../utils/sessionCredentials";
+import { useWaitConflictReconcile } from "../utils/waitConflictReconcile";
 import { useFeatures } from "../features";
 import {
   fetchTaxiAvailability,
@@ -22,7 +25,6 @@ import {
   createInstantOrder,
   createScheduledOrder,
   fetchMyOrders,
-  fetchInstantOrder,
   cancelInstantOrder,
   fetchNearbyDrivers,
   ACTIVE_PASSENGER_STATUSES,
@@ -147,6 +149,20 @@ function passengerOrderIsActive(order: InstantOrder): boolean {
 }
 
 export default function InstantOrderScreen() {
+  const { user, status } = useAuth();
+  const generation = useSyncExternalStore(subscribeSessionChanges, getSessionGeneration);
+  // RequireAuth may batch an account swap without an intermediate unmount.
+  if (status !== "authed" || !user) return null;
+  return <OwnedInstantOrderScreen key={`${user.id}:${generation}`} generation={generation} />;
+}
+
+function OwnedInstantOrderScreen({ generation }: { generation: string }) {
+  const mounted = useRef(true);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
+  const owns = useCallback(() => mounted.current && generation === getSessionGeneration(), [generation]);
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -162,6 +178,7 @@ export default function InstantOrderScreen() {
   const [to, setTo] = useState<Point | null>(null);
 
   const [order, setOrder] = useState<InstantOrder | null>(null);
+  const waitRead = useWaitConflictReconcile(order?.id, generation, setOrder);
 
   // Как в Android: во время поиска и самой поездки нижние вкладки уходят, чтобы
   // случайный тап не выбросил человека из критического сценария.
@@ -182,10 +199,17 @@ export default function InstantOrderScreen() {
     }
   }, [order]);
 
+  const bootOperation = useRef(0);
+
   // ---------------- boot: гео → доступность → восстановление активного ----------------
   const boot = useCallback(() => {
+    const ticket = waitRead.ticket();
+    const operation = ++bootOperation.current;
+    const mayPublish = () => operation === bootOperation.current && waitRead.canPublish(ticket);
+    if (!mayPublish()) return;
     setView("boot");
     const proceed = (pt: GeoPoint | null) => {
+      if (!mayPublish()) return;
       if (pt) {
         const origin = { lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") };
         setFrom(origin);
@@ -196,13 +220,14 @@ export default function InstantOrderScreen() {
         reverseGeocode(pt.lat, pt.lng)
           .then((r) => {
             // Ручной выбор мог произойти, пока геокодер отвечал.
-            if (r.title) setFrom((current) => current === origin ? { ...origin, text: r.title } : current);
+            if (mayPublish() && r.title) setFrom((current) => current === origin ? { ...origin, text: r.title } : current);
           })
           .catch(() => {});
       }
       // Сначала — есть ли уже живой заказ (восстановление экрана).
-      fetchMyOrders(5)
+      fetchMyOrders(5, undefined, generation)
         .then((list) => {
+          if (!mayPublish()) return;
           const live = list.find(passengerOrderIsActive);
           if (live) {
             setOrder(live);
@@ -212,11 +237,12 @@ export default function InstantOrderScreen() {
           checkAvailability(pt);
         })
         // Пока свои заказы не прочитаны, отсутствие активной поездки неизвестно.
-        .catch(() => setView("error"));
+        .catch(() => { if (mayPublish()) setView("error"); });
     };
     const checkAvailability = (pt: GeoPoint | null) => {
       fetchTaxiAvailability(pt?.lat, pt?.lng)
         .then((av) => {
+          if (!mayPublish()) return;
           if (av.enabled) setView("compose");
           else {
             setGateMsg(av.message);
@@ -225,6 +251,7 @@ export default function InstantOrderScreen() {
           }
         })
         .catch((e) => {
+          if (!mayPublish()) return;
           // Старый сервер без функции — гейт; временный отказ — повтор загрузки.
           if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
             setGateMsg(null);
@@ -242,29 +269,25 @@ export default function InstantOrderScreen() {
     } else {
       proceed(null);
     }
-  }, [appText]);
+  }, [appText, generation, waitRead.ticket, waitRead.canPublish]);
 
+  const bootRef = useRef(boot);
+  bootRef.current = boot;
   useEffect(() => {
-    boot();
-  }, [boot]);
+    bootRef.current();
+    return () => { ++bootOperation.current; };
+  }, []);
 
   // ---------------- Поллинг активного заказа ----------------
   useEffect(() => {
     if (view !== "tracking" || !order) return;
-    let alive = true;
-    const tick = () => {
-      fetchInstantOrder(order.id)
-        .then((o) => alive && setOrder(o))
-        .catch(() => {});
-    };
-    const iv = window.setInterval(tick, POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(iv);
-    };
-  }, [view, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    const iv = window.setInterval(() => { void waitRead.read(); }, POLL_MS);
+    return () => window.clearInterval(iv);
+  }, [view, order?.id, waitRead.read]);
 
   function backToCompose() {
+    if (!owns() || waitRead.state !== "idle") return;
+    waitRead.invalidate();
     setActiveTaxiOrder(null);
     setOrder(null);
     setTo(null);
@@ -278,12 +301,9 @@ export default function InstantOrderScreen() {
    * цену сразу, а не через несколько секунд. Ошибку глотаем: заказ жив, следующий
    * круг поллинга подтянет его сам.
    */
-  const refreshOrder = useCallback(() => {
-    if (!order) return;
-    fetchInstantOrder(order.id)
-      .then(setOrder)
-      .catch(() => {});
-  }, [order]);
+  const refreshOrder = waitRead.read;
+
+  const renderTicket = waitRead.ticket();
 
   // Живой заказ сохраняется; отсутствие флага закрывает только новую форму.
   if (view === "compose" && !features.taxi) {
@@ -320,15 +340,35 @@ export default function InstantOrderScreen() {
   }
 
   if (view === "tracking" && order) {
+    if (waitRead.state !== "idle") return (
+      <>
+        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
+        <div className="act-card" role="status">
+          <p>{waitRead.state === "loading"
+            ? appText("Обновляем заказ…", "Заказды яңыртабыҙ…")
+            : waitRead.state === "denied"
+              ? appText("Заказ недоступен. Старые данные скрыты.", "Заказ асыҡ түгел. Иҫке мәғлүмәт йәшерелде.")
+              : appText("Не удалось проверить заказ. Ожидание машины не подтверждено.", "Заказды тикшереп булманы. Машина көтөү раҫланманы.")}</p>
+          <button type="button" className="btn-primary" disabled={waitRead.state === "loading"} onClick={() => { void waitRead.reconcile(); }}>
+            {appText("Проверить заказ", "Заказды тикшерергә")}
+          </button>
+        </div>
+      </>
+    );
     return (
+      <>
+      {waitRead.reconciled && <p className="notice" role="status">{appText("Заказ обновлён. Проверь текущее состояние.", "Заказ яңыртылды. Хәҙерге торошон тикшер.")}</p>}
       <TrackingView
         order={order}
         from={from}
         onCancelled={backToCompose}
         onNewOrder={backToCompose}
         onRefresh={refreshOrder}
+        onWaitConflict={waitRead.reconcile}
+        generation={generation}
         onOpenChat={() => navigate(`/taxi-chat/${order.id}`)}
       />
+      </>
     );
   }
 
@@ -339,10 +379,12 @@ export default function InstantOrderScreen() {
       setFrom={setFrom}
       setTo={setTo}
       onOrdered={(o) => {
+        if (!waitRead.canPublish(renderTicket)) return;
+        waitRead.invalidate();
         setOrder(o);
         setView("tracking");
       }}
-      onScheduled={() => navigate("/scheduled")}
+      onScheduled={() => { if (owns()) navigate("/scheduled"); }}
     />
   );
 }
@@ -1235,6 +1277,8 @@ function TrackingView({
   onCancelled,
   onNewOrder,
   onRefresh,
+  onWaitConflict,
+  generation,
   onOpenChat,
 }: {
   order: InstantOrder;
@@ -1243,6 +1287,8 @@ function TrackingView({
   onNewOrder: () => void;
   /** Перечитать заказ сразу после действия в поездке (смена адреса, остановки, оплата). */
   onRefresh: () => void;
+  onWaitConflict: () => Promise<void>;
+  generation: string;
   onOpenChat: () => void;
 }) {
   const { appText, lang } = useLang();
@@ -1483,7 +1529,7 @@ function TrackingView({
           {/* Ждать — это ТРЕТИЙ ответ, между «попробовать снова» и «уехать попуткой».
               Ночью в райцентре машины освобождаются через десять минут, и человек
               обычно готов их дождаться, если ему не надо для этого сидеть в экране. */}
-          <WaitForCarCard order={order} onWaiting={onRefresh} onCancelled={onCancelled} onNewOrder={onNewOrder} />
+          <WaitForCarCard key={order.id} order={order} generation={generation} onConflict={onWaitConflict} onWaiting={onRefresh} onCancelled={onCancelled} onNewOrder={onNewOrder} />
           {/* Машин нет — но в ту же сторону кто-то и так едет. Попутка дешевле
               и часто быстрее, чем ждать такси, которого в селе может не быть вовсе. */}
           <button type="button" className="btn-soft" onClick={() => navigate("/map")}>
