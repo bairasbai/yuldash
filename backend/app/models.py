@@ -1171,6 +1171,8 @@ class InstantOrder(SQLModel, table=True):
     current_offer_driver_id: Optional[int] = Field(default=None, foreign_key="user.id")
     offer_expires_at: Optional[datetime] = None
     offer_token: Optional[str] = Field(default=None, max_length=32)  # Не credential: идентификатор предложения.
+    # Аддитивная база: writers/CAS подключаются отдельно; NULL пока допустим.
+    search_revision: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
     search_round: int = 0
     # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
     # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а

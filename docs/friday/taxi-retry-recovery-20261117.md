@@ -278,3 +278,15 @@ Fresh review обнаружил P1 в первой версии: отдельн�
 ### Route ordering FULL завершён
 
 Новый полный backend прогон наa5eb32c (runtime940da7cfe9258b1134f94a4e9bd0aab2efdf8957): 6974 passed,119 skipped,2 xfailed,804 warnings,exit0,621.40s. Два XFAIL — известные полные ABA из опубликованного plan-only пакета; route ordering не объявляется их исправлением. TMPDIR=/tmp/taxi-route-full, pytest tests -q --disable-socket --allow-unix-socket, DATABASE_URL/proxy env удалены,TZ=UTC. SQLite изолирована; heavy-слот согласован и освобождён. Runtime после FULL не менялся. Локальный gate без coverage порога, реальные PostgreSQL locks/remoteCI отдельно не подтверждены. Готовится новая отдельная публикация без merge/deploy.
+
+## Совместимая база search_revision, без включения writers
+
+База35b5585 (tree опубликованногоe7f75e8), ветка feat/friday-taxi-search-revision-base-20261118. Runtime/schema кандидат68120135d905e43b7bd91f1ffd5e332e8a48fb75, тестовое усилениеa1256ee: nullable BIGINT search_revision в InstantOrder и аддитивная миграцияcl_instant_search_revision послеck_instant_offer_token. Нет client/server default, backfill, writer increment, CAS, enforcement или API exposure. Это только первая совместимая основа; ABA не исправлено, два известных XFAIL остаются.
+
+7 новых тестов: пять legacy статусов сохраняют строки/token/NULL при upgrade, повторном upgrade и downgrade; старый INSERT без колонки после upgrade остаётся допустимым сNULL; старый UPDATE не вращает ненулевую revision (это граница mixed-fleet гарантии, не исправленная безопасность). Проверены offline PostgreSQL BIGINT DDL без соединения, model metadata, хранение2**40, legacy HTTP decline без exposure/enforcement. Миграция выполнялась только на временных SQLite внутри тестов, реальные БД не открывались. Alembic heads: единственнаяcl_instant_search_revision.
+
+Scoped51 PASS, exit0; fresh reviewer независимо51 PASS, P0/P1/P2 нет. Финальное усиление7 PASS. Ruff app/new test/migration, diffcheck, secrets scan трёхPythonфайлов0 PASS. FULL ещё не выполнен, публикация ждёт его. PostgreSQL migration/concurrency не подтверждены. После отдельной публикации следующий пакет — atomic increment всех writers, NULL-init, overflow и CAS по revision; гарантия не действует в mixed old/new fleet и до завершения старых in-flight работ.
+
+### Revision foundation FULL завершён
+
+Финальное усиление legacy INSERT независимо7 PASS. Новый полный backend прогон на03a9f00 (schema/model6812013, тестa1256ee):6981 passed,119 skipped,2 known ABA xfailed,804 warnings,exit0,617.01s. TMPDIR=/tmp/taxi-revision-base-full, pytest tests -q --disable-socket --allow-unix-socket; DATABASE_URL/proxy env удалены,TZ=UTC. Реальные БД не использовались. Heavy-слот согласован и освобождён. Runtime/schema послеFULLне менялись. Это локальный FULL без coverage порога, не реальная PostgreSQL migration и не remoteCI. Готовится отдельная публикация совместимой основы; ABA и writer integration остаются следующим этапом.

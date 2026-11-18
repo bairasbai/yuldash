@@ -1,3 +1,11 @@
+## Пятница: search_revision foundation, локальные gates PASS
+
+NullableBIGINT+аддитивнаямиграция6812013; безwriterincrement/CAS/enforcement/backfill. Независимо51scoped+финальные7PASS; FULLна03a9f00:6981PASS/119skipped/2knownABA XFAIL/exit0. Отдельнаяпубликация, безреальноймиграции/main/prod. Следующийэтап — всеwriters иCAS поревизии.
+
+## Пятница: search_revision foundation, FULL ожидается
+
+6812013/a1256ee: nullableBIGINT+аддитивнаямиграция, безwriters/CAS/enforcement/backfill. Новые7PASS, scoped51PASS и независимоPASS, однаAlembichead. Это ещё неABAfix. Публикация послеFULL; реализация всехwriters отдельным следующимпакетом.
+
 ## Пятница: route ordering, локальные gates PASS
 
 Runtime940da7c: маршрут и reclamp публикуются атомарно до replacement matching. Независимо scoped118PASS; FULL наa5eb32c:6974PASS/119skipped/2knownABA XFAIL/exit0. Отдельная публикация без main/prod. Следующий пакет — совместимая durable revision, а не повтор приостановленных действий.
