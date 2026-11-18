@@ -1,3 +1,11 @@
+## 2026-11-18 — taxi revision PostgreSQL concurrency (проверено локально)
+
+База6791f9c, отдельная test-only ветка test/friday-taxi-search-revision-postgres-20261118.
+Авторский и независимый realPG10PASS/exit0, SQLite56PASS/10skip; cleanup подтверждён. Подробности: docs/friday/taxi-search-revision-postgres-20261118.md.
+1. Одноразовый PostgreSQL на loopback127.0.0.1, случайный порт и SCRAM-пароль, проверка собственного data_directory; никакого подключения к существующим БД.
+2. Детерминированные конкурентные tests настоящих writers: increments, NULL initializer, delayed CAS, row-lock route/fallback; distinct backend PIDs и pg_blocking_pids.
+3. Scoped PostgreSQL, независимая приёмка тестов/изоляции, сохранение и отдельная публикация только после PASS. Runtime и схема не меняются; production migration/mixed fleet/Redis гарантий нет.
+
 
 ## 2026-11-18 — taxi search revision writers (проверено локально)
 
