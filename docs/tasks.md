@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi candidate history reader lab (локально проверено)
+
+План docs/friday/taxi-tried-history-reader-lab-20261118.md, helperdd3add8. Singlecandidate PK EXISTS, freshownerlock/time, frozenobservation не reservation. Без matcher/reassign wiring и активации. Independent scoped99PASS, author/independentPG153PASS. FULL28bc0cd:7446PASS272skip,exit0. Reader неподключён, False неreservation.
+
 ## 2026-11-18 — taxi first-cycle init lab (локально проверено)
 
 План docs/friday/taxi-tried-history-init-lab-20261118.md, helper98039b4. Только pristine created→searching+history атомарно в caller transaction, без активации/общегоrotate/reassign. Новыйorder — precondition, UUID лишь практическиуникален. Independent scoped71PASS, author/independentPG121PASS. FULL92e586e:7418PASS240skip,exit0. Helper не подключён; production admission/reassign/rollout не доказаны.
