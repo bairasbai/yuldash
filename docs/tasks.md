@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi tried lifecycle schema (проверено локально)
+
+База 9b988c3; feat/friday-taxi-tried-lifecycle-base-20261118. Runtime f54e856, независимые51scopedPASS, FULL7069PASS/133skip/exit0 на8a060cb. OnlinePG migration не выполнялась. План docs/friday/taxi-tried-lifecycle-base-20261118.md: nullable String(32), миграция без backfill/default/активации, изолированные migration/legacy HTTP tests; независимая оценка, scoped/FULL и отдельная публикация. Реальную БД не мигрировать. Redis протокол/push/mixed writers остаются без новой защиты.
+
 ## 2026-11-18 — taxi late effects: диагностический пакет проверен
 
 База 02e3126, отдельная test-only ветка test/friday-taxi-late-effects-boundaries-20261118. Кандидат ac13c9f: авторские и независимые 78 scoped PASS/exit 0; P0/P1/P2 нет. Два новых PASS подтверждают известные дефекты, не защиту. Документ: docs/friday/taxi-late-effects-boundaries-20261118.md. Runtime, схема и зависимости не меняются. Выполненный план: воспроизвести неопределённый DELETE после timeout и задержанный accepted push на настоящих service-переходах; отдельно инвентаризировать Redis lifecycle/read/write/cleanup и клиентскую обработку; независимая приёмка тестов и плана, scoped проверки и сохранение. Наблюдаемый дефект не считать исправлением, модель транспорта не выдавать за реальный Redis/FCM эксперимент. Приостановленные действия, main/production/существующие БД не затрагивать.

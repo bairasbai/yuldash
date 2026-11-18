@@ -1173,6 +1173,8 @@ class InstantOrder(SQLModel, table=True):
     offer_token: Optional[str] = Field(default=None, max_length=32)  # Не credential: идентификатор предложения.
     # Аддитивная база: writers/CAS подключаются отдельно; NULL пока допустим.
     search_revision: Optional[int] = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    # Только аддитивная схема: Redis lifecycle writers ещё не включены.
+    tried_lifecycle: Optional[str] = Field(default=None, max_length=32)
     search_round: int = 0
     # Сколько раз заказ возвращали в поиск после того, как назначенный водитель отменил.
     # Раньше такого пути не было вовсе: водитель бросал принятый заказ — заказ умирал, а
