@@ -1,3 +1,11 @@
+## Пятница: search snapshot, локальные gates PASS
+
+Runtime f15cd57: старый lookup не завершает различимый новый поиск. Независимо scoped128PASS; FULL на681e326:6952PASS/119skipped/exit0. Публикация отдельной веткой, без main/prod; прежние WIP-записи исторические. Полностью совпавший tuple/ABA не защищён, границы в recovery report.
+
+## Пятница: search snapshot CAS, scoped PASS
+
+Runtime f15cd57: старый lookup не завершает различимый новый поиск. 2 RED→16 новых PASS, scoped128PASS; fresh review/FULL ожидаются. Не unique generation и не полная ABA-защита. Подробности/границы в docs/friday/taxi-retry-recovery-20261117.md.
+
 ## Пятница: fallback progress, локальные gates PASS
 
 Runtime7dd217d, scoped111PASS и freshreview PASS. FULL на7a9a13e:6936PASS/119skipped/exit0. Формулы и тарифы не менялись; после более дешёвого класса поиск больше не остаётся offered без получателя/таймера. Отдельная публикация без main/prod; предыдущие WIP записи ниже исторические.

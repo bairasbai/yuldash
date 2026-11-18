@@ -3085,15 +3085,20 @@ def candidates(r, session: Session, order: InstantOrder, exclude: set) -> list:
     return []
 
 
-def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True,
+                       *, expected_search: tuple[datetime | None, int, str | None]) -> InstantOrder:
     """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
 
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
     пассажир УЖЕ нажал «подождать», он в курсе; повторять ему «рядом никого» каждые
     две минуты — спам, из-за которого выключают уведомления."""
+    searching_at, search_round, offer_token = expected_search
     result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status == S.searching)
+        .where(InstantOrder.id == order.id, InstantOrder.status == S.searching,
+               InstantOrder.searching_at == searching_at,
+               InstantOrder.search_round == search_round,
+               InstantOrder.offer_token == offer_token)
         .values(status=S.expired, expired_at=utcnow(), current_offer_driver_id=None, offer_expires_at=None)
     )
     session.commit()
@@ -3160,26 +3165,33 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
 
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
+    # Снимок до lookup/возможных commit: новый круг может снова иметь status=searching.
+    # Это сравнение наблюдаемых полей, не уникальный идентификатор поколения поиска.
+    expected_search = (order.searching_at, order.search_round, order.offer_token)
+    searching_at, search_round, offer_token = expected_search
     stopped = cancel_for_suspended_passenger(session, order)
     if stopped is not None:
         return stopped
     r = _redis()
     if r is None:
-        return _expire_no_drivers(session, order, notify)
-    if order.search_round >= settings.instant_max_offers:
-        return _expire_no_drivers(session, order, notify)
+        return _expire_no_drivers(session, order, notify, expected_search=expected_search)
+    if search_round >= settings.instant_max_offers:
+        return _expire_no_drivers(session, order, notify, expected_search=expected_search)
     cands = candidates(r, session, order, exclude=_tried_set(r, order.id))
     if not cands:
-        return _expire_no_drivers(session, order, notify)
+        return _expire_no_drivers(session, order, notify, expected_search=expected_search)
     did = cands[0]
     now = utcnow()
     result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status == S.searching)
+        .where(InstantOrder.id == order.id, InstantOrder.status == S.searching,
+               InstantOrder.searching_at == searching_at,
+               InstantOrder.search_round == search_round,
+               InstantOrder.offer_token == offer_token)
         .values(status=S.offered, offered_at=now, offer_token=uuid4().hex,
                 current_offer_driver_id=did,
                 offer_expires_at=now + timedelta(seconds=settings.instant_offer_ttl_sec),
-                search_round=order.search_round + 1)
+                search_round=search_round + 1)
     )
     if result.rowcount:
         # Побочный эффект только победителя, пока UPDATE ещё удерживает строку.

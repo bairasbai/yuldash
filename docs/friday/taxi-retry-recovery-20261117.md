@@ -240,3 +240,17 @@ Scoped 111 PASS, 2 warnings, exit0. Свежий reviewer независимо �
 ### Fallback FULL завершён
 
 Новый полный backend прогон на7a9a13e (runtime7dd217d): 6936 passed, 119 skipped, 804 warnings, exit0, 604.36s. Изолированная SQLite, TMPDIR=/tmp/taxi-fallback-full, pytest tests -q --disable-socket --allow-unix-socket; DATABASE_URL и proxy env удалены, TZ=UTC. Слот согласован с Amio и освобождён после фактического exit. Runtime после прогона не менялся. Это локальный FULL без coverage порога; PostgreSQL-конкурентность и удалённый CI отдельно не подтверждены. Готовится отдельная публикация без merge/deploy.
+
+## Новый этап: результат lookup привязан к наблюдаемому поиску
+
+База4058fb9 (tree опубликованного8bf5c9b), ветка test/friday-taxi-search-snapshot-20261118. Два RED в изолированной SQLite: старый candidates ждёт, другая Session реально start_matching сбрасывает круг и сохраняет searching; старый writer завершает уже новый круг в offered либо expired. Отдельная read-only проверка плана подтвердила достижимость через retry_waiting_orders/start_matching и offered→decline→searching.
+
+Runtime f15cd57649c55e71cdd2557d7f705612d49e468a сохраняет scalar tuple(searching_at, search_round, offer_token) при входе в try_offer_next до lookup/потенциальных commit. Снимок явно передаётся во все три выхода _expire_no_drivers; оба UPDATE сравнивают все поля вместе со status. NULL сравнивается через SQL IS NULL, а не пропуском условия. Новый round берётся из снимка. Проигравший, как раньше, не пишет tried/не шлёт push/не чистит Redis.
+
+16 новых регрессий: два real restart случая; каждое из трёх полей отдельно изменяется между snapshot и write для четырёх выходов candidate/empty/no_redis/limit; два real offered→decline→searching цикла во время старого lookup. Scoped шести файлов128 PASS, 1 warning, exit0. Ruff app/new test, diffcheck и secrets scan двух Python-файлов0 PASS. Fresh review и FULL ещё ожидаются; публикация до них не выполняется.
+
+Граница намеренная: это не уникальный ID поколения, полностью совпавший tuple неотличим. Два reset при одинаковом timestamp/нулевом round/старом token не защищены; изменение цены/категорий уже searching тоже не меняет tuple. Нет новой миграции или API. Пост-commit push/cleanup, distributed atomicity и настоящая PostgreSQL concurrency отдельно не доказаны. Приостановленные операции не повторялись.
+
+### Search snapshot: независимая приёмка и FULL
+
+Свежий независимый reviewer повторил scoped:128 PASS, exit0, P0/P1/P2 нет в заявленном объёме. Новый полный backend прогон на681e326 (runtime f15cd57649c55e71cdd2557d7f705612d49e468a): 6952 passed,119 skipped,804 warnings,exit0,635.01s. TMPDIR=/tmp/taxi-search-full, pytest tests -q --disable-socket --allow-unix-socket, DATABASE_URL/proxy env удалены,TZ=UTC. Изолированная SQLite; heavy-слот получен от Amio и возвращён после завершения. Это локальный FULL без coverage порога; PostgreSQL concurrency и удалённый CI не заявлены. Runtime после FULL не менялся, готовится отдельная публикация без merge/deploy.
