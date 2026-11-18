@@ -57,7 +57,11 @@ def _guard(connection, database):
 def _base_url():
     if not os.environ.get("DATABASE_URL", "").startswith("postgresql"):
         pytest.skip("dedicated fresh PostgreSQL rehearsal mode required")
-    assert os.environ.get("YULDASH_TEST_PG_MODE") == MODE
+    assert os.environ.get("YULDASH_TEST_PG_MODE") in {
+        MODE,
+        "actual-schema-pg-domain-rehearsal",
+        "actual-schema-close-observation",
+    }
     url = make_url(os.environ["DATABASE_URL"])
     assert url.drivername == "postgresql+psycopg2"
     assert url.host == "127.0.0.1" and url.port and not url.query
@@ -137,6 +141,77 @@ def source(request):
         admin.dispose()
 
 
+def _await_zero_backends(
+    connection, database, artifact, *, own_pid=None, raw_closed=None
+):
+    """Bounded synchronization, not a diagnosis of the original count=1 failure."""
+    assert connection.connection.driver_connection.autocommit is True
+    assert connection.engine.url.database == "yuldash_revision_fixture"
+    assert (
+        connection.engine.url.username == "yuldash_test"
+        and not connection.engine.url.query
+    )
+    _guard(connection, "yuldash_revision_fixture")
+    assert database in baseline.SOURCE_DB.values() or re.fullmatch(
+        r"yuldash_type_case_[0-9a-f]{32}", database
+    )
+    assert database != connection.engine.url.database
+    started = time.monotonic()
+    deadline = started + 2.0
+    previous = None
+    first_nonzero = False
+    with artifact.open("x") as evidence:
+
+        def record(event, rows):
+            evidence.write(
+                json.dumps(
+                    {
+                        "event": event,
+                        "monotonic": time.monotonic(),
+                        "elapsed": time.monotonic() - started,
+                        "database": database,
+                        "own_pid": own_pid,
+                        "raw_closed_at_entry": raw_closed,
+                        "backends": rows,
+                    },
+                    default=str,
+                    sort_keys=True,
+                )
+                + "\n"
+            )
+            evidence.flush()
+
+        while True:
+            rows = [
+                dict(row)
+                for row in connection.execute(
+                    text(
+                        "SELECT pid,backend_type,state,application_name,backend_start,state_change,"
+                        "wait_event_type,wait_event FROM pg_stat_activity WHERE datname=:db ORDER BY pid"
+                    ),
+                    {"db": database},
+                )
+                .mappings()
+                .all()
+            ]
+            now = time.monotonic()
+            if rows != previous:
+                record("transition", rows)
+                previous = rows
+            if rows and not first_nonzero:
+                record("first_nonzero", rows)
+                first_nonzero = True
+            if not rows and now <= deadline:
+                record("zero", rows)
+                return
+            if now >= deadline:
+                record("timeout", rows)
+                raise AssertionError(
+                    f"backend zero not observed within 2s; evidence: {artifact}"
+                )
+            time.sleep(min(0.01, max(0.0, deadline - time.monotonic())))
+
+
 @pytest.fixture
 def database(source):
     url, source_db, source_name, root = source
@@ -151,17 +226,20 @@ def database(source):
         with template.connect() as c:
             _guard(c, source_db)
             fingerprint = (_catalog(c), _data(c))
+            fingerprint_pid = c.exec_driver_sql("SELECT pg_backend_pid()").scalar_one()
+            fingerprint_raw = c.connection.driver_connection
         template.dispose()
+        assert fingerprint_raw.closed != 0
         # Dedicated autocommit admin connection, never a caller transaction.
         with admin.connect().execution_options(isolation_level="AUTOCOMMIT") as c:
             _guard(c, url.database)
             assert c.connection.driver_connection.autocommit is True
-            assert (
-                c.execute(
-                    text("SELECT count(*) FROM pg_stat_activity WHERE datname=:db"),
-                    {"db": source_db},
-                ).scalar_one()
-                == 0
+            _await_zero_backends(
+                c,
+                source_db,
+                root / f"{name}-before-create.jsonl",
+                own_pid=fingerprint_pid,
+                raw_closed=fingerprint_raw.closed,
             )
             assert not c.execute(
                 text("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname=:db)"),
@@ -202,15 +280,7 @@ def database(source):
                 ) as c:
                     _guard(c, url.database)
                     assert c.connection.driver_connection.autocommit is True
-                    assert (
-                        c.execute(
-                            text(
-                                "SELECT count(*) FROM pg_stat_activity WHERE datname=:db"
-                            ),
-                            {"db": name},
-                        ).scalar_one()
-                        == 0
-                    )
+                    _await_zero_backends(c, name, root / f"{name}-before-drop.jsonl")
                     c.exec_driver_sql(f"DROP DATABASE {_quote(name)}")
                     assert not c.execute(
                         text(
