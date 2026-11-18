@@ -54,7 +54,8 @@ def test_stale_search_writer_leaves_changed_status_and_effects_alone(
     oid = _order(passenger["id"], S.searching)
     pushes, cleanups, tried = [], [], []
     redis = isv._redis()
-    monkeypatch.setattr(redis, "sadd", lambda *args: tried.append(args))
+    monkeypatch.setattr(isv, "_remember_tried", lambda *args: tried.append(args))
+    monkeypatch.setattr(redis, "pipeline", lambda *args, **kwargs: tried.append("pipeline"))
     monkeypatch.setattr(isv, "_push_offer", lambda *args: pushes.append("offer"))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: pushes.append("expired"))
     monkeypatch.setattr(isv, "_cleanup_tried", lambda *args: cleanups.append(args))
@@ -90,15 +91,25 @@ def test_winning_writer_records_tried_before_offer_commit(client, user_factory, 
     driver = user_factory("WinningWriterDriver", role=UserRole.driver)
     oid = _order(passenger["id"], S.searching)
     redis = isv._redis()
-    original_sadd = redis.sadd
+    original_pipeline = redis.pipeline
     seen = []
 
-    def record_before_publication(*args):
-        with Session(engine) as observer:
-            seen.append(observer.get(InstantOrder, oid).status)
-        return original_sadd(*args)
+    def pipeline_before_publication(*args, **kwargs):
+        assert kwargs.get("transaction") is True
+        pipe = original_pipeline(*args, **kwargs)
+        original_execute = pipe.execute
+        def execute(*args, **kwargs):
+            result = original_execute(*args, **kwargs)
+            # Observe actual EXEC success, not merely queuing SADD before SQL commit.
+            assert redis.sismember(isv._tried_key(oid), driver["id"])
+            assert 0 < redis.ttl(isv._tried_key(oid)) <= 3600
+            with Session(engine) as observer:
+                seen.append(observer.get(InstantOrder, oid).status)
+            return result
+        monkeypatch.setattr(pipe, "execute", execute)
+        return pipe
 
-    monkeypatch.setattr(redis, "sadd", record_before_publication)
+    monkeypatch.setattr(redis, "pipeline", pipeline_before_publication)
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [driver["id"]])
     monkeypatch.setattr(isv, "_push_offer", lambda *args: None)
     with Session(engine) as session:

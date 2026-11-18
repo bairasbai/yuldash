@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi atomic tried TTL (проверено локально)
+
+База54a93c4, веткаfix/friday-taxi-tried-ttl-atomic-20261118. Runtime3f26382; независимые255scoped+17PGPASS; FULL7157PASS/136skip/exit0 наf65a2de. План docs/friday/taxi-tried-atomic-ttl-20261118.md: REDsplitSADD/EXPIRE, узкийtransactionhelperдлядвухwriters, адаптациянаблюдателейтестов, отдельнаяrollbackdiagnostic; независимыйreview/scoped/PG/FULL. Нетproduction/миграций/активации; SQLrollback иpushостаютсяотдельно.
+
 ## 2026-11-18 — taxi tried lifecycle writers (проверено локально)
 
 База6e08f6c; ветка fix/friday-taxi-tried-lifecycle-writers-20261118. Runtime1f4f3fa: независимые236scoped+17PGPASS; FULL7136PASS/136skip/exit0 наc7823eb. Default-off, productionактивациинет. План docs/friday/taxi-tried-lifecycle-writers-20261118.md: default-off opt-in new-cycle namespace, existingnonNULLhonor, activeNULLlegacyнепереносить; всеRedisread/write/cleanup capturedlifecycle и CAS. Независимыйreview, RED/регрессии/PG/FULL передпубликацией. Безреальноймиграции/production/mixedfleetгарантий, pushотдельно.

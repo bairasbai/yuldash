@@ -179,8 +179,8 @@ def test_exact_lifecycle_cas_loser_has_no_effects(client, user_factory, monkeypa
     driver = user_factory("LifecycleCASDriver", role=UserRole.driver)
     oid = _order(passenger["id"], S.searching, search_revision=15, tried_lifecycle=initial)
     effects = []
-    monkeypatch.setattr(isv._redis(), "sadd", lambda *args: effects.append("sadd"))
-    monkeypatch.setattr(isv._redis(), "expire", lambda *args: effects.append("ttl"))
+    monkeypatch.setattr(isv, "_remember_tried", lambda *args: effects.append("remember"))
+    monkeypatch.setattr(isv._redis(), "pipeline", lambda *args, **kwargs: effects.append("pipeline"))
     monkeypatch.setattr(isv, "_cleanup_tried", lambda *args, **kwargs: effects.append("cleanup"))
     monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("push"))
@@ -209,7 +209,7 @@ def test_invalid_lifecycle_never_repaired_or_sent_to_redis(client, user_factory,
     oid = _order(passenger["id"], status, search_revision=5, tried_lifecycle=invalid)
     effects = []
     redis = isv._redis()
-    for method in ("smembers", "sadd", "expire", "delete"):
+    for method in ("smembers", "sadd", "expire", "delete", "pipeline"):
         monkeypatch.setattr(redis, method, lambda *args, **kwargs: effects.append("redis"))
     monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: effects.append("lookup") or [])
     monkeypatch.setattr(isv, "_notify_reassign", lambda *args: effects.append("notify"))
@@ -253,27 +253,28 @@ def test_invalid_lifecycle_does_not_undo_business_transition_or_delete_legacy_ke
 
 
 @pytest.mark.usefixtures("fake_redis")
-def test_captured_late_sadd_and_expire_only_address_old_namespace(client, user_factory, monkeypatch):
+def test_captured_late_exec_only_addresses_old_namespace(client, user_factory, monkeypatch):
     _flag(monkeypatch, True)
     passenger = user_factory("LateWritePassenger")
     first_driver = user_factory("LateWriteFirst", role=UserRole.driver)
     next_driver = user_factory("LateWriteNext", role=UserRole.driver)
     oid = _order(passenger["id"], S.created)
     redis = isv._redis()
-    real_sadd, real_expire = redis.sadd, redis.expire
+    real_pipeline, real_expire = redis.pipeline, redis.expire
     queued, capturing, keys = [], [True], []
-    def delayed_sadd(*args):
-        if capturing[0]:
-            queued.append(("sadd", args))
-            return 0
-        return real_sadd(*args)
-    def delayed_expire(*args):
-        if capturing[0]:
-            queued.append(("expire", args))
-            return False
-        return real_expire(*args)
-    monkeypatch.setattr(redis, "sadd", delayed_sadd)
-    monkeypatch.setattr(redis, "expire", delayed_expire)
+    def delayed_pipeline(*args, **kwargs):
+        assert kwargs.get("transaction") is True
+        pipe = real_pipeline(*args, **kwargs)
+        real_execute = pipe.execute
+        def execute(*args, **kwargs):
+            if capturing[0]:
+                queued.append([(tuple(command), dict(options))
+                               for command, options in pipe.command_stack])
+                raise TimeoutError("whole EXEC outcome pending")
+            return real_execute(*args, **kwargs)
+        monkeypatch.setattr(pipe, "execute", execute)
+        return pipe
+    monkeypatch.setattr(redis, "pipeline", delayed_pipeline)
     monkeypatch.setattr(isv, "candidates", lambda redis, session, order, **kwargs:
                         [next_driver["id"] if order.reassigns else first_driver["id"]])
     monkeypatch.setattr(isv, "_push_offer", lambda *args: None)
@@ -284,8 +285,11 @@ def test_captured_late_sadd_and_expire_only_address_old_namespace(client, user_f
             offered = isv.start_matching(session, session.get(InstantOrder, oid))
             old_key = _captured_key(oid, offered.tried_lifecycle)
             keys.append(old_key)
-        assert [kind for kind, args in queued] == ["sadd", "expire"]
-        assert all(args[0] == old_key for kind, args in queued)
+        assert len(queued) == 1
+        assert [command[0] for command, options in queued[0]] == ["SADD", "EXPIRE"]
+        assert all(command[1] == old_key for command, options in queued[0])
+        assert queued[0][1][0][2] == 3600
+        assert not redis.exists(old_key), "queued EXEC has not executed yet"
         capturing[0] = False
         with Session(engine) as session:
             isv.transition(session, oid, isv.Actor.driver, S.accepted, first_driver["id"], idempotent=False)
@@ -297,8 +301,11 @@ def test_captured_late_sadd_and_expire_only_address_old_namespace(client, user_f
         members = redis.smembers(new_key)
         assert members == {str(first_driver["id"]), str(next_driver["id"])}
         real_expire(new_key, 90)  # A distinct observation sentinel, not a runtime TTL change.
-        for kind, args in queued:
-            (real_sadd if kind == "sadd" else real_expire)(*args)
+        for commands in queued:
+            with real_pipeline(transaction=True) as pipe:
+                for command, options in commands:
+                    pipe.execute_command(*command, **options)
+                pipe.execute()
         assert redis.smembers(new_key) == members
         assert 0 < redis.ttl(new_key) <= 90, "old EXPIRE must not reset current namespace TTL"
         assert redis.sismember(old_key, first_driver["id"])

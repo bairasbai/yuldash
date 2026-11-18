@@ -77,7 +77,8 @@ def _effects(monkeypatch):
     monkeypatch.setattr(isv, "_push_offer", record("offer"))
     monkeypatch.setattr(isv, "push_bilingual", record("push"))
     monkeypatch.setattr(isv, "_cleanup_tried", record("cleanup"))
-    monkeypatch.setattr(isv._redis(), "sadd", record("tried"))
+    monkeypatch.setattr(isv, "_remember_tried", record("tried"))
+    monkeypatch.setattr(isv._redis(), "pipeline", record("pipeline"))
     return effects
 
 

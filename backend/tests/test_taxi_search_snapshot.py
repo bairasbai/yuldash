@@ -52,7 +52,8 @@ def test_each_snapshot_field_is_checked_on_every_writer_exit(client, user_factor
     oid = _order(passenger["id"], S.searching, search_round=initial_round)
     redis = isv._redis()
     effects = []
-    monkeypatch.setattr(redis, "sadd", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(isv, "_remember_tried", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(redis, "pipeline", lambda *args, **kwargs: effects.append("pipeline"))
     monkeypatch.setattr(isv, "_cleanup_tried", lambda *args: effects.append("cleanup"))
     monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("expired"))

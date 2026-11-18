@@ -92,7 +92,8 @@ def test_revision_only_change_rejects_every_lookup_exit_without_effects(client, 
     oid = _order(pax["id"], S.searching, search_revision=8, search_round=rounds)
     effects = []
     redis = isv._redis()
-    monkeypatch.setattr(redis, "sadd", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(isv, "_remember_tried", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(redis, "pipeline", lambda *args, **kwargs: effects.append("pipeline"))
     monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("expired"))
     monkeypatch.setattr(isv, "_cleanup_tried", lambda *args: effects.append("cleanup"))
@@ -286,8 +287,8 @@ def test_superseded_postcommit_entry_has_no_continuation_effects(client, user_fa
     driver = user_factory("RevisionCancelledDriver", role=UserRole.driver)
     oid = _order(pax["id"], status, search_revision=70)
     effects = []
-    monkeypatch.setattr(isv._redis(), "sadd", lambda *args: effects.append("tried"))
-    monkeypatch.setattr(isv._redis(), "expire", lambda *args: effects.append("tried_ttl"))
+    monkeypatch.setattr(isv, "_remember_tried", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(isv._redis(), "pipeline", lambda *args, **kwargs: effects.append("pipeline"))
     monkeypatch.setattr(isv, "_notify_reassign", lambda *args: effects.append("reassign_notice"))
     monkeypatch.setattr(isv, "try_offer_next", lambda *args, **kwargs: effects.append("matching"))
     with Session(engine) as session:
@@ -455,7 +456,8 @@ def test_fallback_failed_commit_rolls_back_criteria_price_revision_and_effects(c
     monkeypatch.setattr(isv, "_category_price", lambda *args: 100)
     effects = []
     monkeypatch.setattr(isv, "try_offer_next", lambda *args, **kwargs: effects.append("matching"))
-    monkeypatch.setattr(isv._redis(), "sadd", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(isv, "_remember_tried", lambda *args: effects.append("tried"))
+    monkeypatch.setattr(isv._redis(), "pipeline", lambda *args, **kwargs: effects.append("pipeline"))
     monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("push"))
     with Session(engine) as session:

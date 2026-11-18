@@ -2993,8 +2993,7 @@ def _reassign_after_driver_cancel(session: Session, order_id: int,
     if cancelled_driver_id:
         try:
             r = _redis()
-            r.sadd(_tried_key(order_id, lifecycle), int(cancelled_driver_id))
-            r.expire(_tried_key(order_id, lifecycle), 3600)
+            _remember_tried(r, order_id, int(cancelled_driver_id), lifecycle)
         except Exception:  # noqa: BLE001 — Redis лёг: хуже, чем «повторно предложим», не будет
             pass
     _notify_reassign(session, order)
@@ -3009,6 +3008,21 @@ def _tried_key(order_id: int, lifecycle: str | None = None) -> str:
         raise ValueError("Invalid tried lifecycle")
     base = f"instant:order:{order_id}:tried"
     return base if lifecycle is None else f"{base}:{lifecycle}"
+
+
+def _remember_tried(r, order_id: int, driver_id: int, lifecycle: str | None) -> None:
+    if r is None or not _valid_tried_lifecycle(lifecycle):
+        return
+    key = _tried_key(order_id, lifecycle)
+    try:
+        # Один EXEC убирает клиентское окно SADD→EXPIRE. Это не rollback команд
+        # при runtime error и не общая транзакция с SQL; поздний EXEC возможен.
+        with r.pipeline(transaction=True) as pipe:
+            pipe.sadd(key, driver_id)
+            pipe.expire(key, 3600)
+            pipe.execute()
+    except Exception:  # noqa: BLE001 — прежняя best-effort семантика Redis
+        pass
 
 
 def _tried_set(r, order_id: int, lifecycle: str | None = None) -> set:
@@ -3398,11 +3412,7 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     if result.rowcount:
         # Побочный эффект только победителя, пока UPDATE ещё удерживает строку.
         # После commit оффер уже виден параллельному decline: tried должен быть готов.
-        try:
-            r.sadd(_tried_key(order_id, lifecycle), did)
-            r.expire(_tried_key(order_id, lifecycle), 3600)
-        except Exception:  # noqa: BLE001
-            pass
+        _remember_tried(r, order_id, did, lifecycle)
     session.commit()
     fresh = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
