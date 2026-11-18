@@ -1,3 +1,7 @@
+## 2026-11-18 — taxi offer push generation (проверено локально)
+
+База1d4f002; feat/friday-taxi-offer-push-generation-20261118. Runtimea4e30dd, независимые170+21scoped/17PGPASS; FULL7167PASS/136skip/exit0 на0fc8be3. План docs/friday/taxi-offer-push-generation-20261118.md: optionaltoken+storedabsoluteUTCexpiry, legacycompat/snapshot/no leaseextension, независимыеtests/FULL. Clientprotectionнеобещать, production/pausedне трогать.
+
 ## 2026-11-18 — taxi atomic tried TTL (проверено локально)
 
 База54a93c4, веткаfix/friday-taxi-tried-ttl-atomic-20261118. Runtime3f26382; независимые255scoped+17PGPASS; FULL7157PASS/136skip/exit0 наf65a2de. План docs/friday/taxi-tried-atomic-ttl-20261118.md: REDsplitSADD/EXPIRE, узкийtransactionhelperдлядвухwriters, адаптациянаблюдателейтестов, отдельнаяrollbackdiagnostic; независимыйreview/scoped/PG/FULL. Нетproduction/миграций/активации; SQLrollback иpushостаютсяотдельно.

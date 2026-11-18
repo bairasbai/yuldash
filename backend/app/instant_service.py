@@ -15,7 +15,7 @@
 """
 import re
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from typing import Optional
 from types import SimpleNamespace
@@ -3670,6 +3670,17 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
     Клиент не вычисляет комиссию сам: push и GET /instant/driver/offer используют один
     Decimal-расчёт и одну ступень комиссии, зафиксированную на created_at заказа.
     """
+    # Совместимые metadata: снимок уже выданного предложения, не новый срок.
+    # Helpers/transport могут задержаться; не перечитываем поколение после них.
+    offer_token, offer_expires_at = order.offer_token, order.offer_expires_at
+    generation = {}
+    if offer_token is not None:
+        generation["offer_token"] = str(offer_token)
+    if offer_expires_at is not None:
+        expires_utc = (offer_expires_at.replace(tzinfo=timezone.utc)
+                       if offer_expires_at.tzinfo is None
+                       else offer_expires_at.astimezone(timezone.utc))
+        generation["offer_expires_at"] = expires_utc.isoformat(timespec="microseconds").replace("+00:00", "Z")
     from . import debt as debt_mod
 
     p_rating, p_trips = passenger_stats(session, order.passenger_id)
@@ -3705,6 +3716,7 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
         data={
             "type": "instant_offer",
             "order_id": str(order.id),
+            **generation,
             # Legacy price remains for older Android builds.
             "price": str(order.price_estimate),
             "gross_kop": str(gross_kop),
