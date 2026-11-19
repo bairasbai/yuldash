@@ -1,13 +1,14 @@
 # 🧠 Второй мозг Юлдаш — карта знаний
 
-> Навигация обновлена 06.11.2026. Здесь — куда идти за ответом; статусы проверок ведутся **только** в [audit-blocks.md](audit-blocks.md), планы и переводы — в [tasks.md](tasks.md). Сверяй текущую версию Git перед продолжением: старая приёмка не доказывает работу изменённого кода.
+> Навигация сверена 19.11.2026. Здесь — куда идти за ответом; статусы проверок ведутся **только** в [audit-blocks.md](audit-blocks.md), планы и переводы — в [tasks.md](tasks.md). Сверяй текущую версию Git перед продолжением: старая приёмка не доказывает работу изменённого кода.
 
 ## Начать работу
 
 1. Прочитай [правила проекта](../AGENTS.md) и относящийся к задаче раздел [надёжности](agent-reliability.md).
 2. Сверь ветку, коммит, незакоммиченные файлы и [владельцев общих ресурсов](locks.md).
 3. Ищи нужный экран/файл/ID в [карте кода](architecture.md); большие документы и код открывай только в найденном месте.
-4. Проверь [актуальный блок аудита](audit-blocks.md) и [план задачи](tasks.md). Для попутки последний опубликованный срез `db2bc532` описан в [INTEGRATION-20261106](audit-blocks.md#integration-20261106); это ограниченная приёмка, не готовность всего приложения.
+4. Начни с [датированных срезов проверок в реестре](audit-blocks.md), затем открой [очередь и план задачи](tasks.md). Срез `db2bc532` в [INTEGRATION-20261106](audit-blocks.md#integration-20261106) исторический, его результаты относятся к той версии.
+5. Для требований открой [оглавление планов режимов](plans/README.md), а для проверки полноты — [нормативные составы](audit-traceability/README.md).
 
 ## Как пользоваться (агенту)
 
@@ -36,7 +37,7 @@
 | Окружения, сервер и миграции | [server.md](server.md), [staging.md](staging.md), [deploy-migrations.md](deploy-migrations.md), [release-runbook.md](release-runbook.md) — сначала границы применимости |
 | Уведомления и способы входа | [fcm-setup.md](fcm-setup.md), [telegram-setup.md](telegram-setup.md) — настройка не доказывает живую доставку/вход |
 | Доверие, безопасность и личные данные | [trust-safety.md](trust-safety.md), [trust-levels-backend.md](trust-levels-backend.md), [правила проекта](../AGENTS.md) |
-| Денежный учёт и продуктовые планы | [payments-ledger-backend.md](payments-ledger-backend.md), [monetization.md](monetization.md), [launch-readiness.md](launch-readiness.md); старые расчёты не являются текущим тарифом или разрешением на платежи |
+| Денежный учёт и продуктовые планы | [payments-ledger-backend.md](payments-ledger-backend.md), [monetization.md](monetization.md), [исторический аудит беты](launch-readiness.md); старые расчёты не являются текущим тарифом или разрешением на платежи |
 | Реклама и партнёры | [ads-system.md](ads-system.md), [partner-sales.md](partner-sales.md) |
 
 ## Продолжение аудита, качества и безопасности
