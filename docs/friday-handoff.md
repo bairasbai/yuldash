@@ -569,3 +569,9 @@ Main, PR, merge, deploy и действующая реализация не из
 Оба CI запуска относятся к **16 ноября**: сейчас получено новое наблюдение старых результатов, а не выполнен новый прогон. Ubuntu image release revisions различались (.196 и .82). Зелёный контроль #242 **не является rerun #241**; причина расхождения не установлена. Не объявлять failure следствием backend patch и не называть его доказанным flaky-тестом. Исторический backend PostgreSQL success также не снимает pending readiness отдельной диагностики 19 ноября.
 
 Для ручного сведения при необходимости предпочтительно рассматривать узкий [a47dfceecc01dc531b8a8d68cc41eac8594c5629](https://github.com/bairasbai/yuldash/commit/a47dfceecc01dc531b8a8d68cc41eac8594c5629): проверены ровно два файла, chat router и lost-item websocket test. **Не заменять целиком chat.py**: сопоставить минимальный diff с актуальным деревом, сохранить независимые изменения, затем проверить taxi lost-item и оба названных Android-сценария на сведённом дереве. Старые результаты не являются приёмкой новой комбинации. В ходе этой сверки код/main/PR не изменялись, CI/Android не запускались.
+
+Уточнение той же сверки: [PG job 133463780372](https://github.com/bairasbai/yuldash/actions/runs/43914181290/job/133463780372) использовал postgres:16; Alembic step и suite SUCCESS, **6962 passed /12 skipped**. Это исторический результат 16 ноября, не новая проверка smoke proposal. Для ручной проверки владельцем на сведённом дереве подтверждён Gradle task `:app:testDebugUnitTest` (исходный CI command `:app:jacocoCoverageVerification`); возможная адресная команда ниже здесь **NOT_RUN**:
+
+```sh
+cd android && ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.ActiveTripPassengerContactsTest' --no-daemon
+```
