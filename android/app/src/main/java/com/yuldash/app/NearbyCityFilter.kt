@@ -71,6 +71,25 @@ internal class NearbyCityFilterState {
     /** Есть что выбрать или что снять: тогда чипы на месте, даже если рядом поездок нет. */
     val offered: Boolean get() = active || fromOptions.isNotEmpty() || toOptions.isNotEmpty()
 
+    fun selectedRoute(): SearchRoute {
+        val known = (fromOptions + toOptions + found).associateBy(FilterCity::ru)
+        fun chosen(cities: Set<String>) = cities.map { known[it] ?: FilterCity(it, it) }
+        return SearchRoute(chosen(from), chosen(to))
+    }
+
+    fun selectRoute(route: SearchRoute) {
+        from = route.from.map(FilterCity::ru).toSet()
+        to = route.to.map(FilterCity::ru).toSet()
+        found = (found + route.from + route.to).distinctBy(FilterCity::ru)
+        dropUnchosenFound()
+    }
+
+    fun popularRoute(route: PopularRoute): SearchRoute {
+        val known = (fromOptions + toOptions + found).associateBy(FilterCity::ru)
+        return SearchRoute(listOf(known[route.from] ?: FilterCity(route.from, route.from)),
+            listOf(known[route.to] ?: FilterCity(route.to, route.to)))
+    }
+
     fun needsReload(nowMs: Long, hasNearbyRides: Boolean): Boolean =
         citiesStale(loadedAtMs, nowMs) || (hasNearbyRides && !loadedWithNearbyRides && !offered)
 
@@ -106,9 +125,9 @@ internal fun citiesStale(loadedAtMs: Long, nowMs: Long): Boolean = loadedAtMs ==
  * Старый сервер без `/rides/cities` — чипов нет.
  */
 @Composable
-internal fun rememberNearbyCityFilter(reloadKey: Int, hasNearbyRides: Boolean): NearbyCityFilterState {
-    val state = remember { NearbyCityFilterState() }
-    LaunchedEffect(reloadKey, hasNearbyRides) {
+internal fun rememberNearbyCityFilter(reloadKey: Int, hasNearbyRides: Boolean, generation: Long = 0): NearbyCityFilterState {
+    val state = remember(generation) { NearbyCityFilterState() }
+    LaunchedEffect(generation, reloadKey, hasNearbyRides) {
         if (!state.needsReload(SystemClock.elapsedRealtime(), hasNearbyRides)) return@LaunchedEffect
         ApiClient.getRideCities().onSuccess {
             state.fromOptions = it.from
@@ -132,21 +151,34 @@ private fun chosenNames(chosen: Set<String>, options: List<FilterCity>, found: L
  * Нет городов с поездками (старый сервер, пустая база) — не рисуем ничего: пустая шторка хуже.
  */
 @Composable
-internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier: Modifier) {
-    if (!state.offered) return
-    var sheetForFrom by remember { mutableStateOf<Boolean?>(null) }   // true — «Откуда», false — «Куда»
+internal fun RowScope.NearbyCityChips(
+    state: NearbyCityFilterState,
+    chipModifier: Modifier,
+    history: NearbySearchHistoryState? = null,
+    onRepeat: () -> Unit = {},
+) {
+    if (!state.offered && history?.showHistoryChip != true) return
+    var sheetForFrom by remember(state) { mutableStateOf<Boolean?>(null) }
+    var original by remember(state) { mutableStateOf("") }
+    fun updateSelection(action: () -> Unit) {
+        if (history == null) action() else history.changeSelection(action)
+    }
+    fun open(from: Boolean) {
+        original = state.selectedRoute().key
+        sheetForFrom = from
+    }
     NearbyFilterChip(
         Icons.Default.Place,
         cityChipLabel(appText("Откуда", "Ҡайҙан"), chosenNames(state.from, state.fromOptions, state.found)),
         state.from.isNotEmpty(),
         modifier = chipModifier,
-    ) { sheetForFrom = true }
+    ) { open(true) }
     NearbyFilterChip(
         Icons.Default.Flag,
         cityChipLabel(appText("Куда", "Ҡайҙа"), chosenNames(state.to, state.toOptions, state.found)),
         state.to.isNotEmpty(),
         modifier = chipModifier,
-    ) { sheetForFrom = false }
+    ) { open(false) }
     sheetForFrom?.let { isFrom ->
         NearbyCitySheet(
             title = if (isFrom) appText("Откуда", "Ҡайҙан") else appText("Куда", "Ҡайҙа"),
@@ -154,9 +186,15 @@ internal fun RowScope.NearbyCityChips(state: NearbyCityFilterState, chipModifier
             options = if (isFrom) state.fromOptions else state.toOptions,
             found = state.found,
             chosen = if (isFrom) state.from else state.to,
-            onChange = { if (isFrom) state.from = it else state.to = it },
-            onFound = { state.found = (state.found + it).distinctBy { c -> c.ru } },
-            onDismiss = { sheetForFrom = null; state.dropUnchosenFound() },
+            onChange = { chosen -> updateSelection { if (isFrom) state.from = chosen else state.to = chosen } },
+            onFound = { city -> updateSelection { state.found = (state.found + city).distinctBy(FilterCity::ru) } },
+            history = history,
+            onRepeat = { route -> state.selectRoute(route); sheetForFrom = null; onRepeat() },
+            onDismiss = {
+                if (sheetForFrom != null && original != state.selectedRoute().key) history?.record(state.selectedRoute())
+                sheetForFrom = null
+                state.dropUnchosenFound()
+            },
         )
     }
 }
@@ -176,8 +214,11 @@ private fun NearbyCitySheet(
     onChange: (Set<String>) -> Unit,
     onFound: (FilterCity) -> Unit,
     onDismiss: () -> Unit,
+    history: NearbySearchHistoryState?,
+    onRepeat: (SearchRoute) -> Unit,
 ) {
     NearbySheet(title, onDismiss = onDismiss) { close ->
+        if (history != null) NearbySearchHistory(history, onRepeat)
         SettlementPickField(appText("Найти город или деревню", "Ҡала йәки ауыл табыу"), picked = null) { s ->
             if (s != null) {
                 onFound(FilterCity(s.nameRu, s.nameBa ?: s.nameRu))

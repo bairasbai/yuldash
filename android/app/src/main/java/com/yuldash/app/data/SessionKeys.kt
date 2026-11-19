@@ -58,6 +58,7 @@ internal object SessionKeys {
         "courier_location_svc" to listOf("last_parcels", "last_lang"),
         // Фильтры поиска: среди них «только женщины» — он рассказывает о прошлом владельце.
         "yuldash_filters" to listOf("default_filters"),
+        "yuldash_search" to listOf("recent_searches_v1"),
     )
 
     /**
