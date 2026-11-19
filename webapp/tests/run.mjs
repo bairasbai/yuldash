@@ -27,6 +27,7 @@ const OUT = join(SUITE_DIR, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const ALL_SUITES = [
+  { test: "own-api-url-test", src: null, out: null, bundle: false },
   { test: "guest-booking-draft-test", src: null, out: null, bundle: false },
   { test: "ride-rating-count-test", src: null, out: null, bundle: false },
   { test: "multiseat-booking-test", src: null, out: null, bundle: false },

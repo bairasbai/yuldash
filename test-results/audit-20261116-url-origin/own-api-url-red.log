@@ -1,0 +1,64 @@
+FAIL reject URL "/\\attacker.example/image": Expected values to be strictly equal:
+
+true !== false
+
+FAIL chat does not embed "/\\attacker.example/image": Expected values to be strictly equal:
++ actual - expected
+
++ '/\\attacker.example/image'
+- null
+
+FAIL secure document sends no request "/\\attacker.example/image": Missing expected rejection.
+FAIL reject URL "/\t/attacker.example/image": Expected values to be strictly equal:
+
+true !== false
+
+FAIL chat does not embed "/\t/attacker.example/image": Expected values to be strictly equal:
++ actual - expected
+
++ '/\t/attacker.example/image'
+- null
+
+FAIL secure document sends no request "/\t/attacker.example/image": Missing expected rejection.
+FAIL reject URL "/\n/attacker.example/image": Expected values to be strictly equal:
+
+true !== false
+
+FAIL chat does not embed "/\n/attacker.example/image": Expected values to be strictly equal:
++ actual - expected
+
++ '/\n/attacker.example/image'
+- null
+
+FAIL secure document sends no request "/\n/attacker.example/image": Missing expected rejection.
+FAIL reject URL "/\r/attacker.example/image": Expected values to be strictly equal:
+
+true !== false
+
+FAIL chat does not embed "/\r/attacker.example/image": Expected values to be strictly equal:
++ actual - expected
+
++ '/\r/attacker.example/image'
+- null
+
+FAIL secure document sends no request "/\r/attacker.example/image": Missing expected rejection.
+✓ reject URL "//attacker.example/image"
+✓ chat does not embed "//attacker.example/image"
+✓ secure document sends no request "//attacker.example/image"
+✓ reject URL "https://attacker.example/image"
+✓ chat does not embed "https://attacker.example/image"
+✓ secure document sends no request "https://attacker.example/image"
+✓ reject URL "https://api.example.test@attacker.example/image"
+✓ chat does not embed "https://api.example.test@attacker.example/image"
+✓ secure document sends no request "https://api.example.test@attacker.example/image"
+✓ reject URL "https://api.example.test.attacker.example/image"
+✓ chat does not embed "https://api.example.test.attacker.example/image"
+✓ secure document sends no request "https://api.example.test.attacker.example/image"
+✓ reject URL "http://api.example.test/image"
+✓ chat does not embed "http://api.example.test/image"
+✓ secure document sends no request "http://api.example.test/image"
+✓ allow legitimate image /chat/photo.png
+✓ allow legitimate image https://api.example.test/chat/photo.png
+✓ allow legitimate image https://API.EXAMPLE.TEST:443/chat/photo.png
+✓ secure document still loads from API with authorization
+Own API URL: 19 passed, 12 failed

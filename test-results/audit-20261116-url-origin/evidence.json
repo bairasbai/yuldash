@@ -1,0 +1,38 @@
+{
+  "base": "ecfc6aaeecf2cb8f6498eb9eb198dcef5e8679f8",
+  "scope": "PWA URL-origin validation only",
+  "source_sha256": {
+    "webapp/src/api/client.ts": "baa047d325cf11f63d02ec002e5baec482f0f6a2b8e061c3816dc466c06c4967",
+    "webapp/tests/own-api-url-test.mjs": "cf63a817f42bdd6641d9223cf011e57c835ab854550be3caff58a4aa498d0e3e",
+    "webapp/tests/run.mjs": "7c80bab18025e256a3e331553e4099d3f9304b36a1f8e53b57d9ecc063f76bbb"
+  },
+  "checks": {
+    "regression_before": {
+      "passed": 19,
+      "failed": 12,
+      "exit": 1
+    },
+    "regression_after": {
+      "passed": 39,
+      "failed": 0,
+      "exit": 0
+    },
+    "pwa_check": {
+      "suites": 158,
+      "reported_checks": 2989,
+      "exit": 0
+    },
+    "pwa_build": {
+      "exit": 0,
+      "api_base": "http://127.0.0.1:40127"
+    },
+    "independent_review": "accepted-limited"
+  },
+  "not_run": [
+    "browser E2E",
+    "Android",
+    "production",
+    "real exploitation"
+  ],
+  "risk": "Conditional external-origin resource access/auth header forwarding; no actual incident established"
+}
