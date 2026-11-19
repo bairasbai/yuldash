@@ -15,7 +15,7 @@
 |---|---|---|---|
 | `ReadUser` | 6 | `/rides/near`, `/rides`, `/requests/near`, `/feed`, `/popular-routes`, `/rides/price_hint` | Самый массовый и самый тяжёлый для БД путь (лента) |
 | `RiderUser` | 3 | Логин (OTP), `/me`, `/bookings/mine`, иногда `POST /bookings` | Авторизованный трафик + запись под row-lock |
-| `InstantUser` | 2* | `/instant/estimate`, `/instant/order` (matcher) | «Быстрый заказ»; включается флагом |
+| `InstantUser` | 2* | `POST /instant/estimate` | Один quote smoke на процесс; только disposable loopback fixture |
 | `ChatWSUser` | 1* | WebSocket `/ws/bookings/{id}` | Проверка ip_hash-стикинга + Redis pub/sub |
 
 \* `InstantUser` и `ChatWSUser` включаются переменными окружения (см. ниже).
@@ -81,7 +81,7 @@ locust -f locustfile.py --host http://STAGING_HOST:8000 \
 | Переменная | По умолчанию | Смысл |
 |---|---|---|
 | `YULDASH_LOADTEST_TOKENS` | — | Пул токенов через запятую (способ Б) |
-| `YULDASH_LOADTEST_INSTANT` | `0` | `1` → включить сценарий matcher `/instant/*` |
+| `YULDASH_LOADTEST_INSTANT` | `0` | `1` → разрешить ограниченный quote smoke (не matcher) |
 | `YULDASH_LOADTEST_WS` | `0` | `1` → включить WS-сценарий чата |
 | `YULDASH_LOADTEST_WS_BOOKING` | — | `booking_id` живой брони на staging (для WS) |
 | `YULDASH_LOADTEST_WS_TOKEN` | — | Токен участника этой брони (для WS) |
@@ -115,3 +115,39 @@ pkill -f 'uvicorn.*app.main' -n       # убить один дочерний в�
 ```
 Ожидаемо: короткий всплеск, gunicorn форкает замену, клиентские запросы продолжают идти.
 Это и есть критерий «готово» Фазы 5: *убийство одного воркера не роняет сервис*.
+
+
+## 7. InstantUser: положительный контракт quote, НЕ нагрузочный прогон
+
+Этот класс больше не создаёт заказ и не маскирует 401/404/422/429 под успех.
+Только HTTP 200 с числовыми конечными неотрицательными `price`, `distance_km`,
+`eta_min` и `category=standard` проходит проверку. `eta_min` — длительность поездки,
+не время подачи. Дополнительные поля ответа разрешены.
+
+**Не использовать прежний default mix ролей для этой проверки.** Другие роли выше
+сохранены без изменений и могут создавать брони/авторизоваться. Quote тоже не
+read-only: сервер пишет price-freeze/funnel в Redis и может вызвать платный routing.
+Перед будущим отдельно согласованным запуском требуется disposable локальный сервер,
+отдельные БД/Redis, синтетические координаты и токен тестового пользователя,
+отключённые внешние провайдеры и техническое ограничение исходящей сети сервера.
+Переменная-декларация ниже сама эту изоляцию НЕ обеспечивает.
+
+Конфигурация InstantUser (никаких значений по умолчанию):
+- `YULDASH_LOADTEST_INSTANT=1`;
+- `YULDASH_LOADTEST_INSTANT_FIXTURE=isolated-no-external-providers`;
+- `YULDASH_LOADTEST_INSTANT_ORIGIN`: точный `http://127.0.0.1:PORT`, совпадает с host;
+- `YULDASH_LOADTEST_INSTANT_TOKEN`: заранее выданный fixture access token, не OTP;
+- `YULDASH_LOADTEST_INSTANT_ROUTE`: JSON ровно с четырьмя полями `from_lat`,
+  `from_lng`, `to_lat`, `to_lng` для синтетической разрешённой сцены.
+
+Только InstantUser, один процесс/один пользователь, без distributed/workers.
+Не production, внешний staging или reverse proxy к ним. Адрес запроса абсолютный,
+redirect выключен, timeout 5 секунд, максимум одна попытка **на Python-процесс**,
+включая отказ/429/ошибку транспорта. Это не общий distributed лимит и не измерение p95
+или пропускной способности. Ошибка конфигурации блокирует запрос. Для повторной
+попытки нужен новый отдельно разрешённый запуск, не автоматический retry.
+
+Данный пакет проверен только локальными synthetic unit-тестами, без HTTP и нагрузки:
+`python backend/loadtest/test_instant_quote_contract.py`.
+Locust подменён минимальным stub только в тесте; исполняется настоящий модуль и метод.
+Реальный Locust/server smoke и полные backend gates отдельно, здесь не заявлены.

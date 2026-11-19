@@ -11,9 +11,9 @@
                       /popular-routes, /rides/price_hint. Самый массовый и самый
                       тяжёлый для БД путь (full-scan без индексов → EXPLAIN-чеклист в runbook).
   • RiderUser       — авторизуется (OTP dev-поток), смотрит «мои», иногда создаёт бронь.
-  • InstantUser     — «Быстрый заказ» (matcher /instant/*). Включается флагом
-                      YULDASH_LOADTEST_INSTANT=1 (эндпоинты появляются с веткой feat/instant-order;
-                      пока их нет — 404 считаем ожидаемым, не «падением»).
+  • InstantUser     — один положительный POST /instant/estimate на процесс.
+                      Только явно заданный изолированный loopback fixture; не matcher/load.
+                      Ошибки авторизации/валидации/лимитов не считаются успехом.
   • ChatWSUser      — держит WebSocket чата (/ws/bookings/{id}) для проверки ip_hash-стикинга
                       и Redis pub/sub между воркерами. Требует websocket-client (см. requirements.txt).
 
@@ -22,6 +22,7 @@
 from __future__ import annotations
 
 import json
+import math
 import os
 import random
 import time
@@ -221,9 +222,72 @@ class RiderUser(HttpUser):
 # ------------------------------------------------------------------------------------
 # Роль 3: InstantUser — «Быстрый заказ» / matcher (опционально, флаг)
 # ------------------------------------------------------------------------------------
+# One quote attempt per Python process, not a distributed load scenario.
+_INSTANT_QUOTE_ATTEMPTED = False
+
+
+def _instant_finite_number(value):
+    if type(value) not in (int, float):
+        return False
+    try:
+        return math.isfinite(value)
+    except OverflowError:
+        return False
+
+
+def _instant_fixture(host):
+    """Fail closed before a request; this declaration does not isolate server egress."""
+    from urllib.parse import urlsplit
+
+    if os.getenv("YULDASH_LOADTEST_INSTANT_FIXTURE") != "isolated-no-external-providers":
+        raise ValueError("InstantUser requires an isolated disposable fixture")
+    expected = os.getenv("YULDASH_LOADTEST_INSTANT_ORIGIN", "")
+    url = urlsplit(expected)
+    if (url.scheme != "http" or url.hostname != "127.0.0.1" or not url.port
+            or url.netloc != f"127.0.0.1:{url.port}" or url.path or url.query or url.fragment
+            or expected != host):
+        raise ValueError("InstantUser requires the exact explicit loopback origin")
+    token = os.getenv("YULDASH_LOADTEST_INSTANT_TOKEN", "")
+    if not token or any(c.isspace() for c in token):
+        raise ValueError("InstantUser requires a fixture token")
+    try:
+        body = json.loads(os.getenv("YULDASH_LOADTEST_INSTANT_ROUTE", ""))
+    except (ValueError, TypeError):
+        raise ValueError("InstantUser requires a synthetic route fixture") from None
+    bounds = {"from_lat": 90, "from_lng": 180, "to_lat": 90, "to_lng": 180}
+    if not isinstance(body, dict) or set(body) != set(bounds):
+        raise ValueError("InstantUser route must contain only four coordinates")
+    if any(not _instant_finite_number(body[k])
+           or abs(body[k]) > limit for k, limit in bounds.items()):
+        raise ValueError("InstantUser route coordinates invalid")
+    return expected, body, {"Authorization": f"Bearer {token}"}
+
+
+def _check_instant_quote(response):
+    """Positive quote contract; never mask auth, validation or throttling failures."""
+    if response.status_code != 200:
+        response.failure(f"instant estimate HTTP {response.status_code}")
+        return
+    try:
+        data = response.json()
+    except (ValueError, TypeError):
+        response.failure("instant estimate invalid JSON")
+        return
+    fields = ("price", "distance_km", "eta_min")
+    if (not isinstance(data, dict) or data.get("category") != "standard"
+            or any(not _instant_finite_number(data.get(k)) or data[k] < 0 for k in fields)):
+        response.failure("instant estimate malformed quote")
+        return
+    # eta_min is passenger trip duration, NOT pickup ETA.
+    response.success()
+
+
 class InstantUser(HttpUser):
-    """Матчер «Быстрого заказа». Включается YULDASH_LOADTEST_INSTANT=1.
-    Пути /instant/* появляются с веткой feat/instant-order; пока их нет — 404 ожидаем."""
+    """Opt-in, one non-order-creating quote per process on a disposable loopback fixture.
+
+    Quote can write price-freeze/funnel Redis and call providers: fixture egress must
+    be disabled separately. No OTP, order creation or retry is performed here.
+    """
 
     weight = 2 if INSTANT_ENABLED else 0
     wait_time = between(2, 5)
@@ -231,42 +295,26 @@ class InstantUser(HttpUser):
     def on_start(self):
         if not INSTANT_ENABLED:
             self.stop()
+            return
+        _instant_fixture(self.host)
 
-    @task(3)
+    @task
     def estimate(self):
-        """Оценка цены/времени подачи по точкам А→Б (лёгкий гео-запрос к presence)."""
-        (fc, flat, flng), (tc, tlat, tlng) = _route()
-        with self.client.get(
-            "/instant/estimate",
-            params={"from_lat": flat, "from_lng": flng, "to_lat": tlat, "to_lng": tlng},
-            name="/instant/estimate",
-            catch_response=True,
-        ) as r:
-            self._ok_or_expected_404(r)
-
-    @task(1)
-    def create_order(self):
-        """Создание заказа → запускается matcher-цикл (arq). Тяжёлый по GEOSEARCH в Redis."""
-        (fc, flat, flng), (tc, tlat, tlng) = _route()
-        with self.client.post(
-            "/instant/order",
-            json={
-                "from_lat": flat, "from_lng": flng, "from_city": fc,
-                "to_lat": tlat, "to_lng": tlng, "to_city": tc,
-            },
-            name="/instant/order",
-            catch_response=True,
-        ) as r:
-            self._ok_or_expected_404(r)
-
-    @staticmethod
-    def _ok_or_expected_404(r):
-        # 404 = ветка matcher ещё не задеплоена на staging → это ожидаемо, не «падение».
-        # 401/422 = нужен токен/иные поля (появятся с реальной веткой) → тоже не сбой сервера.
-        if r.status_code in (200, 401, 404, 422):
-            r.success()
-        else:
-            r.failure(f"instant {r.status_code}")
+        global _INSTANT_QUOTE_ATTEMPTED
+        if not INSTANT_ENABLED or _INSTANT_QUOTE_ATTEMPTED:
+            self.stop()
+            return
+        origin, body, headers = _instant_fixture(self.host)
+        _INSTANT_QUOTE_ATTEMPTED = True
+        try:
+            with self.client.post(
+                origin + "/instant/estimate", json=body, headers=headers,
+                name="/instant/estimate", catch_response=True,
+                allow_redirects=False, timeout=5,
+            ) as response:
+                _check_instant_quote(response)
+        finally:
+            self.stop()
 
 
 # ------------------------------------------------------------------------------------
