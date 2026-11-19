@@ -555,3 +555,17 @@ Main, PR, merge, deploy и действующая реализация не из
 - **Amio, только разрешённая общая сводка:** по актуальной сверке ответственного изолированная default-off factory уже прошла независимые проверки, поэтому прежний WIP/NOT_RUN относится к более раннему срезу. Также приняты ограниченные проверки локального хранения и read-only инспекции. Следующий контракт атомарной очистки после явного выхода рассмотрен, но реализация и новые тесты ещё не запускались: после восстановления среды отсутствует точный набор зависимостей. Исходники и документы сохранены в проверяемых резервных копиях. Это отдельные этапы, не переименование checkpoint v216. App/native и production не активированы, полноценное восстановление после рестарта не заявляется. Старые paused FULL/публикация Amio не возобновлены. Приватные детали, внутренние пути, Library IDs и ссылки доступа не публикуются.
 
 Автоматическое durable продолжение Юлдаша всё ещё не принято end-to-end. Эти результаты не разрешают main merge, production/schema activation или перенос всей накопленной ветки ради отдельного фикса. Локальная работа Байраса не затрагивалась.
+
+
+### 19.11.2026 — Сведение PR #241/#242: исторический Android CI не приписывать узкому backend diff
+
+Повторно сверены GitHub heads и pinned compares на общей базе `ecfc6aaeecf2cb8f6498eb9eb198dcef5e8679f8`:
+- [PR #241](https://github.com/bairasbai/yuldash/pull/241), head `6411b86c5b5f1df3108bf1b5d3014251426551af`: 2 commits; код изменён только в `backend/app/routers/chat.py` и `backend/tests/test_taxi_lost_item_ws.py`, остальные изменения — audit evidence/docs.
+- [PR #242](https://github.com/bairasbai/yuldash/pull/242), head `fef0a0a2479af86fa437516ee8a350b7afaa92f2`: 1 commit, только `docs/plans/taxi/06-versioned-pricing-config.md`.
+- Android source и CI configuration этими diff не менялись.
+
+По прямой проверке координатором Jobs API и декодированных logs: исторический [run 43914181290](https://github.com/bairasbai/yuldash/actions/runs/43914181290) для #241 имеет 5 success /1 failed (Android unit), при этом backend-tests-postgres success. В Android job `133463780281`: 29 tests, 2 failures в `ActiveTripPassengerContactsTest`: `delayedCodeRetryAcrossBoardingReloadsMatchingDetailsAndCreatesPassport` (два onboard) и `activePassengerSeesOwnAlightingSeparateFromPickup` (не показано «Место высадки»). Контрольный [run 43919884193](https://github.com/bairasbai/yuldash/actions/runs/43919884193) для #242 имеет 6/6 success, Android job `133484003200`: 29/29.
+
+Оба CI запуска относятся к **16 ноября**: сейчас получено новое наблюдение старых результатов, а не выполнен новый прогон. Ubuntu image release revisions различались (.196 и .82). Зелёный контроль #242 **не является rerun #241**; причина расхождения не установлена. Не объявлять failure следствием backend patch и не называть его доказанным flaky-тестом. Исторический backend PostgreSQL success также не снимает pending readiness отдельной диагностики 19 ноября.
+
+Для ручного сведения при необходимости предпочтительно рассматривать узкий [a47dfceecc01dc531b8a8d68cc41eac8594c5629](https://github.com/bairasbai/yuldash/commit/a47dfceecc01dc531b8a8d68cc41eac8594c5629): проверены ровно два файла, chat router и lost-item websocket test. **Не заменять целиком chat.py**: сопоставить минимальный diff с актуальным деревом, сохранить независимые изменения, затем проверить taxi lost-item и оба названных Android-сценария на сведённом дереве. Старые результаты не являются приёмкой новой комбинации. В ходе этой сверки код/main/PR не изменялись, CI/Android не запускались.
