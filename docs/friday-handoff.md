@@ -575,3 +575,14 @@ Main, PR, merge, deploy и действующая реализация не из
 ```sh
 cd android && ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.ActiveTripPassengerContactsTest' --no-daemon
 ```
+
+
+### 19.11.2026 — Дополнительные source findings: Android pickup labels и PWA arriving copy
+
+Новые статические наблюдения после `e280b24`, по прямой проверке координатора и независимого исполнителя. Это не новые Android тесты или опубликованные исправления.
+
+- **Android:** в `TaxiTripScreen.kt` (проверенный blob начинается `8af2a52e`, одинаковый на проверенных main и `35dec48`) длительность поездки `etaMin` используется до посадки не только в accepted header (L679–709), но также в compact map pill (L665–669) и `ActiveTripBar` (L1501/L1519). Источник `ApiClient` L5943–5956 — `eta_min`; backend `instant_service.py` L1311 формирует его из `route.duration_min`. Поэтому эти числа нельзя считать прогнозом приезда водителя. Отдельное offer-поле не доказывает актуальность live prediction и не является автоматической заменой.
+- **Android gate:** новых правок, сборок и запусков нет; в текущей среде отсутствуют Gradle/SDK. Следующая проверка должна отдельно охватить все три поверхности, RU/BA и сохранение корректного onboard представления, а не только header. Source findings не равны native/UI PASS.
+- **PWA:** ранее отмеченная граница `arriving` повторно подтверждена на [35dec48](https://github.com/bairasbai/yuldash/commit/35dec48d820202a9beee66fe3afaf13e75a0f331): заголовок ещё «Водитель едет к тебе», хотя progress rail корректно отражает прибытие; optional wait counter не является ETA подачи. Отдельный узкий RU/BA patch и mounted cases находятся в локальной работе, ещё не приняты как продукт. Перед публикацией нужны различающий RED, GREEN на неизменённых assertions, независимая проверка, check и build. Само наличие черновика не меняет статус опубликованного `35dec48`.
+
+Main/deploy/CI не затрагивались. Ни один из этих пунктов не подтверждает live traffic, свежий road ETA или готовое durable продолжение; приватные пути и черновые hashes не публикуются.
