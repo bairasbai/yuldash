@@ -7,13 +7,22 @@ import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import com.yuldash.app.data.BookingCommandApi
 import com.yuldash.app.data.DriverBookingDto
+import com.yuldash.app.data.MemoryDiskPreferences
+import com.yuldash.app.data.TripPassAuthorityFixture
+import java.net.InetAddress
+import okhttp3.mockwebserver.Dispatcher
+import okhttp3.mockwebserver.MockResponse
+import okhttp3.mockwebserver.MockWebServer
+import okhttp3.mockwebserver.RecordedRequest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Rule
@@ -213,10 +222,28 @@ class ProfileDeep4ContentTest {
 
     @Test
     fun driver_confirmedBooking_stillOffersNoShow() {
-        driverContent(driverBookings = listOf(booking(status = "confirmed")))
-        // Посадку отмечает водитель: «Сел» рядом с «Не пришёл».
-        composeRule.onNodeWithText("Не пришёл").assertIsDisplayed()
-        composeRule.onNodeWithText("Сел").assertIsDisplayed()
+        MockWebServer().use { server ->
+            server.dispatcher = object : Dispatcher() {
+                override fun dispatch(request: RecordedRequest): MockResponse =
+                    if (request.method == "GET" && request.path == "/me") {
+                        MockResponse().setHeader("Content-Type", "application/json")
+                            .setBody("""{"id":7,"created_at":"2026-01-01T00:00:00Z"}""")
+                    } else MockResponse().setResponseCode(404)
+            }
+            server.start(InetAddress.getByAddress(byteArrayOf(127, 0, 0, 1)), 0)
+            TripPassAuthorityFixture().use {
+                TripPassAuthorityFixture.installSession("http://127.0.0.1:${server.port}", 7)
+                BookingCommandApi.init(MemoryDiskPreferences())
+                driverContent(driverBookings = listOf(booking(status = "confirmed")))
+                val readyToBoard = hasText("Сел") and isEnabled()
+                composeRule.waitUntil(timeoutMillis = 10_000) {
+                    org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+                    composeRule.onAllNodes(readyToBoard).fetchSemanticsNodes().isNotEmpty()
+                }
+                composeRule.onNodeWithText("Не пришёл").assertIsDisplayed()
+                composeRule.onNode(readyToBoard).assertIsDisplayed()
+            }
+        }
     }
 
     @Test

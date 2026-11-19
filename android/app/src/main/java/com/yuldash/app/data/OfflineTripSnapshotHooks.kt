@@ -69,9 +69,9 @@ internal object OfflineTripSnapshotHooks {
         } }
         return result
     }
-    suspend fun state(bookingId: Int): SnapshotReadResult<TripStateDto> {
+    suspend fun state(bookingId: Int, generation: Long = ApiClient.queueSessionGeneration()): SnapshotReadResult<TripStateDto> {
         prepareRead()
-        val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.ROLE, ApiClient.queueSessionGeneration(), OfflineTripSnapshots)
+        val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.ROLE, generation, OfflineTripSnapshots)
         val result = ApiClient.readTripSnapshotJson("/bookings/$bookingId/role", read).mapCatching { parseState(it) }
         if (result.isFailure && result.exceptionOrNull() !is java.io.IOException && result.exceptionOrNull() !is ApiException) read.invalid()
         if (result.isFailure) OfflineTripSnapshots.failedRead(read.ticket, bookingId, read.fallbackAllowed)

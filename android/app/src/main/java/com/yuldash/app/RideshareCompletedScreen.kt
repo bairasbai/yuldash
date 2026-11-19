@@ -94,6 +94,7 @@ internal fun RideshareCompletedSession(
     openLostItem: suspend (Int) -> Result<Unit>, completedSession: Long,
     isCurrentParent: (() -> Boolean)?,
     isCurrentReceiptParent: (() -> Boolean)?,
+    driverStageRecovery: (@Composable () -> Unit)?,
 ) {
     val scope = rememberCoroutineScope()
     val currentParent by rememberUpdatedState(isCurrentParent)
@@ -335,6 +336,7 @@ internal fun RideshareCompletedSession(
         },
         onSupport = { if (isCurrent()) onSupport() },
         problemReport = if (reportTo > 0) { { PassengerAfterTripReport(bookingId, reportTo, counterpartyName) } } else null,
+        driverStageRecovery = if (isDriver) driverStageRecovery else null,
         travelerContact = receipt?.role?.let { role ->
             { CompletedBookingTraveler(bookingId, completedSession, role, counterpartyName, ::canAct) }
         },
@@ -390,6 +392,7 @@ internal fun RideshareCompletedContent(
     problemReport: (@Composable () -> Unit)? = null,   // «Сообщить о проблеме» пассажиру (RideshareBoarding.kt)
     guardianContact: (@Composable () -> Unit)? = null,
     travelerContact: (@Composable () -> Unit)? = null,
+    driverStageRecovery: (@Composable () -> Unit)? = null,
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -409,6 +412,9 @@ internal fun RideshareCompletedContent(
                 .testTag("rideshareCompletedList"),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
         ) {
+            if (driverStageRecovery != null) item(key = "completed-driver-stage-recovery") {
+                driverStageRecovery()
+            }
             if (receiptLoading) {
                 item {
                     LinearProgressIndicator(

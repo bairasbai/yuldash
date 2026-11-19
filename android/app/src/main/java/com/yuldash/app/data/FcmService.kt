@@ -52,11 +52,13 @@ class FcmService : FirebaseMessagingService() {
         val n = msg.notification
         val title = n?.title ?: msg.data["title"] ?: "Юлдаш"
         val body = n?.body ?: msg.data["body"] ?: ""
-        showNotification(title, body, msg.data["type"], msg.data["id"], recipient, msg.data["private"] == "1")
+        showNotification(title, body, msg.data["type"], msg.data["id"], recipient, msg.data["private"] == "1",
+            msg.data["rate_until"]?.toLongOrNull().takeIf { msg.data["rate"] == "1" })
     }
 
     private fun showNotification(
         title: String, body: String, type: String?, refId: String?, recipientUserId: Int, privateText: Boolean = false,
+        rateUntil: Long? = null,
     ) {
         val mgr = getSystemService(NotificationManager::class.java) ?: return
         val silent = !AppPrefs.sounds(this)   // тумблер «Звуки» выключен → беззвучно
@@ -105,6 +107,14 @@ class FcmService : FirebaseMessagingService() {
             .setPriority(if (silent) NotificationCompat.PRIORITY_LOW else NotificationCompat.PRIORITY_HIGH)
             .setSilent(silent)
             .setContentIntent(pi)
+        val ratingOwner = OfflineTripSnapshots.currentOwner()?.takeIf { it.userId == recipientUserId }
+        val ratingBooking = refId?.toIntOrNull()
+        val quickRating = type == "booking_done" && ratingBooking != null && ratingBooking > 0 &&
+            rateUntil != null && rateUntil > System.currentTimeMillis() / 1000L && ratingOwner != null
+        if (quickRating && ratingOwner != null && ratingBooking != null && rateUntil != null) {
+            builder.addAction(RateNotificationAction.askAction(this, ratingOwner, ratingBooking, rateUntil))
+            builder.addAction(0, appTextFor(AppPrefs.language(this), "Есть замечания", "Иҫкәрмәләр бар"), pi)
+        }
         // Переписка — личное, и телефон часто лежит на столе или в общей семье. Уведомление
         // чата помечаем приватным и даём системе БЕЗОПАСНУЮ версию: на заблокированном экране
         // видно «Юлдаш · Новое сообщение», а имя собеседника и текст открываются после разблокировки.
@@ -114,7 +124,7 @@ class FcmService : FirebaseMessagingService() {
         // жалобы, разборы, паузы, долги и документы. На погашенном экране высвечивалось целиком
         // «Поступила жалоба. Категория: не заплатил» и «Такси на паузе» — в районе, где все друг
         // друга знают, это разговор у магазина, а телефон часто лежит на столе при всей семье.
-        if (channelId == CHANNEL_CHAT || privateText) {
+        if (channelId == CHANNEL_CHAT || privateText || quickRating) {
             val lang = AppPrefs.language(this)
             val hidden = if (channelId == CHANNEL_CHAT) {
                 appTextFor(lang, "Новое сообщение", "Яңы хәбәр")
@@ -134,7 +144,11 @@ class FcmService : FirebaseMessagingService() {
         // id тоже по ключу: новое сообщение того же чата ЗАМЕНЯЕТ прежнее, а не сыплет столбиком
         // (было System.currentTimeMillis() → 20 сообщений = 20 уведомлений). Без id — по времени.
         val notifId = if (refId.isNullOrBlank()) (System.currentTimeMillis().toInt() and 0x7FFFFFFF) else key.hashCode()
-        mgr.notify(notifId, notif)
+        if (quickRating && ratingOwner != null) {
+            ApiClient.runIfCurrentSession(ratingOwner.generation) {
+                if (OfflineTripSnapshots.current(ratingOwner)) mgr.notify(notifId, notif)
+            }
+        } else mgr.notify(notifId, notif)
     }
 
     companion object {

@@ -55,6 +55,7 @@ import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingApi
 import com.yuldash.app.data.BoardingUndoTerms
 import com.yuldash.app.data.BoardingResult
+import com.yuldash.app.data.DriverStageApi
 import com.yuldash.app.data.NoShowTerms
 import com.yuldash.app.data.afterRefusal
 import com.yuldash.app.data.TripReceiptDto
@@ -125,6 +126,7 @@ internal fun DriverBoardingControls(
     boardingActions: DriverCabinetBoardingActions? = null,
     boardingUndoDeadlineElapsedMs: Long? = null,
     onBoardingResult: ((BoardingResult) -> Unit)? = null,
+    stageRecovery: DriverStageRecoveryState? = null,
 ) {
     val rowScope = rememberCoroutineScope()
     val scope = boardingScope ?: rowScope
@@ -134,14 +136,11 @@ internal fun DriverBoardingControls(
     val gpsAction = rememberDriverGpsAction(bookingId)
     var marking by remember(bookingId) { mutableStateOf(false) }
     val failMsg = appText("Не получилось отметить. Проверь сеть.", "Билдәләп булманы. Селтәрҙе тикшер.")
-    fun applyBoarding(result: BoardingResult) {
-        if (!ApiClient.isCurrentSession(boardingOwner)) return
-        val status = result.status.ifBlank { "onboard" }
-        if (onBoardingResult == null) {
-            shown = status
-            undoSec = result.undoSec
-        } else {
-            onBoardingResult(result.copy(status = status))
+    val applyBoarding: (BoardingResult) -> Unit = { result ->
+        if (ApiClient.isCurrentSession(boardingOwner)) {
+            val status = result.status.ifBlank { "onboard" }
+            if (onBoardingResult == null) { shown = status; undoSec = result.undoSec }
+            else onBoardingResult(result.copy(status = status))
         }
     }
     AnimatedContent(targetState = shown, modifier = modifier.fillMaxWidth(), label = "driverBoarding") { state ->
@@ -151,22 +150,35 @@ internal fun DriverBoardingControls(
                 noShowAt = noShowAt,
                 noShowNeedsArriving = noShowNeedsArriving,
                 arrivingOpensAt = arrivingOpensAt,
-                marking = marking || boardingActions?.isPending(bookingId) == true,
+                marking = marking || boardingActions?.isPending(bookingId) == true || stageRecovery?.blocked(bookingId) == true,
                 onMark = {
-                    if (!marking && boardingActions?.start(bookingId) != false) {
+                    if (!marking && stageRecovery?.blocked(bookingId) != true && boardingActions?.start(bookingId) != false) {
                         marking = true
                         val gpsTicket = gpsAction.begin(bookingId)
                         scope.launch {
                             try {
-                                BoardingApi.markBoarded(bookingId, boardingOwner)
-                                    .also { gpsAction.finish(gpsTicket, it.isSuccess) }
-                                    .onSuccess(::applyBoarding)
-                                    .onFailure { e ->
-                                        if (ApiClient.isCurrentSession(boardingOwner)) {
-                                            Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                if (stageRecovery == null) {
+                                    BoardingApi.markBoarded(bookingId, boardingOwner)
+                                        .also { gpsAction.finish(gpsTicket, it.isSuccess) }
+                                        .onSuccess(applyBoarding)
+                                        .onFailure { e ->
+                                            if (ApiClient.isCurrentSession(boardingOwner)) {
+                                                Toast.makeText(ctx, serverSaid(e, failMsg), Toast.LENGTH_LONG).show()
+                                            }
                                         }
-                                    }
+                                } else {
+                                    val result = DriverStageApi.advance(boardingOwner, bookingId, DriverStageApi.Stage.Boarded)
+                                    if (!ApiClient.isCurrentSession(boardingOwner)) return@launch
+                                    val fresh = result.getOrNull()?.trip
+                                    if (fresh?.status in setOf("done", "cancelled")) DriverGpsActions.closed(bookingId)
+                                    gpsAction.finish(gpsTicket, fresh?.status == "onboard")
+                                    if (!ApiClient.isCurrentSession(boardingOwner)) return@launch
+                                    result.onSuccess { stageRecovery.feedback = it }.onFailure { stageRecovery.error = it }
+                                    if (fresh != null) applyBoarding(BoardingResult(fresh.status, fresh.boardingUndoSec, fresh.boardingUndo))
+                                    stageRecovery.reload++
+                                }
                             } finally {
+                                DriverGpsActions.fail(gpsTicket)
                                 marking = false
                                 boardingActions?.finish(bookingId)
                             }
@@ -179,7 +191,7 @@ internal fun DriverBoardingControls(
             "onboard" -> BoardingInCarRow(
                 bookingId = bookingId,
                 undoSec = undoSec,
-                onUndone = ::applyBoarding,
+                onUndone = applyBoarding,
                 undoTerms = boardingUndo,
                 boardingScope = boardingScope,
                 boardingOwner = boardingOwner,
