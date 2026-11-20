@@ -30,11 +30,13 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import inspect
 
 import app.routers.rides as rides_mod
 import app.services as svc
+from app.db import engine
 from app.main import app
-from app.models import UserRole
+from app.models import DriverPaySettings, UserRole
 
 from test_api import _ride
 
@@ -161,7 +163,7 @@ def test_оплата_переживает_отказ_провайдера():
     assert "503" in блок, "нет мягкого ответа «попробуй ещё раз»"
 
 
-def test_растущие_таблицы_имеют_индексы():
+def test_растущие_таблицы_имеют_индексы(client):
     """Без индекса лента живёт до первых тысяч поездок, а потом ложится."""
     модели = (APP_DIR / "models.py").read_text(encoding="utf-8")
     таблицы = re.findall(r"class (\w+)\(SQLModel, table=True\)", модели)
@@ -175,9 +177,17 @@ def test_растущие_таблицы_имеют_индексы():
         if "index=True" not in блок:
             без_индексов.append(имя)
 
+    # Настройки водителя читаются по user_id. SQLite и PostgreSQL поддерживают
+    # это ограничение уникальности индексом, поэтому проверяем реальную схему.
+    ограничения = inspect(engine).get_unique_constraints(DriverPaySettings.__tablename__)
+    assert any(огр["column_names"] == ["user_id"] for огр in ограничения), (
+        "DriverPaySettings.user_id должен иметь отдельное ограничение уникальности"
+    )
     # Журнал сводки растёт по строке в день. Метки SMS чистятся по service_day,
     # первой колонке составного первичного ключа; второго индекса им не нужно.
-    без_индексов = [t for t in без_индексов if t not in {"DailyDigestLog", "OtpBudgetAlert"}]
+    без_индексов = [
+        t for t in без_индексов if t not in {"DailyDigestLog", "OtpBudgetAlert", "DriverPaySettings"}
+    ]
     assert not без_индексов, (
         f"в этих таблицах нет ни одного индекса: {без_индексов}. Пока район маленький, это "
         "незаметно; на тысячах записей каждая выборка станет полным перебором"

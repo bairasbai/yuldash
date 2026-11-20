@@ -144,6 +144,10 @@ def test_pay_settings_migration_keeps_existing_driver_on_upgrade_and_rollback(tm
             session.commit()
             uid = driver.id
         command.upgrade(config, current)
+        assert any(
+            constraint["column_names"] == ["user_id"]
+            for constraint in inspect(db).get_unique_constraints("driverpaysettings")
+        )
         with Session(db) as session:
             assert session.get(User, uid).role == UserRole.driver
             assert session.exec(select(DriverPaySettings)).first() is None
