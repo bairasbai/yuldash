@@ -5,6 +5,7 @@ from typing import Optional
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, false, text
 from sqlmodel import SQLModel, Field
 
+from . import rideshare_bank_models  # noqa: F401 — registers the separate banking tables in SQLModel metadata
 from .timeutil import utcnow
 
 # Соответствует docs/backend.md §3. Фаза 1: только ядро.

@@ -79,15 +79,15 @@
   },
   "counts_by_kind": {
     "android_main": 239,
-    "backend_main": 121,
-    "infra_resource_config": 428,
+    "backend_main": 123,
+    "infra_resource_config": 429,
     "public_site_promo": 91,
     "pwa_main": 356,
-    "test_support": 1337
+    "test_support": 1338
   },
   "counts_by_block": {
-    "B01": 175,
-    "B02": 348,
+    "B01": 177,
+    "B02": 349,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -95,7 +95,7 @@
     "B07": 146,
     "B08": 222,
     "B09": 790,
-    "B10": 428,
+    "B10": 429,
     "B11": 92
   },
   "excluded_counts": {
@@ -6681,6 +6681,13 @@
       "lines": 38
     },
     {
+      "path": "backend/alembic/versions/ct_rideshare_bank_accounting.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "7b8802b86f5a285c5204be6e679d4b189b70588fb84093b4a7027582bec3390b",
+      "lines": 99
+    },
+    {
       "path": "backend/alembic/versions/f10_payment_agreement.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7447,8 +7454,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "1d99ac20ce753a4c68269756ad75b139f6aacf8697f37323131ba380309e4370",
-      "lines": 2294
+      "sha256": "d149eddfd6e9ec7441dd0b442f5513086e22629a341ba24fb7fc534109a86dc3",
+      "lines": 2295
     },
     {
       "path": "backend/app/observability.py",
@@ -7561,6 +7568,20 @@
       "block": "B02",
       "sha256": "230e9f3b5291b4090e85aace096639b0877a1bba65873aaf9737a35398eba630",
       "lines": 323
+    },
+    {
+      "path": "backend/app/rideshare_bank_accounting.py",
+      "kind": "backend_main",
+      "block": "B01",
+      "sha256": "2ad998bde08cd8f6fb562256a6eb1b45ed5f1b0b2920962880224712408dc987",
+      "lines": 125
+    },
+    {
+      "path": "backend/app/rideshare_bank_models.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "d9c8b0ed543b166b2371188bf7a1b5604f8a723a479066c6248d4cb02474719d",
+      "lines": 75
     },
     {
       "path": "backend/app/rideshare_bank_provider.py",
@@ -11621,6 +11642,13 @@
       "block": "B02",
       "sha256": "2b7fd740e733cedaffc52667586ca9887f85a28809ab066e1733716eace9f7d0",
       "lines": 101
+    },
+    {
+      "path": "backend/tests/test_rideshare_bank_accounting.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "15b52897890a396d191594460232e89e5993217d6099e2abb750d8ea9e4b25ac",
+      "lines": 187
     },
     {
       "path": "backend/tests/test_rideshare_bank_provider.py",
