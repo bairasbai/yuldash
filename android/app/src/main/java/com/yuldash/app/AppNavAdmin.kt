@@ -24,6 +24,7 @@ internal fun AdminNav(screen: Screen, onBack: () -> Unit, onOpen: (Screen) -> Un
     when (screen) {
         Screen.AdminCabinet -> AdminCabinetScreen(
             onBack = { onBack() },
+            onSwitches = { onOpen(Screen.AdminSwitches) },
             onAdminRequest = { onOpen(Screen.AdminRequest) },
             onAdminResponses = { onOpen(Screen.AdminResponses) },
             onAds = { onOpen(Screen.AdsCabinet) },
@@ -45,6 +46,7 @@ internal fun AdminNav(screen: Screen, onBack: () -> Unit, onOpen: (Screen) -> Un
             onIncidents = { onOpen(Screen.AdminIncidents) },
             onRatings = { onOpen(Screen.AdminRatings) },
         )
+        Screen.AdminSwitches -> AdminSwitchesScreen(onBack = onBack)
         Screen.AdminDrivers -> AdminDriversScreen(onBack = { onBack() })
         Screen.AdminReports -> AdminReportsScreen(onBack = { onBack() })
         Screen.AdminTextFlags -> AdminTextFlagsScreen(onBack = { onBack() })

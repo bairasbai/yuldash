@@ -532,6 +532,7 @@ internal enum class Screen {
     Report,
     Filters,
     AdminCabinet,
+    AdminSwitches,
     AdminRequest,
     AdminResponses,
     AdminDrivers,

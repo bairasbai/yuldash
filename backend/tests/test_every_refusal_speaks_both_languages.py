@@ -216,9 +216,10 @@ def test_отказ_входа_объясняет_что_делать(client, mo
     monkeypatch.setattr(settings, "sms_provider", "smsru", raising=False)
     monkeypatch.setattr(settings, "sms_budget_hmac_key", "synthetic-key")
 
-    original = login_methods.login_state
-    monkeypatch.setattr(login_methods, "login_state", lambda key, row:
-                        SwitchState(None, True, ()) if key == "login.sms" else original(key, row))
+    original = login_methods.switch_state
+    monkeypatch.setattr(login_methods, "switch_state", lambda key, row, *, paid_enabled:
+                        SwitchState(None, True, ()) if key == "login.sms"
+                        else original(key, row, paid_enabled=paid_enabled))
     monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.FAILED)
 
     ответ = client.post("/auth/request-code", json={"phone": "+79170009999"})

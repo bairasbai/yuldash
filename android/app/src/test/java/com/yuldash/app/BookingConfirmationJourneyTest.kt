@@ -177,10 +177,16 @@ class BookingConfirmationJourneyTest {
     @Test fun newBookingWaitsForDriverWhoConfirmsFromCabinet() {
         mount()
         choosePublicRide()
-        compose.onNodeWithText("Забронировать место").performClick()
-        compose.waitUntil(15000) {
-            settle()
-            vm.activeBookingId.value == 42
+        compose.onNodeWithText("Забронировать место").assertIsEnabled().performClick()
+        try {
+            compose.waitUntil(15000) {
+                compose.mainClock.advanceTimeByFrame()
+                settle()
+                vm.activeBookingId.value == 42
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError("Бронь 42 не появилась: screen=${vm.screen.value}, " +
+                "POST=${bookingBodies.size}, requests=${requests.map { it.first }}, responses=$responseLedger", failure)
         }
         compose.runOnIdle {
             assertEquals("Server pending must stay on booking details", Screen.Booking, vm.screen.value)

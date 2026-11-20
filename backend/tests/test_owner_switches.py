@@ -16,7 +16,7 @@ from app.db import engine
 from app.main import app
 from app.models import AppSetting, AppSettingChange, OtpCode, User, UserRole
 from app.otp_budget import SmsDelivery
-from app.owner_switches import LOGIN_KEYS
+from app.owner_switches import PAID_SWITCH, SWITCH_KEYS
 from app.routers import admin_switches, auth
 from app.timeutil import utcnow
 
@@ -32,13 +32,13 @@ def synthetic_channels(telegram_login_ready, monkeypatch):
     monkeypatch.setattr(settings, "sms_provider", "mock")
     monkeypatch.setattr(settings, "review_phone", "")
     with Session(engine) as session:
-        session.execute(update(AppSetting).where(AppSetting.key.in_(LOGIN_KEYS))
+        session.execute(update(AppSetting).where(AppSetting.key.in_(SWITCH_KEYS))
                         .values(value=None, updated_by=None, updated_at=None))
         session.commit()
     yield
     with Session(engine) as session:
-        session.execute(delete(AppSettingChange).where(AppSettingChange.key.in_(LOGIN_KEYS)))
-        session.execute(update(AppSetting).where(AppSetting.key.in_(LOGIN_KEYS))
+        session.execute(delete(AppSettingChange).where(AppSettingChange.key.in_(SWITCH_KEYS)))
+        session.execute(update(AppSetting).where(AppSetting.key.in_(SWITCH_KEYS))
                         .values(value=None, updated_by=None, updated_at=None))
         session.commit()
 
@@ -72,8 +72,9 @@ def _pid(session):
     return session.execute(text("SELECT pg_backend_pid()")).scalar_one()
 
 
-def test_switches_show_state_and_require_telegram_operator(client, user_factory, monkeypatch):
+def test_switches_show_state_and_require_telegram_operator(client, user_factory, monkeypatch, set_paid_owner):
     admin = user_factory("QA switch operator", role=UserRole.admin)
+    set_paid_owner(admin)
     passenger = user_factory()
     assert client.get("/admin/switches", headers=passenger["auth"]).status_code == 403
     assert client.post(SMS_PATH, headers=passenger["auth"], json={"value": False}).status_code == 403
@@ -141,8 +142,10 @@ def test_last_working_method_cannot_be_disabled(client, user_factory, monkeypatc
     assert _state(client, admin)["effective"] is True
 
 
-def test_repeat_stored_choice_keeps_history_when_channel_becomes_blocked(client, user_factory, monkeypatch):
+def test_repeat_stored_choice_keeps_history_when_channel_becomes_blocked(client, user_factory, monkeypatch,
+                                                                       set_paid_owner):
     admin = user_factory(role=UserRole.admin)
+    set_paid_owner(admin)
     enabled = client.post(SMS_PATH, headers=admin["auth"], json={"value": True})
     assert enabled.status_code == 200 and enabled.json()["effective"] is True
     monkeypatch.setattr(settings, "sms_provider", "smsru")
@@ -159,7 +162,7 @@ def test_setting_and_history_roll_back_together(client, user_factory, monkeypatc
     admin = user_factory(role=UserRole.admin)
     original = admin_switches._switch_view
 
-    def fail_after_flush(session, row):
+    def fail_after_flush(session, row, **kwargs):
         assert session.exec(select(AppSettingChange).where(AppSettingChange.key == SMS)).one().new_value is False
         raise RuntimeError("synthetic response assembly failure")
 
@@ -184,9 +187,24 @@ def test_disabled_sms_rejects_previously_issued_code_on_new_verify(client, user_
 
 @PG_ONLY
 @pytest.mark.parametrize("first", ["send", "off"])
-def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypatch, first):
+@pytest.mark.parametrize("key", [SMS, PAID_SWITCH])
+def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypatch, set_paid_owner, first, key):
     admin = user_factory(role=UserRole.admin)
-    phone = "+79990102033" if first == "send" else "+79990102034"
+    suffix = (33 if key == SMS else 37) + (first == "off")
+    phone = f"+799901020{suffix}"
+    off_body = {"value": False, "confirm": True}
+    if key == PAID_SWITCH:
+        set_paid_owner(admin)
+        for setting, value in {
+            "sms_provider": "smsru", "sms_ru_login_ready": True, "sms_ru_api_id": "synthetic-only",
+            "sms_from": "SyntheticSender", "sms_budget_hmac_key": "synthetic-budget",
+        }.items():
+            monkeypatch.setattr(settings, setting, value)
+        master = _post("POST", f"/admin/switches/{PAID_SWITCH}", admin["auth"],
+                       {"value": True, "expected_revision": 0})
+        assert master.status_code == 200
+        off_body["expected_revision"] = master.json()["revision"]
+        assert _post("POST", SMS_PATH, admin["auth"], {"value": True}).status_code == 200
     entered = {name: Event() for name in ("send", "off")}
     held, release = Event(), Event()
     active_pids, sent = {}, []
@@ -212,11 +230,11 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
             assert release.wait(10)
         return admission
 
-    def hold_off_commit(session, row):
+    def hold_off_commit(session, row, **kwargs):
         if first == "off":
             held.set()
             assert release.wait(10)
-        return raw_view(session, row)
+        return raw_view(session, row, **kwargs)
 
     monkeypatch.setattr(login_methods, "login_settings", lambda session, *, lock=None: track("send", session, lock))
     monkeypatch.setattr(admin_switches, "login_settings", lambda session, *, lock=None: track("off", session, lock))
@@ -225,7 +243,7 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
     monkeypatch.setattr(admin_switches, "_switch_view", hold_off_commit)
     work = {
         "send": lambda: _post("POST", "/auth/request-code", body={"phone": phone}),
-        "off": lambda: _post("POST", SMS_PATH, admin["auth"], {"value": False, "confirm": True}),
+        "off": lambda: _post("POST", f"/admin/switches/{key}", admin["auth"], off_body),
     }
     second = "off" if first == "send" else "send"
     with ThreadPoolExecutor(max_workers=2) as pool:
@@ -308,11 +326,11 @@ def test_author_deletion_waits_for_write_and_preserves_anonymous_history(client,
     original_view = admin_switches._switch_view
     original_auth = auth.lock_authenticated_user
 
-    def hold_before_commit(session, row):
+    def hold_before_commit(session, row, **kwargs):
         pids["write"] = _pid(session)
         writing.set()
         assert release.wait(10)
-        return original_view(session, row)
+        return original_view(session, row, **kwargs)
 
     def observe_delete(cred, session):
         pids["delete"] = _pid(session)

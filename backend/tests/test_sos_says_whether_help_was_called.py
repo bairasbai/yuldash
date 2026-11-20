@@ -26,7 +26,7 @@ from app.routers.safety import SOS_SMS_PER_HOUR
 
 
 @pytest.fixture(autouse=True)
-def _оператор_подключён(monkeypatch):
+def _оператор_подключён(smsru_ready):
     """Мир этого файла: канал SMS РАБОТАЕТ, сообщения близким уходят по-настоящему.
 
     Раньше это подразумевалось молча — и потому не проверялось: на проде канал выключен,
@@ -34,10 +34,6 @@ def _оператор_подключён(monkeypatch):
     (волна 184). Что честный счёт бывает нулём при молчащем канале — проверяет
     `test_help_counted_is_help_sent.py`.
     """
-    from app.config import settings as _s
-    monkeypatch.setattr(_s, "sms_provider", "smsru")
-    monkeypatch.setattr(_s, "sms_notify_enabled", True)
-    monkeypatch.setattr(_s, "sms_ru_api_id", "test-id")
 
 
 @pytest.fixture

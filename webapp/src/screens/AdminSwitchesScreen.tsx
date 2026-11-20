@@ -2,8 +2,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
-  fetchOwnerSwitches, LOGIN_SWITCHES, saveOwnerSwitch,
-  type LoginSwitch, type OwnerSwitches,
+  fetchOwnerSwitches, OWNER_SWITCHES, PAID_PAUSED, PAID_SWITCH, saveOwnerSwitch,
+  type OwnerSwitchKey, type OwnerSwitches,
 } from "../api/ownerSwitches";
 import AlertDialog from "../components/AlertDialog";
 import { ListedEmpty, ListedError, ListedLoading } from "../components/adminUi";
@@ -15,7 +15,7 @@ type LoadState =
   | { phase: "loading" }
   | { phase: "error"; message?: string }
   | { phase: "ready"; rows: OwnerSwitches };
-type Confirmation = { key: LoginSwitch; value: false; affected: number };
+type Confirmation = { key: "login.sms" | typeof PAID_SWITCH; affected: number; revision?: number };
 
 export default function AdminSwitchesScreen() {
   const generation = useSyncExternalStore(subscribeSessionChanges, getSessionGeneration);
@@ -27,13 +27,13 @@ function SwitchesForSession({ generation }: { generation: string }) {
   const navigate = useNavigate();
   const [state, setState] = useState<LoadState>({ phase: "loading" });
   const [revision, reload] = useState(0);
-  const [busy, setBusy] = useState<LoginSwitch | null>(null);
+  const [busy, setBusy] = useState<OwnerSwitchKey | null>(null);
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [saveError, setSaveError] = useState("");
   const activeWrite = useRef<AbortController | null>(null);
   const confirmationHost = useRef<HTMLDivElement>(null);
-  const smsControl = useRef<HTMLButtonElement>(null);
-  const restoreSmsFocus = useRef(false);
+  const controls = useRef<Partial<Record<OwnerSwitchKey, HTMLButtonElement | null>>>({});
+  const restoreFocus = useRef<OwnerSwitchKey | null>(null);
 
   useEffect(() => {
     const source = new AbortController();
@@ -59,7 +59,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
     const first = options?.[0];
     const last = options?.[options.length - 1];
     if (!host || !first || !last) return;
-    restoreSmsFocus.current = true;
+    restoreFocus.current = confirmation.key;
     first.focus();
     function trapTab(event: KeyboardEvent) {
       if (event.key !== "Tab") return;
@@ -76,13 +76,16 @@ function SwitchesForSession({ generation }: { generation: string }) {
   }, [confirmation]);
 
   useEffect(() => {
-    if (restoreSmsFocus.current && !confirmation && busy === null && smsControl.current?.disabled === false) {
-      smsControl.current.focus();
-      restoreSmsFocus.current = false;
+    const key = restoreFocus.current;
+    const control = key ? controls.current[key] : null;
+    if (!confirmation && busy === null && control?.disabled === false) {
+      control.focus();
+      restoreFocus.current = null;
     }
   }, [confirmation, busy, state.phase]);
 
-  async function save(key: LoginSwitch, value: boolean, confirmed = false) {
+  async function save(key: OwnerSwitchKey, value: boolean, confirmed = false,
+                      revision = state.phase === "ready" ? state.rows[key]?.revision : undefined) {
     if (activeWrite.current) return;
     const source = new AbortController();
     activeWrite.current = source;
@@ -90,15 +93,20 @@ function SwitchesForSession({ generation }: { generation: string }) {
     setConfirmation(null);
     setSaveError("");
     try {
-      const next = await saveOwnerSwitch(key, value, confirmed, generation, source.signal);
+      const next = await saveOwnerSwitch(key, value, confirmed, generation, source.signal, revision);
       if (!source.signal.aborted) {
-        setState((prev) => prev.phase === "ready" ? { phase: "ready", rows: { ...prev.rows, [key]: next } } : prev);
+        if (key === PAID_SWITCH) {
+          setState({ phase: "loading" });
+          reload((prev) => prev + 1);
+        } else {
+          setState((prev) => prev.phase === "ready" ? { phase: "ready", rows: { ...prev.rows, [key]: next } } : prev);
+        }
       }
     } catch (error: unknown) {
       if (source.signal.aborted) return;
-      if (key === "login.sms" && !value && !confirmed && error instanceof ApiError &&
+      if ((key === "login.sms" || key === PAID_SWITCH) && !value && !confirmed && error instanceof ApiError &&
           error.status === 409 && error.code === "switch_needs_confirm" && error.affected) {
-        setConfirmation({ key, value, affected: error.affected });
+        setConfirmation({ key, affected: error.affected, revision });
       } else {
         setSaveError(error instanceof ApiError ? error.message :
           appText("Не удалось сохранить. Проверяем текущее состояние…", "Һаҡлап булманы. Әлеге торошто тикшерәбеҙ…"));
@@ -110,12 +118,20 @@ function SwitchesForSession({ generation }: { generation: string }) {
     }
   }
 
-  const labels: Record<LoginSwitch, string> = {
+  const labels: Record<OwnerSwitchKey, string> = {
+    [PAID_SWITCH]: appText("Платные подключения", "Түләүле хеҙмәттәр"),
+    "external.sms_notices": appText("SMS-уведомления", "SMS-хәбәрҙәр"),
     "login.sms": "SMS", "login.telegram": "Telegram", "login.vk": "VK ID", "login.whatsapp": "WhatsApp",
   };
   const blockerLabels: Record<string, string> = {
     SMS_PROVIDER: appText("SMS-провайдер не настроен", "SMS-провайдер көйләнмәгән"),
     SMS_RU_API_ID: appText("Не задан ключ SMS.ru", "SMS.ru асҡысы ҡуйылмаған"),
+    SMS_FROM: appText("Не задано имя отправителя SMS", "SMS ебәреүсенең исеме ҡуйылмаған"),
+    SMS_BUDGET_HMAC_KEY: appText("Не настроен ключ учёта лимитов SMS", "SMS лимиттарын иҫәпләү асҡысы көйләнмәгән"),
+    SMS_NOTIFY_ENABLED: appText("SMS-уведомления ещё не согласованы", "SMS-хәбәрҙәр әле килешелмәгән"),
+    SMSDAR_SENDER: appText("Не задано имя отправителя SMSDAR", "SMSDAR ебәреүсеһенең исеме ҡуйылмаған"),
+    smsru_confirmation_pending: appText("Подключение SMS.ru ещё не подтверждено", "SMS.ru-ға тоташыу әле раҫланмаған"),
+    [PAID_PAUSED]: appText("Платные подключения на паузе", "Түләүле хеҙмәттәр туҡтатылып тора"),
     SMSDAR_ID: appText("Не задан идентификатор SMSDAR", "SMSDAR идентификаторы ҡуйылмаған"),
     SMSDAR_PASSWORD: appText("Не задан пароль SMSDAR", "SMSDAR серһүҙе ҡуйылмаған"),
     TELEGRAM_BOT_TOKEN: appText("Не задан ключ бота Telegram", "Telegram ботының асҡысы ҡуйылмаған"),
@@ -131,20 +147,20 @@ function SwitchesForSession({ generation }: { generation: string }) {
     dateStyle: "medium", timeStyle: "short",
   });
   const formatDate = (value: string) => dateFormat.format(new Date(value));
-  const options = state.phase === "ready" ? LOGIN_SWITCHES.filter((key) => state.rows[key]) : [];
+  const options = state.phase === "ready" ? OWNER_SWITCHES.filter((key) => state.rows[key]) : [];
+  const confirmPause = confirmation?.key === PAID_SWITCH;
 
   return (
     <>
       <SubHeader title={appText("Выключатели", "Күсергестәр")} onBack={() => navigate("/admin")} />
       <div className="alist">
-        <h2 className="acard__title">{appText("Способы входа", "Инеү ысулдары")}</h2>
         {saveError && <p className="auth__error" role="alert">{saveError}</p>}
         {state.phase === "loading" && <div role="status"><ListedLoading /></div>}
         {state.phase === "error" && <ListedError message={state.message} onRetry={() => reload((prev) => prev + 1)} />}
         {state.phase === "ready" && options.length === 0 && (
           <>
             <ListedEmpty title={appText("Настроек пока нет", "Көйләүҙәр әлегә юҡ")}
-              subtitle={appText("Сервер не вернул способы входа.", "Сервер инеү ысулдарын күрһәтмәне.")} />
+              subtitle={appText("Попробуй обновить список.", "Исемлекте яңыртып ҡара.")} />
             <button type="button" className="abtn" onClick={() => reload((prev) => prev + 1)}>
               {appText("Обновить", "Яңыртыу")}
             </button>
@@ -155,6 +171,10 @@ function SwitchesForSession({ generation }: { generation: string }) {
           if (!row) return null;
           const wanted = row.stored ?? row.effective;
           const locked = key === "login.telegram";
+          const inFlight = row.in_flight ?? 0;
+          const revisionAvailable = !key.startsWith("external.") ||
+            (typeof row.revision === "number" && Number.isSafeInteger(row.revision) && row.revision >= 0);
+          const canEnable = row.blockers.every((code) => code === PAID_PAUSED);
           return (
             <section key={key} className="acard">
               <div className="acard__row acard__row--between">
@@ -169,9 +189,10 @@ function SwitchesForSession({ generation }: { generation: string }) {
                   </p>
                 </div>
                 <button type="button" className="acity__switch" role="switch" aria-label={labels[key]}
-                  ref={key === "login.sms" ? smsControl : undefined}
+                  ref={(button) => { controls.current[key] = button; }}
                   aria-checked={wanted} aria-describedby={`${key}-status`}
-                  disabled={busy !== null || confirmation !== null || locked || (!wanted && row.blockers.length > 0)}
+                  disabled={busy !== null || confirmation !== null || locked || row.editable === false ||
+                    !revisionAvailable || (!wanted && !canEnable)}
                   onClick={() => void save(key, !wanted)}>
                   {busy === key ? <span className="spinner spinner--sm" aria-hidden /> :
                     <span className={`switch${wanted ? " on" : ""}`} aria-hidden />}
@@ -180,9 +201,19 @@ function SwitchesForSession({ generation }: { generation: string }) {
               {locked && <p className="acard__note">
                 {appText("Нужен для входа администратора.", "Администратор инеү өсөн кәрәк.")}
               </p>}
+              {key === PAID_SWITCH && <p className="acard__note">
+                {appText("Ставит на паузу платные SMS. Настройки сохраняются.",
+                  "Түләүле SMS-тарҙы туҡтатып тора. Көйләүҙәр һаҡлана.")}
+              </p>}
+              {row.editable === false && <p className="acard__note">
+                {appText("Эту настройку меняет владелец.", "Был көйләүҙе хужа үҙгәртә.")}
+              </p>}
               {row.blockers.map((code) => <p key={code} className="acard__note">
                 {blockerLabels[code] ?? appText("Подключение ещё не готово.", "Тоташтырыу әле әҙер түгел.")}
               </p>)}
+              {Number.isSafeInteger(inFlight) && inFlight > 0 && <p className="acard__note">
+                {appText(`SMS в процессе отправки — ${inFlight}`, `Ебәрелеп ятҡан SMS — ${inFlight}`)}
+              </p>}
               {row.updated_at && <p className="acard__date">
                 <time dateTime={row.updated_at}>{formatDate(row.updated_at)}</time>
                 {row.updated_by_name && ` · ${row.updated_by_name}`}
@@ -208,15 +239,18 @@ function SwitchesForSession({ generation }: { generation: string }) {
       {confirmation && (
         <div ref={confirmationHost}>
           <AlertDialog
-            title={appText("Отключить SMS?", "SMS-ты һүндерергәме?")}
+            title={confirmPause
+              ? appText("Приостановить платные подключения?", "Түләүле хеҙмәттәрҙе туҡтатып торорғамы?")
+              : appText("Отключить SMS?", "SMS-ты һүндерергәме?")}
             descriptionId="owner-sms-switch-warning"
             text={appText(
               `Без способа входа останутся аккаунты пользователей — ${confirmation.affected}.`,
               `Инеү ысулы ҡалмаясаҡ ҡулланыусы аккаунттары — ${confirmation.affected}.`,
             )}
             dismiss={{ label: appText("Отмена", "Кире алыу"), onClick: () => setConfirmation(null) }}
-            confirm={{ label: appText("Отключить SMS", "SMS-ты һүндереү"), tone: "danger",
-              onClick: () => void save(confirmation.key, confirmation.value, true) }}
+            confirm={{ label: confirmPause ? appText("Приостановить", "Туҡтатып тороу")
+              : appText("Отключить SMS", "SMS-ты һүндереү"), tone: "danger",
+              onClick: () => void save(confirmation.key, false, true, confirmation.revision) }}
             onClose={() => setConfirmation(null)}
           />
         </div>

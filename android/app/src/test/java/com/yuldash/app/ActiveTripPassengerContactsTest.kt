@@ -60,6 +60,8 @@ class ActiveTripPassengerContactsTest {
     private val releaseOrderedDetails = CountDownLatch(1)
     private val onboardDetailsHeld = CountDownLatch(1)
     private val releaseOnboardDetails = CountDownLatch(1)
+    private val releaseLaterOnboardRole = CountDownLatch(1)
+    private val onboardRoleReads = AtomicInteger()
     private val firstDetailsHeld = CountDownLatch(1)
     private val releaseFirstDetails = CountDownLatch(1)
     private val firstDetailsReturned = CountDownLatch(1)
@@ -89,6 +91,7 @@ class ActiveTripPassengerContactsTest {
     @Volatile private var oldRetryCode = "5678"
     @Volatile private var holdFreshCode = false
     @Volatile private var holdOnboardDetails = false
+    @Volatile private var isolateOnboardRole = false
     @Volatile private var preparingRole = false
     @Volatile private var orderInitialDetails = false
     @Volatile private var detailsUnavailable = false
@@ -135,9 +138,15 @@ class ActiveTripPassengerContactsTest {
                         val rows = if (pickupPointsEmpty) "[]" else """[{"id":7,"city":"$city","title_ru":"Ориентир $city","title_ba":"Урын $city"}]"""
                         return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"items":$rows}""")
                     }
-                    if (request.path == "/bookings/42/role" && roleCalls.incrementAndGet() == 1 && holdFirstRole) {
-                        firstRoleHeld.countDown()
-                        if (!releaseFirstRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                    if (request.path == "/bookings/42/role") {
+                        if (roleCalls.incrementAndGet() == 1 && holdFirstRole) {
+                            firstRoleHeld.countDown()
+                            if (!releaseFirstRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
+                        }
+                        // The boarding race test observes one successful onboard poll. Later polls
+                        // can legitimately refresh details and must stay outside this race window.
+                        if (isolateOnboardRole && status == "onboard" && onboardRoleReads.incrementAndGet() > 1 &&
+                            !releaseLaterOnboardRole.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                     }
                     if (request.path == "/bookings/42/boarding-code") {
                         val attempt = codeCalls.incrementAndGet()
@@ -213,6 +222,7 @@ class ActiveTripPassengerContactsTest {
         releaseSecondCity.countDown()
         releaseFirstCity.countDown()
         compose.runOnIdle { mounted.value = false }
+        releaseLaterOnboardRole.countDown()
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         ApiClient.logout()
         ApiClient.resetForTest()
@@ -520,6 +530,7 @@ class ActiveTripPassengerContactsTest {
         oldRetryCode = "1111"
         holdFreshCode = true
         holdOnboardDetails = true
+        isolateOnboardRole = true
         scrollTo("Повторить загрузку кода")
         compose.onNodeWithText("Повторить загрузку кода").performClick()
         compose.waitUntil(15000) { settle(); retryHeld.count == 0L }

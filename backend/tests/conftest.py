@@ -135,20 +135,54 @@ def sms_retry_elapsed(monkeypatch):
 
 
 @pytest.fixture
-def smsru_ready(monkeypatch):
+def paid_notices_enabled(client):
+    from app.models import AppSetting
+    from app.owner_switches import EXTERNAL_KEYS
+
+    with Session(engine) as session:
+        previous = {key: session.get(AppSetting, key).value for key in EXTERNAL_KEYS}
+        for key in EXTERNAL_KEYS:
+            session.get(AppSetting, key).value = True
+        session.commit()
+    yield
+    with Session(engine) as session:
+        for key, value in previous.items():
+            session.get(AppSetting, key).value = value
+        session.commit()
+
+
+@pytest.fixture
+def set_paid_owner(monkeypatch):
+    from app.config import settings
+
+    def set_owner(user):
+        with Session(engine) as session:
+            monkeypatch.setattr(settings, "admin_telegram_chat_id", session.get(User, user["id"]).telegram_id)
+
+    return set_owner
+
+
+@pytest.fixture
+def smsru_ready(monkeypatch, paid_notices_enabled):
     """Тестовый оператор подтверждает SMS без подключения к внешней сети."""
     import httpx
+    from urllib.parse import parse_qs
+    from app import smsru
     from app.config import settings
 
     monkeypatch.setattr(settings, "sms_provider", "smsru")
     monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", "test-id")
+    monkeypatch.setattr(settings, "sms_from", "SyntheticSender")
 
-    def synthetic_get(url, *, params, **kwargs):
-        assert url == "https://sms.ru/sms/send"
-        return httpx.Response(200, json={"sms": {params["to"]: {"status_code": 100}}})
+    def synthetic_send(request):
+        assert request.method == "POST" and str(request.url) == "https://sms.ru/sms/send"
+        recipient = parse_qs(request.content.decode())["to"][0]
+        return httpx.Response(200, json={
+            "status": "OK", "status_code": 100, "sms": {recipient: {"status": "OK", "status_code": 100}},
+        })
 
-    monkeypatch.setattr(httpx, "get", synthetic_get)
+    monkeypatch.setattr(smsru, "_client", lambda: httpx.Client(transport=httpx.MockTransport(synthetic_send)))
 
 
 @pytest.fixture

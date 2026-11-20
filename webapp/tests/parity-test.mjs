@@ -41,6 +41,7 @@ const ROUTES = {
   Report: "/report",
   Filters: "/filters",
   AdminCabinet: "/admin",
+  AdminSwitches: "/admin/switches",
   AdminRequest: "/admin/request",
   AdminResponses: "/admin/responses",
   AdminDrivers: "/admin/drivers",
