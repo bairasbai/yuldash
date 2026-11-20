@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, Index, UniqueConstraint, text
+from sqlalchemy import BigInteger, CheckConstraint, Column, Index, LargeBinary, UniqueConstraint, text
 from sqlmodel import Field, SQLModel
 
 from .timeutil import utcnow
@@ -13,6 +13,13 @@ BANK_ACTIVE_STATES = ("queued", "dispatched", "pending", "needs_reconciliation")
 _ACTIVE = "state IN ('queued', 'dispatched', 'pending', 'needs_reconciliation')"
 _FINAL = "resource IN ('deals', 'payments', 'payouts') AND state = 'succeeded'"
 _OPEN = "closed_at IS NULL"
+
+
+class RideshareBankRecipient(SQLModel, table=True):
+    user_id: int = Field(primary_key=True, foreign_key="user.id", ondelete="CASCADE")
+    version: str = Field(default_factory=lambda: uuid4().hex, max_length=32)
+    token_ciphertext: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))
+    updated_at: datetime = Field(default_factory=utcnow)
 
 
 class RideshareBankCheckout(SQLModel, table=True):
