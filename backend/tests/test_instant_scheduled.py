@@ -3,8 +3,12 @@
 активация (ручная и ленивая при GET), запрет прошлого/слишком далёкого времени."""
 from datetime import timedelta
 
+import pytest
 from sqlmodel import Session
 
+from app import instant_service as isv
+from app import pricing
+from app.config import settings
 from app.db import engine
 from app.models import InstantOrder, InstantOrderStatus as S
 from app.timeutil import utcnow
@@ -95,3 +99,67 @@ def test_lazy_activation_when_due(client, user_factory):
     assert o["id"] not in [x["id"] for x in resp["scheduled"]]
     with Session(engine) as s:
         assert s.get(InstantOrder, o["id"]).status != S.scheduled
+
+
+@pytest.mark.parametrize("lazy", [False, True])
+@pytest.mark.parametrize("round_trip,with_stops", [(False, False), (False, True), (True, False), (True, True)])
+def test_activation_reprices_the_persisted_route(client, user_factory, monkeypatch, lazy, round_trip, with_stops):
+    monkeypatch.setattr(settings, "round_trip_discount_percent", 12)
+    monkeypatch.setattr(settings, "scheduled_price_guarantee_percent", 0)
+    monkeypatch.setattr(isv, "zone_for_km", lambda _distance: "intercity")
+    monkeypatch.setattr(isv, "_redis", lambda: None)
+    monkeypatch.setattr(pricing, "route_metrics", lambda *_: pricing.RouteMetrics(10.0, 12.0))
+    monkeypatch.setattr(pricing, "weather_metrics", lambda *_: pricing.WeatherMetrics())
+    # Isolate the test from external services, but use the real fare computation.
+    pax = user_factory("SchedRoute")
+    points = [
+        {"lat": 52.64, "lng": 58.41, "text": "Точка А"},
+        {"lat": 52.68, "lng": 58.54, "text": "Точка Б"},
+    ] if with_stops else []
+    created = _schedule(client, pax, utcnow() + timedelta(hours=1), round_trip=round_trip, waypoints=points)
+    assert created.status_code == 200, created.text
+    order_id = created.json()["id"]
+    with Session(engine) as session:
+        row = session.get(InstantOrder, order_id)
+        assert bool(row.round_trip) is round_trip
+        assert isv.parse_waypoints(row.waypoints_json) == [{**point, "done": False} for point in points]
+        if lazy:
+            row.scheduled_at = utcnow() - timedelta(minutes=1)
+            session.add(row)
+            session.commit()
+
+    calls = []
+    results = []
+    estimate = isv.estimate
+    activation_time = utcnow()
+    monkeypatch.setattr(isv, "utcnow", lambda: activation_time)
+
+    def observed_estimate(*args, **kwargs):
+        calls.append(kwargs.copy())
+        result = estimate(*args, **kwargs)
+        results.append(result.copy())
+        return result
+
+    monkeypatch.setattr(isv, "estimate", observed_estimate)
+    if lazy:
+        activation = client.get("/instant/scheduled", headers=pax["auth"])
+        assert activation.status_code == 200, activation.text
+        assert order_id in {order["id"] for order in activation.json()["activated"]}
+    else:
+        activation = client.post(f"/instant/scheduled/{order_id}/activate", headers=pax["auth"])
+        assert activation.status_code == 200, activation.text
+        assert activation.json()["status"] != "scheduled"
+    assert len(calls) == 1
+    assert calls[0]["round_trip"] is round_trip
+    assert calls[0]["waypoints"] == [{**point, "done": False} for point in points]
+    assert calls[0].get("when") is None  # current activation time, not initial booking time
+    assert results[0]["distance_km"] == (30.0 if with_stops else 10.0)
+    assert results[0]["eta_min"] == (36.0 if with_stops else 12.0)
+    with Session(engine) as session:
+        row = session.get(InstantOrder, order_id)
+        assert row.price_estimate == results[0]["price"]
+        assert row.ride_price == results[0]["ride_price"]
+        assert row.distance_km == results[0]["distance_km"]
+        assert row.eta_min == results[0]["eta_min"]
+        assert bool(row.round_trip) is round_trip
+        assert isv.parse_waypoints(row.waypoints_json) == [{**point, "done": False} for point in points]
