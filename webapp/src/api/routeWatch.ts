@@ -60,12 +60,12 @@ export function watchLocalDay(iso?: string | null): string | null {
   return instant ? yuldashCalendar.format(instant) : null;
 }
 
-export function matchingRouteWatch(watches: RouteWatch[], route: WatchRoute): RouteWatch | undefined {
+export function matchingRouteWatch(watches: RouteWatch[], route: WatchRoute, direction: WatchDirection = "forward"): RouteWatch | undefined {
   const from = watchPlaceKey(route.from);
   const to = watchPlaceKey(route.to);
   let exact: RouteWatch | undefined;
   for (const watch of watches) {
-    if (watch.watch_kind === "rides" && watch.direction === "forward"
+    if (watch.watch_kind === "rides" && watch.direction === direction
       && watchPlaceKey(watch.from_city) === from && watchPlaceKey(watch.to_city) === to
       && (watch.watch_date ? watchLocalDay(watch.watch_date) === route.day : !route.day)
       && (!exact || watch.id < exact.id)) exact = watch;

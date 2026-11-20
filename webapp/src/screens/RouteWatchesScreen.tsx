@@ -11,6 +11,7 @@ import {
   createRouteWatch,
   deleteRouteWatch,
   fetchRouteWatches,
+  matchingRouteWatch,
   routeWatchOutcomeUnknown,
   validWatchPlace,
   watchLocalDay,
@@ -49,32 +50,44 @@ function RouteWatches({ owner, params }: { owner: WatchOwner; params: URLSearchP
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const operation = useRef(false);
+  const recovery = useRef<(rows: RouteWatch[]) => void>();
   const locale = lang === "ba" ? "ba-RU" : "ru-RU";
   const { generation, userId } = owner;
 
-  const load = useCallback((signal?: AbortSignal) => {
+  const load = useCallback(async (signal?: AbortSignal) => {
     const session = { generation, userId };
     setStatus("loading");
-    fetchRouteWatches(session, signal)
-      .then((rows) => {
-        if (signal?.aborted || !isAccountSession(session)) return;
-        setWatches(rows);
-        setStatus("ready");
-      })
-      .catch((e) => {
-        if (signal?.aborted || !isAccountSession(session) || e?.name === "AbortError") return;
-        if (e instanceof ApiError && e.status === 404) {
-          setWatches([]);
-          setStatus("ready");
-        } else setStatus("error");
-      });
+    let rows: RouteWatch[];
+    try {
+      rows = await fetchRouteWatches(session, signal);
+    } catch (failure) {
+      if (signal?.aborted || !isAccountSession(session)) return;
+      if (!(failure instanceof ApiError && failure.status === 404)) {
+        setStatus("error");
+        return;
+      }
+      rows = [];
+    }
+    if (signal?.aborted || !isAccountSession(session)) return;
+    setWatches(rows);
+    recovery.current?.(rows);
+    recovery.current = undefined;
+    setStatus("ready");
   }, [generation, userId]);
 
   useEffect(() => {
     const ac = new AbortController();
-    load(ac.signal);
+    void load(ac.signal);
     return () => ac.abort();
   }, [load]);
+
+  function finishAdd() {
+    track("route_watch_create");
+    setFrom("");
+    setTo("");
+    setDirection("forward");
+    setDay("");
+  }
 
   async function add() {
     if (!from.trim() || !to.trim() || operation.current || !isAccountSession(owner)) return;
@@ -95,16 +108,16 @@ function RouteWatches({ owner, params }: { owner: WatchOwner; params: URLSearchP
         watch_date: day ? `${day}T00:00:00` : null,
       });
       if (!isAccountSession(owner)) return;
-      track("route_watch_create");
       setWatches((rows) => [watch, ...rows.filter((row) => row.id !== watch.id)]);
-      setFrom("");
-      setTo("");
-      setDirection("forward");
-      setDay("");
+      finishAdd();
     } catch (e) {
       if (!isAccountSession(owner)) return;
       if (routeWatchOutcomeUnknown(e)) {
-        load();
+        recovery.current = (rows) => {
+          if (matchingRouteWatch(rows, { from, to, day }, direction)) finishAdd();
+          else setError(appText("Подписка не появилась. Попробуй ещё раз.", "Яҙылыу күренмәне. Тағы бер тапҡыр ҡара."));
+        };
+        void load();
         return;
       }
       setError(
@@ -131,7 +144,13 @@ function RouteWatches({ owner, params }: { owner: WatchOwner; params: URLSearchP
       if (failure instanceof ApiError && failure.status === 404) {
         setWatches((rows) => rows.filter((row) => row.id !== id));
       } else if (routeWatchOutcomeUnknown(failure)) {
-        load();
+        recovery.current = (rows) => {
+          if (rows.some((row) => row.id === id)) {
+            setError(appText("Подписка осталась. Попробуй удалить её ещё раз.",
+              "Яҙылыу ҡалды. Уны тағы бер тапҡыр юйып ҡара."));
+          }
+        };
+        void load();
       } else {
         setError(appText("Не получилось удалить подписку. Попробуй снова.", "Яҙылыуҙы юйып булманы. Ҡабатлап ҡара."));
       }
