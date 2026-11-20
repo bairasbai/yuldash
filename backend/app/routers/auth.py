@@ -329,6 +329,12 @@ def _complete_login(session: Session, user: User, device_id: str, *,
     auth_time = utcnow() if auth_method != "legacy" else None
     user = lock_refresh_user(session, user.id)
     event = _maybe_promote_admin(session, user, log_action=False) if promote_admin else None
+    if auth_method == "telegram" and event is not None and event[0] == "role.promote":
+        user.auth_epoch += 1
+        cutoff = utcnow()
+        user.tokens_valid_from = max(user.tokens_valid_from or cutoff, cutoff)
+        revoke_all_refresh(session, user.id, commit=False)
+        session.flush()  # issue_tokens reloads the same user under the transaction's lock.
     new_device = remember_login_device(session, user, device_id, commit=False, notify=False)
     record_login_consents(session, user.id, commit=False)
     uid, phone = user.id, user.phone

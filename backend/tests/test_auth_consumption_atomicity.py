@@ -6,16 +6,19 @@ disabled by the runner; no real SMS or Telegram webhook is used here.
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 import threading
+from time import monotonic
 import uuid
 
 import pytest
 from fastapi.testclient import TestClient
+from sqlalchemy import text
 from sqlmodel import Session, select
 
 from app import security
+from app.config import settings
 from app.db import engine
 from app.main import app
-from app.models import Consent, OtpCode, RefreshToken, TgAuth, User
+from app.models import AuthSession, Consent, OtpCode, RefreshToken, TgAuth, User, UserRole
 from app.routers import auth
 from app.timeutil import utcnow
 
@@ -56,6 +59,145 @@ def _refresh_count(user_id):
     with Session(engine) as session:
         return len(session.exec(select(RefreshToken).where(
             RefreshToken.user_id == user_id)).all())
+
+
+def test_telegram_promotion_revokes_previous_login_only_after_new_pair_commits(client, monkeypatch):
+    user_id, path, challenge = _pending_login("telegram")
+    monkeypatch.setattr(settings, "admin_phones", "")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "")
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        telegram_id, phone = user.telegram_id, user.phone
+        session.add(OtpCode(phone=phone, code=CODE, expires_at=utcnow() + timedelta(minutes=5)))
+        session.commit()
+
+    sms = client.post("/auth/verify", json={"phone": phone, "code": CODE})
+    assert sms.status_code == 200
+    old = sms.json()
+    assert old["user"]["role"] == "passenger"
+    old_request = {"refresh_token": old["refresh_token"], "rotation_id": "e" * 64}
+    rotation = client.post("/auth/refresh", json=old_request)
+    assert rotation.status_code == 200
+    child = rotation.json()
+    bearer = {"Authorization": f"Bearer {child['access_token']}"}
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", telegram_id)
+
+    def reject_signature(*args, **kwargs):
+        raise RuntimeError("synthetic signing failure")
+
+    with TestClient(app, raise_server_exceptions=False) as requester:
+        with monkeypatch.context() as patch:
+            patch.setattr(security, "make_token", reject_signature)
+            assert requester.post(path, json=challenge).status_code == 500
+        with Session(engine) as session:
+            user = session.get(User, user_id)
+            assert (user.role, user.auth_epoch, user.tokens_valid_from) == (UserRole.passenger, 0, None)
+            assert session.get(AuthSession, old["session_id"]).revoked_at is None
+            assert session.exec(select(TgAuth).where(
+                TgAuth.request_id == challenge["request_id"],
+            )).one().status == "sent"
+            records = session.exec(select(RefreshToken).where(RefreshToken.user_id == user_id)).all()
+            assert len(records) == 2 and sum(not token.revoked for token in records) == 1
+        assert requester.get("/me", headers=bearer).status_code == 200
+        assert requester.post("/auth/refresh", json=old_request).status_code == 200
+        promoted = requester.post(path, json=challenge)
+        assert promoted.status_code == 200
+
+    new = promoted.json()
+    assert new["user"]["id"] == user_id and new["user"]["role"] == "admin"
+    assert new["session_id"] != old["session_id"]
+    claims = security._decode(new["access_token"])
+    assert claims["auth_epoch"] == 1 and claims["amr"] == "telegram"
+    assert client.get("/me", headers=bearer).status_code == 401
+    assert client.post("/auth/refresh", json=old_request).status_code == 401
+    assert client.post("/auth/refresh", json={"refresh_token": child["refresh_token"]}).status_code == 401
+    with Session(engine) as session:
+        assert session.get(AuthSession, old["session_id"]).revoked_at is not None
+        rows = session.exec(select(RefreshToken).where(RefreshToken.user_id == user_id)).all()
+        assert len(rows) == 3
+        assert all(token.revoked for token in rows if token.auth_epoch == 0)
+        assert sum(not token.revoked and token.auth_epoch == 1 for token in rows) == 1
+    assert client.get("/me", headers={"Authorization": f"Bearer {new['access_token']}"}).status_code == 200
+    assert client.post("/auth/refresh", json={"refresh_token": new["refresh_token"]}).status_code == 200
+
+
+@pytest.mark.parametrize("first", ["telegram", "refresh"])
+def test_telegram_promotion_and_refresh_share_the_user_lock(client, monkeypatch, first):
+    if engine.dialect.name != "postgresql":
+        pytest.skip("requires isolated PostgreSQL")
+    user_id, path, challenge = _pending_login("telegram")
+    with Session(engine) as session:
+        user = session.get(User, user_id)
+        telegram_id = user.telegram_id
+        old = security.issue_tokens(session, user_id, auth_method="sms", auth_time=utcnow())
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", telegram_id)
+    first_locked = threading.Event()
+    second_entered = threading.Event()
+    second_locked = threading.Event()
+    release_first = threading.Event()
+    backend_pids = {}
+    lock_user = security.lock_refresh_user
+
+    def lock_for(label, session, uid):
+        if uid != user_id:
+            return lock_user(session, uid)
+        label = session.info.setdefault("rs04_epoch_test_entry", label)
+        if label != first and not second_entered.is_set():
+            backend_pids[label] = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            second_entered.set()
+        user = lock_user(session, uid)
+        if label == first and not first_locked.is_set():
+            backend_pids[label] = session.execute(text("SELECT pg_backend_pid()")).scalar_one()
+            first_locked.set()
+            assert release_first.wait(20)
+        elif label != first:
+            second_locked.set()
+        return user
+
+    monkeypatch.setattr(auth, "lock_refresh_user", lambda session, uid: lock_for("telegram", session, uid))
+    monkeypatch.setattr(security, "lock_refresh_user", lambda session, uid: lock_for("refresh", session, uid))
+    def promote():
+        return client.post(path, json=challenge)
+
+    def refresh():
+        return client.post("/auth/refresh", json={"refresh_token": old["refresh_token"], "rotation_id": "f" * 64})
+
+    actions = {"telegram": promote, "refresh": refresh}
+    second = "refresh" if first == "telegram" else "telegram"
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        first_future = workers.submit(actions[first])
+        try:
+            assert first_locked.wait(8)
+            second_future = workers.submit(actions[second])
+            assert second_entered.wait(8)
+            deadline = monotonic() + 6
+            with engine.connect() as observer:
+                while True:
+                    blockers = observer.execute(
+                        text("SELECT pg_blocking_pids(:pid)"), {"pid": backend_pids[second]},
+                    ).scalar_one()
+                    if backend_pids[first] in blockers:
+                        break
+                    assert monotonic() < deadline and not second_locked.is_set(), (
+                        "PostgreSQL never reported the competing user lock"
+                    )
+                    second_locked.wait(0.05)
+        finally:
+            release_first.set()
+        replies = {first: first_future.result(timeout=20), second: second_future.result(timeout=20)}
+    assert replies["telegram"].status_code == 200
+    promoted = replies["telegram"].json()
+    assert security._decode(promoted["access_token"])["auth_epoch"] == 1
+    expected = 401 if first == "telegram" else 200
+    assert replies["refresh"].status_code == expected
+    if expected == 200:
+        stale = replies["refresh"].json()["access_token"]
+        assert client.get("/me", headers={"Authorization": f"Bearer {stale}"}).status_code == 401
+    assert client.get("/me", headers={"Authorization": f"Bearer {promoted['access_token']}"}).status_code == 200
+    with Session(engine) as session:
+        rows = session.exec(select(RefreshToken).where(RefreshToken.user_id == user_id)).all()
+        assert sum(not row.revoked and row.auth_epoch == 1 for row in rows) == 1
+        assert all(row.revoked for row in rows if row.auth_epoch == 0)
 
 
 @pytest.mark.parametrize("kind", ["sms", "telegram"])

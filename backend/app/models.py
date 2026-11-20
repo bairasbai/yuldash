@@ -131,7 +131,7 @@ class AppSetting(SQLModel, table=True):
     key: str = Field(primary_key=True, max_length=64)
     value: Optional[bool] = None
     updated_at: Optional[datetime] = None
-    updated_by: Optional[int] = Field(default=None, foreign_key="user.id", ondelete="SET NULL")
+    updated_by: Optional[int] = Field(default=None, index=True, foreign_key="user.id", ondelete="SET NULL")
 
 
 class AppSettingChange(SQLModel, table=True):
@@ -143,7 +143,7 @@ class AppSettingChange(SQLModel, table=True):
     key: str = Field(max_length=64, foreign_key="appsetting.key")
     old_value: Optional[bool] = None
     new_value: bool
-    admin_id: Optional[int] = Field(default=None, foreign_key="user.id", ondelete="SET NULL")
+    admin_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id", ondelete="SET NULL")
     created_at: datetime = Field(default_factory=utcnow)
     note: Optional[str] = Field(default=None, max_length=300)
 

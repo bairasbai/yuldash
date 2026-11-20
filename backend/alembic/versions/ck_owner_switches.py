@@ -13,7 +13,8 @@ depends_on = None
 def upgrade() -> None:
     offline = op.get_context().as_sql
     inspector = None if offline else sa.inspect(op.get_bind())
-    if offline or not inspector.has_table("appsetting"):
+    create_settings = offline or not inspector.has_table("appsetting")
+    if create_settings:
         op.create_table(
             "appsetting",
             sa.Column("key", sa.String(64), primary_key=True),
@@ -33,9 +34,14 @@ def upgrade() -> None:
             sa.Column("created_at", sa.DateTime(), nullable=False),
             sa.Column("note", sa.String(300), nullable=True),
         )
-    index = "ix_appsettingchange_history"
-    if create_history or not any(item["name"] == index for item in inspector.get_indexes("appsettingchange")):
-        op.create_index(index, "appsettingchange", ["key", "created_at", "id"])
+    indexes = (
+        ("appsetting", create_settings, "ix_appsetting_updated_by", ["updated_by"]),
+        ("appsettingchange", create_history, "ix_appsettingchange_admin_id", ["admin_id"]),
+        ("appsettingchange", create_history, "ix_appsettingchange_history", ["key", "created_at", "id"]),
+    )
+    for table, created, name, columns in indexes:
+        if created or not any(item["name"] == name for item in inspector.get_indexes(table)):
+            op.create_index(name, table, columns)
 
     # Baseline migrations may already have created the tables from current metadata.
     op.execute(

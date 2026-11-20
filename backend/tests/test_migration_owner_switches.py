@@ -53,15 +53,22 @@ def test_owner_switch_migration_preserves_existing_values_and_old_users(tmp_path
             ))
             session.commit()
 
+        indexes = (
+            ("appsetting", "ix_appsetting_updated_by", ["updated_by"]),
+            ("appsettingchange", "ix_appsettingchange_admin_id", ["admin_id"]),
+            ("appsettingchange", "ix_appsettingchange_history", ["key", "created_at", "id"]),
+        )
         with db.begin() as connection:
-            connection.execute(text("DROP INDEX ix_appsettingchange_history"))
+            for _, name, _ in indexes:
+                connection.execute(text(f"DROP INDEX {name}"))
         command.stamp(config, PREVIOUS)
         command.upgrade(config, CURRENT)
         inspector = inspect(db)
-        assert any(
-            index["name"] == "ix_appsettingchange_history" and index["column_names"] == ["key", "created_at", "id"]
-            for index in inspector.get_indexes("appsettingchange")
-        )
+        for table, name, columns in indexes:
+            assert any(
+                index["name"] == name and index["column_names"] == columns
+                for index in inspector.get_indexes(table)
+            )
         for table, column in (("appsetting", "updated_by"), ("appsettingchange", "admin_id")):
             assert any(
                 fk["constrained_columns"] == [column] and fk["referred_table"] == "user"
