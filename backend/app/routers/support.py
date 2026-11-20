@@ -3,7 +3,7 @@
 Пользователь заводит обращение и переписывается с поддержкой прямо в приложении.
 Приватность (как в соседних роутерах): тикет и его тред видит ТОЛЬКО автор (по user_id);
 чужой тикет отдаём как 404 (не раскрываем даже факт существования). Админ-ручки —
-только роли admin (проверка как в safety.py: `if user.role != UserRole.admin: 403`).
+только администраторам с подтверждённой сессией Telegram.
 
 Ответ поддержки уходит пользователю через единую точку `services.push_notification`
 (строка в Центре уведомлений + FCM, best-effort — как в чате/бронях).
@@ -11,7 +11,7 @@
 from datetime import timedelta
 from typing import List
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
 
@@ -20,9 +20,9 @@ from ..logs import admin_action
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import (
-    SupportMessage, SupportSender, SupportTicket, SupportTicketStatus, User, UserRole,
+    SupportMessage, SupportSender, SupportTicket, SupportTicketStatus, User,
 )
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
@@ -284,11 +284,6 @@ def close_ticket(ticket_id: int, user: User = Depends(current_user),
 
 
 # ------------------------------ админ ------------------------------
-def _guard_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 class AdminTicketOut(BaseModel):
     id: int
     user_id: int
@@ -303,11 +298,10 @@ class AdminTicketOut(BaseModel):
 
 
 @router.get("/admin/support/tickets", response_model=List[AdminTicketOut])
-def admin_tickets(status: str = "open", user: User = Depends(current_user),
+def admin_tickets(status: str = "open", user: User = Depends(require_telegram_admin),
                   session: Session = Depends(get_session)):
     """Тикеты для поддержки. ?status=open (по умолчанию — только открытые) | all (все).
     Открытые сверху, внутри — свежие по последней активности. Только для админа."""
-    _guard_admin(user)
     q = select(SupportTicket)
     if status != "all":
         q = q.where(SupportTicket.status == SupportTicketStatus.open)
@@ -345,10 +339,9 @@ def admin_tickets(status: str = "open", user: User = Depends(current_user),
 
 
 @router.get("/admin/support/tickets/{ticket_id}", response_model=TicketThreadOut)
-def admin_get_ticket(ticket_id: int, user: User = Depends(current_user),
+def admin_get_ticket(ticket_id: int, user: User = Depends(require_telegram_admin),
                      session: Session = Depends(get_session)):
     """Тред любого тикета для разбора поддержкой. Только для админа."""
-    _guard_admin(user)
     t = session.get(SupportTicket, ticket_id)
     if not t:
         raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")
@@ -364,11 +357,10 @@ def admin_get_ticket(ticket_id: int, user: User = Depends(current_user),
 
 
 @router.post("/admin/support/tickets/{ticket_id}/reply", response_model=TicketThreadOut)
-def admin_reply(ticket_id: int, body: MessageIn, user: User = Depends(current_user),
+def admin_reply(ticket_id: int, body: MessageIn, user: User = Depends(require_telegram_admin),
                 session: Session = Depends(get_session)):
     """Ответ поддержки (sender=admin). Ответ переоткрывает закрытый тикет (диалог продолжается)
     и уходит пользователю пушем + в Центр уведомлений (best-effort). Только для админа."""
-    _guard_admin(user)
     t = session.get(SupportTicket, ticket_id)
     if not t:
         raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")
@@ -393,10 +385,9 @@ def admin_reply(ticket_id: int, body: MessageIn, user: User = Depends(current_us
 
 
 @router.post("/admin/support/tickets/{ticket_id}/close", response_model=TicketThreadOut)
-def admin_close(ticket_id: int, user: User = Depends(current_user),
+def admin_close(ticket_id: int, user: User = Depends(require_telegram_admin),
                 session: Session = Depends(get_session)):
     """Закрыть тикет силами поддержки. Идемпотентно. Только для админа."""
-    _guard_admin(user)
     t = session.get(SupportTicket, ticket_id)
     if not t:
         raise herr(404, "Обращение не найдено", "Мөрәжәғәт табылманы")

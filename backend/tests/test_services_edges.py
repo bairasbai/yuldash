@@ -142,6 +142,7 @@ def test_send_text_and_send_sms_branches(monkeypatch):
     monkeypatch.setattr(httpx, "get", fake_get)
     monkeypatch.setattr(settings, "env", "dev")
     monkeypatch.setattr(settings, "sms_provider", "smsru")
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", "api")
     monkeypatch.setattr(settings, "sms_from", "Yuldash")
     services.send_text("+79990000000", "text")

@@ -39,7 +39,8 @@ from .config import settings
 from .errors import herr
 from .timeutil import utcnow
 from .models import (
-    Ad, AdEvent, AppReview, Block, Booking, BookingStatus, CommandReceipt, CommissionDebt, Consent, Coupon,
+    Ad, AdEvent, AppReview, AppSetting, AppSettingChange, Block, Booking, BookingStatus,
+    CommandReceipt, CommissionDebt, Consent, Coupon,
     DriverCancel, OfferDecline, PriceComplaint,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
     DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
@@ -795,6 +796,9 @@ def delete_user_account(session: Session, user: User) -> None:
     session.execute(update(DeviceBan).where(DeviceBan.user_id == uid).values(user_id=None))
     # 3.23 Отвязать рефералов, кто указал меня пригласившим (FK referred_by → user.id).
     session.execute(update(User).where(User.referred_by == uid).values(referred_by=None))
+    # Настройки владельца и их история остаются после удаления аккаунта.
+    session.execute(update(AppSetting).where(AppSetting.updated_by == uid).values(updated_by=None))
+    session.execute(update(AppSettingChange).where(AppSettingChange.admin_id == uid).values(admin_id=None))
     # 3.24 Наконец — сам аккаунт.
     session.execute(delete(CommandReceipt).where(CommandReceipt.user_id == uid))
     session.execute(delete(User).where(User.id == uid))

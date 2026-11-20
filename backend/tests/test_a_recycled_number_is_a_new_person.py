@@ -34,7 +34,7 @@ from sqlmodel import Session, select
 
 from app.antifraud import PHONE_RECYCLE_DAYS
 from app.db import engine
-from app.models import Notification, OtpCode, TrustedContact, User, UserRole
+from app.models import Notification, TrustedContact, User, UserRole
 from app.timeutil import utcnow
 
 from test_api import _ride
@@ -52,10 +52,7 @@ def _войти(client, phone: str, device: str, name: str = ""):
     """Настоящий путь входа: запросить код по SMS и подтвердить его с телефона."""
     issued = client.post("/auth/request-code", json={"phone": phone})
     assert issued.status_code == 200, issued.text
-    with Session(engine) as s:
-        otp = s.exec(select(OtpCode).where(OtpCode.phone == phone)
-                     .order_by(OtpCode.id.desc())).first()
-        код = otp.code if otp else None
+    код = issued.json()["dev_code"]
     r = client.post("/auth/verify", json={"phone": phone, "code": код, "name": name},
                     headers={"X-Device-Id": device})
     assert r.status_code == 200, r.text
@@ -71,10 +68,11 @@ def _молчал(user_id: int, дней: int) -> None:
 
 
 @pytest.fixture
-def прежняя_хозяйка(client, user_factory, phone):
+def прежняя_хозяйка(client, user_factory, phone, sms_retry_elapsed):
     """Гульнара: год назад ездила, копила историю и вписала маму как доверенный контакт."""
     водитель = user_factory("НомерВодитель", role=UserRole.driver)
     вход = _войти(client, phone, "device-gulnara", name="Гульнара")
+    sms_retry_elapsed()
     токен = {"Authorization": f"Bearer {вход['access_token']}"}
     uid = вход["user"]["id"]
 
@@ -185,9 +183,7 @@ def test_старый_клиент_без_отметки_устройства_н
     _молчал(uid, PHONE_RECYCLE_DAYS + 30)
     issued = client.post("/auth/request-code", json={"phone": phone})
     assert issued.status_code == 200, issued.text
-    with Session(engine) as s:
-        код = s.exec(select(OtpCode).where(OtpCode.phone == phone)
-                     .order_by(OtpCode.id.desc())).first().code
+    код = issued.json()["dev_code"]
 
     r = client.post("/auth/verify", json={"phone": phone, "code": код})   # без X-Device-Id
 
@@ -210,13 +206,14 @@ def test_короткий_перерыв_не_считается_сменой_в
     )
 
 
-def test_вход_обновляет_отметку_жизни(client, user_factory):
+def test_вход_обновляет_отметку_жизни(client, user_factory, sms_retry_elapsed):
     """Без свежей отметки активный человек через полгода выглядел бы как ушедший."""
     номер = "+79995550140"
     вход = _войти(client, номер, "device-fresh", name="Активный")
     uid = вход["user"]["id"]
     _молчал(uid, 300)
 
+    sms_retry_elapsed()
     _войти(client, номер, "device-fresh")                 # зашёл сегодня, тем же телефоном
 
     with Session(engine) as s:

@@ -71,6 +71,7 @@ class User(SQLModel, table=True):
     # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
     # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
     tokens_valid_from: Optional[datetime] = None
+    auth_epoch: int = Field(default=0, exclude=True, sa_column=Column(BigInteger, nullable=False, server_default="0"))
     # Пол — СТРОГО по желанию: "" (не указан, по умолчанию) / female / male.
     #
     # Живёт на User, а не на профиле водителя, потому что это свойство ЧЕЛОВЕКА, а не роли:
@@ -124,6 +125,29 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class AppSetting(SQLModel, table=True):
+    """Owner setting. An unset value delegates to the switch's policy default."""
+
+    key: str = Field(primary_key=True, max_length=64)
+    value: Optional[bool] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[int] = Field(default=None, index=True, foreign_key="user.id", ondelete="SET NULL")
+
+
+class AppSettingChange(SQLModel, table=True):
+    """History keeps the setting change when its author closes their account."""
+
+    __table_args__ = (Index("ix_appsettingchange_history", "key", "created_at", "id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(max_length=64, foreign_key="appsetting.key")
+    old_value: Optional[bool] = None
+    new_value: bool
+    admin_id: Optional[int] = Field(default=None, index=True, foreign_key="user.id", ondelete="SET NULL")
+    created_at: datetime = Field(default_factory=utcnow)
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
 class AuthSession(SQLModel, table=True):
     """Серверная сессия одного входа, общая для его последовательных пар ключей."""
 
@@ -145,6 +169,9 @@ class RefreshToken(SQLModel, table=True):
     revoked: bool = False
     rotation_id_hash: Optional[str] = None
     rotated_at: Optional[datetime] = None
+    auth_method: str = Field(default="legacy", max_length=12, sa_column_kwargs={"server_default": "legacy"})
+    auth_time: Optional[datetime] = None
+    auth_epoch: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default="0"))
     expires_at: datetime
     created_at: datetime = Field(default_factory=utcnow)
 
@@ -156,6 +183,38 @@ class OtpCode(SQLModel, table=True):
     attempts: int = 0                                              # попыток ввода (защита от перебора)
     created_at: datetime = Field(default_factory=utcnow)  # для throttle запросов кода
     expires_at: datetime
+    channel: str = "sms"
+    ip_hash: Optional[str] = Field(default=None, index=True, max_length=64)
+    device_hash: Optional[str] = Field(default=None, index=True, max_length=64)
+    attempt_id: Optional[str] = Field(default=None, index=True, unique=True, max_length=36)
+
+
+class OtpBudgetBucket(SQLModel, table=True):
+    scope: str = Field(primary_key=True, max_length=24)
+    subject: str = Field(primary_key=True, max_length=64)
+    window_start: int = Field(primary_key=True, index=True, sa_type=BigInteger)
+    used: int
+    cap: int
+    version: int
+    updated_at: datetime
+    next_allowed_at: Optional[datetime] = None
+
+
+class OtpSendAttempt(SQLModel, table=True):
+    id: str = Field(primary_key=True, max_length=36)
+    provider_idempotency_key: str = Field(unique=True, max_length=48)
+    state: str = Field(default="reserved", max_length=8)
+    bucket_keys: list = Field(sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(index=True)
+    updated_at: datetime
+    sms_ru_message_id: Optional[str] = Field(default=None, index=True, unique=True, max_length=64)
+    sms_ru_status_code: Optional[int] = None
+
+
+class OtpBudgetAlert(SQLModel, table=True):
+    service_day: int = Field(primary_key=True, sa_type=BigInteger)
+    kind: str = Field(primary_key=True, max_length=24)
+    created_at: datetime
 
 
 class DeviceToken(SQLModel, table=True):

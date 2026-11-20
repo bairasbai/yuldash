@@ -79,23 +79,23 @@
   },
   "counts_by_kind": {
     "android_main": 230,
-    "backend_main": 112,
-    "infra_resource_config": 417,
+    "backend_main": 118,
+    "infra_resource_config": 423,
     "public_site_promo": 91,
-    "pwa_main": 352,
-    "test_support": 1324
+    "pwa_main": 354,
+    "test_support": 1330
   },
   "counts_by_block": {
-    "B01": 171,
+    "B01": 175,
     "B02": 335,
     "B03": 123,
     "B04": 82,
     "B05": 62,
     "B06": 103,
     "B07": 144,
-    "B08": 219,
-    "B09": 778,
-    "B10": 417,
+    "B08": 221,
+    "B09": 786,
+    "B10": 423,
     "B11": 92
   },
   "excluded_counts": {
@@ -6506,6 +6506,41 @@
       "lines": 33
     },
     {
+      "path": "backend/alembic/versions/ck_owner_switches.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "38791b8dec6e92ac76ef101178f47bbe41821a53910def1591669dc1ca6fc64c",
+      "lines": 55
+    },
+    {
+      "path": "backend/alembic/versions/cl_refresh_auth_proof.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a7b2655706a831e4f91087184d0894bb6c17ca16d01719ffa6168c322bbf7862",
+      "lines": 26
+    },
+    {
+      "path": "backend/alembic/versions/cm_auth_epoch.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4ca35bb6e0e4ca065652159afd27d1fa72ab3469ec7e3c87af89f58ecbf6993e",
+      "lines": 26
+    },
+    {
+      "path": "backend/alembic/versions/cn_admin_telegram_cutover.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "b31aead3ae2acf56822253cffbaa715c7049f7d060c165ae8a1f7ddb76aacaac",
+      "lines": 44
+    },
+    {
+      "path": "backend/alembic/versions/co_sms_budget.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "2d2b67b1a8ee493686574f35ff13cf0071314ca730522d99b384a1701aaf58f8",
+      "lines": 83
+    },
+    {
       "path": "backend/alembic/versions/courier_c1.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -6525,6 +6560,13 @@
       "block": "B10",
       "sha256": "5babbb0fd82fa0f4d2303fd4c5434d9b0850c7e7333215e53756ea8c0c2f284f",
       "lines": 97
+    },
+    {
+      "path": "backend/alembic/versions/cp_smsru_receipts.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "e3457765a0ae2122f32d54bb6eaec17d91735a520fdfad4a69fb407c453244e1",
+      "lines": 29
     },
     {
       "path": "backend/alembic/versions/f10_payment_agreement.py",
@@ -7013,8 +7055,8 @@
       "path": "backend/app/account.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "ed232a2ece7c6b26e7f83c51438e9bcf487ea494400394c1657828032a1f0d78",
-      "lines": 828
+      "sha256": "89f102f72f7ccfc839b38d3cd8bfe87b955c0ae9dd979eac4660136ff1a352a8",
+      "lines": 832
     },
     {
       "path": "backend/app/ads_expire.py",
@@ -7076,8 +7118,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7c3dfc25dcbabaad69db5dd3c7ac7f4c20ab251c812981be9f9988d79fcd9e1d",
-      "lines": 1025
+      "sha256": "ad55e17d783a3aa645cf71001efc601d917c492f4238f8b67f8c35073dc0bee5",
+      "lines": 1047
     },
     {
       "path": "backend/app/collusion.py",
@@ -7097,8 +7139,8 @@
       "path": "backend/app/config.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "d91fe537c893d526d397fec22de6f97f4e1fbb8483b60ad7abb666114569c7c3",
-      "lines": 1222
+      "sha256": "b34ae6d35e6bf615d1fa5c0d135daf1e18d41d5d063c7a259b11c95d50da602d",
+      "lines": 1243
     },
     {
       "path": "backend/app/data/city_districts.json",
@@ -7125,8 +7167,8 @@
       "path": "backend/app/db.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "646731bfa96650cea83a8e24614d656ca2a8e2fbeca4b6d62b8dd646ec21bc33",
-      "lines": 100
+      "sha256": "5a35bdc3832353dbb84d6a5a773ecc146bc52b74a4983d913aa4021fa36e1b81",
+      "lines": 106
     },
     {
       "path": "backend/app/debt.py",
@@ -7248,6 +7290,13 @@
       "lines": 164
     },
     {
+      "path": "backend/app/login_methods.py",
+      "kind": "backend_main",
+      "block": "B01",
+      "sha256": "4403c57a06c254343e10ebc828481ba5c59adada89015d0fa36a68e2fb1addbb",
+      "lines": 28
+    },
+    {
       "path": "backend/app/logs.py",
       "kind": "backend_main",
       "block": "B09",
@@ -7272,8 +7321,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7cb987a944cc6214c175e594a5f7b27e2fdf310dac787ce6c1bef8050c12738e",
-      "lines": 2226
+      "sha256": "c6383ec876310ddb100d2ddd74d142a22a4f71721e0c522558e63ae4fdd35f61",
+      "lines": 2285
     },
     {
       "path": "backend/app/observability.py",
@@ -7281,6 +7330,20 @@
       "block": "B09",
       "sha256": "8e8479bc138a82dd774599309a56c1bef8648130241aeebf6e6514c26ebe86bf",
       "lines": 382
+    },
+    {
+      "path": "backend/app/otp_budget.py",
+      "kind": "backend_main",
+      "block": "B09",
+      "sha256": "ad2bf9041842690272252fa52518258f6d7f6988a1e55a72f8950915941ce61e",
+      "lines": 274
+    },
+    {
+      "path": "backend/app/owner_switches.py",
+      "kind": "backend_main",
+      "block": "B09",
+      "sha256": "e1c5a8d7c87e71d349f6cf3ba235734df95f8c77525320ec0c2a84057c133aa5",
+      "lines": 77
     },
     {
       "path": "backend/app/payments.py",
@@ -7377,29 +7440,36 @@
       "path": "backend/app/routers/__init__.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7aa7177677b749e3c3b37fb73aa46e2b18c94263d8c37dd9639287d312c7aaee",
-      "lines": 53
+      "sha256": "254f80c70744ada173834c80f7e2f885202936b1c3d7986b0345bcfa51f66e26",
+      "lines": 56
+    },
+    {
+      "path": "backend/app/routers/admin_switches.py",
+      "kind": "backend_main",
+      "block": "B08",
+      "sha256": "35f6c6fb3ea3990a40f5899a67fd0237317c19653e64b76c0f606505df420532",
+      "lines": 124
     },
     {
       "path": "backend/app/routers/ads.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "ff554addcd37447519ee0b8d8d57caadda94505918d7691219f0f56818a4c430",
-      "lines": 893
+      "sha256": "585715eb0f0fe253bbcb15c9ebd7b901167e7383353c1d0015186ffe4c19e6ae",
+      "lines": 881
     },
     {
       "path": "backend/app/routers/antifraud.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "d9e4e8056b7356d7fe9cf6e68ee329b158c59343d2c3625c449dcb12e920e3c1",
-      "lines": 179
+      "sha256": "09fcd59850ae9c231bcb14eeab8198b850b9e985af8d30527e5e9d9fe2ac5adc",
+      "lines": 170
     },
     {
       "path": "backend/app/routers/auth.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "79b388720440633496d66cdcf19ac35b9d5eb7c5b5174752f77cc671fc614447",
-      "lines": 1600
+      "sha256": "9c8e12db7f8a636a0f0089304add50d9fa61718ae81b931e264a453564f9693f",
+      "lines": 1578
     },
     {
       "path": "backend/app/routers/bookings.py",
@@ -7412,8 +7482,8 @@
       "path": "backend/app/routers/carphoto.py",
       "kind": "backend_main",
       "block": "B03",
-      "sha256": "69003f6f1d686e6eda1757ca205280bfdaf1c3d69b268cc91a52cf8cb670c8d6",
-      "lines": 213
+      "sha256": "7eca7710458733b20022f9da0b2340e5552aa2a8c2406941ba8c183a7d3423e8",
+      "lines": 206
     },
     {
       "path": "backend/app/routers/chat.py",
@@ -7433,22 +7503,22 @@
       "path": "backend/app/routers/coupons.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "342f4bdbfddb7921fe2e25a98ec4ceb0571ef44e9bfb401db550ed2e0bc628e1",
-      "lines": 1349
+      "sha256": "bf669f11e897a6a5cd96d8da424237b296653eeaabd1a3fb3ba2df364d3d4006",
+      "lines": 1338
     },
     {
       "path": "backend/app/routers/courier.py",
       "kind": "backend_main",
       "block": "B04",
-      "sha256": "889a1bb11b755b9d232008f67b6b9003b9c988e3bf05220b353d1bfef0950665",
-      "lines": 2004
+      "sha256": "35b9579b6410c7452707bcba3b00ae8fb64124bdf1da271d7b626c1cce0ef699",
+      "lines": 1996
     },
     {
       "path": "backend/app/routers/debt.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "4f74b38ec208a68a9ba76d6343c1a01a1d9fccce637b821d74f8e2d9abb95607",
-      "lines": 334
+      "sha256": "fff7055fc1d297b22d6af0daff2ccbc58c321ccb94f4c3dde3ea604811c20749",
+      "lines": 321
     },
     {
       "path": "backend/app/routers/discovery.py",
@@ -7468,15 +7538,15 @@
       "path": "backend/app/routers/drivers.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "f9733ae4b323b798acdf7a8fe203eca83842af0485e0ac48c30eb7efb2ee051a",
-      "lines": 654
+      "sha256": "0c24075114ab2cb175c286bb7825b8987c83c36c6232996c6292aa2389a3832f",
+      "lines": 650
     },
     {
       "path": "backend/app/routers/events.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "3014fdb8f5a809e5040886bbe6e132459ce5888e42ad6f90a6661883aee9790b",
-      "lines": 159
+      "sha256": "d7b006e42378f6980161064248d106f165f33e9740203d1865b3326b9d091d36",
+      "lines": 156
     },
     {
       "path": "backend/app/routers/family.py",
@@ -7489,22 +7559,22 @@
       "path": "backend/app/routers/health.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "87dc7f435a7f1237e705449be7438b20a952f10aac2e907587fda3c8aa25489b",
-      "lines": 156
+      "sha256": "6fd5057d55a9511092c2b0960906e9fe58d9981ffc2fdecef3c96f6bcc79799f",
+      "lines": 165
     },
     {
       "path": "backend/app/routers/incidents.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "1831f1603668c56b2ea748f12725182f17c19884549476b1468b1c3bb1c3599b",
-      "lines": 729
+      "sha256": "50bc1fd5c69334652822ffa6d79c3f6613adaeb44d80b1fee7d450a7b193fff6",
+      "lines": 722
     },
     {
       "path": "backend/app/routers/instant.py",
       "kind": "backend_main",
       "block": "B03",
-      "sha256": "be5c8eba594b3b4935fe3cd18abd2a16f215e339f87d40a581f07f8c3bed1d2e",
-      "lines": 1584
+      "sha256": "7632c68c080e59e7448e98674c4cb994b00f48c835ff9b518d4855dae7805dd0",
+      "lines": 1582
     },
     {
       "path": "backend/app/routers/location.py",
@@ -7531,15 +7601,15 @@
       "path": "backend/app/routers/parcels.py",
       "kind": "backend_main",
       "block": "B04",
-      "sha256": "8598074c204483f75d278a420117909bf93f47265c46b4bc371c313931d65cfa",
-      "lines": 2065
+      "sha256": "c735eba10be3e57fa4cb0492412adc328254ebbce38a8f154d4ece4b939ab066",
+      "lines": 2056
     },
     {
       "path": "backend/app/routers/payments.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "434ce4ec08f412e780586c1745c269984d58d6bcdaad266ac2f0b066f0e844d5",
-      "lines": 969
+      "sha256": "8638944e9d56589a6486e149068a993fa29706b6d1a9b611bfdacf9d08bdc9fa",
+      "lines": 967
     },
     {
       "path": "backend/app/routers/pickup.py",
@@ -7559,8 +7629,8 @@
       "path": "backend/app/routers/promo.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "6028b55840e5bf46ff9d6f962fb06808c7e5e99dfabe7b0efece6eb8aec67755",
-      "lines": 544
+      "sha256": "fa1e1c71c5bbc402499d0c3fddb132533c0f7ba053da69447e0139123f38133d",
+      "lines": 535
     },
     {
       "path": "backend/app/routers/referral.py",
@@ -7573,15 +7643,15 @@
       "path": "backend/app/routers/requests.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "0a51710a08dabd806996d8dcb5b46f6576e16dc6acd33950e3f172ddb99a5c05",
-      "lines": 1776
+      "sha256": "3d0c47442024b37ebe9be48e7d95c20a5b980ca3f8d76c56e0a733552251f2d9",
+      "lines": 1774
     },
     {
       "path": "backend/app/routers/reviews.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "f25ba6ef68453e0335b58dfde24f35181a2f7d051b1199bd88374febed9efaf0",
-      "lines": 244
+      "sha256": "d2ed3c5e89c52d080a3bb06bf1c267732a314d075ecda53cd15b5d28424507f1",
+      "lines": 234
     },
     {
       "path": "backend/app/routers/rides.py",
@@ -7601,8 +7671,8 @@
       "path": "backend/app/routers/safety.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "19e71660665be535f8dce94b1645cf4a8dac0c382c04e5218a4e41bf7e99ed5d",
-      "lines": 1846
+      "sha256": "f238412f90eb7d11c3f2c93274e2c6f4b40da89479091d1199b6ef668c084335",
+      "lines": 1832
     },
     {
       "path": "backend/app/routers/seasonal.py",
@@ -7636,22 +7706,22 @@
       "path": "backend/app/routers/support.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "e8d2fbe1e833883e5171dd59b366773ce6d3643c01994f45b70d6ad96b3e84c1",
-      "lines": 409
+      "sha256": "605499f2e9d6d01c89888c3ba9f17d7ba8e3f02b72520b4cdc18c2dd070b0dbb",
+      "lines": 400
     },
     {
       "path": "backend/app/routers/sybil.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "d441e077152e7ed89b718651ccc3e0e064ad581c1f96daa96faa92a3bb1d280a",
-      "lines": 24
+      "sha256": "895d421ece0f7cd76f6d04b9e1fc6de245d6590fc260fff719ff7259e327e0f1",
+      "lines": 22
     },
     {
       "path": "backend/app/routers/taxi.py",
       "kind": "backend_main",
       "block": "B03",
-      "sha256": "24c2dc1b736ddfba9889b891f3c4ac81a86ee2a52f17f7c523e27c62b35ffdb9",
-      "lines": 923
+      "sha256": "88d281a2a747ba88e8170434ca4e2c2fb1d3598fbe28032c90578a9c17afedc3",
+      "lines": 910
     },
     {
       "path": "backend/app/routers/trust.py",
@@ -7664,15 +7734,15 @@
       "path": "backend/app/routers/waitlist.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "a5defb4f7966253386ea39e1ea742865ff1a892a27e2fc054b01d435d3f5d34d",
-      "lines": 214
+      "sha256": "b9e62a345cb699c88724cdde6e554c15ccca783281670dc1c0627c997558c98c",
+      "lines": 205
     },
     {
       "path": "backend/app/routers/wallet.py",
       "kind": "backend_main",
       "block": "B07",
-      "sha256": "db0279af6bc8a2b4ec97c473216a23e36900e77bdd1cef575b5c920f462bbd90",
-      "lines": 450
+      "sha256": "57a1ba49186b9b411591c126c02dde9237fe6a1429d854c43dfdf82c74cb80a3",
+      "lines": 459
     },
     {
       "path": "backend/app/routers/weather.py",
@@ -7699,15 +7769,29 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "34575e30065d2d15be7177564421d6e01435ae03797cb69f1364fd2b7cecdeae",
-      "lines": 554
+      "sha256": "40eec4abd1ba4daf7c9c0820df7f7749f4aee8840a38f3ab54f6f639a907f995",
+      "lines": 608
     },
     {
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "502cc2d0988b4faef7d70b5ea4a557fe5db1e748b03d85107db4f2d5c20ceb46",
-      "lines": 2268
+      "sha256": "3211e864a77220d2423d03fea2a2920434df156b92ee22f9cf151e303761bc5c",
+      "lines": 2270
+    },
+    {
+      "path": "backend/app/sms_reconcile.py",
+      "kind": "backend_main",
+      "block": "B09",
+      "sha256": "7577053b613071589b88ca4dbbd478e19d296622b015f09ca2ce71efcb7a96b8",
+      "lines": 62
+    },
+    {
+      "path": "backend/app/smsru.py",
+      "kind": "backend_main",
+      "block": "B09",
+      "sha256": "9615f02234622e9591d2bd1ab9659c39bd89412bf0b55474e24ce1cd45d72616",
+      "lines": 117
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -8231,8 +8315,8 @@
       "path": "backend/tests/conftest.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e5aaffc227c96f71c6c15017b0708b586e4c02339a807389d8e158e878e4174e",
-      "lines": 177
+      "sha256": "28a1cfc1f5add4f4356bac689e59faa489d2da0f438e921a1fbbb8ffd6fb1bcf",
+      "lines": 254
     },
     {
       "path": "backend/tests/journeys/__init__.py",
@@ -8301,8 +8385,8 @@
       "path": "backend/tests/test_a_ban_that_ends_at_the_door.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "f936cc6857e6a08736ee4be9fbad7d97f4cddc7591ae1cbb285a31d203c906fa",
-      "lines": 230
+      "sha256": "5ec182331dfa2fb4efa3a7c7ee6b33df07bfbed32e611f57d1eb1881595813aa",
+      "lines": 236
     },
     {
       "path": "backend/tests/test_a_complaint_is_settled_by_a_photo.py",
@@ -8336,8 +8420,8 @@
       "path": "backend/tests/test_a_recycled_number_is_a_new_person.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5d4d0e3b58fcc55f6100b8578865cf29c8fd2982199e0b6568a98fe06efda1be",
-      "lines": 251
+      "sha256": "c2aabf2950e1c26e70ac273428b89c228e569c3366f83179f77f9d4cd0faec82",
+      "lines": 248
     },
     {
       "path": "backend/tests/test_a_recycled_number_telegram_door.py",
@@ -8371,8 +8455,8 @@
       "path": "backend/tests/test_account_deletion.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "8e57760f27e13dd787139cb2e42033a1e70d2577d38091f7e3bf38bf0135a164",
-      "lines": 393
+      "sha256": "bd14436d05bcc3b43234d3ff1aad39e8d9384d9c0796090a711c7302941c2e9e",
+      "lines": 400
     },
     {
       "path": "backend/tests/test_account_deletion_bound_offer.py",
@@ -8413,8 +8497,8 @@
       "path": "backend/tests/test_admin_gate_everywhere.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "0ccfdc38458ff24c29b0dedb859f512f1f84377558d07a88d3ce6042b3aa7a32",
-      "lines": 135
+      "sha256": "f014696ccb499a72c4d287808309a7c7f1e97f8101efa2465faeb68bce88cc5a",
+      "lines": 122
     },
     {
       "path": "backend/tests/test_admin_leaves_a_trace.py",
@@ -8436,6 +8520,13 @@
       "block": "B01",
       "sha256": "f7d8d90a79c1a110ceef366533d74c0da074430f728c23ce1101b73534ba323d",
       "lines": 145
+    },
+    {
+      "path": "backend/tests/test_admin_telegram_login.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "f6b43fc035651df53bd2aca2a435f2a7b6fd26aa090d905884d0fc5e42370876",
+      "lines": 181
     },
     {
       "path": "backend/tests/test_ads_edges.py",
@@ -8483,8 +8574,8 @@
       "path": "backend/tests/test_antifraud.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "62a5ee0ef6cce4ce94154b107a4975ccf081a2e53547ce89b43707c2f8b184ff",
-      "lines": 760
+      "sha256": "380276701501f473afe7842add97af1b6e25d712ece5445425677d598c35ec35",
+      "lines": 767
     },
     {
       "path": "backend/tests/test_api.py",
@@ -8518,15 +8609,15 @@
       "path": "backend/tests/test_audit_20260808.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "68da2f82d67a83c2e0f185dbbaf7573d8033beac7b52db2678641245a4bba590",
+      "sha256": "b297008b4026d6c3e0dc659c6bd8cf9db09696068970d27958b7510f99b9ef72",
       "lines": 974
     },
     {
       "path": "backend/tests/test_audit_fix_be01.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "d1f637afeb43ed6fac2ffc48f1221471d2a33c286eb5803baba43046bda45352",
-      "lines": 62
+      "sha256": "c14ff15a9af9d0da86ad59b9a87257043f878b28d9dcff6763e0c476136604c7",
+      "lines": 63
     },
     {
       "path": "backend/tests/test_audit_fix_be02.py",
@@ -8637,22 +8728,22 @@
       "path": "backend/tests/test_auth_consumption_atomicity.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "06d5c7a79c7de368a29c9a13477d869d39a48fb85828ab7cd3f4e9ef79040a49",
-      "lines": 411
+      "sha256": "c8b34d2e80bf3eee133586a768cdb76b7702444516e21edbd01fdc991c5d85d6",
+      "lines": 558
     },
     {
       "path": "backend/tests/test_auth_edges.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "c3b268c62ab1e46fdc1ca7b03e74e522a8fe7ffebee399ca5db34e05d030c2c5",
-      "lines": 538
+      "sha256": "b152ffdb814712ef84edec00b6d36d7f914b218d8639d63b2cf9bb8339bedf66",
+      "lines": 576
     },
     {
       "path": "backend/tests/test_auth_session_logout.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "26f2834340598504da6b07465af2d766ed17cc359a51105e8880bb1dd096e34e",
-      "lines": 400
+      "sha256": "cd5cfcd4ad59b4f69addfbf203994de4b0cb315e97a26645bb314ee174d1680c",
+      "lines": 402
     },
     {
       "path": "backend/tests/test_autocheck_asks_whose_licence_it_is.py",
@@ -9071,8 +9162,8 @@
       "path": "backend/tests/test_consent_on_login.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "2ea2d3dc9e09972fe69782095fd6fbdde13c2b52e4d7a48a0d8796324f45dbd0",
-      "lines": 64
+      "sha256": "a3d0efab9c4b5d62f6b963105de9090eee3d93c33f00ecbaea8b13e4286e5076",
+      "lines": 65
     },
     {
       "path": "backend/tests/test_conversation_empty_preview.py",
@@ -9512,8 +9603,8 @@
       "path": "backend/tests/test_every_admin_action_leaves_a_trace.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "c04fc2dc36f5421e1931f6c8e70cd85cac0f8598a5a7c0ee15a1adfffc794b46",
-      "lines": 222
+      "sha256": "234df6a44f63f64ee8282475c9101bb61c0b0762c771321f85ac3d53f8a55a29",
+      "lines": 214
     },
     {
       "path": "backend/tests/test_every_admin_hand_leaves_a_trace.py",
@@ -9533,8 +9624,8 @@
       "path": "backend/tests/test_every_refusal_speaks_both_languages.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5bc0fdb63e3c9fa31db0b551840f554896ce19c1f08270a7b28fe190457660dc",
-      "lines": 231
+      "sha256": "66bdb007af1c9164a61c535bbf0af82fbc0f8cd718d9af01bee13112b4d03a77",
+      "lines": 233
     },
     {
       "path": "backend/tests/test_every_shelf_asks_about_visibility.py",
@@ -9638,8 +9729,8 @@
       "path": "backend/tests/test_flows.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "de7da3301059aa673c8bba643d7f436e02f62866d3ef256e0a7b9eda83345378",
-      "lines": 940
+      "sha256": "2a5af7d7630c91ab7ca490dff085f22db11bedee2c6cf822aa5d4edd43826f65",
+      "lines": 946
     },
     {
       "path": "backend/tests/test_foreign_objects_sweep.py",
@@ -9694,8 +9785,8 @@
       "path": "backend/tests/test_funnel.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "184499079789772d6e9e4eaf90bbc25c6741e90f9cb0d639ac4c3a2a3603b63b",
-      "lines": 212
+      "sha256": "5be267b19e9045214d593c616a0f3715b455bd081e1b9486c87346c2392d1398",
+      "lines": 202
     },
     {
       "path": "backend/tests/test_geo.py",
@@ -9743,15 +9834,15 @@
       "path": "backend/tests/test_help_counted_is_help_sent.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "c886c9c5960bd579d991a4eb68543084b956c4e0bf06bb6f5e424caa3cb21466",
-      "lines": 279
+      "sha256": "03b9e56053fdd8636bbb778eac08e544283eae60c8fd41ddc41f5c7ae3963069",
+      "lines": 280
     },
     {
       "path": "backend/tests/test_help_promise_matches_reality.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "81f05067d530bc2536b910185f8f46f16c3cb700bee6a7ebfe54074da4a5e4f5",
-      "lines": 120
+      "sha256": "b1e715ae6194437970b062cef3e0e91407cc19fd04cdd02d990e247c8379b1cc",
+      "lines": 121
     },
     {
       "path": "backend/tests/test_honest_receipt.py",
@@ -9764,8 +9855,8 @@
       "path": "backend/tests/test_httpx_log_hides_query_secrets.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "a9dbe92999b93cc0f09c0444f384a7655c1b22f71ce9a4a393a2f7ec1eabbccc",
-      "lines": 113
+      "sha256": "a33c196873a977dd255e3f1df0f0aa5fccad664d5060befb73d39bda42b9ad6e",
+      "lines": 114
     },
     {
       "path": "backend/tests/test_image_metadata_stripped.py",
@@ -9876,7 +9967,7 @@
       "path": "backend/tests/test_launch_extras.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "39c00a4a599249d5c9851c6cf222bc25742df0299ba4b0c7a014f27cad86bf69",
+      "sha256": "198bf2efcdcfe19499841a7abe5a353c57c68e387ebaa3b9a152077545411ba4",
       "lines": 428
     },
     {
@@ -9985,6 +10076,13 @@
       "lines": 163
     },
     {
+      "path": "backend/tests/test_login_methods_honest.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "7e70ad22af83a4685e6921b6f3d33c8b689480def3b0d6c22cb628e1d4628d9d",
+      "lines": 186
+    },
+    {
       "path": "backend/tests/test_logout_reaches_the_open_window.py",
       "kind": "test_support",
       "block": "B09",
@@ -10088,6 +10186,13 @@
       "block": "B09",
       "sha256": "f08ac6c1289d22c35ba4dce230075b4a3d954d1478e557c735475600a7b720d8",
       "lines": 92
+    },
+    {
+      "path": "backend/tests/test_migration_owner_switches.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "7cd6476e51c60640968c2b59366af836327ad4d4a66145239b327285e7845ee9",
+      "lines": 318
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
@@ -10296,7 +10401,7 @@
       "path": "backend/tests/test_observability_scrub.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "22a96ea05034113d5c8ed671a5406a3fdbf0a654984e67527127d0c1c3555dde",
+      "sha256": "63ecb82d67f5b5bc929d02ed7f0b31e059ba3839635d4f39f42e508f8736866a",
       "lines": 760
     },
     {
@@ -10401,15 +10506,22 @@
       "path": "backend/tests/test_otp_issuance_history.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "21d7b75679865d31541fbbeef3c15747620e4d68af0c633d7032a218729f6247",
-      "lines": 91
+      "sha256": "dce23a81931575cdd0966656d7c5c0429265f45fab4aa94f39e348967489f126",
+      "lines": 82
     },
     {
       "path": "backend/tests/test_otp_phone_concurrency.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "008b243a092d6a083c9c3f1c874cf6348f46a6b2688f963bddf8bbd34c2a86ef",
-      "lines": 161
+      "sha256": "98aa6a6d376ee3b32f27324768a306bb55cc4c04e5d4240af4ac67a5e4a2dda1",
+      "lines": 169
+    },
+    {
+      "path": "backend/tests/test_owner_switches.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "d125413966c1c068cea53d190ed7dff103d3719c9d11b0f1430d60ea178d1de6",
+      "lines": 367
     },
     {
       "path": "backend/tests/test_paid_ad_owner_hears_about_pause.py",
@@ -10877,8 +10989,8 @@
       "path": "backend/tests/test_profile_name_and_avatar.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "1d7367c11bda9566d835e3eb711f0f123917738f6cdbdcaceefbc17dc0799ff4",
-      "lines": 138
+      "sha256": "36dc47d6a3710f522b31107b1a10642c6f39814c5a43a12f0569e392ac14b616",
+      "lines": 134
     },
     {
       "path": "backend/tests/test_promises.py",
@@ -11066,8 +11178,8 @@
       "path": "backend/tests/test_refresh_replay.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "9df0db6735473c5e25d413e29f5591dbd599d4d46372eea90dbc60fbde6c6afa",
-      "lines": 165
+      "sha256": "ecb005828b3c5a591b1a83b723cf36ec07186b4fdefad756dd2a529226695650",
+      "lines": 272
     },
     {
       "path": "backend/tests/test_refresh_replay_observability.py",
@@ -11304,15 +11416,15 @@
       "path": "backend/tests/test_review_login_permissions.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "5adb37482f2b3dbab5aa04f15599b1d2d9afb4ae08bda3d376ca96b8793effbd",
-      "lines": 187
+      "sha256": "bbb4017bd3492582a0bf1d9a73c86a7694e8528fa9c31e86d57b1f7a5d5585f1",
+      "lines": 201
     },
     {
       "path": "backend/tests/test_review_session_scope.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "bed0a5c758c3285b25c7a6003948440551abf65baba62e8db5c8b5b37a13c19a",
-      "lines": 168
+      "sha256": "5132f6c769b76e926f00e3793e88aa08f6aac68179b76a1e4690811608d966f7",
+      "lines": 170
     },
     {
       "path": "backend/tests/test_reviews_driver_profile.py",
@@ -11542,15 +11654,15 @@
       "path": "backend/tests/test_service_survives_outside_failures.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "082312033b24111ec6bb104f07fccea890bd5fd41c50f0e755fe9b19854540a1",
-      "lines": 183
+      "sha256": "282c2f940556156a24e486022e9638ea7f4ddf9519590453410166a320acec53",
+      "lines": 184
     },
     {
       "path": "backend/tests/test_services_edges.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "0640f542ce11d5d183a86f708ab0ff4a00a857a571eebad5dce4aabe82733efd",
-      "lines": 439
+      "sha256": "5d51decd5a12ad2e86df83eb31d087740d6424231b12ceb8aceaa84a1d6b8c73",
+      "lines": 440
     },
     {
       "path": "backend/tests/test_share.py",
@@ -11609,6 +11721,13 @@
       "lines": 162
     },
     {
+      "path": "backend/tests/test_sms_budget.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "c5ad2dd76a202292aaba6b6e661c58d5ea57403000f89dd4f54db95cebe1e005",
+      "lines": 272
+    },
+    {
       "path": "backend/tests/test_sms_speaks_to_the_family.py",
       "kind": "test_support",
       "block": "B02",
@@ -11621,6 +11740,13 @@
       "block": "B02",
       "sha256": "05c732bfd95c589cea376491f3ccd6bdceb51619f7af5853db852b7a909e8bef",
       "lines": 180
+    },
+    {
+      "path": "backend/tests/test_smsru_login.py",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "789906198cb21f2e0d7d44817218430c29c8595a9094438ad0d02b2a605f497b",
+      "lines": 305
     },
     {
       "path": "backend/tests/test_someone_is_waiting_for_your_answer.py",
@@ -11675,8 +11801,8 @@
       "path": "backend/tests/test_sos_says_whether_help_was_called.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "86588b566d4227eee34d17e8b5b5a0221d4dece714dd349268f441f146139b94",
-      "lines": 138
+      "sha256": "2cdc5adcca66990a22d99d5cc4a8036144d3bce8e452257eae678193fc2099e9",
+      "lines": 139
     },
     {
       "path": "backend/tests/test_sos_stale_key_retries.py",
@@ -11878,8 +12004,8 @@
       "path": "backend/tests/test_taxi_polish2.py",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "b30b3c1aa1a26f7afbbb9cbc080233dd68b67d40dbc7a1ef42d9f507b6b9628b",
-      "lines": 286
+      "sha256": "169378bc2a1725c1af26e3a40fe89b4cc87fc547b813f5ed251b6592d96e4b79",
+      "lines": 276
     },
     {
       "path": "backend/tests/test_taxi_rating_recovery_contract.py",
@@ -12844,8 +12970,8 @@
       "path": "backend/tests/walk/l2_1/test_l2_1_frozen_sms_door.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "032653b9e26730f93e1c5c41cc6fc5b198d853d4d3337d3428062ba36b7df409",
-      "lines": 228
+      "sha256": "233eef5c82385792ff424a77680c219442156ce396a7583f761d89a0de589196",
+      "lines": 219
     },
     {
       "path": "backend/tests/walk/l2_1/test_l2_1_logout_clears_push_tokens.py",
@@ -12865,8 +12991,8 @@
       "path": "backend/tests/walk/l2_1/test_l2_1_refresh_reuse_revokes_family.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "782ac3ac5bf9c2b03db5afb5a5c8139898e8708ab25cdd1180f88634388b581d",
-      "lines": 207
+      "sha256": "6c8732685dd531e967435f53b71aa5b20ba6ae6bd3c22189cf1c4ce17e705778",
+      "lines": 214
     },
     {
       "path": "backend/tests/walk/l2_1/test_l2_1_review_login_and_group_chat_guards.py",
@@ -14237,8 +14363,8 @@
       "path": "webapp/src/App.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "78efa5d7ff029202ea04cbf045433523d1fffa7c84131c86363fc3e6715a427d",
-      "lines": 1054
+      "sha256": "db706f73203f1f15b9156be4c4341f1cf2b75adb945ac9e88cd24f30925aac7a",
+      "lines": 1063
     },
     {
       "path": "webapp/src/analytics.ts",
@@ -14307,8 +14433,8 @@
       "path": "webapp/src/api/client.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "9603e109cec860eaa0ddadee8ac6d3efe469ad290a67572b5fb66e73a76649cf",
-      "lines": 530
+      "sha256": "a4f880e86b2372c9a2dcbaa4b96131ef362976e5004d96f63178ed7c0e3df1ac",
+      "lines": 535
     },
     {
       "path": "webapp/src/api/coupons.ts",
@@ -14400,6 +14526,13 @@
       "block": "B06",
       "sha256": "827249719be6593dbdcce36318c25cb05400a343f4bf73d91e44a48f9baf574d",
       "lines": 50
+    },
+    {
+      "path": "webapp/src/api/ownerSwitches.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "430c1796da8dd4666c3994e045e388ae3632e90272993ec0d10936eeca92903e",
+      "lines": 29
     },
     {
       "path": "webapp/src/api/parcels.ts",
@@ -14566,8 +14699,8 @@
       "path": "webapp/src/components/AlertDialog.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "b606b20e6c6b14c3cf0317919f1dd959badcf8e34d39d2f6da190278bca54f9c",
-      "lines": 63
+      "sha256": "8b54aae902cca7fc117f94b8b5a0011d16dbde145d611943aa208b257e0881a4",
+      "lines": 66
     },
     {
       "path": "webapp/src/components/BargainTrail.tsx",
@@ -15434,8 +15567,8 @@
       "path": "webapp/src/screens/AdminCabinetScreen.tsx",
       "kind": "pwa_main",
       "block": "B08",
-      "sha256": "7543f1568374532b0205377687f77084a69e16e1eca724ad75682839203119a0",
-      "lines": 240
+      "sha256": "bb81dc062247f10277fde458e14c66f8cd4b2ba4570fed7f64522c693fd17c66",
+      "lines": 244
     },
     {
       "path": "webapp/src/screens/AdminCarPhotoScreen.tsx",
@@ -15562,6 +15695,13 @@
       "block": "B08",
       "sha256": "f772c9412f8fc121d4dd587a95e6be10d2233edbef1e707bce3e1ff352592112",
       "lines": 252
+    },
+    {
+      "path": "webapp/src/screens/AdminSwitchesScreen.tsx",
+      "kind": "pwa_main",
+      "block": "B08",
+      "sha256": "678aa2ab863ccc19fb2a01a59e95537f3eec5ee465401e050614e1f1c9c983bb",
+      "lines": 226
     },
     {
       "path": "webapp/src/screens/AdminTaxiPulseScreen.tsx",

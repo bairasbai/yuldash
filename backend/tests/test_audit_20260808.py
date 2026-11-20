@@ -134,10 +134,10 @@ def test_foreign_lookalike_number_does_not_get_admin(client, user_factory, monke
         row.phone = "+19991234567"          # тот же «хвост», другая страна
         s.add(row)
         s.commit()
-    from app.routers.auth import _maybe_promote_admin
+    from app.routers.auth import _sync_telegram_admin
     with Session(engine) as s:
         row = s.get(User, u["id"])
-        _maybe_promote_admin(s, row)
+        _sync_telegram_admin(row, row.telegram_id, row.phone)
         s.commit()
         assert s.get(User, u["id"]).role != UserRole.admin
 

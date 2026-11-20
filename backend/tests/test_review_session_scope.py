@@ -12,6 +12,7 @@ from app.db import engine
 from app.models import RefreshToken, TgAuth, User, UserRole
 from app.security import authenticate_ws, current_user_optional
 from app.timeutil import utcnow
+from test_admin_telegram_login import _contact, _start
 
 
 NONCE = "c3" * 32
@@ -54,14 +55,11 @@ def _snapshot(user_id):
 
 def _verified_admin_login(client, monkeypatch, user_id, phone):
     monkeypatch.setattr(settings, "admin_phones", phone)
-    request_id = uuid.uuid4().hex
     with Session(engine) as session:
-        user = session.get(User, user_id)
-        session.add(TgAuth(request_id=request_id, telegram_id=user.telegram_id,
-                           status="sent", code="246810",
-                           expires_at=utcnow() + timedelta(minutes=5)))
-        session.commit()
-    result = client.post("/auth/tg/verify", json={"request_id": request_id, "code": "246810"})
+        telegram_id = session.get(User, user_id).telegram_id
+    challenge = _start(client, telegram_id)
+    assert _contact(client, telegram_id, phone).status_code == 200
+    result = client.post("/auth/tg/verify", json=challenge)
     assert result.status_code == 200, result.text
     assert result.json()["user"]["role"] == "admin"
     assert result.json()["user"]["id"] == user_id

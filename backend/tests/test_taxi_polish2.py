@@ -135,17 +135,7 @@ def test_receipt_reminder_after_a_day(client, user_factory, fake_redis):
 
 # ============================ Пульс-панель админа (B7b-3) ============================
 def _admin(user_factory):
-    from sqlmodel import Session
-
-    from app.db import engine
-    from app.models import User
-    a = user_factory("PulseAdmin")
-    with Session(engine) as s:
-        u = s.get(User, a["id"])
-        u.role = UserRole.admin
-        s.add(u)
-        s.commit()
-    return a
+    return user_factory("PulseAdmin", role=UserRole.admin)
 
 
 def test_taxi_pulse_admin_only(client, user_factory, fake_redis):

@@ -15,7 +15,7 @@ import re
 from collections import Counter
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import func
@@ -25,8 +25,8 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..logs import admin_action
 from ..errors import herr
-from ..models import User, UserRole, WaitlistEntry
-from ..security import current_user
+from ..models import User, WaitlistEntry
+from ..security import require_telegram_admin
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["waitlist"])
@@ -80,11 +80,6 @@ def join_waitlist(body: WaitlistIn, session: Session = Depends(get_session)):
 
 
 # ------------------------------ админ ------------------------------
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 def _filtered(session: Session, city: Optional[str], role: Optional[str],
               invited: Optional[bool], limit: Optional[int] = None,
               offset: int = 0) -> List[WaitlistEntry]:
@@ -116,11 +111,10 @@ def _entry_payload(e: WaitlistEntry) -> dict:
 @router.get("/admin/waitlist")
 def admin_waitlist(city: Optional[str] = None, role: Optional[str] = None, invited: Optional[bool] = None,
                    limit: int = 200, offset: int = 0,
-                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+                   user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Список ожидающих + счётчики. Счётчики (total/invited/by_city/by_role) — по ВСЕЙ базе
     (общая картина набора), items — по фильтрам city/role/invited. by_city отсортирован по
     убыванию (JSON-массив: порядок важен для UI, объект его не гарантирует)."""
-    _require_admin(user)
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     # Счётчики — агрегатами в БД (было: вся таблица в память + Counter на каждый запрос).
@@ -147,9 +141,8 @@ def admin_waitlist(city: Optional[str] = None, role: Optional[str] = None, invit
 
 @router.get("/admin/waitlist.csv")
 def admin_waitlist_csv(city: Optional[str] = None, role: Optional[str] = None, invited: Optional[bool] = None,
-                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+                       user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """CSV-экспорт (те же фильтры, что и список) — для рассылки/таблицы у Александра."""
-    _require_admin(user)
     rows = _filtered(session, city, role, invited)
     # След обязателен (волна 167). Это не просмотр карточки, а вынос файла с телефонами живых
     # людей за пределы приложения: список ожидания — единственное место, где номер лежит
@@ -176,11 +169,10 @@ class InviteIn(BaseModel):
 
 
 @router.post("/admin/waitlist/invite")
-def admin_waitlist_invite(body: InviteIn, user: User = Depends(current_user),
+def admin_waitlist_invite(body: InviteIn, user: User = Depends(require_telegram_admin),
                           session: Session = Depends(get_session)):
     """Пометить волну: проставить invited_at выбранным. Уже позванных не перетираем
     (сохраняем номер волны по времени). Рассылку админ делает сам — СМС тут нет."""
-    _require_admin(user)
     now = utcnow()
     n = 0
     for wid in body.ids:
@@ -195,7 +187,7 @@ def admin_waitlist_invite(body: InviteIn, user: User = Depends(current_user),
 
 
 @router.delete("/admin/waitlist/{entry_id}")
-def admin_waitlist_delete(entry_id: int, user: User = Depends(current_user),
+def admin_waitlist_delete(entry_id: int, user: User = Depends(require_telegram_admin),
                           session: Session = Depends(get_session)):
     """Убрать номер из листа ожидания по просьбе человека (152-ФЗ, ст. 14 «право на удаление»).
 
@@ -204,7 +196,6 @@ def admin_waitlist_delete(entry_id: int, user: User = Depends(current_user),
     поможет; просьба приходит письмом или в бота, и у Александра должна быть кнопка.
     Идемпотентно: нет строки — считаем, что уже удалили.
     """
-    _require_admin(user)
     entry = session.get(WaitlistEntry, entry_id)
     if entry is None:
         return {"ok": True, "deleted": 0}

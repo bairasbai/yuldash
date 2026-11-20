@@ -15,14 +15,13 @@ import json
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request, Response
-from fastapi import HTTPException
 from sqlalchemy import func
 from sqlmodel import Session, select
 
 from ..db import get_session
 from ..observability import scrub_text
-from ..models import AnalyticsEvent, User, UserRole
-from ..security import current_user
+from ..models import AnalyticsEvent, User
+from ..security import require_telegram_admin
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["events"])
@@ -136,12 +135,10 @@ async def ingest_event(request: Request, session: Session = Depends(get_session)
 
 
 @router.get("/admin/events/summary")
-def events_summary(days: int = 7, user: User = Depends(current_user),
+def events_summary(days: int = 7, user: User = Depends(require_telegram_admin),
                    session: Session = Depends(get_session)):
     """Мини-агрегат воронки для админа: сколько каких событий за последние N дней.
     Только админ. Считаем SQL-агрегатом (GROUP BY event), таблицу целиком не тянем."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     days = max(1, min(days, 90))
     since = utcnow() - timedelta(days=days)
     rows = session.exec(

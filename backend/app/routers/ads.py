@@ -22,7 +22,7 @@ from ..logs import admin_action
 from ..middleware import user_over_limit
 from ..models import Ad, AdEvent, Payment, User, UserRole
 from ..safety_logic import ensure_active
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import guard_own_media_url, notify_admin_telegram, push_notification
 from ..timeutil import client_dt_to_utc, utcnow
 
@@ -613,11 +613,6 @@ def ad_renew(ad_id: int, user: User = Depends(current_user), session: Session = 
 
 # ---------- Админ ----------
 
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 class AdIn(BaseModel):
     partner_name: str = Field("", max_length=120)
     partner_contact: str = Field("", max_length=200)
@@ -673,9 +668,8 @@ def _admin_view(ad: Ad, now: datetime, paid: bool = False) -> dict:
 
 @router.get("/admin/ads")
 def admin_ads(limit: int = 200, offset: int = 0,
-              user: User = Depends(current_user), session: Session = Depends(get_session)):
+              user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Все объявления (кроме архива) + сколько founder-слотов занято."""
-    _require_admin(user)
     now = utcnow()
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
@@ -703,9 +697,8 @@ class AdRejectIn(BaseModel):
 
 
 @router.post("/admin/ads/{ad_id}/approve", response_model=Ad)
-def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Одобрить объявление (pending_review → active). В эфир пойдёт после оплаты (см. _is_live)."""
-    _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
@@ -734,9 +727,8 @@ def admin_approve_ad(ad_id: int, body: AdApproveIn, user: User = Depends(current
 
 
 @router.post("/admin/ads/{ad_id}/reject", response_model=Ad)
-def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Отклонить объявление (→ rejected) с причиной. Партнёр увидит причину и сможет исправить."""
-    _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
@@ -752,9 +744,8 @@ def admin_reject_ad(ad_id: int, body: AdRejectIn, user: User = Depends(current_u
 
 
 @router.post("/admin/ads", response_model=Ad)
-def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_create_ad(body: AdIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Создать объявление. founder ограничен лимитом 10."""
-    _require_admin(user)
     plan = body.plan if body.plan in ("founder", "standard", "premium") else "standard"
     if plan == "founder" and _founder_slots_used(session) >= FOUNDER_LIMIT:
         raise HTTPException(400, f"Слоты основателей заняты ({FOUNDER_LIMIT}/{FOUNDER_LIMIT})")
@@ -790,9 +781,8 @@ def admin_create_ad(body: AdIn, user: User = Depends(current_user), session: Ses
 
 
 @router.post("/admin/ads/{ad_id}", response_model=Ad)
-def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Обновить контент/таргет/срок объявления."""
-    _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")
@@ -823,9 +813,8 @@ def admin_update_ad(ad_id: int, body: AdIn, user: User = Depends(current_user), 
 
 
 @router.post("/admin/ads/{ad_id}/status", response_model=Ad)
-def admin_set_status(ad_id: int, body: AdStatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_set_status(ad_id: int, body: AdStatusIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Опубликовать / поставить на паузу / архивировать."""
-    _require_admin(user)
     if body.status not in ("draft", "active", "paused", "expired", "archived"):
         raise herr(400, "Недопустимый статус", "Ярамаған статус")
     ad = session.get(Ad, ad_id)
@@ -880,9 +869,8 @@ def notify_ad_status_change(session, ad, was: str) -> None:
 
 
 @router.delete("/admin/ads/{ad_id}")
-def admin_delete_ad(ad_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_delete_ad(ad_id: int, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Мягкое удаление — в архив (статистика сохраняется)."""
-    _require_admin(user)
     ad = session.get(Ad, ad_id)
     if not ad:
         raise herr(404, "Объявление не найдено", "Иғлан табылманы")

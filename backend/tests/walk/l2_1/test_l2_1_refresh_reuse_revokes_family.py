@@ -35,7 +35,7 @@ def _login(client, phone: str, name: str = "U") -> dict:
     return r.json()
 
 
-def test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family(client, monkeypatch):
+def test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family(client, monkeypatch, sms_retry_elapsed):
     # Окно «уже закрыто» при любой разнице времени: проверяем именно факт отзыва семьи, не гонясь
     # за настоящими 120 секундами в тесте. Не 0: ротация и повтор часто попадают в ОДИН такт
     # часов (на Windows ~15 мс), разница выходит ровно 0 — это «внутри окна [0; 0]», и тест
@@ -45,6 +45,7 @@ def test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family(c
     first = _login(client, phone, "Б3Жертва")
     # Вторая, полностью независимая сессия того же человека (второй логин тем же номером —
     # это второе устройство, вторая пара ключей, без выхода из первой).
+    sms_retry_elapsed()
     second = _login(client, phone)
 
     good_nonce = "a" * 64
@@ -70,10 +71,11 @@ def test_replay_with_a_wrong_rotation_id_outside_the_window_revokes_the_family(c
     )
 
 
-def test_plain_replay_without_a_rotation_id_does_not_touch_other_sessions(client):
+def test_plain_replay_without_a_rotation_id_does_not_touch_other_sessions(client, sms_retry_elapsed):
     """Отрицательный случай: обычный повтор без доказательства — НЕ семейная поломка."""
     phone = "+79995553012"
     first = _login(client, phone, "ОбычныйПовтор")
+    sms_retry_elapsed()
     second = _login(client, phone)
 
     rotated = client.post("/auth/refresh", json={"refresh_token": first["refresh_token"]})
@@ -92,11 +94,12 @@ def test_plain_replay_without_a_rotation_id_does_not_touch_other_sessions(client
     ).status_code == 200
 
 
-def test_a_wrong_nonce_inside_the_recovery_window_is_not_treated_as_theft(client):
+def test_a_wrong_nonce_inside_the_recovery_window_is_not_treated_as_theft(client, sms_retry_elapsed):
     """Сторож придирчивого сторожа: внутри окна «нонс не подошёл» — это может быть честная
     гонка двух запросов одного клиента (см. докстринг модуля), не кража. Семью не гасим."""
     phone = "+79995553013"
     first = _login(client, phone, "ЧестнаяГонка")
+    sms_retry_elapsed()
     second = _login(client, phone)
 
     good_nonce = "c" * 64
@@ -117,19 +120,21 @@ def test_a_wrong_nonce_inside_the_recovery_window_is_not_treated_as_theft(client
     )
 
 
-def test_logout_then_relogin_then_a_second_devices_refresh_does_not_alarm(client):
+def test_logout_then_relogin_then_a_second_devices_refresh_does_not_alarm(client, sms_retry_elapsed):
     """Н-1 (повторное независимое ревью): logout гасит refresh БЕЗ rotated_at — это не ротация.
     Второе устройство, честно продлевающее СВОЮ (уже погашенную чужим logout) сессию с
     rotation_id, — обычный и частый случай, не кража. Раньше это ошибочно гасило НОВУЮ сессию,
     открытую на первом устройстве ПОСЛЕ выхода."""
     phone = "+79995553014"
     phone_session = _login(client, phone, "ДваУстройства")
+    sms_retry_elapsed()
     tablet_session = _login(client, phone)  # второе устройство, тот же человек
 
     assert client.post("/auth/logout", headers={
         "Authorization": f"Bearer {phone_session['access_token']}"
     }).status_code == 200
 
+    sms_retry_elapsed()
     new_phone_session = _login(client, phone)  # телефон зашёл заново после выхода
 
     # Планшет не знает о выходе — честно пытается продлить СВОЮ сессию с нонсом, как и положено
@@ -144,11 +149,12 @@ def test_logout_then_relogin_then_a_second_devices_refresh_does_not_alarm(client
     }).status_code == 200, "выход с планшета (чужой logout) погасил новую сессию телефона"
 
 
-def test_same_nonce_replayed_after_the_window_closes_does_not_alarm(client, monkeypatch):
+def test_same_nonce_replayed_after_the_window_closes_does_not_alarm(client, monkeypatch, sms_retry_elapsed):
     """Н-1: потерянный ответ — клиент честно повторяет ТОТ ЖЕ нонс, просто опоздал (окно уже
     закрылось). Нонс совпадает — значит это не чужая попытка, тревоги быть не должно."""
     phone = "+79995553015"
     first = _login(client, phone, "ПотерянныйОтвет")
+    sms_retry_elapsed()
     second = _login(client, phone)
 
     nonce = "f" * 64
@@ -171,7 +177,7 @@ def test_same_nonce_replayed_after_the_window_closes_does_not_alarm(client, monk
     )
 
 
-def test_the_same_stolen_token_does_not_alarm_twice(client, monkeypatch):
+def test_the_same_stolen_token_does_not_alarm_twice(client, monkeypatch, sms_retry_elapsed):
     """Н-1: повторный replay ОДНОГО И ТОГО ЖЕ украденного токена не шлёт тревогу заново —
     иначе любой старый сожжённый токен превращается в бесплатный рубильник, которым вор может
     раз за разом выкидывать человека отовсюду (DoS)."""
@@ -191,6 +197,7 @@ def test_the_same_stolen_token_does_not_alarm_twice(client, monkeypatch):
     assert first_theft_reply.status_code == 401, first_theft_reply.text
 
     # Человек заходит заново ПОСЛЕ первой тревоги...
+    sms_retry_elapsed()
     relogged = _login(client, phone)
 
     # ...а вор повторяет ТОТ ЖЕ самый старый (уже учтённый) токен ещё раз.

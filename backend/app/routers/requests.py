@@ -22,7 +22,7 @@ from ..visibility import FEED_MAX, booking_contacts_open, hidden_author_ids, vis
 from ..observability import scrub_text
 from ..relative_phone_comment import strip_legacy_relative_phone
 from ..schemas import RideOut
-from ..security import current_user, gen_otp
+from ..security import current_user, gen_otp, require_telegram_admin
 from ..services import (
     CITY_COORDS, geocode_city, haversine_km, is_blocked, notify_admin_telegram,
     notify_map_changed, notify_request_watchers, public_rides_payload, push_notification,
@@ -339,11 +339,9 @@ class AdminRequestIn(BaseModel):
 
 
 @router.post("/admin/request-for-phone", response_model=RideRequest)
-def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_request_for_phone(body: AdminRequestIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Админ создаёт заявку ЗА пользователя по телефону (после звонка «перезвоните мне»).
     Находит/создаёт юзера по номеру → заводит заявку → водители видят её как обычную."""
-    if user.role != UserRole.admin:
-        raise herr(403, "Только для администратора", "Тик администратор өсөн")
     phone = body.phone.strip()
     if not phone:
         raise herr(400, "Нужен телефон", "Телефон кәрәк")

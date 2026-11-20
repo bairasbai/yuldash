@@ -29,7 +29,7 @@ from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
 from ..models import CarPhotoCheck, User, UserRole
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import CARPHOTO_DIR, enforce_upload_quota, read_upload, secure_carphoto_url
 from ..storage import get_storage
 
@@ -155,11 +155,6 @@ def secure_carphoto(name: str, user: User = Depends(current_user),
 
 
 # ------------------------------------------------------------------ очередь у админа
-def _guard_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise herr(403, "Только для админа", "Тик админ өсөн")
-
-
 def _admin_row(session: Session, row: CarPhotoCheck) -> dict:
     return {
         "id": row.id, "user_id": row.user_id, "mode": row.mode, "seq": row.seq,
@@ -181,9 +176,8 @@ def _admin_row(session: Session, row: CarPhotoCheck) -> dict:
 
 
 @router.get("/admin/carphoto")
-def admin_queue(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_queue(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Очередь фотоконтролей, которые смотрит человек. Старые сверху — их ждут дольше."""
-    _guard_admin(user)
     строки = session.exec(select(CarPhotoCheck).where(
         CarPhotoCheck.status == cp.REVIEW).order_by(CarPhotoCheck.submitted_at)).all()
     return [_admin_row(session, r) for r in строки]
@@ -195,10 +189,9 @@ class DecideIn(BaseModel):
 
 
 @router.post("/admin/carphoto/{check_id}/decide")
-def admin_decide(check_id: int, body: DecideIn, user: User = Depends(current_user),
+def admin_decide(check_id: int, body: DecideIn, user: User = Depends(require_telegram_admin),
                  session: Session = Depends(get_session)):
     """Решение человека: принято или переснять. Водителю уходит объяснение, а не «отказано»."""
-    _guard_admin(user)
     строка = session.get(CarPhotoCheck, check_id)
     if строка is None:
         raise herr(404, "Контроль не найден", "Контроль табылманы")

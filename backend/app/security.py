@@ -3,7 +3,7 @@ import hmac
 import re
 import secrets
 import string
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
@@ -25,6 +25,12 @@ from .timeutil import utcnow
 # язык, не термины реализации).
 _SESSION_STALE_RU = "Сессия устарела. Войди заново."
 _SESSION_STALE_BA = "Сессия иҫкергән. Яңынан ин."
+
+
+def telegram_login_required(*, code: str = "telegram_step_up_required") -> HTTPException:
+    return herr(403, "Для доступа администратора войди через Telegram.",
+                "Администратор булараҡ инеү өсөн Telegram аша ин.",
+                code=code)
 
 
 class _BilingualBearer(HTTPBearer):
@@ -111,9 +117,19 @@ def normalize_guardian_phone(raw: str) -> str | None:
     return phone if SMS_PHONE_RE.fullmatch(phone) else None
 
 
+def _validate_auth_proof(method: str, auth_time: Optional[datetime], review_session: bool) -> None:
+    if method == "legacy" and auth_time is None:
+        return
+    if (review_session or method not in ("sms", "telegram") or auth_time is None
+            or auth_time.tzinfo is not None or auth_time > utcnow()):
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+
+
 def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
-               auth_session: Optional[AuthSession] = None) -> str:
+               auth_session: Optional[AuthSession] = None, auth_method: str = "legacy",
+               auth_time: Optional[datetime] = None, auth_epoch: int = 0) -> str:
     """Короткоживущий access-токен (JWT)."""
+    _validate_auth_proof(auth_method, auth_time, review_session)
     now = utcnow()
     if issued_after is not None and now <= issued_after:
         # Logout отзывает всё с iat <= tokens_valid_from. Часы могут вернуть тот же момент
@@ -124,7 +140,10 @@ def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
     # ≤ tokens_valid_from (logout). От гонки login→logout→login в одной миллисекунде
     # (часы Windows дают одинаковое значение соседним вызовам) защищает явная выдача
     # строго после сохранённой границы + нестрогое сравнение в _token_revoked.
-    payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp}
+    payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp, "auth_epoch": auth_epoch}
+    if auth_time is not None:
+        payload["amr"] = auth_method
+        payload["auth_time"] = int(auth_time.replace(tzinfo=timezone.utc).timestamp())
     if auth_session is not None:
         payload["sid"] = auth_session.id
         auth_session.access_expires_at = max(auth_session.access_expires_at, exp)
@@ -155,7 +174,8 @@ def _active_auth_session(session: Session, user_id: int, session_id: str) -> Opt
     return None
 
 
-def _session_pair(session: Session, user: User, login: AuthSession, refresh: str, review_session: bool) -> dict:
+def _session_pair(session: Session, user: User, login: AuthSession, refresh: str, review_session: bool,
+                  *, auth_method: str, auth_time: Optional[datetime]) -> dict:
     # A stable ticket is reproducible after a lost rotation reply. Persist its hash so
     # already issued tickets keep working if the JWT signing key is changed later.
     mac = hmac.new(settings.jwt_secret.encode(), b"auth-session-logout-v1\x00" + login.id.encode(),
@@ -165,7 +185,7 @@ def _session_pair(session: Session, user: User, login: AuthSession, refresh: str
     if digest not in login.logout_hashes:
         login.logout_hashes = [*login.logout_hashes, digest]
     access = make_token(user.id, issued_after=user.tokens_valid_from, review_session=review_session,
-                        auth_session=login)
+                        auth_session=login, auth_method=auth_method, auth_time=auth_time, auth_epoch=user.auth_epoch)
     session.add(login)
     return {
         "access_token": access,
@@ -177,15 +197,19 @@ def _session_pair(session: Session, user: User, login: AuthSession, refresh: str
 
 
 def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] = None,
-                 review_session: bool = False, auth_session_id: Optional[str] = None) -> dict:
+                 review_session: bool = False, auth_session_id: Optional[str] = None,
+                 auth_method: str = "legacy", auth_time: Optional[datetime] = None) -> dict:
     """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ.
 
     Граница последнего logout остаётся навсегда: иначе новый вход оживит все старые
     access-токены. Новую пару выпускаем строго после этой границы."""
+    _validate_auth_proof(auth_method, auth_time, review_session)
     user = lock_refresh_user(session, user_id)
     if user is None or (review_session and user.role != UserRole.passenger):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    if user.role == UserRole.admin and auth_method != "telegram":
+        raise telegram_login_required(code="admin_login_telegram_only")
     login = (_active_auth_session(session, user_id, auth_session_id) if auth_session_id
              else _new_auth_session(session, user_id))
     if login is None:
@@ -199,9 +223,11 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
         raw = _REVIEW_REFRESH_PREFIX + raw
     session.add(RefreshToken(
         user_id=user_id, token_hash=_hash_refresh(raw), auth_session_id=login.id,
+        auth_method=auth_method, auth_time=auth_time, auth_epoch=user.auth_epoch,
         expires_at=utcnow() + timedelta(days=settings.refresh_expire_days),
     ))
-    pair = _session_pair(session, user, login, raw, review_session)
+    pair = _session_pair(session, user, login, raw, review_session,
+                         auth_method=auth_method, auth_time=auth_time)
     session.commit()
     return pair
 
@@ -251,6 +277,11 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             or (review_session and owner.role != UserRole.passenger)):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    if rt.auth_epoch != owner.auth_epoch or (owner.role == UserRole.admin and rt.auth_method != "telegram"):
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+    _validate_auth_proof(rt.auth_method, rt.auth_time, review_session)
+    if rt.auth_time is not None and rt.auth_session_id is None:
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
     # Бан устройства — вторая половина проверки (волна 204). Первая стоит в роутере и читает
     # заголовок `X-Device-Id`; но заголовок шлёт КЛИЕНТ, и забаненному достаточно перестать
     # его слать. Поэтому смотрим ещё и на аппарат, который сервер запомнил сам при входе
@@ -311,7 +342,9 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
                 or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
             raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
-        if rt.auth_session_id and rt.auth_session_id != child.auth_session_id:
+        if (child.auth_epoch != owner.auth_epoch
+                or (rt.auth_session_id and rt.auth_session_id != child.auth_session_id)
+                or (rt.auth_method, rt.auth_time) != (child.auth_method, child.auth_time)):
             raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
         try:
             login = (_active_auth_session(session, owner.id, child.auth_session_id) if child.auth_session_id
@@ -324,7 +357,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
                 rt.auth_session_id = child.auth_session_id = login.id
                 session.add(rt)
                 session.add(child)
-            pair = _session_pair(session, owner, login, child_raw, review_session)
+            pair = _session_pair(session, owner, login, child_raw, review_session,
+                                 auth_method=child.auth_method, auth_time=child.auth_time)
             session.commit()
             return pair
         except Exception:
@@ -353,7 +387,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
         successor = _recovery_token(raw, rotation_id) if rotation_id else None
         return issue_tokens(session, rt.user_id, refresh_raw=successor,
-                            review_session=review_session, auth_session_id=login_id)
+                            review_session=review_session, auth_session_id=login_id,
+                            auth_method=rt.auth_method, auth_time=rt.auth_time)
     except Exception:
         session.rollback()
         raise
@@ -463,7 +498,8 @@ def authenticate_ws(token: str, session: Session) -> User:
     отозванный через logout, продолжал бы открывать чат до самого истечения JWT."""
     payload = _decode(token)
     user = session.get(User, int(payload["sub"]))
-    if not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session):
+    if (not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session)
+            or _admin_requires_telegram(user, payload)):
         raise JWTError("token revoked or user missing")
     return user
 
@@ -475,6 +511,18 @@ def _session_claim_revoked(payload: dict, user: User, session: Session) -> bool:
     return not isinstance(sid, str) or _active_auth_session(session, user.id, sid) is None
 
 
+def _admin_requires_telegram(user: User, payload: dict) -> bool:
+    if user.role != UserRole.admin:
+        return False
+    auth_time = payload.get("auth_time")
+    return not (
+        payload.get("amr") == "telegram"
+        and type(auth_time) is int
+        and 0 <= auth_time <= datetime.now(timezone.utc).timestamp()
+        and payload.get("sid")
+    )
+
+
 def _token_revoked(payload: dict, user: User) -> bool:
     """Токен недействителен, если выпущен В МОМЕНТ `user.tokens_valid_from` или ДО него
     (logout/ревокация). Сравнение нестрогое (`<=`): токен, выпущенный в ту же
@@ -482,6 +530,9 @@ def _token_revoked(payload: dict, user: User) -> bool:
     тоже гасится. Свежий вход выпускает токен строго после сохранённой границы.
     Старый токен без `iat` после появления границы нельзя безопасно отнести к новой
     сессии, поэтому он тоже считается отозванным."""
+    token_epoch = payload.get("auth_epoch", 0)
+    if type(token_epoch) is not int or token_epoch < 0 or token_epoch != user.auth_epoch:
+        return True
     if payload.get("review_session") and user.role != UserRole.passenger:
         return True
     if not user.tokens_valid_from:
@@ -516,6 +567,8 @@ def _authenticated_user(cred: HTTPAuthorizationCredentials, session: Session, *,
         raise herr(401, "Пользователь не найден", "Ҡулланыусы табылманы")
     if _token_revoked(payload, user) or _session_claim_revoked(payload, user, session):
         raise herr(401, "Сессия завершена. Войди заново.", "Сессия тамамланды. Яңынан ин.")
+    if _admin_requires_telegram(user, payload):
+        raise telegram_login_required()
     # Номер обязателен: без реального номера приложение не работает (защита от мошенников).
     if is_placeholder_phone(user.phone):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "phone_required")
@@ -527,6 +580,13 @@ def current_user(
     session: Session = Depends(get_session),
 ) -> User:
     return _authenticated_user(cred, session)[0]
+
+
+def require_telegram_admin(user: User = Depends(current_user)) -> User:
+    """current_user has already checked the signed proof and active session."""
+    if user.role != UserRole.admin:
+        raise herr(403, "Нужны права администратора.", "Администратор хоҡуҡтары кәрәк.")
+    return user
 
 
 def lock_authenticated_user(cred: HTTPAuthorizationCredentials, session: Session) -> tuple[User, Optional[str]]:
@@ -543,12 +603,6 @@ def current_user_optional(
     if cred is None:
         return None
     try:
-        payload = _decode(cred.credentials)
-        user_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
+        return _authenticated_user(cred, session)[0]
+    except HTTPException:
         return None
-    user = session.get(User, user_id)
-    if (not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session)
-            or is_placeholder_phone(user.phone)):
-        return None
-    return user

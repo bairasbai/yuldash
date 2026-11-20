@@ -230,6 +230,10 @@ export default function AdminCabinetScreen() {
             "Юлдашты идара итеү үҙәге. Тик админға күренә."
           )}
         </p>
+        <SettingsGroup>
+          <SettingsNavRow icon={<IconSignal size={24} />} title={appText("Выключатели", "Күсергестәр")}
+            subtitle={appText("Способы входа", "Инеү ысулдары")} onClick={() => navigate("/admin/switches")} />
+        </SettingsGroup>
         {group(manual)}
         {group(moderation)}
         {group(money)}

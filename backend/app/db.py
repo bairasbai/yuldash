@@ -93,6 +93,12 @@ def init_db() -> None:
     except ProgrammingError as e:  # psycopg2 DuplicateTable и т.п. при гонке воркеров
         log.warning(f"[INIT_DB] create_all race ignored: {e}")
     _migrate_sqlite_add_columns()
+    if not settings.is_prod:
+        from .owner_switches import seed_login_settings
+
+        with Session(engine) as session:
+            seed_login_settings(session)
+            session.commit()
 
 
 def get_session():

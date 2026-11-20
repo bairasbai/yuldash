@@ -23,8 +23,8 @@ from ..config import settings
 from ..errors import herr
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..logs import admin_action
-from ..models import AppReview, Rating, User, UserRole
-from ..security import current_user
+from ..models import AppReview, Rating, User
+from ..security import current_user, require_telegram_admin
 
 router = APIRouter(tags=["reviews"])
 
@@ -114,9 +114,7 @@ def public_reviews(limit: int = 12, session: Session = Depends(get_session)):
 
 @router.get("/admin/reviews/pending", response_model=List[AppReview])
 def pending_reviews(limit: int = 200, offset: int = 0,
-                    user: User = Depends(current_user), session: Session = Depends(get_session)):
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+                    user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     return session.exec(
@@ -126,9 +124,7 @@ def pending_reviews(limit: int = 200, offset: int = 0,
 
 
 @router.post("/admin/reviews/{review_id}/publish", response_model=AppReview)
-def publish_review(review_id: int, body: ReviewPublishIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
+def publish_review(review_id: int, body: ReviewPublishIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     review = session.get(AppReview, review_id)
     if not review:
         raise herr(404, "Отзыв не найден", "Баһа табылманы")
@@ -155,10 +151,8 @@ class PendingRatingOut(BaseModel):
 
 
 @router.get("/admin/ratings/pending", response_model=List[PendingRatingOut])
-def pending_ratings(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def pending_ratings(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Текстовые отзывы, ждущие модерации: есть текст, но ещё не опубликован."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     rows = session.exec(
         select(Rating)
         .where(Rating.text_published == False, Rating.text != "")  # noqa: E712
@@ -188,10 +182,8 @@ class RatingPublishIn(BaseModel):
 
 
 @router.post("/admin/ratings/{rating_id}/publish", response_model=PendingRatingOut)
-def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def publish_rating(rating_id: int, body: RatingPublishIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Одобрить текстовый отзыв к показу в публичном профиле (или снять)."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     r = session.get(Rating, rating_id)
     if not r:
         raise herr(404, "Отзыв не найден", "Баһа табылманы")
@@ -216,12 +208,10 @@ class RatingExcludeIn(BaseModel):
 
 
 @router.post("/admin/ratings/{rating_id}/exclude")
-def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def exclude_rating(rating_id: int, body: RatingExcludeIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """«Щит рейтинга» (Справедливость): админ помечает спорную/накрученную оценку снятой — она
     перестаёт влиять на средний рейтинг и число «N оценок» (или возвращает обратно, excluded=false).
     Защита оболганного: одна месть-оценка не должна рушить рейтинг честного."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     r = session.get(Rating, rating_id)
     if not r:
         raise herr(404, "Оценка не найдена", "Баһа табылманы")

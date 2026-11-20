@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
@@ -20,7 +20,7 @@ from ..logs import admin_action
 from ..account import _safe_unlink_media
 from ..errors import herr
 from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import (
     DOC_DIR, clear_driver_docs, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
     revoke_verification_on_car_change, secure_docs_url, set_driver_docs_verdict,
@@ -587,10 +587,8 @@ class PendingDriverOut(BaseModel):
 
 
 @router.get("/admin/drivers/pending", response_model=List[PendingDriverOut])
-def pending_drivers(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def pending_drivers(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Водители, ждущие проверки (docs_status=pending) — для модерации админом."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     profs = session.exec(select(DriverProfile).where(DriverProfile.docs_status == "pending")).all()
     if not profs:
         return []
@@ -621,14 +619,12 @@ class ModerateIn(BaseModel):
 
 
 @router.post("/admin/drivers/{user_id}/moderate")
-def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def moderate_driver(user_id: int, body: ModerateIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Модерация водителя админом: подтвердить (verified=True) или отклонить.
 
     Здесь же подтверждается пол: бейдж «женщина за рулём» и фильтр «только женщины» включает
     модератор, сверив с фото прав, а не сам водитель (см. models.DriverProfile.gender_verified).
     """
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     target = session.get(User, user_id)
     if not target:
         raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")

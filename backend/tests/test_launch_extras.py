@@ -355,7 +355,7 @@ def test_review_login_fixed_code_no_sms(client, monkeypatch):
     аккаунт помечен is_reviewer и остаётся обычным пассажиром без прав."""
     _enable_review(monkeypatch)
     r = client.post("/auth/request-code", json={"phone": REVIEW_PHONE})
-    assert r.status_code == 200 and r.json() == {"sent": True}   # dev_code НЕ утекает
+    assert r.status_code == 200 and r.json()["sent"] is True and "dev_code" not in r.json()
     # Неверный код → та же ошибка, что у обычного кода (режим не раскрываем).
     bad = client.post("/auth/verify", json={"phone": REVIEW_PHONE, "code": "000000"})
     assert bad.status_code == 400
