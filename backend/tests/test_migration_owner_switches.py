@@ -12,6 +12,7 @@ from app.models import (
     AppSetting, AppSettingChange, AuthSession, OtpBudgetBucket, OtpCode, OtpSendAttempt,
     RefreshToken, User, UserRole,
 )
+from app.owner_switches import EXTERNAL_KEYS, PAID_SWITCH
 from app.timeutil import utcnow
 from test_migrations_match_the_models import _config
 
@@ -32,6 +33,33 @@ def _isolated_database(tmp_path, monkeypatch, pg_env, sqlite_file):
         url = f"sqlite:///{(tmp_path / sqlite_file).as_posix()}"
     monkeypatch.setenv("DATABASE_URL", url)
     return create_engine(url, hide_parameters=True), _config(url)
+
+
+def test_paid_switch_migration_preserves_login_and_history(tmp_path, monkeypatch):
+    db, config = _isolated_database(tmp_path, monkeypatch, "YULDASH_PAID_SWITCH_MIGRATION_DB", "paid-switch.sqlite3")
+    previous, target = "cp_smsru_receipts", "cq_paid_external_switches"
+    try:
+        assert not inspect(db).get_table_names()
+        command.upgrade(config, previous)
+        with Session(db) as session:
+            session.get(AppSetting, "login.sms").value = True
+            session.commit()
+        command.upgrade(config, target)
+        with Session(db) as session:
+            assert session.get(AppSetting, "login.sms").value is True
+            assert all(session.get(AppSetting, key).value is None for key in EXTERNAL_KEYS)
+            session.get(AppSetting, PAID_SWITCH).value = True
+            session.add(AppSettingChange(key=PAID_SWITCH, new_value=True))
+            session.commit()
+        command.downgrade(config, previous)
+        command.upgrade(config, target)
+        with Session(db) as session:
+            assert session.get(AppSetting, "login.sms").value is True
+            assert all(session.get(AppSetting, key).value is None for key in EXTERNAL_KEYS)
+            change = session.exec(select(AppSettingChange).where(AppSettingChange.key == PAID_SWITCH)).one()
+            assert change.new_value is True
+    finally:
+        db.dispose()
 
 
 def test_sms_budget_migration_preserves_history_and_expires_verifiers_on_rollback(tmp_path, monkeypatch):

@@ -19,6 +19,7 @@ import time
 
 from fastapi import HTTPException
 from sqlalchemy import case, delete, or_
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from .config import settings
@@ -30,11 +31,13 @@ from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
 from .models import (
-    AuthSession, Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
+    AppSetting, AuthSession, Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
     Notification, PickupPoint, Rating, RefreshToken, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
     User, UserRole, WebPushSubscription,
 )
+from .owner_switches import EXTERNAL_KEYS, sms_notice_blockers
 from .schemas import RideOut
+from .smsru import send_notification as send_smsru_notification
 from .timeutil import local_date, local_month, utcnow
 
 # ----------------------------- Медиа-папки -----------------------------
@@ -1161,25 +1164,18 @@ def record_server_error(path: str = "") -> None:
 
 
 def sms_channel_live() -> bool:
-    """Может ли SMS вообще дойти до человека прямо сейчас — ОДНО правило на весь сервис.
-
-    Зачем отдельная функция. На проде `sms_provider=mock`: SMS никуда не уходят, они пишутся
-    в лог (вход у нас через Telegram, юрлица для sms.ru нет). Это осознанное решение и оно
-    в порядке — не в порядке было то, что ручки безопасности продолжали считать «скольким
-    близким ушло SMS» по длине списка контактов. Женщина нажимала SOS и получала в ответ
-    «двоим близким отправлено», курьер на трассе читал «близкие получили твои координаты» —
-    и оба переставали звонить сами. Не ушло никому (аудит 2026-08-08, волна 184).
-
-    Правило живёт здесь одно, потому что мест, где надо ответить человеку «позвали или нет»,
-    три: красная кнопка SOS, «застрял на трассе» и зимний протокол. Разъедутся они молча.
-    """
-    if not settings.sms_notify_enabled:
+    """Read both authorizations in one fresh snapshot before outside SMS work."""
+    if sms_notice_blockers():
         return False
-    if settings.sms_provider == "smsru":
-        return bool(settings.sms_ru_api_id)
-    if settings.sms_provider == "smsdar":
-        return bool(settings.smsdar_id and settings.smsdar_password)
-    return False
+    try:
+        with Session(engine) as session:
+            rows = session.exec(select(AppSetting.key, AppSetting.value).where(
+                AppSetting.key.in_(EXTERNAL_KEYS),
+            )).all()
+            return len(rows) == len(EXTERNAL_KEYS) and all(value is True for _, value in rows)
+    except SQLAlchemyError as error:
+        log.warning("[SMS] authorization unavailable: %s", type(error).__name__)
+        return False
 
 
 def sms_will_reach(phones) -> int:
@@ -1192,50 +1188,19 @@ def sms_will_reach(phones) -> int:
 
 
 def send_text(phone: str, text: str) -> bool:
-    """Отправка произвольного SMS (SOS, статусы близким). smsru → реально; иначе/фоллбэк — в лог.
-
-    Возвращает True, только если провайдер ПОДТВЕРДИЛ отправку. Мок-режим и сбой шлюза дают
-    False: вызывающему важно знать, ушло сообщение или только легло в лог. Понадобилось для
-    повтора по непринятому SOS — он помечал сигнал доставленным вслепую (волна 140)."""
-    mp = mask_phone(phone)
-    if sms_channel_live() and settings.sms_provider == "smsru":
-        try:
-            import httpx
-            params = {"api_id": settings.sms_ru_api_id, "to": phone, "msg": text, "json": 1}
-            if settings.sms_from:
-                params["from"] = settings.sms_from
-            data = httpx.get("https://sms.ru/sms/send", params=params, timeout=10).json()
-            sms = (data.get("sms") or {}).get(phone, {})
-            ok = sms.get("status_code") == 100
-            log.info(f"[SMS] {mp}: smsru sent={ok} ({sms.get('status_code')} {str(sms.get('status_text', ''))[:80]})")
-            if not ok and not settings.is_prod:
-                log.info(f"[SMS-FALLBACK] {mp}: {text}")
-            return bool(ok)
-        except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsru error {scrub_text(str(e))}")  # HTTPStatusError несёт адрес с api_id и кодом
-            if not settings.is_prod:
-                log.info(f"[SMS-FALLBACK] {mp}: {text}")
-            return False
-    elif sms_channel_live() and settings.sms_provider == "smsdar":
-        try:
-            ok, info = _smsdar_send(phone, text)
-            log.info(f"[SMS] {mp}: smsdar sent={ok} ({info})")
-            if not ok and not settings.is_prod:
-                log.info(f"[SMS-FALLBACK] {mp}: {text}")
-            return bool(ok)
-        except Exception as e:  # noqa: BLE001
-            log.warning(f"[SMS] {mp}: smsdar error {scrub_text(str(e))}")
-            if not settings.is_prod:
-                log.info(f"[SMS-FALLBACK] {mp}: {text}")
-            return False
-    else:
-        # Мок-провайдер разрешён и в проде (SMS заморожен, вход через Telegram). Тело может содержать
-        # имя и live-ссылку /t/{token} (capability-URL на живую гео) — в проде тело НЕ логируем.
-        if settings.is_prod:
-            log.info(f"[SMS-MOCK] {mp}: (тело скрыто в проде)")
+    """Return true only when the provider accepts an authorized notice."""
+    if not sms_channel_live():
+        return False
+    try:
+        if settings.sms_provider == "smsru":
+            accepted = send_smsru_notification(phone, text)
         else:
-            log.info(f"[SMS-MOCK] {mp}: {text}")
-        return False        # мок — это запись в лог, а не доставленное человеку сообщение
+            accepted, _ = _smsdar_send(phone, text)
+        log.info("[SMS] notice accepted=%s", accepted)
+        return bool(accepted)
+    except Exception as error:
+        log.warning("[SMS] notice failed: %s", type(error).__name__)
+        return False
 
 
 # Сколько SMS близким человек может отправить за счёт платформы за сутки. Число взято тем же,

@@ -100,6 +100,15 @@ def send_login_code(phone: str, code: str, *, lang: str) -> SmsSendResult:
     return SmsSendResult(SmsDelivery.UNKNOWN)
 
 
+def send_notification(phone: str, message: str) -> bool:
+    recipient = phone.removeprefix("+")
+    data = _call("send", to=recipient, msg=message, **{"from": settings.sms_from})
+    row = _row(data, recipient)
+    return data.get("status") == "OK" and _status(data) == _QUEUED and (
+        row.get("status") == "OK" and _status(row) == _QUEUED
+    )
+
+
 def lookup_statuses(message_ids: list[str]) -> dict[str, int]:
     if not message_ids or not settings.sms_ru_api_id.strip():
         return {}

@@ -10,7 +10,7 @@ import logging
 import httpx
 import pytest
 
-from app import services
+from app import services, smsru as smsru_adapter
 from app.config import settings
 
 API_ID = "QA_SYNTH_SMSRU_API_ID"
@@ -21,16 +21,19 @@ SOS = "SOS: Айгуль, точка 54.123456,58.654321"
 
 def _transport(request):
     if request.url.host == "sms.ru":
-        return httpx.Response(200, json={"sms": {PHONE: {"status_code": 100}}})
+        return httpx.Response(200, json={
+            "status": "OK", "status_code": 100, "sms": {PHONE: {"status": "OK", "status_code": 100}},
+        })
     return httpx.Response(200, json={})
 
 
 @pytest.fixture
-def smsru(monkeypatch):
+def smsru(monkeypatch, paid_notices_enabled):
     monkeypatch.setattr(settings, "sms_provider", "smsru")
     monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", API_ID)
-    monkeypatch.setattr(settings, "sms_from", "")
+    monkeypatch.setattr(settings, "sms_from", "SyntheticSender")
+    monkeypatch.setattr(smsru_adapter, "_client", lambda: httpx.Client(transport=httpx.MockTransport(_transport)))
     with httpx.Client(transport=httpx.MockTransport(_transport), trust_env=False) as client:
         monkeypatch.setattr(httpx, "get", client.get)
         yield client
@@ -55,7 +58,7 @@ def test_sms_login_code_and_api_id_do_not_reach_the_log(smsru, caplog):
     _assert_no_secret(caplog, API_ID, PHONE, f"kod+{CODE}", f"kod {CODE}")
     records = _httpx_records(caplog)
     assert len(records) == 1, "строка HTTPX о запросе остаётся — без значений"
-    assert ("https://sms.ru/sms/send?api_id=<скрыто>&to=<скрыто>&msg=<скрыто>&json=<скрыто>"
+    assert ("https://sms.ru/sms/send?api_id=<скрыто>&to=<скрыто>&msg=<скрыто>&json=<скрыто>&from=<скрыто>"
             in records[0].getMessage())
     assert '"HTTP/1.1 200 OK"' in records[0].getMessage(), "метод, хост и код ответа сохраняются"
 
@@ -103,11 +106,16 @@ def test_provider_error_text_with_the_url_is_scrubbed(smsru, monkeypatch, caplog
         raise httpx.HTTPStatusError(f"Server error '502 Bad Gateway' for url '{request.url}'",
                                     request=request, response=httpx.Response(502, request=request))
     monkeypatch.setattr(httpx, "get", failing_get)
+    def failing_notice(*args, **kwargs):
+        raise ValueError(f"{PHONE} {API_ID} {SOS}")
+
+    monkeypatch.setattr(services, "send_smsru_notification", failing_notice)
     with caplog.at_level(logging.INFO, logger="yuldash"):
         services.send_sms(PHONE, CODE)
         assert services.send_text(PHONE, SOS) is False
     warnings = [r.getMessage() for r in caplog.records if r.name == "yuldash" and "smsru error" in r.getMessage()]
-    assert len(warnings) == 2, "диагностика ошибки остаётся"
+    assert len(warnings) == 1 and "notice failed: ValueError" in caplog.text
+    _assert_no_secret(caplog, API_ID, PHONE, "54.123456")
     for message in warnings:
         assert "502 Bad Gateway" in message
         for secret in (API_ID, PHONE, f"kod+{CODE}", "54.123456"):

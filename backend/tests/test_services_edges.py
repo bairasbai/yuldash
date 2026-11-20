@@ -132,7 +132,7 @@ def test_notify_admin_telegram_is_noop_without_config_and_sends_with_config(monk
     assert calls[0][1] == {"chat_id": "chat", "text": "hello", "reply_markup": {"inline_keyboard": []}}
 
 
-def test_send_text_and_send_sms_branches(monkeypatch):
+def test_send_text_and_send_sms_branches(monkeypatch, smsru_ready):
     calls = []
 
     def fake_get(url, params, timeout):
@@ -145,10 +145,10 @@ def test_send_text_and_send_sms_branches(monkeypatch):
     monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", "api")
     monkeypatch.setattr(settings, "sms_from", "Yuldash")
-    services.send_text("+79990000000", "text")
+    assert services.send_text("+79990000000", "text") is True
     services.send_sms("+79990000000", "1234")
     assert calls[0][1]["from"] == "Yuldash"
-    assert calls[1][1]["msg"] == "Yuldash: kod 1234"
+    assert calls[0][1]["msg"] == "Yuldash: kod 1234"
 
     monkeypatch.setattr(settings, "sms_provider", "mock")
     monkeypatch.setattr(settings, "env", "prod")

@@ -17,6 +17,7 @@ from app.config import settings
 from app.db import engine
 from app.main import app
 from app.models import AppSetting, AppSettingChange, OtpBudgetBucket, OtpCode, OtpSendAttempt, UserRole
+from app.owner_switches import PAID_SWITCH, SMS_NOTICES_SWITCH, PAID_PAUSED
 from app.routers import auth
 from app.timeutil import utcnow
 
@@ -35,11 +36,13 @@ def smsru_settings(client, monkeypatch, telegram_login_ready):
     monkeypatch.setattr(settings, "sms_notify_enabled", False)
     monkeypatch.setattr(settings, "sms_ru_login_ready", False)
     monkeypatch.setattr(auth, "gen_otp", lambda: CODE)
+    switches = ("login.sms", PAID_SWITCH, SMS_NOTICES_SWITCH)
     with Session(engine) as session:
-        row = session.get(AppSetting, "login.sms")
-        previous = (row.value, row.updated_at, row.updated_by)
+        rows = [session.get(AppSetting, key) for key in switches]
+        previous = {row.key: (row.value, row.updated_at, row.updated_by) for row in rows}
+        for row in rows:
+            row.value = None
         last_change = session.exec(select(func.max(AppSettingChange.id))).one() or 0
-        session.execute(update(AppSetting).where(AppSetting.key == "login.sms").values(value=None))
         session.commit()
     yield
     with Session(engine) as session:
@@ -48,23 +51,36 @@ def smsru_settings(client, monkeypatch, telegram_login_ready):
         session.execute(delete(OtpSendAttempt).where(OtpSendAttempt.id.in_(attempt_ids)))
         session.execute(delete(OtpCode).where(phone_filter))
         session.execute(delete(AppSettingChange).where(
-            AppSettingChange.key == "login.sms", AppSettingChange.id > last_change,
+            AppSettingChange.key.in_(switches), AppSettingChange.id > last_change,
         ))
-        session.execute(update(AppSetting).where(AppSetting.key == "login.sms")
-                        .values(value=previous[0], updated_at=previous[1], updated_by=previous[2]))
+        for key, state in previous.items():
+            session.execute(update(AppSetting).where(AppSetting.key == key)
+                            .values(value=state[0], updated_at=state[1], updated_by=state[2]))
         session.commit()
 
 
 @pytest.fixture
-def enable_login(client, user_factory, monkeypatch, smsru_settings):
+def enable_login(client, user_factory, monkeypatch, smsru_settings, set_paid_owner):
     def enable():
         monkeypatch.setattr(settings, "sms_ru_login_ready", True)
         owner = user_factory(role=UserRole.admin)
+        set_paid_owner(owner)
+        assert _set_switch(client, owner, PAID_SWITCH, True).status_code == 200
         response = client.post("/admin/switches/login.sms", headers=owner["auth"], json={"value": True})
         assert response.status_code == 200 and response.json()["effective"] is True
         return owner
 
     return enable
+
+
+def _set_switch(client, actor, key, value, confirm=False):
+    return client.post(f"/admin/switches/{key}", headers=actor["auth"], json={"value": value, "confirm": confirm})
+
+
+def _list_switches(client, actor):
+    response = client.get("/admin/switches", headers=actor["auth"])
+    assert response.status_code == 200
+    return response.json()["switches"]
 
 
 def _transport(monkeypatch, respond):
@@ -118,6 +134,79 @@ def test_credentials_and_operator_readiness_do_not_activate_paid_login_or_notifi
         assert services.send_text(phone, "Синтетическое уведомление") is False
     with Session(engine) as session:
         assert not session.exec(select(OtpCode.id).where(OtpCode.phone == phone)).all()
+
+
+def test_owner_can_prepare_paid_defaults_while_other_admin_cannot(client, user_factory, set_paid_owner,
+                                                                 monkeypatch, smsru_settings):
+    owner = user_factory(role=UserRole.admin)
+    admin = user_factory(role=UserRole.admin)
+    set_paid_owner(owner)
+    monkeypatch.setattr(settings, "sms_ru_login_ready", True)
+    for key in (PAID_SWITCH, SMS_NOTICES_SWITCH, "login.sms"):
+        denied = _set_switch(client, admin, key, True)
+        assert denied.status_code == 403 and denied.json()["detail"]["code"] == "switch_owner_required"
+    public_to_admin = _list_switches(client, admin)
+    assert PAID_SWITCH not in public_to_admin and SMS_NOTICES_SWITCH not in public_to_admin
+    assert public_to_admin["login.sms"]["editable"] is False
+
+    rows = _list_switches(client, owner)
+    for key in (PAID_SWITCH, SMS_NOTICES_SWITCH):
+        assert rows[key]["stored"] is None and rows[key]["effective"] is False and rows[key]["history"] == []
+    assert _set_switch(client, owner, SMS_NOTICES_SWITCH, True).status_code == 409
+    staged = _set_switch(client, owner, "login.sms", True)
+    assert staged.status_code == 200
+    assert staged.json()["stored"] is True and staged.json()["effective"] is False
+    assert staged.json()["blockers"] == [PAID_PAUSED]
+    assert client.post("/auth/request-code", json={"phone": "+79998705040"}).status_code == 403
+
+
+def test_paid_pause_preserves_choices_and_finishes_admitted_codes(client, enable_login, monkeypatch):
+    owner = enable_login()
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
+    assert _set_switch(client, owner, SMS_NOTICES_SWITCH, True).json()["effective"] is True
+    phone = "+79998705041"
+    calls = _transport(monkeypatch, lambda request, form: _accepted(form["to"], "000527-70102041"))
+    assert client.post("/auth/request-code", json={"phone": phone}).status_code == 200
+    assert services.send_text(phone, "Синтетическое уведомление")
+    assert calls[-1][1]["msg"] == "Синтетическое уведомление"
+    assert calls[-1][1]["from"] == "SyntheticSender"
+
+    # Use a real synthetic account without a linked alternative to require confirmation.
+    from app.models import User
+    with Session(engine) as session:
+        account = User(phone="+79998705042")
+        session.add(account)
+        session.commit()
+        account_id = account.id
+    try:
+        unconfirmed = _set_switch(client, owner, PAID_SWITCH, False)
+        assert unconfirmed.status_code == 409 and unconfirmed.json()["detail"]["code"] == "switch_needs_confirm"
+        assert unconfirmed.json()["detail"]["affected"] >= 1
+        assert _list_switches(client, owner)[PAID_SWITCH]["effective"] is True
+        with monkeypatch.context() as patch:
+            patch.setattr(settings, "telegram_bot_token", "")
+            last = _set_switch(client, owner, PAID_SWITCH, False, confirm=True)
+            assert last.status_code == 409 and last.json()["detail"]["code"] == "switch_last_login_method"
+        assert _set_switch(client, owner, PAID_SWITCH, False, confirm=True).json()["effective"] is False
+    finally:
+        with Session(engine) as session:
+            session.delete(session.get(User, account_id))
+            session.commit()
+
+    assert client.get("/config/login-methods").json()["methods"] == ["telegram"]
+    assert client.post("/auth/request-code", json={"phone": "+79998705043"}).status_code == 403
+    assert client.post("/auth/verify", json={"phone": phone, "code": CODE}).status_code == 200
+    assert services.send_text(phone, "Пауза") is False
+    rows = _list_switches(client, owner)
+    for key in ("login.sms", SMS_NOTICES_SWITCH):
+        assert rows[key]["stored"] is True and rows[key]["effective"] is False
+        assert rows[key]["blockers"] == [PAID_PAUSED]
+    assert len(calls) == 2
+    assert _set_switch(client, owner, PAID_SWITCH, True).json()["effective"] is True
+    rows = _list_switches(client, owner)
+    assert all(rows[key]["effective"] for key in ("login.sms", SMS_NOTICES_SWITCH))
+    assert [change["new_value"] for change in rows[PAID_SWITCH]["history"]] == [True, False, True]
+    assert services.send_text(phone, "После возобновления") and len(calls) == 3
 
 
 @pytest.mark.parametrize("lang, title, ordinal", [

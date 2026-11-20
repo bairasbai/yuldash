@@ -2,12 +2,16 @@
 from sqlmodel import Session
 
 from .errors import herr
-from .owner_switches import LOGIN_METHODS as ORDER, login_settings, login_state, require_complete_login_settings
+from .owner_switches import (
+    LOGIN_METHODS as ORDER, PAID_SWITCH, login_settings, require_complete_login_settings, stored_on, switch_state,
+)
 
 
 def available_methods(session: Session) -> list[str]:
     rows = login_settings(session)
-    return [method for method in ORDER if login_state(f"login.{method}", rows.get(f"login.{method}")).effective]
+    paid_enabled = stored_on(rows, PAID_SWITCH)
+    return [method for method in ORDER
+            if switch_state(f"login.{method}", rows.get(f"login.{method}"), paid_enabled=paid_enabled).effective]
 
 
 def refuse_disabled(method: str, session: Session, *, retired: bool = False, issuing_sms: bool = False) -> None:
@@ -18,7 +22,9 @@ def refuse_disabled(method: str, session: Session, *, retired: bool = False, iss
         rows = login_settings(session, lock="share" if issuing_sms else None)
         if issuing_sms:
             require_complete_login_settings(rows)
-        enabled = login_state(key, rows.get(key)).effective
+        # Verification of an admitted code has no paid effect. Its own login switch still applies.
+        paid_enabled = not issuing_sms or stored_on(rows, PAID_SWITCH)
+        enabled = switch_state(key, rows.get(key), paid_enabled=paid_enabled).effective
     if not enabled:
         raise herr(
             403,

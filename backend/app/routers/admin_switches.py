@@ -13,7 +13,10 @@ from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
 from ..models import AppSetting, AppSettingChange, OtpSendAttempt, User, UserRole
-from ..owner_switches import LOGIN_KEYS, login_settings, login_state, require_complete_login_settings
+from ..owner_switches import (
+    EXTERNAL_KEYS, LOGIN_KEYS, PAID_PAUSED, PAID_SWITCH, SWITCH_KEYS,
+    login_settings, paid_owner, require_complete_login_settings, stored_on, switch_state,
+)
 from ..security import bearer, lock_authenticated_user, normalize_phone, require_telegram_admin
 from ..timeutil import utcnow
 
@@ -27,8 +30,8 @@ class SwitchChangeIn(BaseModel):
     note: str | None = Field(default=None, max_length=300)
 
 
-def _switch_view(session: Session, row: AppSetting) -> dict:
-    state = login_state(row.key, row)
+def _switch_view(session: Session, row: AppSetting, *, paid_enabled: bool, editable: bool = True) -> dict:
+    state = switch_state(row.key, row, paid_enabled=paid_enabled)
     author_name = session.exec(select(User.name).where(User.id == row.updated_by)).first() if row.updated_by else None
     changes = session.exec(
         select(AppSettingChange, User.name).outerjoin(User, User.id == AppSettingChange.admin_id)
@@ -50,6 +53,8 @@ def _switch_view(session: Session, row: AppSetting) -> dict:
             for change, name in changes
         ],
     }
+    if not editable:
+        view["editable"] = False
     if row.key == "login.sms":
         view["in_flight"] = session.exec(select(func.count()).select_from(OtpSendAttempt).where(
             OtpSendAttempt.state == "reserved",
@@ -76,39 +81,65 @@ def _accounts_losing_login(session: Session, telegram_effective: bool) -> int:
 def get_switches(admin: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     rows = login_settings(session)
     require_complete_login_settings(rows)
-    return {"switches": {key: _switch_view(session, rows[key]) for key in LOGIN_KEYS}}
+    owner = paid_owner(admin)
+    keys = SWITCH_KEYS if owner else LOGIN_KEYS
+    paid_enabled = stored_on(rows, PAID_SWITCH)
+    return {"switches": {
+        key: _switch_view(session, rows[key], paid_enabled=paid_enabled, editable=owner or not _requires_owner(key))
+        for key in keys if key in rows
+    }}
+
+
+def _requires_owner(key: str) -> bool:
+    return key in EXTERNAL_KEYS or (key == "login.sms" and settings.sms_provider != "mock")
+
+
+def _check_disable_sms(session: Session, rows: dict[str, AppSetting], confirm: bool) -> None:
+    alternatives = {
+        key for key in LOGIN_KEYS if key != "login.sms"
+        and switch_state(key, rows[key], paid_enabled=False).effective
+    }
+    if not alternatives:
+        raise herr(409, "Оставь хотя бы один способ входа.", "Кәм тигәндә бер инеү ысулын ҡалдыр.",
+                   code="switch_last_login_method")
+    if not confirm:
+        affected = _accounts_losing_login(session, "login.telegram" in alternatives)
+        if affected:
+            raise herr(409, "У части пользователей пропадёт доступ. Подтверди отключение SMS.",
+                       "Ҡайһы бер ҡулланыусылар инә алмаясаҡ. SMS-ты һүндереүҙе раҫла.",
+                       code="switch_needs_confirm", affected=affected)
 
 
 @router.post("/admin/switches/{key}")
 def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_telegram_admin),
                cred: HTTPAuthorizationCredentials = Depends(bearer), session: Session = Depends(get_session)):
-    if key not in LOGIN_KEYS:
+    if key not in SWITCH_KEYS:
         raise herr(404, "Настройка не найдена.", "Көйләү табылманы.", code="switch_not_found")
     actor, _ = lock_authenticated_user(cred, session)
     require_telegram_admin(actor)
+    if _requires_owner(key) and not paid_owner(actor):
+        raise herr(403, "Эту настройку меняет владелец.", "Был көйләүҙе хужа үҙгәртә.",
+                   code="switch_owner_required")
     rows = login_settings(session, lock="update")
     require_complete_login_settings(rows)
-    row = rows[key]
-    state = login_state(key, row)
+    row = rows.get(key)
+    if row is None:
+        raise herr(503, "Настройка пока недоступна.", "Көйләү әлегә эшләмәй.",
+                   code="switch_storage_unavailable")
+    paid_enabled = stored_on(rows, PAID_SWITCH)
+    state = switch_state(key, row, paid_enabled=paid_enabled)
     if key == "login.telegram" and not body.value:
         raise herr(409, "Telegram нужен для входа администратора.",
                    "Администратор инеү өсөн Telegram кәрәк.", code="switch_telegram_required")
     if body.value == row.value:
-        return _switch_view(session, row)
-    if body.value and state.blockers:
+        return _switch_view(session, row, paid_enabled=paid_enabled)
+    if body.value and state.blockers and state.blockers != (PAID_PAUSED,):
         raise herr(409, "Этот способ входа ещё не готов.", "Был инеү ысулы әле әҙер түгел.",
                    code="switch_blocked", blockers=list(state.blockers))
-    if not body.value and state.effective:
-        other_enabled = any(login_state(other, rows[other]).effective for other in LOGIN_KEYS if other != key)
-        if not other_enabled:
-            raise herr(409, "Оставь хотя бы один способ входа.", "Кәм тигәндә бер инеү ысулын ҡалдыр.",
-                       code="switch_last_login_method")
-        if key == "login.sms" and not body.confirm:
-            affected = _accounts_losing_login(session, login_state("login.telegram", rows["login.telegram"]).effective)
-            if affected:
-                raise herr(409, "У части пользователей пропадёт доступ. Подтверди отключение SMS.",
-                           "Ҡайһы бер ҡулланыусылар инә алмаясаҡ. SMS-ты һүндереүҙе раҫла.",
-                           code="switch_needs_confirm", affected=affected)
+    sms_enabled = switch_state("login.sms", rows["login.sms"], paid_enabled=paid_enabled).effective
+    pauses_sms = key == "login.sms" or (key == PAID_SWITCH and settings.sms_provider != "mock")
+    if not body.value and sms_enabled and pauses_sms:
+        _check_disable_sms(session, rows, body.confirm)
     old_value = row.value
     when = utcnow()
     row.value, row.updated_by, row.updated_at = body.value, actor.id, when
@@ -117,7 +148,7 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
         created_at=when, note=body.note.strip() or None if body.note else None,
     ))
     session.flush()
-    result = _switch_view(session, row)
+    result = _switch_view(session, row, paid_enabled=stored_on(rows, PAID_SWITCH))
     actor_id = actor.id
     session.commit()
     admin_action(actor_id, "switch.update", target=key, previous=old_value, value=body.value)
