@@ -126,7 +126,7 @@ def create_app() -> FastAPI:
     app.add_middleware(
         CORSMiddleware,
         allow_origins=settings.cors_origin_list,
-        allow_methods=["GET", "POST", "DELETE", "OPTIONS"],   # DELETE — админ-разбан устройства
+        allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
         allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         expose_headers=["X-Yuldash-Partial"],
     )

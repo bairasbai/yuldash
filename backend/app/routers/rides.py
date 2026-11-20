@@ -48,9 +48,9 @@ from ..visibility import (FEED_MAX, cancelled_in_transit, hide_blocked, hide_hea
                           hide_trusted_only, is_ride_insider, may_see_ride_by_id, visible_rides)
 from ..services import (
     CITY_COORDS, apply_boost_credit, boost_then_depart_order, cache_get_json, cache_set_json,
-    drivers_bundle, front_seats_taken, stash_boost_credit,
+    stash_boost_credit,
     geocode_city, haversine_km, notify_map_changed, notify_route_watchers, public_ride_payload,
-    public_rides_payload, push_notification, record_pickup_choice, ride_out, ride_out_with,
+    public_rides_payload, push_notification, record_pickup_choice, ride_out,
     rides_out,
 )
 
@@ -1305,11 +1305,9 @@ def rides_near(
         if page_ids else {}
     )
     page = [by_id[i] for i in page_ids if i in by_id]   # порядок страницы сохраняем
-    users_map, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in page})
-    front_taken = front_seats_taken(session, page_ids)
     items = []
-    for r in page:
-        out = public_ride_payload(ride_out_with(r, users_map, profiles, rating_agg, trips_agg, front_taken)).model_dump()
+    for r, item in zip(page, rides_out(page, session)):
+        out = public_ride_payload(item).model_dump()
         out["distance_km"] = dist_by_id.get(r.id)
         out["matched_stop"], out["matched_from_start"] = matched_by_id.get(r.id, (None, False))
         out["matched_dropoff_stop"], out["matched_to_end"] = dropoff_by_id.get(r.id, (None, False))

@@ -291,6 +291,13 @@ class Settlement(SQLModel, table=True):
     active: bool = True
 
 
+class DriverPaySettings(SQLModel, table=True):
+    id: Optional[int] = Field(default=None, primary_key=True)
+    user_id: int = Field(unique=True, foreign_key="user.id")
+    methods: str = Field(default="", max_length=8)
+    updated_at: datetime = Field(default_factory=utcnow)
+
+
 class DriverProfile(SQLModel, table=True):
     id: Optional[int] = Field(default=None, primary_key=True)
     user_id: int = Field(index=True, unique=True, foreign_key="user.id")

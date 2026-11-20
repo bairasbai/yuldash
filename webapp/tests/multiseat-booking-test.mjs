@@ -14,7 +14,7 @@ for (const lang of ["ru", "ba"]) {
     "/features": `export const useFeatures=()=>({parcels:true}),getFeatures=()=>({parcels:true});`,
     "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
     "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__multi.own,useRefreshOwnBookings=()=>()=>{globalThis.__multi.refreshed++;};`,
-    "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v),pluralRu=(n,a,b,c)=>[a,b,c][n%10===1&&n%100!==11?0:n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?1:2];`,
+    "/utils/format": `export const formatWhen=()=>'',priceLabel=v=>String(v),payMethodLabel=v=>v,pluralRu=(n,a,b,c)=>[a,b,c][n%10===1&&n%100!==11?0:n%10>=2&&n%10<=4&&(n%100<10||n%100>=20)?1:2];`,
     "/api/bookingCommands": bookingCommandStub(`export const createBooking=(body,signal,_owner,command,retry,onPrepared)=>{
       const state=globalThis.__multi;
       state.sent.push({body,signal,command,retry});

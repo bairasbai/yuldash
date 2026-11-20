@@ -27,7 +27,7 @@ mocks["../api/ridePublication"]="export class PublicationProblem extends Error{}
 mocks["../api/bookingCommands"]=bookingCommandStub("export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};");
 mocks["../api/client"]="export class ApiError extends Error{}export const getSessionGeneration=()=> 'same-owner';";
 mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";
-mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const rubLabel=()=>'';export const pluralRu=(n,one)=>one;";
+mocks["../utils/format"]="export const formatWhen=()=>'';export const priceLabel=()=>'';export const payMethodLabel=v=>v;export const rubLabel=()=>'';export const pluralRu=(n,one)=>one;";
 mocks["../components/WeatherWarningCard"]="export default function Weather(){return null;}export const useRouteWeather=()=>null;";
 mocks["../components/ComingSoon"]="export default function ComingSoon(){return null;}";
 mocks["./ComingSoon"]=mocks["../components/ComingSoon"];

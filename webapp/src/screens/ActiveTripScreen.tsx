@@ -189,6 +189,10 @@ export default function ActiveTripScreen() {
   // Договорённость об оплате — правит любая сторона, видят оба.
   const [payDraft, setPayDraft] = useState<PaymentDraft>({ bookingId, payMethod: "cash", payAmount: "", dirty: false });
   const { payMethod, payAmount } = payDraft;
+  const driverPayMethods = details?.role === "passenger" ? details.driver_pay_methods : undefined;
+  const allowedPayMethods = [...(driverPayMethods?.length ? driverPayMethods : ["cash", "sbp"] as const), "negotiate"] as const;
+  const payMethodChanged = payMethod !== details?.pay_method;
+  const payDraftSupported = !payMethodChanged || allowedPayMethods.includes(payMethod);
   const [payBusy, setPayBusy] = useState(false);
   const [payNote, setPayNote] = useState("");
   const tripRef = useRef<TripState | null>(null);
@@ -539,13 +543,13 @@ export default function ActiveTripScreen() {
 
   /** Записать, как договорились платить. Это не платёж — только запись для обеих сторон. */
   async function savePay() {
-    if (payBusy) return;
+    if (payBusy || !payDraftSupported) return;
     setPayBusy(true);
     setPayNote("");
     const submittedDraft = payDraft;
     try {
       const amount = payAmount.trim() ? Math.max(0, Math.round(Number(payAmount))) : null;
-      const agreement = await setPayAgreement(bookingId, payMethod, amount);
+      const agreement = await setPayAgreement(bookingId, payMethodChanged ? payMethod : undefined, amount);
       if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
       setPayDraft((current) => acceptPaymentDraft(current, submittedDraft, agreement));
       lastDetailsAtRef.current = Date.now();
@@ -556,6 +560,9 @@ export default function ActiveTripScreen() {
       );
       setPayNote(appText("Записали. Вторая сторона это видит.", "Яҙҙыҡ. Икенсе яҡ быны күрә."));
     } catch (e) {
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
+      if (e instanceof ApiError && e.code === "pay_method_not_accepted") await syncBookingDetails();
+      if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
       setPayNote(
         e instanceof ApiError && e.message
           ? e.message
@@ -980,7 +987,7 @@ export default function ActiveTripScreen() {
             )}
           </p>
           <div className="seg active-trip-pay-methods">
-            {(["cash", "sbp", "negotiate"] as const).map((m) => (
+            {allowedPayMethods.map((m) => (
               <button
                 key={m}
                 type="button"
@@ -1015,7 +1022,7 @@ export default function ActiveTripScreen() {
             className="btn-soft"
             style={{ width: "100%", marginTop: 10 }}
             onClick={savePay}
-            disabled={payBusy}
+            disabled={payBusy || !payDraftSupported}
           >
             {payBusy
               ? appText("Сохраняем…", "Һаҡлайбыҙ…")

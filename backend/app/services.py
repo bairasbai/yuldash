@@ -27,6 +27,7 @@ from urllib.parse import urlparse
 
 from .errors import herr
 from .db import engine
+from .driver_pay_settings import methods_for_drivers, passenger_ride
 from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
@@ -1592,7 +1593,7 @@ def front_seats_taken(session: Session, ride_ids) -> set:
 
 
 def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, trips_agg: dict | None = None,
-                  front_taken: set | None = None) -> RideOut:
+                  front_taken: set | None = None, pay_methods: list[str] | None = None) -> RideOut:
     """RideOut из предзагруженных батчей (без запросов в БД)."""
     drv = users.get(ride.driver_id)
     prof = profiles.get(ride.driver_id)
@@ -1615,6 +1616,7 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
         front_seat_taken=ride.id in (front_taken or ()),
         boosted=(ride.boosted_until is not None and ride.boosted_until > utcnow()),
         driver_name=(drv.name if drv else "Водитель"),
+        driver_pay_methods=pay_methods or [],
         driver_rating=rating,
         driver_rating_count=cnt,   # G5: клиент покажет «Новичок» при <5 оценок / «N оценок» (не фейк)
         driver_verified=(drv.verified if drv else False),
@@ -1635,10 +1637,15 @@ def ride_out_with(ride: Ride, users: dict, profiles: dict, rating_agg: dict, tri
 
 
 def rides_out(rides: list, session: Session) -> list:
-    """Список поездок → list[RideOut] одним батчем (4 запроса вместо 4×N)."""
+    """Список поездок → list[RideOut] с батчами для зависимых данных."""
     users, profiles, rating_agg, trips_agg = drivers_bundle(session, {r.driver_id for r in rides})
     front_taken = front_seats_taken(session, [r.id for r in rides])
-    return [ride_out_with(r, users, profiles, rating_agg, trips_agg, front_taken) for r in rides]
+    pay_methods = methods_for_drivers(session, {r.driver_id for r in rides if passenger_ride(r)})
+    return [
+        ride_out_with(r, users, profiles, rating_agg, trips_agg, front_taken,
+                      pay_methods.get(r.driver_id) if passenger_ride(r) else None)
+        for r in rides
+    ]
 
 
 def ride_out(ride: Ride, session: Session) -> RideOut:

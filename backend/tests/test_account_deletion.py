@@ -75,6 +75,7 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
     with Session(engine) as s:
         user = s.get(User, uid)
         phone = user.phone
+        s.add(M.DriverPaySettings(user_id=uid, methods="cash"))
         s.add(M.AppSetting(key="qa.account_deletion", value=False, updated_by=uid, updated_at=utcnow()))
         s.flush()
         s.add(M.AppSettingChange(key="qa.account_deletion", old_value=None, new_value=False, admin_id=uid))

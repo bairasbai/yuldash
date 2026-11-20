@@ -17,6 +17,8 @@ export type BookingStatus =
   | "onboard"
   | "done"
   | "cancelled";
+import type { DriverPayMethod } from "./driverPaySettings";
+
 export type PayMethod = "cash" | "sbp" | "negotiate";
 /** Фаза водителя внутри активной поездки. */
 export type DriverPhase = "" | "departed" | "arriving";
@@ -86,6 +88,7 @@ export interface BookingRow {
 
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
 export interface BookingDetails extends BoardingUndoTerms, CompletedContactWindow {
+  driver_pay_methods?: DriverPayMethod[];
   /** Сервер разрешил оценку; чужие звёзды не раскрываются. */
   can_rate?: boolean;
   my_stars?: number;
