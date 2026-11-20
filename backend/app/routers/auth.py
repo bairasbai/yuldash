@@ -21,7 +21,7 @@ from ..antifraud import (MESSAGE_FLAG_CONTACT, guard_device_not_banned, moderate
 from ..config import _phone_key, settings
 from ..db import engine, get_session
 from ..errors import herr
-from ..login_methods import refuse_disabled
+from ..login_methods import available_methods, refuse_disabled
 from ..logs import admin_action, log
 from ..observability import scrub_exc
 from ..models import (
@@ -377,7 +377,7 @@ def _request_code(body: PhoneIn, session: Session, x_device_id: str):
     # verify примет ТОЛЬКО фикс-код из env. Ответ обычный (dev_code не утекает).
     if _review_login_active(body.phone):
         return {"sent": True}
-    refuse_disabled("sms")
+    refuse_disabled("sms", session, issuing_sms=True)
     _lock_otp_phone(session, body.phone)
     # Срочная правка P2 (ревью Б-1): суточный бюджет раньше проверялся только в verify — номер
     # мог ловить 429 на угадывании, но НОВЫЕ коды ему продолжали бы сыпаться сколько угодно.
@@ -473,7 +473,7 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
         session.add(user)
         session.flush()
         return _complete_login(session, user, x_device_id, auth_method="legacy", review_session=True)
-    refuse_disabled("sms")
+    refuse_disabled("sms", session)
     _lock_otp_phone(session, body.phone)
     _guard_otp_daily_budget(session, body.phone)
     live_otps = session.exec(
@@ -570,7 +570,7 @@ class TgStartOut(BaseModel):
 
 @router.post("/auth/tg/start", response_model=TgStartOut)
 def tg_start(session: Session = Depends(get_session)):
-    refuse_disabled("telegram")
+    refuse_disabled("telegram", session)
     req = uuid.uuid4().hex
     session.add(TgAuth(
         request_id=req, status="waiting",
@@ -609,6 +609,11 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
     chat = msg.get("chat") or {}
     contact = msg.get("contact") or {}
     is_group_chat = chat.get("type") in ("group", "supergroup", "channel")
+    if not is_group_chat and (contact or text.startswith("/start")):
+        with Session(engine) as session:
+            if "telegram" not in available_methods(session):
+                return {"method": "sendMessage", "chat_id": chat.get("id"),
+                        "text": "Сейчас вход через Telegram выключен.\nӘле Telegram аша инеү һүндерелгән."}
 
     if contact and frm.get("id") and not is_group_chat:
         tid = str(frm["id"])
@@ -626,7 +631,8 @@ async def telegram_webhook(request: Request, x_telegram_bot_api_secret_token: st
                 ).values(shared_phone=phone))
                 if stored.rowcount != 1:
                     return {"method": "sendMessage", "chat_id": chat.get("id"),
-                            "text": "Открой Юлдаш и начни вход через Telegram заново."}
+                            "text": "Открой Юлдаш и начни вход через Telegram заново.\n"
+                                    "Юлдашты ас та Telegram аша яңынан ин."}
                 s.commit()
             return {"method": "sendMessage", "chat_id": chat.get("id"),
                     "text": "Спасибо! Номер сохранён ✅ Вернись в приложение и введи код.",
@@ -880,7 +886,7 @@ class TgVerifyIn(BaseModel):
 @router.post("/auth/tg/verify")
 def tg_verify(body: TgVerifyIn, session: Session = Depends(get_session),
               x_device_id: str = Header(default="", alias="X-Device-Id")):
-    refuse_disabled("telegram")
+    refuse_disabled("telegram", session)
     try:
         return _verify_telegram_login(body, session, x_device_id)
     except Exception:
@@ -1025,13 +1031,13 @@ def refresh(body: RefreshIn, session: Session = Depends(get_session),
 #   VK  — серверный OAuth code-exchange (/auth/vk/callback) с проверкой на стороне VK;
 #   WA  — WhatsApp Business API с подтверждением номера.
 @router.post("/auth/vk-callback")
-def vk_callback():
-    refuse_disabled("vk", retired=True)
+def vk_callback(session: Session = Depends(get_session)):
+    refuse_disabled("vk", session, retired=True)
 
 
 @router.post("/auth/whatsapp-callback")
-def whatsapp_callback():
-    refuse_disabled("whatsapp", retired=True)
+def whatsapp_callback(session: Session = Depends(get_session)):
+    refuse_disabled("whatsapp", session, retired=True)
 
 
 @router.get("/me")

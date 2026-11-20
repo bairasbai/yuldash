@@ -10,12 +10,13 @@
 Ни одна проба не бросает исключение: недоступный компонент → его статус «fail»,
 а не 500. Секретов в ответ не кладём.
 """
-from fastapi import APIRouter, Response
+from fastapi import APIRouter, Depends, Response
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
+from sqlmodel import Session
 
 from ..config import settings
-from ..db import engine
+from ..db import engine, get_session
 from ..features import features_state
 from ..login_methods import available_methods
 
@@ -25,10 +26,10 @@ API_VERSION = "0.1.0"
 
 
 @router.get("/config/login-methods")
-def config_login_methods(response: Response):
+def config_login_methods(response: Response, session: Session = Depends(get_session)):
     """Публичный список доступных способов, без ключей и сведений об аккаунте."""
-    response.headers["Cache-Control"] = "public, max-age=30"
-    return {"methods": available_methods()}
+    response.headers["Cache-Control"] = "public, max-age=10"
+    return {"methods": available_methods(session)}
 
 
 def _check_db() -> bool:

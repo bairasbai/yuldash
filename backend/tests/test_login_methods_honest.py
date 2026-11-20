@@ -38,7 +38,8 @@ def _configure(monkeypatch, *, env="prod", provider="mock", bot="synthetic-bot",
 @pytest.mark.parametrize("env,provider,key,expected", [
     ("prod", "mock", "", ["telegram"]),
     ("dev", "mock", "", ["sms", "telegram"]),
-    ("prod", "smsru", "synthetic-sms-key", ["sms", "telegram"]),
+    ("prod", "smsru", "synthetic-sms-key", ["telegram"]),
+    ("dev", "smsru", "synthetic-sms-key", ["telegram"]),
     ("prod", "smsru", "", ["telegram"]),
 ])
 def test_public_methods_reflect_available_channels(client, monkeypatch, env, provider, key, expected):
@@ -47,14 +48,15 @@ def test_public_methods_reflect_available_channels(client, monkeypatch, env, pro
     response = client.get("/config/login-methods")
     assert response.status_code == 200
     assert response.json() == {"methods": expected}
-    assert response.headers["Cache-Control"] == "public, max-age=30"
+    assert response.headers["Cache-Control"] == "public, max-age=10"
     assert "synthetic" not in response.text
 
 
 @pytest.mark.parametrize("bot,secret", [("", "synthetic-secret"), ("synthetic-bot", ""), (" ", " ")])
 def test_unconfigured_telegram_is_not_advertised(client, monkeypatch, bot, secret):
     _configure(monkeypatch, bot=bot, secret=secret)
-    assert available_methods() == []
+    with Session(engine) as session:
+        assert available_methods(session) == []
     assert client.get("/config/login-methods").json() == {"methods": []}
 
 
@@ -99,7 +101,8 @@ def test_store_review_login_survives_disabled_sms(client, monkeypatch):
 @pytest.mark.parametrize("method", ["vk", "whatsapp"])
 def test_retired_callbacks_stay_closed_when_future_channels_are_enabled(client, monkeypatch, method):
     from app import login_methods
-    monkeypatch.setattr(login_methods, "available_methods", lambda: list(login_methods.ORDER))
+    monkeypatch.setattr(login_methods, "login_settings",
+                        lambda *a, **kw: pytest.fail("retired callback read switch state"))
     response = client.post(f"/auth/{method}-callback", json={"phone": "+79990019904", "vk_id": "synthetic"})
     assert response.status_code == 403, response.text
     assert response.json()["detail"]["code"] == "login_method_disabled"
@@ -107,8 +110,7 @@ def test_retired_callbacks_stay_closed_when_future_channels_are_enabled(client, 
 
 def test_enabled_provider_failure_is_not_reported_as_disabled(client, monkeypatch):
     from app.errors import herr
-    _configure(monkeypatch, provider="smsru")
-    monkeypatch.setattr(settings, "sms_ru_api_id", "synthetic-key")
+    _configure(monkeypatch, env="dev", provider="mock")
     def unavailable(*args):
         raise herr(503, "Не удалось отправить код", "Код ебәреп булманы")
     monkeypatch.setattr(auth, "send_sms", unavailable)
