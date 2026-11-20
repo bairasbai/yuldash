@@ -27,7 +27,8 @@ const modules = {
     export const answerMeetingPoint=(...args)=>{globalThis.__meetPoint.calls.push(args);return globalThis.__meetPoint.answer(...args)};
     export const fetchDriverBookings=async()=>[]; export const markArriving=async()=>({}); export const markNoShow=async()=>({}); export const rateBooking=async()=>({});`,
   rides: `export const fetchRide=async(id)=>null;`,
-  client: `export class ApiError extends Error {} globalThis.__meetPoint.ApiError=ApiError; export const getSessionGeneration=()=>"same-session";`,
+  client: `export class ApiError extends Error {} globalThis.__meetPoint.ApiError=ApiError; export const getSessionGeneration=()=>"same-session";
+    export const isAccountSession=()=>false,apiGet=async()=>({});`,
   ownBookings: `export const useOwnBooking=()=>null,useRefreshOwnBookings=()=>()=>{};`,
   features: `const flags={rides:true,taxi:true,courier:true,parcels:true,ads:true,business:true,ready:true};export const useFeatures=()=>flags,getFeatures=()=>flags;`,
   soon: `export default ()=>null;`,

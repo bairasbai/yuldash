@@ -23,7 +23,8 @@ const modules = {
   auth: `export const useAuth=()=>({isAuthed:globalThis.__ridePath.authed,status:globalThis.__ridePath.authed?"authed":"guest"});`,
   commands: bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__ridePath.calls.push(body);return globalThis.__ridePath.booking(body,signal)};`),
   rides: `export const fetchRide=(id,signal)=>globalThis.__ridePath.fetchRide(id,signal);`,
-  client: `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__ridePath.generation??"same-session";`,
+  client: `export class ApiError extends Error {} export const getSessionGeneration=()=>globalThis.__ridePath.generation??"same-session";
+    export const isAccountSession=()=>false,apiGet=async()=>({});`,
   ownBookings: `export const useOwnBooking=()=>null,useRefreshOwnBookings=()=>()=>{};`,
   features: `const flags={rides:true,taxi:true,courier:true,parcels:true,ads:true,business:true,ready:true};export const useFeatures=()=>flags,getFeatures=()=>flags;`,
   soon: `export default ()=>null;`,
@@ -37,6 +38,7 @@ const modules = {
 };
 async function component(path) {
   const result = await build({entryPoints:[root+path], bundle:true, write:false, format:"esm", platform:"node", jsx:"automatic",
+    define:{"import.meta.env":JSON.stringify({VITE_API_BASE:"https://api.example.test",DEV:false})},
     plugins:[{name:"local-ui",setup(b){
       b.onResolve({filter:/.*/}, args=>{
         const p=args.path;

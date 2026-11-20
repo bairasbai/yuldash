@@ -24,7 +24,8 @@ const mocks = {
     export const useLocation=()=>({pathname:h().pathname}),useParams=()=>({id:String(h().bookingId)}),useNavigate=()=>(...args)=>h().routes.push(args);`,
   auth: `export const useAuth=()=>globalThis.__ownBookingsHarness.auth;`,
   lang: `export const useLang=()=>({lang:globalThis.__ownBookingsHarness.lang,appText:(ru,ba)=>globalThis.__ownBookingsHarness.lang==="ba"?ba:ru});`,
-  client: `export const getSessionGeneration=()=>globalThis.__ownBookingsHarness.generation;export class ApiError extends Error{}`,
+  client: `export const getSessionGeneration=()=>globalThis.__ownBookingsHarness.generation;export class ApiError extends Error{}
+    export const isAccountSession=owner=>owner.generation===getSessionGeneration() && owner.userId===globalThis.__ownBookingsHarness.auth.user?.id;`,
   commands: bookingCommandStub(`export const createBooking=body=>{const h=globalThis.__ownBookingsHarness;h.posts.push(body);return h.book(body);};`),
   stageHook: `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
   stageRecovery: `export const DriverStageRecovery=()=>null;`,
@@ -58,7 +59,7 @@ const mocks = {
   passHook: `export const useStoredTripData=()=>({status:"confirmed",pass:null});`,
   driver: `export const setDriverStatus=async()=>({});`,
   chat: `export const openTripLocation=()=>({close(){}});`,
-  safety: `export const winterCheck=async()=>({state:"ok"}),winterCheckOk=async()=>({});`,
+  safety: `export const winterCheck=async()=>({state:"ok"}),winterCheckOk=async()=>({}),fetchSafetyPolicy=async()=>({});`,
   winter: `export const forgetWinterCheck=()=>{},rememberWinterCheck=()=>{},wasWinterCheckAsked=()=>false,winterCheckDelay=()=>Infinity,winterCheckNeedsAnswer=()=>false;`,
   interval: `export const useVisibleInterval=()=>{};`,
   weather: `export default "weather";export const useRouteWeather=()=>null;`,
