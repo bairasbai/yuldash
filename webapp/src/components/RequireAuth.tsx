@@ -7,7 +7,9 @@ import { useLang } from "../i18n/lang";
  * Обёртка приватных маршрутов. Публичное (лента поездок, карта) доступно без входа —
  * их сюда не заворачиваем. Приватное без токена уводит на /login (с запоминанием, куда шли).
  */
-export default function RequireAuth({ children, unavailableContent }: { children: ReactNode; unavailableContent?: ReactNode }) {
+export default function RequireAuth({ children, unavailableContent, preserveSearch = false }: {
+  children: ReactNode; unavailableContent?: ReactNode; preserveSearch?: boolean;
+}) {
   const { status, retrySession } = useAuth();
   const location = useLocation();
   const { appText } = useLang();
@@ -32,7 +34,8 @@ export default function RequireAuth({ children, unavailableContent }: { children
   }
 
   if (status === "guest") {
-    return <Navigate to="/login" replace state={{ from: location.pathname }} />;
+    const from = location.pathname + (preserveSearch ? location.search : "");
+    return <Navigate to="/login" replace state={{ from }} />;
   }
 
   return <>{children}</>;

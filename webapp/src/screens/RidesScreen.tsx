@@ -9,6 +9,7 @@ import { applyRideFilters, isFilterActive, loadFilters } from "../filterPrefs";
 import { IconFilter, IconSearch } from "../components/Icons";
 import { track } from "../analytics";
 import InviteDriverCallout from "../components/InviteDriverCallout";
+import WatchRouteButton from "../components/WatchRouteButton";
 import PartnerAdCard, { usePartnerAds } from "../components/PartnerAd";
 import { useScrollMemory } from "../utils/useScrollMemory";
 
@@ -125,12 +126,12 @@ export default function RidesScreen() {
                 <button type="button" className="btn-primary" onClick={() => navigate("/filters")}>
                   {appText("Изменить фильтры", "Фильтрҙарҙы үҙгәртергә")}
                 </button>
+                {routeOn && <WatchRouteButton route={{ from: qFrom, to: qTo }} />}
               </div>
             ) : (
-              // Пусто по-настоящему — тупик. Единственное, что человек может
-              // сделать сейчас: позвать за руль знакомого.
               <>
                 <EmptyState />
+                {routeOn && <div className="state"><WatchRouteButton route={{ from: qFrom, to: qTo }} /></div>}
                 <InviteDriverCallout />
               </>
             );

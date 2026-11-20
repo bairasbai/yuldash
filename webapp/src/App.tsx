@@ -485,7 +485,7 @@ export default function App() {
         <Route
           path="/route-watches"
           element={
-            <RequireAuth>
+            <RequireAuth preserveSearch>
               <RouteWatchesScreen />
             </RequireAuth>
           }
