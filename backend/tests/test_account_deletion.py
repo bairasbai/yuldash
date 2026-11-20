@@ -75,6 +75,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
     with Session(engine) as s:
         user = s.get(User, uid)
         phone = user.phone
+        s.add(M.AppSetting(key="login.sms", value=False, updated_by=uid, updated_at=utcnow()))
+        s.flush()
+        s.add(M.AppSettingChange(key="login.sms", old_value=None, new_value=False, admin_id=uid))
         # --- сенсит. заявки (ИНН/паспортные), профили, расписание ---
         # TaxiApplication уже создан user_factory для роли driver (одна на юзера) — проверяем ЕГО удаление.
         s.add(M.CourierApplication(user_id=uid, transport="car", selfie_url="secure/docs/x.jpg"))
@@ -271,6 +274,10 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
     with Session(engine) as s:
         assert s.get(User, uid) is None                 # аккаунт удалён
         assert s.get(User, oid) is not None             # чужой пользователь цел
+        setting = s.get(M.AppSetting, "login.sms")
+        change = s.exec(select(M.AppSettingChange).where(M.AppSettingChange.key == "login.sms")).one()
+        assert (setting.value, setting.updated_by) == (False, None)
+        assert (change.old_value, change.new_value, change.admin_id) == (None, False, None)
         # лист ожидания по телефону тоже вычищен (у него нет FK на user — проверяем отдельно)
         wl = s.exec(select(M.WaitlistEntry).where(M.WaitlistEntry.phone == phone)).first()
         assert wl is None

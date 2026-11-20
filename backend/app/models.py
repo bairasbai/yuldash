@@ -124,6 +124,29 @@ class User(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class AppSetting(SQLModel, table=True):
+    """Owner setting. An unset value delegates to the switch's policy default."""
+
+    key: str = Field(primary_key=True, max_length=64)
+    value: Optional[bool] = None
+    updated_at: Optional[datetime] = None
+    updated_by: Optional[int] = Field(default=None, foreign_key="user.id", ondelete="SET NULL")
+
+
+class AppSettingChange(SQLModel, table=True):
+    """History keeps the setting change when its author closes their account."""
+
+    __table_args__ = (Index("ix_appsettingchange_history", "key", "created_at", "id"),)
+
+    id: Optional[int] = Field(default=None, primary_key=True)
+    key: str = Field(max_length=64, foreign_key="appsetting.key")
+    old_value: Optional[bool] = None
+    new_value: bool
+    admin_id: Optional[int] = Field(default=None, foreign_key="user.id", ondelete="SET NULL")
+    created_at: datetime = Field(default_factory=utcnow)
+    note: Optional[str] = Field(default=None, max_length=300)
+
+
 class AuthSession(SQLModel, table=True):
     """Серверная сессия одного входа, общая для его последовательных пар ключей."""
 
