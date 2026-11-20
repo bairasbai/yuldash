@@ -128,3 +128,42 @@ def test_refresh_proof_migration_never_infers_provenance_for_an_old_session(tmp_
                 assert {"auth_method", "auth_time"}.isdisjoint(columns)
     finally:
         db.dispose()
+
+def test_auth_epoch_migration_preserves_old_accounts_and_refresh_proof(tmp_path, monkeypatch):
+    db, config = _isolated_database(
+        tmp_path, monkeypatch, "YULDASH_AUTH_EPOCH_MIGRATION_DB", "auth-epoch.sqlite3",
+    )
+    earlier, target = "cl_refresh_auth_proof", "cm_auth_epoch"
+    try:
+        assert not inspect(db).get_table_names()
+        command.upgrade(config, target)
+        login_id = "qa-epoch-login"
+        auth_time = utcnow()
+        with Session(db) as session:
+            user = User(phone="+79990001044", role=UserRole.admin)
+            session.add(user)
+            session.flush()
+            user_id = user.id
+            session.add(AuthSession(id=login_id, user_id=user_id))
+            session.flush()
+            session.add(RefreshToken(
+                user_id=user_id, auth_session_id=login_id, token_hash="fixture-epoch-hash",
+                auth_method="telegram", auth_time=auth_time, expires_at=auth_time,
+            ))
+            session.commit()
+
+        for _ in range(2):
+            command.downgrade(config, earlier)
+            for table in ("user", "refreshtoken"):
+                columns = {column["name"] for column in inspect(db).get_columns(table)}
+                assert "auth_epoch" not in columns
+            command.upgrade(config, target)
+            with Session(db) as session:
+                user = session.get(User, user_id)
+                token = session.exec(select(RefreshToken)).one()
+                assert user.role == UserRole.admin and user.auth_epoch == 0
+                assert (token.user_id, token.auth_session_id, token.auth_method, token.auth_time, token.auth_epoch) == (
+                    user_id, login_id, "telegram", auth_time, 0,
+                )
+    finally:
+        db.dispose()

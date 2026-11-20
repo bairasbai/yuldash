@@ -121,7 +121,7 @@ def _validate_auth_proof(method: str, auth_time: Optional[datetime], review_sess
 
 def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
                auth_session: Optional[AuthSession] = None, auth_method: str = "legacy",
-               auth_time: Optional[datetime] = None) -> str:
+               auth_time: Optional[datetime] = None, auth_epoch: int = 0) -> str:
     """Короткоживущий access-токен (JWT)."""
     _validate_auth_proof(auth_method, auth_time, review_session)
     now = utcnow()
@@ -134,7 +134,7 @@ def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
     # ≤ tokens_valid_from (logout). От гонки login→logout→login в одной миллисекунде
     # (часы Windows дают одинаковое значение соседним вызовам) защищает явная выдача
     # строго после сохранённой границы + нестрогое сравнение в _token_revoked.
-    payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp}
+    payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp, "auth_epoch": auth_epoch}
     if auth_time is not None:
         payload["amr"] = auth_method
         payload["auth_time"] = int(auth_time.replace(tzinfo=timezone.utc).timestamp())
@@ -179,7 +179,7 @@ def _session_pair(session: Session, user: User, login: AuthSession, refresh: str
     if digest not in login.logout_hashes:
         login.logout_hashes = [*login.logout_hashes, digest]
     access = make_token(user.id, issued_after=user.tokens_valid_from, review_session=review_session,
-                        auth_session=login, auth_method=auth_method, auth_time=auth_time)
+                        auth_session=login, auth_method=auth_method, auth_time=auth_time, auth_epoch=user.auth_epoch)
     session.add(login)
     return {
         "access_token": access,
@@ -215,7 +215,7 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
         raw = _REVIEW_REFRESH_PREFIX + raw
     session.add(RefreshToken(
         user_id=user_id, token_hash=_hash_refresh(raw), auth_session_id=login.id,
-        auth_method=auth_method, auth_time=auth_time,
+        auth_method=auth_method, auth_time=auth_time, auth_epoch=user.auth_epoch,
         expires_at=utcnow() + timedelta(days=settings.refresh_expire_days),
     ))
     pair = _session_pair(session, user, login, raw, review_session,
@@ -269,6 +269,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             or (review_session and owner.role != UserRole.passenger)):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    if rt.auth_epoch != owner.auth_epoch:
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
     _validate_auth_proof(rt.auth_method, rt.auth_time, review_session)
     if rt.auth_time is not None and rt.auth_session_id is None:
         raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
@@ -332,7 +334,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
                 or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
             raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
-        if ((rt.auth_session_id and rt.auth_session_id != child.auth_session_id)
+        if (child.auth_epoch != owner.auth_epoch
+                or (rt.auth_session_id and rt.auth_session_id != child.auth_session_id)
                 or (rt.auth_method, rt.auth_time) != (child.auth_method, child.auth_time)):
             raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
         try:
@@ -506,6 +509,9 @@ def _token_revoked(payload: dict, user: User) -> bool:
     тоже гасится. Свежий вход выпускает токен строго после сохранённой границы.
     Старый токен без `iat` после появления границы нельзя безопасно отнести к новой
     сессии, поэтому он тоже считается отозванным."""
+    token_epoch = payload.get("auth_epoch", 0)
+    if type(token_epoch) is not int or token_epoch < 0 or token_epoch != user.auth_epoch:
+        return True
     if payload.get("review_session") and user.role != UserRole.passenger:
         return True
     if not user.tokens_valid_from:

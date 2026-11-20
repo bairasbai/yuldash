@@ -1,8 +1,11 @@
 """Bounded recovery of a committed refresh response; legacy replay stays denied."""
 from datetime import timedelta
 import pytest
+from fastapi.security import HTTPAuthorizationCredentials
+from jose import JWTError, jwt
 from sqlmodel import Session, select
 from app import security
+from app.config import settings
 from app.db import engine
 from app.models import RefreshToken, User
 from app.timeutil import utcnow
@@ -74,6 +77,76 @@ def test_recovery_refuses_a_child_with_different_auth_proof(client, user_factory
     with Session(engine) as session:
         child = session.exec(select(RefreshToken).where(RefreshToken.token_hash == child_hash)).one()
         setattr(child, changed_field, "telegram" if changed_field == "auth_method" else auth_time + timedelta(seconds=1))
+        session.commit()
+    assert rotate(client, raw).status_code == 401
+
+
+def test_old_generation_fails_all_identity_paths_at_the_same_issued_at(client, user_factory, monkeypatch):
+    user = user_factory("Epoch test")
+    fixed = utcnow()
+    monkeypatch.setattr(security, "utcnow", lambda: fixed)
+    with Session(engine) as session:
+        before = security.issue_tokens(session, user["id"])
+    before_claims = security._decode(before["access_token"])
+    assert before_claims.pop("auth_epoch") == 0
+    legacy_access = jwt.encode(before_claims, settings.jwt_secret, algorithm="HS256")
+    assert client.get("/me", headers={"Authorization": f"Bearer {legacy_access}"}).status_code == 200
+    first = rotate(client, before["refresh_token"])
+    assert first.status_code == 200
+    with Session(engine) as session:
+        account = session.get(User, user["id"])
+        assert account.tokens_valid_from is None
+        account.auth_epoch = 1
+        session.commit()
+        fresh = security.issue_tokens(session, user["id"])
+    fresh_claims = security._decode(fresh["access_token"])
+    assert fresh_claims["auth_epoch"] == 1 and fresh_claims["iat"] == before_claims["iat"]
+
+    for stale in (legacy_access, before["access_token"], first.json()["access_token"]):
+        assert client.get("/me", headers={"Authorization": f"Bearer {stale}"}).status_code == 401
+        with Session(engine) as session:
+            credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=stale)
+            assert security.current_user_optional(credentials, session) is None
+            with pytest.raises(JWTError):
+                security.authenticate_ws(stale, session)
+    assert rotate(client, before["refresh_token"]).status_code == 401
+    assert rotate(client, first.json()["refresh_token"]).status_code == 401
+    # The old parent cannot trigger family revocation outside its replay window.
+    monkeypatch.setattr(security, "utcnow", lambda: fixed + timedelta(seconds=121))
+    assert rotate(client, before["refresh_token"], "d" * 64).status_code == 401
+    with Session(engine) as session:
+        account = session.get(User, user["id"])
+        assert account.auth_epoch == 1 and account.tokens_valid_from is None
+        active = session.exec(select(RefreshToken).where(
+            RefreshToken.token_hash == security._hash_refresh(fresh["refresh_token"]),
+        )).one()
+        assert active.auth_epoch == 1 and not active.revoked
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=fresh["access_token"])
+        assert security.current_user_optional(credentials, session).id == user["id"]
+        assert security.authenticate_ws(fresh["access_token"], session).id == user["id"]
+    assert client.get("/me", headers={"Authorization": f"Bearer {fresh['access_token']}"}).status_code == 200
+    renewed = rotate(client, fresh["refresh_token"])
+    assert renewed.status_code == 200
+    assert security._decode(renewed.json()["access_token"])["auth_epoch"] == 1
+
+
+@pytest.mark.parametrize("bad_epoch", [None, False, 0.0, "0", -1])
+def test_malformed_epoch_is_refused_even_for_a_generation_zero_user(client, issued, bad_epoch):
+    user, _ = issued
+    payload = security._decode(security.make_token(user["id"]))
+    payload["auth_epoch"] = bad_epoch
+    token = jwt.encode(payload, settings.jwt_secret, algorithm="HS256")
+    assert client.get("/me", headers={"Authorization": f"Bearer {token}"}).status_code == 401
+
+
+def test_parent_cannot_recover_a_child_with_another_generation(client, issued):
+    _, raw = issued
+    first = rotate(client, raw)
+    assert first.status_code == 200
+    child_hash = security._hash_refresh(first.json()["refresh_token"])
+    with Session(engine) as session:
+        child = session.exec(select(RefreshToken).where(RefreshToken.token_hash == child_hash)).one()
+        child.auth_epoch = 1
         session.commit()
     assert rotate(client, raw).status_code == 401
 

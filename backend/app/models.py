@@ -71,6 +71,7 @@ class User(SQLModel, table=True):
     # Выход/ревокация: токены, выпущенные ДО этого момента, считаются недействительными
     # (logout «со всех устройств», смена/угон телефона). Сравнивается с `iat` токена.
     tokens_valid_from: Optional[datetime] = None
+    auth_epoch: int = Field(default=0, exclude=True, sa_column=Column(BigInteger, nullable=False, server_default="0"))
     # Пол — СТРОГО по желанию: "" (не указан, по умолчанию) / female / male.
     #
     # Живёт на User, а не на профиле водителя, потому что это свойство ЧЕЛОВЕКА, а не роли:
@@ -170,6 +171,7 @@ class RefreshToken(SQLModel, table=True):
     rotated_at: Optional[datetime] = None
     auth_method: str = Field(default="legacy", max_length=12, sa_column_kwargs={"server_default": "legacy"})
     auth_time: Optional[datetime] = None
+    auth_epoch: int = Field(default=0, sa_column=Column(BigInteger, nullable=False, server_default="0"))
     expires_at: datetime
     created_at: datetime = Field(default_factory=utcnow)
 
