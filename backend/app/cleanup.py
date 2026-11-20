@@ -12,12 +12,14 @@
 кросс-диалектно (даты — параметром, работает и на Postgres, и на sqlite)."""
 import sys
 import time
+from calendar import timegm
 from datetime import timedelta
 
 from sqlalchemy import bindparam, text
 
 from .config import settings
 from .db import engine
+from .otp_budget import DAY_SECONDS, HOUR_SECONDS
 from .storage import StorageError, get_storage
 from .timeutil import utcnow
 from .security import REFRESH_RECOVERY_SECONDS
@@ -28,6 +30,8 @@ DRY = "--dry-run" in sys.argv
 MSG_DAYS = 30        # сообщения чата (главный объём)
 MEDIA_DAYS = 35      # файлы фото/голос на диске (запас к сообщениям)
 OTP_DAYS = 1         # коды входа (живут минуты)
+SMS_BUDGET_DAYS = 2  # после конца окна, cooldown после последнего обновления
+SMS_ATTEMPT_DAYS = 30
 TG_DAYS = 1          # telegram-сессии входа
 UPLOAD_DAYS = 2      # события загрузки (квота 24ч)
 TOKEN_DAYS = 1       # протухшие/отозванные refresh-токены
@@ -151,6 +155,9 @@ def _rules(now):
     """Список (метка, таблица, WHERE, параметры). Порядок ВАЖЕН: дети раньше родителей."""
     def cut(days):
         return now - timedelta(days=days)
+    sms_cutoff = cut(SMS_BUDGET_DAYS)
+    sms_epoch = timegm(sms_cutoff.utctimetuple())
+    day_cutoff, hour_cutoff = sms_epoch - DAY_SECONDS, sms_epoch - HOUR_SECONDS
     expired_login = (
         "COALESCE(authsession.revoked_at, authsession.access_expires_at) < :c "
         "AND NOT EXISTS (SELECT 1 FROM refreshtoken WHERE auth_session_id = authsession.id)"
@@ -159,9 +166,13 @@ def _rules(now):
         # --- Фаза 1: эфемерное (безопасно, основной объём) ---
         ("сообщения чата >30д", "message", "created_at < :c", {"c": cut(MSG_DAYS)}),
         ("коды входа (OTP) >1д", "otpcode", "created_at < :c", {"c": cut(OTP_DAYS)}),
-        ("попытки отправки SMS >2д", "otpsendattempt", "created_at < :c", {"c": cut(2)}),
-        ("счётчики отправки SMS >3д", "otpbudgetbucket", "updated_at < :c", {"c": cut(3)}),
-        ("метки лимита SMS >2д", "otpbudgetalert", "created_at < :c", {"c": cut(2)}),
+        ("попытки отправки SMS >30д", "otpsendattempt", "created_at < :c", {"c": cut(SMS_ATTEMPT_DAYS)}),
+        ("счётчики отправки SMS >2д после окна", "otpbudgetbucket",
+         "(scope = 'phone_cooldown' AND updated_at < :cooldown) "
+         "OR (scope IN ('service_day', 'phone_day') AND window_start < :day) "
+         "OR (scope IN ('device_hour', 'ip_hour', 'phone_hour') AND window_start < :hour)",
+         {"cooldown": sms_cutoff, "day": day_cutoff, "hour": hour_cutoff}),
+        ("метки лимита SMS >2д после окна", "otpbudgetalert", "service_day < :day", {"day": day_cutoff}),
         ("telegram-сессии >1д", "tgauth", "created_at < :c", {"c": cut(TG_DAYS)}),
         ("события загрузок >2д", "uploadevent", "created_at < :c", {"c": cut(UPLOAD_DAYS)}),
         ("протухшие refresh-токены",
@@ -308,8 +319,13 @@ def _delete_batched(table, where, params):
     кросс-диалектно (Postgres/sqlite); коррелированные NOT EXISTS во WHERE продолжают работать."""
     # PostgreSQL may wait for a concurrent rebind. Recheck the subscription's new
     # owner in the DELETE itself after the wait, even if its numeric id is unchanged.
-    recheck = f" AND ({where})" if table == "webpushsubscription" else ""
-    sql = text(f"DELETE FROM {table} WHERE id IN (SELECT id FROM {table} WHERE {where} LIMIT :_batch){recheck}")
+    # An expired cooldown may likewise be refreshed concurrently on the same key.
+    recheck = f" AND ({where})" if table in {"webpushsubscription", "otpbudgetbucket"} else ""
+    keys = {"otpbudgetbucket": "scope, subject, window_start", "otpbudgetalert": "service_day, kind"}
+    columns = keys.get(table, "id")
+    locator = f"({columns})" if table in keys else columns
+    sql = text(f"DELETE FROM {table} WHERE {locator} IN "
+               f"(SELECT {columns} FROM {table} WHERE {where} LIMIT :_batch){recheck}")
     total = 0
     while True:
         with engine.begin() as conn:

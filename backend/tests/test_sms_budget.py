@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app import login_methods, otp_budget
+from app import cleanup, login_methods, otp_budget
 from app.config import settings
 from app.db import engine
 from app.main import app
@@ -156,6 +156,61 @@ def test_timeout_keeps_quota_without_repeat_and_can_verify_delivered_code(client
         assert session.get(OtpSendAttempt, proof.attempt_id).state == "unknown"
         assert _used(session, sms_clock[0]) == 1
     assert client.post("/auth/verify", json={"phone": "+79998300096", "code": "609055"}).status_code == 200
+
+
+def test_sms_retention_uses_end_of_window_and_keeps_attempts_for_reconciliation(client):
+    now = datetime(2001, 1, 4)
+    active_cutoff = now - timedelta(hours=48)
+    day = _day(active_cutoff)
+    stale_keys = [("service_day", "global", day - 2 * 86400),
+                  ("ip_hour", "synthetic-peer", day - 2 * 3600),
+                  ("phone_cooldown", "expired-cooldown", 0)]
+    live_keys = [("service_day", "global", day - 86400),
+                 ("ip_hour", "synthetic-peer", day - 3600),
+                 ("phone_cooldown", "active-cooldown", 0)]
+    with Session(engine) as session:
+        for scope, subject, start in stale_keys + live_keys:
+            updated = active_cutoff if subject == "active-cooldown" else active_cutoff - timedelta(seconds=1)
+            session.add(OtpBudgetBucket(scope=scope, subject=subject, window_start=start,
+                                        used=1, cap=1, version=1, updated_at=updated))
+        for key in (day - 2 * 86400, day - 86400):
+            session.add(OtpBudgetAlert(service_day=key, kind="sms_daily_cap", created_at=active_cutoff))
+        for key, when in (("stale-retention", now - timedelta(days=31)),
+                          ("live-retention", now - timedelta(days=29))):
+            session.add(OtpSendAttempt(id=key, provider_idempotency_key=key, state="unknown",
+                                       bucket_keys=[], created_at=when, updated_at=when))
+        session.commit()
+
+    for _, table, predicate, params in cleanup._rules(now):
+        if table in {"otpbudgetbucket", "otpbudgetalert", "otpsendattempt"}:
+            cleanup._delete_batched(table, predicate, params)
+    with Session(engine) as session:
+        assert all(session.get(OtpBudgetBucket, key) is None for key in stale_keys)
+        assert all(session.get(OtpBudgetBucket, key) is not None for key in live_keys)
+        assert session.get(OtpBudgetAlert, (day - 2 * 86400, "sms_daily_cap")) is None
+        assert session.get(OtpBudgetAlert, (day - 86400, "sms_daily_cap")) is not None
+        assert session.get(OtpSendAttempt, "stale-retention") is None
+        assert session.get(OtpSendAttempt, "live-retention").state == "unknown"
+
+
+def test_late_proven_rejection_is_recorded_after_original_bucket_expires(client, monkeypatch, sms_clock):
+    sms_clock[0] -= timedelta(days=12)
+    monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.UNKNOWN)
+    assert _send(client, 97).status_code == 200
+    original = sms_clock[0]
+    sms_clock[0] += timedelta(days=4)
+    monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.SENT)
+    assert _send(client, 98).status_code == 200
+    for _, table, predicate, params in cleanup._rules(sms_clock[0]):
+        if table == "otpbudgetbucket":
+            cleanup._delete_batched(table, predicate, params)
+    with Session(engine) as session:
+        proof = session.exec(select(OtpCode).where(OtpCode.phone == "+79998300097")).one()
+        assert session.get(OtpBudgetBucket, ("service_day", "global", _day(original))) is None
+        assert otp_budget.finish_sms(session, proof.attempt_id, SmsDelivery.FAILED)
+        session.commit()
+        assert proof.code == "" and session.get(OtpSendAttempt, proof.attempt_id).state == "failed"
+        assert _used(session, sms_clock[0]) == 1
 
 
 def test_parallel_phones_compete_for_one_remaining_service_slot(client, monkeypatch, sms_clock):

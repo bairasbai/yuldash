@@ -24,8 +24,8 @@ from .timeutil import utcnow
 
 
 RESEND_SECONDS = 60
-SCAN_HOUR = 3600
-SCAN_DAY = 86400
+HOUR_SECONDS = 3600
+DAY_SECONDS = 86400
 _SERVICE_SUBJECT = "global"
 _MOCK_KEY = "yuldash-local-mock-sms-budget-v1"
 
@@ -154,18 +154,18 @@ def _reserve_one(session: Session, limit: _Limit, now: datetime, service_day: in
 def reserve_sms(session: Session, phone: str, code: str, peer: str, device_id: str) -> SmsAdmission:
     """Call after locking login settings and the phone. Commit before dispatch."""
     now = utcnow()
-    hour, day = _window(now, SCAN_HOUR), _window(now, SCAN_DAY)
+    hour, day = _window(now, HOUR_SECONDS), _window(now, DAY_SECONDS)
     peer = _peer_key(peer)
     device = normalize_device_id(device_id)
     ip_hash = _digest("sms-ip-v1", peer)
     device_hash = _digest("sms-device-v1", f"id:{device}" if device else f"peer:{peer}")
     phone_hash = _digest("sms-phone-v1", phone)
     limits = [
-        _Limit("service_day", _SERVICE_SUBJECT, day, settings.sms_daily_cap, SCAN_DAY),
-        _Limit("ip_hour", ip_hash, hour, 40, SCAN_HOUR),
-        _Limit("device_hour", device_hash, hour, 5, SCAN_HOUR),
-        _Limit("phone_hour", phone_hash, hour, 5, SCAN_HOUR),
-        _Limit("phone_day", phone_hash, day, 10, SCAN_DAY),
+        _Limit("service_day", _SERVICE_SUBJECT, day, settings.sms_daily_cap, DAY_SECONDS),
+        _Limit("ip_hour", ip_hash, hour, 40, HOUR_SECONDS),
+        _Limit("device_hour", device_hash, hour, 5, HOUR_SECONDS),
+        _Limit("phone_hour", phone_hash, hour, 5, HOUR_SECONDS),
+        _Limit("phone_day", phone_hash, day, 10, DAY_SECONDS),
         _Limit("phone_cooldown", phone_hash, 0, 1, RESEND_SECONDS),
     ]
     limits.sort(key=lambda item: item.key)
@@ -233,11 +233,12 @@ def finish_sms(session: Session, attempt_id: str, outcome: SmsDelivery) -> bool:
     if created is None:
         return False
     if outcome == SmsDelivery.FAILED:
+        service_day = _window(created, DAY_SECONDS)
         refunded = session.execute(update(OtpBudgetBucket).where(
-            *_bucket_filter("service_day", _SERVICE_SUBJECT, _window(created, SCAN_DAY)),
+            *_bucket_filter("service_day", _SERVICE_SUBJECT, service_day),
             OtpBudgetBucket.used > 0,
         ).values(used=OtpBudgetBucket.used - 1, version=OtpBudgetBucket.version + 1, updated_at=now))
-        if refunded.rowcount != 1:
+        if refunded.rowcount != 1 and service_day == _window(now, DAY_SECONDS):
             raise RuntimeError("SMS admission service quota was unavailable for refund")
         session.execute(update(OtpCode).where(OtpCode.attempt_id == attempt_id).values(code="", expires_at=now))
     return True
