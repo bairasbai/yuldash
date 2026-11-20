@@ -7,6 +7,7 @@ export interface OwnerSwitch {
   stored: boolean | null;
   effective: boolean;
   blockers: string[];
+  in_flight?: number;
   updated_at: string | null;
   updated_by_name: string | null;
   history: {

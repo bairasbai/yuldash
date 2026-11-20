@@ -698,6 +698,25 @@ object ApiClient {
             (0 until methods.length()).mapNotNull { methods.opt(it) as? String }
         }
 
+    internal suspend fun ownerLoginSwitches(generation: Long): Result<Map<OwnerLoginSwitch, OwnerSwitchDto>> =
+        call("GET", "/admin/switches", null, auth = true, expectedGeneration = generation, freshRead = true)
+            .mapCatching(JSONObject::toOwnerSwitches)
+
+    internal suspend fun setOwnerLoginSwitch(
+        key: OwnerLoginSwitch,
+        value: Boolean,
+        confirm: Boolean,
+        generation: Long,
+    ): Result<OwnerSwitchDto> = call(
+        "POST", "/admin/switches/${key.key}",
+        JSONObject().put("value", value).put("confirm", confirm),
+        auth = true,
+        isRetry = true, // Одна запись за действие, включая ответ 401.
+        retryOnNetwork = false,
+        expectedGeneration = generation,
+        singleAttemptMutation = true,
+    ).mapCatching(JSONObject::toOwnerSwitch)
+
     // ---------- Авторизация по SMS-коду ----------
 
     /** Запросить код на телефон. Пока SMS — мок: код пишется в лог сервера. */

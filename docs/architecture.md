@@ -2282,6 +2282,7 @@ wc -l android/app/src/main/java/com/yuldash/app/*.kt | sort -rn | head -20
 - Бэкенд: таблица `RequestResponse`; `GET /requests/feed`, `POST /requests/{id}/respond`, `GET /requests/{id}/responses`, `POST /responses/{id}/accept` (создаёт Ride+Booking с чатом/кодом посадки).
 
 **Кабинет админа** (`SecondaryScreens.kt`, вход: Настройки → «Кабинет админа», только `isAdmin` из `/me`):
+- `Screen.AdminSwitches` открывает `AdminSwitchesScreen.kt` через `AppNavAdmin.kt`. В PWA тот же экран открывается по `/admin/switches`. Оба клиента показывают сохранённое значение, доступность, причины блокировки, историю и число резервов SMS в процессе отправки. [Контракт сервера](backend.md#выключатели-способов-входа)
 - `AdminCabinetScreen` — хаб; `AdminRequestScreen` (заявка за юзера по телефону, `/admin/request-for-phone`); `AdminResponsesScreen` (принять отклик ЗА юзера без интернета); `AdminDriversScreen` (модерация: фото прав/авто через Coil+Bearer к `/secure/docs`, одобрить/отклонить); `AdminReportsScreen` (жалобы `/admin/reports`).
 - **Автоадмин:** вход через Telegram-id (`ADMIN_TELEGRAM_CHAT_ID`) ИЛИ телефон (`ADMIN_PHONES`) → роль admin сама (`_maybe_promote_admin` в auth.py).
 

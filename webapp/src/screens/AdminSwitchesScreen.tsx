@@ -116,6 +116,9 @@ function SwitchesForSession({ generation }: { generation: string }) {
   const blockerLabels: Record<string, string> = {
     SMS_PROVIDER: appText("SMS-провайдер не настроен", "SMS-провайдер көйләнмәгән"),
     SMS_RU_API_ID: appText("Не задан ключ SMS.ru", "SMS.ru асҡысы ҡуйылмаған"),
+    SMS_FROM: appText("Не задано имя отправителя SMS", "SMS ебәреүсенең исеме ҡуйылмаған"),
+    SMS_BUDGET_HMAC_KEY: appText("Не настроен ключ учёта лимитов SMS", "SMS лимиттарын иҫәпләү асҡысы көйләнмәгән"),
+    smsru_confirmation_pending: appText("Подключение SMS.ru ещё не подтверждено", "SMS.ru-ға тоташыу әле раҫланмаған"),
     SMSDAR_ID: appText("Не задан идентификатор SMSDAR", "SMSDAR идентификаторы ҡуйылмаған"),
     SMSDAR_PASSWORD: appText("Не задан пароль SMSDAR", "SMSDAR серһүҙе ҡуйылмаған"),
     TELEGRAM_BOT_TOKEN: appText("Не задан ключ бота Telegram", "Telegram ботының асҡысы ҡуйылмаған"),
@@ -155,6 +158,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
           if (!row) return null;
           const wanted = row.stored ?? row.effective;
           const locked = key === "login.telegram";
+          const inFlight = row.in_flight ?? 0;
           return (
             <section key={key} className="acard">
               <div className="acard__row acard__row--between">
@@ -183,6 +187,9 @@ function SwitchesForSession({ generation }: { generation: string }) {
               {row.blockers.map((code) => <p key={code} className="acard__note">
                 {blockerLabels[code] ?? appText("Подключение ещё не готово.", "Тоташтырыу әле әҙер түгел.")}
               </p>)}
+              {Number.isSafeInteger(inFlight) && inFlight > 0 && <p className="acard__note">
+                {appText(`SMS в процессе отправки — ${inFlight}`, `Ебәрелеп ятҡан SMS — ${inFlight}`)}
+              </p>}
               {row.updated_at && <p className="acard__date">
                 <time dateTime={row.updated_at}>{formatDate(row.updated_at)}</time>
                 {row.updated_by_name && ` · ${row.updated_by_name}`}
