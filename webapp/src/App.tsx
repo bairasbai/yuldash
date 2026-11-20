@@ -68,6 +68,7 @@ const AdminResponsesScreen = lazyScreen(() => import("./screens/AdminResponsesSc
 const AdminReviewsScreen = lazyScreen(() => import("./screens/AdminReviewsScreen"));
 const AdminSosScreen = lazyScreen(() => import("./screens/AdminSosScreen"));
 const AdminSupportScreen = lazyScreen(() => import("./screens/AdminSupportScreen"));
+const AdminSwitchesScreen = lazyScreen(() => import("./screens/AdminSwitchesScreen"));
 const AdminTaxiPulseScreen = lazyScreen(() => import("./screens/AdminTaxiPulseScreen"));
 const AdminTaxiScreen = lazyScreen(() => import("./screens/AdminTaxiScreen"));
 const AdminTextFlagsScreen = lazyScreen(() => import("./screens/AdminTextFlagsScreen"));
@@ -832,6 +833,14 @@ export default function App() {
           element={
             <RequireAdmin>
               <AdminCabinetScreen />
+            </RequireAdmin>
+          }
+        />
+        <Route
+          path="/admin/switches"
+          element={
+            <RequireAdmin>
+              <AdminSwitchesScreen />
             </RequireAdmin>
           }
         />

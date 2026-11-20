@@ -169,17 +169,7 @@ def test_counters_expire_so_redis_is_not_an_archive(rds):
 
 # ============================ 5. Живьём: оценка → заказ → пульс ============================
 def _admin(user_factory):
-    from sqlmodel import Session
-
-    from app.db import engine
-    from app.models import User
-    a = user_factory("ВоронкаАдмин")
-    with Session(engine) as s:
-        u = s.get(User, a["id"])
-        u.role = UserRole.admin
-        s.add(u)
-        s.commit()
-    return a
+    return user_factory("ВоронкаАдмин", role=UserRole.admin)
 
 
 def test_estimate_then_order_shows_up_in_admin_pulse(client, user_factory, fake_redis):

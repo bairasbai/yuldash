@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
@@ -37,9 +37,13 @@ class Settings(BaseSettings):
     access_expire_min: int = 60 * 12   # access-токен живёт 12ч (было 7 дней — ужали окно кражи ~14x; refresh молча обновляет)
     refresh_expire_days: int = 90          # refresh-токен живёт 90 дней (ротируется при каждом refresh)
     otp_ttl_sec: int = 300              # код жив 5 минут
+    sms_daily_cap: int = Field(default=300, ge=1)
+    sms_budget_hmac_key: str = ""        # отдельный стабильный ключ лимитов SMS
     sms_provider: str = "mock"          # mock | smsru | smsdar
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
     sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)
+    sms_ru_login_ready: bool = False    # только после договора, подтверждения шаблонов и проверки доставки
+    sms_notify_enabled: bool = False    # отдельный допуск для SOS и других SMS-уведомлений
     # --- SMSDAR (go.smsdar.ru, API api.zmtech.ru) — нужен sms_provider=smsdar ---
     smsdar_id: str = ""                 # ID из Профиль → Получить API ключ
     smsdar_password: str = ""           # API-ключ (password). НЕ в git — только в .env
@@ -116,7 +120,7 @@ class Settings(BaseSettings):
     telegram_bot_token: str = ""        # токен бота от @BotFather (вебхук + sendMessage)
     telegram_webhook_secret: str = ""   # секрет: аутентификация Telegram→сервер (заголовок X-Telegram-Bot-Api-Secret-Token)
     admin_telegram_chat_id: str = ""    # chat_id админа (Александр) для уведомлений: запрос звонка и пр.
-    admin_phones: str = ""              # телефоны админов через запятую (автоадмин при входе по этому номеру)
+    admin_phones: str = ""              # телефоны админов, подтверждаемые своим контактом при Telegram-входе
 
     # --- Push (FCM) ---
     firebase_credentials: str = ""      # путь к JSON сервисного аккаунта Firebase (для отправки пушей). Пусто → push выключен.
@@ -1194,6 +1198,8 @@ class Settings(BaseSettings):
         if self.is_prod and self.sms_provider.strip().lower() == "mock":
             warn.append("SMS_PROVIDER=mock — SMS не уходят: близкие не получат SOS и ссылку «поделиться» "
                         "по SMS (в приложении есть «Скопировать/Отправить ссылку»); тексты не должны обещать SMS")
+        elif self.is_prod and not self.sms_notify_enabled:
+            warn.append("SMS_NOTIFY_ENABLED=false — SMS-уведомления близким выключены")
         # Публичные документы на yulbash.ru/terms прямо обещают: «Комиссия с поездок не берётся,
         # расчёты производятся напрямую между пользователями». Пока денежные флаги выключены —
         # это правда. Включили хоть один, не переписав документы, — сервис публично обещает одно,

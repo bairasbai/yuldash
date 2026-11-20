@@ -35,10 +35,10 @@ from ..errors import herr
 from ..features import guard_parcels
 from ..flood import (TOO_FAST_CREATING, TOO_MANY_CARRYING, TOO_MANY_PARCELS, guard_burst,
                      guard_open_items)
-from ..models import ParcelDelivery, User, UserRole
+from ..models import ParcelDelivery, User
 from ..safety_logic import (ensure_active,
                             guard_own_evidence, is_own_media_url)
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..antifraud import moderate_open_text
 from ..services import is_blocked, notify_admin_telegram, push_notification
 from ..visibility import FEED_MAX, visible_parcels
@@ -1793,11 +1793,6 @@ def parcel_dispute(parcel_id: int, body: DisputeIn, background: BackgroundTasks,
 # ---------- Админ ----------
 # Админские ошибки — обычный HTTPException-строка (двуязычие требуется только для 4xx пользователю).
 
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise herr(403, "Только для админа", "Тик администратор өсөн")
-
-
 def _parcel_admin(p: ParcelDelivery) -> dict:
     """Карточка заявки для админ-контроля (со всем, включая приватное — для поддержки/споров)."""
     out = _parcel_base(p)
@@ -1809,7 +1804,7 @@ def _parcel_admin(p: ParcelDelivery) -> dict:
 
 @router.get("/admin/parcels")
 def admin_parcels(limit: int = 200, offset: int = 0,
-                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+                  user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Все заявки (контроль/поддержка) + ЧЕСТНЫЙ statement по деньгам доставки.
 
     Раньше здесь была одна строка «собрано» = сумма fee_kop по доставленным. Она врала: сбор
@@ -1821,7 +1816,6 @@ def admin_parcels(limit: int = 200, offset: int = 0,
     - owed_commission_kop — начислено курьерам и ещё не оплачено (долг, путь оплаты есть);
     - unbilled_fee_kop — сбор по «по пути»: начислен тарифом, но никому не выставлен (не выручка).
     """
-    _require_admin(user)
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     rows = session.exec(
@@ -1874,9 +1868,8 @@ def _notify_parties(session: Session, parcel: ParcelDelivery, title_ru: str, tit
 
 @router.post("/admin/parcels/{parcel_id}/cancel")
 def admin_cancel_parcel(parcel_id: int, body: Optional[ParcelReasonIn] = None,
-                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+                        user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Принудительно отменить доставку (разбор вручную, обе стороны получают причину)."""
-    _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
@@ -1897,10 +1890,9 @@ def admin_cancel_parcel(parcel_id: int, body: Optional[ParcelReasonIn] = None,
 
 @router.post("/admin/parcels/{parcel_id}/release-courier")
 def admin_release_courier(parcel_id: int, body: Optional[ParcelReasonIn] = None,
-                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+                          user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Снять курьера с доставки: он пропал, не отвечает, физически не может довезти.
     Посылка возвращается в общий список и её сможет взять другой курьер."""
-    _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")
@@ -1946,12 +1938,11 @@ class AdminCloseIn(BaseModel):
 
 @router.post("/admin/parcels/{parcel_id}/close")
 def admin_close_parcel(parcel_id: int, body: AdminCloseIn,
-                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+                       user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Принудительно закрыть доставку по итогам разбора (когда стороны договорились вне приложения).
 
     Комиссию берём только за реально доставленное: при returned/canceled обнуляем — услуга
     не оказана, брать деньги не за что."""
-    _require_admin(user)
     parcel = session.get(ParcelDelivery, parcel_id)
     if not parcel:
         raise herr(404, "Посылка не найдена", "Бандероль табылманы")

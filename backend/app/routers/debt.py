@@ -21,21 +21,12 @@ from .. import debt as debt_mod
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
-from ..models import CommissionDebt, DebtStatus, User, UserRole
-from ..security import current_user
+from ..models import CommissionDebt, DebtStatus, User
+from ..security import current_user, require_telegram_admin
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["debt"])
-
-
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        # Было: голый HTTPException с русским текстом (найдено независимым ревью Opus,
-        # 2026-10-02) — нарушение собственного правила проекта (двуязычный отказ везде вне
-        # /admin/*, а эта ручка и так админская; тем не менее herr — общий стандарт отказов).
-        # P3: сейчас админ один и русскоязычный, но карточка не должна выдавать это за «ок».
-        raise herr(403, "Только для админа", "Тик админ өсөн генә")  # BA — черновик, см. отчёт
 
 
 # ------------------------------ водитель ------------------------------
@@ -148,10 +139,9 @@ def declare_paid(user: User = Depends(current_user), session: Session = Depends(
 
 # ------------------------------ админ ------------------------------
 @router.get("/admin/debts")
-def admin_debts(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_debts(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Долги на подтверждении (pending), сгруппированные по водителю. Для админа.
     У каждого водителя один representative debt_id — по нему confirm/reject подтверждает батч."""
-    _require_admin(user)
     rows = session.exec(
         select(CommissionDebt).where(CommissionDebt.status == DebtStatus.pending)
         .order_by(CommissionDebt.id.desc())
@@ -194,13 +184,12 @@ def _debt_changed(e: debt_mod.DebtChanged):
 
 @router.post("/admin/debts/{debt_id}/confirm")
 def admin_confirm(debt_id: int, body: DebtActionIn | None = None,
-                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+                  user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Подтвердить перевод долга: весь pending этого водителя → paid, блок такси снят. Админ.
 
     Сумма из тела запроса — то, что админ видит на экране. Не сошлась с текущей → 409 и
     НИЧЕГО не меняется: пока он смотрел на строку, водитель мог заявить оплату по новым
     поездкам, и одно нажатие закрывало бы обе (волна 220)."""
-    _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         raise herr(404, "Долг не найден", "Бурыс табылманы")
@@ -256,14 +245,13 @@ def _forgive_already(user: User, debt: CommissionDebt) -> dict:
 
 @router.post("/admin/debts/{debt_id}/forgive")
 def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
-                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+                  user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Списать долг по-человечески: пассажир не заплатил, поездка сорвалась, спорная ситуация.
 
     Раньше у админа было только «подтвердить» и «отклонить» — простить было НЕЧЕМ, и водитель
     оставался должен комиссию за поездку, где ему не заплатили (аудит 2026-07-26). Технически
     можно было «подтвердить» оплату, которой не было, но это врало бы в отчётах о собранной
     комиссии. Здесь долг гасится честно и с причиной."""
-    _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         raise herr(404, "Долг не найден", "Бурыс табылманы")
@@ -297,12 +285,11 @@ def admin_forgive(debt_id: int, body: ForgiveIn | None = None,
 
 @router.post("/admin/debts/{debt_id}/reject")
 def admin_reject(debt_id: int, body: DebtActionIn | None = None,
-                 user: User = Depends(current_user), session: Session = Depends(get_session)):
+                 user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Отклонить (деньги не пришли): pending этого водителя → обратно unpaid. Админ.
 
     Сверка суммы обязательна и здесь: отказ возвращает в неоплаченные ВЕСЬ батч и тратит
     обещание. Честный водитель, чей первый перевод дошёл, а второй нет, терял бы оба."""
-    _require_admin(user)
     debt = session.get(CommissionDebt, debt_id)
     if not debt:
         raise herr(404, "Долг не найден", "Бурыс табылманы")

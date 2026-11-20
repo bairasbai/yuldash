@@ -15,7 +15,7 @@ import secrets
 from datetime import datetime, time, timedelta
 from typing import List, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_
 from sqlalchemy import update as sa_update
@@ -29,9 +29,9 @@ from ..errors import herr
 from ..features import guard_business
 from ..logs import admin_action
 from ..middleware import user_over_limit
-from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User, UserRole
+from ..models import Coupon, CouponReport, CouponRedemption, Partner, Payment, User
 from ..safety_logic import ensure_active
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import client_dt_to_utc, utcnow
 
@@ -1078,11 +1078,6 @@ def partner_update(partner_id: int, body: PartnerIn, user: User = Depends(curren
 # ---------- Админ: модерация бизнеса ----------
 # Админские ошибки — обычный HTTPException со строкой (двуязычие требуется только для 4xx пользователю).
 
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 def _partner_admin(partner: Partner) -> dict:
     """Карточка бизнеса для админ-очереди модерации."""
     now = utcnow()
@@ -1111,9 +1106,8 @@ class RejectIn(BaseModel):
 
 @router.get("/admin/partners")
 def admin_partners(limit: int = 200, offset: int = 0,
-                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+                   user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Все бизнесы (очередь модерации), pending сверху."""
-    _require_admin(user)
     limit = max(1, min(limit, 500))
     offset = max(0, offset)
     rows = session.exec(
@@ -1125,9 +1119,8 @@ def admin_partners(limit: int = 200, offset: int = 0,
 
 
 @router.post("/admin/partners/{partner_id}/approve")
-def admin_partner_approve(partner_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_partner_approve(partner_id: int, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Одобрить бизнес (→ active). Место в витрине даёт оплаченная подписка."""
-    _require_admin(user)
     partner = session.get(Partner, partner_id)
     if not partner:
         raise herr(404, "Бизнес не найден", "Бизнес табылманы")
@@ -1149,9 +1142,8 @@ def admin_partner_approve(partner_id: int, user: User = Depends(current_user), s
 
 
 @router.post("/admin/partners/{partner_id}/reject")
-def admin_partner_reject(partner_id: int, body: RejectIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_partner_reject(partner_id: int, body: RejectIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Отклонить бизнес (→ rejected) с причиной."""
-    _require_admin(user)
     partner = session.get(Partner, partner_id)
     if not partner:
         raise herr(404, "Бизнес не найден", "Бизнес табылманы")
@@ -1211,7 +1203,7 @@ def _coupon_admin(coupon: Coupon, partner: Optional[Partner]) -> dict:
 
 
 @router.get("/admin/moderation")
-def admin_moderation_queue(limit: int = 100, user: User = Depends(current_user),
+def admin_moderation_queue(limit: int = 100, user: User = Depends(require_telegram_admin),
                            session: Session = Depends(get_session)):
     """Одна очередь «что я ещё не смотрел»: бизнесы на модерации + купоны без решения.
 
@@ -1219,7 +1211,6 @@ def admin_moderation_queue(limit: int = 100, user: User = Depends(current_user),
     Дальше — те, у кого есть жалобы. Потом просто непросмотренные (`pending`), которые уже
     висят в витрине. Возвращаем и общий счётчик — приложение рисует его на кнопке.
     """
-    _require_admin(user)
     limit = max(1, min(limit, 300))
 
     partners = session.exec(
@@ -1247,10 +1238,9 @@ def admin_moderation_queue(limit: int = 100, user: User = Depends(current_user),
 
 
 @router.post("/admin/coupons/{coupon_id}/approve")
-def admin_coupon_approve(coupon_id: int, user: User = Depends(current_user),
+def admin_coupon_approve(coupon_id: int, user: User = Depends(require_telegram_admin),
                          session: Session = Depends(get_session)):
     """«Посмотрел, всё в порядке» — купон уходит из очереди и виден людям."""
-    _require_admin(user)
     coupon = session.get(Coupon, coupon_id)
     if not coupon:
         raise herr(404, "Купон не найден", "Купон табылманы")
@@ -1276,10 +1266,9 @@ def admin_coupon_approve(coupon_id: int, user: User = Depends(current_user),
 
 
 @router.post("/admin/coupons/{coupon_id}/block")
-def admin_coupon_block(coupon_id: int, body: CouponBlockIn, user: User = Depends(current_user),
+def admin_coupon_block(coupon_id: int, body: CouponBlockIn, user: User = Depends(require_telegram_admin),
                        session: Session = Depends(get_session)):
     """Снять купон с витрины с причиной. Партнёр видит причину и может поправить текст."""
-    _require_admin(user)
     coupon = session.get(Coupon, coupon_id)
     if not coupon:
         raise herr(404, "Купон не найден", "Купон табылманы")

@@ -32,12 +32,13 @@ def test_sms_login_records_consents(client):
     assert set(got) >= {"offer", "privacy", "age18"}, got
 
 
-def test_repeated_login_keeps_first_consent_time(client):
+def test_repeated_login_keeps_first_consent_time(client, sms_retry_elapsed):
     """Время первого согласия — юридическое доказательство, его нельзя переписывать входом."""
     phone = "+79990007702"
     code = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
     assert client.post("/auth/verify", json={"phone": phone, "code": code, "name": "Дважды"}).status_code == 200
     first = _consents(phone)
+    sms_retry_elapsed()
     code2 = client.post("/auth/request-code", json={"phone": phone}).json()["dev_code"]
     assert client.post("/auth/verify", json={"phone": phone, "code": code2}).status_code == 200
     assert _consents(phone) == first, "повторный вход не должен сдвигать дату согласия"

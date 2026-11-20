@@ -65,7 +65,7 @@ os.environ["NIGHT_K_DEFAULT"] = "1.0"
 # включают её себе обратно и задают время явно — так и должно быть: что проверяем, тем и управляем.
 os.environ["QUIET_HOURS_TO"] = "0"
 
-from datetime import date  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
 import sqlite3  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -76,7 +76,8 @@ from sqlmodel import Session  # noqa: E402
 from app.main import app  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.models import TaxiApplication, TaxiApplicationStatus, User, UserRole  # noqa: E402
-from app.security import make_token  # noqa: E402
+from app.security import issue_tokens, make_token  # noqa: E402
+from app.timeutil import utcnow  # noqa: E402
 
 
 # SQLite по умолчанию НЕ проверяет внешние ключи — это её историческая особенность, а не наша
@@ -98,6 +99,41 @@ def client():
         yield c
 
 
+@pytest.fixture(autouse=True)
+def isolate_sms_test_peer(request):
+    """The shared ASGI TestClient is a separate synthetic peer for each test."""
+    from hashlib import sha256
+    from app.routers import auth
+
+    peer = int.from_bytes(sha256(request.node.nodeid.encode()).digest()[:4], "big")
+    address = f"fd00::{peer >> 16:x}:{peer & 65535:x}"
+    original = auth._sms_peer
+
+    def test_peer(incoming):
+        current = original(incoming)
+        return address if current == "testclient" else current
+
+    # Keep the shared monkeypatch fixture in the original teardown order.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(auth, "_sms_peer", test_peer)
+        yield
+
+
+@pytest.fixture
+def sms_retry_elapsed(monkeypatch):
+    """Advance SMS admission across the resend boundary in tests with sequential logins."""
+    from app import otp_budget
+
+    elapsed = timedelta()
+
+    def advance():
+        nonlocal elapsed
+        elapsed += timedelta(seconds=otp_budget.RESEND_SECONDS)
+        monkeypatch.setattr(otp_budget, "utcnow", lambda: utcnow() + elapsed)
+
+    return advance
+
+
 @pytest.fixture
 def smsru_ready(monkeypatch):
     """Тестовый оператор подтверждает SMS без подключения к внешней сети."""
@@ -105,6 +141,7 @@ def smsru_ready(monkeypatch):
     from app.config import settings
 
     monkeypatch.setattr(settings, "sms_provider", "smsru")
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", "test-id")
 
     def synthetic_get(url, *, params, **kwargs):
@@ -164,8 +201,10 @@ def user_factory(client):
                     status=TaxiApplicationStatus.approved,
                 ))
                 s.commit()
-            tok = make_token(u.id)
-            return {"id": u.id, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
+            uid = u.id
+            tok = (issue_tokens(s, uid, auth_method="telegram", auth_time=utcnow())["access_token"]
+                   if role == UserRole.admin else make_token(uid))
+            return {"id": uid, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
 
     return make
 

@@ -1,5 +1,5 @@
 import pytest
-from datetime import timedelta
+from datetime import timedelta, timezone
 
 from sqlmodel import Session, select
 
@@ -10,13 +10,38 @@ from app.models import (
     Payment, Rating, RefreshToken, Report, Ride, RideRequest, SosEvent, TgAuth,
     TrustedContact, UploadEvent, User, UserRole,
 )
+from app.security import _decode, _hash_refresh
 from app.services import public_media_url
 from app.timeutil import utcnow
 
 
-def test_admin_promotion_by_phone_and_telegram(monkeypatch, client):
+def _assert_verified_login_chain(client, pair, method):
+    raw = pair["refresh_token"]
+    body = {"refresh_token": raw, "rotation_id": "b" * 64}
+    rotated = client.post("/auth/refresh", json=body)
+    assert rotated.status_code == 200
+    recovered = client.post("/auth/refresh", json=body)
+    assert recovered.status_code == 200
+    assert recovered.json()["refresh_token"] == rotated.json()["refresh_token"]
+    with Session(engine) as session:
+        rows = session.exec(select(RefreshToken).where(RefreshToken.token_hash.in_([
+            _hash_refresh(raw), _hash_refresh(rotated.json()["refresh_token"]),
+        ]))).all()
+        assert len(rows) == 2
+        assert {row.auth_session_id for row in rows} == {pair["session_id"]}
+        assert {row.auth_method for row in rows} == {method}
+        assert len({row.auth_time for row in rows}) == 1
+        auth_time = rows[0].auth_time
+        assert auth_time is not None
+    for result in (pair, rotated.json(), recovered.json()):
+        claims = _decode(result["access_token"])
+        assert claims["amr"] == method
+        assert claims["auth_time"] == int(auth_time.replace(tzinfo=timezone.utc).timestamp())
+        assert claims["sid"] == pair["session_id"]
+
+
+def test_sms_for_listed_number_keeps_passenger_role(monkeypatch, client):
     monkeypatch.setattr(settings, "admin_phones", "+79990001010")
-    monkeypatch.setattr(settings, "admin_telegram_chat_id", "admin-tg-id")
 
     phone_code = client.post("/auth/request-code", json={"phone": "+79990001010"}).json()["dev_code"]
     by_phone = client.post(
@@ -24,8 +49,15 @@ def test_admin_promotion_by_phone_and_telegram(monkeypatch, client):
         json={"phone": "+79990001010", "code": phone_code, "name": "Phone Admin"},
     )
     assert by_phone.status_code == 200, by_phone.text
-    assert by_phone.json()["user"]["role"] == "admin"
+    assert by_phone.json()["user"]["role"] == "passenger"
+    token = by_phone.json()["access_token"]
+    assert client.get("/admin/drivers/pending", headers={"Authorization": f"Bearer {token}"}).status_code == 403
+    _assert_verified_login_chain(client, by_phone.json(), "sms")
 
+
+def test_owner_telegram_id_promotes_without_listed_phone(monkeypatch, client):
+    monkeypatch.setattr(settings, "admin_phones", "")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "admin-tg-id")
     start = client.post("/auth/tg/start").json()["request_id"]
     webhook = client.post(
         "/telegram/webhook",
@@ -48,6 +80,7 @@ def test_admin_promotion_by_phone_and_telegram(monkeypatch, client):
     verified = client.post("/auth/tg/verify", json={"request_id": start, "code": code})
     assert verified.status_code == 200, verified.text
     assert verified.json()["user"]["role"] == "admin"
+    _assert_verified_login_chain(client, verified.json(), "telegram")
 
 
 def test_auth_verify_rejects_missing_expired_and_too_many_attempts(client):

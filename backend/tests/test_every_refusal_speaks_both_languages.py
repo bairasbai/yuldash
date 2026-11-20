@@ -207,17 +207,19 @@ def set_zone():
 def test_отказ_входа_объясняет_что_делать(client, monkeypatch):
     """Живая проверка самого больного места: код не ушёл — что человек прочитает."""
     from app.config import settings
-    from app import services
+    from app import login_methods
+    from app.owner_switches import SwitchState
+    from app.otp_budget import SmsDelivery
+    from app.routers import auth
 
     monkeypatch.setattr(settings, "env", "prod", raising=False)
     monkeypatch.setattr(settings, "sms_provider", "smsru", raising=False)
-    monkeypatch.setattr(settings, "sms_ru_api_id", "test-id", raising=False)
+    monkeypatch.setattr(settings, "sms_budget_hmac_key", "synthetic-key")
 
-    def сломанный_httpx(*a, **kw):
-        raise RuntimeError("сеть недоступна")
-
-    monkeypatch.setattr(services, "send_sms", services.send_sms)   # реальная функция
-    monkeypatch.setattr("httpx.get", сломанный_httpx)
+    original = login_methods.login_state
+    monkeypatch.setattr(login_methods, "login_state", lambda key, row:
+                        SwitchState(None, True, ()) if key == "login.sms" else original(key, row))
+    monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.FAILED)
 
     ответ = client.post("/auth/request-code", json={"phone": "+79170009999"})
 

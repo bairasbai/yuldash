@@ -123,7 +123,7 @@ def test_old_client_without_a_device_header_still_works(client, user_factory):
     )
 
 
-def test_moving_to_a_clean_device_restores_access(client, user_factory):
+def test_moving_to_a_clean_device_restores_access(client, user_factory, sms_retry_elapsed):
     """Бан на АППАРАТЕ, а не на человеке: пересел на другой телефон — работает.
 
     Иначе это уже пожизненная блокировка человека, а такого решения никто не принимал.
@@ -133,6 +133,7 @@ def test_moving_to_a_clean_device_restores_access(client, user_factory):
     _войти(client, телефон, "dev-old-bad")
     _забанить(client, admin, "dev-old-bad")
 
+    sms_retry_elapsed()
     новый_вход = _войти(client, телефон, "dev-new-clean")
     r = client.post("/auth/refresh", json={"refresh_token": новый_вход["refresh_token"]},
                     headers={"X-Device-Id": "dev-new-clean"})

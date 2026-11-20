@@ -6,7 +6,7 @@
 """
 from datetime import timedelta
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, Request
 from pydantic import BaseModel
 from sqlalchemy import func, update
 from sqlmodel import Session, select
@@ -16,9 +16,9 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action, log
-from ..models import Ad, Payment, Ride, RideStatus, User, UserRole
+from ..models import Ad, Payment, Ride, RideStatus, User
 from ..payments import BOOST_PLANS, BOOST_WEIGHT as _BOOST_WEIGHT, create_payment, fetch_payment, payments_closed
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import notify_admin_telegram
 from ..timeutil import utcnow
 
@@ -779,13 +779,8 @@ def payment_status(payment_id: int, user: User = Depends(current_user), session:
 
 
 # ----------------------------- Админ: подтверждение СБП-переводов -----------------------------
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 @router.get("/admin/payments/pending")
-def admin_pending_payments(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_pending_payments(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Список ожидающих подтверждения платежей (СБП). Для админа.
 
     Платежи, созданные у провайдера (provider_id != ''), сюда НЕ попадают: их судьбу знает только
@@ -798,7 +793,6 @@ def admin_pending_payments(user: User = Depends(current_user), session: Session 
     становясь «сиротой» с method='card'/'sbp'. Строго историческое исключение: до этой правки
     существовали непомеченные ручные строки за бронь (см. test_manual_payment_terminal_confirmation.py
     ::legacy_booking) — их сюда по-прежнему пускаем намеренно, не задним числом."""
-    _require_admin(user)
     rows = session.exec(select(Payment).where(
         Payment.status == "pending", Payment.provider_id == "", Payment.method != "yookassa",
     ).order_by(Payment.id.desc())).all()
@@ -878,9 +872,8 @@ def reject_manual_payment(session: Session, payment_id: int) -> tuple[str, Payme
 
 
 @router.post("/admin/payments/{payment_id}/confirm")
-def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_confirm_payment(payment_id: int, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Подтвердить получение СБП-перевода → активировать (boost). Для админа."""
-    _require_admin(user)
     outcome, payment = confirm_manual_payment(session, payment_id)
     if outcome == "not_found":
         raise herr(404, "Платёж не найден", "Түләү табылманы")
@@ -900,9 +893,8 @@ def admin_confirm_payment(payment_id: int, user: User = Depends(current_user), s
 
 
 @router.post("/admin/payments/{payment_id}/reject")
-def admin_reject_payment(payment_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_reject_payment(payment_id: int, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Отклонить платёж (деньги не пришли). Для админа."""
-    _require_admin(user)
     outcome, payment = reject_manual_payment(session, payment_id)
     if outcome == "not_found":
         raise herr(404, "Платёж не найден", "Түләү табылманы")
@@ -917,9 +909,8 @@ def admin_reject_payment(payment_id: int, user: User = Depends(current_user), se
 
 
 @router.get("/admin/payments/summary")
-def admin_payments_summary(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_payments_summary(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Сводка подтверждённых платежей (счётчик донатов/буста). Для админа."""
-    _require_admin(user)
 
     def agg(purpose: str) -> dict:
         # Агрегируем в SQL (func.count/sum), не тянем все строки в Python — растущая таблица.

@@ -680,7 +680,7 @@ def test_ride_geocoded_on_create(client, user_factory):
     assert ride["from_lat"] is not None and ride["to_lat"] is not None   # концы геокодированы
 
 
-def test_logout_revokes_token(client):
+def test_logout_revokes_token(client, sms_retry_elapsed):
     phone = "+79990008811"
     tok = _login(client, phone, "LogoutUser")
     h = {"Authorization": f"Bearer {tok}"}
@@ -688,6 +688,7 @@ def test_logout_revokes_token(client):
     assert client.post("/auth/logout", headers=h).status_code == 200
     assert client.get("/me", headers=h).status_code == 401          # тот же токен после logout — недействителен
     # повторный вход выдаёт новый рабочий токен
+    sms_retry_elapsed()
     tok2 = _login(client, phone, "LogoutUser")
     assert client.get("/me", headers={"Authorization": f"Bearer {tok2}"}).status_code == 200
 

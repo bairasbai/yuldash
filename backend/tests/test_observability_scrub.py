@@ -531,7 +531,7 @@ def test_настоящий_sentry_не_уносит_ключи_из_исход�
     events = _события_пробы(
         _SDK_PROBE_OUTGOING, tmp_path,
         TELEGRAM_BOT_TOKEN=ТОКЕН_БОТА, ADMIN_TELEGRAM_CHAT_ID="-1001234567890",
-        SMS_PROVIDER="smsru", SMS_RU_API_ID=КЛЮЧ_SMS_RU,
+        SMS_PROVIDER="smsru", SMS_RU_API_ID=КЛЮЧ_SMS_RU, SMS_NOTIFY_ENABLED="true",
     )
     errors = [e for e in events if "сбой после отправки" in json.dumps(e, ensure_ascii=False)]
     assert errors, f"SDK не собрал событие о сбое — проверять нечего: {events!r}"[:2000]

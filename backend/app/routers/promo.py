@@ -35,7 +35,7 @@ from ..models import (
     Booking, BookingStatus, InstantOrder, InstantOrderStatus, PromoClaimLog, PromoCode,
     PromoRedemption, Ride, User, UserRole,
 )
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..timeutil import client_dt_to_utc, utcnow
 from .referral import LIVE_TRIP_MIN_KM, LIVE_TRIP_MIN_MINUTES, MAX_REFERRAL_CREDITS, _live_driver_trips
 
@@ -412,11 +412,6 @@ def promo_stats(code: str, user: User = Depends(current_user), session: Session 
 # ---------- Админ ----------
 # Админские ошибки — обычный HTTPException-строка (двуязычие требуется только для 4xx пользователю).
 
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 def _promo_admin(promo: PromoCode, session: Session) -> dict:
     """Карточка кампании для админа (со счётчиками applied/active)."""
     applied, active = _promo_counts(session, promo)
@@ -445,14 +440,13 @@ def _promo_admin(promo: PromoCode, session: Session) -> dict:
 
 
 @router.post("/admin/promo")
-def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_promo_create(body: AdminPromoIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Создать промокод/кампанию. code → upper, уникальность (409). owner_phone (опц.) привязывает
     к блогеру (нашли по phone → owner_id; нет — общая акция Юлдаша).
 
     kind ∈ {welcome, boost, taxi_ride}. Для taxi_ride perk_value — РУБЛИ скидки на поездку в
     такси; выше потолка promo_ride_max_discount_rub она всё равно не выдастся (и не больше
     доли promo_ride_max_price_share от цены конкретной поездки)."""
-    _require_admin(user)
     code = (body.code or "").strip().upper()
     if not code:
         raise herr(422, "Нужен код промокода", "Промокод кәрәк")
@@ -493,17 +487,15 @@ def admin_promo_create(body: AdminPromoIn, user: User = Depends(current_user), s
 
 
 @router.get("/admin/promo")
-def admin_promo_list(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_promo_list(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Все промокоды со счётчиками applied/active, новые сверху."""
-    _require_admin(user)
     rows = session.exec(select(PromoCode).order_by(PromoCode.id.desc())).all()
     return [_promo_admin(p, session) for p in rows]
 
 
 @router.post("/admin/promo/{promo_id}/status")
-def admin_promo_status(promo_id: int, body: StatusIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_promo_status(promo_id: int, body: StatusIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Вкл/выкл кампанию (active)."""
-    _require_admin(user)
     promo = session.get(PromoCode, promo_id)
     if not promo:
         raise herr(404, "Промокод не найден", "Промокод табылманы")
@@ -516,9 +508,8 @@ def admin_promo_status(promo_id: int, body: StatusIn, user: User = Depends(curre
 
 
 @router.post("/admin/promo/{promo_id}")
-def admin_promo_update(promo_id: int, body: AdminPromoEditIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_promo_update(promo_id: int, body: AdminPromoEditIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Правка кампании (title/description/campaign/perk_value/лимиты/срок). Только переданные поля."""
-    _require_admin(user)
     promo = session.get(PromoCode, promo_id)
     if not promo:
         raise herr(404, "Промокод не найден", "Промокод табылманы")

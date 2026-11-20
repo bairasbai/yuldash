@@ -18,23 +18,18 @@
 (`+7…`). Запись `ADMIN_PHONES=8987…` молча не срабатывала. Теперь — тем же `_phone_key`,
 что и в стартовой проверке конфигурации.
 """
-from sqlmodel import Session, select
+from sqlmodel import Session
 
 from app.config import settings
 from app.db import engine
-from app.models import OtpCode, User, UserRole
-from app.routers.auth import _maybe_promote_admin
-
-
-def _code_for(phone: str) -> str:
-    with Session(engine) as s:
-        otp = s.exec(select(OtpCode).where(OtpCode.phone == phone).order_by(OtpCode.id.desc())).first()
-        return otp.code
+from app.models import User, UserRole
+from app.routers.auth import _sync_telegram_admin
 
 
 def _login(client, phone="+79990001111", name="Тест"):
-    client.post("/auth/request-code", json={"phone": phone})
-    r = client.post("/auth/verify", json={"phone": phone, "code": _code_for(phone), "name": name})
+    issued = client.post("/auth/request-code", json={"phone": phone})
+    assert issued.status_code == 200, issued.text
+    r = client.post("/auth/verify", json={"phone": phone, "code": issued.json()["dev_code"], "name": name})
     assert r.status_code == 200, r.text
     return r.json()["access_token"]
 
@@ -76,8 +71,9 @@ def test_normal_name_still_works(client):
 def test_phone_in_name_rejected_at_registration(client):
     """Второй путь к тому же полю: имя задаётся при входе, а не в правке профиля."""
     phone = "+79990001114"
-    client.post("/auth/request-code", json={"phone": phone})
-    r = client.post("/auth/verify", json={"phone": phone, "code": _code_for(phone),
+    issued = client.post("/auth/request-code", json={"phone": phone})
+    assert issued.status_code == 200, issued.text
+    r = client.post("/auth/verify", json={"phone": phone, "code": issued.json()["dev_code"],
                                           "name": "Довезу 89871234567"})
     assert r.status_code == 422, r.text
 
@@ -118,11 +114,11 @@ def test_admin_phone_matches_regardless_of_format(monkeypatch):
     """`ADMIN_PHONES=8987…` в .env и `+7987…` в базе — один и тот же человек."""
     monkeypatch.setattr(settings, "admin_phones", "89871234567")
     with Session(engine) as s:
-        user = User(phone="+79871234567", name="Владелец")
+        user = User(phone="+79871234567", name="Владелец", telegram_id="qa-phone-format")
         s.add(user)
         s.commit()
         s.refresh(user)
-        _maybe_promote_admin(s, user)
+        _sync_telegram_admin(user, user.telegram_id, user.phone)
         assert user.role == UserRole.admin, "номер в другом формате запер владельца снаружи админки"
 
 
@@ -130,9 +126,9 @@ def test_stranger_does_not_become_admin(monkeypatch):
     """Обратная сторона: нормализация не должна раздавать роль лишним."""
     monkeypatch.setattr(settings, "admin_phones", "89871234567")
     with Session(engine) as s:
-        user = User(phone="+79877654321", name="Чужой")
+        user = User(phone="+79877654321", name="Чужой", telegram_id="qa-unlisted")
         s.add(user)
         s.commit()
         s.refresh(user)
-        _maybe_promote_admin(s, user)
+        _sync_telegram_admin(user, user.telegram_id, user.phone)
         assert user.role != UserRole.admin

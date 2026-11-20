@@ -28,7 +28,7 @@ from ..safety_logic import (
     incidents_last_hour, is_suspended,
     refresh_standing, reliability_for, urls_from_csv,
 )
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import (EVIDENCE_DIR, booking_and_ride_for_user, notify_admin_telegram,
                         push_notification, user_rating)
 from ..storage import get_storage
@@ -190,11 +190,6 @@ def _incident_out(session: Session, inc: Incident, viewer: User) -> IncidentOut:
         respondent_evidence_urls=urls_from_csv(inc.respondent_evidence_urls),
         booking_route=_context_route(session, inc),
     )
-
-
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
 
 
 def create_incident(
@@ -534,8 +529,7 @@ def secure_evidence(name: str, user: User = Depends(current_user), session: Sess
 
 # ----------------------------- Инциденты: админ -----------------------------
 @router.get("/admin/incidents", response_model=List[AdminIncidentOut])
-def admin_incidents(status: Optional[str] = None, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    _require_admin(user)
+def admin_incidents(status: Optional[str] = None, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     q = select(Incident).order_by(Incident.id.desc())
     if status:
         q = q.where(Incident.status == status)
@@ -572,8 +566,7 @@ def admin_incidents(status: Optional[str] = None, user: User = Depends(current_u
 
 @router.post("/admin/incidents/{incident_id}/resolve", response_model=IncidentOut)
 def resolve_incident(incident_id: int, body: ResolveIn,
-                     user: User = Depends(current_user), session: Session = Depends(get_session)):
-    _require_admin(user)
+                     user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     # Блокируем строку спора ДО проверки статуса — тот же приём, что у admin_resolve_report
     # в routers/safety.py (N8, независимое ревью leaf-3.1). Без лока два одновременных клика
     # «Подтвердить» (двойной тап админа / авто-ретрай при плохой связи) оба читают ещё не

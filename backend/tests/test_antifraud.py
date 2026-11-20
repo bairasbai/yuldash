@@ -159,12 +159,13 @@ def signal_spy(monkeypatch):
     return calls
 
 
-def test_new_device_login_signals_push_and_sms(client, signal_spy):
+def test_new_device_login_signals_push_and_sms(client, signal_spy, sms_retry_elapsed):
     phone = _fresh_phone()
     r = _login(client, phone, device="dev-sig-A")
     uid = r.json()["user"]["id"]
     assert signal_spy["push"] == []          # первый вход (устройства ещё не было) — тишина
 
+    sms_retry_elapsed()
     r = _login(client, phone, device="dev-sig-B")   # вход с ДРУГОГО устройства
     assert r.status_code == 200              # не блокируем — только сигнал
     assert len(signal_spy["push"]) == 1 and signal_spy["push"][0][0] == uid
@@ -172,14 +173,16 @@ def test_new_device_login_signals_push_and_sms(client, signal_spy):
     assert len(signal_spy["sms"]) == 1 and signal_spy["sms"][0][0] == phone
     assert _last_device(uid) == "dev-sig-B"  # устройство перефиксировано
 
-    _login(client, phone, device="dev-sig-B")       # то же устройство снова — сигналов больше нет
+    sms_retry_elapsed()
+    assert _login(client, phone, device="dev-sig-B").status_code == 200
     assert len(signal_spy["push"]) == 1 and len(signal_spy["sms"]) == 1
 
 
-def test_same_device_login_no_signal(client, signal_spy):
+def test_same_device_login_no_signal(client, signal_spy, sms_retry_elapsed):
     phone = _fresh_phone()
-    _login(client, phone, device="dev-same-1")
-    _login(client, phone, device="dev-same-1")
+    assert _login(client, phone, device="dev-same-1").status_code == 200
+    sms_retry_elapsed()
+    assert _login(client, phone, device="dev-same-1").status_code == 200
     assert signal_spy["push"] == [] and signal_spy["sms"] == []
 
 

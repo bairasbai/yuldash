@@ -28,6 +28,7 @@ def _transport(request):
 @pytest.fixture
 def smsru(monkeypatch):
     monkeypatch.setattr(settings, "sms_provider", "smsru")
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", API_ID)
     monkeypatch.setattr(settings, "sms_from", "")
     with httpx.Client(transport=httpx.MockTransport(_transport), trust_env=False) as client:

@@ -1173,6 +1173,8 @@ def sms_channel_live() -> bool:
     Правило живёт здесь одно, потому что мест, где надо ответить человеку «позвали или нет»,
     три: красная кнопка SOS, «застрял на трассе» и зимний протокол. Разъедутся они молча.
     """
+    if not settings.sms_notify_enabled:
+        return False
     if settings.sms_provider == "smsru":
         return bool(settings.sms_ru_api_id)
     if settings.sms_provider == "smsdar":

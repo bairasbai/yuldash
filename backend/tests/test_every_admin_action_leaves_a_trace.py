@@ -35,6 +35,7 @@ from sqlmodel import Session
 from app.config import settings
 from app.db import engine
 from app.models import Rating, User, UserRole
+from test_admin_telegram_login import _contact, _start
 
 ROUTERS = Path(__file__).resolve().parents[1] / "app" / "routers"
 
@@ -91,6 +92,7 @@ def test_разбор_спора_записывает_сумму_и_срок(cli
     assert f"target_user={водитель['id']}" in строка, f"в следе не видно, кого наказали: {строка}"
 
 
+@pytest.mark.usefixtures("telegram_login_ready")
 def test_выдача_прав_администратора_записывается(client, user_factory, monkeypatch, caplog):
     """Самое чувствительное событие в системе не должно проходить молча."""
     номер = "+79995551500"
@@ -99,13 +101,14 @@ def test_выдача_прав_администратора_записывает
     with Session(engine) as s:
         u = s.get(User, человек["id"])
         u.phone = номер
+        telegram_id = u.telegram_id
         s.add(u)
         s.commit()
 
-    from app.routers.auth import _maybe_promote_admin
-    with caplog.at_level("INFO", logger="yuldash"), Session(engine) as s:
-        _maybe_promote_admin(s, s.get(User, человек["id"]))
-        s.commit()
+    challenge = _start(client, telegram_id)
+    assert _contact(client, telegram_id, номер).status_code == 200
+    with caplog.at_level("INFO", logger="yuldash"):
+        assert client.post("/auth/tg/verify", json=challenge).status_code == 200
 
     строка = " ".join(_следы(caplog))
     assert "role.promote" in строка, f"выдача прав администратора не записана: {строка}"
@@ -113,6 +116,7 @@ def test_выдача_прав_администратора_записывает
         assert s.get(User, человек["id"]).role == UserRole.admin
 
 
+@pytest.mark.usefixtures("telegram_login_ready")
 def test_права_снимаются_когда_номер_убрали_из_настроек(client, user_factory, monkeypatch,
                                                         caplog):
     """Главное: уволенного помощника должно быть можно уволить."""
@@ -123,14 +127,13 @@ def test_права_снимаются_когда_номер_убрали_из_�
         u = s.get(User, человек["id"])
         u.phone = номер
         u.role = UserRole.admin
+        telegram_id = u.telegram_id
         s.add(u)
         s.commit()
 
     monkeypatch.setattr(settings, "admin_phones", "+79990000000")   # номер убрали из настроек
-    from app.routers.auth import _maybe_promote_admin
-    with caplog.at_level("INFO", logger="yuldash"), Session(engine) as s:
-        _maybe_promote_admin(s, s.get(User, человек["id"]))
-        s.commit()
+    with caplog.at_level("INFO", logger="yuldash"):
+        assert client.post("/auth/tg/verify", json=_start(client, telegram_id)).status_code == 200
 
     with Session(engine) as s:
         роль = s.get(User, человек["id"]).role
@@ -141,27 +144,16 @@ def test_права_снимаются_когда_номер_убрали_из_�
     assert "role.revoke" in " ".join(_следы(caplog)), "снятие прав не записано в журнал"
 
 
-def test_пустой_список_админов_никого_не_разжалует(client, user_factory, monkeypatch):
-    """Обратная сторона: неверно прочитанная настройка не должна оставить сервис без хозяина."""
-    человек = user_factory("СледОстаётсяАдмин")
+@pytest.mark.usefixtures("telegram_login_ready")
+def test_владелец_сохраняет_права_при_пустом_списке_телефонов(client, user_factory, monkeypatch):
+    человек = user_factory("СледОстаётсяАдмин", role=UserRole.admin)
     with Session(engine) as s:
-        u = s.get(User, человек["id"])
-        u.role = UserRole.admin
-        s.add(u)
-        s.commit()
+        telegram_id = s.get(User, человек["id"]).telegram_id
     monkeypatch.setattr(settings, "admin_phones", "")
-    monkeypatch.setattr(settings, "admin_telegram_chat_id", "")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", telegram_id)
+    response = client.post("/auth/tg/verify", json=_start(client, telegram_id))
 
-    from app.routers.auth import _maybe_promote_admin
-    with Session(engine) as s:
-        _maybe_promote_admin(s, s.get(User, человек["id"]))
-        s.commit()
-
-    with Session(engine) as s:
-        assert s.get(User, человек["id"]).role == UserRole.admin, (
-            "список админов пуст (настройка не заполнена), а права уже сняли — сервис остался "
-            "вообще без администратора"
-        )
+    assert response.status_code == 200 and response.json()["user"]["role"] == "admin"
 
 
 def test_решение_кнопкой_в_телеграме_тоже_оставляет_след(client, user_factory, monkeypatch,

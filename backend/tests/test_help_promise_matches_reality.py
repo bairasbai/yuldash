@@ -32,6 +32,7 @@ def _оператор_подключён(monkeypatch):
     """
     from app.config import settings as _s
     monkeypatch.setattr(_s, "sms_provider", "smsru")
+    monkeypatch.setattr(_s, "sms_notify_enabled", True)
     monkeypatch.setattr(_s, "sms_ru_api_id", "test-id")
 
 

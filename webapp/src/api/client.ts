@@ -161,7 +161,8 @@ export class ApiError extends Error {
   constructor(
     public status: number,
     message: string,
-    public code = ""
+    public code = "",
+    public affected?: number,
   ) {
     super(message);
     this.name = "ApiError";
@@ -445,15 +446,19 @@ async function request<T>(
     // фразу по коду и меняем её только если сервер прислал понятное тело.
     let detail = genericByStatus(res.status, isBashkir());
     let code = "";
+    let affected: number | undefined;
     try {
       const body = await res.json();
       detail = errorMessage(res.status, body?.detail);
       if (typeof body?.detail?.code === "string") code = body.detail.code;
+      const count = body?.detail?.affected;
+      if (res.status === 409 && code === "switch_needs_confirm" &&
+          typeof count === "number" && Number.isSafeInteger(count) && count > 0) affected = count;
     } catch {
       /* тело не JSON (упал прокси, отдал HTML) — остаётся человеческая фраза */
     }
     checkSession();
-    throw new ApiError(res.status, detail, code);
+    throw new ApiError(res.status, detail, code, affected);
   }
 
   if (res.status === 204) return undefined as T;
