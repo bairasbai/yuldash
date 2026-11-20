@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 
 from app.card_payments import BANK_PROJECT_UNACCEPTED, CARD_PAYMENTS_SWITCH
 from app.config import settings
-from app.db import engine
+from app.db import engine, init_db
 from app.main import app
 from app.models import AppSetting, AppSettingChange, Booking, BookingStatus, DriverPaySettings, Payment, User, UserRole
 from app.owner_switches import PAID_SWITCH
@@ -131,6 +131,22 @@ def test_card_switch_and_its_history_roll_back_together(client, card_owner, monk
         assert _write(requester, card_owner, False).status_code == 500
 
     assert _card_view(client, card_owner) == previous
+
+
+def test_repeated_db_initialization_preserves_card_switch_and_its_history(client, card_owner):
+    with Session(engine) as session:
+        session.get(AppSetting, CARD_PAYMENTS_SWITCH).value = True
+        session.commit()
+    changed = _write(client, card_owner, False)
+    assert changed.status_code == 200
+    before = changed.json()
+    assert before["stored"] is before["effective"] is False
+    assert before["revision"] > 0 and len(before["history"]) == 1
+
+    init_db()
+    init_db()
+
+    assert _card_view(client, card_owner) == before
 
 
 def test_driver_can_clear_stored_card_consent_with_unchanged_methods(client, user_factory):

@@ -101,7 +101,7 @@
   "excluded_counts": {
     "binary_asset_or_non_source": 105,
     "documentation": 20,
-    "documentation_artifacts_or_private_material": 339,
+    "documentation_artifacts_or_private_material": 340,
     "experimental_not_current_product": 21,
     "legacy_flutter_do_not_modify": 22,
     "secret_or_local_settings_not_read": 3
@@ -11619,8 +11619,8 @@
       "path": "backend/tests/test_rideshare_card_switch.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "10433ccc799805515337acdec04c3ed74c047dc2ff0f53a067230840a2307d1b",
-      "lines": 269
+      "sha256": "bb8016068782f2f8c434c6fb23afe5a299315aa4223887ede817c51648eafde4",
+      "lines": 285
     },
     {
       "path": "backend/tests/test_rideshare_network_matrix.py",
@@ -19525,6 +19525,10 @@
     },
     {
       "path": "docs/phase1-client-plan.md",
+      "reason": "documentation_artifacts_or_private_material"
+    },
+    {
+      "path": "docs/plans/rideshare/RS-08-bank-payment.md",
       "reason": "documentation_artifacts_or_private_material"
     },
     {
