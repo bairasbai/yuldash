@@ -80,7 +80,8 @@ class AuditDelta07DriverFinishTest {
                         """{"role":"driver","status":"confirmed","driver_phase":"departed","arrival_verified":false,"alone_with_driver":false}"""
                     )
                     request.method == "GET" && path == "/bookings/7707/messages" -> json("""{"items":[]}""")
-                    request.method == "GET" && path == "/bookings/7707/boarding-code" -> json("""{"code":""}""")
+                    // A confirmed booking has a code. A blank reply revokes live trip actions.
+                    request.method == "GET" && path == "/bookings/7707/boarding-code" -> json("""{"code":"1234"}""")
                     request.method == "GET" && path == "/bookings/7707/details" -> json(
                         """{"booking_id":7707,"ride_id":7,"role":"driver","status":"confirmed","contact_unlocked":true}"""
                     )
