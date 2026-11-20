@@ -707,9 +707,10 @@ object ApiClient {
         value: Boolean,
         confirm: Boolean,
         generation: Long,
+        revision: Long?,
     ): Result<OwnerSwitchDto> = call(
         "POST", "/admin/switches/${key.key}",
-        JSONObject().put("value", value).put("confirm", confirm),
+        JSONObject().put("value", value).put("confirm", confirm).put("expected_revision", revision),
         auth = true,
         isRetry = true, // Одна запись за действие, включая ответ 401.
         retryOnNetwork = false,

@@ -12,7 +12,7 @@ class OwnerSwitchDtoTest {
     fun storedChoiceAndAvailabilityAreIndependent() {
         val switches = JSONObject(
             """{"switches":{
-                "external.paid":{"stored":false,"effective":false,"blockers":[],"history":[]},
+                "external.paid":{"stored":false,"effective":false,"blockers":[],"history":[],"revision":0},
                 "external.sms_notices":{"stored":true,"effective":false,"blockers":["external_paid_paused"],"history":[]},
                 "login.sms":{"stored":true,"effective":false,"blockers":["smsru_confirmation_pending"],
                     "updated_at":null,"updated_by_name":null,"history":[],"in_flight":3,"editable":false},
@@ -27,6 +27,7 @@ class OwnerSwitchDtoTest {
         assertEquals(3L, sms.inFlight)
         assertFalse(sms.editable)
         assertFalse(switches.getValue(OwnerSwitchKey.PaidIntegrations).effective)
+        assertEquals(0L, switches.getValue(OwnerSwitchKey.PaidIntegrations).revision)
         assertTrue(switches.getValue(OwnerSwitchKey.SmsNotices).editable)
         assertNull(switches.getValue(OwnerSwitchKey.Telegram).stored)
         assertNull(switches.getValue(OwnerSwitchKey.Telegram).inFlight)

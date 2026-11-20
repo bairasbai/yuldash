@@ -47,7 +47,7 @@ private sealed interface OwnerSwitchLoad {
     data class Ready(val rows: Map<OwnerSwitchKey, OwnerSwitchDto>) : OwnerSwitchLoad
 }
 
-private data class OwnerSwitchConfirmation(val key: OwnerSwitchKey, val affected: Long)
+private data class OwnerSwitchConfirmation(val key: OwnerSwitchKey, val affected: Long, val revision: Long?)
 
 @Composable
 internal fun AdminSwitchesScreen(onBack: () -> Unit) {
@@ -75,14 +75,15 @@ private fun OwnerSwitchesForSession(generation: Long, onBack: () -> Unit) {
             .onFailure { state = OwnerSwitchLoad.Error((it as? ApiException)?.message) }
     }
 
-    fun save(method: OwnerSwitchKey, value: Boolean, confirmed: Boolean = false) {
+    fun save(method: OwnerSwitchKey, value: Boolean, confirmed: Boolean = false,
+             revision: Long? = (state as? OwnerSwitchLoad.Ready)?.rows?.get(method)?.revision) {
         if (saving != null) return
         saving = method
         confirmation = null
         saveError = null
         scope.launch {
             try {
-                ApiClient.setOwnerSwitch(method, value, confirmed, generation)
+                ApiClient.setOwnerSwitch(method, value, confirmed, generation, revision)
                     .onSuccess { next ->
                         if (method == OwnerSwitchKey.PaidIntegrations) {
                             state = OwnerSwitchLoad.Loading
@@ -96,7 +97,7 @@ private fun OwnerSwitchesForSession(generation: Long, onBack: () -> Unit) {
                         val count = ownerSwitchAffected(error)
                         val canAffectLogin = method == OwnerSwitchKey.Sms || method == OwnerSwitchKey.PaidIntegrations
                         if (canAffectLogin && !value && !confirmed && count != null) {
-                            confirmation = OwnerSwitchConfirmation(method, count)
+                            confirmation = OwnerSwitchConfirmation(method, count, revision)
                         } else {
                             saveError = (error as? ApiException)?.message ?: saveFallback
                             reload += 1
@@ -166,7 +167,7 @@ private fun OwnerSwitchesForSession(generation: Long, onBack: () -> Unit) {
                 TextButton(onClick = { confirmation = null }) { Text(appText("Отмена", "Кире алыу"), color = CanonGreen2) }
             },
             confirmButton = {
-                TextButton(onClick = { save(pending.key, false, confirmed = true) }) {
+                TextButton(onClick = { save(pending.key, false, confirmed = true, revision = pending.revision) }) {
                     Text(if (pause) appText("Приостановить", "Туҡтатып тороу")
                         else appText("Отключить SMS", "SMS-ты һүндереү"), color = CanonRed)
                 }
@@ -194,6 +195,7 @@ private fun OwnerSwitchCard(
     }
     val wanted = row.stored ?: row.effective
     val locked = method == OwnerSwitchKey.Telegram
+    val revisionAvailable = !method.key.startsWith("external.") || row.revision != null
     val canEnable = row.blockers.all { it == PAID_INTEGRATIONS_PAUSED }
     val status = if (row.blockers.isEmpty()) ownerSwitchLabel(row.effective) else appText("Сейчас недоступно", "Әле эшләмәй")
     val stored = when {
@@ -218,7 +220,7 @@ private fun OwnerSwitchCard(
                 Switch(
                     checked = wanted,
                     onCheckedChange = onChange,
-                    enabled = enabled && !locked && row.editable && (wanted || canEnable),
+                    enabled = enabled && !locked && row.editable && revisionAvailable && (wanted || canEnable),
                     modifier = Modifier.semantics { contentDescription = name },
                     colors = SwitchDefaults.colors(checkedTrackColor = CanonGreen2, checkedThumbColor = CanonOnFilled),
                 )

@@ -192,6 +192,7 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
     admin = user_factory(role=UserRole.admin)
     suffix = (33 if key == SMS else 37) + (first == "off")
     phone = f"+799901020{suffix}"
+    off_body = {"value": False, "confirm": True}
     if key == PAID_SWITCH:
         set_paid_owner(admin)
         for setting, value in {
@@ -199,8 +200,11 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
             "sms_from": "SyntheticSender", "sms_budget_hmac_key": "synthetic-budget",
         }.items():
             monkeypatch.setattr(settings, setting, value)
-        for switch in (PAID_SWITCH, SMS):
-            assert _post("POST", f"/admin/switches/{switch}", admin["auth"], {"value": True}).status_code == 200
+        master = _post("POST", f"/admin/switches/{PAID_SWITCH}", admin["auth"],
+                       {"value": True, "expected_revision": 0})
+        assert master.status_code == 200
+        off_body["expected_revision"] = master.json()["revision"]
+        assert _post("POST", SMS_PATH, admin["auth"], {"value": True}).status_code == 200
     entered = {name: Event() for name in ("send", "off")}
     held, release = Event(), Event()
     active_pids, sent = {}, []
@@ -239,7 +243,7 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
     monkeypatch.setattr(admin_switches, "_switch_view", hold_off_commit)
     work = {
         "send": lambda: _post("POST", "/auth/request-code", body={"phone": phone}),
-        "off": lambda: _post("POST", f"/admin/switches/{key}", admin["auth"], {"value": False, "confirm": True}),
+        "off": lambda: _post("POST", f"/admin/switches/{key}", admin["auth"], off_body),
     }
     second = "off" if first == "send" else "send"
     with ThreadPoolExecutor(max_workers=2) as pool:

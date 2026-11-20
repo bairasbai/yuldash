@@ -15,7 +15,7 @@ type LoadState =
   | { phase: "loading" }
   | { phase: "error"; message?: string }
   | { phase: "ready"; rows: OwnerSwitches };
-type Confirmation = { key: "login.sms" | typeof PAID_SWITCH; affected: number };
+type Confirmation = { key: "login.sms" | typeof PAID_SWITCH; affected: number; revision?: number };
 
 export default function AdminSwitchesScreen() {
   const generation = useSyncExternalStore(subscribeSessionChanges, getSessionGeneration);
@@ -84,7 +84,8 @@ function SwitchesForSession({ generation }: { generation: string }) {
     }
   }, [confirmation, busy, state.phase]);
 
-  async function save(key: OwnerSwitchKey, value: boolean, confirmed = false) {
+  async function save(key: OwnerSwitchKey, value: boolean, confirmed = false,
+                      revision = state.phase === "ready" ? state.rows[key]?.revision : undefined) {
     if (activeWrite.current) return;
     const source = new AbortController();
     activeWrite.current = source;
@@ -92,7 +93,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
     setConfirmation(null);
     setSaveError("");
     try {
-      const next = await saveOwnerSwitch(key, value, confirmed, generation, source.signal);
+      const next = await saveOwnerSwitch(key, value, confirmed, generation, source.signal, revision);
       if (!source.signal.aborted) {
         if (key === PAID_SWITCH) {
           setState({ phase: "loading" });
@@ -105,7 +106,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
       if (source.signal.aborted) return;
       if ((key === "login.sms" || key === PAID_SWITCH) && !value && !confirmed && error instanceof ApiError &&
           error.status === 409 && error.code === "switch_needs_confirm" && error.affected) {
-        setConfirmation({ key, affected: error.affected });
+        setConfirmation({ key, affected: error.affected, revision });
       } else {
         setSaveError(error instanceof ApiError ? error.message :
           appText("Не удалось сохранить. Проверяем текущее состояние…", "Һаҡлап булманы. Әлеге торошто тикшерәбеҙ…"));
@@ -171,6 +172,8 @@ function SwitchesForSession({ generation }: { generation: string }) {
           const wanted = row.stored ?? row.effective;
           const locked = key === "login.telegram";
           const inFlight = row.in_flight ?? 0;
+          const revisionAvailable = !key.startsWith("external.") ||
+            (typeof row.revision === "number" && Number.isSafeInteger(row.revision) && row.revision >= 0);
           const canEnable = row.blockers.every((code) => code === PAID_PAUSED);
           return (
             <section key={key} className="acard">
@@ -188,7 +191,8 @@ function SwitchesForSession({ generation }: { generation: string }) {
                 <button type="button" className="acity__switch" role="switch" aria-label={labels[key]}
                   ref={(button) => { controls.current[key] = button; }}
                   aria-checked={wanted} aria-describedby={`${key}-status`}
-                  disabled={busy !== null || confirmation !== null || locked || row.editable === false || (!wanted && !canEnable)}
+                  disabled={busy !== null || confirmation !== null || locked || row.editable === false ||
+                    !revisionAvailable || (!wanted && !canEnable)}
                   onClick={() => void save(key, !wanted)}>
                   {busy === key ? <span className="spinner spinner--sm" aria-hidden /> :
                     <span className={`switch${wanted ? " on" : ""}`} aria-hidden />}
@@ -246,7 +250,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
             dismiss={{ label: appText("Отмена", "Кире алыу"), onClick: () => setConfirmation(null) }}
             confirm={{ label: confirmPause ? appText("Приостановить", "Туҡтатып тороу")
               : appText("Отключить SMS", "SMS-ты һүндереү"), tone: "danger",
-              onClick: () => void save(confirmation.key, false, true) }}
+              onClick: () => void save(confirmation.key, false, true, confirmation.revision) }}
             onClose={() => setConfirmation(null)}
           />
         </div>

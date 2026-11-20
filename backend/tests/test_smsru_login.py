@@ -73,8 +73,14 @@ def enable_login(client, user_factory, monkeypatch, smsru_settings, set_paid_own
     return enable
 
 
-def _set_switch(client, actor, key, value, confirm=False):
-    return client.post(f"/admin/switches/{key}", headers=actor["auth"], json={"value": value, "confirm": confirm})
+def _set_switch(client, actor, key, value, confirm=False, revision=None):
+    body = {"value": value, "confirm": confirm}
+    if key in (PAID_SWITCH, SMS_NOTICES_SWITCH):
+        if revision is None:
+            revision = _list_switches(client, actor).get(key, {}).get("revision")
+        if revision is not None:
+            body["expected_revision"] = revision
+    return client.post(f"/admin/switches/{key}", headers=actor["auth"], json=body)
 
 
 def _list_switches(client, actor):
@@ -207,6 +213,28 @@ def test_paid_pause_preserves_choices_and_finishes_admitted_codes(client, enable
     assert all(rows[key]["effective"] for key in ("login.sms", SMS_NOTICES_SWITCH))
     assert [change["new_value"] for change in rows[PAID_SWITCH]["history"]] == [True, False, True]
     assert services.send_text(phone, "После возобновления") and len(calls) == 3
+
+
+@pytest.mark.parametrize("key", [PAID_SWITCH, SMS_NOTICES_SWITCH])
+def test_old_enable_replay_does_not_override_a_new_pause(client, user_factory, set_paid_owner, monkeypatch,
+                                                       smsru_settings, key):
+    owner = user_factory(role=UserRole.admin)
+    set_paid_owner(owner)
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
+    initial = _list_switches(client, owner)[key]
+    assert initial["effective"] is False
+    missing = client.post(f"/admin/switches/{key}", headers=owner["auth"], json={"value": True})
+    assert missing.status_code == 422 and missing.json()["detail"]["code"] == "switch_revision_required"
+
+    enabled = _set_switch(client, owner, key, True, revision=initial["revision"])
+    assert enabled.status_code == 200
+    paused = _set_switch(client, owner, key, False, revision=enabled.json()["revision"])
+    assert paused.status_code == 200
+    repeated = _set_switch(client, owner, key, False, revision=enabled.json()["revision"])
+    assert repeated.json() == paused.json()
+    stale = _set_switch(client, owner, key, True, revision=initial["revision"])
+    assert stale.status_code == 409 and stale.json()["detail"]["code"] == "switch_revision_conflict"
+    assert _list_switches(client, owner)[key] == paused.json()
 
 
 @pytest.mark.parametrize("lang, title, ordinal", [

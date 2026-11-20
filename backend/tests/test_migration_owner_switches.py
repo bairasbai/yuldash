@@ -49,15 +49,23 @@ def test_paid_switch_migration_preserves_login_and_history(tmp_path, monkeypatch
             assert session.get(AppSetting, "login.sms").value is True
             assert all(session.get(AppSetting, key).value is None for key in EXTERNAL_KEYS)
             session.get(AppSetting, PAID_SWITCH).value = True
-            session.add(AppSettingChange(key=PAID_SWITCH, new_value=True))
+            approved = AppSettingChange(key=PAID_SWITCH, new_value=True)
+            session.add(approved)
             session.commit()
+            prior_revision = approved.id
         command.downgrade(config, previous)
         command.upgrade(config, target)
         with Session(db) as session:
             assert session.get(AppSetting, "login.sms").value is True
             assert all(session.get(AppSetting, key).value is None for key in EXTERNAL_KEYS)
-            change = session.exec(select(AppSettingChange).where(AppSettingChange.key == PAID_SWITCH)).one()
-            assert change.new_value is True
+            history = session.exec(select(AppSettingChange).where(AppSettingChange.key == PAID_SWITCH)
+                                   .order_by(AppSettingChange.id)).all()
+            assert [change.new_value for change in history] == [True, False]
+            assert history[-1].id > prior_revision and history[-1].admin_id is None
+            default_reset = session.exec(select(AppSettingChange).where(
+                AppSettingChange.key == "external.sms_notices",
+            )).one()
+            assert default_reset.id > 0 and default_reset.new_value is False
     finally:
         db.dispose()
 

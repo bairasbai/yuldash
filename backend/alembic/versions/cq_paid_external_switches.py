@@ -17,7 +17,12 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
-    # Keep keys for the history foreign key. Re-upgrading requires fresh operator opt-in.
+    # Record even an unset value to invalidate every request issued before the rollback.
+    op.execute(
+        "INSERT INTO appsettingchange (key, old_value, new_value, created_at) "
+        "SELECT key, value, FALSE, CURRENT_TIMESTAMP FROM appsetting "
+        "WHERE key IN ('external.paid', 'external.sms_notices')"
+    )
     op.execute(
         "UPDATE appsetting SET value = NULL, updated_at = NULL, updated_by = NULL "
         "WHERE key IN ('external.paid', 'external.sms_notices')"

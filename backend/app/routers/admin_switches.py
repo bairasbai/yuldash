@@ -4,7 +4,7 @@ from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.security import HTTPAuthorizationCredentials
-from pydantic import BaseModel, Field, StrictBool
+from pydantic import BaseModel, Field, StrictBool, StrictInt
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
@@ -28,16 +28,25 @@ class SwitchChangeIn(BaseModel):
     value: StrictBool
     confirm: StrictBool = False
     note: str | None = Field(default=None, max_length=300)
+    expected_revision: StrictInt | None = Field(default=None, ge=0)
 
 
-def _switch_view(session: Session, row: AppSetting, *, paid_enabled: bool, editable: bool = True) -> dict:
+def _external_revision(session: Session, key: str) -> int | None:
+    if key not in EXTERNAL_KEYS:
+        return None
+    return session.exec(select(func.max(AppSettingChange.id)).where(AppSettingChange.key == key)).one() or 0
+
+
+def _switch_view(session: Session, row: AppSetting, *, paid_enabled: bool, editable: bool = True,
+                 revision: int | None = None) -> dict:
     state = switch_state(row.key, row, paid_enabled=paid_enabled)
     author_name = session.exec(select(User.name).where(User.id == row.updated_by)).first() if row.updated_by else None
-    changes = session.exec(
-        select(AppSettingChange, User.name).outerjoin(User, User.id == AppSettingChange.admin_id)
-        .where(AppSettingChange.key == row.key)
-        .order_by(AppSettingChange.created_at.desc(), AppSettingChange.id.desc()).limit(50)
-    ).all()
+    history = (select(AppSettingChange, User.name).outerjoin(User, User.id == AppSettingChange.admin_id)
+               .where(AppSettingChange.key == row.key))
+    if revision is not None:
+        history = history.where(AppSettingChange.id <= revision)
+    changes = session.exec(history.order_by(AppSettingChange.created_at.desc(), AppSettingChange.id.desc())
+                           .limit(50)).all()
     view = {
         "stored": state.stored,
         "effective": state.effective,
@@ -55,6 +64,8 @@ def _switch_view(session: Session, row: AppSetting, *, paid_enabled: bool, edita
     }
     if not editable:
         view["editable"] = False
+    if revision is not None:
+        view["revision"] = revision
     if row.key == "login.sms":
         view["in_flight"] = session.exec(select(func.count()).select_from(OtpSendAttempt).where(
             OtpSendAttempt.state == "reserved",
@@ -79,13 +90,22 @@ def _accounts_losing_login(session: Session, telegram_effective: bool) -> int:
 
 @router.get("/admin/switches")
 def get_switches(admin: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
-    rows = login_settings(session)
-    require_complete_login_settings(rows)
     owner = paid_owner(admin)
     keys = SWITCH_KEYS if owner else LOGIN_KEYS
+    revisions = {}
+    if owner:
+        revision = (select(func.max(AppSettingChange.id)).where(AppSettingChange.key == AppSetting.key)
+                    .correlate(AppSetting).scalar_subquery())
+        snapshot = session.exec(select(AppSetting, revision).where(AppSetting.key.in_(keys))).all()
+        rows = {row.key: row for row, _ in snapshot}
+        revisions = {row.key: value or 0 for row, value in snapshot if row.key in EXTERNAL_KEYS}
+    else:
+        rows = login_settings(session)
+    require_complete_login_settings(rows)
     paid_enabled = stored_on(rows, PAID_SWITCH)
     return {"switches": {
-        key: _switch_view(session, rows[key], paid_enabled=paid_enabled, editable=owner or not _requires_owner(key))
+        key: _switch_view(session, rows[key], paid_enabled=paid_enabled, editable=owner or not _requires_owner(key),
+                          revision=revisions.get(key))
         for key in keys if key in rows
     }}
 
@@ -128,11 +148,18 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
                    code="switch_storage_unavailable")
     paid_enabled = stored_on(rows, PAID_SWITCH)
     state = switch_state(key, row, paid_enabled=paid_enabled)
+    revision = _external_revision(session, key)
+    if revision is not None and body.expected_revision is None:
+        raise herr(422, "Обнови список настроек.", "Көйләүҙәр исемлеген яңырт.",
+                   code="switch_revision_required")
     if key == "login.telegram" and not body.value:
         raise herr(409, "Telegram нужен для входа администратора.",
                    "Администратор инеү өсөн Telegram кәрәк.", code="switch_telegram_required")
     if body.value == row.value:
-        return _switch_view(session, row, paid_enabled=paid_enabled)
+        return _switch_view(session, row, paid_enabled=paid_enabled, revision=revision)
+    if revision is not None and body.expected_revision != revision:
+        raise herr(409, "Настройка уже изменилась. Проверяем текущее состояние.",
+                   "Көйләү үҙгәргән. Әлеге торошто тикшерәбеҙ.", code="switch_revision_conflict")
     if body.value and state.blockers and state.blockers != (PAID_PAUSED,):
         raise herr(409, "Этот способ входа ещё не готов.", "Был инеү ысулы әле әҙер түгел.",
                    code="switch_blocked", blockers=list(state.blockers))
@@ -148,7 +175,8 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
         created_at=when, note=body.note.strip() or None if body.note else None,
     ))
     session.flush()
-    result = _switch_view(session, row, paid_enabled=stored_on(rows, PAID_SWITCH))
+    result = _switch_view(session, row, paid_enabled=stored_on(rows, PAID_SWITCH),
+                          revision=_external_revision(session, key))
     actor_id = actor.id
     session.commit()
     admin_action(actor_id, "switch.update", target=key, previous=old_value, value=body.value)
