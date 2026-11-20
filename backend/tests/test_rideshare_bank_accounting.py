@@ -8,8 +8,9 @@ from sqlalchemy import inspect, text
 from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
+from app.account import delete_user_account
 from app.db import engine
-from app.models import Booking, BookingStatus, LedgerEntry, Payment, UserRole
+from app.models import Booking, BookingStatus, LedgerEntry, Payment, User, UserRole
 from app.rideshare_bank_accounting import BankSettlementUnavailable, record_bank_observation, reserve_settlement
 from app.rideshare_bank_models import RideshareBankCheckout, RideshareBankOperation, RideshareBankPosting
 from app.rideshare_bank_provider import BankObservation, BankResource
@@ -147,6 +148,33 @@ def test_only_one_open_checkout_for_the_same_booking(bank_checkout):
         assert len(session.exec(select(RideshareBankCheckout).where(
             RideshareBankCheckout.booking_id == booking_id,
         )).all()) == 2
+
+
+def test_account_deletion_detaches_the_booking_but_keeps_pending_bank_obligations(bank_checkout):
+    checkout_id, booking_id = bank_checkout
+    with Session(engine) as session:
+        passenger_id = session.get(Booking, booking_id).passenger_id
+        operation = reserve_settlement(session, checkout_id, BankResource.payout, amount_kop=120_005,
+                                       settlement_kop=120_005)
+        operation.state = "needs_reconciliation"
+        operation.dispatched_at = utcnow()
+        operation_id = operation.id
+        session.commit()
+        delete_user_account(session, session.get(User, passenger_id))
+
+    with Session(engine) as session:
+        assert session.get(User, passenger_id) is None
+        assert session.get(Booking, booking_id) is None
+        assert session.get(RideshareBankCheckout, checkout_id).booking_id is None
+        assert session.get(RideshareBankOperation, operation_id).state == "needs_reconciliation"
+        confirmed = session.exec(
+            select(RideshareBankPosting)
+            .join(RideshareBankOperation, RideshareBankPosting.operation_id == RideshareBankOperation.id)
+            .where(RideshareBankOperation.checkout_id == checkout_id),
+        ).one()
+        assert confirmed.amount_kop == 120_005
+        with pytest.raises(BankSettlementUnavailable, match="unavailable"):
+            reserve_settlement(session, checkout_id, BankResource.payout, amount_kop=120_005, settlement_kop=120_005)
 
 
 def test_bank_accounting_upgrade_requires_empty_history_for_downgrade(tmp_path, monkeypatch):
