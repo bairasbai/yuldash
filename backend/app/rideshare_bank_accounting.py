@@ -35,7 +35,8 @@ def reserve_settlement(session: Session, checkout_id: int, resource: BankResourc
         raise ValueError("Invalid settlement amount in kopecks")
 
     checkout = _lock_checkout(session, checkout_id)
-    if checkout.closed_at is not None or (resource == BankResource.payout and checkout.booking_id is None):
+    if checkout.closed_at is not None or (resource == BankResource.payout and
+                                           (checkout.booking_id is None or checkout.receipt_conflict)):
         raise BankSettlementUnavailable("Bank checkout is unavailable")
 
     live = session.exec(select(RideshareBankOperation.id).where(

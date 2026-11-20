@@ -3,7 +3,7 @@
 from datetime import datetime
 from uuid import uuid4
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, Index, LargeBinary, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, Index, LargeBinary, UniqueConstraint, false, text
 from sqlmodel import Field, SQLModel
 
 from .timeutil import utcnow
@@ -37,6 +37,10 @@ class RideshareBankCheckout(SQLModel, table=True):
     test_mode: bool
     created_at: datetime = Field(default_factory=utcnow)
     closed_at: datetime | None = None
+    paid_revision: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    card_revision: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    recipient_version: str | None = Field(default=None, max_length=32)
+    receipt_conflict: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false()))
 
 
 class RideshareBankOperation(SQLModel, table=True):
@@ -68,6 +72,10 @@ class RideshareBankOperation(SQLModel, table=True):
     provider_id: str | None = Field(default=None, max_length=128)
     dispatched_at: datetime | None = None
     created_at: datetime = Field(default_factory=utcnow)
+    request_ciphertext: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))
+    confirmation_ciphertext: bytes | None = Field(default=None, sa_column=Column(LargeBinary, nullable=True))
+    lease_token: str | None = Field(default=None, max_length=32)
+    lease_until: datetime | None = None
 
 
 class RideshareBankPosting(SQLModel, table=True):

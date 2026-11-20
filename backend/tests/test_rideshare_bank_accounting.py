@@ -196,16 +196,17 @@ def test_bank_accounting_upgrade_requires_empty_history_for_downgrade(tmp_path, 
         assert any(index["name"] == "uq_rideshare_bank_open_checkout" and index["unique"]
                    for index in inspect(db).get_indexes("ridesharebankcheckout"))
         with Session(db) as session:
-            checkout = RideshareBankCheckout(amount_kop=120_005, payout_kop=120_005, test_mode=True)
-            session.add(checkout)
+            checkout_id = session.execute(text(
+                "INSERT INTO ridesharebankcheckout (amount_kop, payout_kop, test_mode, created_at) "
+                "VALUES (120005, 120005, TRUE, :now) RETURNING id"
+            ), {"now": utcnow()}).scalar_one()
             session.commit()
-            checkout_id = checkout.id
         with pytest.raises(RuntimeError, match="history must be preserved"):
             command.downgrade(config, previous)
         with Session(db) as session:
-            checkout = session.get(RideshareBankCheckout, checkout_id)
-            assert checkout.amount_kop == 120_005
-            session.delete(checkout)
+            assert session.execute(text("SELECT amount_kop FROM ridesharebankcheckout WHERE id=:id"),
+                                   {"id": checkout_id}).scalar_one() == 120_005
+            session.execute(text("DELETE FROM ridesharebankcheckout WHERE id=:id"), {"id": checkout_id})
             session.commit()
         command.downgrade(config, previous)
         assert not any(inspect(db).has_table(table) for table in names)

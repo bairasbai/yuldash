@@ -18,6 +18,7 @@ from .. import meeting_points     # RS-03: точка встречи/высад�
 from .. import ride_seats         # RS-02 А: единственная дверь записи свободных мест
 from .. import trip_wake
 from ..antifraud import moderate_text, record_open_text_flag
+from ..booking_payment import check_direct_payment_allowed, lock_booking_payment
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
@@ -1123,10 +1124,13 @@ def set_pay_agreement(booking_id: int, body: PayAgreementIn, user: User = Depend
     """
     # Сериализуем правку с созданием счёта. Payment здесь только читаем:
     # применение оплаты блокирует Payment → Booking, обратный порядок опасен.
-    booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
+    booking = lock_booking_payment(session, booking_id)
     booking, ride = booking_and_ride_for_user(session, booking_id, user)
     amount = _clean_pay_amount(body.pay_amount) if body.pay_amount is not None else None
     current_amount = booking.pay_amount if booking.pay_amount is not None else booking.price
+    if ((amount is not None and amount != current_amount) or
+            (body.pay_method is not None and body.pay_method != booking.pay_method)):
+        check_direct_payment_allowed(session, booking_id)
     if amount is not None and amount != current_amount:
         issued = session.exec(select(Payment.id).where(
             Payment.booking_id == booking.id, Payment.purpose == "booking",

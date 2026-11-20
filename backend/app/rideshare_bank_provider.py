@@ -234,6 +234,10 @@ class YooKassaSafeDeal:
         self._auth = (shop_id, secret_key)
         self._test_mode = test_mode
 
+    @property
+    def test_mode(self) -> bool:
+        return self._test_mode
+
     def submit(self, operation: BankRequest) -> BankObservation:
         return self._request(operation.resource, operation=operation)
 
