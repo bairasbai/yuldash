@@ -11,11 +11,13 @@ internal data class GuestBookingDraft(
     val front: Boolean,
     val minor: Boolean,
     val forAnother: Boolean = false,
+    val payMethod: String = "negotiate",
 ) {
     fun restore(ride: Ride): RestoredGuestBooking {
         val validSegment = segmentReady(ride, pickup, dropoff)
         val frontUnavailable = front && (!ride.frontSeatAvailable || ride.frontSeatTaken)
         val minorsUnavailable = minor && ride.noMinors
+        val payMethodUnavailable = payMethod !in passengerPayChoices(ride.driverPayMethods)
         return RestoredGuestBooking(
             pickup = if (validSegment) pickup else initialPickupStop(ride),
             dropoff = if (validSegment) dropoff else initialDropoffStop(ride),
@@ -23,11 +25,13 @@ internal data class GuestBookingDraft(
             front = front && !frontUnavailable,
             minor = minor && !minorsUnavailable,
             forAnother = forAnother,
+            payMethod = if (payMethodUnavailable) "negotiate" else payMethod,
             review = GuestBookingReview(
                 routeChanged = !validSegment || route != routePlaces(ride),
                 frontUnavailable = frontUnavailable,
                 minorsUnavailable = minorsUnavailable,
                 termsChanged = termsVersion != ride.termsVersion,
+                payMethodUnavailable = payMethodUnavailable,
             ).takeIf { it.required },
         )
     }
@@ -41,6 +45,7 @@ internal data class RestoredGuestBooking(
     val minor: Boolean,
     val review: GuestBookingReview?,
     val forAnother: Boolean = false,
+    val payMethod: String = "negotiate",
 )
 
 internal data class GuestBookingReview(
@@ -48,8 +53,9 @@ internal data class GuestBookingReview(
     val frontUnavailable: Boolean,
     val minorsUnavailable: Boolean,
     val termsChanged: Boolean,
+    val payMethodUnavailable: Boolean = false,
 ) {
-    val required: Boolean get() = routeChanged || frontUnavailable || minorsUnavailable || termsChanged
+    val required: Boolean get() = routeChanged || frontUnavailable || minorsUnavailable || termsChanged || payMethodUnavailable
 }
 
 internal data class GuestBookingLogin(val draft: GuestBookingDraft, val generation: Long, val revision: Long)

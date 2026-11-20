@@ -9,6 +9,7 @@ for (const lang of ["ru", "ba"]) {
   const Sheet = await bundleComponent("src/components/RideSheet.tsx", { real: ["/utils/pickupStops"], mocks: {
     "/i18n/lang": langMock(lang),
     "/api/client": `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} } export const getSessionGeneration=()=>globalThis.__multi.generation; globalThis.__multi.ApiError=ApiError;`,
+    "/api/rides": "export const fetchRide = (...args) => globalThis.__multi.readRide?.(...args);",
     "/useSheetExit": `export const useSheetExit=()=>({leaving:false,portal:n=>n,close:()=>{}});`,
     "react-router-dom": `export const useNavigate=()=> (...args)=>globalThis.__multi.routes.push(args);`,
     "/features": `export const useFeatures=()=>({parcels:true}),getFeatures=()=>({parcels:true});`,
@@ -21,7 +22,7 @@ for (const lang of ["ru", "ba"]) {
       return state.send?.({body,onPrepared,BookingCommandProblem})??Promise.resolve({id:55});
     };`),
   } });
-  const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; h.refreshed = 0; };
+  const reset = () => { h.generation = "a"; h.sent = []; h.routes = []; h.own = null; h.send = undefined; h.readRide = undefined; h.refreshed = 0; };
   const selector = s => all(s.tree).find(n => n.type === "select");
   const cta = s => all(s.tree).find(n => n.type === "button" && n.props.className?.includes("sheet__cta"));
   await t.test(`${lang}: диапазон 1…свободные, сумма и выбранные места в запросе; двойной тап`, async () => {
@@ -35,6 +36,44 @@ for (const lang of ["ru", "ba"]) {
     await cta(s).props.onClick(); assert.equal(h.sent.length, 1); assert.equal(h.sent[0].body.seats, 3);
     assert.equal(h.sent[0].body.pickup_stop, "Баймак"); assert.equal(h.sent[0].body.dropoff_stop, "Уфа");
     resolve({ id: 55 }); await pending; s.unmount();
+  });
+  await t.test(`${lang}: после отказа выбор оплаты обновляется и пользователь подтверждает новый запрос`, async () => {
+    reset();
+    let finish;
+    h.readRide = () => new Promise((resolve) => { finish = resolve; });
+    h.send = () => {
+      const refusal = new h.ApiError(409, "synthetic method refused");
+      refusal.code = "pay_method_not_accepted";
+      return Promise.reject(refusal);
+    };
+    const paymentSelect = (s) => all(s.tree).filter(node => node.type === "select")
+      .find(node => all(node).some(option => option.type === "option" && option.props.value === "negotiate"));
+    const options = (s) => all(paymentSelect(s)).filter(node => node.type === "option").map(node => node.props.value);
+    const s = mount(Sheet, { ride: { ...ride, driver_pay_methods: ["cash"] }, onClose() {} });
+    s.render();
+    assert.deepEqual(options(s), ["cash", "negotiate"]);
+    paymentSelect(s).props.onChange({ currentTarget: { value: "cash" } });
+    const amount = all(s.tree).find(node => node.type === "input" && node.props.inputMode === "numeric");
+    amount.props.onChange({ currentTarget: { value: "625" } });
+    await s.settle();
+    await cta(s).props.onClick();
+    await s.settle();
+    assert.equal(h.sent.length, 1);
+    assert.equal(h.sent[0].body.pay_method, "cash");
+    assert.equal(h.sent[0].body.pay_amount, 625);
+    assert.equal(cta(s).props.disabled, true);
+    finish({ ...ride, driver_pay_methods: ["sbp"] });
+    await s.settle();
+    assert.equal(h.sent.length, 1);
+    assert.deepEqual(options(s), ["sbp", "negotiate"]);
+    paymentSelect(s).props.onChange({ currentTarget: { value: "sbp" } });
+    h.send = undefined;
+    await s.settle();
+    assert.equal(cta(s).props.disabled, false);
+    await cta(s).props.onClick();
+    assert.equal(h.sent[1].body.pay_method, "sbp");
+    assert.equal(h.sent[1].retry, false);
+    s.unmount();
   });
   await t.test(`${lang}: потерянный ответ сохраняет число мест для явного повтора`, async () => {
     reset(); h.send = () => Promise.reject(new Error("synthetic lost reply"));

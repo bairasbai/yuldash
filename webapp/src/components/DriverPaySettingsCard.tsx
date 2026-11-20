@@ -89,8 +89,8 @@ export function DriverPaySettingsCard({ userId, generation }: { userId: number; 
       {settings && (
         <>
           <p className="act-card__text">{appText(
-            "Пассажир платит тебе напрямую. Если оставить оба пункта пустыми, вы сможете договориться.",
-            "Юлсы туранан-тура һиңә түләй. Ике пунктты ла буш ҡалдырһаң, үҙегеҙ килешә алаһығыҙ.",
+            "Пассажир платит тебе напрямую. Если оставить оба пункта пустыми, можно договориться.",
+            "Юлсы туранан-тура һиңә түләй. Ике пунктты ла буш ҡалдырһаң, килешергә була.",
           )}</p>
           <fieldset disabled={saving} style={{ border: 0, padding: 0, margin: 0 }}>
             {DRIVER_PAY_METHODS.map((method) => (

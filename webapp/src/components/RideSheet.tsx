@@ -113,6 +113,7 @@ export default function RideSheet({
   const [selectedPayMethod, setPayMethod] = useState<PayMethod>(
     initialSelection?.payMethod ?? initialGuestOptions?.payMethod ?? "negotiate",
   );
+  const [payAmount, setPayAmount] = useState("");
   const [payMethodsStatus, setPayMethodsStatus] = useState<"ready" | "loading" | "error">("ready");
   const eff = freshRide ?? ride;
   const driverPayMethods = eff.driver_pay_methods;
@@ -143,7 +144,7 @@ export default function RideSheet({
       setForAnother(false); setTravelerName(""); setConflictBookingId(undefined);
       setSeats((sameOwner ? initialSeats : undefined) ?? loadFilters()?.seats ?? 1);
       setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
-      setPayMethod("negotiate"); setPayMethodsStatus("ready");
+      setPayMethod("negotiate"); setPayAmount(""); setPayMethodsStatus("ready");
       setReviewedRoute(JSON.stringify(routePlaces(ride)));
       setCommand(undefined); setRecoveredBooking(null); setRestoringCommand(false);
       setOriginalRequest(null);
@@ -322,6 +323,7 @@ export default function RideSheet({
         ride_id: ride.id,
         seats,
         ...(!parcelCategory && payMethod !== "negotiate" ? { pay_method: payMethod } : {}),
+        ...(!parcelCategory && payAmount !== "" ? { pay_amount: Number(payAmount) } : {}),
         minor_passenger: minor || undefined,
         minor_guardian_name: minor ? guardName.trim() : undefined,
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
@@ -539,6 +541,12 @@ export default function RideSheet({
               {payMethods.map((method) => <option key={method} value={method}>{payMethodLabel(method, ru)}</option>)}
             </select>
           </label>
+          {isAuthed && <label className="field">
+            <span className="field__label">{appText("Сумма, ₽ (необязательно)", "Сумма, ₽ (мотлаҡ түгел)")}</span>
+            <input className="field__input" inputMode="numeric" value={payAmount} maxLength={6}
+              disabled={busy || payMethodsStatus !== "ready"}
+              onChange={(event) => setPayAmount(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))} />
+          </label>}
           {payMethodsStatus === "loading" && <p role="status">{appText("Обновляем способы оплаты…", "Түләү ысулдарын яңыртабыҙ…")}</p>}
           {payMethodsStatus === "error" && <button type="button" className="btn-ghost"
             onClick={() => updateRideTerms("pay_method_not_accepted")}>
