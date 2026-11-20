@@ -78,12 +78,12 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 230,
+    "android_main": 232,
     "backend_main": 118,
-    "infra_resource_config": 423,
+    "infra_resource_config": 425,
     "public_site_promo": 91,
     "pwa_main": 354,
-    "test_support": 1330
+    "test_support": 1331
   },
   "counts_by_block": {
     "B01": 175,
@@ -93,9 +93,9 @@
     "B05": 62,
     "B06": 103,
     "B07": 144,
-    "B08": 221,
-    "B09": 786,
-    "B10": 423,
+    "B08": 222,
+    "B09": 788,
+    "B10": 425,
     "B11": 92
   },
   "excluded_counts": {
@@ -344,6 +344,13 @@
       "block": "B10",
       "sha256": "de4e5165a23c7608f564c078307cde405e281f62d7e3a39bbeafa53a027199b4",
       "lines": 117
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/PaidIntegrationsScreenInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "2d7b09a4f2f929e144d6b850a99223e92ad1400e89a825b802ad2bef6e328d91",
+      "lines": 207
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ParcelHandoverDialogInstrumentedTest.kt",
@@ -766,6 +773,13 @@
       "lines": 325
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/AdminSwitchesScreen.kt",
+      "kind": "android_main",
+      "block": "B08",
+      "sha256": "bb0af31a99ca067fcad7cd6bf0532abd95608a60cc85e76ae29a5ad04d4b7ea7",
+      "lines": 285
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/AdminTaxiPulseScreen.kt",
       "kind": "android_main",
       "block": "B08",
@@ -797,8 +811,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavAdmin.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "362a6591b8ffca1128fac98412bce7f8bfc3e606f6f8c966c0095c98359a3843",
-      "lines": 73
+      "sha256": "607e083a5a176940f938a651ba321225825b3e84c667103d76a175f84ad28a5c",
+      "lines": 75
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
@@ -1224,8 +1238,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MainActivity.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "c2327b777088ced78495f09b6cbd76cfc075914eac05d259d2169bc1148f7c05",
-      "lines": 1033
+      "sha256": "e99a66a37de0aa2049b3b695b102274c5ac65f94ce5f566e4ddf55df9c11117c",
+      "lines": 1037
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MapCluster.kt",
@@ -1665,8 +1679,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "713fcc2bf19da2810bdb36caebf756320e9fef3069795c46a322b916ca6c5bc2",
-      "lines": 2302
+      "sha256": "fa40a3375f9b5e482e7f2bfbd242b6e8c50c5800cbb827905d0c15797d32b2a6",
+      "lines": 2308
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SecureImageRequest.kt",
@@ -1966,8 +1980,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "a8bfa7cf052542e8deeba3f27bf8c4c2673e367d685b44ff35e595890e3971ef",
-      "lines": 2714
+      "sha256": "0b1313a3dfb3b7b98581d1f46f8997c0a991dfacca3565c48bc5317a772967d5",
+      "lines": 2715
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -1994,8 +2008,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4ef82fd4ce1c91141d15eece40d0db188d1185be3f3c776d335eaaed9645750f",
-      "lines": 7667
+      "sha256": "82ce3ad5dca1a3d5c1a6e399eb6e922627bb4060341ab31e45a42208e752f598",
+      "lines": 7687
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2164,6 +2178,13 @@
       "block": "B01",
       "sha256": "899dc355a2e114049c8c4490dff3210359da15e7b2009c1a6fcc5f90b630bda1",
       "lines": 76
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OwnerSwitchDtos.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "ac647d70ed26f9fb09c4344ea4c0574313d9e93c2a4d2fff35e4e60a80776a62",
+      "lines": 82
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/ParcelDtos.kt",
@@ -5589,6 +5610,13 @@
       "lines": 80
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/OwnerSwitchDtoTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "45f875be7fc367a8b4e3e2f0752d50f3c79df63ab4adfeaf94797d766e1fcc8d",
+      "lines": 57
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/PendingGuardianContactTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -6569,6 +6597,13 @@
       "lines": 29
     },
     {
+      "path": "backend/alembic/versions/cq_paid_external_switches.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "741631331cf9a3cf263f033a538faa9ad5d271e3b33e71e27c1abc4af62261a0",
+      "lines": 29
+    },
+    {
       "path": "backend/alembic/versions/f10_payment_agreement.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7293,8 +7328,8 @@
       "path": "backend/app/login_methods.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "4403c57a06c254343e10ebc828481ba5c59adada89015d0fa36a68e2fb1addbb",
-      "lines": 28
+      "sha256": "f4195a554a0412048d45abc8087e0db9efdf610eddb95c089e363c105d812181",
+      "lines": 34
     },
     {
       "path": "backend/app/logs.py",
@@ -7342,8 +7377,8 @@
       "path": "backend/app/owner_switches.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "e1c5a8d7c87e71d349f6cf3ba235734df95f8c77525320ec0c2a84057c133aa5",
-      "lines": 77
+      "sha256": "fc05d1554e162a4120722490f9f9c9b911f5791afa83ac7f11f2fef8f09cf2ba",
+      "lines": 114
     },
     {
       "path": "backend/app/payments.py",
@@ -7447,8 +7482,8 @@
       "path": "backend/app/routers/admin_switches.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "35f6c6fb3ea3990a40f5899a67fd0237317c19653e64b76c0f606505df420532",
-      "lines": 124
+      "sha256": "68ef641829f50879f352f5c53d0cae770563d5c28ef00af7b98cfdb347330238",
+      "lines": 183
     },
     {
       "path": "backend/app/routers/ads.py",
@@ -7776,8 +7811,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "3211e864a77220d2423d03fea2a2920434df156b92ee22f9cf151e303761bc5c",
-      "lines": 2270
+      "sha256": "14c70a96fb8ae382def53105ab6d14f9446798c05343fb41d13b57ef6a1ec723",
+      "lines": 2235
     },
     {
       "path": "backend/app/sms_reconcile.py",
@@ -7790,8 +7825,8 @@
       "path": "backend/app/smsru.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "9615f02234622e9591d2bd1ab9659c39bd89412bf0b55474e24ce1cd45d72616",
-      "lines": 117
+      "sha256": "341394fbb1d1266298c4806cd33faee8ebf065b31e76414d8134d17e8f17acff",
+      "lines": 126
     },
     {
       "path": "backend/app/sos_escalate.py",
@@ -8315,8 +8350,8 @@
       "path": "backend/tests/conftest.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "28a1cfc1f5add4f4356bac689e59faa489d2da0f438e921a1fbbb8ffd6fb1bcf",
-      "lines": 254
+      "sha256": "51a463455adf58e43895e29ebc8731d754526f7265f132cf0d679abad7901ccc",
+      "lines": 288
     },
     {
       "path": "backend/tests/journeys/__init__.py",
@@ -9624,8 +9659,8 @@
       "path": "backend/tests/test_every_refusal_speaks_both_languages.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "66bdb007af1c9164a61c535bbf0af82fbc0f8cd718d9af01bee13112b4d03a77",
-      "lines": 233
+      "sha256": "8aed39b259039c6f8d81956e198860fb4edd51a23088d68b599f416e2ecfcbb7",
+      "lines": 234
     },
     {
       "path": "backend/tests/test_every_shelf_asks_about_visibility.py",
@@ -9834,15 +9869,15 @@
       "path": "backend/tests/test_help_counted_is_help_sent.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "03b9e56053fdd8636bbb778eac08e544283eae60c8fd41ddc41f5c7ae3963069",
-      "lines": 280
+      "sha256": "d9a0a28e747316aaf3e5109c8b144e4c430ca4ce557e8d214d5108e144823eba",
+      "lines": 277
     },
     {
       "path": "backend/tests/test_help_promise_matches_reality.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "b1e715ae6194437970b062cef3e0e91407cc19fd04cdd02d990e247c8379b1cc",
-      "lines": 121
+      "sha256": "6c92a12473a2ace36edf8daabba6b520860d05cd1e661192cc8188d55fe6f2a1",
+      "lines": 117
     },
     {
       "path": "backend/tests/test_honest_receipt.py",
@@ -9855,8 +9890,8 @@
       "path": "backend/tests/test_httpx_log_hides_query_secrets.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "a33c196873a977dd255e3f1df0f0aa5fccad664d5060befb73d39bda42b9ad6e",
-      "lines": 114
+      "sha256": "b974e11bc2f221ff8b9fc53304595897308fda0943e8f979a07a0c6b350b7a1b",
+      "lines": 122
     },
     {
       "path": "backend/tests/test_image_metadata_stripped.py",
@@ -10191,8 +10226,8 @@
       "path": "backend/tests/test_migration_owner_switches.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7cd6476e51c60640968c2b59366af836327ad4d4a66145239b327285e7845ee9",
-      "lines": 318
+      "sha256": "f969368494266aa16c1239554b623b056dcb1629d51b71bf1aef61fbb06d0165",
+      "lines": 354
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
@@ -10401,8 +10436,8 @@
       "path": "backend/tests/test_observability_scrub.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "63ecb82d67f5b5bc929d02ed7f0b31e059ba3839635d4f39f42e508f8736866a",
-      "lines": 760
+      "sha256": "661e0943239040c107336771d987cb03d53be548ce1e53b4ec0abc131a5a9e5a",
+      "lines": 763
     },
     {
       "path": "backend/tests/test_old_client_cannot_publish_a_relatives_phone.py",
@@ -10520,8 +10555,8 @@
       "path": "backend/tests/test_owner_switches.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "d125413966c1c068cea53d190ed7dff103d3719c9d11b0f1430d60ea178d1de6",
-      "lines": 367
+      "sha256": "3edfcd6a96bbf63c2480bffbbaaa5d6590e2fd5644e257ffb760485cb3199733",
+      "lines": 385
     },
     {
       "path": "backend/tests/test_paid_ad_owner_hears_about_pause.py",
@@ -11661,7 +11696,7 @@
       "path": "backend/tests/test_services_edges.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5d51decd5a12ad2e86df83eb31d087740d6424231b12ceb8aceaa84a1d6b8c73",
+      "sha256": "ce4f683f6cb46d2d5b1bba415038a757d429637be9d908803d113f5a7e8b6236",
       "lines": 440
     },
     {
@@ -11745,8 +11780,8 @@
       "path": "backend/tests/test_smsru_login.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "789906198cb21f2e0d7d44817218430c29c8595a9094438ad0d02b2a605f497b",
-      "lines": 305
+      "sha256": "9fec8acfea544e312a3f201ca65f22bc501827dd4984d2fba8ed52e2aba4e9d0",
+      "lines": 422
     },
     {
       "path": "backend/tests/test_someone_is_waiting_for_your_answer.py",
@@ -11801,8 +11836,8 @@
       "path": "backend/tests/test_sos_says_whether_help_was_called.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "2cdc5adcca66990a22d99d5cc4a8036144d3bce8e452257eae678193fc2099e9",
-      "lines": 139
+      "sha256": "5d59147adf5b5dd355f075c50ef7fb2648d06d263e1779824c8f02ed8e7564ae",
+      "lines": 135
     },
     {
       "path": "backend/tests/test_sos_stale_key_retries.py",
@@ -14531,8 +14566,8 @@
       "path": "webapp/src/api/ownerSwitches.ts",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "430c1796da8dd4666c3994e045e388ae3632e90272993ec0d10936eeca92903e",
-      "lines": 29
+      "sha256": "34882a13909179e710d3ca07ae0a757ad84da56d456b5cb8f48b25534150d353",
+      "lines": 39
     },
     {
       "path": "webapp/src/api/parcels.ts",
@@ -15700,8 +15735,8 @@
       "path": "webapp/src/screens/AdminSwitchesScreen.tsx",
       "kind": "pwa_main",
       "block": "B08",
-      "sha256": "678aa2ab863ccc19fb2a01a59e95537f3eec5ee465401e050614e1f1c9c983bb",
-      "lines": 226
+      "sha256": "43ef6e3d162a790669564a70b281b6f74e3206ac84903ddecfd1fc382768f562",
+      "lines": 260
     },
     {
       "path": "webapp/src/screens/AdminTaxiPulseScreen.tsx",
@@ -17534,8 +17569,8 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "6128eac773675b95d55ed758ed1d7d6a1f1509437ef9398c99c4d9dbdc95e2a2",
-      "lines": 289
+      "sha256": "5e0ea6cbb4ac87195b4d043ed72bb85236b6771d02fdda453813769a78a6a888",
+      "lines": 294
     },
     {
       "path": "webapp/tests/passenger-trip-location-test.mjs",
