@@ -78,24 +78,24 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 229,
+    "android_main": 230,
     "backend_main": 112,
-    "infra_resource_config": 416,
+    "infra_resource_config": 417,
     "public_site_promo": 91,
     "pwa_main": 344,
     "test_support": 1320
   },
   "counts_by_block": {
     "B01": 171,
-    "B02": 334,
+    "B02": 333,
     "B03": 123,
     "B04": 82,
     "B05": 62,
     "B06": 102,
     "B07": 144,
     "B08": 216,
-    "B09": 770,
-    "B10": 416,
+    "B09": 772,
+    "B10": 417,
     "B11": 92
   },
   "excluded_counts": {
@@ -330,6 +330,13 @@
       "block": "B10",
       "sha256": "0e2f06118cc08aa08c4fc7be49c7ae8f5b45a9090d5c00de9528f6a89526e69d",
       "lines": 582
+    },
+    {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/NearbyWatchButtonInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "96083f314918bf2f7ce35526612c4460980f5eded516bd11a2e34527bd3f3089",
+      "lines": 178
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/OfflineTripPaymentInstrumentedTest.kt",
@@ -797,8 +804,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/AppNavHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "b02a68f76e7adcccbda34f09dfb63085a00254afd7c71894cfb7b5fa4a181c88",
-      "lines": 283
+      "sha256": "cd7fafec32934bb02b58ee4605ff6625e8adfd4adeb07c57d43633e25072cf3e",
+      "lines": 287
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AppNavOrders.kt",
@@ -1252,8 +1259,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/MapScreen.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "9007f6fa03eba17e5aa37f0b3cd65dfd08b03c05477e56e77e2759cc69d283bf",
-      "lines": 2210
+      "sha256": "a1b94edeb583183089c190dfb285c3a17f78dd70db796ff55fd8121ca4a90f26",
+      "lines": 2219
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/MeetingPointPicker.kt",
@@ -1280,7 +1287,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/ModeSwitchHome.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "660f7a868577e36594ad2d138c5df64824af3b376726662b9dd0547a3c5aac94",
+      "sha256": "067fe7948f7036f30d10fbf8c429c8a726f97a987d93b7bb42a04fd3375aae4d",
       "lines": 528
     },
     {
@@ -1336,15 +1343,22 @@
       "path": "android/app/src/main/java/com/yuldash/app/NearbySeats.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "8c808bf09f55d3508685ededf2d2a098cfe29f28cfbbefc11dde69a43d459173",
-      "lines": 104
+      "sha256": "81d15535f1ab5c3829d6c352240f634e37523e0baaffaea27183d2122f0db46b",
+      "lines": 97
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/NearbyVerifiedOnly.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "d063646b61293abd337bb9fd34cdbcde67b65024c6640ece389534d10231dfde",
-      "lines": 137
+      "sha256": "b13e54aeab79dbd83f59b2a6855a848fa4c8dff674dd1a657ccf6eeb290ba106",
+      "lines": 138
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/NearbyWatchButton.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "8bde546c419cf34686e6b82b6c4ff10a2df477bf0fc6eb3caeac06209186e36b",
+      "lines": 178
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt",
@@ -1539,8 +1553,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt",
       "kind": "android_main",
       "block": "B05",
-      "sha256": "38672e043ac8dc64ce5d9d6626a46bc3b75055d741b23548086f7f9b07d7a0ab",
-      "lines": 3240
+      "sha256": "72644657b4234d105bba7d42eab22abb4a4029a293b840984f3d82c4d2032058",
+      "lines": 3229
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
@@ -1602,8 +1616,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RouteWatchesScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "8828fa0643cafdb7aefc5f130bc82cb614e495308de708baa1cc8346455d7169",
-      "lines": 368
+      "sha256": "b25d37ad544ff3d2ba9c0454be2e47affdf6ee3dc7a7015f1cabc29bf710eabe",
+      "lines": 377
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SavedPlacesScreen.kt",
@@ -1952,8 +1966,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "0d8522246aa46b19b432331d6289d96f68fa9dbc2d83cd4f2a6f028e01c9705f",
-      "lines": 2720
+      "sha256": "a8bfa7cf052542e8deeba3f27bf8c4c2673e367d685b44ff35e595890e3971ef",
+      "lines": 2714
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -3769,6 +3783,13 @@
       "lines": 223
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/NearbyWatchRouteTest.kt",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "8d1432dd76e1c13719c89e54d09224738901288f57b8d24d48fcbf431698a90b",
+      "lines": 86
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/NoShowOnboardTest.kt",
       "kind": "test_support",
       "block": "B09",
@@ -4717,7 +4738,7 @@
       "path": "android/app/src/test/java/com/yuldash/app/TaxiOrderBridgeRestorationTest.kt",
       "kind": "test_support",
       "block": "B03",
-      "sha256": "e4a8e1921af7f6e9438afdd4fe7b0a295aee8fed6f965f5905cb8b360e9015ec",
+      "sha256": "55ab5222431b1cdfa4c50d4f1c4e077f4eb9db7c5ceee793633d4d1ee862d973",
       "lines": 227
     },
     {
@@ -11397,13 +11418,6 @@
       "block": "B09",
       "sha256": "3b7c90d3c49090c2dab2768f9c79f25fe9d607f862caacaea8678223efc9e15b",
       "lines": 110
-    },
-    {
-      "path": "backend/tests/test_route_watch.py",
-      "kind": "test_support",
-      "block": "B02",
-      "sha256": "e535229cfd54c04b65cdf0ddeb2595610585bfcb10bd4fd6aa4c7ce38e170843",
-      "lines": 226
     },
     {
       "path": "backend/tests/test_route_watch_push_destination.py",

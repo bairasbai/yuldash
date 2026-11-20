@@ -75,7 +75,7 @@ class NearbyWatchRouteTest {
         val scope = object : SaverScope { override fun canBeSaved(value: Any) = true }
         val navigation = RouteWatchNavigation()
         navigation.prepare(20, signedIn = false, route)
-        val saved = with(RouteWatchNavigation.Saver) { scope.save(navigation) }!!.toMutableList()
+        val saved = (with(RouteWatchNavigation.Saver) { scope.save(navigation) } as List<*>).toMutableList()
         saved[0] = "previous-process"
         val restored = RouteWatchNavigation.Saver.restore(saved)!!
         val next = ApiClient.queueSessionGeneration() + 1

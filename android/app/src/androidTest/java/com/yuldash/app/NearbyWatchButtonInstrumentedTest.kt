@@ -7,8 +7,11 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.onAllNodes
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.test.ext.junit.runners.AndroidJUnit4
@@ -25,6 +28,8 @@ import org.junit.runner.RunWith
 import java.net.InetAddress
 import java.net.ServerSocket
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import java.util.concurrent.atomic.AtomicInteger
 import kotlin.concurrent.thread
 
@@ -39,6 +44,7 @@ class NearbyWatchButtonInstrumentedTest {
     private val calls = CopyOnWriteArrayList<String>()
     private val payloads = CopyOnWriteArrayList<JSONObject>()
     private val errors = CopyOnWriteArrayList<String>()
+    private val logout = CountDownLatch(1)
     private lateinit var listener: ServerSocket
     private lateinit var worker: Thread
     @Volatile private var exists = false
@@ -86,6 +92,7 @@ class NearbyWatchButtonInstrumentedTest {
                                 null // The write committed, then its acknowledgement was lost.
                             }
                             "DELETE /route-watch/71" -> { exists = false; null }
+                            "POST /auth/logout" -> "{}"
                             else -> { errors += request; "{}" }
                         }
                         if (response != null) {
@@ -95,6 +102,7 @@ class NearbyWatchButtonInstrumentedTest {
                                 write(data)
                                 flush()
                             }
+                            if (request == "POST /auth/logout") logout.countDown()
                         }
                     }
                 } catch (failure: Exception) { if (!listener.isClosed) errors += failure.toString() }
@@ -108,14 +116,19 @@ class NearbyWatchButtonInstrumentedTest {
     }
 
     @After fun cleanup() {
-        compose.runOnIdle { mounted.value = false }
-        ApiClient.logout()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        listener.close()
-        worker.join(6000)
-        assertFalse(worker.isAlive)
-        assertTrue(errors.toString(), errors.isEmpty())
+        try {
+            compose.runOnIdle { mounted.value = false }
+            val signedIn = ApiClient.isLoggedIn()
+            ApiClient.logout()
+            if (signedIn) assertTrue(logout.await(6, TimeUnit.SECONDS))
+        } finally {
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            listener.close()
+            worker.join(6000)
+            assertFalse(worker.isAlive)
+            assertTrue(errors.toString(), errors.isEmpty())
+        }
     }
 
     @Test fun russianLight() = journey(AppLanguage.Ru, false)
@@ -139,8 +152,7 @@ class NearbyWatchButtonInstrumentedTest {
         assertEquals(1, opens.get())
         assertTrue(calls.isEmpty())
         compose.runOnIdle { ApiClient.saveToken("synthetic-nearby-watch-owner") }
-        compose.waitUntil(15000) { calls.contains("GET /route-watch") }
-        compose.waitForIdle()
+        compose.waitUntil(15000) { compose.onAllNodes(hasText(follow) and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(follow).performClick()
         compose.waitUntil(15000) { compose.onAllNodesWithText(unwatch).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(unwatch).assertIsDisplayed()
@@ -151,8 +163,8 @@ class NearbyWatchButtonInstrumentedTest {
         assertEquals("forward", payloads.single().getString("direction"))
         assertEquals("2030-05-02T00:00:00", payloads.single().getString("watch_date"))
         compose.onNodeWithText(unwatch).performClick()
-        compose.waitUntil(15000) { !exists && calls.count { it == "GET /route-watch" } >= 3 }
-        compose.waitForIdle()
+        compose.waitUntil(15000) { !exists && calls.count { it == "GET /route-watch" } >= 3 &&
+            compose.onAllNodes(hasText(follow) and isEnabled()).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(follow).assertIsDisplayed()
         assertEquals(1, calls.count { it == "POST /route-watch" })
         assertEquals(1, calls.count { it == "DELETE /route-watch/71" })
