@@ -117,7 +117,7 @@ class TaxiOrderBridgeRestorationTest {
                         prefs = context.getSharedPreferences("yuldash_prefs", 0), appScope = appScope,
                         requestsLoading = false, requestsError = false, payMethod = PayMethods.CASH,
                         onRetryRequests = {}, onLoginRequired = {}, onBookingStatus = {},
-                        onRouteWatchPrefill = { _, _ -> }, onCreateRide = { _, _ -> }, onSos = {},
+                        onRouteWatchPrefill = { _, _, _ -> }, onCreateRide = { _, _ -> }, onSos = {},
                         onTrustedContacts = {}, onAdImpression = {}, onAdClick = {},
                     )
                 }

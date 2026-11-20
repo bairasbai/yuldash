@@ -75,7 +75,7 @@ internal fun NearbySeatsHint(seats: Int) {
 }
 
 @Composable
-internal fun NearbySeatsCard(requested: Int, group: SmallerNearbyGroup, onSearch: (Int) -> Unit, onWatch: () -> Unit) {
+internal fun NearbySeatsCard(requested: Int, group: SmallerNearbyGroup, onSearch: (Int) -> Unit, watchAction: @Composable () -> Unit) {
     val rides = group.rides
     val seats = group.seats
     Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
@@ -85,14 +85,7 @@ internal fun NearbySeatsCard(requested: Int, group: SmallerNearbyGroup, onSearch
             color = CanonMuted, style = CanonBody,
         )
         AppButton(appText("Искать на $seats", "$seats урынға эҙләү"), { onSearch(seats) })
-        NearbySeatsWatch(onWatch)
-    }
-}
-
-@Composable
-internal fun NearbySeatsWatch(onWatch: () -> Unit) {
-    TextButton(onClick = onWatch) {
-        Text(appText("Следить за маршрутом", "Маршрутты күҙәтеү"), color = CanonGreen2, style = CanonBodyStrong)
+        watchAction()
     }
 }
 

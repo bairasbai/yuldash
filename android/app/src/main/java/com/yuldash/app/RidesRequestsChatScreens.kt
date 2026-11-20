@@ -781,7 +781,7 @@ internal fun NearbySkeletonCard() {
 }
 
 @Composable
-internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false, onWatchRoute: (() -> Unit)? = null) {
+internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false, watchAction: @Composable () -> Unit = {}) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -813,18 +813,7 @@ internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Bool
             TextButton(onClick = onRetry) {
                 Text(if (error) appText("Повторить", "Ҡабатлау") else appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
-            // F13 «карауль поездку»: подпишись на маршрут — уведомим, как только появится машина.
-            if (onWatchRoute != null) {
-                Spacer(Modifier.height(4.dp))
-                AppButton(
-                    text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
-                    onClick = onWatchRoute,
-                    style = AppButtonStyle.Secondary,
-                    icon = Icons.Default.NotificationsActive,
-                    fillWidth = false,
-                    height = 46.dp,
-                )
-            }
+            if (!error) watchAction()
             // F19 «Позови водителя»: на реальной пустой выдаче (не ошибка сети) — мягкий призыв
             // пригласить знакомого водителя. Спрос сам растит предложение (виральность «между своими»).
             if (!error) {

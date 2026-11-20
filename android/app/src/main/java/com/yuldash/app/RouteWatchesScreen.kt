@@ -76,6 +76,7 @@ internal fun RouteWatchesScreen(
     onBack: () -> Unit,
     prefillFrom: String = "",
     prefillTo: String = "",
+    route: NearbyWatchRoute? = null,
 ) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -85,8 +86,9 @@ internal fun RouteWatchesScreen(
     var watches by remember(owner) { mutableStateOf<List<RouteWatchDto>>(emptyList()) }
     var loading by remember(owner) { mutableStateOf(true) }
     var error by remember(owner) { mutableStateOf(false) }
-    var from by rememberSaveable(owner) { mutableStateOf(prefillFrom) }
-    var to by rememberSaveable(owner) { mutableStateOf(prefillTo) }
+    var from by rememberSaveable(owner, route, prefillFrom) { mutableStateOf(route?.from ?: prefillFrom) }
+    var to by rememberSaveable(owner, route, prefillTo) { mutableStateOf(route?.to ?: prefillTo) }
+    var day by rememberSaveable(owner, route) { mutableStateOf(route?.day) }
     var bothWays by rememberSaveable(owner) { mutableStateOf(false) }
     var submitting by remember(owner) { mutableStateOf(false) }
     var deletingId by remember(owner) { mutableStateOf<Int?>(null) }
@@ -177,6 +179,12 @@ internal fun RouteWatchesScreen(
                             leadingIcon = { Icon(Icons.Default.NotificationsActive, contentDescription = null, tint = CanonGreen2) },
                             modifier = Modifier.fillMaxWidth(), singleLine = true, shape = RoundedCornerShape(14.dp), enabled = !submitting
                         )
+                        day?.let { selected ->
+                            val label = selected.split('-').asReversed().joinToString(".")
+                            Text(appText("Дата поездки · $label", "Сәфәр көнө · $label"), color = CanonMuted, style = CanonCaption)
+                            AppButton(appText("Следить на все дни", "Бөтә көндәрҙе күҙәтеү"), { day = null },
+                                enabled = !submitting, style = AppButtonStyle.Secondary, fillWidth = false)
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonMuted, modifier = Modifier.size(20.dp))
                             Spacer(Modifier.width(8.dp))
@@ -209,13 +217,14 @@ internal fun RouteWatchesScreen(
                                 loading = false
                                 scope.launch {
                                     if (!current()) return@launch
-                                    val result = ApiClient.createRouteWatch(f, t, direction, expectedGeneration = owner)
+                                    val result = ApiClient.createRouteWatch(f, t, direction,
+                                        watchDate = day?.let { "${it}T00:00:00" }, expectedGeneration = owner)
                                     if (!current()) return@launch
                                     submitting = false
                                     result
                                         .onSuccess {
                                             Toast.makeText(ctx, savedMsg, Toast.LENGTH_SHORT).show()
-                                            from = ""; to = ""; bothWays = false
+                                            from = ""; to = ""; day = null; bothWays = false
                                             reload()
                                         }
                                         .onFailure {

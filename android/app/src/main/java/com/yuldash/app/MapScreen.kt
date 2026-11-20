@@ -270,7 +270,7 @@ internal fun MapScreen(
     onDriver: () -> Unit,
     onBoost: () -> Unit,
     onClinicRides: () -> Unit,   // F22: раздел «Поездки к клинике»
-    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13 «карауль поездку»: открыть «Мои подписки»
+    onRouteWatch: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onSeasonalPublish: (String) -> Unit = {}   // F15: баннер «на праздник» → форма создания поездки (аргумент — дата-шаблон)
 ) {
     val nearbyAd = ads.forPlacement(AdPlacement.Nearby).firstOrNull { it.city == "Баймаҡ" }
@@ -513,6 +513,15 @@ internal fun MapScreen(
                 }
                 item {
                     if (seats > 1) NearbySeatsHint(seats)
+                    val route = nearbyWatchRoute(cityFilter.from, cityFilter.to, focusFrom, focusTo, dateFilter)
+                    val gate = LocalHomeTabActionGate.current
+                    val watchAction: @Composable () -> Unit = {
+                        if (!nearbyError) androidx.compose.runtime.key(search) {
+                            NearbyWatchButton(route, searchOwner, {
+                                latestSearch == search && gate.isCurrent()
+                            }) { onRouteWatch(route.from, route.to, route.day) }
+                        }
+                    }
                     val nearbyState = when {
                         currentNearby == null || (nearbyLoading && nearby.isEmpty()) -> "loading"
                         nearbyUnverifiedHint(nearby.size, nearbyError, verifiedOnly, nearbyHidden) -> "unverified"
@@ -534,18 +543,18 @@ internal fun MapScreen(
                                 hasRoute = focusFrom != null,
                                 onRetry = { nearbyReload++ },
                                 error = nearbyError,
-                                onWatchRoute = if (!nearbyError) ({ onRouteWatch(focusFrom, focusTo) }) else null
+                                watchAction = watchAction,
                             )
                             "unverified" -> if (currentNearby != null && nearbyHidden > 0) NearbyUnverifiedCard(nearbyHidden,
                                 onShow = { if (latestSearch == search) verified.reveal(verifiedSearch) },
-                                onReset = resetFilters.takeIf { canReset })
-                            "seats" -> if (smallerGroup != null) NearbySeatsCard(seats, smallerGroup, { if (latestSearch == search) ApiClient.runIfUnchangedSession(searchOwner) { changeSeats(it) } }) { onRouteWatch(focusFrom, focusTo) }
+                                onReset = resetFilters.takeIf { canReset }, watchAction = watchAction)
+                            "seats" -> if (smallerGroup != null) NearbySeatsCard(seats, smallerGroup, { if (latestSearch == search) ApiClient.runIfUnchangedSession(searchOwner) { changeSeats(it) } }, watchAction)
                             "filtered" -> Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                                 Text(
                                     appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал."),
                                     color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp
                                 )
-                                if (seats > 1) NearbySeatsWatch { onRouteWatch(focusFrom, focusTo) }
+                                watchAction()
                                 if (canReset) NearbyResetFilters(onClick = resetFilters)
                             }
                             else -> LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {

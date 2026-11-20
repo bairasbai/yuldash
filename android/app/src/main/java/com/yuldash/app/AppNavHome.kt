@@ -51,7 +51,7 @@ internal fun HomeRoute(
     /** Статус брони, которую открываем следующей: его читает экран брони. */
     onBookingStatus: (String) -> Unit,
     /** Заготовка «следить за маршрутом»: откуда и куда. */
-    onRouteWatchPrefill: (String?, String?) -> Unit,
+    onRouteWatchPrefill: (String?, String?, String?) -> Unit,
     /** Открыть публикацию поездки: вкладка возврата и, если есть, готовая дата. */
     onCreateRide: (HomeTab, String?) -> Unit,
     onSos: () -> Unit,
@@ -212,10 +212,10 @@ internal fun HomeRoute(
             onOpenPayments = { openHomeScreen { screen = Screen.PaymentMethods } },
             onCourierMode = { openHomeScreen { onLoginRequired(Screen.Courier) } },
             onNotifications = { openHomeScreen { screen = Screen.Notifications } },
-            onRouteWatch = { from, to ->
+            onRouteWatch = { from, to, day ->
                 openHomeScreen {
-                    onRouteWatchPrefill(from, to)
-                    screen = Screen.RouteWatches
+                    onRouteWatchPrefill(from, to, day)
+                    onLoginRequired(Screen.RouteWatches)
                 }
             },
             onOpenChat = { bid, peer, route ->

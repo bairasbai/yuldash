@@ -476,8 +476,7 @@ private fun YuldashAppContent() {
     var carPhotoMode by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("carPhotoMode", screenStateOwner)) { mutableStateOf("") }
     var supportTicketId by vm.supportTicketId
     // F13 «карауль поездку»: предзаполнение экрана «Мои подписки» маршрутом из карты (может быть пустым).
-    var routeWatchPrefillFrom by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("routeWatchPrefillFrom", screenStateOwner)) { mutableStateOf("") }
-    var routeWatchPrefillTo by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("routeWatchPrefillTo", screenStateOwner)) { mutableStateOf("") }
+    val routeWatchNavigation = rememberSaveable(saver = RouteWatchNavigation.Saver) { RouteWatchNavigation() }
     // Роль админа (Александр): показывает инструмент «Заявка за пользователя» в Настройках.
     var isAdmin by vm.isAdmin
     // Версия сессии: инкрементится при входе (onContinue), чтобы user-специфичные загрузки
@@ -1331,6 +1330,7 @@ private fun YuldashAppContent() {
                         sessionVersion++   // вход завершён → перечитать роль/мои заявки/контакты под новым токеном
                         prefs.markOnboardingCompleted()   // вошёл по ссылке, минуя вводные, — после перезапуска их не показываем
                         val destination = destinationAfterLogin
+                        routeWatchNavigation.signedIn(generation, destination == Screen.RouteWatches)
                         destinationAfterLogin = null
                         val guestBooking = guestLogin?.takeIf { guestBookingLogin == it && it.generation + 1 == generation }
                         guestBookingLogin = null
@@ -1363,10 +1363,7 @@ private fun YuldashAppContent() {
                     selectedBookingStatus = it
                     activeTripTerminalHint = knownTerminalTripHint(activeBookingId, it, "passenger")
                 },
-                onRouteWatchPrefill = { from, to ->
-                    routeWatchPrefillFrom = from ?: ""
-                    routeWatchPrefillTo = to ?: ""
-                },
+                onRouteWatchPrefill = { from, to, day -> routeWatchNavigation.prepare(navigationSession, ApiClient.isLoggedIn(), NearbyWatchRoute(from, to, day)) },
                 onCreateRide = { tab, date ->
                     openCreateRide(returnScreen = Screen.Home, returnHomeTab = tab, prefillDate = date)
                 },
@@ -1607,7 +1604,7 @@ private fun YuldashAppContent() {
                 onOpenResponses = { rid -> vm.requestScreenDestination(Screen.RequestResponses, ApiClient.myUserId(), rid) },
                 onOpenCompletedBooking = { bid -> vm.requestCompletedBooking(bid, ApiClient.myUserId()) },
                 onOpenRequestsFeed = { vm.requestScreenDestination(Screen.RequestsFeed, ApiClient.myUserId()) },
-                onRouteWatches = { routeWatchPrefillFrom = ""; routeWatchPrefillTo = ""; screen = Screen.RouteWatches },
+                onRouteWatches = { routeWatchNavigation.clear(); screen = Screen.RouteWatches },
                 // Тап по уведомлению поддержки → тред обращения (ref_id = id тикета).
                 onOpenSupport = { tid -> vm.requestScreenDestination(Screen.SupportTicket, ApiClient.myUserId(), tid) },
                 // Доставка и такси (аудит 2026-08-06): раньше эти карточки не открывались вовсе.
@@ -1628,11 +1625,7 @@ private fun YuldashAppContent() {
                 onOpenPartnerCabinet = { vm.requestScreenDestination(Screen.PartnerCabinet, ApiClient.myUserId()) },
                 onOpenAdsCabinet = { vm.requestScreenDestination(Screen.AdsCabinet, ApiClient.myUserId()) },
             )
-            Screen.RouteWatches -> RouteWatchesScreen(
-                onBack = { goBack() },
-                prefillFrom = routeWatchPrefillFrom,
-                prefillTo = routeWatchPrefillTo,
-            )
+            Screen.RouteWatches -> RouteWatchesScreen(onBack = { goBack() }, route = routeWatchNavigation.prefill(navigationSession))
             Screen.Privacy -> PrivacyScreen(onBack = { goBack() })
             Screen.MyData -> MyDataScreen(onBack = { goBack() })
             Screen.Rules -> RulesScreen(onBack = { goBack() })
@@ -2538,6 +2531,7 @@ internal class HomeTabActionGate(
     private val accepts: () -> Boolean,
     private val choose: (HomeTab, () -> Unit) -> Unit = { _, action -> action() },
 ) {
+    fun isCurrent(): Boolean = accepts()
     fun select(tab: HomeTab, afterSelection: () -> Unit) { if (accepts()) choose(tab, afterSelection) }
     fun guard(action: () -> Unit): () -> Unit = { if (accepts()) action() }
     fun <A> guard(action: (A) -> Unit): (A) -> Unit = { a -> if (accepts()) action(a) }
@@ -2573,7 +2567,7 @@ internal fun HomeScreen(
     onSos: () -> Unit,
     onVerifyDriver: () -> Unit,
     onNotifications: () -> Unit,
-    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: открыть «Мои подписки» (опц. с маршрутом)
+    onRouteWatch: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onOpenChat: (Int, String, String) -> Unit,
     onOpenResponses: (Int) -> Unit = {},
     onCancelRequest: (Int) -> Unit = {},
