@@ -113,7 +113,7 @@ def test_login_of_existing_privileged_account_checks_the_required_method(client,
         path, body = "/auth/tg/verify", {"request_id": ident, "code": "246810"}
     result = client.post(path, json=body, headers={"X-Device-Id": "qa-existing-device"})
     if role == UserRole.admin and kind == "sms":
-        assert result.status_code == 403 and result.json()["detail"]["code"] == "telegram_login_required"
+        assert result.status_code == 403 and result.json()["detail"]["code"] == "admin_login_telegram_only"
         assert _snapshot(user_id) == before
         return
     assert result.status_code == 200, result.text

@@ -102,7 +102,7 @@ def test_sms_сессия_админа_не_проходит_ни_одну_ад�
             continue
         response = client.request(method, re.sub(r"\{[^}]*\}", "1", path),
                                   headers={"Authorization": f"Bearer {token}"}, json={})
-        if response.status_code != 403 or response.json()["detail"]["code"] != "telegram_login_required":
+        if response.status_code != 403 or response.json()["detail"]["code"] != "telegram_step_up_required":
             unexpected.append((method, path, response.status_code))
     assert not unexpected
 

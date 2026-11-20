@@ -27,10 +27,10 @@ _SESSION_STALE_RU = "Сессия устарела. Войди заново."
 _SESSION_STALE_BA = "Сессия иҫкергән. Яңынан ин."
 
 
-def telegram_login_required() -> HTTPException:
+def telegram_login_required(*, code: str = "telegram_step_up_required") -> HTTPException:
     return herr(403, "Для доступа администратора войди через Telegram.",
                 "Администратор булараҡ инеү өсөн Telegram аша ин.",
-                code="telegram_login_required")
+                code=code)
 
 
 class _BilingualBearer(HTTPBearer):
@@ -209,7 +209,7 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
     if user.role == UserRole.admin and auth_method != "telegram":
-        raise telegram_login_required()
+        raise telegram_login_required(code="admin_login_telegram_only")
     login = (_active_auth_session(session, user_id, auth_session_id) if auth_session_id
              else _new_auth_session(session, user_id))
     if login is None:

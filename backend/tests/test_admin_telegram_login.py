@@ -119,7 +119,7 @@ def test_verified_sms_of_existing_admin_consumes_code_without_session(client):
     headers = {"X-Device-Id": "new-qa-device"}
     assert client.post("/auth/verify", json={**body, "code": "654321"}, headers=headers).status_code == 400
     refused = client.post("/auth/verify", json=body, headers=headers)
-    assert refused.status_code == 403 and refused.json()["detail"]["code"] == "telegram_login_required"
+    assert refused.status_code == 403 and refused.json()["detail"]["code"] == "admin_login_telegram_only"
     assert client.post("/auth/verify", json=body, headers=headers).status_code == 400
     with Session(engine) as session:
         account = session.get(User, user_id)
