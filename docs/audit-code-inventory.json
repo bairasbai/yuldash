@@ -80,7 +80,7 @@
   "counts_by_kind": {
     "android_main": 230,
     "backend_main": 112,
-    "infra_resource_config": 418,
+    "infra_resource_config": 419,
     "public_site_promo": 91,
     "pwa_main": 352,
     "test_support": 1325
@@ -95,7 +95,7 @@
     "B07": 144,
     "B08": 219,
     "B09": 779,
-    "B10": 418,
+    "B10": 419,
     "B11": 92
   },
   "excluded_counts": {
@@ -6513,6 +6513,13 @@
       "lines": 49
     },
     {
+      "path": "backend/alembic/versions/cl_refresh_auth_proof.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a7b2655706a831e4f91087184d0894bb6c17ca16d01719ffa6168c322bbf7862",
+      "lines": 26
+    },
+    {
       "path": "backend/alembic/versions/courier_c1.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7279,8 +7286,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "87413f9fb42ff7b430770e6306cb3ba5a67c624a42d2156ce9bfb60dd7780439",
-      "lines": 2249
+      "sha256": "0db2f51c267a8b3f3b57222b7b3e712df33886cdfc18501c254e91c61247e77f",
+      "lines": 2251
     },
     {
       "path": "backend/app/observability.py",
@@ -7405,8 +7412,8 @@
       "path": "backend/app/routers/auth.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "79b388720440633496d66cdcf19ac35b9d5eb7c5b5174752f77cc671fc614447",
-      "lines": 1600
+      "sha256": "e64aba23a47e4405c250b63b6087de43cd75b0a9f8634d2ca7428ec1f22ba006",
+      "lines": 1603
     },
     {
       "path": "backend/app/routers/bookings.py",
@@ -7706,8 +7713,8 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "34575e30065d2d15be7177564421d6e01435ae03797cb69f1364fd2b7cecdeae",
-      "lines": 554
+      "sha256": "5ee23d175b9580989365772501dfbd335f347926b41e0b12252fe1ec878a43b3",
+      "lines": 578
     },
     {
       "path": "backend/app/services.py",
@@ -8651,15 +8658,15 @@
       "path": "backend/tests/test_auth_edges.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "c3b268c62ab1e46fdc1ca7b03e74e522a8fe7ffebee399ca5db34e05d030c2c5",
-      "lines": 538
+      "sha256": "fc0b73b245a59a2c330c776a2c9c214438855718a2e4f4a4a61031be568198c2",
+      "lines": 571
     },
     {
       "path": "backend/tests/test_auth_session_logout.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "26f2834340598504da6b07465af2d766ed17cc359a51105e8880bb1dd096e34e",
-      "lines": 400
+      "sha256": "cd5cfcd4ad59b4f69addfbf203994de4b0cb315e97a26645bb314ee174d1680c",
+      "lines": 402
     },
     {
       "path": "backend/tests/test_autocheck_asks_whose_licence_it_is.py",
@@ -10100,8 +10107,8 @@
       "path": "backend/tests/test_migration_owner_switches.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "68c270b4e6f37029a4cd2e997d13ba8421505a391de7f90fb7a96133db26bc2e",
-      "lines": 86
+      "sha256": "61d32ac471cce7c41d9c8c663d89a41b5e0fbdd25293c5be014174b3da580027",
+      "lines": 130
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
@@ -11080,8 +11087,8 @@
       "path": "backend/tests/test_refresh_replay.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "9df0db6735473c5e25d413e29f5591dbd599d4d46372eea90dbc60fbde6c6afa",
-      "lines": 165
+      "sha256": "9780fbecba87a59a91f495e74be72890e90e7e566fdeb705ba5aa9667422565a",
+      "lines": 199
     },
     {
       "path": "backend/tests/test_refresh_replay_observability.py",
@@ -11318,8 +11325,8 @@
       "path": "backend/tests/test_review_login_permissions.py",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "5adb37482f2b3dbab5aa04f15599b1d2d9afb4ae08bda3d376ca96b8793effbd",
-      "lines": 187
+      "sha256": "7824f3358437c1b3e946a320b41c00b2bac0c9930d3b892aab9e6838a672a30d",
+      "lines": 194
     },
     {
       "path": "backend/tests/test_review_session_scope.py",
