@@ -13,17 +13,20 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -44,7 +47,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
@@ -160,7 +162,6 @@ internal fun YuldashBottomBar(
     )
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
-    val width = LocalConfiguration.current.screenWidthDp - CanonSpace.xs.value * 2
     val minWidths = tabs.map { (_, label, _) ->
         val textWidth = measurer.measure(
             AnnotatedString(label),
@@ -168,44 +169,48 @@ internal fun YuldashBottomBar(
             softWrap = false,
             maxLines = 1,
         ).size.width
-        maxOf(CanonSpace.huge.value, with(density) { textWidth.toDp().value } + CanonSpace.xs.value)
+        maxOf(CanonSpace.huge, with(density) { textWidth.toDp() } + CanonSpace.xs)
     }
-    val equalWidth = width / tabs.size
-    val spare = ((width - minWidths.sum()) / tabs.size).coerceAtLeast(0f)
-    val equalColumns = minWidths.all { it <= equalWidth }
     Surface(
         color = CanonSurface.copy(alpha = 0.98f),
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
         shadowElevation = CanonDepth.sheet
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .navigationBarsPadding()   // на жест-навигации иконки меню не уезжают под системную полосу
-                .heightIn(min = 78.dp)
-                .padding(horizontal = 4.dp, vertical = 4.dp),
-            verticalAlignment = Alignment.Top
+        BoxWithConstraints(
+            Modifier.fillMaxWidth().navigationBarsPadding().heightIn(min = 78.dp).padding(CanonSpace.xs),
         ) {
-            tabs.forEachIndexed { index, (tab, label, icon) ->
-                YuldashBottomItem(
-                    selected = selectedTab == tab,
-                    label = label,
-                    iconRes = icon,
-                    weight = if (equalColumns) 1f else minWidths[index] + spare,
-                    onClick = { onSelect(tab) },
-                    badge = tab == HomeTab.Profile && NavSignals.payNowDebtKop.value > 0,
-                )
+            val requiredWidth = minWidths.fold(0.dp) { total, width -> total + width }
+            val scroll = requiredWidth > maxWidth
+            val equalColumns = minWidths.all { it <= maxWidth / tabs.size }
+            val spare = ((maxWidth - requiredWidth) / tabs.size).coerceAtLeast(0.dp)
+            val rowModifier = if (scroll) Modifier.horizontalScroll(rememberScrollState()) else Modifier
+            Row(rowModifier.fillMaxWidth(), verticalAlignment = Alignment.Top) {
+                tabs.forEachIndexed { index, (tab, label, icon) ->
+                    val itemModifier = when {
+                        scroll -> Modifier.width(minWidths[index])
+                        equalColumns -> Modifier.weight(1f)
+                        else -> Modifier.weight((minWidths[index] + spare).value)
+                    }
+                    YuldashBottomItem(
+                        selected = selectedTab == tab,
+                        label = label,
+                        iconRes = icon,
+                        modifier = itemModifier,
+                        onClick = { onSelect(tab) },
+                        badge = tab == HomeTab.Profile && NavSignals.payNowDebtKop.value > 0,
+                    )
+                }
             }
         }
     }
 }
 
 @Composable
-private fun RowScope.YuldashBottomItem(
+private fun YuldashBottomItem(
     selected: Boolean,
     label: String,
     iconRes: Int,
-    weight: Float,
+    modifier: Modifier,
     onClick: () -> Unit,
     badge: Boolean = false
 ) {
@@ -216,8 +221,7 @@ private fun RowScope.YuldashBottomItem(
     val badgeScale by animateFloatAsState(if (badge) 1f else 0f, tween(CanonMotion.QUICK), label = "navBadge")
     val interaction = remember { MutableInteractionSource() }
     Column(
-        modifier = Modifier
-            .weight(weight)
+        modifier = modifier
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .semantics(mergeDescendants = true) { this.selected = selected; role = Role.Tab }
             .padding(vertical = 4.dp),
