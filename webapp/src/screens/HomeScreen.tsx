@@ -22,6 +22,7 @@ import { fetchSeasonalEvents, type SeasonalEvent } from "../api/seasonal";
 import RideSheet from "../components/RideSheet";
 import YandexMap, { type MapMarker, type GeoPoint } from "../components/YandexMap";
 import NearbyRideCard, { NearbySkeletonCard, NearbyMoreCard, NearbyEmptyCard, NearbyUnverifiedCard } from "../components/NearbyRideCard";
+import WatchRouteButton from "../components/WatchRouteButton";
 import { NearbyChip } from "../components/adminUi";
 import { NearbyCityChips, NearbyConditionsChip, NearbyWhenChip } from "../components/NearbyFilters";
 import CommunityFeedStrip from "../components/CommunityFeedStrip";
@@ -159,6 +160,11 @@ export default function HomeScreen() {
   const [reloadTick, setReloadTick] = useState(0);
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
   const cityFilter = useNearbyCityFilter(reloadTick);
+  const watchRoute = {
+    from: cityFilter.from.length === 1 ? cityFilter.from[0] : "",
+    to: cityFilter.to.length === 1 ? cityFilter.to[0] : "",
+    day,
+  };
   const previousSearchOwner = useRef(searchOwner);
   useEffect(() => {
     if (previousSearchOwner.current === searchOwner) return;
@@ -528,12 +534,13 @@ export default function HomeScreen() {
         </div>
       )}
       {feedState === "error" && <NearbyEmptyCard error onRetry={retry} />}
-      {feedState === "empty" && <NearbyEmptyCard error={false} onRetry={retry} />}
+      {feedState === "empty" && <NearbyEmptyCard error={false} onRetry={retry} watch={watchRoute} />}
       {/* Проверенных нет, а непроверенные на этот поиск есть: «Показать» — только для этого поиска,
           настройка «Безопасности» не меняется (NearbyUnverifiedCard в NearbyVerifiedOnly.kt). */}
       {feedState === "unverified" && (
         <NearbyUnverifiedCard
           hidden={hiddenUnverified}
+          watch={watchRoute}
           onShow={() => setRevealedFor(revealKey)}
           onReset={conditions.length > 0 || cityFilter.active || day != null ? resetFeedFilters : undefined}
         />
@@ -541,6 +548,7 @@ export default function HomeScreen() {
       {feedState === "filtered" && (
         <div className="nearby-filtered">
           <p role="status">{appText("Нет поездок с такими условиями. Сними часть фильтров.", "Был шарттар менән сәфәр юҡ. Фильтрҙың бер өлөшөн ал.")}</p>
+          <WatchRouteButton route={watchRoute} />
           {(conditions.length > 0 || cityFilter.active || day != null) && (
             <button type="button" className="nearby-filtered__reset" onClick={resetFeedFilters}>
               <IconClose size={20} /> {appText("Сбросить фильтры", "Фильтрҙы бушат")}
