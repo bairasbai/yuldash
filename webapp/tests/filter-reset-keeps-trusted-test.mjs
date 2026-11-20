@@ -56,39 +56,39 @@ const KEY = "yuldash.filterPrefs";
 // в «Безопасности» — так и остаётся. В хранилище поэтому лежит ВЫБОР человека (`verifiedOnly`), а не флаг.
 
 await test("пусто → никаких условий, «проверенные» включены (никто не выбирал)", async ({ fp }) => {
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true });
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true, seats: 1 });
   assert.equal(fp.TRUSTED_BY_DEFAULT, true);
 });
 
 await test("сохранили условия → загрузили те же; «проверенные» экран «Фильтры» не записывает", async ({ fp, store }) => {
-  fp.saveFilters({ conditions: ["quiet", "women"], onlyTrusted: true });
-  assert.deepEqual(fp.loadFilters(), { conditions: ["women", "quiet"], onlyTrusted: true }, "порядок — как в шторке");
-  assert.deepEqual(Object.keys(JSON.parse(store.get(KEY))), ["conditions"], "значение по умолчанию не стало «выбором человека»");
-  fp.saveFilters({ conditions: ["pets"], onlyTrusted: false });
+  fp.saveFilters({ conditions: ["quiet", "women"], onlyTrusted: true, seats: 1 });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["women", "quiet"], onlyTrusted: true, seats: 1 }, "порядок — как в шторке");
+  assert.deepEqual(Object.keys(JSON.parse(store.get(KEY))), ["conditions", "seats"], "значение по умолчанию не стало «выбором человека»");
+  fp.saveFilters({ conditions: ["pets"], onlyTrusted: false, seats: 1 });
   assert.equal(fp.loadFilters().onlyTrusted, true, "экран «Фильтры» не умеет выключать «проверенных»");
 });
 
 await test("выключил сам в «Безопасности» — так и остаётся, и после сохранения условий тоже", async ({ fp, store }) => {
   fp.saveVerifiedOnly(false);
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false });
-  fp.saveFilters({ conditions: ["child"], onlyTrusted: false });
-  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], onlyTrusted: false }, "условия не стёрли выбор");
-  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: ["child"], verifiedOnly: false });
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: false, seats: 1 });
+  fp.saveFilters({ conditions: ["child"], onlyTrusted: false, seats: 1 });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], onlyTrusted: false, seats: 1 }, "условия не стёрли выбор");
+  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: ["child"], seats: 1, verifiedOnly: false });
   fp.saveVerifiedOnly(true);
-  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], onlyTrusted: true });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], onlyTrusted: true, seats: 1 });
 });
 
 await test("прежняя версия: «onlyTrusted: false» неотличим от «не трогал» → включено; «true» — выбор, остаётся", async ({ fp, store }) => {
   // Прежний сайт писал onlyTrusted при каждом сохранении, в том числе с экрана «Фильтры»: false там значит
   // и «выключил сам», и «не трогал». Различить нельзя — безопасное значение по умолчанию.
-  store.set(KEY, JSON.stringify({ conditions: ["pets"], onlyTrusted: false }));
-  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: true });
+  store.set(KEY, JSON.stringify({ conditions: ["pets"], onlyTrusted: false, seats: 1 }));
+  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: true, seats: 1 });
   fp.saveFilters(fp.loadFilters());
-  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: ["pets"] }, "двусмысленный флаг не переехал в «выбор»");
+  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: ["pets"], seats: 1 }, "двусмысленный флаг не переехал в «выбор»");
   // true прежде мог поставить только сам человек (по умолчанию было выключено) — это выбор.
-  store.set(KEY, JSON.stringify({ conditions: [], onlyTrusted: true }));
+  store.set(KEY, JSON.stringify({ conditions: [], onlyTrusted: true, seats: 1 }));
   fp.saveFilters(fp.loadFilters());
-  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: [], verifiedOnly: true });
+  assert.deepEqual(JSON.parse(store.get(KEY)), { conditions: [], seats: 1, verifiedOnly: true });
 });
 
 await test("прежнее сохранение (город, цена, старые имена условий) не ломает загрузку", async ({ fp, store }) => {
@@ -98,27 +98,27 @@ await test("прежнее сохранение (город, цена, стар�
   }));
   assert.deepEqual(fp.loadFilters(), {
     conditions: ["women", "child", "pets", "baggage", "ac", "nosmoke", "quiet"],
-    onlyTrusted: true,
+    onlyTrusted: true, seats: 1,
   });
 });
 
 await test("прежнее: город и цена просто отбрасываются", async ({ fp, store }) => {
-  store.set(KEY, JSON.stringify({ city: "Уфа", maxPrice: 300, amenities: [], onlyTrusted: false }));
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true });
+  store.set(KEY, JSON.stringify({ city: "Уфа", maxPrice: 300, amenities: [], onlyTrusted: false, seats: 1 }));
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true, seats: 1 });
   fp.saveFilters(fp.loadFilters());
   const saved = JSON.parse(store.get(KEY));
   assert.ok(!("city" in saved) && !("maxPrice" in saved), "после первого сохранения прежних полей в хранилище нет");
 });
 
 await test("незнакомые ключи условий отбрасываются, остальные остаются", async ({ fp, store }) => {
-  store.set(KEY, JSON.stringify({ conditions: ["pets", "teleport", 7, null, "quiet", "pets"], onlyTrusted: false }));
+  store.set(KEY, JSON.stringify({ conditions: ["pets", "teleport", 7, null, "quiet", "pets"], onlyTrusted: false, seats: 1 }));
   assert.deepEqual(fp.loadFilters().conditions, ["pets", "quiet"]);
 });
 
 await test("битое хранилище не роняет экран", async ({ fp, store }) => {
   for (const raw of ["{oops", "null", "[]", '"x"', '{"conditions":"women"}', '{"amenities":{"a":1}}']) {
     store.set(KEY, raw);
-    assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true }, raw);
+    assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true, seats: 1 }, raw);
   }
 });
 
@@ -128,18 +128,28 @@ await test("хранилище недоступно — загрузка и со
     setItem: () => { throw new Error("blocked"); },
     removeItem: () => { throw new Error("blocked"); },
   };
-  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true }, "без хранилища — безопасное значение по умолчанию");
-  assert.doesNotThrow(() => fp.saveFilters({ conditions: ["pets"], onlyTrusted: false }));
+  assert.deepEqual(fp.loadFilters(), { conditions: [], onlyTrusted: true, seats: 1 }, "без хранилища — безопасное значение по умолчанию");
+  assert.doesNotThrow(() => fp.saveFilters({ conditions: ["pets"], onlyTrusted: false, seats: 1 }));
   assert.doesNotThrow(() => fp.saveVerifiedOnly(false));
 });
 
 await test("«Безопасность» меняет только «проверенные»: условия по умолчанию остаются", async ({ fp }) => {
-  fp.saveFilters({ conditions: ["pets"], onlyTrusted: true });
+  fp.saveFilters({ conditions: ["pets"], onlyTrusted: true, seats: 1 });
   fp.saveVerifiedOnly(false);
-  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: false });
+  assert.deepEqual(fp.loadFilters(), { conditions: ["pets"], onlyTrusted: false, seats: 1 });
 });
 
 // ---------------------------------------------------------------- вкладка «Поездки»: те же правила
+
+await test("число мест переживает смену настройки безопасности, старые значения проверяются", async ({ fp, store }) => {
+  fp.saveFilters({ conditions: ["child"], seats: 4, onlyTrusted: true });
+  fp.saveVerifiedOnly(false);
+  assert.deepEqual(fp.loadFilters(), { conditions: ["child"], seats: 4, onlyTrusted: false });
+  for (const seats of [0, 9, 1.5, "4", null]) {
+    store.set(KEY, JSON.stringify({ seats }));
+    assert.equal(fp.loadFilters().seats, 1);
+  }
+});
 
 // «Проверенные водители на карте», как в приложении, режут только «Ближайшие». Раньше они резали и
 // вкладку «Поездки», а её кнопка «Изменить фильтры» вела на экран без этого переключателя (приёмка PR151).
@@ -149,13 +159,13 @@ await test("вкладка «Поездки» режет только по ус�
     { id: 2, driver_verified: false, pets_allowed: true },
     { id: 3, driver_verified: true },
   ];
-  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: false }).map((r) => r.id), [1, 2, 3]);
-  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: false }).map((r) => r.id), [1, 2]);
-  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: true }).map((r) => r.id), [1, 2]);
-  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: true }).map((r) => r.id), [1, 2, 3]);
-  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: false }), false);
-  assert.equal(fp.isFilterActive({ conditions: ["quiet"], onlyTrusted: false }), true);
-  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: true }), false, "чип «Фильтры включены» не врёт");
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: false, seats: 1 }).map((r) => r.id), [1, 2, 3]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: false, seats: 1 }).map((r) => r.id), [1, 2]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: ["pets"], onlyTrusted: true, seats: 1 }).map((r) => r.id), [1, 2]);
+  assert.deepEqual(fp.applyRideFilters(rides, { conditions: [], onlyTrusted: true, seats: 1 }).map((r) => r.id), [1, 2, 3]);
+  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: false, seats: 1 }), false);
+  assert.equal(fp.isFilterActive({ conditions: ["quiet"], onlyTrusted: false, seats: 1 }), true);
+  assert.equal(fp.isFilterActive({ conditions: [], onlyTrusted: true, seats: 1 }), false, "чип «Фильтры включены» не врёт");
 });
 
 // ---------------------------------------------------------------- сброс в ленте (исходник экрана)
@@ -166,7 +176,7 @@ const resetBody = (() => {
   return home.slice(start, home.indexOf("\n  }\n", start));
 })();
 
-await test("сброс в ленте снимает условия и города, больше ничего", async () => {
+await test("сброс в ленте снимает условия, города и число мест", async () => {
   assert.ok(resetBody.length > 30, "функция сброса найдена");
   assert.match(resetBody, /setConditions\(\[\]\)/, "условия сняты");
   assert.match(resetBody, /cityFilter\.clear\(\)/, "города сняты");
@@ -177,6 +187,7 @@ await test("сброс не трогает «Только проверенные
   assert.ok(!/saveFilters|localStorage/.test(resetBody), "«по умолчанию» меняют на экране «Фильтры»");
   // Пусто на выбранный день — тоже «Нет поездок с такими условиями», и сброс снимает день (как Android, приёмка PR148).
   assert.match(resetBody, /setDay\(null\)/);
+  assert.match(resetBody, /setSeats\(1\)/);
 });
 
 await test("кнопка «Сбросить фильтры» в ленте подключена к этому сбросу", async () => {
@@ -196,7 +207,7 @@ await test("«проверенные» по умолчанию и у гостя 
 });
 
 await test("ссылка «выключить в Безопасности» — только когда больше нечего сбросить", async () => {
-  assert.match(home, /conditions\.length === 0 && !cityFilter\.active && day == null && verifiedOnly && \(/);
+  assert.match(home, /!hasResettableFilter && verifiedOnly && \(/);
 });
 
 const safety = readFileSync(root + "src/screens/SafetyScreen.tsx", "utf8");

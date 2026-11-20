@@ -36,14 +36,14 @@ const Home = (
       `export default "NearbyRideCard"; export const NearbySkeletonCard = "NearbySkeletonCard", NearbyMoreCard = "NearbyMoreCard", NearbyEmptyCard = "NearbyEmptyCard", NearbyUnverifiedCard = "NearbyUnverifiedCard";`,
     ],
     [/\/components\/adminUi$/, `export const NearbyChip = "NearbyChip";`],
-    [/\/components\/NearbyFilters$/, `export const NearbyCityChips = "NearbyCityChips", NearbyConditionsChip = "NearbyConditionsChip", NearbyWhenChip = "NearbyWhenChip";`],
+    [/\/components\/NearbyFilters$/, `export const NearbyCityChips = "NearbyCityChips", NearbyConditionsChip = "NearbyConditionsChip", NearbySeatsChip = "NearbySeatsChip", NearbyWhenChip = "NearbyWhenChip";`],
     [/\/components\/CommunityFeedStrip$/, `export default "CommunityFeedStrip";`],
     [
       /\/api\/discovery$/,
       `export const fetchRidesNear = (q, signal) => globalThis.__rt.fetchRides(q, signal); export const fetchRequestsNear = async () => ({ items: [] });`,
     ],
     // «Только проверенные» из «Безопасности»: в разделе 1 выключены (там про сеть), в разделе 1б — включены.
-    [/\/filterPrefs$/, `export const loadFilters = () => ({ conditions: [], onlyTrusted: !!globalThis.__rt.trusted });`],
+    [/\/filterPrefs$/, `export const loadFilters = () => ({ conditions: [], seats: 1, onlyTrusted: !!globalThis.__rt.trusted });`],
     [/\/nearbyCityFilter$/, `export const useNearbyCityFilter = () => globalThis.__rt.city;`],
     [/\/components\/Icons$/, `export const IconRides = "Icon", IconGift = "Icon", IconLocate = "Icon", IconClose = "Icon", IconHospital = "Icon", IconChevron = "Icon";`],
     [/\/components\/BrandIcons$/, `export const YuModeTaxi = "Icon";`],
@@ -304,7 +304,7 @@ const F = await load(
     [/\/i18n\/lang$/, LANG],
     [/\/CityField$/, `export default "CityField";`],
     [/\/conditionIcons$/, `export const ConditionIcon = "ConditionIcon";`],
-    [/\/Icons$/, `export const IconCalendar = "Icon", IconCheck = "Icon", IconClose = "Icon", IconFlag = "Icon", IconPin = "Icon", IconShield = "Icon", IconTune = "Icon", IconTrash = "Icon";`],
+    [/\/Icons$/, `export const IconCalendar = "Icon", IconCheck = "Icon", IconClose = "Icon", IconFlag = "Icon", IconPin = "Icon", IconShield = "Icon", IconTune = "Icon", IconUsers = "Icon", IconTrash = "Icon";`],
     [/\/api\/discovery$/, `export const fetchRideCities = async () => globalThis.__rt.cities;`],
   ]
 );

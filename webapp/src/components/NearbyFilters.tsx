@@ -9,6 +9,7 @@
 // ================================================================
 import { useEffect, useId, useMemo, useRef, useState, type ReactNode } from "react";
 import { useLang } from "../i18n/lang";
+import { GROUP_SIZES } from "../nearbySeats";
 import type { NearbyCityFilter } from "../nearbyCityFilter";
 import {
   chosenNames,
@@ -32,7 +33,7 @@ import { recordSearch, searchRouteKey, type SearchRoute } from "../utils/searchH
 import { storageFenced } from "../utils/storageHealth";
 import { useSheetExit } from "./useSheetExit";
 import { ConditionIcon } from "./conditionIcons";
-import { IconCalendar, IconCheck, IconClose, IconFlag, IconPin, IconShield, IconTune } from "./Icons";
+import { IconCalendar, IconCheck, IconClose, IconFlag, IconPin, IconShield, IconTune, IconUsers } from "./Icons";
 
 // ---------------------------------------------------------------- шторка и строки
 
@@ -130,6 +131,30 @@ function FeedChip({ icon, label, on, onClick }: { icon: ReactNode; label: string
       </span>
       {label}
     </button>
+  );
+}
+
+export function NearbySeatsChip({ seats, onChange }: { seats: number; onChange: (next: number) => void }) {
+  const { appText } = useLang();
+  const [open, setOpen] = useState(false);
+  const title = appText("Сколько вас едет", "Нисәү бараһығыҙ");
+  return (
+    <>
+      <FeedChip icon={<IconUsers size={15} />} label={appText(`Мест: ${seats}`, `Урын: ${seats}`)}
+        on={seats > 1} onClick={() => setOpen(true)} />
+      {open && (
+        <NearbySheet title={title} onClose={() => setOpen(false)}>
+          {(close) => (
+            <div role="radiogroup" aria-label={title}>
+              {GROUP_SIZES.map((count) => (
+                <NearbyCheckRow key={count} label={String(count)} role="radio" selected={seats === count}
+                  onToggle={() => { onChange(count); close(); }} />
+              ))}
+            </div>
+          )}
+        </NearbySheet>
+      )}
+    </>
   );
 }
 
