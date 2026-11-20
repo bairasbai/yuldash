@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.StateRestorationTester
@@ -157,7 +158,12 @@ class CompletedNavigationRestorationTest {
     }
     private fun await(check:()->Boolean) {
         try {
-            compose.waitUntil(12000) {compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle();check()}
+            compose.waitUntil(12000) {
+                compose.mainClock.advanceTimeBy(100)
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                Snapshot.sendApplyNotifications()
+                check()
+            }
         } catch(failure:ComposeTimeoutException) {
             val bid=vm.activeBookingId.value
             throw AssertionError("NAV5 completed await screen="+vm.screen.value+" booking="+bid+
@@ -188,7 +194,10 @@ class CompletedNavigationRestorationTest {
         return compose.onNode(list, useUnmergedTree = true)
     }
     private fun tag(value:String):SemanticsNodeInteraction {
-        if(value!="rideshareRatingSubmit") completedList().performScrollToNode(hasTestTag(value))
+        if (value != "rideshareRatingSubmit") {
+            val list = completedList()
+            await { runCatching { list.performScrollToNode(hasTestTag(value)) }.isSuccess }
+        }
         return compose.onNodeWithTag(value)
     }
     private fun text(value:String):SemanticsNodeInteraction {

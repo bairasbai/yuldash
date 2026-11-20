@@ -1,0 +1,40 @@
+✓ reject URL "/\\attacker.example/image"
+✓ chat does not embed "/\\attacker.example/image"
+✓ secure document sends no request "/\\attacker.example/image"
+✓ reject URL "/\t/attacker.example/image"
+✓ chat does not embed "/\t/attacker.example/image"
+✓ secure document sends no request "/\t/attacker.example/image"
+✓ reject URL "/\n/attacker.example/image"
+✓ chat does not embed "/\n/attacker.example/image"
+✓ secure document sends no request "/\n/attacker.example/image"
+✓ reject URL "/\r/attacker.example/image"
+✓ chat does not embed "/\r/attacker.example/image"
+✓ secure document sends no request "/\r/attacker.example/image"
+✓ reject URL "//attacker.example/image"
+✓ chat does not embed "//attacker.example/image"
+✓ secure document sends no request "//attacker.example/image"
+✓ reject URL "https://attacker.example/image"
+✓ chat does not embed "https://attacker.example/image"
+✓ secure document sends no request "https://attacker.example/image"
+✓ reject URL "https://api.example.test@attacker.example/image"
+✓ chat does not embed "https://api.example.test@attacker.example/image"
+✓ secure document sends no request "https://api.example.test@attacker.example/image"
+✓ reject URL "https://api.example.test.attacker.example/image"
+✓ chat does not embed "https://api.example.test.attacker.example/image"
+✓ secure document sends no request "https://api.example.test.attacker.example/image"
+✓ reject URL "http://api.example.test/image"
+✓ chat does not embed "http://api.example.test/image"
+✓ secure document sends no request "http://api.example.test/image"
+✓ reject URL "https://api.example.test:444/image"
+✓ chat does not embed "https://api.example.test:444/image"
+✓ secure document sends no request "https://api.example.test:444/image"
+✓ reject URL "https://user:pass@api.example.test/image"
+✓ chat does not embed "https://user:pass@api.example.test/image"
+✓ secure document sends no request "https://user:pass@api.example.test/image"
+✓ allow legitimate image /chat/photo.png
+✓ allow legitimate image https://api.example.test/chat/photo.png
+✓ allow legitimate image https://API.EXAMPLE.TEST:443/chat/photo.png
+✓ different PWA origin cannot receive the API token via a relative URL
+✓ document base cannot redirect a relative resource to another origin
+✓ secure document still loads from API with authorization
+Own API URL: 39 passed, 0 failed

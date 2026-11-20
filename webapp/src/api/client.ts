@@ -96,11 +96,16 @@ export function getSessionGeneration(): string {
  */
 export function isOwnApiUrl(url: string): boolean {
   const raw = (url ?? "").trim();
-  if (!raw) return false;
-  if (raw.startsWith("//")) return false; // «//хост/путь» — абсолютный адрес чужого хоста
-  if (raw.startsWith("/")) return true; // путь на нашей же базе
+  // Browser URL parsing normalizes backslashes and strips tabs/newlines.
+  // A string beginning with "/" is therefore not necessarily a local path.
+  if (!raw || /[\\\u0000-\u001f\u007f]/.test(url) || raw.startsWith("//")) return false;
   try {
-    return new URL(raw).origin === new URL(API_BASE, location.href).origin;
+    // Consumers pass the original URL to fetch/img; resolve against that same
+    // document base, not API_BASE (the PWA can live on a different origin).
+    const base = typeof document !== "undefined" ? document.baseURI : location.href;
+    const target = new URL(raw, base);
+    return !target.username && !target.password
+      && target.origin === new URL(API_BASE, base).origin;
   } catch {
     return false;
   }

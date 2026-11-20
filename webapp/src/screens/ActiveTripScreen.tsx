@@ -67,6 +67,8 @@ import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarnin
 import ShareTripCard from "../components/ShareTripCard";
 import { BookingTraveler } from "../components/BookingTraveler";
 import DriverBoarding from "../components/DriverBoarding";
+import { DriverStageRecovery } from "../components/DriverStageRecovery";
+import { useDriverStages } from "../utils/useDriverStages";
 import BoardingWait from "../components/BoardingWait";
 import PassengerBoardingUndo from "../components/PassengerBoardingUndo";
 import { isStaleBoardingAfterUndo, isConfirmedBoardingUndo, isNewBoardingUndo, sameBoardingTimestamp } from "../utils/boardingUndo";
@@ -408,6 +410,8 @@ export default function ActiveTripScreen() {
 
   const st = trip?.status ?? details?.status;
   const active = st === "confirmed" || st === "onboard";
+  const driverStages = useDriverStages(bookingId);
+  const driverStageBlocked = !driverStages.ready || driverStages.busy || driverStages.pending.length > 0;
   const completedDeadline = st === "done" && details?.status === "done" ? details.completedContactDeadline : undefined;
   useCompletedContactExpiry([completedDeadline]);
   const completedAccess = st !== "done" || completedContactsVisible(completedDeadline);
@@ -572,13 +576,20 @@ export default function ActiveTripScreen() {
     setPhaseBusy(true);
     setPhaseNote("");
     try {
-      await setDriverStatus(bookingId, phase);
+      const staged = phase === "done" ? await driverStages.advance(bookingId, "done") : undefined;
+      if (phase !== "done") await setDriverStatus(bookingId, phase);
+      if (phase === "done" && (staged?.state !== "applied" || staged.trip?.status !== "done")) {
+        finishDriverClick(click, false);
+        pendingDriverClick.current = null;
+        if (staged?.state === "applied") void tickTrip();
+        return;
+      }
       if (pendingDriverClick.current !== click || !currentSession() || currentBookingIdRef.current !== bookingId) return;
       finishDriverClick(click, true);
       pendingDriverClick.current = null;
       if (!currentSession()) return;
       if (phase === "done") rideShareHandoff();
-      const fresh = await fetchTripState(bookingId);
+      const fresh = staged?.state === "applied" && staged.trip ? staged.trip : await fetchTripState(bookingId);
       if (!currentSession() || currentBookingIdRef.current !== bookingId) return;
       const previousStatus = tripRef.current?.status ?? detailsStatusRef.current;
       if (previousStatus === "cancelled" && fresh.status !== "cancelled") return;
@@ -598,7 +609,7 @@ export default function ActiveTripScreen() {
       finishDriverClick(click, false);
       pendingDriverClick.current = null;
       if (!currentSession()) return;
-      if (e instanceof ApiError && e.status === 0) {
+      if (phase !== "done" && e instanceof ApiError && e.status === 0) {
         // Трасса без связи: отметка не пропадает — уйдёт сама, когда сеть вернётся.
         try {
           await enqueue(bookingId, "driver_status", phase);
@@ -753,6 +764,8 @@ export default function ActiveTripScreen() {
       {!driverSegmentHidden && <BookingSegmentNote pickupStop={details.pickup_stop} dropoffStop={details.dropoff_stop} rideHasStops={details.ride_has_stops} from={details.from_city} to={details.to_city} />}
       {st !== "cancelled" && completedAccess && <BookingTraveler name={details.traveler_name}
         bookedBy={details.role === "driver" ? details.passenger_name : undefined} deadline={details.travelerNameDeadline} />}
+
+      {details.role === "driver" && <DriverStageRecovery stages={driverStages} onChanged={async () => { await tickTrip(); }} />}
 
       {/* ❄️ Погода на маршруте — до выезда, а не когда машина уже на трассе */}
       <WeatherWarningCard weather={weather} />
@@ -1049,6 +1062,17 @@ export default function ActiveTripScreen() {
               variant="chip"
               onChanged={applyBoarding}
               onError={setPhaseNote}
+              boardingBlocked={driverStageBlocked}
+              onBoard={async () => {
+                const result = await driverStages.advance(bookingId, "boarded");
+                if (result?.state !== "applied") return undefined;
+                const fresh = result.trip;
+                if (!fresh || fresh.status !== "onboard") {
+                  void tickTrip();
+                  return undefined;
+                }
+                return { ...fresh, ok: true, boarding_undo_sec: fresh.boarding_undo_sec ?? 0 };
+              }}
             >
               {/* Окно «Отменить» вышло — разбор, как в кабинете (Q4, приёмка PR174). */}
               <DriverBoardedDispute bookingId={bookingId} passengerId={trip?.peer_id} onError={setPhaseNote} />
@@ -1057,7 +1081,7 @@ export default function ActiveTripScreen() {
               type="button"
               className="chip"
               onClick={() => setConfirmFinish(true)}
-              disabled={phaseBusy}
+              disabled={phaseBusy || driverStageBlocked}
             >
               {appText("Завершить поездку", "Сәфәрҙе тамамлау")}
             </button>

@@ -31,6 +31,13 @@ export async function openActiveTrip({ lang = "ru", role = "passenger", status =
   const Screen = await bundleComponent("src/screens/ActiveTripScreen.tsx", {
     real: ["/api/bookings", "/utils/tripLocationShare", "/utils/tripDetailsSync.js", "/utils/offlineTripPass", "/utils/useStoredTripData", "/components/PassengerCancellation"],
     mocks: {
+      "/utils/useDriverStages": `export const useDriverStages=()=>({ready:true,busy:false,pending:[],advance:async(id,stage)=>{
+        const at=globalThis.__at;
+        if (at.offline) return undefined;
+        at.phases.push([id,stage]); at.trip.status="done"; at.details.status="done";
+        return {state:"applied",trip:{...at.trip},appliedStage:stage};
+      }});`,
+
       "react-router-dom": `export const useNavigate=()=>p=>globalThis.__at.nav.push(p);export const useParams=()=>({id:"42"});`,
       "/auth/AuthProvider": `export const useAuth=()=>({user:{id:globalThis.__at.userId}});`,
       "/i18n/lang": langMock(lang),

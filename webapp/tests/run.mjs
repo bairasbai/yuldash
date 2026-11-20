@@ -27,6 +27,7 @@ const OUT = join(SUITE_DIR, ".bundles");
 
 /** набор → что для него собрать (модуль сайта → имя файла сборки). */
 const ALL_SUITES = [
+  { test: "own-api-url-test", src: null, out: null, bundle: false },
   { test: "guest-booking-draft-test", src: null, out: null, bundle: false },
   { test: "ride-rating-count-test", src: null, out: null, bundle: false },
   { test: "multiseat-booking-test", src: null, out: null, bundle: false },
@@ -90,6 +91,7 @@ const ALL_SUITES = [
   { test: "command-fingerprint-test", src: null, out: null, bundle: false },
   { test: "booking-command-retry-test", src: null, out: null, bundle: false },
   { test: "driver-booking-decision-test", src: null, out: null, bundle: false },
+  { test: "driver-stage-retry-test", src: null, out: null, bundle: false },
   { test: "ride-publication-retry-test", src: null, out: null, bundle: false },
   { test: "booking-pending-refresh-test", src: null, out: null, bundle: false },
   { test: "pickup-stop-test", src: null, out: null, bundle: false },

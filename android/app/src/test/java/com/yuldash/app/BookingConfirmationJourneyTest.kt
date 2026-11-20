@@ -289,7 +289,12 @@ class BookingConfirmationJourneyTest {
         rejectBookingOnce = true
         mount()
         choosePublicRide()
-        compose.onNodeWithText("Забронировать место").performClick()
+        val book = compose.onNodeWithText("Забронировать место")
+        compose.waitUntil(15000) {
+            settle()
+            runCatching { book.assertIsDisplayed().assertIsEnabled() }.isSuccess
+        }
+        book.performClick()
         waitForText("Повторить тот же запрос")
         compose.runOnIdle {
             assertEquals(Screen.Booking, vm.screen.value)

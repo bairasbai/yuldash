@@ -1,5 +1,6 @@
 import { ApiError, getSessionGeneration } from "../api/client";
 import { sendMessageRest, type ChatMessage } from "../api/chat";
+import { fetchTripState } from "../api/bookings";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { setTripStatus, type TripStatus } from "../api/family";
 import { clearActions, insertAction, listActions, removeAction } from "./outboxStore";
@@ -162,6 +163,14 @@ async function run(a: OutboxAction): Promise<void> {
       await setTripStatus(a.bookingId, a.payload as TripStatus);
       return;
     case "driver_status":
+      if (a.payload === "done" || a.payload === "boarded") {
+        // A legacy action without a key may already have committed. A new key would
+        // turn it into a distinct command after an intervening boarding correction.
+        const trip = await fetchTripState(a.bookingId);
+        if (trip.role === "driver" && (trip.status === "done" || trip.status === "cancelled" ||
+            (a.payload === "boarded" && trip.status === "onboard"))) return;
+        throw new ApiError(409, "");
+      }
       await setDriverStatus(a.bookingId, a.payload as DriverPhase);
       return;
     default:

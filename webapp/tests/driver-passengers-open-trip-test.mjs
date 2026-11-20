@@ -30,6 +30,7 @@ async function open(lang, rows = ROWS) {
     mocks: {
       "/i18n/lang": langMock(lang),
       "/api/bookings": `export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=async()=>globalThis.__dpRows;export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,
+      "/utils/useDriverStages": `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
       "/api/client": `export class ApiError extends Error{constructor(s,m){super(m);this.status=s;}} export const getSessionGeneration=()=>"fixture";`,
     },
   });
@@ -211,7 +212,7 @@ async function openCabinet(lang, action = "confirm", secondPending = false, fixt
   globalThis.__cabRides = fixture.rides ?? [{ id: 7, from_city: "Сибай", to_city: "Акъяр", depart_at: "2030-10-19T10:00:00Z", seats_total: secondPending ? 3 : 2, seats_left: action === "finish" || action === "drop" ? 0 : 1, price: 700, status: "active" }];
   globalThis.__cabReads = 0; globalThis.__cabWrites = []; globalThis.__cabFail = ""; globalThis.__cabRoutes = [];
   globalThis.__cabRideReads = 0; globalThis.__cabHoldRides = false; globalThis.__cabRidesFail = false; globalThis.__cabRideLoads = [];
-  const mocks = { "/i18n/lang": langMock(lang), "/api/bookings": CABINET_BOOKINGS, "/api/client": CABINET_CLIENT };
+  const mocks = { "/utils/useDriverStages": `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`, "/i18n/lang": langMock(lang), "/api/bookings": CABINET_BOOKINGS, "/api/client": CABINET_CLIENT };
   const Cabinet = await bundleComponent("src/screens/DriverCabinetScreen.tsx", { real: ["/utils/format", "/utils/rideCancelWarning", "/utils/useDriverBookingDecisions"], mocks: {
     "/utils/bookingCommandStore": `export const bookingCommandOwner=(user,generation)=>({userId:user.id,generation});export const readDriverDecisions=async()=>[];export const isCurrentBookingOwner=()=>true;`,
     "/api/bookingDecisions": `import { confirmBooking, cancelBooking } from "../api/bookings";
@@ -446,6 +447,7 @@ await t.test("новое действие отменяет перечитыва�
 await t.test("перечитывание отменяет прошлый запрос: поздний старый ответ не возвращает устаревших пассажиров", async () => {
   globalThis.__cabPendingLoads = [];
   const Passengers = await bundleComponent("src/components/DriverPassengers.tsx", { mocks: {
+    "/utils/useDriverStages": `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
     "/i18n/lang": langMock("ru"), "/api/client": CABINET_CLIENT,
     "/api/bookings": `export const answerMeetingPoint=async()=>({});export const fetchDriverBookings=signal=>new Promise(resolve=>globalThis.__cabPendingLoads.push({signal,resolve}));
       export const markNoShow=async()=>({});export const markArriving=async()=>({});export const rateBooking=async()=>({});`,

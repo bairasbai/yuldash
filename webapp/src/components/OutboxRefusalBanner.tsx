@@ -18,6 +18,7 @@ export function refusalMark(r: Pick<OutboxRefusal, "kind" | "payload">, appText:
   if (r.kind === "driver_status") {
     if (r.payload === "departed") return appText("«Выехал»", "«Сыҡтым»");
     if (r.payload === "arriving") return appText("«Подъезжаю»", "«Яҡынлашам»");
+    if (r.payload === "boarded") return appText("«Пассажир сел»", "«Пассажир ултырҙы»");
     if (r.payload === "done") return appText("«Завершить поездку»", "«Сәфәрҙе тамамлау»");
   }
   if (r.kind === "trip_status") {
@@ -59,7 +60,7 @@ export default function OutboxRefusalBanner() {
     <div className="refusal-banner" role="alert">
       <span className="refusal-banner__text">
         <b>{refusalMark(first, appText)} {appText("— не принято", "— ҡабул ителмәне")}</b>
-        <span>{first.message}</span>
+        <span>{first.message || appText("Открой поездку и проверь её состояние.", "Сәфәрҙе ас һәм торошон тикшер.")}</span>
       </span>
       <span className="refusal-banner__actions">
         <button type="button" className="refusal-banner__btn" onClick={() => { dismissOutboxRefusal(first.key); navigate(`/trip/${first.bookingId}`); }}>
