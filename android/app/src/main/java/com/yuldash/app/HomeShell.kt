@@ -44,12 +44,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.role
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -147,6 +151,28 @@ internal fun YuldashBottomBar(
     selectedTab: HomeTab,
     onSelect: (HomeTab) -> Unit
 ) {
+    val tabs = listOf(
+        Triple(HomeTab.Map, appText("Карта", "Карта"), R.drawable.yu_map_tab),
+        Triple(HomeTab.Rides, appText("Поездки", "Сәфәрҙәр"), R.drawable.yu_trip_list),
+        Triple(HomeTab.Request, appText("Заявка", "Ғариза"), R.drawable.yu_request_add),
+        Triple(HomeTab.Chat, appText("Чат", "Чат"), R.drawable.yu_chat),
+        Triple(HomeTab.Profile, appText("Профиль", "Профиль"), R.drawable.yu_profile),
+    )
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val width = LocalConfiguration.current.screenWidthDp - CanonSpace.xs.value * 2
+    val minWidths = tabs.map { (_, label, _) ->
+        val textWidth = measurer.measure(
+            AnnotatedString(label),
+            style = CanonMicro.copy(fontWeight = FontWeight.Bold),
+            softWrap = false,
+            maxLines = 1,
+        ).size.width
+        maxOf(CanonSpace.huge.value, with(density) { textWidth.toDp().value } + CanonSpace.xs.value)
+    }
+    val equalWidth = width / tabs.size
+    val spare = ((width - minWidths.sum()) / tabs.size).coerceAtLeast(0f)
+    val equalColumns = minWidths.all { it <= equalWidth }
     Surface(
         color = CanonSurface.copy(alpha = 0.98f),
         shape = RoundedCornerShape(topStart = 30.dp, topEnd = 30.dp),
@@ -160,37 +186,16 @@ internal fun YuldashBottomBar(
                 .padding(horizontal = 4.dp, vertical = 4.dp),
             verticalAlignment = Alignment.Top
         ) {
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Map,
-                label = appText("Карта", "Карта"),
-                iconRes = R.drawable.yu_map_tab,
-                onClick = { onSelect(HomeTab.Map) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Rides,
-                label = appText("Поездки", "Сәфәрҙәр"),
-                iconRes = R.drawable.yu_trip_list,
-                onClick = { onSelect(HomeTab.Rides) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Request,
-                label = appText("Заявка", "Ғариза"),
-                iconRes = R.drawable.yu_request_add,
-                onClick = { onSelect(HomeTab.Request) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Chat,
-                label = appText("Чат", "Чат"),
-                iconRes = R.drawable.yu_chat,
-                onClick = { onSelect(HomeTab.Chat) }
-            )
-            YuldashBottomItem(
-                selected = selectedTab == HomeTab.Profile,
-                label = appText("Профиль", "Профиль"),
-                iconRes = R.drawable.yu_profile,
-                onClick = { onSelect(HomeTab.Profile) },
-                badge = NavSignals.payNowDebtKop.value > 0
-            )
+            tabs.forEachIndexed { index, (tab, label, icon) ->
+                YuldashBottomItem(
+                    selected = selectedTab == tab,
+                    label = label,
+                    iconRes = icon,
+                    weight = if (equalColumns) 1f else minWidths[index] + spare,
+                    onClick = { onSelect(tab) },
+                    badge = tab == HomeTab.Profile && NavSignals.payNowDebtKop.value > 0,
+                )
+            }
         }
     }
 }
@@ -200,6 +205,7 @@ private fun RowScope.YuldashBottomItem(
     selected: Boolean,
     label: String,
     iconRes: Int,
+    weight: Float,
     onClick: () -> Unit,
     badge: Boolean = false
 ) {
@@ -211,7 +217,7 @@ private fun RowScope.YuldashBottomItem(
     val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
-            .weight(1f)
+            .weight(weight)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
             .semantics(mergeDescendants = true) { this.selected = selected; role = Role.Tab }
             .padding(vertical = 4.dp),
@@ -256,7 +262,7 @@ private fun RowScope.YuldashBottomItem(
             modifier = Modifier.fillMaxWidth(),
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             textAlign = TextAlign.Center,
-            maxLines = 2,
+            maxLines = 1,
             overflow = TextOverflow.Ellipsis
         )
     }

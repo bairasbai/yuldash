@@ -37,6 +37,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
@@ -200,6 +201,7 @@ import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.alpha
 import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -786,35 +788,52 @@ private fun MapHero(
                 }
             }
         }
-        // Кнопки — отдельный блок ПОД картой (не плавают на ней). Один размер текста, одна высота,
-        // один радиус: пара читается как одна пилюля-действие, зелёная — главная, золотая — вторая.
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-            // `heightIn(min = ...)` вместо жёсткой высоты и две строки вместо одной: при системном
-            // шрифте 1.5× подпись «Мин водитель» обрезалась до «Мин во…», и кнопка переставала
-            // называть своё действие. Теперь она подрастает под текст, а обычный шрифт вёрстку
-            // не меняет — там обе подписи и так в одну строку. Высоты у пары остаются равными:
-            // Row тянет обе кнопки по самой высокой.
-            Button(
-                onClick = { onFind(activeRoute) },
-                modifier = Modifier.weight(1.25f).heightIn(min = 56.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Найти попутку", "Юлдаш табыу"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+        BoxWithConstraints(Modifier.fillMaxWidth()) {
+            val findLabel = appText("Найти попутку", "Юлдаш табыу")
+            val driverLabel = appText("Я водитель", "Мин йөрөтөүсе")
+            val labelStyle = CanonCaption.copy(fontWeight = FontWeight.SemiBold)
+            val measurer = rememberTextMeasurer()
+            val density = LocalDensity.current
+            val iconSize = 20.dp
+            val actionsWidth = maxWidth - CanonSpace.md
+            val iconAndPadding = iconSize + CanonSpace.sm + CanonSpace.xl
+            val findWeight = 1.25f
+            val driverWeight = 0.95f
+            val totalWeight = findWeight + driverWeight
+            val showIcons = listOf(findLabel to findWeight, driverLabel to driverWeight).all { (label, weight) ->
+                val capacity = actionsWidth * (weight / totalWeight) - iconAndPadding
+                label.split(' ').all { word ->
+                    val width = measurer.measure(AnnotatedString(word), style = labelStyle, softWrap = false).size.width
+                    with(density) { width.toDp() } <= capacity
+                }
             }
-            Button(
-                onClick = onDriver,
-                modifier = Modifier.weight(0.95f).heightIn(min = 56.dp),
-                shape = RoundedCornerShape(22.dp),
-                colors = ButtonDefaults.buttonColors(containerColor = CanonGold, contentColor = CanonGoldInk),
-                contentPadding = PaddingValues(horizontal = 12.dp, vertical = 8.dp)
-            ) {
-                Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(20.dp))
-                Spacer(Modifier.width(8.dp))
-                Text(appText("Я водитель", "Мин йөрөтөүсе"), fontWeight = FontWeight.SemiBold, fontSize = 14.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                Button(
+                    onClick = { onFind(activeRoute) },
+                    modifier = Modifier.weight(if (showIcons) findWeight else 1f).heightIn(min = 56.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGreen2),
+                    contentPadding = PaddingValues(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                ) {
+                    if (showIcons) {
+                        Icon(Icons.Default.Search, contentDescription = null, modifier = Modifier.size(iconSize))
+                        Spacer(Modifier.width(CanonSpace.sm))
+                    }
+                    Text(findLabel, style = labelStyle, textAlign = TextAlign.Center)
+                }
+                Button(
+                    onClick = onDriver,
+                    modifier = Modifier.weight(if (showIcons) driverWeight else 1f).heightIn(min = 56.dp),
+                    shape = RoundedCornerShape(22.dp),
+                    colors = ButtonDefaults.buttonColors(containerColor = CanonGold, contentColor = CanonGoldInk),
+                    contentPadding = PaddingValues(horizontal = CanonSpace.md, vertical = CanonSpace.sm),
+                ) {
+                    if (showIcons) {
+                        Icon(Icons.Default.DirectionsCar, contentDescription = null, tint = CanonGoldInk, modifier = Modifier.size(iconSize))
+                        Spacer(Modifier.width(CanonSpace.sm))
+                    }
+                    Text(driverLabel, style = labelStyle, textAlign = TextAlign.Center)
+                }
             }
         }
     }

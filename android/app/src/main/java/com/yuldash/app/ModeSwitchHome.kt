@@ -70,9 +70,12 @@ import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -335,6 +338,17 @@ private fun ModeSwitchBar(
             BoxWithConstraints(Modifier.weight(1f)) {
                 // Ширина одного сегмента известна только здесь — от неё считается сдвиг пилюли.
                 val segW = maxWidth / items.size
+                val measurer = rememberTextMeasurer()
+                val density = LocalDensity.current
+                val showIcons = items.all { (itemMode, _, title) ->
+                    val width = measurer.measure(
+                        AnnotatedString(title),
+                        style = CanonCaption.copy(fontWeight = FontWeight.SemiBold),
+                        softWrap = false,
+                        maxLines = 1,
+                    ).size.width
+                    with(density) { width.toDp() } + modeVehicleWidth(itemMode) + CanonSpace.xs <= segW
+                }
                 val offset by animateDpAsState(segW * index, tween(CanonMotion.NORMAL), label = "mode_pill")
                 // ПОДЛОЖКА выбранного режима. Тонкая рамка цветом режима — не украшение.
                 // Проверка контраста (2026-08-03): подложка и фон контрола — соседние токены,
@@ -368,8 +382,10 @@ private fun ModeSwitchBar(
                             horizontalArrangement = Arrangement.Center,
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            ModeVehicleIcon(iconRes = iconRes, mode = m, active = on)
-                            Spacer(Modifier.width(4.dp))
+                            if (showIcons) {
+                                ModeVehicleIcon(iconRes = iconRes, mode = m, active = on)
+                                Spacer(Modifier.width(CanonSpace.xs))
+                            }
                             Text(
                                 title,
                                 color = if (on) CanonText else CanonMuted,
@@ -432,19 +448,20 @@ private fun ModeSwitchBar(
     }
 }
 
+private fun modeVehicleWidth(mode: RideMode) = when (mode) {
+    RideMode.Pooling -> 34.dp
+    RideMode.Taxi -> 38.dp
+    RideMode.Courier -> 32.dp
+}
+
 @Composable
 private fun ModeVehicleIcon(iconRes: Int, mode: RideMode, active: Boolean) {
-    val width = when (mode) {
-        RideMode.Pooling -> 34.dp
-        RideMode.Taxi -> 38.dp
-        RideMode.Courier -> 32.dp
-    }
     Image(
         painter = painterResource(iconRes),
         contentDescription = null,
         contentScale = ContentScale.Fit,
         modifier = Modifier
-            .width(width)
+            .width(modeVehicleWidth(mode))
             .height(26.dp)
             .alpha(if (active) 1f else 0.78f),
     )
