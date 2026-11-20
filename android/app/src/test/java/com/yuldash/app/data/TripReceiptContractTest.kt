@@ -46,6 +46,29 @@ class TripReceiptContractTest {
         assertEquals("Ургаза → Бурибай",receiptPersonalSegment(parseTripReceiptDto(raw("Ургаза","Бурибай"))))
         assertNull(receiptPersonalSegment(parseTripReceiptDto(raw(" ","Бурибай"))))
     }
+    @Test fun driverSegmentClosesAtTheServerDeadlineMeasuredFromRequestStart() {
+        val body = raw("Ургаза", "Бурибай").put("role", "driver").put("completed_contact_remaining_ms", 3_000)
+        val receipt = parseTripReceiptDto(body, startedElapsedMs = 1_000L)
+
+        assertEquals(4_000L, receipt.completedContactDeadlineElapsedMs)
+        assertEquals("Ургаза → Бурибай", receiptPersonalSegment(receipt, nowElapsedMs = 3_999L))
+        assertNull(receiptPersonalSegment(receipt, nowElapsedMs = 4_000L))
+        assertNull(receiptPersonalSegment(receipt, nowElapsedMs = 4_020L))
+        assertNotEquals(receiptFingerprint(receipt), receiptFingerprint(receipt.copy(completedContactDeadlineElapsedMs = 4_001L)))
+    }
+    @Test fun missingOrInvalidDeadlineHidesOnlyTheDriverSegment() {
+        for (remaining in listOf(JSONObject.NULL, 0, -1, "3000", 3.5, Long.MAX_VALUE)) {
+            val body = raw("Ургаза", "Бурибай").put("role", "driver").put("completed_contact_remaining_ms", remaining)
+            val receipt = parseTripReceiptDto(body, startedElapsedMs = 1_000L)
+            assertNull(receipt.completedContactDeadlineElapsedMs)
+            assertNull(receiptPersonalSegment(receipt, nowElapsedMs = 1_000L))
+            assertEquals("Сибай", receipt.fromCity)
+        }
+        val legacyDriver = parseTripReceiptDto(raw("Ургаза", "Бурибай").put("role", "driver"), startedElapsedMs = 1_000L)
+        assertNull(receiptPersonalSegment(legacyDriver, nowElapsedMs = 1_000L))
+        val passenger = parseTripReceiptDto(raw("Ургаза", "Бурибай"), startedElapsedMs = 1_000L)
+        assertEquals("Ургаза → Бурибай", receiptPersonalSegment(passenger, nowElapsedMs = 9_999L))
+    }
     @Test fun actualApiParsesRawPrivateStopsAndKeepsExistingOwnRatingAndAmount()=runBlocking<Unit> {
         val body=raw("Ургаза","Бурибай").put("ride_id",7).put("amount",300).put("pay_method","cash").put("my_stars",5).put("driver_verified",true)
         server.enqueue(MockResponse().setBody(body.toString()))

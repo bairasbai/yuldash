@@ -38,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import android.os.SystemClock
 import android.widget.Toast
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.rememberUpdatedState
@@ -50,7 +51,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -318,15 +323,41 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
 }
 
 /** Both raw choices must be known; empty means the corresponding parent endpoint. */
-internal fun receiptPersonalSegment(r: TripReceiptDto): String? {
+internal fun receiptPersonalSegment(r: TripReceiptDto, nowElapsedMs: Long = SystemClock.elapsedRealtime()): String? {
+    if (r.role == "driver" && (r.completedContactDeadlineElapsedMs ?: 0L) <= nowElapsedMs) return null
     val pickup = r.pickupStop?.ifEmpty { r.fromCity }?.takeIf(String::isNotBlank) ?: return null
     val dropoff = r.dropoffStop?.ifEmpty { r.toCity }?.takeIf(String::isNotBlank) ?: return null
     return "$pickup → $dropoff"
 }
 
+@Composable
+private fun driverReceiptWindowVisible(deadline: Long?): Boolean {
+    if (deadline == null) return false
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    var visible by remember(deadline, lifecycle) {
+        mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && SystemClock.elapsedRealtime() < deadline)
+    }
+    LaunchedEffect(deadline, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            val remaining = deadline - SystemClock.elapsedRealtime()
+            try {
+                if (remaining > 0L) {
+                    visible = true
+                    delay(remaining)
+                }
+            } finally {
+                visible = false
+            }
+        }
+    }
+    return visible && SystemClock.elapsedRealtime() < deadline
+}
+
 /** Read-only production summary; the instrumentation host exercises this exact component, without network/actions. */
 @Composable
 internal fun ReceiptIdentityCard(r: TripReceiptDto) {
+    val segment = if (r.role != "driver" || driverReceiptWindowVisible(r.completedContactDeadlineElapsedMs))
+        receiptPersonalSegment(r) else null
     Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
         // Шапка «Поездка завершена» — фиксированный ink-зелёный (белый текст читаем в обеих темах).
         Surface(shape = CanonCardShape, color = CanonGreenInk) {
@@ -351,13 +382,13 @@ internal fun ReceiptIdentityCard(r: TripReceiptDto) {
         // Детали
         AppCard {
             Column(Modifier.padding(CanonSpace.xs)) {
-                receiptPersonalSegment(r)?.let { segment ->
+                segment?.let {
                     Column(
                         Modifier.fillMaxWidth().padding(CanonSpace.md),
                         verticalArrangement = Arrangement.spacedBy(CanonSpace.xs),
                     ) {
                         Text(appText("Твой участок", "Һинең юл өлөшөң"), style = CanonCaption, color = CanonMuted)
-                        Text(segment, modifier = Modifier.fillMaxWidth(), style = CanonBodyStrong, color = CanonText)
+                        Text(it, modifier = Modifier.fillMaxWidth(), style = CanonBodyStrong, color = CanonText)
                     }
                     ReceiptDivider()
                 }

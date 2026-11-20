@@ -59,5 +59,5 @@ internal fun receiptFingerprint(value: TripReceiptDto): String = snapshotHash(JS
     value.bookingId, value.rideId, value.role, value.fromCity, value.toCity, value.departAt, value.seats,
     value.amount, value.payMethod, value.paid, value.driverName, value.driverVerified, value.counterpartyName,
     value.myStars, value.myRatingTags, value.counterpartyId, value.problemReportSec, value.canRate,
-    value.pickupStop, value.dropoffStop,
+    value.pickupStop, value.dropoffStop, value.completedContactDeadlineElapsedMs,
 )).toString())

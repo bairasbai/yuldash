@@ -14,10 +14,23 @@ data class TripReceiptDto(
     val myRatingTags: String = "", val counterpartyId: Int = 0, val problemReportSec: Int = 0,  // «Сообщить о проблеме» пассажиру после поездки (PR174)
     val canRate: Boolean = false,   // срок оценки ещё открыт — «Оценить водителя» в квитанции (приёмка 18.10, п.7)
     val pickupStop: String? = null, val dropoffStop: String? = null,
+    val completedContactDeadlineElapsedMs: Long? = null,
 )
 
+private fun driverReceiptContactDeadline(o: JSONObject, startedElapsedMs: Long?): Long? {
+    if (o.optString("role") != "driver") return null
+    val started = startedElapsedMs?.takeIf { it >= 0L } ?: return null
+    val remaining = when (val value = o.opt("completed_contact_remaining_ms")) {
+        is Int -> value.toLong()
+        is Long -> value
+        else -> return null
+    }
+    if (remaining <= 0L || remaining > Long.MAX_VALUE - started) return null
+    return started + remaining
+}
+
 /** Keep raw null / empty / published stop values distinct; legacy is never guessed. */
-internal fun parseTripReceiptDto(o: JSONObject): TripReceiptDto = TripReceiptDto(
+internal fun parseTripReceiptDto(o: JSONObject, startedElapsedMs: Long? = null): TripReceiptDto = TripReceiptDto(
     bookingId = o.optInt("booking_id"),
     rideId = o.optInt("ride_id"),
     role = o.optString("role"),
@@ -36,4 +49,5 @@ internal fun parseTripReceiptDto(o: JSONObject): TripReceiptDto = TripReceiptDto
     canRate = o.optBoolean("can_rate"),
     pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
     dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
+    completedContactDeadlineElapsedMs = driverReceiptContactDeadline(o, startedElapsedMs),
 )

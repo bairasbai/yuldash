@@ -1,10 +1,12 @@
 package com.yuldash.app
 
 import android.app.Application
+import android.os.SystemClock
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
@@ -41,6 +43,31 @@ class ReceiptDriverNameLayoutTest {
     @Test fun normalBashkirUnverifiedName() = verify(AppLanguage.Ba, false, 411, 1f)
     @Test fun reportedNameFitsNarrowRussianReceipt() = verify(AppLanguage.Ru, true, 320, 1.3f, "Тестовый водитель")
     @Test fun reportedNameFitsNarrowBashkirReceipt() = verify(AppLanguage.Ba, true, 320, 1.3f, "Тестовый водитель")
+
+    @Test fun driverReceiptHidesExpiredSegmentAndKeepsTheRideSummary() {
+        val receipt = mutableStateOf(TripReceiptDto(
+            bookingId = 77, rideId = 7, role = "driver",
+            fromCity = "Сибай", toCity = "Акъяр", departAt = "2026-10-18T10:00:00Z",
+            seats = 1, amount = 700, payMethod = "negotiate", paid = false,
+            driverName = "Тестовый водитель", driverVerified = true,
+            pickupStop = "Ургаза", dropoffStop = "Бурибай",
+            completedContactDeadlineElapsedMs = SystemClock.elapsedRealtime() + 60_000L,
+        ))
+        compose.setContent {
+            YuldashTheme {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                    ReceiptIdentityCard(receipt.value)
+                }
+            }
+        }
+        compose.onNodeWithText("Ургаза → Бурибай").assertIsDisplayed()
+        compose.runOnIdle {
+            receipt.value = receipt.value.copy(completedContactDeadlineElapsedMs = SystemClock.elapsedRealtime())
+        }
+        compose.onNodeWithText("Твой участок").assertDoesNotExist()
+        compose.onNodeWithText("Ургаза → Бурибай").assertDoesNotExist()
+        compose.onNodeWithText("Поездка завершена").assertIsDisplayed()
+    }
 
     private fun verify(language: AppLanguage, verified: Boolean, width: Int, fontScale: Float,
         name: String = if (language == AppLanguage.Ru) "Мухаметдинов Александр Рамилевич" else "Мөхәмәтйәров Ғабдулла Йосоп улы") {

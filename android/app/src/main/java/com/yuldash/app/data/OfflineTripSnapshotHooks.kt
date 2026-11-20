@@ -1,6 +1,7 @@
 package com.yuldash.app.data
 
 import android.content.SharedPreferences
+import android.os.SystemClock
 import org.json.JSONObject
 import java.util.UUID
 
@@ -133,8 +134,10 @@ internal object OfflineTripSnapshotHooks {
     suspend fun receipt(bookingId: Int, generation: Long?): Result<TripReceiptDto> {
         prepareRead()
         val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.HISTORY, generation ?: ApiClient.queueSessionGeneration(), OfflineTripSnapshots)
+        // Начало чтения даёт консервативную границу даже при задержке ответа.
+        val startedElapsedMs = SystemClock.elapsedRealtime()
         return ApiClient.readTripSnapshotJson("/trips/$bookingId/receipt", read).mapCatching {
-            parseTripReceiptDto(it).also { value ->
+            parseTripReceiptDto(it, startedElapsedMs).also { value ->
                 require(value.bookingId == bookingId && value.rideId > 0 && value.role in setOf("driver", "passenger"))
             }
         }.onSuccess { value -> read.proof()?.let { OfflineTripSnapshots.acceptHistory(it, value) } }
