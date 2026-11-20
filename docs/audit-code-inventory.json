@@ -6509,8 +6509,8 @@
       "path": "backend/alembic/versions/ck_owner_switches.py",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "d4dca8560f64ff37bfbcaf6d46edbe8b820cfe6f808ff5402a0dc7e0224464dc",
-      "lines": 49
+      "sha256": "38791b8dec6e92ac76ef101178f47bbe41821a53910def1591669dc1ca6fc64c",
+      "lines": 55
     },
     {
       "path": "backend/alembic/versions/cl_refresh_auth_proof.py",
@@ -7293,7 +7293,7 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "2a24f2075a4e35a2396b0e4be0196cc216320a9859ca4f0a4d85d60e80d78f69",
+      "sha256": "149697f5d1eadcfab56ff9425acac50d89d8e2d4d8f75f8e065aabd2858c1f60",
       "lines": 2253
     },
     {
@@ -7419,8 +7419,8 @@
       "path": "backend/app/routers/auth.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "e64aba23a47e4405c250b63b6087de43cd75b0a9f8634d2ca7428ec1f22ba006",
-      "lines": 1603
+      "sha256": "6427ac02b71c5f3ff3b34f48f121499406b9e3e07b67624b5ad1dd6921e39924",
+      "lines": 1609
     },
     {
       "path": "backend/app/routers/bookings.py",
@@ -8658,8 +8658,8 @@
       "path": "backend/tests/test_auth_consumption_atomicity.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "06d5c7a79c7de368a29c9a13477d869d39a48fb85828ab7cd3f4e9ef79040a49",
-      "lines": 411
+      "sha256": "2365d31b57ebc8d4851e232a560dfbee7c450ee178b50497994d4de1307f310c",
+      "lines": 557
     },
     {
       "path": "backend/tests/test_auth_edges.py",
@@ -10114,8 +10114,8 @@
       "path": "backend/tests/test_migration_owner_switches.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "16cd60fdaa0edb24eebdc9504dc126358c2926d7abe77474a3a1d333251a7646",
-      "lines": 169
+      "sha256": "e27adabc4818c16f39ac83211421551907e770345e44c3cb396588f951e2b471",
+      "lines": 176
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
