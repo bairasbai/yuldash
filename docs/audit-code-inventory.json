@@ -80,7 +80,7 @@
   "counts_by_kind": {
     "android_main": 230,
     "backend_main": 112,
-    "infra_resource_config": 419,
+    "infra_resource_config": 420,
     "public_site_promo": 91,
     "pwa_main": 352,
     "test_support": 1325
@@ -95,7 +95,7 @@
     "B07": 144,
     "B08": 219,
     "B09": 779,
-    "B10": 419,
+    "B10": 420,
     "B11": 92
   },
   "excluded_counts": {
@@ -6520,6 +6520,13 @@
       "lines": 26
     },
     {
+      "path": "backend/alembic/versions/cm_auth_epoch.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4ca35bb6e0e4ca065652159afd27d1fa72ab3469ec7e3c87af89f58ecbf6993e",
+      "lines": 26
+    },
+    {
       "path": "backend/alembic/versions/courier_c1.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7286,8 +7293,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "0db2f51c267a8b3f3b57222b7b3e712df33886cdfc18501c254e91c61247e77f",
-      "lines": 2251
+      "sha256": "2a24f2075a4e35a2396b0e4be0196cc216320a9859ca4f0a4d85d60e80d78f69",
+      "lines": 2253
     },
     {
       "path": "backend/app/observability.py",
@@ -7713,8 +7720,8 @@
       "path": "backend/app/security.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "5ee23d175b9580989365772501dfbd335f347926b41e0b12252fe1ec878a43b3",
-      "lines": 578
+      "sha256": "a1eff9c8b2fe23d2e1a9c013443f03aaa78a840f9998eb191fd9c83bf59650d5",
+      "lines": 584
     },
     {
       "path": "backend/app/services.py",
@@ -10107,8 +10114,8 @@
       "path": "backend/tests/test_migration_owner_switches.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "61d32ac471cce7c41d9c8c663d89a41b5e0fbdd25293c5be014174b3da580027",
-      "lines": 130
+      "sha256": "16cd60fdaa0edb24eebdc9504dc126358c2926d7abe77474a3a1d333251a7646",
+      "lines": 169
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
@@ -11087,8 +11094,8 @@
       "path": "backend/tests/test_refresh_replay.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "9780fbecba87a59a91f495e74be72890e90e7e566fdeb705ba5aa9667422565a",
-      "lines": 199
+      "sha256": "ecb005828b3c5a591b1a83b723cf36ec07186b4fdefad756dd2a529226695650",
+      "lines": 272
     },
     {
       "path": "backend/tests/test_refresh_replay_observability.py",
