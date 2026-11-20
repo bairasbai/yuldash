@@ -3662,3 +3662,8 @@ PWA/backend совпадают с принятыми SHA, новых строк 
 ## Android CI — уточнение 19.11.2026 после среза status-20261119
 
 [PR #244](https://github.com/bairasbai/yuldash/pull/244), exact test-only head [df9837536e0b0122273ba76e57bf29ed136f1f96](https://github.com/bairasbai/yuldash/commit/df9837536e0b0122273ba76e57bf29ed136f1f96): [CI 44620713457](https://github.com/bairasbai/yuldash/actions/runs/44620713457) completed/success, 6/6 jobs, включая Android unit. По сверке координатором лога OfflineTripParentAuthorityTest — 50/50, прежний timeout не повторился. Это уточняет прежнюю запись «правка теста не подтверждена запуском Gradle»: теперь есть CI на указанном кандидате. При сверке PR открыт как draft и не слит; продуктовый код не менялся. Результат не доказывает единственную причину старого отказа, native/UI приёмку или готовность всего приложения. Исторический отказ на cea341ba сохраняется как исходное наблюдение.
+
+
+## Android CI — push main на 30bdbda, 19–20.11.2026 UTC
+
+Отдельный [push-прогон main 44621624820](https://github.com/bairasbai/yuldash/actions/runs/44621624820) на точном [30bdbda6c084c4159652b1b4eb85ea6e7d2db659](https://github.com/bairasbai/yuldash/commit/30bdbda6c084c4159652b1b4eb85ea6e7d2db659) завершён: **6/6 jobs success**. В [логе Android unit](https://github.com/bairasbai/yuldash/actions/runs/44621624820/job/135904519881) сверены checkout того же SHA и результаты: `OfflineTripParentAuthorityTest` **50/50**, `ActiveTripPassengerContactsTest` **29/29**. Это проверка конкретного дерева main, отдельно от CI чернового PR #244 и исторических отказов. Она не доказывает причину прежних сбоев, стабильность при повторе или готовность native/UI и выпуска.
