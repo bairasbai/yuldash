@@ -405,7 +405,8 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
     # и обещать неизменность значит обещать то, чего мы не держим (решение Александра).
     est["price_locked_sec"] = 0 if когда is not None else price_freeze.remember(
         isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
-        body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
+        body.category, car_class.dump_options(body.options), bool(body.round_trip), est,
+        waypoints=[w.model_dump() for w in body.waypoints])
     # Потолок доли скидки — от той же базы, что спишет сам заказ (цена МИНУС компенсации
     # водителю: подача издалека, кресло, зимняя дорога), иначе оценка ДО «Заказать» обещает
     # скидку больше, чем потом спишется (аудит leaf-1.3, B-1).
@@ -441,7 +442,8 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     # платит старую, подешевело — новую (app/price_freeze.py).
     est = price_freeze.apply(
         isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
-        body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
+        body.category, car_class.dump_options(body.options), bool(body.round_trip), est,
+        waypoints=[w.model_dump() for w in body.waypoints])
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
     # Лочим строку пассажира → два одновременных POST сериализуются: первый создаёт заказ,
     # второй под локом видит existing и возвращает его (без row-lock оба проходили SELECT→INSERT).
