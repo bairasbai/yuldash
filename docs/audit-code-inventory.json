@@ -80,10 +80,10 @@
   "counts_by_kind": {
     "android_main": 230,
     "backend_main": 112,
-    "infra_resource_config": 417,
+    "infra_resource_config": 418,
     "public_site_promo": 91,
     "pwa_main": 352,
-    "test_support": 1324
+    "test_support": 1325
   },
   "counts_by_block": {
     "B01": 171,
@@ -94,8 +94,8 @@
     "B06": 103,
     "B07": 144,
     "B08": 219,
-    "B09": 778,
-    "B10": 417,
+    "B09": 779,
+    "B10": 418,
     "B11": 92
   },
   "excluded_counts": {
@@ -6506,6 +6506,13 @@
       "lines": 33
     },
     {
+      "path": "backend/alembic/versions/ck_owner_switches.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "d4dca8560f64ff37bfbcaf6d46edbe8b820cfe6f808ff5402a0dc7e0224464dc",
+      "lines": 49
+    },
+    {
       "path": "backend/alembic/versions/courier_c1.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7013,8 +7020,8 @@
       "path": "backend/app/account.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "ed232a2ece7c6b26e7f83c51438e9bcf487ea494400394c1657828032a1f0d78",
-      "lines": 828
+      "sha256": "89f102f72f7ccfc839b38d3cd8bfe87b955c0ae9dd979eac4660136ff1a352a8",
+      "lines": 832
     },
     {
       "path": "backend/app/ads_expire.py",
@@ -7076,8 +7083,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7c3dfc25dcbabaad69db5dd3c7ac7f4c20ab251c812981be9f9988d79fcd9e1d",
-      "lines": 1025
+      "sha256": "b79c9bda640d774d58e855e839a6d6dec77550a2ada751e769a0e1f0887404cc",
+      "lines": 1027
     },
     {
       "path": "backend/app/collusion.py",
@@ -7272,8 +7279,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7cb987a944cc6214c175e594a5f7b27e2fdf310dac787ce6c1bef8050c12738e",
-      "lines": 2226
+      "sha256": "87413f9fb42ff7b430770e6306cb3ba5a67c624a42d2156ce9bfb60dd7780439",
+      "lines": 2249
     },
     {
       "path": "backend/app/observability.py",
@@ -8371,8 +8378,8 @@
       "path": "backend/tests/test_account_deletion.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "8e57760f27e13dd787139cb2e42033a1e70d2577d38091f7e3bf38bf0135a164",
-      "lines": 393
+      "sha256": "cae76ee5a91d8f020e5a70fd1b555dfceae2863e8c22b94b878b8f001a30caed",
+      "lines": 400
     },
     {
       "path": "backend/tests/test_account_deletion_bound_offer.py",
@@ -10088,6 +10095,13 @@
       "block": "B09",
       "sha256": "f08ac6c1289d22c35ba4dce230075b4a3d954d1478e557c735475600a7b720d8",
       "lines": 92
+    },
+    {
+      "path": "backend/tests/test_migration_owner_switches.py",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "68c270b4e6f37029a4cd2e997d13ba8421505a391de7f90fb7a96133db26bc2e",
+      "lines": 86
     },
     {
       "path": "backend/tests/test_migrations_match_the_models.py",
