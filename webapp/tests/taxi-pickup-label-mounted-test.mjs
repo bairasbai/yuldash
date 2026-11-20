@@ -75,7 +75,7 @@ async function run() {
       interceptors: [requestInterceptor(request => deny(`resource ${request.url}`))],
     },
   });
-  for (const key of ['window', 'document', 'navigator', 'location', 'localStorage', 'sessionStorage', 'HTMLElement', 'Node', 'Event', 'MouseEvent']) {
+  for (const key of ['window', 'document', 'navigator', 'location', 'localStorage', 'sessionStorage', 'HTMLElement', 'Element', 'Node', 'Event', 'MouseEvent']) {
     Object.defineProperty(globalThis, key, { value: dom.window[key], configurable: true });
   }
   // All transport entrypoints are fenced before importing the application bundle.
@@ -148,6 +148,9 @@ async function run() {
       case '/config/features': return response({ taxi: true, rides: true });
       case '/instant/orders/mine': return response([{ ...payload }]);
       case '/instant/orders/18': return response({ ...payload });
+      // Full-sheet ShareTripCard mount reads only; no sharing writes allowed.
+      case '/trusted-contacts': return response([]);
+      case '/instant/orders/18/shares': return response([]);
       case '/instant/availability': return response({ enabled: true });
       default: return deny(`${method} ${parsed.pathname}`);
     }
@@ -212,8 +215,9 @@ async function run() {
         assert.equal(title.textContent, lang === 'ru' ? 'В пути' : 'Юлда');
         assert.equal(subtitle?.textContent, lang === 'ru' ? 'Хорошей дороги 🌿' : 'Юлың уң булһын 🌿');
       } else {
-        // Existing arriving title is a known copy boundary, intentionally not fixed here.
-        assert.equal(title.textContent, lang === 'ru' ? 'Водитель едет к тебе' : 'Йөрөтөүсе һиңә килә');
+        assert.equal(title.textContent, status === 'arriving'
+          ? (lang === 'ru' ? 'Машина на месте' : 'Машина урынында')
+          : (lang === 'ru' ? 'Водитель едет к тебе' : 'Йөрөтөүсе һиңә килә'));
         assert.equal(subtitle?.textContent?.trim() || '', '', 'No invented numeric pickup subtitle (neither trip137 nor offer3)');
         assert.doesNotMatch(head.textContent, /(?:137|211|3|NaN)\s*мин/);
       }
@@ -239,6 +243,49 @@ async function run() {
           verify(status, lang, `${lang}/${status}/${missing ? 'missing-ETA' : 'polled-trip211'}`);
         }
       }
+    }
+    // One live mounted screen per language: polling changes phases, not root.render.
+    for (const lang of ['ru', 'ba']) {
+      if (root) { await app.act(async () => root.unmount()); root = null; }
+      language = lang;
+      payload = { ...base, status: 'accepted', waiting_started_at: null, wait_free_min: 5 };
+      await app.setSession(`synthetic-${lang}-phase-sequence`, 'synthetic-refresh');
+      await app.saveLanguage(lang);
+      await app.act(async () => { root = app.createRoot(document.getElementById('root')); root.render(app.tree()); });
+      await settle();
+      const initialHeader = header();
+      const poll = async () => {
+        const before = calls.filter(call => call.path === '/instant/orders/18').length;
+        await app.act(async () => { for (const callback of [...intervals.values()]) callback(); });
+        await settle();
+        assert.ok(calls.filter(call => call.path === '/instant/orders/18').length > before);
+        assert.equal(header(), initialHeader, 'Same mounted tracking header through polling');
+      };
+      verify('accepted', lang, `${lang}/sequence/accepted`);
+      await app.act(async () => document.querySelector('.taxi-sheet__grip').click());
+      await settle();
+      assert.equal(document.querySelector('.taxi-sheet-scaffold').dataset.stop, 'full');
+      assert.ok(document.querySelector('.trip-actions'), 'Actual full-sheet children mounted');
+      assert.equal(document.querySelector('.wait-counter'), null, 'No waiting counter without a server start');
+      payload = { ...payload, status: 'arriving' };
+      await poll();
+      verify('arriving', lang, `${lang}/sequence/arriving-no-wait`);
+      assert.equal(document.querySelector('.wait-counter'), null);
+      // Current synthetic server timestamp, not historical/fixed countdown seconds.
+      payload = { ...payload, waiting_started_at: new Date().toISOString() };
+      await poll();
+      verify('arriving', lang, `${lang}/sequence/arriving-running-wait`);
+      check(`${lang}/full-sheet/free-window`, () => {
+        const counter = document.querySelector('.wait-counter');
+        assert.ok(counter);
+        assert.equal(counter.classList.contains('wait-counter--paid'), false);
+        assert.ok(counter.textContent.startsWith(lang === 'ru' ? 'Бесплатное ожидание ' : 'Бушлай көтөү '));
+        assert.equal(header().querySelector('.wait-counter'), null, 'Waiting is not pickup ETA');
+      });
+      payload = { ...payload, status: 'onboard', waiting_started_at: null };
+      await poll();
+      verify('onboard', lang, `${lang}/sequence/onboard`);
+      assert.equal(document.querySelector('.wait-counter'), null);
     }
     assert.deepEqual(forbidden, [], 'No swallowed forbidden transport');
     assert.ok(calls.filter(call => call.path.startsWith('/instant/')).every(call => call.method === 'GET'), 'No order mutations');
