@@ -2266,7 +2266,11 @@ private fun InstantDestinationPicker(
     var womenOnly by rememberSaveable { mutableStateOf(false) }
     // Остановки по пути: «заедем за мамой», «в аптеку». Смысл в том, что за них платят —
     // иначе водитель везёт лишние километры даром, а пассажир не понимает, почему цена та же.
-    var stops by remember { mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList()) }
+    val stopDraftOwner = ApiClient.myUserId()
+    val stopDraftSaver = remember(stopDraftOwner, generation) { taxiStopDraftSaver(stopDraftOwner, generation) }
+    var stops by rememberSaveable(stopDraftOwner, generation, saver = stopDraftSaver) {
+        mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList())
+    }
     var addingStop by remember { mutableStateOf(false) }
     // Круговой рейс: «отвези и привези обратно». Доступен только на межгороде — решает сервер.
     var roundTrip by rememberSaveable { mutableStateOf(false) }
@@ -3130,6 +3134,7 @@ private fun InstantDestinationPicker(
                                             ApiClient.runIfCurrentSession(generation) {
                                                 if (isCurrentAction()) {
                                                     ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
+                                                    stops = emptyList()
                                                     onScheduled(it)
                                                 }
                                             }
@@ -3155,6 +3160,7 @@ private fun InstantDestinationPicker(
                                             ApiClient.runIfCurrentSession(generation) {
                                                 if (isCurrentAction()) {
                                                     ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
+                                                    stops = emptyList()
                                                     onOrderCreated(it)
                                                 }
                                             }
