@@ -79,15 +79,15 @@
   },
   "counts_by_kind": {
     "android_main": 239,
-    "backend_main": 120,
+    "backend_main": 121,
     "infra_resource_config": 428,
     "public_site_promo": 91,
     "pwa_main": 356,
-    "test_support": 1336
+    "test_support": 1337
   },
   "counts_by_block": {
     "B01": 175,
-    "B02": 346,
+    "B02": 348,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -7563,6 +7563,13 @@
       "lines": 323
     },
     {
+      "path": "backend/app/rideshare_bank_provider.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "eb2217a54c7a13cb998020411510f02db2432fa55d7752c3283dbca0eabcf0db",
+      "lines": 268
+    },
+    {
       "path": "backend/app/routers/__init__.py",
       "kind": "backend_main",
       "block": "B09",
@@ -11614,6 +11621,13 @@
       "block": "B02",
       "sha256": "2b7fd740e733cedaffc52667586ca9887f85a28809ab066e1733716eace9f7d0",
       "lines": 101
+    },
+    {
+      "path": "backend/tests/test_rideshare_bank_provider.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "b883435c8c1d0a0dc9fbbc0817871a14b70a7e93a050c2193eb984a167b51672",
+      "lines": 178
     },
     {
       "path": "backend/tests/test_rideshare_card_switch.py",
