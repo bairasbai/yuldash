@@ -632,3 +632,11 @@ Main/deploy/CI не затрагивались. Ни один из этих пу
 Дополнительно опубликован [5064caf4fc7a0ba4476f52beb1e1dfe87b03d130](https://github.com/bairasbai/yuldash/commit/5064caf4fc7a0ba4476f52beb1e1dfe87b03d130): изолированный quote-smoke контракт и девять офлайн-проверок. Это не живой Locust/server/load run; создание заказа исключено из этого сценария, внешние провайдеры и серверная изоляция остаются отдельными условиями будущего запуска. Quote не объявляется read-only.
 
 Main во время сверки уже указывает на 30bdbda6c084c4159652b1b4eb85ea6e7d2db659; прежние записи ecfc6aa/cea341ba сохраняют исторический смысл. В ходе этой журнальной работы main, продукт, PR и CI не изменялись и не запускались. Приватные артефакты и сведения не опубликованы.
+
+
+### 20.11.2026 — Отдельные зелёные прогоны main и черновика #245
+
+- [Push CI 44621624820](https://github.com/bairasbai/yuldash/actions/runs/44621624820) завершился **6/6** на точном main [30bdbda](https://github.com/bairasbai/yuldash/commit/30bdbda6c084c4159652b1b4eb85ea6e7d2db659). Сверены checkout и итог Android unit: `OfflineTripParentAuthorityTest` 50/50, `ActiveTripPassengerContactsTest` 29/29. Подтверждение на этом дереве отдельно от CI чернового #244, записано в [каноническом реестре 0d3838a](https://github.com/bairasbai/yuldash/commit/0d3838aaba22e807a250fa55ecc0b4b21f727cef). Прежние отказы остаются историческими наблюдениями; их причины этим прогоном не установлены.
+- [PR #245](https://github.com/bairasbai/yuldash/pull/245) на [88cb746](https://github.com/bairasbai/yuldash/commit/88cb74670a92d6efb89004ede883d29454d5c64a) открыт как draft, не слит. Узкий diff затрагивает только обработчик чата и тест потерянных вещей. [CI 44622462630](https://github.com/bairasbai/yuldash/actions/runs/44622462630) на этом SHA: **6/6**. Это результат CI черновика, не доказательство слияния или готовности выпуска.
+
+Во время журнальной сверки main, PR и продукт не менялись, новые прогоны и выкладка не запускались.
