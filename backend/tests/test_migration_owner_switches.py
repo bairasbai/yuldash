@@ -8,7 +8,7 @@ from sqlalchemy import inspect, text
 from sqlmodel import Session, create_engine, select
 
 from app.db import engine
-from app.models import AppSetting, AppSettingChange, AuthSession, RefreshToken, User, UserRole
+from app.models import AppSetting, AppSettingChange, AuthSession, OtpBudgetBucket, OtpCode, RefreshToken, User, UserRole
 from app.timeutil import utcnow
 from test_migrations_match_the_models import _config
 
@@ -29,6 +29,54 @@ def _isolated_database(tmp_path, monkeypatch, pg_env, sqlite_file):
         url = f"sqlite:///{(tmp_path / sqlite_file).as_posix()}"
     monkeypatch.setenv("DATABASE_URL", url)
     return create_engine(url, hide_parameters=True), _config(url)
+
+
+def test_sms_budget_migration_preserves_history_and_expires_verifiers_on_rollback(tmp_path, monkeypatch):
+    db, config = _isolated_database(
+        tmp_path, monkeypatch, "YULDASH_SMS_BUDGET_MIGRATION_DB", "sms-budget.sqlite3",
+    )
+    previous, target = "cn_admin_telegram_cutover", "co_sms_budget"
+    now = utcnow()
+    deadline = now + timedelta(minutes=10)
+    phone = "+79990001049"
+    try:
+        assert not inspect(db).get_table_names()
+        command.upgrade(config, target)
+        with Session(db) as session:
+            member = User(phone=phone)
+            session.add(member)
+            session.commit()
+            session.refresh(member)
+            member_id = member.id
+        command.downgrade(config, previous)
+        with db.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO otpcode (phone, code, attempts, created_at, expires_at) "
+                "VALUES (:phone, '112233', 4, :now, :deadline)"
+            ), {"phone": phone, "now": now, "deadline": deadline})
+
+        command.upgrade(config, target)
+        with Session(db) as session:
+            history = session.exec(select(OtpCode).where(OtpCode.phone == phone)).one()
+            assert history.code == "" and history.attempts == 4
+            assert history.expires_at < deadline and history.channel == "sms"
+            session.add(OtpCode(phone=phone, code="a" * 64, expires_at=deadline, attempt_id="synthetic-reservation"))
+            session.add(OtpBudgetBucket(scope="service_day", subject="global", window_start=0, used=1,
+                                        cap=300, version=1, updated_at=now))
+            session.commit()
+        command.downgrade(config, previous)
+        assert "otpbudgetbucket" not in inspect(db).get_table_names()
+        with db.connect() as connection:
+            assert connection.execute(text(
+                "SELECT COUNT(*) FROM otpcode WHERE code = '' AND expires_at < :deadline"
+            ), {"deadline": deadline}).scalar_one() == 2
+        command.upgrade(config, target)
+        with Session(db) as session:
+            assert session.get(User, member_id).phone == phone
+            assert len(session.exec(select(OtpCode).where(OtpCode.phone == phone)).all()) == 2
+            assert not session.exec(select(OtpBudgetBucket)).all()
+    finally:
+        db.dispose()
 
 
 def test_admin_cutover_revokes_existing_admin_sessions_and_never_restores_them(tmp_path, monkeypatch):

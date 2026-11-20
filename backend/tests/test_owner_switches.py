@@ -15,6 +15,7 @@ from app.config import settings
 from app.db import engine
 from app.main import app
 from app.models import AppSetting, AppSettingChange, OtpCode, User, UserRole
+from app.otp_budget import SmsDelivery
 from app.owner_switches import LOGIN_KEYS
 from app.routers import admin_switches, auth
 from app.timeutil import utcnow
@@ -78,7 +79,7 @@ def test_switches_show_state_and_require_telegram_operator(client, user_factory,
     assert client.post(SMS_PATH, headers=passenger["auth"], json={"value": False}).status_code == 403
     assert _state(client, admin) == {
         "stored": None, "effective": True, "blockers": [], "updated_at": None,
-        "updated_by_name": None, "history": [],
+        "updated_by_name": None, "history": [], "in_flight": 0,
     }
     assert client.get("/config/login-methods").json()["methods"] == ["sms", "telegram"]
     denied = client.post("/admin/switches/login.telegram", headers=admin["auth"], json={"value": False})
@@ -189,6 +190,7 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
     active_pids, sent = {}, []
     raw_settings = login_methods.login_settings
     raw_view = admin_switches._switch_view
+    reserve = auth.reserve_sms
 
     def track(name, session, lock):
         if lock:
@@ -196,12 +198,17 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
             entered[name].set()
         return raw_settings(session, lock=lock)
 
-    def synthetic_send(number, _code):
+    def synthetic_send(number, _code, *, lang, provider_key):
         assert number == phone
         sent.append(number)
+        return SmsDelivery.SENT
+
+    def hold_reservation(*args):
+        admission = reserve(*args)
         if first == "send":
             held.set()
             assert release.wait(10)
+        return admission
 
     def hold_off_commit(session, row):
         if first == "off":
@@ -212,6 +219,7 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
     monkeypatch.setattr(login_methods, "login_settings", lambda session, *, lock=None: track("send", session, lock))
     monkeypatch.setattr(admin_switches, "login_settings", lambda session, *, lock=None: track("off", session, lock))
     monkeypatch.setattr(auth, "send_sms", synthetic_send)
+    monkeypatch.setattr(auth, "reserve_sms", hold_reservation)
     monkeypatch.setattr(admin_switches, "_switch_view", hold_off_commit)
     work = {
         "send": lambda: _post("POST", "/auth/request-code", body={"phone": phone}),
@@ -230,6 +238,35 @@ def test_sms_issue_and_switch_off_share_row_locks(client, user_factory, monkeypa
         assert responses["off"].result(timeout=10).status_code == 200
         assert responses["send"].result(timeout=10).status_code == (200 if first == "send" else 403)
     assert sent == ([phone] if first == "send" else [])
+
+
+@PG_ONLY
+def test_sms_switch_off_completes_while_admitted_provider_is_in_flight(client, user_factory, monkeypatch):
+    admin = user_factory(role=UserRole.admin)
+    entered, release = Event(), Event()
+    sent = []
+
+    def synthetic_send(phone, _code, *, lang, provider_key):
+        sent.append(phone)
+        entered.set()
+        assert release.wait(10)
+        return SmsDelivery.SENT
+
+    monkeypatch.setattr(auth, "send_sms", synthetic_send)
+    phone = "+79990102039"
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        issued = pool.submit(_post, "POST", "/auth/request-code", body={"phone": phone})
+        try:
+            assert entered.wait(8)
+            switch = pool.submit(_post, "POST", SMS_PATH, admin["auth"], {"value": False, "confirm": True})
+            disabled = switch.result(timeout=8)
+            assert disabled.status_code == 200
+            assert disabled.json()["effective"] is False and disabled.json()["in_flight"] == 1
+            assert client.post("/auth/request-code", json={"phone": "+79990102040"}).status_code == 403
+        finally:
+            release.set()
+        assert issued.result(timeout=8).status_code == 200
+    assert sent == [phone] and _state(client, admin)["in_flight"] == 0
 
 
 @PG_ONLY

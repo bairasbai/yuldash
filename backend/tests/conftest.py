@@ -65,7 +65,7 @@ os.environ["NIGHT_K_DEFAULT"] = "1.0"
 # включают её себе обратно и задают время явно — так и должно быть: что проверяем, тем и управляем.
 os.environ["QUIET_HOURS_TO"] = "0"
 
-from datetime import date  # noqa: E402
+from datetime import date, timedelta  # noqa: E402
 import sqlite3  # noqa: E402
 
 from fastapi.testclient import TestClient  # noqa: E402
@@ -97,6 +97,38 @@ def _sqlite_foreign_keys_on(dbapi_connection, _record):
 def client():
     with TestClient(app) as c:   # триггерит lifespan → init_db
         yield c
+
+
+@pytest.fixture(autouse=True)
+def isolate_sms_test_peer(monkeypatch, request):
+    """The shared ASGI TestClient is a separate synthetic peer for each test."""
+    from hashlib import sha256
+    from app.routers import auth
+
+    peer = int.from_bytes(sha256(request.node.nodeid.encode()).digest()[:4], "big")
+    address = f"fd00::{peer >> 16:x}:{peer & 65535:x}"
+    original = auth._sms_peer
+
+    def test_peer(incoming):
+        current = original(incoming)
+        return address if current == "testclient" else current
+
+    monkeypatch.setattr(auth, "_sms_peer", test_peer)
+
+
+@pytest.fixture
+def sms_retry_elapsed(monkeypatch):
+    """Advance SMS admission across the resend boundary in tests with sequential logins."""
+    from app import otp_budget
+
+    elapsed = timedelta()
+
+    def advance():
+        nonlocal elapsed
+        elapsed += timedelta(seconds=otp_budget.RESEND_SECONDS)
+        monkeypatch.setattr(otp_budget, "utcnow", lambda: utcnow() + elapsed)
+
+    return advance
 
 
 @pytest.fixture

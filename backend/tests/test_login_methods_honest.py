@@ -92,7 +92,7 @@ def test_store_review_login_survives_disabled_sms(client, monkeypatch):
     monkeypatch.setattr(settings, "review_code", "424242")
     response = client.post("/auth/request-code", json={"phone": settings.review_phone})
     assert response.status_code == 200, response.text
-    assert response.json() == {"sent": True}
+    assert response.json() == {"sent": True, "resend_after_sec": 60, "expires_in_sec": settings.otp_ttl_sec}
     verified = client.post("/auth/verify", json={"phone": settings.review_phone, "code": "424242"})
     assert verified.status_code == 200, verified.text
     assert verified.json()["user"]["is_reviewer"] is True
@@ -109,14 +109,12 @@ def test_retired_callbacks_stay_closed_when_future_channels_are_enabled(client, 
 
 
 def test_enabled_provider_failure_is_not_reported_as_disabled(client, monkeypatch):
-    from app.errors import herr
+    from app.otp_budget import SmsDelivery
     _configure(monkeypatch, env="dev", provider="mock")
-    def unavailable(*args):
-        raise herr(503, "Не удалось отправить код", "Код ебәреп булманы")
-    monkeypatch.setattr(auth, "send_sms", unavailable)
+    monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.FAILED)
     response = client.post("/auth/request-code", json={"phone": "+79990019903"})
-    assert response.status_code == 503
-    assert "code" not in response.json()["detail"]
+    assert response.status_code == 502
+    assert response.json()["detail"]["code"] == "sms_delivery_failed"
     with Session(engine) as session:
         live = session.exec(select(OtpCode).where(
             OtpCode.phone == "+79990019903", OtpCode.expires_at > utcnow(),

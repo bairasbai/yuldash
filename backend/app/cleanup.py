@@ -136,7 +136,8 @@ KEEP_FOREVER = {
 # Но SQL строится f-строкой по имени таблицы, поэтому явно ограничиваем набор — страховка от
 # будущей правки, где в table случайно попадёт внешнее значение (см. review-plan 2026-07-03, P3).
 _ALLOWED_TABLES = frozenset({
-    "message", "otpcode", "tgauth", "uploadevent", "refreshtoken", "adevent", "offerdecline",
+    "message", "otpcode", "tgauth", "otpbudgetbucket", "otpsendattempt", "otpbudgetalert",
+    "uploadevent", "refreshtoken", "adevent", "offerdecline",
     "drivercancel",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
@@ -158,6 +159,9 @@ def _rules(now):
         # --- Фаза 1: эфемерное (безопасно, основной объём) ---
         ("сообщения чата >30д", "message", "created_at < :c", {"c": cut(MSG_DAYS)}),
         ("коды входа (OTP) >1д", "otpcode", "created_at < :c", {"c": cut(OTP_DAYS)}),
+        ("попытки отправки SMS >2д", "otpsendattempt", "created_at < :c", {"c": cut(2)}),
+        ("счётчики отправки SMS >3д", "otpbudgetbucket", "updated_at < :c", {"c": cut(3)}),
+        ("метки лимита SMS >2д", "otpbudgetalert", "created_at < :c", {"c": cut(2)}),
         ("telegram-сессии >1д", "tgauth", "created_at < :c", {"c": cut(TG_DAYS)}),
         ("события загрузок >2д", "uploadevent", "created_at < :c", {"c": cut(UPLOAD_DAYS)}),
         ("протухшие refresh-токены",

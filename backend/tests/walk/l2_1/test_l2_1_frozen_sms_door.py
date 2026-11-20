@@ -21,10 +21,13 @@ from __future__ import annotations
 from datetime import timedelta
 
 from sqlmodel import Session, select
+from fastapi.testclient import TestClient
 
 from app.config import settings
 from app.db import engine
+from app.main import app
 from app.models import OtpCode
+from app.otp_budget import SmsDelivery
 from app.routers import auth
 from app.timeutil import utcnow
 
@@ -136,24 +139,13 @@ def test_request_code_itself_is_blocked_once_the_daily_budget_is_spent(client):
 
 
 def test_failed_sends_still_count_toward_the_per_minute_issuance_throttle(client, monkeypatch):
-    """Срочная правка P2: пока канал заморожен, каждая неудачная отправка раньше НЕ попадала
-    в throttle «≤3 кода в минуту» (строка целиком откатывалась) — запрос кода можно было
-    слать сколько угодно раз подряд, не встречая throttle вовсе."""
+    """Подтверждённый отказ сохраняет минутную паузу для номера."""
     phone = "+79995550007"
-    # RS-01: выключенный канал не пробуют отправлять. Здесь именно сбой ВКЛЮЧЁННОГО
-    # канала: он должен по-прежнему расходовать бюджет попыток, но не оставлять живой код.
-    def unavailable(*args, **kwargs):
-        from fastapi import HTTPException
-        raise HTTPException(503, "synthetic provider unavailable")
-    monkeypatch.setattr(auth, "send_sms", unavailable)
-    for _ in range(3):
-        r = client.post("/auth/request-code", json={"phone": phone})
-        assert r.status_code == 503, r.text
-    fourth = client.post("/auth/request-code", json={"phone": phone})
-    assert fourth.status_code == 429, (
-        f"неудачные отправки не считаются в throttle «3 кода в минуту»: "
-        f"{fourth.status_code} {fourth.text}"
-    )
+    monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.FAILED)
+    assert client.post("/auth/request-code", json={"phone": phone}).status_code == 502
+    repeated = client.post("/auth/request-code", json={"phone": phone})
+    assert repeated.status_code == 429
+    assert repeated.json()["detail"]["code"] == "otp_rate_limited"
 
 
 def test_admin_phone_has_a_lower_daily_failure_budget(client, monkeypatch):
@@ -192,42 +184,32 @@ def test_a_non_admin_phone_keeps_the_general_budget(client, monkeypatch):
     )
 
 
-def test_no_live_code_is_visible_to_other_connections_while_send_sms_is_in_flight(client, monkeypatch):
-    """Правка ведущего: раньше код коммитился ДО send_sms — пока sms.ru отвечает (до 10с у
-    реального провайдера), код уже лежал в базе ЖИВЫМ и доступным для чужого соединения
-    (а лок номера уже снят тем же commit'ом). Проверяем ровно это: пока send_sms выполняется,
-    ДРУГОЕ соединение не должно видеть код этой попытки вовсе — он должен быть виден только
-    после commit, который наступает ПОСЛЕ успешной отправки."""
+def test_verify_refuses_reserved_sms_while_provider_is_in_flight(client, monkeypatch):
+    """Проверка кода через отдельное соединение возможна после результата отправки."""
     phone = "+79995550012"
     seen = {}
 
-    def fake_send_sms(p, code):
-        with Session(engine) as other_connection:
-            seen["live_during_send"] = other_connection.exec(select(OtpCode).where(
-                OtpCode.phone == p, OtpCode.code != "", OtpCode.expires_at > utcnow(),
-            )).all()
-        # Отправку не рвём — проверяем срез СРЕДИ выполнения, а не факт сбоя.
+    def fake_send_sms(p, code, *, lang, provider_key):
+        requester = TestClient(app)
+        try:
+            seen["verify"] = requester.post("/auth/verify", json={"phone": p, "code": code})
+        finally:
+            requester.close()
+        return SmsDelivery.SENT
 
     monkeypatch.setattr(auth, "send_sms", fake_send_sms)
     r = client.post("/auth/request-code", json={"phone": phone})
     assert r.status_code == 200, r.text
-    assert "live_during_send" in seen, "подменённый send_sms не был вызван — тест ничего не проверил"
-    assert seen["live_during_send"] == [], (
-        f"код был виден ДРУГОМУ соединению ещё ДО подтверждения отправки: {seen['live_during_send']}"
-    )
+    assert seen["verify"].status_code == 400
+    assert client.post("/auth/verify", json={"phone": phone, "code": r.json()["dev_code"]}).status_code == 200
 
 
 def test_failed_send_leaves_only_a_dead_record_for_throttle_accounting(client, monkeypatch):
-    """Правка ведущего: после отката несостоявшегося кода throttle/суточный бюджет не должны
-    ослепнуть — остаётся ОТДЕЛЬНАЯ, заведомо мёртвая запись (пустой код, уже истёкшая), а не
-    часть исходной (живой) строки."""
+    """При подтверждённом отказе проверяем, что история сохранилась, а код погашен."""
     phone = "+79995550013"
-    def unavailable(*args, **kwargs):
-        from fastapi import HTTPException
-        raise HTTPException(503, "synthetic provider unavailable")
-    monkeypatch.setattr(auth, "send_sms", unavailable)
+    monkeypatch.setattr(auth, "send_sms", lambda *args, **kwargs: SmsDelivery.FAILED)
     r = client.post("/auth/request-code", json={"phone": phone})
-    assert r.status_code == 503, r.text
+    assert r.status_code == 502, r.text
     with Session(engine) as s:
         rows = s.exec(select(OtpCode).where(OtpCode.phone == phone)).all()
         assert len(rows) == 1, f"ожидали ровно одну (мёртвую) запись-учётчик попытки: {rows}"

@@ -24,7 +24,7 @@ def _auth(access_token: str) -> dict[str, str]:
     return {"Authorization": f"Bearer {access_token}"}
 
 
-def test_new_login_does_not_revive_access_token_revoked_by_logout(client):
+def test_new_login_does_not_revive_access_token_revoked_by_logout(client, sms_retry_elapsed):
     phone = "+79990000101"
     first_login = _login(client, phone)
     old_auth = _auth(first_login["access_token"])
@@ -34,6 +34,7 @@ def test_new_login_does_not_revive_access_token_revoked_by_logout(client):
     assert logout_response.status_code == 200, logout_response.text
     assert client.get("/me", headers=old_auth).status_code == 401
 
+    sms_retry_elapsed()
     second_login = _login(client, phone)
     new_auth = _auth(second_login["access_token"])
     assert client.get("/me", headers=new_auth).status_code == 200

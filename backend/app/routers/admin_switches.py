@@ -1,6 +1,6 @@
 """Operator access to the login settings and their change history."""
 
-from datetime import timezone
+from datetime import timedelta, timezone
 
 from fastapi import APIRouter, Depends
 from fastapi.security import HTTPAuthorizationCredentials
@@ -12,7 +12,7 @@ from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
-from ..models import AppSetting, AppSettingChange, User, UserRole
+from ..models import AppSetting, AppSettingChange, OtpSendAttempt, User, UserRole
 from ..owner_switches import LOGIN_KEYS, login_settings, login_state, require_complete_login_settings
 from ..security import bearer, lock_authenticated_user, normalize_phone, require_telegram_admin
 from ..timeutil import utcnow
@@ -35,7 +35,7 @@ def _switch_view(session: Session, row: AppSetting) -> dict:
         .where(AppSettingChange.key == row.key)
         .order_by(AppSettingChange.created_at.desc(), AppSettingChange.id.desc()).limit(50)
     ).all()
-    return {
+    view = {
         "stored": state.stored,
         "effective": state.effective,
         "blockers": list(state.blockers),
@@ -50,6 +50,12 @@ def _switch_view(session: Session, row: AppSetting) -> dict:
             for change, name in changes
         ],
     }
+    if row.key == "login.sms":
+        view["in_flight"] = session.exec(select(func.count()).select_from(OtpSendAttempt).where(
+            OtpSendAttempt.state == "reserved",
+            OtpSendAttempt.created_at > utcnow() - timedelta(seconds=settings.otp_ttl_sec),
+        )).one()
+    return view
 
 
 def _accounts_losing_login(session: Session, telegram_effective: bool) -> int:

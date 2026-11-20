@@ -1,4 +1,4 @@
-from pydantic import field_validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
@@ -37,6 +37,8 @@ class Settings(BaseSettings):
     access_expire_min: int = 60 * 12   # access-токен живёт 12ч (было 7 дней — ужали окно кражи ~14x; refresh молча обновляет)
     refresh_expire_days: int = 90          # refresh-токен живёт 90 дней (ротируется при каждом refresh)
     otp_ttl_sec: int = 300              # код жив 5 минут
+    sms_daily_cap: int = Field(default=300, ge=1)
+    sms_budget_hmac_key: str = ""        # отдельный стабильный ключ лимитов SMS
     sms_provider: str = "mock"          # mock | smsru | smsdar
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
     sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)

@@ -183,6 +183,36 @@ class OtpCode(SQLModel, table=True):
     attempts: int = 0                                              # попыток ввода (защита от перебора)
     created_at: datetime = Field(default_factory=utcnow)  # для throttle запросов кода
     expires_at: datetime
+    channel: str = "sms"
+    ip_hash: Optional[str] = Field(default=None, index=True, max_length=64)
+    device_hash: Optional[str] = Field(default=None, index=True, max_length=64)
+    attempt_id: Optional[str] = Field(default=None, index=True, unique=True, max_length=36)
+
+
+class OtpBudgetBucket(SQLModel, table=True):
+    scope: str = Field(primary_key=True, max_length=24)
+    subject: str = Field(primary_key=True, max_length=64)
+    window_start: int = Field(primary_key=True, sa_type=BigInteger)
+    used: int
+    cap: int
+    version: int
+    updated_at: datetime
+    next_allowed_at: Optional[datetime] = None
+
+
+class OtpSendAttempt(SQLModel, table=True):
+    id: str = Field(primary_key=True, max_length=36)
+    provider_idempotency_key: str = Field(unique=True, max_length=48)
+    state: str = Field(default="reserved", max_length=8)
+    bucket_keys: list = Field(sa_column=Column(JSON, nullable=False))
+    created_at: datetime = Field(index=True)
+    updated_at: datetime
+
+
+class OtpBudgetAlert(SQLModel, table=True):
+    service_day: int = Field(primary_key=True, sa_type=BigInteger)
+    kind: str = Field(primary_key=True, max_length=24)
+    created_at: datetime
 
 
 class DeviceToken(SQLModel, table=True):

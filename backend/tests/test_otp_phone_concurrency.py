@@ -12,6 +12,7 @@ from app import login_methods
 from app.db import engine
 from app.main import app
 from app.models import OtpCode, RefreshToken, User
+from app.otp_budget import SmsDelivery
 from app.routers import auth
 from app.timeutil import utcnow
 
@@ -108,7 +109,7 @@ def test_parallel_wrong_codes_cannot_cross_phone_wide_budget(client, monkeypatch
 
 
 @pytest.mark.parametrize("requests", [4, 8])
-def test_parallel_code_issuance_sends_at_most_three_sms_per_minute(client, monkeypatch, requests):
+def test_parallel_code_issuance_sends_at_most_one_sms_per_minute(client, monkeypatch, requests):
     phone = _phone()
     ready = threading.Barrier(requests)
     original = login_methods.login_settings
@@ -122,15 +123,19 @@ def test_parallel_code_issuance_sends_at_most_three_sms_per_minute(client, monke
         return original(session, lock=lock)
 
     monkeypatch.setattr(login_methods, "login_settings", lock_after_all_requests_arrive)
-    monkeypatch.setattr(auth, "send_sms", lambda *a, **kw: sent.append("synthetic SMS"))
+    def synthetic_send(_phone, _code, *, lang, provider_key):
+        sent.append(provider_key)
+        return SmsDelivery.SENT
+
+    monkeypatch.setattr(auth, "send_sms", synthetic_send)
     with ThreadPoolExecutor(max_workers=requests) as pool:
         results = list(pool.map(lambda i: _post("/auth/request-code", {
             "phone": _phone_variant(phone, i)}), range(requests)))
     statuses = [r.status_code for r in results]
     rows = _rows(phone)
-    assert len(rows) == 3, f"phone throttle was exceeded: rows={len(rows)}, HTTP={statuses}, SMS={len(sent)}"
-    assert len(sent) == 3
-    assert statuses.count(200) == 3 and statuses.count(429) == requests - 3
+    assert len(rows) == 1, f"phone throttle was exceeded: rows={len(rows)}, HTTP={statuses}, SMS={len(sent)}"
+    assert len(sent) == 1
+    assert statuses.count(200) == 1 and statuses.count(429) == requests - 1
     with Session(engine) as session:
         assert session.exec(select(User).where(User.phone == phone)).first() is None
 
