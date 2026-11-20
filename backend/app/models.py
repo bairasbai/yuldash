@@ -168,6 +168,8 @@ class RefreshToken(SQLModel, table=True):
     revoked: bool = False
     rotation_id_hash: Optional[str] = None
     rotated_at: Optional[datetime] = None
+    auth_method: str = Field(default="legacy", max_length=12, sa_column_kwargs={"server_default": "legacy"})
+    auth_time: Optional[datetime] = None
     expires_at: datetime
     created_at: datetime = Field(default_factory=utcnow)
 

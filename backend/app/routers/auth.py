@@ -323,15 +323,17 @@ def _set_user_phone(session: Session, user: User, phone: str, *, commit: bool = 
 
 
 def _complete_login(session: Session, user: User, device_id: str, *,
-                    promote_admin: bool = True, released_user_id: int | None = None,
+                    auth_method: str, promote_admin: bool = True, released_user_id: int | None = None,
                     review_session: bool = False):
     """Одна запись аккаунта, кода и ключей; вторичные сигналы после commit."""
+    auth_time = utcnow() if auth_method != "legacy" else None
     user = lock_refresh_user(session, user.id)
     event = _maybe_promote_admin(session, user, log_action=False) if promote_admin else None
     new_device = remember_login_device(session, user, device_id, commit=False, notify=False)
     record_login_consents(session, user.id, commit=False)
     uid, phone = user.id, user.phone
-    tokens = issue_tokens(session, uid, review_session=review_session)
+    tokens = issue_tokens(session, uid, review_session=review_session,
+                          auth_method=auth_method, auth_time=auth_time)
     session.refresh(user)
     response_user = user.model_dump()
     secondary = []
@@ -480,7 +482,8 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
         session.flush()
         # НЕ вызываем _maybe_promote_admin: ревьюер — всегда обычный пассажир без прав,
         # даже если этот номер случайно совпал со списком админов.
-        return _complete_login(session, user, x_device_id, promote_admin=False, review_session=True)
+        return _complete_login(session, user, x_device_id, auth_method="legacy",
+                               promote_admin=False, review_session=True)
     refuse_disabled("sms")
     _lock_otp_phone(session, body.phone)
     _guard_otp_daily_budget(session, body.phone)
@@ -552,7 +555,7 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
             if user is None:
                 raise
         session.refresh(user)
-    return _complete_login(session, user, x_device_id, released_user_id=released_user_id)
+    return _complete_login(session, user, x_device_id, auth_method="sms", released_user_id=released_user_id)
 
 
 # ==================== TELEGRAM-ВХОД (бот, код подтверждения) ====================
@@ -998,7 +1001,7 @@ def _verify_telegram_login(body: TgVerifyIn, session: Session, x_device_id: str)
         raise herr(403, "Для безопасности нужен номер телефона. Поделись им в Telegram и введи код ещё раз.",
                    "Хәүефһеҙлек өсөн телефон номеры кәрәк. Уны Telegram-да ебәр ҙә кодты яңынан индер.",
                    code="phone_required")
-    return _complete_login(session, user, x_device_id, released_user_id=released_user_id)
+    return _complete_login(session, user, x_device_id, auth_method="telegram", released_user_id=released_user_id)
 
 
 class RefreshIn(BaseModel):

@@ -7,7 +7,7 @@ from sqlalchemy import inspect, text
 from sqlmodel import Session, create_engine, select
 
 from app.db import engine
-from app.models import AppSetting, AppSettingChange, User, UserRole
+from app.models import AppSetting, AppSettingChange, AuthSession, RefreshToken, User, UserRole
 from app.timeutil import utcnow
 from test_migrations_match_the_models import _config
 
@@ -17,19 +17,23 @@ CURRENT = "ck_owner_switches"
 LOGIN_KEYS = {"login.sms", "login.telegram", "login.vk", "login.whatsapp"}
 
 
-def test_owner_switch_migration_preserves_existing_values_and_old_users(tmp_path, monkeypatch):
-    database = os.environ.get("YULDASH_OWNER_SWITCH_MIGRATION_DB")
+def _isolated_database(tmp_path, monkeypatch, pg_env, sqlite_file):
+    database = os.environ.get(pg_env)
     if database:
         assert engine.dialect.name == "postgresql"
         assert engine.url.host in {"127.0.0.1", "localhost", "::1"} and not engine.url.query
         assert engine.url.database != database
         url = engine.url.set(database=database).render_as_string(hide_password=False)
     else:
-        url = f"sqlite:///{(tmp_path / 'owner-switches.sqlite3').as_posix()}"
+        url = f"sqlite:///{(tmp_path / sqlite_file).as_posix()}"
     monkeypatch.setenv("DATABASE_URL", url)
-    config = _config(url)
-    db = create_engine(url, hide_parameters=True)
+    return create_engine(url, hide_parameters=True), _config(url)
 
+
+def test_owner_switch_migration_preserves_existing_values_and_old_users(tmp_path, monkeypatch):
+    db, config = _isolated_database(
+        tmp_path, monkeypatch, "YULDASH_OWNER_SWITCH_MIGRATION_DB", "owner-switches.sqlite3",
+    )
     try:
         assert not inspect(db).get_table_names()
         command.upgrade(config, CURRENT)
@@ -82,5 +86,45 @@ def test_owner_switch_migration_preserves_existing_values_and_old_users(tmp_path
             assert {state.key for state in states} == LOGIN_KEYS
             assert all(state.value is None for state in states)
             assert not session.exec(select(AppSettingChange)).all()
+    finally:
+        db.dispose()
+
+
+def test_refresh_proof_migration_never_infers_provenance_for_an_old_session(tmp_path, monkeypatch):
+    db, config = _isolated_database(
+        tmp_path, monkeypatch, "YULDASH_AUTH_PROOF_MIGRATION_DB", "refresh-auth-proof.sqlite3",
+    )
+    target = "cl_refresh_auth_proof"
+    try:
+        assert not inspect(db).get_table_names()
+        command.upgrade(config, target)
+        command.downgrade(config, CURRENT)
+        columns = {column["name"] for column in inspect(db).get_columns("refreshtoken")}
+        assert {"auth_method", "auth_time"}.isdisjoint(columns)
+        login_id = "qa-legacy-login"
+        with Session(db) as session:
+            account = User(phone="+79990001043", role=UserRole.admin)
+            session.add(account)
+            session.flush()
+            owner_id = account.id
+            session.add(AuthSession(id=login_id, user_id=owner_id))
+            session.flush()
+            session.execute(text(
+                "INSERT INTO refreshtoken (user_id, token_hash, auth_session_id, revoked, expires_at, created_at) "
+                "VALUES (:owner, 'fixture-old-refresh-hash', :sid, false, :now, :now)"
+            ), {"owner": owner_id, "sid": login_id, "now": utcnow()})
+            session.commit()
+
+        for run in range(2):
+            command.upgrade(config, target)
+            with Session(db) as session:
+                token = session.exec(select(RefreshToken)).one()
+                assert (token.user_id, token.auth_session_id, token.auth_method, token.auth_time, token.revoked) == (
+                    owner_id, login_id, "legacy", None, False,
+                )
+            if run == 0:
+                command.downgrade(config, CURRENT)
+                columns = {column["name"] for column in inspect(db).get_columns("refreshtoken")}
+                assert {"auth_method", "auth_time"}.isdisjoint(columns)
     finally:
         db.dispose()

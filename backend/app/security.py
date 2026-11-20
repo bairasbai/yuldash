@@ -3,7 +3,7 @@ import hmac
 import re
 import secrets
 import string
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import Depends, HTTPException, Request, status
@@ -111,9 +111,19 @@ def normalize_guardian_phone(raw: str) -> str | None:
     return phone if SMS_PHONE_RE.fullmatch(phone) else None
 
 
+def _validate_auth_proof(method: str, auth_time: Optional[datetime], review_session: bool) -> None:
+    if method == "legacy" and auth_time is None:
+        return
+    if (review_session or method not in ("sms", "telegram") or auth_time is None
+            or auth_time.tzinfo is not None or auth_time > utcnow()):
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
+
+
 def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
-               auth_session: Optional[AuthSession] = None) -> str:
+               auth_session: Optional[AuthSession] = None, auth_method: str = "legacy",
+               auth_time: Optional[datetime] = None) -> str:
     """Короткоживущий access-токен (JWT)."""
+    _validate_auth_proof(auth_method, auth_time, review_session)
     now = utcnow()
     if issued_after is not None and now <= issued_after:
         # Logout отзывает всё с iat <= tokens_valid_from. Часы могут вернуть тот же момент
@@ -125,6 +135,9 @@ def make_token(user_id: int, *, issued_after=None, review_session: bool = False,
     # (часы Windows дают одинаковое значение соседним вызовам) защищает явная выдача
     # строго после сохранённой границы + нестрогое сравнение в _token_revoked.
     payload = {"sub": str(user_id), "iat": now.timestamp(), "exp": exp}
+    if auth_time is not None:
+        payload["amr"] = auth_method
+        payload["auth_time"] = int(auth_time.replace(tzinfo=timezone.utc).timestamp())
     if auth_session is not None:
         payload["sid"] = auth_session.id
         auth_session.access_expires_at = max(auth_session.access_expires_at, exp)
@@ -155,7 +168,8 @@ def _active_auth_session(session: Session, user_id: int, session_id: str) -> Opt
     return None
 
 
-def _session_pair(session: Session, user: User, login: AuthSession, refresh: str, review_session: bool) -> dict:
+def _session_pair(session: Session, user: User, login: AuthSession, refresh: str, review_session: bool,
+                  *, auth_method: str, auth_time: Optional[datetime]) -> dict:
     # A stable ticket is reproducible after a lost rotation reply. Persist its hash so
     # already issued tickets keep working if the JWT signing key is changed later.
     mac = hmac.new(settings.jwt_secret.encode(), b"auth-session-logout-v1\x00" + login.id.encode(),
@@ -165,7 +179,7 @@ def _session_pair(session: Session, user: User, login: AuthSession, refresh: str
     if digest not in login.logout_hashes:
         login.logout_hashes = [*login.logout_hashes, digest]
     access = make_token(user.id, issued_after=user.tokens_valid_from, review_session=review_session,
-                        auth_session=login)
+                        auth_session=login, auth_method=auth_method, auth_time=auth_time)
     session.add(login)
     return {
         "access_token": access,
@@ -177,11 +191,13 @@ def _session_pair(session: Session, user: User, login: AuthSession, refresh: str
 
 
 def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] = None,
-                 review_session: bool = False, auth_session_id: Optional[str] = None) -> dict:
+                 review_session: bool = False, auth_session_id: Optional[str] = None,
+                 auth_method: str = "legacy", auth_time: Optional[datetime] = None) -> dict:
     """Выдать пару access+refresh. Refresh — непрозрачный, в БД лежит ХЕШ.
 
     Граница последнего logout остаётся навсегда: иначе новый вход оживит все старые
     access-токены. Новую пару выпускаем строго после этой границы."""
+    _validate_auth_proof(auth_method, auth_time, review_session)
     user = lock_refresh_user(session, user_id)
     if user is None or (review_session and user.role != UserRole.passenger):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
@@ -199,9 +215,11 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
         raw = _REVIEW_REFRESH_PREFIX + raw
     session.add(RefreshToken(
         user_id=user_id, token_hash=_hash_refresh(raw), auth_session_id=login.id,
+        auth_method=auth_method, auth_time=auth_time,
         expires_at=utcnow() + timedelta(days=settings.refresh_expire_days),
     ))
-    pair = _session_pair(session, user, login, raw, review_session)
+    pair = _session_pair(session, user, login, raw, review_session,
+                         auth_method=auth_method, auth_time=auth_time)
     session.commit()
     return pair
 
@@ -251,6 +269,9 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             or (review_session and owner.role != UserRole.passenger)):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    _validate_auth_proof(rt.auth_method, rt.auth_time, review_session)
+    if rt.auth_time is not None and rt.auth_session_id is None:
+        raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
     # Бан устройства — вторая половина проверки (волна 204). Первая стоит в роутере и читает
     # заголовок `X-Device-Id`; но заголовок шлёт КЛИЕНТ, и забаненному достаточно перестать
     # его слать. Поэтому смотрим ещё и на аппарат, который сервер запомнил сам при входе
@@ -311,7 +332,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
                 or (owner.tokens_valid_from is not None and rt.rotated_at <= owner.tokens_valid_from)):
             raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
-        if rt.auth_session_id and rt.auth_session_id != child.auth_session_id:
+        if ((rt.auth_session_id and rt.auth_session_id != child.auth_session_id)
+                or (rt.auth_method, rt.auth_time) != (child.auth_method, child.auth_time)):
             raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
         try:
             login = (_active_auth_session(session, owner.id, child.auth_session_id) if child.auth_session_id
@@ -324,7 +346,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
                 rt.auth_session_id = child.auth_session_id = login.id
                 session.add(rt)
                 session.add(child)
-            pair = _session_pair(session, owner, login, child_raw, review_session)
+            pair = _session_pair(session, owner, login, child_raw, review_session,
+                                 auth_method=child.auth_method, auth_time=child.auth_time)
             session.commit()
             return pair
         except Exception:
@@ -353,7 +376,8 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
         successor = _recovery_token(raw, rotation_id) if rotation_id else None
         return issue_tokens(session, rt.user_id, refresh_raw=successor,
-                            review_session=review_session, auth_session_id=login_id)
+                            review_session=review_session, auth_session_id=login_id,
+                            auth_method=rt.auth_method, auth_time=rt.auth_time)
     except Exception:
         session.rollback()
         raise

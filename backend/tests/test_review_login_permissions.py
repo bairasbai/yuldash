@@ -14,7 +14,7 @@ from app.main import app
 from app.models import (
     Consent, DeviceToken, DriverProfile, RefreshToken, TgAuth, TrustedContact, User, UserRole,
 )
-from app.security import _hash_refresh, make_token
+from app.security import _decode, _hash_refresh, make_token
 from app.timeutil import utcnow
 from app.routers import auth
 
@@ -137,6 +137,9 @@ def test_normal_passenger_store_review_stays_passenger(client, monkeypatch):
     assert result.json()["user"]["id"] == user_id
     assert result.json()["user"]["role"] == "passenger"
     assert result.json()["user"]["is_reviewer"] is True
+    claims = _decode(result.json()["access_token"])
+    assert claims["review_session"] is True
+    assert "amr" not in claims and "auth_time" not in claims
     assert client.get("/admin/bans", headers={"Authorization": "Bearer " + result.json()["access_token"]}).status_code == 403
     after = _snapshot(user_id)
     assert after["User"]["role"] == UserRole.passenger

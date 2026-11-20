@@ -34,6 +34,8 @@ def test_same_attempt_recovers_one_child_without_extending_window(client, issued
     second = rotate(client, raw)
     assert second.status_code == 200, second.text
     assert second.json()['refresh_token'] == first.json()['refresh_token']
+    claims = security._decode(second.json()['access_token'])
+    assert 'amr' not in claims and 'auth_time' not in claims
     assert client.get('/me', headers={'Authorization': 'Bearer ' + second.json()['access_token']}).status_code == 200
     with Session(engine) as session:
         rows = session.exec(select(RefreshToken).where(RefreshToken.user_id == user['id'])).all()
@@ -43,6 +45,38 @@ def test_same_attempt_recovers_one_child_without_extending_window(client, issued
         assert parent.rotation_id_hash == security._hash_refresh(NONCE)
         assert sum(not r.revoked for r in rows) == 1
         assert {row.id: row.expires_at for row in rows} == expiry_before
+
+@pytest.mark.parametrize(("method", "time_offset"), [
+    ("legacy", -60), ("sms", None), ("unknown", -60), ("telegram", 60),
+])
+def test_refresh_refuses_invalid_auth_proof_without_burning_the_token(client, issued, method, time_offset):
+    user, raw = issued
+    with Session(engine) as session:
+        row = session.exec(select(RefreshToken).where(RefreshToken.user_id == user["id"])).one()
+        row.auth_method = method
+        row.auth_time = None if time_offset is None else utcnow() + timedelta(seconds=time_offset)
+        session.commit()
+    assert rotate(client, raw).status_code == 401
+    with Session(engine) as session:
+        row = session.exec(select(RefreshToken).where(RefreshToken.user_id == user["id"])).one()
+        assert not row.revoked
+
+
+@pytest.mark.parametrize("changed_field", ["auth_method", "auth_time"])
+def test_recovery_refuses_a_child_with_different_auth_proof(client, user_factory, changed_field):
+    user = user_factory("Verified refresh")
+    auth_time = utcnow() - timedelta(seconds=10)
+    with Session(engine) as session:
+        raw = security.issue_tokens(session, user["id"], auth_method="sms", auth_time=auth_time)["refresh_token"]
+    first = rotate(client, raw)
+    assert first.status_code == 200
+    child_hash = security._hash_refresh(first.json()["refresh_token"])
+    with Session(engine) as session:
+        child = session.exec(select(RefreshToken).where(RefreshToken.token_hash == child_hash)).one()
+        setattr(child, changed_field, "telegram" if changed_field == "auth_method" else auth_time + timedelta(seconds=1))
+        session.commit()
+    assert rotate(client, raw).status_code == 401
+
 
 @pytest.mark.parametrize('nonce', [None, 'b2' * 32])
 def test_other_attempt_cannot_recover(client, issued, nonce):

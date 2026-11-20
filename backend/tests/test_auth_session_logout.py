@@ -120,6 +120,8 @@ def test_valid_legacy_refresh_replay_binds_both_rows_without_extending_expiry(cl
     assert response.status_code == 200
     pair = response.json()
     assert pair["refresh_token"] == successor
+    claims = security._decode(pair["access_token"])
+    assert "amr" not in claims and "auth_time" not in claims
     with Session(engine) as session:
         rows = session.exec(select(RefreshToken).where(RefreshToken.user_id == user["id"])).all()
         assert len(rows) == 2
