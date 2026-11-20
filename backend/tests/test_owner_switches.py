@@ -138,6 +138,20 @@ def test_last_working_method_cannot_be_disabled(client, user_factory, monkeypatc
     assert _state(client, admin)["effective"] is True
 
 
+def test_repeat_stored_choice_keeps_history_when_channel_becomes_blocked(client, user_factory, monkeypatch):
+    admin = user_factory(role=UserRole.admin)
+    enabled = client.post(SMS_PATH, headers=admin["auth"], json={"value": True})
+    assert enabled.status_code == 200 and enabled.json()["effective"] is True
+    monkeypatch.setattr(settings, "sms_provider", "smsru")
+    monkeypatch.setattr(settings, "sms_ru_api_id", "synthetic-key")
+    repeated = client.post(SMS_PATH, headers=admin["auth"], json={"value": True})
+    assert repeated.status_code == 200
+    state = repeated.json()
+    assert state["stored"] is True and state["effective"] is False
+    assert state["blockers"] == ["sms_atomic_budget_pending"]
+    assert state["history"] == enabled.json()["history"]
+
+
 def test_setting_and_history_roll_back_together(client, user_factory, monkeypatch):
     admin = user_factory(role=UserRole.admin)
     original = admin_switches._switch_view

@@ -87,11 +87,11 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
     if key == "login.telegram" and not body.value:
         raise herr(409, "Telegram нужен для входа администратора.",
                    "Администратор инеү өсөн Telegram кәрәк.", code="switch_telegram_required")
+    if body.value == row.value:
+        return _switch_view(session, row)
     if body.value and state.blockers:
         raise herr(409, "Этот способ входа ещё не готов.", "Был инеү ысулы әле әҙер түгел.",
                    code="switch_blocked", blockers=list(state.blockers))
-    if body.value == row.value:
-        return _switch_view(session, row)
     if not body.value and state.effective:
         other_enabled = any(login_state(other, rows[other]).effective for other in LOGIN_KEYS if other != key)
         if not other_enabled:
