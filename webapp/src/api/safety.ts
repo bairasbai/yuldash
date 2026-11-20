@@ -232,10 +232,14 @@ export interface SafetyPolicy {
   strikes_to_limit: number;
   strikes_to_suspend: number;
   strike_decay_days: number;
+  late_cancel_before_min?: number;
+  no_show_wait_min?: number;
+  boarding_undo_min?: number;
+  problem_report_hours?: number;
 }
 
 export function fetchSafetyPolicy(signal?: AbortSignal): Promise<SafetyPolicy> {
-  return apiGet<SafetyPolicy>("/safety/policy", { signal });
+  return apiGet<SafetyPolicy>("/safety/policy", { auth: false, signal });
 }
 
 /**

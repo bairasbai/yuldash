@@ -31,6 +31,7 @@ import { frontSeatState } from "../utils/seatOptions";
 import { initialSegment, keepDropoffAfterPickup, routePlaces, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 import { MeetingPointPicker } from "./MeetingPointPicker";
+import { BookingScamTip, BookingTerms } from "./BookingTerms";
 import { loadFilters } from "../filterPrefs";
 
 export default function RideSheet({
@@ -119,6 +120,8 @@ export default function RideSheet({
   const choiceConflict = frontSeatConflict || minorConflict || travelerConflict;
   const canRetry = !command?.forAnother || retryInput !== null;
   const available = seatsOnSpan(eff, pickupStop, dropoffStop) ?? eff.seats_left;
+  const showBookingTerms = !parcelCategory && !ownBooking && !unresolved && !conflictBookingId &&
+    (!recoveredBooking || canRebook) && available > 0;
   const perSeat = segmentPriceRub(eff, pickupStop, dropoffStop) ?? eff.price;
   useEffect(() => {
     mounted.current = true;
@@ -507,6 +510,8 @@ export default function RideSheet({
           </p>
         </>}
 
+        {showBookingTerms && <BookingTerms />}
+
         {!retryInput && <FrontSeatChoice
           ride={eff}
           ownBooking={ownBooking}
@@ -664,6 +669,9 @@ export default function RideSheet({
           </div>
         )}
 
+        {showBookingTerms && user?.books !== true && (
+          <BookingScamTip key={JSON.stringify([owner?.userId, ownerGeneration])} owner={owner} />
+        )}
         {(!unresolved || canRetry || ownBooking) && !conflictBookingId && <button
           type="button"
           className="btn-primary sheet__cta"

@@ -13,6 +13,7 @@ import { reportStorageFailure } from "./storageHealth";
 // ================================================================
 
 export const SEARCH_HISTORY_KEY = "yuldash.searchHistory";
+export const SCAM_TIP_SEEN_KEY = "yuldash.scamTipSeen";
 
 /** Ключи одного человека — уходят вместе с ним. */
 const PERSONAL_KEYS = [
@@ -21,6 +22,7 @@ const PERSONAL_KEYS = [
   "yuldash.consents", // согласия 152-ФЗ: их даёт человек, а не телефон
   "yuldash.role", // пассажир/водитель — роль этого человека
   SEARCH_HISTORY_KEY, // последние выбранные маршруты
+  SCAM_TIP_SEEN_KEY, // отметка о подсказке перед бронью в текущей сессии
   "yuldash.filterPrefs", // маршруты, которые он ищет: куда ездит — личное
   "yuldash.taxi.activeOrder", // номер его заказа такси
   "yuldash.push.web.enabled", // привязка уведомлений к его подписке

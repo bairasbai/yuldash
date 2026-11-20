@@ -711,7 +711,10 @@ def user_trust(user_id: int, user: User = Depends(current_user), session: Sessio
 
 @router.get("/safety/policy")
 def safety_policy():
-    """Пороги лестницы «Справедливость» — клиент показывает их из сервера, не хардкодит."""
+    """Действующие пороги справедливости и сроки попутки для клиентов."""
+    from .bookings import BOARDING_UNDO_WINDOW, NO_SHOW_WAIT
+    from ..visibility import PROBLEM_REPORT_WINDOW
+
     return {
         "strikes_to_limit": settings.safety_strikes_to_limit,
         "strikes_to_suspend": settings.safety_strikes_to_suspend,
@@ -719,4 +722,8 @@ def safety_policy():
         "suspend_2_days": settings.safety_suspend_2_days,
         "suspend_3_days": settings.safety_suspend_3_days,
         "strike_decay_days": settings.safety_strike_decay_days,
+        "late_cancel_before_min": settings.safety_late_cancel_before_depart_min,
+        "no_show_wait_min": int(NO_SHOW_WAIT.total_seconds() // 60),
+        "boarding_undo_min": int(BOARDING_UNDO_WINDOW.total_seconds() // 60),
+        "problem_report_hours": int(PROBLEM_REPORT_WINDOW.total_seconds() // 3600),
     }

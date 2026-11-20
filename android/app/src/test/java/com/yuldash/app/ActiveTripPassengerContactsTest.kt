@@ -254,6 +254,7 @@ class ActiveTripPassengerContactsTest {
     }
 
     @Test fun activePassengerSeesOwnAlightingSeparateFromPickup() {
+        val alightingLabel = "Место высадки"
         alightingNote = "У синих ворот после моста"
         openScreen()
         compose.waitUntil(15000) {
@@ -261,7 +262,8 @@ class ActiveTripPassengerContactsTest {
             requests.contains("GET /bookings/42/details") && runCatching { scrollTo(alightingNote) }.isSuccess
         }
         compose.onNodeWithText(alightingNote).assertIsDisplayed()
-        compose.onNodeWithText("Место высадки").assertIsDisplayed()
+        scrollTo(alightingLabel)
+        compose.onNodeWithText(alightingLabel).assertIsDisplayed()
         scrollTo(pickup)
         compose.onNodeWithText(pickup).assertIsDisplayed()
     }

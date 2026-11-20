@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Статус | не начато |
+| Статус | в работе частями |
 | Ждёт «да» Александра | да — только часть Б: миграция (таблица способов оплаты водителя). Условия и предупреждение — нет: правила отмены не меняются, денег через приложение нет |
 | Зависит от | RS-01 (`herr(..., code=)`, честные тексты оплаты) |
 | Не параллельно с | RS-01–RS-06, RS-08–RS-15 — по общим файлам (индекс, «Очередь по общим файлам») |
@@ -12,6 +12,8 @@
 | Зона файлов | сервер: `routers/incidents.py`, `routers/bookings.py`, `routers/drivers.py`, `models.py`, `schemas.py`, `services.py`, `cleanup.py`, `account.py`, новая миграция, `tests/test_rs07_*.py`; Android: `BookingActiveTripScreen.kt`, `BookingSeatCount.kt`, новый `BookingTermsCard.kt`, `ProfileScreen.kt`, `Domain.kt`, `MainActivity.kt` (1 строка), `data/ApiClient.kt`, `data/BookingDtos.kt`, `data/SessionKeys.kt`, тесты; сайт: `RideSheet.tsx`, новый `components/BookingTerms.tsx`, `ActiveTripScreen.tsx`, `BookingScreen.tsx`, `HelpScreen.tsx`, `DriverCabinetScreen.tsx`, `api/rides.ts`, `api/safety.ts`, `api/bookings.ts`, `utils/privacy.ts`, `webapp/tests/booking-cancel-reason-test.mjs`, новый `webapp/tests/booking-terms-test.mjs`, `webapp/tests/run.mjs` (строка); мозг: `docs/tasks.md`, `docs/decisions.md` |
 | Источник | исследование: `c5be55a:docs/research/apps/master/part-001.md` п. 8, 19, 20; `c5be55a:docs/research/apps/continuation/part-027.md` «ScamDisclaimer»; `c5be55a:docs/research/apps/continuation/part-022.md` «причина отмены», «сумма перед отменой»; решения 24.10 (Q5, Q17.6) |
 | Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
+
+Пакет на 20.11.2026 охватывает публичные сроки и пояснения в шторке PWA, предупреждение перед бронью и локальную отметку. Выбор способов оплаты, дополнительные проверки отмены и Android остаются отдельными задачами. [Текущий план](../../tasks.md#rs-07а--условия-и-предупреждение-перед-бронью-в-pwa)
 
 ## 1. Что получит человек
 **Было.** Айгуль из Ургазы бронирует место до Сибая. Видны водитель, машина, цена и «Итого», но не видно, как
