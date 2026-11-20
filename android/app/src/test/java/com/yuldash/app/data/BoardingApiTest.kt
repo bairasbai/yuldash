@@ -87,6 +87,17 @@ class BoardingApiTest {
         assertEquals(0, parseDriverBookingDto(JSONObject("""{"booking_id":5}""")).boardingUndoSec)
     }
 
+    @Test fun completedCabinetRowsHaveSeparateContactDeadlines() {
+        val first = JSONObject().put("booking_id", 5).put("status", "done")
+            .put("completed_contact_remaining_ms", 2_000)
+        val second = JSONObject().put("booking_id", 6).put("status", "done")
+            .put("completed_contact_remaining_ms", 12_000)
+        assertEquals(3_000L, parseDriverBookingDto(first, startedElapsedMs = 1_000L).completedContactDeadlineElapsedMs)
+        assertEquals(13_000L, parseDriverBookingDto(second, startedElapsedMs = 1_000L).completedContactDeadlineElapsedMs)
+        assertNull(parseDriverBookingDto(first.put("status", "onboard"), startedElapsedMs = 1_000L).completedContactDeadlineElapsedMs)
+        assertNull(parseDriverBookingDto(second).completedContactDeadlineElapsedMs)
+    }
+
     /** «Не пришёл» доступна с момента `no_show_at` (выезд + 15 минут, считает сервер — 18.10.2026). */
     @Test
     fun driverBookings_carryTheMomentNoShowOpens() {

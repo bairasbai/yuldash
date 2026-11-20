@@ -51,11 +51,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import androidx.lifecycle.Lifecycle
-import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.lifecycle.repeatOnLifecycle
 import java.util.concurrent.atomic.AtomicBoolean
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -330,33 +326,10 @@ internal fun receiptPersonalSegment(r: TripReceiptDto, nowElapsedMs: Long = Syst
     return "$pickup → $dropoff"
 }
 
-@Composable
-private fun driverReceiptWindowVisible(deadline: Long?): Boolean {
-    if (deadline == null) return false
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    var visible by remember(deadline, lifecycle) {
-        mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && SystemClock.elapsedRealtime() < deadline)
-    }
-    LaunchedEffect(deadline, lifecycle) {
-        lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-            val remaining = deadline - SystemClock.elapsedRealtime()
-            try {
-                if (remaining > 0L) {
-                    visible = true
-                    delay(remaining)
-                }
-            } finally {
-                visible = false
-            }
-        }
-    }
-    return visible && SystemClock.elapsedRealtime() < deadline
-}
-
 /** Read-only production summary; the instrumentation host exercises this exact component, without network/actions. */
 @Composable
 internal fun ReceiptIdentityCard(r: TripReceiptDto) {
-    val segment = if (r.role != "driver" || driverReceiptWindowVisible(r.completedContactDeadlineElapsedMs))
+    val segment = if (r.role != "driver" || completedContactWindowVisible(r.completedContactDeadlineElapsedMs))
         receiptPersonalSegment(r) else null
     Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
         // Шапка «Поездка завершена» — фиксированный ink-зелёный (белый текст читаем в обеих темах).

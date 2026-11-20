@@ -17,8 +17,7 @@ data class TripReceiptDto(
     val completedContactDeadlineElapsedMs: Long? = null,
 )
 
-private fun driverReceiptContactDeadline(o: JSONObject, startedElapsedMs: Long?): Long? {
-    if (o.optString("role") != "driver") return null
+internal fun parseCompletedContactDeadline(o: JSONObject, startedElapsedMs: Long?): Long? {
     val started = startedElapsedMs?.takeIf { it >= 0L } ?: return null
     val remaining = when (val value = o.opt("completed_contact_remaining_ms")) {
         is Int -> value.toLong()
@@ -49,5 +48,5 @@ internal fun parseTripReceiptDto(o: JSONObject, startedElapsedMs: Long? = null):
     canRate = o.optBoolean("can_rate"),
     pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
     dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
-    completedContactDeadlineElapsedMs = driverReceiptContactDeadline(o, startedElapsedMs),
+    completedContactDeadlineElapsedMs = if (o.optString("role") == "driver") parseCompletedContactDeadline(o, startedElapsedMs) else null,
 )

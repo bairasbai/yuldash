@@ -42,6 +42,7 @@ data class DriverBookingDto(
     val boardingUndoDeadlineElapsedMs: Long? = null,
     val minorPassenger: Boolean = false,
     val traveler: PrivateBookingTraveler? = null,
+    val completedContactDeadlineElapsedMs: Long? = null,
 )
 
 internal fun DriverBookingDto.observeBoardingUndo(nowElapsedMs: Long, previous: DriverBookingDto?): DriverBookingDto {
@@ -71,6 +72,7 @@ internal fun DriverBookingDto.applyBoardingResult(result: BoardingResult, nowEla
 
 /** Бронь глазами водителя. */
 internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long? = null): DriverBookingDto {
+    val status = o.optString("status")
     return DriverBookingDto(
         bookingId = o.optInt("booking_id"),
         noShowWaitSec = o.optInt("no_show_wait_sec").coerceAtLeast(0),
@@ -78,7 +80,7 @@ internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long? = null
         traveler = parsePrivateBookingTraveler(o, startedElapsedMs),
         passengerRating = if (o.isNull("passenger_rating")) null else o.optDouble("passenger_rating"),
         route = o.optString("route"),
-        status = o.optString("status"),
+        status = status,
         myStars = o.optInt("my_stars"),
         frontSeat = o.optBoolean("front_seat"),
         minorPassenger = o.optBoolean("minor_passenger"),
@@ -105,5 +107,6 @@ internal fun parseDriverBookingDto(o: JSONObject, startedElapsedMs: Long? = null
         meetingProposalPending = o.optBoolean("meeting_proposal_pending"),
         meetingProposal = parseMeetingProposal(o.optJSONObject("meeting_proposal")),
         meetingVersion = o.optInt("meeting_version", 0),
+        completedContactDeadlineElapsedMs = if (status == "done") parseCompletedContactDeadline(o, startedElapsedMs) else null,
     )
 }

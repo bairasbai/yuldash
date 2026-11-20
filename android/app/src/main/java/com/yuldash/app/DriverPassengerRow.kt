@@ -54,7 +54,9 @@ internal fun PassengerRow(b: DriverBookingDto) {
             if (traveler != null) BookingTravelerText(traveler, b.passengerName)
             else Text(b.passengerName, style = CanonBodyStrong, color = CanonText, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (b.route.isNotBlank()) Text(b.route, style = CanonCaption, color = CanonMuted, maxLines = 1, overflow = TextOverflow.Ellipsis)
-            BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
+            if (b.status != "done" || completedContactWindowVisible(b.completedContactDeadlineElapsedMs)) {
+                BookingSegmentNote(b.pickupStop, b.dropoffStop, b.rideHasStops, b.fromCity, b.toCity)
+            }
         }
         b.passengerRating?.let { rating ->
             Icon(Icons.Default.Star, contentDescription = null, tint = CanonStar, modifier = Modifier.size(15.dp))
