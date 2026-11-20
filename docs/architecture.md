@@ -214,6 +214,8 @@ VitePWA в webapp/vite.config.ts использует prompt: новая обо�
 
 BookingActiveTripScreen.kt: BookingScreen передаёт hasBooking в BookingRouteDecisionCard (тело и закрытая BookingDecisionMetric вынесены без изменения в BookingDecisionCards.kt). Публичная карточка показывает свободный остаток RideDto.seatsLeft; после загрузки BookingDetailsDto число означает места конкретной брони и получает соответствующую RU/BA-подпись. canCreateBooking разрешает новую бронь только при положительном остатке; действия уже созданной брони сохранены. Схема/API/резервирование не меняются. Проверка — W1-PG-01 в audit-blocks.md.
 
+`BookingTermsCard.kt` показывает условия только в форме новой брони попутки со свободными местами. Сроки отмены и неявки читаются из публичного `/safety/policy` без токена. При недоступности срока каждый пункт показывает своё правило без числа.
+
 ## Полный офлайн при повторном открытии PWA — 16.10.2026
 
 Только /trip/:id передаёт в RequireAuth отдельный OfflineTripFallback. При unavailable и navigator.onLine=false он показывает прежний OfflineTripPass, не монтируя ActiveTripScreen. Остальные приватные маршруты, AuthProvider.isAuthed, чат, карта и запись действий закрыты. utils/offlineTripPass.ts сохраняет снимок с user.id из проверенного AuthProvider, поколением входа и случайным ownershipId; отдельный маркер той же брони должен совпасть. Legacy/неполная пара/битые поля/ошибка чтения закрывают показ. Чтение повторно сверяет токен, поколение и обе записи. Тем же owner-bound reader ActiveTripScreen читает кеш при initial/reset/storage-event, поэтому verified B при403 не получает A. Fallback пересчитывается по online/offline/storage, при возврате сети /me проверяется обычным способом.

@@ -5452,8 +5452,8 @@ object ApiClient {
         }
 
     /** Пороги лестницы — показываем ИЗ СЕРВЕРА, чтобы приложение не врало о правилах. */
-    suspend fun getSafetyPolicy(): Result<SafetyPolicyDto> =
-        call("GET", "/safety/policy", null, auth = true).map { o ->
+    suspend fun getSafetyPolicy(authenticated: Boolean = true): Result<SafetyPolicyDto> =
+        call("GET", "/safety/policy", null, auth = authenticated).map { o ->
             SafetyPolicyDto(
                 strikesToLimit = o.optInt("strikes_to_limit", 2),
                 strikesToSuspend = o.optInt("strikes_to_suspend", 3),
@@ -5461,6 +5461,8 @@ object ApiClient {
                 suspend2Days = o.optInt("suspend_2_days", 7),
                 suspend3Days = o.optInt("suspend_3_days", 30),
                 strikeDecayDays = o.optInt("strike_decay_days", 180),
+                lateCancelBeforeMin = o.policyMinutes("late_cancel_before_min"),
+                noShowWaitMin = o.policyMinutes("no_show_wait_min"),
             )
         }
 
@@ -7459,7 +7461,14 @@ data class SafetyPolicyDto(
     val suspend2Days: Int,
     val suspend3Days: Int,
     val strikeDecayDays: Int,
+    val lateCancelBeforeMin: Int? = null,
+    val noShowWaitMin: Int? = null,
 )
+
+private fun JSONObject.policyMinutes(key: String): Int? {
+    val number = (opt(key) as? Number)?.toDouble() ?: return null
+    return number.toInt().takeIf { it >= 0 && it.toDouble() == number }
+}
 
 /** Сигнал SOS в ленте админа. userPhone — чтобы реально позвонить человеку в беде.
  *  category: medical | breakdown | other. status: open | handled. */
