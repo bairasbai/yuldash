@@ -1,7 +1,9 @@
 """Run the HTTP protocol and normal login endpoints against synthetic SMS.ru replies."""
 
 import logging
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Event
 from urllib.parse import parse_qs
 
 from fastapi.testclient import TestClient
@@ -41,6 +43,10 @@ def smsru_settings(client, monkeypatch, telegram_login_ready):
         session.commit()
     yield
     with Session(engine) as session:
+        phone_filter = OtpCode.phone.startswith("+79998705")
+        attempt_ids = select(OtpCode.attempt_id).where(phone_filter)
+        session.execute(delete(OtpSendAttempt).where(OtpSendAttempt.id.in_(attempt_ids)))
+        session.execute(delete(OtpCode).where(phone_filter))
         session.execute(delete(AppSettingChange).where(
             AppSettingChange.key == "login.sms", AppSettingChange.id > last_change,
         ))
@@ -249,20 +255,51 @@ def test_status_reconciliation_keeps_accepted_charge_when_login_is_disabled(clie
     with Session(engine) as session:
         attempt, _ = _attempt(session, phone)
         old_used = _service_used(session, attempt)
-        attempt_id = attempt.id
     result = client.post("/admin/switches/login.sms", headers=owner["auth"], json={"value": False, "confirm": True})
     assert result.status_code == 200 and result.json()["effective"] is False
     monkeypatch.setattr(settings, "sms_ru_login_ready", False)
     moment[0] += timedelta(minutes=1)
     with Session(engine) as session:
-        # Target just this test's receipt in the session-wide database.
-        session.execute(update(OtpSendAttempt).where(OtpSendAttempt.id != attempt_id)
-                        .values(updated_at=moment[0]))
-        session.commit()
         assert sms_reconcile.reconcile_receipts(session) == (int(delivery_status > 0))
-        attempt = session.get(OtpSendAttempt, attempt_id)
+        attempt, _ = _attempt(session, phone)
         expected = 100 if delivery_status < 0 else delivery_status
         assert attempt.state == "sent" and attempt.sms_ru_status_code == expected
         assert _service_used(session, attempt) == old_used
         assert sms_reconcile.reconcile_receipts(session) == 0
+    assert [path for path, _ in calls] == ["/sms/send", "/sms/status"]
+
+
+def test_parallel_reconciliation_only_queries_the_receipt_once_per_minute(client, monkeypatch, enable_login):
+    enable_login()
+    phone = "+79998705522"
+    receipt = "000527-70102062"
+    entered, release = Event(), Event()
+
+    def respond(request, form):
+        if request.url.path == "/sms/send":
+            return _accepted(form["to"], receipt)
+        assert form["sms_id"] == receipt
+        entered.set()
+        assert release.wait(8)
+        return _reply(receipt, {"status": "OK", "status_code": 103})
+
+    moment = [utcnow()]
+    monkeypatch.setattr(otp_budget, "utcnow", lambda: moment[0])
+    monkeypatch.setattr(sms_reconcile, "utcnow", lambda: moment[0])
+    calls = _transport(monkeypatch, respond)
+    assert client.post("/auth/request-code", json={"phone": phone}).status_code == 200
+    moment[0] += timedelta(minutes=1)
+
+    def reconcile():
+        with Session(engine) as session:
+            return sms_reconcile.reconcile_receipts(session)
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(reconcile)
+        try:
+            assert entered.wait(8)
+            assert pool.submit(reconcile).result(timeout=8) == 0
+        finally:
+            release.set()
+        assert first.result(timeout=8) == 1
     assert [path for path, _ in calls] == ["/sms/send", "/sms/status"]
