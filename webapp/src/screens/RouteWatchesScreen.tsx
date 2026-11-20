@@ -60,13 +60,10 @@ function RouteWatches({ owner, params }: { owner: WatchOwner; params: URLSearchP
     let rows: RouteWatch[];
     try {
       rows = await fetchRouteWatches(session, signal);
-    } catch (failure) {
+    } catch {
       if (signal?.aborted || !isAccountSession(session)) return;
-      if (!(failure instanceof ApiError && failure.status === 404)) {
-        setStatus("error");
-        return;
-      }
-      rows = [];
+      setStatus("error");
+      return;
     }
     if (signal?.aborted || !isAccountSession(session)) return;
     setWatches(rows);

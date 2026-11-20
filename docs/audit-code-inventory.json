@@ -15980,8 +15980,8 @@
       "path": "webapp/src/screens/RouteWatchesScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "2693ed116d0730fea28f8e0666cebb2557b65f1028c7af87396e5858504e6154",
-      "lines": 334
+      "sha256": "f197af142227508672951a208acab5328b639cefe4d7ccb836b6e688aa186937",
+      "lines": 331
     },
     {
       "path": "webapp/src/screens/RulesScreen.tsx",
