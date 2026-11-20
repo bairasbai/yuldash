@@ -21179,3 +21179,21 @@ button.settings-row:active {
   background: var(--surface);
   color: var(--text);
 }
+
+/* TF12: taxi-only hit targets; leave shared chips and icon buttons unchanged. */
+.taxi-icon-btn.taxi-trip-contact {
+  width: 48px;
+  height: 48px;
+}
+.taxi-waitlist-roles > .chip {
+  min-width: 48px;
+  min-height: 48px;
+}
+/* Keep the hit region stable while pressed; only the contact icon contracts. */
+.taxi-icon-btn.taxi-trip-contact:active,
+.taxi-waitlist-roles > .chip:active {
+  transform: none;
+}
+.taxi-trip-contact:active > svg {
+  transform: scale(0.94);
+}
