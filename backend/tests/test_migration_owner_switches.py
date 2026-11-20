@@ -56,6 +56,8 @@ def test_sms_budget_migration_preserves_history_and_expires_verifiers_on_rollbac
             ), {"phone": phone, "now": now, "deadline": deadline})
 
         command.upgrade(config, target)
+        budget_indexes = inspect(db).get_indexes("otpbudgetbucket")
+        assert any(index["column_names"] == ["window_start"] for index in budget_indexes)
         with Session(db) as session:
             history = session.exec(select(OtpCode).where(OtpCode.phone == phone)).one()
             assert history.code == "" and history.attempts == 4

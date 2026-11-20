@@ -27,6 +27,7 @@ def upgrade() -> None:
             sa.Column("updated_at", sa.DateTime(), nullable=False),
             sa.Column("next_allowed_at", sa.DateTime()),
         )
+        op.create_index("ix_otpbudgetbucket_window_start", "otpbudgetbucket", ["window_start"])
     if offline or not inspector.has_table("otpsendattempt"):
         op.create_table(
             "otpsendattempt",

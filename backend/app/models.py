@@ -192,7 +192,7 @@ class OtpCode(SQLModel, table=True):
 class OtpBudgetBucket(SQLModel, table=True):
     scope: str = Field(primary_key=True, max_length=24)
     subject: str = Field(primary_key=True, max_length=64)
-    window_start: int = Field(primary_key=True, sa_type=BigInteger)
+    window_start: int = Field(primary_key=True, index=True, sa_type=BigInteger)
     used: int
     cap: int
     version: int
