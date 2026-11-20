@@ -100,7 +100,7 @@ def client():
 
 
 @pytest.fixture(autouse=True)
-def isolate_sms_test_peer(monkeypatch, request):
+def isolate_sms_test_peer(request):
     """The shared ASGI TestClient is a separate synthetic peer for each test."""
     from hashlib import sha256
     from app.routers import auth
@@ -113,7 +113,10 @@ def isolate_sms_test_peer(monkeypatch, request):
         current = original(incoming)
         return address if current == "testclient" else current
 
-    monkeypatch.setattr(auth, "_sms_peer", test_peer)
+    # Keep the shared monkeypatch fixture in the original teardown order.
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(auth, "_sms_peer", test_peer)
+        yield
 
 
 @pytest.fixture
