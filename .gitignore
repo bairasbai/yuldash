@@ -144,3 +144,8 @@ backend/loadtest/results/
 !/yuldash_logo.png
 /*.bundle
 /android-current-ui.xml
+
+# unlazy (скилл дисциплины завершения, ~/.claude/skills/unlazy) — локальное состояние
+# gates/dispatch, не для коммита (2026-09-18)
+.unlazy/
+.unlazy-hook-state.json

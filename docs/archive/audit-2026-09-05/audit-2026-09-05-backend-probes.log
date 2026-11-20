@@ -1,0 +1,19 @@
+C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+  from starlette.testclient import TestClient as TestClient  # noqa
+2026-09-05 15:16:56,360 INFO yuldash: [REQ] GET /media/docs/1_test.jpg -> 307 16ms
+2026-09-05 15:16:56,366 INFO yuldash: [REQ] GET /media/evidence/1_test.jpg -> 307 0ms
+2026-09-05 15:16:56,374 INFO yuldash: [REQ] GET /media/carphoto/1_test.jpg -> 307 0ms
+BE-01 after logout revoked: True
+BE-01 after login OLD token revoked: False
+BE-05 private endpoint accepted: {'ok': True}
+BE-03 web subscriptions after logout: 1
+BE-04 rebind without device: {'ok': True}
+BE-04 new owner: 2
+BE-08 WebPush-only automatch: [(1, 1)]
+BE-08 same person + FCM automatch: []
+BE-07 extra boost hours: 2.0
+BE-06 response: 503
+BE-06 accepted keys: ['yuldash-payment-2'] local Payment exists: False
+BE-02 private route: docs 307 https://example.invalid/docs/1_test.jpg?signed=1
+BE-02 private route: evidence 307 https://example.invalid/evidence/1_test.jpg?signed=1
+BE-02 private route: carphoto 307 https://example.invalid/carphoto/1_test.jpg?signed=1

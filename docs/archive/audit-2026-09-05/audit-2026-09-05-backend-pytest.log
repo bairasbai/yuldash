@@ -1,0 +1,153 @@
+........................................................................ [  1%]
+.........s.............................................................. [  3%]
+........................................................................ [  4%]
+........................................................................ [  6%]
+..........s............................................................. [  8%]
+........................................................................ [  9%]
+........................................................................ [ 11%]
+.................................ss..................................... [ 12%]
+........................................................................ [ 14%]
+........................................................................ [ 16%]
+........................................................................ [ 17%]
+........................................................................ [ 19%]
+....................................................................F... [ 20%]
+........................................................................ [ 22%]
+........................................................................ [ 24%]
+........................................................................ [ 25%]
+........................................................................ [ 27%]
+........................................................................ [ 28%]
+........................................................................ [ 30%]
+........................................................................ [ 32%]
+........................................................................ [ 33%]
+........................................................................ [ 35%]
+........................................................................ [ 36%]
+........................................................................ [ 38%]
+........................................................................ [ 40%]
+........................................................................ [ 41%]
+........................................................................ [ 43%]
+........................................................................ [ 44%]
+........................................................................ [ 46%]
+........................................................................ [ 48%]
+........................................................................ [ 49%]
+........................................................................ [ 51%]
+........................................................................ [ 52%]
+........................................................................ [ 54%]
+.....................................s.................................. [ 56%]
+........................................................................ [ 57%]
+........................................................................ [ 59%]
+........................................................................ [ 60%]
+........................................................................ [ 62%]
+..............ss........................................................ [ 64%]
+........................................................................ [ 65%]
+........................................................................ [ 67%]
+........................................................................ [ 68%]
+........................................................................ [ 70%]
+........................................................................ [ 72%]
+........................................................................ [ 73%]
+........................................................................ [ 75%]
+........................................................................ [ 76%]
+........................................................................ [ 78%]
+................................................s....................... [ 80%]
+........................................................................ [ 81%]
+........................................................................ [ 83%]
+........................................................................ [ 84%]
+........................................................................ [ 86%]
+........................................................................ [ 88%]
+........................................................................ [ 89%]
+........................................................................ [ 91%]
+........................................................................ [ 92%]
+........................................................................ [ 94%]
+........................................................................ [ 96%]
+........................................................................ [ 97%]
+........................................................................ [ 99%]
+............................                                             [100%]
+================================== FAILURES ===================================
+__________________ test_установленное_укладывается_в_границы __________________
+tests\test_dependencies_do_not_surprise.py:103: in test_установленное_укладывается_в_границы
+    assert not конфликты, (
+E   AssertionError: границы противоречат тому, что установлено: ['redis 8.0.1 не влезает в redis>=5.0,<7.0']. Значит на сервере либо не поставится нужное, либо стоит версия вне проверенного диапазона
+E   assert not ['redis 8.0.1 не влезает в redis>=5.0,<7.0']
+============================== warnings summary ===============================
+..\..\Yuldash\backend\.venv\Lib\site-packages\fastapi\testclient.py:1
+  C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\fastapi\testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests\test_blocking_closes_the_map_too.py:34
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_blocking_closes_the_map_too.py:34: PytestUnknownMarkWarning: Unknown pytest.mark.timeout - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.timeout(60)
+
+tests\test_logout_reaches_the_open_window.py:45
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_logout_reaches_the_open_window.py:45: PytestUnknownMarkWarning: Unknown pytest.mark.timeout - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    pytestmark = pytest.mark.timeout(30)
+
+tests/test_cleanup.py: 200 warnings
+tests/test_close_past_rides.py: 56 warnings
+tests/test_money_holes_audit.py: 44 warnings
+tests/test_nothing_hangs_forever.py: 124 warnings
+tests/test_parcel_chat.py: 56 warnings
+tests/test_promises.py: 24 warnings
+tests/test_release_hardening.py: 112 warnings
+tests/test_returning_parcel_is_not_forever.py: 12 warnings
+tests/test_the_car_shows_itself.py: 1 warning
+  C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py:952: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+tests/test_coupons.py: 10 warnings
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_coupons.py:17: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() + timedelta(days=30)).replace(microsecond=0).isoformat()
+
+tests/test_coupons.py::test_activate_expired_coupon
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_coupons.py:13: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_coupons_journey.py::test_journey_positive_full
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+tests/test_coupons_journey.py::test_journey_gates_and_idor
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_coupons_journey.py:18: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() + timedelta(days=30)).replace(microsecond=0).isoformat()
+
+tests/test_coupons_journey.py::test_journey_negatives_are_bilingual
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_coupons_journey.py:14: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_events.py::test_broken_payload_does_not_crash
+  C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\httpx\_models.py:408: DeprecationWarning: Use 'content=<...>' to upload raw bytes/text content.
+    headers, stream = encode_request(
+
+tests/test_promo.py::test_owner_stats_applied_and_active
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_promo.py:42: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    done_at=datetime.utcnow(),
+
+tests/test_promo.py::test_expired_code
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_promo.py:21: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_promo_taxi.py::test_expired_code_gives_no_discount
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_promo_taxi.py:44: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() - timedelta(days=1)).replace(microsecond=0).isoformat()
+
+tests/test_storefront_remoderation.py: 24 warnings
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_storefront_remoderation.py:17: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    return (datetime.utcnow() + timedelta(days=30)).replace(microsecond=0).isoformat()
+
+tests/test_the_commission_you_already_paid.py::test_уже_оплаченную_комиссию_за_поездку_возвращают
+tests/test_the_commission_you_already_paid.py::test_ещё_не_оплаченную_комиссию_просто_снимают
+tests/test_the_commission_you_already_paid.py::test_уже_оплаченную_комиссию_за_доставку_возвращают
+tests/test_the_commission_you_already_paid.py::test_неоплаченную_комиссию_за_доставку_просто_снимают
+tests/test_the_commission_you_already_paid.py::test_повторный_разбор_не_платит_дважды
+tests/test_the_commission_you_already_paid.py::test_по_незаподтверждённому_переводу_не_возвращаем
+tests/test_the_commission_you_already_paid.py::test_нулевую_комиссию_в_кошелёк_не_кладём
+tests/test_the_commission_you_already_paid.py::test_текст_говорит_вернули_а_не_списали
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\app\routers\safety.py:871: SAWarning: fully NULL primary key identity cannot load any object.  This condition may raise an error in a future release.
+    tgt = session.get(User, r.target_user_id)
+
+tests/test_trust_badges.py::test_member_since_is_registration_month
+  C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\tests\test_trust_badges.py:105: DeprecationWarning: datetime.datetime.utcnow() is deprecated and scheduled for removal in a future version. Use timezone-aware objects to represent datetimes in UTC: datetime.datetime.now(datetime.UTC).
+    assert since == datetime.utcnow().strftime("%Y-%m")   # только что зарегистрирован → текущий месяц
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+FAILED tests/test_dependencies_do_not_surprise.py::test_установленное_укладывается_в_границы
+1 failed, 4483 passed, 8 skipped, 686 warnings in 982.07s (0:16:22)

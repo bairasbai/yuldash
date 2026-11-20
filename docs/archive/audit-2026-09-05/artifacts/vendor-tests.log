@@ -1,0 +1,41 @@
+test_accessibility_keywords_route_to_ux (test_core.TestDomainDetection.test_accessibility_keywords_route_to_ux) ... ok
+test_ambiguous_query_returns_runner_up (test_core.TestDomainDetection.test_ambiguous_query_returns_runner_up) ... ok
+test_empty_query_falls_back_to_style (test_core.TestDomainDetection.test_empty_query_falls_back_to_style) ... ok
+test_style_keywords_route_to_style (test_core.TestDomainDetection.test_style_keywords_route_to_style) ... ok
+test_persist_then_skip_then_force (test_core.TestPersistence.test_persist_then_skip_then_force) ... ok
+test_persist_writes_only_under_output_dir (test_core.TestPersistence.test_persist_writes_only_under_output_dir) ... ok
+test_known_category_matches_exactly (test_core.TestReasoningMatch.test_known_category_matches_exactly) ... ok
+test_unknown_category_falls_back_gracefully (test_core.TestReasoningMatch.test_unknown_category_falls_back_gracefully) ... ok
+test_accessibility_query_hits_ux (test_core.TestSearchDomains.test_accessibility_query_hits_ux) ... ok
+test_every_configured_domain_file_exists_and_is_searchable (test_core.TestSearchDomains.test_every_configured_domain_file_exists_and_is_searchable) ... ok
+test_every_stack_file_exists_and_is_searchable (test_core.TestSearchDomains.test_every_stack_file_exists_and_is_searchable) ... ok
+test_ui_is_searchable_in_style_domain (test_core.TestSearchDomains.test_ui_is_searchable_in_style_domain) ... ok
+test_zero_result_query_reports_suggestions_not_error (test_core.TestSearchDomains.test_zero_result_query_reports_suggestions_not_error) ... ok
+test_short_domain_terms_are_kept (test_core.TestTokenizer.test_short_domain_terms_are_kept) ... ok
+test_stopwords_removed (test_core.TestTokenizer.test_stopwords_removed) ... ok
+test_synonym_normalization (test_core.TestTokenizer.test_synonym_normalization) ... ok
+test_dark_clause_dropped_others_kept (test_design_system_mode.TestAntiPatternGating.test_dark_clause_dropped_others_kept) ... ok
+test_empty_input (test_design_system_mode.TestAntiPatternGating.test_empty_input) ... ok
+test_light_mode_is_a_no_op (test_design_system_mode.TestAntiPatternGating.test_light_mode_is_a_no_op) ... ok
+test_unrelated_anti_patterns_survive_dark_mode (test_design_system_mode.TestAntiPatternGating.test_unrelated_anti_patterns_survive_dark_mode) ... ok
+test_dark_query_does_not_advise_against_dark_mode (test_design_system_mode.TestEndToEndCoherence.test_dark_query_does_not_advise_against_dark_mode) ... ok
+test_dark_query_foreground_is_lighter_than_background (test_design_system_mode.TestEndToEndCoherence.test_dark_query_foreground_is_lighter_than_background) ... ok
+test_dark_query_gets_a_dark_background (test_design_system_mode.TestEndToEndCoherence.test_dark_query_gets_a_dark_background) ... ok
+test_light_query_keeps_a_light_background (test_design_system_mode.TestEndToEndCoherence.test_light_query_keeps_a_light_background) ... ok
+test_classifies_backgrounds_from_the_shipped_data (test_design_system_mode.TestLuminance.test_classifies_backgrounds_from_the_shipped_data) ... ok
+test_missing_background_is_not_dark (test_design_system_mode.TestLuminance.test_missing_background_is_not_dark) ... ok
+test_parses_six_and_three_digit_hex (test_design_system_mode.TestLuminance.test_parses_six_and_three_digit_hex) ... ok
+test_returns_none_for_unparseable (test_design_system_mode.TestLuminance.test_returns_none_for_unparseable) ... ok
+test_dark_primary_style_detected (test_design_system_mode.TestModeResolution.test_dark_primary_style_detected) ... ok
+test_dual_mode_style_is_not_dark_primary (test_design_system_mode.TestModeResolution.test_dual_mode_style_is_not_dark_primary) ... ok
+test_either_signal_resolves_dark (test_design_system_mode.TestModeResolution.test_either_signal_resolves_dark) ... ok
+test_query_keywords (test_design_system_mode.TestModeResolution.test_query_keywords) ... ok
+test_dark_mode_falls_back_to_top_hit_when_no_dark_ramp_exists (test_design_system_mode.TestPaletteSelection.test_dark_mode_falls_back_to_top_hit_when_no_dark_ramp_exists) ... ok
+test_dark_mode_skips_light_palettes (test_design_system_mode.TestPaletteSelection.test_dark_mode_skips_light_palettes) ... ok
+test_empty_results (test_design_system_mode.TestPaletteSelection.test_empty_results) ... ok
+test_light_mode_keeps_the_existing_top_hit_behaviour (test_design_system_mode.TestPaletteSelection.test_light_mode_keeps_the_existing_top_hit_behaviour) ... ok
+
+----------------------------------------------------------------------
+Ran 36 tests in 0.670s
+
+OK

@@ -1,0 +1,234 @@
+HEADS ['bs_merge_heads_20260903']
+REVISIONS 127
+START upgrade head
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running upgrade  -> 0001_baseline, ������� ����� ������ �� ������� SQLModel.
+INFO  [alembic.runtime.migration] Running upgrade 0001_baseline -> 0002_drop_dead_user_columns, �������� ������ ������� User.vk_id � User.whatsapp_verified.
+INFO  [alembic.runtime.migration] Running upgrade 0002_drop_dead_user_columns -> 0003_partner_ads_columns, ����������� ������� �������: ������� �������� / ��������� / ������.
+INFO  [alembic.runtime.migration] Running upgrade 0003_partner_ads_columns -> 0004_booking_boarding_code, Booking.boarding_code � ���������� ��� �����.
+INFO  [alembic.runtime.migration] Running upgrade 0004_booking_boarding_code -> p2_instant_order, ���� 2 �������� �����: ������� tariff + instant_order.
+INFO  [alembic.runtime.migration] Running upgrade p2_instant_order -> p3_ledger, ���� 3 ������� v1�: ledger (������ ��������) + ������� ������ �������.
+INFO  [alembic.runtime.migration] Running upgrade p3_ledger -> p3_debt, ���� 3: ���� �������� �� �������� �� ����� (������ � ��� �������).
+INFO  [alembic.runtime.migration] Running upgrade p3_debt -> w2_taxi_gate, ����� 2: ���� ����� + ��������� �������� (580-��).
+INFO  [alembic.runtime.migration] Running upgrade w2_taxi_gate -> w2_geo, ����� 2: ��������� � ���������� �� (Settlement) + ���� ������ ��������.
+INFO  [alembic.runtime.migration] Running upgrade w2_geo -> w2_money_rules, ����� 2, ���� B3 �������-��������: ���� + ��������/������/no-show + ������ �����.
+INFO  [alembic.runtime.migration] Running upgrade w2_money_rules -> w2_work_hours, ����� 2, ���� B4 �8-������� ����� + ������: ������� taxiworkday.
+INFO  [alembic.runtime.migration] Running upgrade w2_work_hours -> w2_quality, ����� 2, ���� B5 ���������: ������ + �������� ��������� (�9).
+INFO  [alembic.runtime.migration] Running upgrade w2_quality -> w2_waitlist, ����� 2, ���� B6 �������: ������ ������ + ������ � ������"� (�11).
+INFO  [alembic.runtime.migration] Running upgrade w2_waitlist -> w2_polish2, ����� 2, ���� B7b ������-���������: ����� � ���������.
+INFO  [alembic.runtime.migration] Running upgrade w2_polish2 -> w2_livelink, ����� 2, ���� B7c �Live-������ ������� ��� ��������.
+INFO  [alembic.runtime.migration] Running upgrade w2_livelink -> w2_antifraud, ����� 2, ���� B8 �����-����: ������ �� ���������� � ����� ������.
+INFO  [alembic.runtime.migration] Running upgrade w2_antifraud -> 0005_notification_table, ������� `notification` � ����� ����������� (�������������� ����� RU+BA, read_at).
+INFO  [alembic.runtime.migration] Running upgrade 0005_notification_table -> 0005_rating_text_review, Rating.text + Rating.text_published � ��������� ����� � ������� � ����������.
+INFO  [alembic.runtime.migration] Running upgrade 0005_rating_text_review -> 0005_route_watch, RouteWatch � �������� �� ������� �������� ������� (F13).
+INFO  [alembic.runtime.migration] Running upgrade 0005_route_watch -> f9_driver_gender, DriverProfile.gender � ��� �������� (F9 ��������� � ��������-�������).
+INFO  [alembic.runtime.migration] Running upgrade f9_driver_gender -> f10_payment_agreement, F10: Booking.pay_method + pay_amount � �������� ������Ш������ �� ������.
+INFO  [alembic.runtime.migration] Running upgrade f10_payment_agreement -> f12_winter_safety, F12 ������� ��������: Booking.winter_check_sent_at / winter_check_ack_at.
+INFO  [alembic.runtime.migration] Running upgrade f12_winter_safety -> f14_pickup_points, F14 � ������� `pickuppoint` (����� ����� �� ���������� ������/����).
+INFO  [alembic.runtime.migration] Running upgrade f14_pickup_points -> f17_driver_schedule, F17 � ������� driverschedule (���������� �������� ��������).
+INFO  [alembic.runtime.migration] Running upgrade f17_driver_schedule -> f19_invite_drivers, F19 ������� ���������: User.driver_referral_rewarded � ������������ ���� ��������.
+INFO  [alembic.runtime.migration] Running upgrade f19_invite_drivers -> f22_medical_partner, F22 � B2B ���������-�������: ������� medicalpartner + ride.partner_id + ��� ��������.
+INFO  [alembic.runtime.migration] Running upgrade f22_medical_partner -> p4_trust, ���� 4 (D5): ��������������� ������� ������ ������.
+INFO  [alembic.runtime.migration] Running upgrade p4_trust -> w2_extras, ����� 2, ���� B9b ��������������� ������.
+INFO  [alembic.runtime.migration] Running upgrade w2_extras -> w2_driver_checks, �������� ��������, ������� 1: TaxiApplication.selfie_url + criminal_record_url.
+INFO  [alembic.runtime.migration] Running upgrade w2_driver_checks -> mon_m1_coupons, M1 � ����������� ���� + �������� ����������� ������� �� ����.
+INFO  [alembic.runtime.migration] Running upgrade mon_m1_coupons -> mon_m2_promo, M2 � ��������� � �������� (����� �����: ������� ���� ��������/���������/�����).
+INFO  [alembic.runtime.migration] Running upgrade mon_m2_promo -> mon_m3_parcels, M3 � �������� ������� ����� �����/�������� (������������� ���� �� ����-��������).
+INFO  [alembic.runtime.migration] Running upgrade mon_m3_parcels -> courier_c1, C1 � ������� �������: courierapplication, courierprofile + ����� ���� parceldelivery.
+INFO  [alembic.runtime.migration] Running upgrade courier_c1 -> courier_c2, C2 � ����� � �������: ������ � ����������� + ����������� �������� (����).
+INFO  [alembic.runtime.migration] Running upgrade courier_c2 -> courier_c3, C3 � ������� ������� (�������� ������ ��������) + ������� �������� ��� �������.
+INFO  [alembic.runtime.migration] Running upgrade courier_c3 -> city_profile, ����� � ������� � user.city (������ ����� ��������).
+INFO  [alembic.runtime.migration] Running upgrade city_profile -> ride_quiet, ����� ������� � ride.quiet (��������: ��� ������ ����������/������� ������).
+INFO  [alembic.runtime.migration] Running upgrade ride_quiet -> ride_waypoints, ��������� �� ���� � ride.waypoints (������������� ����� �������� A\u2192�����\u2192B).
+INFO  [alembic.runtime.migration] Running upgrade ride_waypoints -> w2_status_indexes, ������� �� �������� status-������� (M4): parceldelivery.status, partner.status, coupon.status.
+INFO  [alembic.runtime.migration] Running upgrade w2_status_indexes -> w3_release_hardening, ����-�������: UNIQUE(commissiondebt.order_id) + tripshare.expires_at.
+INFO  [alembic.runtime.migration] Running upgrade w3_release_hardening -> w4_growth_indexes, ������� created_at �� �������� ��������: instantorder, parceldelivery.
+INFO  [alembic.runtime.migration] Running upgrade w4_growth_indexes -> w5_ride_composite_index, ����������� ������ ride(status, depart_at) ��� ������� ������ /rides.
+INFO  [alembic.runtime.migration] Running upgrade w5_ride_composite_index -> f24_saved_places, F24 � ������� `savedplace` � `recentplace` (����������� � �������� ������ ������������).
+INFO  [alembic.runtime.migration] Running upgrade f24_saved_places -> f25_support_tickets, ������� ��������� ������ ����������: `supportticket` + `supportmessage`.
+INFO  [alembic.runtime.migration] Running upgrade f25_support_tickets -> f26_instant_scheduled_at, InstantOrder.scheduled_at � ��������� ����� ��� ������.
+INFO  [alembic.runtime.migration] Running upgrade f26_instant_scheduled_at -> p3_payout, ���� 3 ������� v2�: ������� ��������� (������ �, ����������, ���� �� ���������).
+INFO  [alembic.runtime.migration] Running upgrade p3_payout -> analytics_events, ��������� ����������� ��������� ���-������: ������� analyticsevent.
+INFO  [alembic.runtime.migration] Running upgrade analytics_events -> villages_district, ������� ��: ������� settlement.district (��������� ����) + ����� ��� kind='village'.
+INFO  [alembic.runtime.migration] Running upgrade analytics_events -> booking_cancel_reason, ������� ������ ����� + ���� ������ (no-show) � ������ ������� ������ ������ � �������� � �����.
+INFO  [alembic.runtime.migration] Running upgrade booking_cancel_reason, villages_district -> merge_20260720, ������ ��� ������ �������� ����� ������������ release-2026-07.
+INFO  [alembic.runtime.migration] Running upgrade merge_20260720 -> b1_reset_verified, B1 (����� #73): �������� ��������� verified � ����������� ���������.
+INFO  [alembic.runtime.migration] Running upgrade b1_reset_verified -> p2_promo_unique, P2 (����� #73): UNIQUE(promoredemption.user_id) � ����� ����� ��� �� �����.
+INFO  [alembic.runtime.migration] Running upgrade p2_promo_unique -> p3_money_bigint, P3 (����� #73): �������� *_kop ������� INTEGER \u2192 BigInteger (������� int4 \u2248 21,47 ��� \u20bd).
+INFO  [alembic.runtime.migration] Running upgrade p3_money_bigint -> g1_parcel_track, G1 ��������-������ ������� �����������.
+INFO  [alembic.runtime.migration] Running upgrade g1_parcel_track -> g3_request_watch, G3 ���� ��������: ������ �� ������ ������������.
+INFO  [alembic.runtime.migration] Running upgrade g3_request_watch -> g_tips, �������� �\u04d9��\u04d9� (������ ��������).
+INFO  [alembic.runtime.migration] Running upgrade g_tips -> h_rate_reminded, ����������� ������� �������: ���� booking.rate_reminded.
+INFO  [alembic.runtime.migration] Running upgrade h_rate_reminded -> i_riderequest_status_ix, ������ riderequest.status (������� ������ ����-������� � ����� ������).
+INFO  [alembic.runtime.migration] Running upgrade i_riderequest_status_ix -> j_rating_excluded, ���� �������� (��������������): ���� rating.excluded.
+INFO  [alembic.runtime.migration] Running upgrade j_rating_excluded -> k_incidents, ������� ����������������: ������� incident + safetyprofile (��������� Report).
+INFO  [alembic.runtime.migration] Running upgrade k_incidents -> l_booking_cancelled_by, ����������� (��������������, ���� 4): booking.cancelled_by.
+INFO  [alembic.runtime.migration] Running upgrade l_booking_cancelled_by -> m_audit_hardening, ����� 2026-07-26: ���� ����������� ��������� + ������ rate-reminder.
+INFO  [alembic.runtime.migration] Running upgrade m_audit_hardening -> n_incident_evidence, ����-�������������� ������ (���� �� pr88): incident.evidence_urls / respondent_evidence_urls.
+INFO  [alembic.runtime.migration] Running upgrade n_incident_evidence -> o_gaps_taxi_courier, �������� �������� �����/������� (����� 2026-07-26): ��� ����� ���� ����� ��������.
+INFO  [alembic.runtime.migration] Running upgrade o_gaps_taxi_courier -> p_taxi_docs_pretrip, 580-��, ������� �������: ���� ��������������� ����� + ������������ �������������.
+INFO  [alembic.runtime.migration] Running upgrade p_taxi_docs_pretrip -> q_courier_identity, ��� � �� ��� ����: ���, �������� � �������� � ��������� � ������ �������.
+INFO  [alembic.runtime.migration] Running upgrade q_courier_identity -> r_bargain_rounds, ������ ���� ����� �� ������: ���� �� �����, ��� ���, ������� �����.
+INFO  [alembic.runtime.migration] Running upgrade r_bargain_rounds -> s_audit_20260803, ����� ������� 2026-08-03: ���� ���������� �������� �������� + ������� ���� ����.
+INFO  [alembic.runtime.migration] Running upgrade s_audit_20260803 -> t_parcel_address, � ������� ���������� ����� ����� ������, � �� ������ �����.
+INFO  [alembic.runtime.migration] Running upgrade t_parcel_address -> u_parcel_chat, ��� �� �������: ����������� \u2194 ����������� ������.
+INFO  [alembic.runtime.migration] Running upgrade u_parcel_chat -> v_parcel_deadline, � �������� ���������� ����: �� ������ ��� �����.
+INFO  [alembic.runtime.migration] Running upgrade v_parcel_deadline -> x_promo_taxi_ride, ��������-������ �� ������� � ����� (M2, kind="taxi_ride").
+INFO  [alembic.runtime.migration] Running upgrade x_promo_taxi_ride -> y_utc_depart, ������� ����� ������� ������� �� ���������, ����������� ��� UTC� � ��������� UTC.
+INFO  [alembic.runtime.migration] Running upgrade y_utc_depart -> z_decline_reason, ������ ������ ������ �������� �� ������ (������ �2, 2026-08-03).
+INFO  [alembic.runtime.migration] Running upgrade z_decline_reason -> z2_cargo_kind, ��� ������ ����: ���, ��� �����, �������� (������ �2, 2026-08-03).
+INFO  [alembic.runtime.migration] Running upgrade z2_cargo_kind -> aa_winter_all, ������ �������� ��� ����� � �������� (2026-08-06).
+INFO  [alembic.runtime.migration] Running upgrade aa_winter_all -> ab_taxi_women_only, �����: ������� ������� �� ����.
+INFO  [alembic.runtime.migration] Running upgrade ab_taxi_women_only -> ac_booking_lost_item, �������: �� ����� ���� � ������ ��������� ��� ������.
+INFO  [alembic.runtime.migration] Running upgrade ac_booking_lost_item -> zone_district, ���� ������ �� �������: work_district + �������� �������� � ��������� ��������.
+INFO  [alembic.runtime.migration] Running upgrade zone_district -> ad_rating_tags, ������� ����� � ������: ������� rating.tags (CSV �� ��������� ������).
+INFO  [alembic.runtime.migration] Running upgrade ad_rating_tags -> money_holes_20260807, ������ �� ������ ������� ����������� ���������: ��������� UNIQUE �� ledgerentry.ext_id.
+INFO  [alembic.runtime.migration] Running upgrade ad_rating_tags -> ae_arrival_verified, ������� �����������: ������� booking.arrival_verified (GPS ���������� �������� ��������).
+INFO  [alembic.runtime.migration] Running upgrade ae_arrival_verified, money_holes_20260807 -> merge_20260808, ������ ��� ������ �������� (����� 2026-08-08).
+INFO  [alembic.runtime.migration] Running upgrade merge_20260808 -> af_coupon_review, ������� ��������� ������� ������: ��������� �������� � ������ + ������.
+INFO  [alembic.runtime.migration] Running upgrade af_coupon_review -> ag_user_gender, ��� ���������� � ������� �������� �� ������������: ������� �������� ���������� ��������.
+INFO  [alembic.runtime.migration] Running upgrade ae_arrival_verified -> af_gender_verified, ��� �������� ������������ ���������: ������� driverprofile.gender_verified.
+INFO  [alembic.runtime.migration] Running upgrade af_gender_verified -> ag_minors, ������������������ ��������: booking.minor_* + ride.no_minors.
+INFO  [alembic.runtime.migration] Running upgrade ag_minors -> ah_text_flags, ������ ���������� ������� ��� ������: ������� textflag.
+INFO  [alembic.runtime.migration] Running upgrade ah_text_flags, money_holes_20260807 -> ai_car_classes, ������ ����� ������/�������/������/�������, ����� ������, �����.
+INFO  [alembic.runtime.migration] Running upgrade ag_user_gender, ah_text_flags -> merge_20260812, ������ ��� ������ �������� ����� ������� ����� (2026-08-12).
+INFO  [alembic.runtime.migration] Running upgrade merge_20260812 -> ai_referral_lifetime, ����������� ������� ����������� �������: user.referral_bonus_lifetime.
+INFO  [alembic.runtime.migration] Running upgrade ai_car_classes, ai_referral_lifetime -> merge_20260812b, ������ ������ �������� ����� ������� ������� � main (2026-08-12, �����).
+INFO  [alembic.runtime.migration] Running upgrade merge_20260812b -> aj_payment_settled_at, ������ ���������� �������: payment.settled_at.
+INFO  [alembic.runtime.migration] Running upgrade aj_payment_settled_at -> ak_family_sms_log, ������ SMS �������: ������� familysmslog (����� 2026-08-12, ����� 48).
+INFO  [alembic.runtime.migration] Running upgrade ak_family_sms_log -> al_user_last_seen, ������� ���������� � ������� ������: user.last_seen_at, user.phone_released_at
+(����� 2026-08-08, ����� 139).
+INFO  [alembic.runtime.migration] Running upgrade al_user_last_seen -> am_devicetoken_device, ���� ����������� �������� � ��������: devicetoken.device_id (����� 2026-08-08, ����� 147).
+INFO  [alembic.runtime.migration] Running upgrade am_devicetoken_device -> an_promo_claim_log, ���� ����� ����� ��� ���� ��������: ������� promoclaimlog (����� 2026-08-08, ����� 149).
+INFO  [alembic.runtime.migration] Running upgrade an_promo_claim_log -> ao_lost_item_calls, ������� ������� ������ �����: booking.lost_item_calls (����� 2026-08-08, ����� 151).
+INFO  [alembic.runtime.migration] Running upgrade ao_lost_item_calls -> ap_booking_confirmed_at, ������� ��������� ������ ���������: booking.confirmed_at (����� 2026-08-08, ����� 158).
+INFO  [alembic.runtime.migration] Running upgrade ap_booking_confirmed_at -> aq_docs_photo_due, ���� �������� ���� ��������� � ������ �������� (����� 2026-08-08, ����� 170).
+INFO  [alembic.runtime.migration] Running upgrade aq_docs_photo_due -> ar_declare_reminded, �������������� �������� �� ����, ��� ��� ������� �������� (����� 2026-08-08, ����� 176).
+INFO  [alembic.runtime.migration] Running upgrade ag_user_gender, ah_text_flags, ai_car_classes, ai_referral_lifetime, ao_lost_item_calls, booking_cancel_reason, money_holes_20260807, villages_district -> az_merge_heads_20260821, ����� ������ ������������ ����� �������� � ���� (����� 2026-08-21).
+INFO  [alembic.runtime.migration] Running upgrade az_merge_heads_20260821 -> ba_taxi_route_edit, �����: �������� ����, ����� ������ � ����, ��������� (����� 158�159, 2026-08-21).
+INFO  [alembic.runtime.migration] Running upgrade ba_taxi_route_edit -> bb_saved_place_used, ����������� �����: ����� ��� ������������ � ��������� ��� (2026-08-22).
+INFO  [alembic.runtime.migration] Running upgrade ar_declare_reminded, bb_saved_place_used -> bc_merge_heads_20260823, ����� ��� ������ �������� ����� ������� ����� (2026-08-23).
+INFO  [alembic.runtime.migration] Running upgrade bc_merge_heads_20260823 -> bd_pickup_fee, ������� ������ � ��������� ������� � ������ (2026-08-23).
+INFO  [alembic.runtime.migration] Running upgrade bd_pickup_fee -> be_pickup_enroute, ������ �������, ����� �������� �� ����: ������� �� ������ (2026-08-23).
+INFO  [alembic.runtime.migration] Running upgrade be_pickup_enroute -> bf_options_fee, ����� ������ ����� ��������: ����� �� ������ (2026-08-23).
+INFO  [alembic.runtime.migration] Running upgrade bf_options_fee -> bg_honest_receipt, ������� ���: ���� ������� ��� ������� + ������ �� ���� (2026-08-23).
+INFO  [alembic.runtime.migration] Running upgrade bg_honest_receipt -> bh_winter_road, ������ ������: ����������� �������� ��������� ������� (2026-08-23).
+INFO  [alembic.runtime.migration] Running upgrade bh_winter_road -> bi_courier_catches_up, ������ �������� �����: ������ � �������, ������ ������, ���� � �������� (2026-08-28).
+INFO  [alembic.runtime.migration] Running upgrade ar_declare_reminded -> as_rate_reminded_all, ����������� ������ ������� � ����� �����, � ����� �������� (����� 2026-08-08, ����� 197).
+INFO  [alembic.runtime.migration] Running upgrade bh_winter_road, as_rate_reminded_all -> bi_merge_heads_20260828, ����� ��� ������ �������� ����� ������� ����� (2026-08-28).
+INFO  [alembic.runtime.migration] Running upgrade bi_courier_catches_up, bi_merge_heads_20260828 -> bj_merge_heads_20260828b, ����� ��� ������ �������� ����� ������� ������� �� ���� (2026-08-28).
+INFO  [alembic.runtime.migration] Running upgrade bi_courier_catches_up -> bj_return_pays_the_road, ������� ���������� ������� ������: ����������� �� ���� ������ �� ��������� (2026-08-29).
+INFO  [alembic.runtime.migration] Running upgrade bj_return_pays_the_road -> bk_second_try_before_return, ��������� ����� �� ������� �����������: ��������� ����� ��� ������ � ��������� (2026-08-29).
+INFO  [alembic.runtime.migration] Running upgrade bk_second_try_before_return -> bl_brosennyi_zakaz_ishchet_dalshe, ��������� ��������� ����� ������������ � �����, � �� ������� (2026-08-29).
+INFO  [alembic.runtime.migration] Running upgrade bl_brosennyi_zakaz_ishchet_dalshe, bj_merge_heads_20260828b -> bm_merge_heads_20260829, ����� ��� ������ �������� ����� ������� ����� ����� � ������ (2026-08-29).
+INFO  [alembic.runtime.migration] Running upgrade bm_merge_heads_20260829 -> bn_fgis_permit_check, �������� ���������� ����� � ��������������� ������� ���� (580-��, 2026-08-29).
+INFO  [alembic.runtime.migration] Running upgrade bn_fgis_permit_check -> bo_car_photo_check, ������������ ������: ��� � ��� ������ ������� ����������, �� ��� �� ����� (580-��, 2026-08-30).
+INFO  [alembic.runtime.migration] Running upgrade bo_car_photo_check -> bp_dirty_car_demand, ������ �������� ������ ����������� ����������� + ������� ����� � ������ (2026-08-30).
+INFO  [alembic.runtime.migration] Running upgrade bp_dirty_car_demand -> bq_web_push, �������� �������� �� Web Push: ������� webpushsubscription.
+INFO  [alembic.runtime.migration] Running upgrade bp_dirty_car_demand -> bq_boost_carry, ������� ����������� �������� ���������� �� ��������� ������� (2026-08-31).
+INFO  [alembic.runtime.migration] Running upgrade bq_boost_carry, bq_web_push -> br_merge_heads_20260831, ����� ��� ������ �������� ����� ������� ����� �������� � main (2026-08-31).
+INFO  [alembic.runtime.migration] Running upgrade bh_winter_road -> bi_payment_seen, �������� ����� ����� ������� ������� (2026-08-28).
+INFO  [alembic.runtime.migration] Running upgrade bi_payment_seen, bm_merge_heads_20260829 -> bn_merge_heads_20260830, ����� ��� ������ �������� ����� �������� main � ����� ������ (2026-08-30).
+INFO  [alembic.runtime.migration] Running upgrade bn_merge_heads_20260830, br_merge_heads_20260831 -> bs_merge_heads_20260903, ����� ��� ������ �������� ����� �������� ����� ��� ������ (2026-09-03).
+OK upgrade head
+START downgrade base
+INFO  [alembic.runtime.migration] Context impl SQLiteImpl.
+INFO  [alembic.runtime.migration] Will assume non-transactional DDL.
+INFO  [alembic.runtime.migration] Running downgrade bs_merge_heads_20260903 -> bn_merge_heads_20260830, br_merge_heads_20260831, ����� ��� ������ �������� ����� �������� ����� ��� ������ (2026-09-03).
+INFO  [alembic.runtime.migration] Running downgrade bn_merge_heads_20260830 -> bi_payment_seen, bm_merge_heads_20260829, ����� ��� ������ �������� ����� �������� main � ����� ������ (2026-08-30).
+INFO  [alembic.runtime.migration] Running downgrade bi_payment_seen -> bh_winter_road, �������� ����� ����� ������� ������� (2026-08-28).
+INFO  [alembic.runtime.migration] Running downgrade br_merge_heads_20260831 -> bq_boost_carry, bq_web_push, ����� ��� ������ �������� ����� ������� ����� �������� � main (2026-08-31).
+INFO  [alembic.runtime.migration] Running downgrade bq_boost_carry -> bp_dirty_car_demand, ������� ����������� �������� ���������� �� ��������� ������� (2026-08-31).
+INFO  [alembic.runtime.migration] Running downgrade bq_web_push -> bp_dirty_car_demand, �������� �������� �� Web Push: ������� webpushsubscription.
+INFO  [alembic.runtime.migration] Running downgrade bp_dirty_car_demand -> bo_car_photo_check, ������ �������� ������ ����������� ����������� + ������� ����� � ������ (2026-08-30).
+INFO  [alembic.runtime.migration] Running downgrade bo_car_photo_check -> bn_fgis_permit_check, ������������ ������: ��� � ��� ������ ������� ����������, �� ��� �� ����� (580-��, 2026-08-30).
+INFO  [alembic.runtime.migration] Running downgrade bn_fgis_permit_check -> bm_merge_heads_20260829, �������� ���������� ����� � ��������������� ������� ���� (580-��, 2026-08-29).
+INFO  [alembic.runtime.migration] Running downgrade bm_merge_heads_20260829 -> bl_brosennyi_zakaz_ishchet_dalshe, bj_merge_heads_20260828b, ����� ��� ������ �������� ����� ������� ����� ����� � ������ (2026-08-29).
+INFO  [alembic.runtime.migration] Running downgrade bl_brosennyi_zakaz_ishchet_dalshe -> bk_second_try_before_return, ��������� ��������� ����� ������������ � �����, � �� ������� (2026-08-29).
+INFO  [alembic.runtime.migration] Running downgrade bk_second_try_before_return -> bj_return_pays_the_road, ��������� ����� �� ������� �����������: ��������� ����� ��� ������ � ��������� (2026-08-29).
+INFO  [alembic.runtime.migration] Running downgrade bj_return_pays_the_road -> bi_courier_catches_up, ������� ���������� ������� ������: ����������� �� ���� ������ �� ��������� (2026-08-29).
+INFO  [alembic.runtime.migration] Running downgrade bj_merge_heads_20260828b -> bi_courier_catches_up, bi_merge_heads_20260828, ����� ��� ������ �������� ����� ������� ������� �� ���� (2026-08-28).
+INFO  [alembic.runtime.migration] Running downgrade bi_merge_heads_20260828 -> bh_winter_road, as_rate_reminded_all, ����� ��� ������ �������� ����� ������� ����� (2026-08-28).
+INFO  [alembic.runtime.migration] Running downgrade as_rate_reminded_all -> ar_declare_reminded, ����������� ������ ������� � ����� �����, � ����� �������� (����� 2026-08-08, ����� 197).
+INFO  [alembic.runtime.migration] Running downgrade bi_courier_catches_up -> bh_winter_road, ������ �������� �����: ������ � �������, ������ ������, ���� � �������� (2026-08-28).
+INFO  [alembic.runtime.migration] Running downgrade bh_winter_road -> bg_honest_receipt, ������ ������: ����������� �������� ��������� ������� (2026-08-23).
+INFO  [alembic.runtime.migration] Running downgrade bg_honest_receipt -> bf_options_fee, ������� ���: ���� ������� ��� ������� + ������ �� ���� (2026-08-23).
+INFO  [alembic.runtime.migration] Running downgrade bf_options_fee -> be_pickup_enroute, ����� ������ ����� ��������: ����� �� ������ (2026-08-23).
+INFO  [alembic.runtime.migration] Running downgrade be_pickup_enroute -> bd_pickup_fee, ������ �������, ����� �������� �� ����: ������� �� ������ (2026-08-23).
+INFO  [alembic.runtime.migration] Running downgrade bd_pickup_fee -> bc_merge_heads_20260823, ������� ������ � ��������� ������� � ������ (2026-08-23).
+INFO  [alembic.runtime.migration] Running downgrade bc_merge_heads_20260823 -> ar_declare_reminded, bb_saved_place_used, ����� ��� ������ �������� ����� ������� ����� (2026-08-23).
+INFO  [alembic.runtime.migration] Running downgrade bb_saved_place_used -> ba_taxi_route_edit, ����������� �����: ����� ��� ������������ � ��������� ��� (2026-08-22).
+Traceback (most recent call last):
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+sqlite3.OperationalError: error in index ix_savedplace_used_at after drop column: no such column: used_at
+
+The above exception was the direct cause of the following exception:
+
+Traceback (most recent call last):
+  File "C:\Users\Bayra\Yuldash-main-audit-2026-09-05\artifacts\audit-2026-09-05\migration_probe.py", line 17, in <module>
+    getattr(command,action)(c,target)
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\command.py", line 537, in downgrade
+    script.run_env()
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\script\base.py", line 556, in run_env
+    util.load_python_file(self.dir, "env.py")
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\util\pyfiles.py", line 116, in load_python_file
+    module = load_module_py(module_id, path)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\util\pyfiles.py", line 136, in load_module_py
+    spec.loader.exec_module(module)  # type: ignore
+    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "<frozen importlib._bootstrap_external>", line 999, in exec_module
+  File "<frozen importlib._bootstrap>", line 488, in _call_with_frames_removed
+  File "C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\alembic\env.py", line 59, in <module>
+    run_migrations_online()
+  File "C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\alembic\env.py", line 53, in run_migrations_online
+    context.run_migrations()
+  File "<string>", line 8, in run_migrations
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\runtime\environment.py", line 969, in run_migrations
+    self.get_context().run_migrations(**kw)
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\runtime\migration.py", line 626, in run_migrations
+    step.migration_fn(**kw)
+  File "C:\Users\Bayra\Yuldash-main-audit-2026-09-05\backend\alembic\versions\bb_saved_place_used_20260822.py", line 50, in downgrade
+    op.drop_column(_TABLE, _COLUMN)
+  File "<string>", line 8, in drop_column
+  File "<string>", line 3, in drop_column
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\operations\ops.py", line 2417, in drop_column
+    return operations.invoke(op)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\operations\base.py", line 452, in invoke
+    return fn(self, operation)
+           ^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\operations\toimpl.py", line 100, in drop_column
+    operations.impl.drop_column(
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\ddl\impl.py", line 412, in drop_column
+    self._exec(
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\alembic\ddl\impl.py", line 256, in _exec
+    return conn.execute(construct, params)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1421, in execute
+    return meth(
+           ^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\sql\ddl.py", line 188, in _execute_on_connection
+    return connection._execute_ddl(
+           ^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1532, in _execute_ddl
+    ret = self._execute_context(
+          ^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1848, in _execute_context
+    return self._exec_single_context(
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1988, in _exec_single_context
+    self._handle_dbapi_exception(
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 2365, in _handle_dbapi_exception
+    raise sqlalchemy_exception.with_traceback(exc_info[2]) from e
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\base.py", line 1969, in _exec_single_context
+    self.dialect.do_execute(
+  File "C:\Users\Bayra\Yuldash\backend\.venv\Lib\site-packages\sqlalchemy\engine\default.py", line 952, in do_execute
+    cursor.execute(statement, parameters)
+sqlalchemy.exc.OperationalError: (sqlite3.OperationalError) error in index ix_savedplace_used_at after drop column: no such column: used_at
+[SQL: ALTER TABLE savedplace DROP COLUMN used_at]
+(Background on this error at: https://sqlalche.me/e/20/e3q8)

@@ -1,0 +1,30 @@
+пара                                                   светлая    тёмная  порог
+------------------------------------------------------------------------------------
+CanonCourier на CanonCourierBg                            5.78      6.81  4.5
+CanonCourier на CanonSurface                              6.68      7.20  4.5
+CanonTaxiText на CanonTaxiBg                             12.16     10.61  4.5
+CanonText на CanonBg                                     16.45     16.09  4.5
+CanonText на CanonSurface                                17.21     14.01  4.5
+CanonMuted на CanonBg                                     4.95      7.16  4.5
+CanonMuted на CanonSurface                                5.18      6.23  4.5
+CanonMutedStrong на CanonSurface                          7.94      9.60  4.5
+CanonGreen на CanonBg                                    11.49     11.78  4.5
+CanonGreen на CanonSurface                               12.02     10.25  4.5
+CanonGreen2 на CanonSurface                               6.61      5.00  4.5
+CanonGreen2 на CanonMint                                  5.87      5.11  4.5
+CanonWarn на CanonWarnBg                                  4.59      7.28  4.5
+CanonWarn на CanonSurface                                 5.10      8.74  4.5
+CanonRed на CanonSurface                                  5.36      4.83  4.5
+CanonRed на CanonDangerBg                                 4.68      4.70  4.5
+CanonWoman на CanonWomanBg                                5.98      7.54  4.5
+CanonTaxiText на CanonTaxiBg                             12.16     10.61  4.5
+CanonTaxiInk на CanonTaxi                                 6.35      8.28  4.5
+CanonMuted на CanonMint                                   4.61      6.37  4.5
+CanonStar на CanonSurface                                 3.43      7.68  3.0
+CanonStar на CanonBg                                      3.28      8.82  3.0
+CanonMuted на CanonSurface                                5.18      6.23  3.0
+CanonGoldInk на CanonGold                                 6.66      7.31  4.5
+белый на CanonGreen2                                      6.61      3.19  3.0
+белый на CanonRed                                         5.36      3.31  3.0
+
+✓ все проверенные пары проходят WCAG

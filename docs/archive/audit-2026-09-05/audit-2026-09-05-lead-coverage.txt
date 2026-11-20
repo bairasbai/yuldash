@@ -1,0 +1,272 @@
+# Lead coverage main3349472c. STATIC=read and reasoned; DATA=validated; RESOURCE=inventory only; DOC=context only.
+DOC context/reference; not product code; not all claims reverified	.claude/agents/README.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-android-architect.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-backend.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-bashkir-linguist.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-compose-ui.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-maps-geo.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-qa-verify.md
+DOC context/reference; not product code; not all claims reverified	.claude/agents/yuldash-security-privacy.md
+DOC context/reference; not product code; not all claims reverified	.claude/commands/architect.md
+DOC context/reference; not product code; not all claims reverified	.claude/commands/debug.md
+DOC context/reference; not product code; not all claims reverified	.claude/commands/perf.md
+DOC context/reference; not product code; not all claims reverified	.claude/commands/techlead.md
+DOC context/reference; not product code; not all claims reverified	.claude/commands/ui.md
+PENDING auxiliary configuration	.claude/launch.json
+DOC context/reference; not product code; not all claims reverified	.claude/skills/README.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/animate/RECIPES.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/animate/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/animation-vocabulary/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/apple-design/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/emil-design-eng/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/find-animation-opportunities/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/grill-me/SKILL.md
+PENDING auxiliary configuration	.claude/skills/grill-me/agents/openai.yaml
+DOC context/reference; not product code; not all claims reverified	.claude/skills/grilling/SKILL.md
+PENDING auxiliary configuration	.claude/skills/grilling/agents/openai.yaml
+DOC context/reference; not product code; not all claims reverified	.claude/skills/improve-animations/AUDIT.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/improve-animations/PLAN-TEMPLATE.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/improve-animations/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/orchestration/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/pick-ui-library/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/prototype/PICKER.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/prototype/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/review-animations/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/review-animations/STANDARDS.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/ui-ux-pro-max/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/ui-ux-pro-max/UPSTREAM.md
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/app-interface.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/charts.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/colors.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/google-fonts.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/icons.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/landing.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/motion.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/products.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/react-performance.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/angular.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/astro.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/avalonia.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/flutter.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/html-tailwind.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/javafx.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/jetpack-compose.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/laravel.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/nextjs.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/nuxt-ui.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/nuxtjs.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/react-native.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/react.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/shadcn.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/svelte.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/swiftui.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/threejs.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/uno.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/uwp.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/vue.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/winui.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/stacks/wpf.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/styles.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/typography.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/ui-reasoning.csv
+DATA validated schema/JSON/index; advice not externally audited	.claude/skills/ui-ux-pro-max/data/ux-guidelines.csv
+DOC context/reference; not product code; not all claims reverified	.claude/skills/ui-ux-pro-max/references/pro-rules.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/ui-ux-pro-max/references/quick-reference.md
+STATIC inspected source; runtime only where reported	.claude/skills/ui-ux-pro-max/scripts/core.py
+STATIC inspected source; runtime only where reported	.claude/skills/ui-ux-pro-max/scripts/design_system.py
+STATIC inspected source; runtime only where reported	.claude/skills/ui-ux-pro-max/scripts/search.py
+STATIC inspected source; runtime only where reported	.claude/skills/ui-ux-pro-max/scripts/tests/test_core.py
+STATIC inspected source; runtime only where reported	.claude/skills/ui-ux-pro-max/scripts/tests/test_design_system_mode.py
+STATIC inspected source; runtime only where reported	.claude/skills/ui-ux-pro-max/scripts/validate_data.py
+DOC context/reference; not product code; not all claims reverified	.claude/skills/yuldash-ui/SKILL.md
+DOC context/reference; not product code; not all claims reverified	.claude/skills/yuldash-ui/references/compose-patterns.md
+PENDING auxiliary configuration	.gitattributes
+STATIC inspected source; runtime only where reported	.github/workflows/ci.yml
+PENDING auxiliary configuration	.gitignore
+DOC context/reference; not product code; not all claims reverified	AGENTS.md
+DOC context/reference; not product code; not all claims reverified	CLAUDE.md
+DOC context/reference; not product code; not all claims reverified	CONTINUE_FOR_AI.md
+DOC context/reference; not product code; not all claims reverified	TEST_REPORT.md
+RESOURCE inventory; not executable source	assets-src/cars/top/business.png
+RESOURCE inventory; not executable source	assets-src/cars/top/business_night.png
+RESOURCE inventory; not executable source	assets-src/cars/top/comfort.png
+RESOURCE inventory; not executable source	assets-src/cars/top/economy.png
+RESOURCE inventory; not executable source	assets-src/cars/top/minivan.png
+RESOURCE inventory; not executable source	assets-src/cars/yuldash_tariff_business.png
+RESOURCE inventory; not executable source	assets-src/cars/yuldash_tariff_business_night.png
+RESOURCE inventory; not executable source	assets-src/cars/yuldash_tariff_comfort.png
+RESOURCE inventory; not executable source	assets-src/cars/yuldash_tariff_economy.png
+RESOURCE inventory; not executable source	assets-src/cars/yuldash_tariff_minivan.png
+RESOURCE inventory; not executable source	assets-src/payment_wallet.png
+PENDING auxiliary configuration	docs/.obsidian/app.json
+PENDING auxiliary configuration	docs/.obsidian/appearance.json
+PENDING auxiliary configuration	docs/.obsidian/core-plugins.json
+PENDING auxiliary configuration	docs/.obsidian/graph.json
+PENDING auxiliary configuration	docs/.obsidian/workspace.json
+DOC context/reference; not product code; not all claims reverified	docs/00-INDEX.md
+DOC context/reference; not product code; not all claims reverified	docs/acceptance-monetization-2026-08-31.md
+DOC context/reference; not product code; not all claims reverified	docs/ad-marking-ord.md
+DOC context/reference; not product code; not all claims reverified	docs/ads-system.md
+DOC context/reference; not product code; not all claims reverified	docs/android-gap-checklist.md
+DOC context/reference; not product code; not all claims reverified	docs/android-references.md
+DOC context/reference; not product code; not all claims reverified	docs/architecture-audit.md
+DOC context/reference; not product code; not all claims reverified	docs/architecture-review-2026-07-20.md
+DOC context/reference; not product code; not all claims reverified	docs/architecture.md
+DOC context/reference; not product code; not all claims reverified	docs/assetlinks-README.md
+PENDING auxiliary configuration	docs/assetlinks-template.json
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-06-28-full-code.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-07-04-full.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-00-lead.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-01-access.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-02-taxi.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-03-courier.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-04-rideshare.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-05-money.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-06-db.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-07-contract.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w1-08-screens.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-2026-08-07-w5-independent-audit.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-deep-2026-08-07.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-findings-2026-07-02.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-prompt.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-security-2026-08-08.md
+DOC context/reference; not product code; not all claims reverified	docs/audit-security-2026-08-20.md
+DOC context/reference; not product code; not all claims reverified	docs/audit.md
+DOC context/reference; not product code; not all claims reverified	docs/backend.md
+DOC context/reference; not product code; not all claims reverified	docs/branch-cleanup-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/branches-audit-2026-07-20.md
+DOC context/reference; not product code; not all claims reverified	docs/business-logic-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/code-audit-2026-07-20.md
+DOC context/reference; not product code; not all claims reverified	docs/commission-research-2026-08.md
+DOC context/reference; not product code; not all claims reverified	docs/competitors-analysis.md
+DOC context/reference; not product code; not all claims reverified	docs/courier-plan-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/decisions.md
+DOC context/reference; not product code; not all claims reverified	docs/deleted-branches-2026-08-06.md
+DOC context/reference; not product code; not all claims reverified	docs/deploy-migrations.md
+DOC context/reference; not product code; not all claims reverified	docs/design.md
+DOC context/reference; not product code; not all claims reverified	docs/e2e-2phones-checklist.md
+DOC context/reference; not product code; not all claims reverified	docs/fcm-setup.md
+DOC context/reference; not product code; not all claims reverified	docs/gaps-taxi-courier-2026-07-26.md
+DOC context/reference; not product code; not all claims reverified	docs/gaps-taxi-courier-2026-08-03.md
+DOC context/reference; not product code; not all claims reverified	docs/glossary-ba.md
+DOC context/reference; not product code; not all claims reverified	docs/glossary.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-2026-08-06.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-2026-08-08.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-2026-08-15-perf-quality.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-2026-08-15-webapp.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-audit-2026-08-12.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-audit-2026-08-22.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-audit-2026-08-29.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-audit-2026-08-30-wave-219.md
+DOC context/reference; not product code; not all claims reverified	docs/handoff-audit-2026-08-30.md
+DOC context/reference; not product code; not all claims reverified	docs/instant-order-backend.md
+DOC context/reference; not product code; not all claims reverified	docs/ios-compose-multiplatform.md
+DOC context/reference; not product code; not all claims reverified	docs/launch-checklist-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/launch-playbook-one-city.md
+DOC context/reference; not product code; not all claims reverified	docs/launch-readiness.md
+DOC context/reference; not product code; not all claims reverified	docs/lessons.md
+DOC context/reference; not product code; not all claims reverified	docs/map-design.md
+DOC context/reference; not product code; not all claims reverified	docs/merge-guide-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/monetization-audit-2026-08-31.md
+DOC context/reference; not product code; not all claims reverified	docs/monetization-plan-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/monetization-status-2026-08-31.md
+DOC context/reference; not product code; not all claims reverified	docs/monetization.md
+DOC context/reference; not product code; not all claims reverified	docs/partner-sales.md
+DOC context/reference; not product code; not all claims reverified	docs/payments-ledger-backend.md
+DOC context/reference; not product code; not all claims reverified	docs/payments-when-account-2026-08-23.md
+DOC context/reference; not product code; not all claims reverified	docs/phase1-client-plan.md
+DOC context/reference; not product code; not all claims reverified	docs/play-submission.md
+DOC context/reference; not product code; not all claims reverified	docs/pricing-plan-2026-08-23.md
+DOC context/reference; not product code; not all claims reverified	docs/pricing-vs-yandex-2026-08-23.md
+DOC context/reference; not product code; not all claims reverified	docs/prod-release-readiness-2026-08-31.md
+DOC context/reference; not product code; not all claims reverified	docs/product-brief-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/product-plan-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/qa.md
+DOC context/reference; not product code; not all claims reverified	docs/rc-notes.md
+DOC context/reference; not product code; not all claims reverified	docs/release-2026-07-audit.md
+DOC context/reference; not product code; not all claims reverified	docs/research-2026-08-market.md
+DOC context/reference; not product code; not all claims reverified	docs/review-audit-2026-07-26.md
+DOC context/reference; not product code; not all claims reverified	docs/review-plan-2026-07-03.md
+DOC context/reference; not product code; not all claims reverified	docs/review-release-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/roadmap-features-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/route-tracking-contract.md
+DOC context/reference; not product code; not all claims reverified	docs/runbook-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/scale-ops-runbook.md
+DOC context/reference; not product code; not all claims reverified	docs/scenarios-audit-2026-08-30.md
+DOC context/reference; not product code; not all claims reverified	docs/security-audit.md
+DOC context/reference; not product code; not all claims reverified	docs/server.md
+DOC context/reference; not product code; not all claims reverified	docs/staging.md
+RESOURCE inventory; not executable source	docs/stitch/karta.png
+DOC context/reference; not product code; not all claims reverified	docs/store-listing.md
+DOC context/reference; not product code; not all claims reverified	docs/system-design.md
+DOC context/reference; not product code; not all claims reverified	docs/tasks.md
+DOC context/reference; not product code; not all claims reverified	docs/taxi-classes-2026-08.md
+DOC context/reference; not product code; not all claims reverified	docs/taxi-courier-premium-2026-07-30.md
+DOC context/reference; not product code; not all claims reverified	docs/taxi-courier-ui-redesign-2026-07.md
+DOC context/reference; not product code; not all claims reverified	docs/telegram-setup.md
+DOC context/reference; not product code; not all claims reverified	docs/testing-prompt.md
+DOC context/reference; not product code; not all claims reverified	docs/testing.md
+DOC context/reference; not product code; not all claims reverified	docs/trust-levels-backend.md
+DOC context/reference; not product code; not all claims reverified	docs/trust-safety.md
+DOC context/reference; not product code; not all claims reverified	docs/unit-economics-2026-08-23.md
+DOC context/reference; not product code; not all claims reverified	docs/ux-audit-2026-08-08.md
+DOC context/reference; not product code; not all claims reverified	docs/ux-profile-settings-2026-08-31.md
+DOC context/reference; not product code; not all claims reverified	docs/yandex-pro-plan.md
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/.gitignore
+DOC context/reference; not product code; not all claims reverified	experiments/cmp-ios-poc/README.md
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/androidApp/build.gradle.kts
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/androidApp/src/main/AndroidManifest.xml
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/androidApp/src/main/kotlin/com/yuldash/poc/MainActivity.kt
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/build.gradle.kts
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/gradle.properties
+RESOURCE inventory; not executable source	experiments/cmp-ios-poc/gradle/wrapper/gradle-wrapper.jar
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/gradle/wrapper/gradle-wrapper.properties
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/gradlew
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/gradlew.bat
+DOC context/reference; not product code; not all claims reverified	experiments/cmp-ios-poc/iosApp/README-iOS.md
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/iosApp/iosApp/ContentView.swift
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/iosApp/iosApp/iOSApp.swift
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/settings.gradle.kts
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/shared/build.gradle.kts
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/shared/src/androidMain/AndroidManifest.xml
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/shared/src/commonMain/kotlin/com/yuldash/shared/App.kt
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/shared/src/commonMain/kotlin/com/yuldash/shared/AppText.kt
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/shared/src/commonMain/kotlin/com/yuldash/shared/Canon.kt
+STATIC inspected source; runtime only where reported	experiments/cmp-ios-poc/shared/src/iosMain/kotlin/com/yuldash/shared/MainViewController.kt
+DOC context/reference; not product code; not all claims reverified	mobile/README.md
+RESOURCE inventory; not executable source	mobile/assets/brand/yuldash_logo.png
+STATIC inspected source; runtime only where reported	mobile/assets/l10n/app_ba.arb
+STATIC inspected source; runtime only where reported	mobile/assets/l10n/app_ru.arb
+STATIC inspected source; runtime only where reported	mobile/l10n.yaml
+STATIC inspected source; runtime only where reported	mobile/lib/main.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/data/api_client.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/data/app_scope.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/auth/phone_login_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/home/home_shell.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/home/map_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/onboarding/onboarding_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/profile/profile_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/rides/create_ride_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/rides/rides_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/rides/widgets/ride_card.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/features/support/support_page.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/localization/app_locale_controller.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/models/ride.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/theme/app_theme.dart
+STATIC inspected source; runtime only where reported	mobile/lib/src/yuldash_app.dart
+STATIC inspected source; runtime only where reported	mobile/pubspec.yaml
+STATIC inspected source; runtime only where reported	tools/.unresolved-baseline.txt
+DOC context/reference; not product code; not all claims reverified	tools/README.md
+STATIC inspected source; runtime only where reported	tools/compile-data-layer.sh
+STATIC inspected source; runtime only where reported	tools/contrast.py
+STATIC inspected source; runtime only where reported	tools/ktbaseline.sh
+STATIC inspected source; runtime only where reported	tools/ktcheck.py
+STATIC inspected source; runtime only where reported	tools/navcheck.py
+STATIC inspected source; runtime only where reported	tools/stubs/BuildConfigStub.kt
+STATIC inspected source; runtime only where reported	tools/stubs/ComposeRuntimeStub.kt
+STATIC inspected source; runtime only where reported	tools/stubs/FirebaseMessagingStub.kt
+STATIC inspected source; runtime only where reported	tools/stubs/FirebaseStub.kt
+STATIC inspected source; runtime only where reported	tools/stubs/SecurityCryptoStub.kt
+STATIC inspected source; runtime only where reported	tools/stubs/SentryStub.kt
+STATIC inspected source; runtime only where reported	tools/tariff_icons.py
+RESOURCE inventory; not executable source	yuldash_logo.png

@@ -1,0 +1,4 @@
+gradle.projectsEvaluated {
+    def p = gradle.rootProject.findProject(':app')
+    p.android.sourceSets.test.java.srcDir(new File(gradle.rootProject.projectDir, '../artifacts/audit-2026-09-05/android-probes'))
+}

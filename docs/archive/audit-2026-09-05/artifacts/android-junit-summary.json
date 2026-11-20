@@ -1,0 +1,16 @@
+[
+  {
+    "name": "com.yuldash.app.CreateRideDeepContentTest",
+    "tests": "25",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0"
+  },
+  {
+    "name": "com.yuldash.app.data.AuditMainEvidenceTest",
+    "tests": "4",
+    "failures": "0",
+    "errors": "0",
+    "skipped": "0"
+  }
+]

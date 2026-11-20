@@ -1,0 +1,214 @@
+To honour the JVM settings for this build a single-use Daemon process will be forked. For more on this, please refer to https://docs.gradle.org/8.13/userguide/gradle_daemon.html#sec:disabling_the_daemon in the Gradle documentation.
+Daemon will be stopped at the end of the build 
+⚠️  Релиз собирается БЕЗ ПОДПИСИ (-Pyuldash.unsignedRelease). Это режим проверки R8 в CI: полученный APK НЕЛЬЗЯ ставить на телефон и НЕЛЬЗЯ заливать в стор.
+> Task :app:checkKotlinGradlePluginConfigurationErrors SKIPPED
+> Task :app:preBuild UP-TO-DATE
+> Task :app:preDebugBuild UP-TO-DATE
+> Task :app:generateDebugBuildConfig UP-TO-DATE
+> Task :app:checkDebugAarMetadata UP-TO-DATE
+> Task :app:processDebugNavigationResources UP-TO-DATE
+> Task :app:compileDebugNavigationResources UP-TO-DATE
+> Task :app:generateDebugResValues UP-TO-DATE
+> Task :app:mapDebugSourceSetPaths UP-TO-DATE
+> Task :app:generateDebugResources UP-TO-DATE
+> Task :app:mergeDebugResources UP-TO-DATE
+> Task :app:packageDebugResources UP-TO-DATE
+> Task :app:parseDebugLocalResources UP-TO-DATE
+> Task :app:createDebugCompatibleScreenManifests UP-TO-DATE
+> Task :app:extractDeepLinksDebug UP-TO-DATE
+> Task :app:processDebugMainManifest UP-TO-DATE
+> Task :app:processDebugManifest UP-TO-DATE
+> Task :app:processDebugManifestForPackage UP-TO-DATE
+> Task :app:processDebugResources UP-TO-DATE
+> Task :app:compileDebugKotlin UP-TO-DATE
+> Task :app:javaPreCompileDebug UP-TO-DATE
+> Task :app:compileDebugJavaWithJavac UP-TO-DATE
+> Task :app:bundleDebugClassesToCompileJar UP-TO-DATE
+> Task :app:preDebugAndroidTestBuild SKIPPED
+> Task :app:generateDebugAndroidTestResValues
+> Task :app:generateDebugAndroidTestLintModel
+> Task :app:extractProguardFiles
+> Task :app:generateDebugLintReportModel
+> Task :app:preDebugUnitTestBuild UP-TO-DATE
+> Task :app:generateDebugUnitTestLintModel
+> Task :app:preReleaseBuild UP-TO-DATE
+> Task :app:mergeReleaseJniLibFolders
+> Task :app:buildKotlinToolingMetadata
+> Task :app:generateReleaseBuildConfig
+> Task :app:processReleaseNavigationResources
+> Task :app:generateReleaseResValues
+> Task :app:compileReleaseNavigationResources
+> Task :app:mapReleaseSourceSetPaths
+> Task :app:generateReleaseResources
+> Task :app:checkReleaseAarMetadata
+> Task :app:checkReleaseDuplicateClasses
+> Task :app:mergeReleaseNativeLibs
+> Task :app:packageReleaseResources
+> Task :app:createReleaseCompatibleScreenManifests
+> Task :app:extractDeepLinksRelease
+> Task :app:parseReleaseLocalResources
+> Task :app:processReleaseMainManifest
+
+> Task :app:stripReleaseDebugSymbols
+Unable to strip the following libraries, packaging them as they are: libandroidx.graphics.path.so, libmaps-mobile.so, libsentry-android.so, libsentry.so. Run with --info option to learn more.
+
+> Task :app:processReleaseManifest
+> Task :app:extractReleaseNativeSymbolTables
+> Task :app:mergeReleaseNativeDebugMetadata NO-SOURCE
+> Task :app:javaPreCompileRelease
+> Task :app:mergeReleaseStartupProfile
+> Task :app:mergeReleaseShaders
+> Task :app:compileReleaseShaders NO-SOURCE
+> Task :app:generateReleaseAssets UP-TO-DATE
+> Task :app:mergeReleaseArtProfile
+> Task :app:mergeReleaseAssets
+> Task :app:compressReleaseAssets
+> Task :app:extractReleaseVersionControlInfo
+> Task :app:mergeReleaseResources
+> Task :app:collectReleaseDependencies
+> Task :app:sdkReleaseDependencyData
+> Task :app:writeReleaseAppMetadata
+> Task :app:writeReleaseSigningConfigVersions
+> Task :app:processReleaseManifestForPackage
+> Task :app:processReleaseResources
+> Task :app:lintAnalyzeDebug
+> Task :app:lintAnalyzeDebugAndroidTest
+> Task :app:lintAnalyzeDebugUnitTest
+> Task :app:compileReleaseKotlin
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt:335:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt:600:42 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/AdminSupportScreen.kt:300:40 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/BargainUi.kt:427:58 Unnecessary non-null assertion (!!) on a non-null receiver of type 'Int'.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt:845:13 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt:986:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt:1629:42 'val Icons.Filled.ReceiptLong: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ReceiptLong.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt:2035:44 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt:2542:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CanonTokens.kt:189:59 Redundant call of conversion method.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ClinicRidesScreen.kt:89:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CouponsScreen.kt:413:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CouponsScreen.kt:677:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CourierScreen.kt:657:47 'val Icons.Filled.AltRoute: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AltRoute.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CourierScreen.kt:1939:42 'val Icons.Filled.AltRoute: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AltRoute.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CourierTroubleDialog.kt:104:52 'val Icons.Filled.AssignmentReturn: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AssignmentReturn.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CourierTroubleDialog.kt:254:46 'val Icons.Filled.AssignmentReturn: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AssignmentReturn.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CourierTroubleDialog.kt:263:46 'val Icons.Filled.AssignmentReturn: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AssignmentReturn.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CreateRideScreen.kt:799:38 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/CreateRideScreen.kt:1033:32 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/DriverTaxiRidesScreen.kt:250:35 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/FairnessScreens.kt:839:66 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:558:27 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:853:26 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:929:37 'fun addPlacemark(p0: Point): PlacemarkMapObject' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:932:37 'fun addPlacemark(p0: Point): PlacemarkMapObject' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:936:44 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:956:116 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:993:28 'fun addPlacemark(p0: Point): PlacemarkMapObject' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt:1065:43 'fun addPlacemark(p0: Point): PlacemarkMapObject' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MainActivity.kt:744:110 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MainActivity.kt:888:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:537:60 'val Icons.Filled.VolumeOff: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeOff.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1147:35 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1172:31 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1227:52 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1249:139 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1253:72 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1381:48 'fun addPlacemark(p0: Point): PlacemarkMapObject' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1394:26 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1614:64 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1636:84 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MapScreen.kt:1854:133 'var strokeWidth: Float' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/MyDataScreen.kt:148:55 'val Icons.Filled.Chat: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Chat.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ParcelsScreen.kt:699:30 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ParcelsScreen.kt:2398:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ParcelsScreen.kt:2725:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/PriceSpeech.kt:46:56 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/PriceSpeech.kt:47:46 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/PriceSpeech.kt:49:50 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/PriceSpeech.kt:49:68 'constructor(p0: String!, p1: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:1073:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:1104:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:1136:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:1283:40 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:2232:96 Unnecessary non-null assertion (!!) on a non-null receiver of type 'String'.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:2642:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:3433:46 'val Icons.Filled.ReceiptLong: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ReceiptLong.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:3439:46 'val Icons.Filled.ListAlt: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ListAlt.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:3448:46 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ProfileScreen.kt:4743:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:1012:48 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:1134:32 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:1445:36 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:1683:40 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:1750:77 'val Icons.Filled.ListAlt: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ListAlt.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:1817:50 'val Icons.Filled.ListAlt: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ListAlt.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:2005:40 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:2286:99 'val Icons.Filled.AltRoute: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.AltRoute.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:2487:50 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:2589:32 'val Icons.Filled.ListAlt: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ListAlt.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:2812:72 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/RidesRequestsChatScreens.kt:2967:137 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SavedPlacesScreen.kt:168:35 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:889:52 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:912:50 'val Icons.Filled.ExitToApp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ExitToApp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:1117:44 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:1207:55 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:1322:52 'val Icons.Filled.VolumeOff: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeOff.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:1672:50 'val Icons.Filled.ListAlt: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ListAlt.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:1706:50 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:1764:104 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:2421:44 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:2440:50 'val Icons.Filled.Send: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.Send.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt:2476:87 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt:297:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt:371:30 This declaration overrides a deprecated member but is not marked as deprecated itself. Add the '@Deprecated' annotation or suppress the diagnostic.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt:375:16 'fun requestSingleUpdate(p0: String, p1: LocationListener, p2: Looper?): Unit' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt:1161:36 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SosVerifyScreens.kt:1187:28 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SupportBoostScreen.kt:468:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SupportBoostScreen.kt:734:50 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SupportBoostScreen.kt:806:40 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SupportBoostScreen.kt:831:32 'val Icons.Filled.TrendingUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.TrendingUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SupportBoostScreen.kt:851:91 'interface ClipboardManager : Any' is deprecated. Use Clipboard instead, which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/SupportChatScreen.kt:239:32 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/TaxiDocsScreens.kt:648:17 Condition is always 'true'.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/TaxiDocsScreens.kt:845:38 'constructor(p0: String!): Locale' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/TaxiLineService.kt:129:45 Unnecessary safe call on a non-null receiver of type 'ApiException'.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/TaxiTripScreen.kt:553:31 'val Icons.Filled.KeyboardArrowRight: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.KeyboardArrowRight.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/TaxiTripScreen.kt:592:28 'val Icons.Filled.DirectionsWalk: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.DirectionsWalk.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/TripLiveLink.kt:44:21 'val LocalClipboardManager: ProvidableCompositionLocal<ClipboardManager>' is deprecated. Use LocalClipboard instead which supports suspend functions.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/WalletScreen.kt:166:46 'val Icons.Filled.ReceiptLong: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.ReceiptLong.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/WalletScreen.kt:267:47 'val Icons.Filled.CallReceived: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallReceived.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/WalletScreen.kt:267:79 'val Icons.Filled.CallMade: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.CallMade.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/YuldashApp.kt:2070:44 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/YuldashApp.kt:2097:40 'val Icons.Filled.VolumeUp: ImageVector' is deprecated. Use the AutoMirrored version at Icons.AutoMirrored.Filled.VolumeUp.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt:75:24 'var statusBarColor: Int' is deprecated. Deprecated in Java.
+w: file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt:76:24 'var navigationBarColor: Int' is deprecated. Deprecated in Java.
+
+> Task :app:compileReleaseJavaWithJavac
+> Task :app:mergeReleaseGeneratedProguardFiles
+> Task :app:processReleaseJavaRes
+> Task :app:generateReleaseLintVitalReportModel
+> Task :app:expandReleaseArtProfileWildcards
+> Task :app:mergeReleaseJavaResource
+> Task :app:produceReleaseComposeMapping
+> Task :app:reportReleaseComposeMappingErrors
+> Task :app:lintVitalAnalyzeRelease
+> Task :app:minifyReleaseWithR8
+> Task :app:lintVitalReportRelease
+> Task :app:lintVitalRelease
+> Task :app:mergeReleaseComposeMapping
+> Task :app:convertShrunkResourcesToBinaryRelease
+> Task :app:compileReleaseArtProfile
+> Task :app:optimizeReleaseResources
+> Task :app:packageRelease
+> Task :app:createReleaseApkListingFileRedirect
+> Task :app:assembleRelease
+
+> Task :app:lintReportDebug
+Wrote HTML report to file:///C:/Users/Bayra/Yuldash-main-audit-2026-09-05/android/app/build/reports/lint-results-debug.html
+
+> Task :app:lintDebug
+
+BUILD SUCCESSFUL in 9m
+82 actionable tasks: 62 executed, 20 up-to-date

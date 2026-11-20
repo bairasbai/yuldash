@@ -1,0 +1,4 @@
+Missing CanonText; exit= 0
+  ! нет токена: CanonText / CanonBg
+  ! нет токена: CanonText / CanonSurface
+✓ все проверенные пары проходят WCAG

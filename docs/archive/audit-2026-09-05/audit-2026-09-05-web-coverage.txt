@@ -1,0 +1,385 @@
+Снимок main 3349472c. Рабочее покрытие: аудит продолжается.
+AST = файл целиком разобран парсером и проверен структурными правилами; это НЕ полное ручное чтение.
+БИН = только учёт файла; визуально/покадрово не проверялся.
+
+promo/package-lock.json	учтён; содержательная проверка ещё не завершена
+promo/package.json	учтён; содержательная проверка ещё не завершена
+promo/public/app-form.png	БИН; 823545 байт
+promo/public/app-map.png	БИН; 1056233 байт
+promo/public/app-request.png	БИН; 798049 байт
+promo/public/logo.png	БИН; 626193 байт
+promo/public/road.mp4	БИН; 617016 байт
+promo/src/Promo.tsx	AST; ОШИБКИ ПАРСЕРА: 24; ручной анализ выборочный; строк 231
+promo/src/PromoWide.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 136
+promo/src/Root.tsx	AST; ОШИБКИ ПАРСЕРА: 3; ручной анализ выборочный; строк 27
+promo/src/index.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 5
+promo/src/screens.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 38
+promo/src/theme.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 22
+promo/tsconfig.json	учтён; содержательная проверка ещё не завершена
+web/.gitignore	учтён; содержательная проверка ещё не завершена
+web/README.md	учтён; содержательная проверка ещё не завершена
+web/app/ba/layout.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 35
+web/app/ba/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 10
+web/app/delete-account/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 19
+web/app/globals.css	учтён; содержательная проверка ещё не завершена
+web/app/help/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 18
+web/app/layout.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 113
+web/app/manifest.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 22
+web/app/not-found.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 30
+web/app/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 8
+web/app/privacy/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 14
+web/app/robots.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 12
+web/app/safety/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 19
+web/app/sitemap.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 18
+web/app/terms/page.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 14
+web/components/AppShowcase.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 85
+web/components/Aurora.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 39
+web/components/BorderBeam.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 6
+web/components/Comparison.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 127
+web/components/CookieConsent.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 65
+web/components/Counter.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 50
+web/components/CoverageMap.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 232
+web/components/Download.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 108
+web/components/DownloadButton.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 93
+web/components/DownloadProvider.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 94
+web/components/EarlyAccess.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 167
+web/components/FAQ.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 85
+web/components/Features.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 125
+web/components/Footer.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 89
+web/components/FounderLetter.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 270
+web/components/Header.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 217
+web/components/HelpView.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 63
+web/components/Hero.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 204
+web/components/HeroBackdrop.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 107
+web/components/HeroPhone.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 31
+web/components/HowItWorks.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 144
+web/components/InfoPage.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 65
+web/components/LandingPage.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 74
+web/components/LegalView.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 126
+web/components/Loader.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 77
+web/components/Marquee.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 105
+web/components/MotionProvider.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 21
+web/components/Ornament.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 149
+web/components/Partners.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 189
+web/components/PhoneMockup.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 273
+web/components/Reveal.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 25
+web/components/Routes.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 102
+web/components/SafetyView.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 39
+web/components/Savings.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 82
+web/components/ScrollProgress.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 18
+web/components/ScrollTop.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 36
+web/components/SearchTrip.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 99
+web/components/StatsBand.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 99
+web/components/StickyDownloadBar.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 74
+web/components/StructuredData.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 53
+web/components/Testimonials.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 151
+web/components/Trust.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 65
+web/components/Typewriter.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 84
+web/components/VideoPromo.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 86
+web/components/analytics.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 18
+web/components/config.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 113
+web/components/founder-content.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 87
+web/components/help-content.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 83
+web/components/icons.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 84
+web/components/lang.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 448
+web/components/legal-content.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 312
+web/components/safety-content.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 81
+web/components/useIsMobile.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 27
+web/components/useRevealOnce.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 36
+web/deploy.sh	учтён; содержательная проверка ещё не завершена
+web/eslint.config.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 17
+web/hero.html	учтён; содержательная проверка ещё не завершена
+web/next-env.d.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 7
+web/next.config.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 13
+web/og-source.html	учтён; содержательная проверка ещё не завершена
+web/package-lock.json	учтён; содержательная проверка ещё не завершена
+web/package.json	учтён; содержательная проверка ещё не завершена
+web/postcss.config.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 9
+web/public/apple-touch-icon.png	БИН; 13693 байт
+web/public/coverage-bg.webp	БИН; 112890 байт
+web/public/favicon.ico	БИН; 3684 байт
+web/public/founder.jpg	БИН; 67491 байт
+web/public/hero-poster.jpg	БИН; 235942 байт
+web/public/hero-poster.webp	БИН; 161672 байт
+web/public/hero-vertical.mp4	БИН; 336160 байт
+web/public/hero.mp4	БИН; 617016 байт
+web/public/icon-192.png	БИН; 14940 байт
+web/public/icon-512.png	БИН; 75111 байт
+web/public/logo.png	БИН; 819451 байт
+web/public/nightroad.webp	БИН; 61512 байт
+web/public/og.png	БИН; 474198 байт
+web/public/promo-portrait.mp4	БИН; 1845514 байт
+web/public/promo-poster.jpg	БИН; 46227 байт
+web/public/promo-wide-poster.jpg	БИН; 71285 байт
+web/public/promo-wide.mp4	БИН; 1840628 байт
+web/public/qr-download.svg	учтён; содержательная проверка ещё не завершена
+web/public/rb-map.png	БИН; 116858 байт
+web/public/screens/app-form.webp	БИН; 35072 байт
+web/public/screens/app-map.jpg	БИН; 104874 байт
+web/public/screens/app-request.webp	БИН; 24406 байт
+web/tailwind.config.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 52
+web/tsconfig.json	учтён; содержательная проверка ещё не завершена
+webapp/.env.example	учтён; содержательная проверка ещё не завершена
+webapp/.gitignore	учтён; содержательная проверка ещё не завершена
+webapp/BASHKIR_DRAFT.md	учтён; содержательная проверка ещё не завершена
+webapp/PLAN.md	учтён; содержательная проверка ещё не завершена
+webapp/README.md	учтён; содержательная проверка ещё не завершена
+webapp/index.html	учтён; содержательная проверка ещё не завершена
+webapp/nginx.conf.example	учтён; содержательная проверка ещё не завершена
+webapp/package-lock.json	учтён; содержательная проверка ещё не завершена
+webapp/package.json	учтён; содержательная проверка ещё не завершена
+webapp/public/apple-touch-icon.png	БИН; 13693 байт
+webapp/public/favicon.ico	БИН; 3684 байт
+webapp/public/icon-192.png	БИН; 14940 байт
+webapp/public/icon-512.png	БИН; 75111 байт
+webapp/public/login_salavat_yulaev_hero.webp	БИН; 141790 байт
+webapp/public/manifest.webmanifest	учтён; содержательная проверка ещё не завершена
+webapp/public/onboarding_bashkir_hero.webp	БИН; 128990 байт
+webapp/public/push-sw.js	AST; синтаксис разобран; ручной анализ выборочный; строк 68
+webapp/public/yuldash_logo.webp	БИН; 50496 байт
+webapp/src/App.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 905
+webapp/src/analytics.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 118
+webapp/src/api/admin.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 1030
+webapp/src/api/ads.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 191
+webapp/src/api/auth.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 168
+webapp/src/api/bookings.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 312
+webapp/src/api/boost.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 60
+webapp/src/api/carphoto.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 128
+webapp/src/api/chat.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 347
+webapp/src/api/client.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 306
+webapp/src/api/coupons.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 275
+webapp/src/api/courier.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 348
+webapp/src/api/discovery.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 147
+webapp/src/api/driver.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 432
+webapp/src/api/family.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 155
+webapp/src/api/geo.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 86
+webapp/src/api/incidents.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 97
+webapp/src/api/instant.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 1133
+webapp/src/api/medical.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; WEB-16; строк 47
+webapp/src/api/notifications.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 51
+webapp/src/api/parcels.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 427
+webapp/src/api/places.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 103
+webapp/src/api/promo.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 75
+webapp/src/api/push.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 85
+webapp/src/api/referral.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 23
+webapp/src/api/requests.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 209
+webapp/src/api/reviews.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 34
+webapp/src/api/rides.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 124
+webapp/src/api/routeWatch.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 41
+webapp/src/api/safety.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 285
+webapp/src/api/seasonal.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 31
+webapp/src/api/share.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 38
+webapp/src/api/stats.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 62
+webapp/src/api/support-donate.ts	AST; синтаксис разобран; ПРОЧИТАН ЦЕЛИКОМ: методы/auth/параметры/ответы сопоставлены с backend и UI; новый подтверждённый баг не найден; строк 30
+webapp/src/api/support.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 113
+webapp/src/api/trust.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 110
+webapp/src/api/voice.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 14
+webapp/src/api/wallet.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 109
+webapp/src/api/weather.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 57
+webapp/src/auth/AuthProvider.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 170
+webapp/src/components/AdminAdCreate.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 209
+webapp/src/components/BargainTrail.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 66
+webapp/src/components/BottomNav.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 48
+webapp/src/components/BrandIcons.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 247
+webapp/src/components/BrandMark.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 47
+webapp/src/components/ChatPhoto.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 94
+webapp/src/components/ChatSafety.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 90
+webapp/src/components/ChatVoice.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 153
+webapp/src/components/CityField.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 124
+webapp/src/components/CommunityFeedStrip.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 124
+webapp/src/components/CourierOrderForm.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 463
+webapp/src/components/DebtCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 170
+webapp/src/components/DriverPassengers.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 152
+webapp/src/components/Icons.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 400
+webapp/src/components/InstallPrompt.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 103
+webapp/src/components/InviteCircle.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 200
+webapp/src/components/InviteDriverCallout.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 85
+webapp/src/components/LangToggle.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 32
+webapp/src/components/OfflineBanner.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 50
+webapp/src/components/OfflineTripPass.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 103
+webapp/src/components/ParcelPhoto.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 89
+webapp/src/components/ParcelProblemActions.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 351
+webapp/src/components/ParcelRate.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 101
+webapp/src/components/ParcelReceiptCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 178
+webapp/src/components/PartnerAd.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 132
+webapp/src/components/PayMethodPicker.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 143
+webapp/src/components/PayTripCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 140
+webapp/src/components/PickupChips.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 90
+webapp/src/components/PriceComplaint.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 125
+webapp/src/components/PriceFactors.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 87
+webapp/src/components/PriorityCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 92
+webapp/src/components/PushToggle.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 176
+webapp/src/components/QuickReplies.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 42
+webapp/src/components/RaiseBudget.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 115
+webapp/src/components/RecentPlaces.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 128
+webapp/src/components/RequireAdmin.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 49
+webapp/src/components/RequireAuth.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 30
+webapp/src/components/RideCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 113
+webapp/src/components/RideEditActions.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 186
+webapp/src/components/RideSheet.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 256
+webapp/src/components/RoadsideHelp.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 110
+webapp/src/components/SbpPay.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 101
+webapp/src/components/ScreenHeader.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 23
+webapp/src/components/ShareTripCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 258
+webapp/src/components/States.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 73
+webapp/src/components/StatusPill.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 55
+webapp/src/components/TaxiDriverTripActions.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 293
+webapp/src/components/TaxiOrderExtras.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 323
+webapp/src/components/TaxiTripActions.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 894
+webapp/src/components/UpdateBanner.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 62
+webapp/src/components/WaitlistForm.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 155
+webapp/src/components/WeatherWarningCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 119
+webapp/src/components/WorkZoneCard.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 278
+webapp/src/components/YandexMap.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 259
+webapp/src/components/amenityIcons.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 51
+webapp/src/components/parcelUi.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 311
+webapp/src/filterPrefs.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 95
+webapp/src/flags.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 56
+webapp/src/fontScale.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 66
+webapp/src/i18n/dict.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 65
+webapp/src/i18n/lang.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 77
+webapp/src/index.css	учтён; содержательная проверка ещё не завершена
+webapp/src/lazyScreen.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 54
+webapp/src/legal.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 229
+webapp/src/main.tsx	AST; синтаксис разобран; ручной анализ выборочный; строк 30
+webapp/src/push/webPush.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 154
+webapp/src/screens/ActiveTripScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 1066
+webapp/src/screens/AdEditorScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 300
+webapp/src/screens/AdminAdsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 402
+webapp/src/screens/AdminCabinetScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 248
+webapp/src/screens/AdminCarPhotoScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 255
+webapp/src/screens/AdminCourierScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 336
+webapp/src/screens/AdminDebtsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 261
+webapp/src/screens/AdminDriversScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 286
+webapp/src/screens/AdminIncidentsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 478
+webapp/src/screens/AdminModerationScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 299
+webapp/src/screens/AdminParcelsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 408
+webapp/src/screens/AdminPartnersScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 309
+webapp/src/screens/AdminPaymentRequestsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 179
+webapp/src/screens/AdminPretripScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 133
+webapp/src/screens/AdminPriceComplaintsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 144
+webapp/src/screens/AdminPromoScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 375
+webapp/src/screens/AdminReportsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 292
+webapp/src/screens/AdminRequestScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 197
+webapp/src/screens/AdminResponsesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 199
+webapp/src/screens/AdminReviewsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 249
+webapp/src/screens/AdminSosScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 249
+webapp/src/screens/AdminSupportScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 263
+webapp/src/screens/AdminTaxiPulseScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 184
+webapp/src/screens/AdminTaxiScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 426
+webapp/src/screens/AdminTextFlagsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 173
+webapp/src/screens/AdminWaitlistScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 240
+webapp/src/screens/AdsCabinetScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 327
+webapp/src/screens/AppReviewScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 167
+webapp/src/screens/BlocklistScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 130
+webapp/src/screens/BookingScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 219
+webapp/src/screens/BoostScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 302
+webapp/src/screens/CallbackHelpScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 127
+webapp/src/screens/CarPhotoScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 519
+webapp/src/screens/ChatInboxScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 164
+webapp/src/screens/ClinicRidesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 181
+webapp/src/screens/ConsentsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 194
+webapp/src/screens/CouponsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 557
+webapp/src/screens/CourierEarningsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 192
+webapp/src/screens/CourierOnboardingScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 422
+webapp/src/screens/CourierScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 812
+webapp/src/screens/CreateRequestScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 309
+webapp/src/screens/CreateRideScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 602
+webapp/src/screens/DriverCabinetScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 927
+webapp/src/screens/DriverEarningsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 172
+webapp/src/screens/DriverProfileScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 256
+webapp/src/screens/DriverResponsesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 335
+webapp/src/screens/DriverTaxiRidesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 254
+webapp/src/screens/EditProfileScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 237
+webapp/src/screens/EditRequestScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 291
+webapp/src/screens/FairnessCenterScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 315
+webapp/src/screens/FamilyOrderScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 172
+webapp/src/screens/FiltersScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 155
+webapp/src/screens/HelpScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 165
+webapp/src/screens/HomeScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 482
+webapp/src/screens/IncidentDetailScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 427
+webapp/src/screens/IncomeCalculatorScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 163
+webapp/src/screens/InstantChatScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 239
+webapp/src/screens/InstantDriverTripScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 1117
+webapp/src/screens/InstantOrderScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 1777
+webapp/src/screens/IntroScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 52
+webapp/src/screens/InvitesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 209
+webapp/src/screens/LegalScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 65
+webapp/src/screens/LoginScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 381
+webapp/src/screens/MyStatsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 226
+webapp/src/screens/MyTaxiTripsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 197
+webapp/src/screens/NotificationsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 286
+webapp/src/screens/OnboardingScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 164
+webapp/src/screens/ParcelChatScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 277
+webapp/src/screens/ParcelsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 860
+webapp/src/screens/PartnerCabinetScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 868
+webapp/src/screens/PassengerCabinetScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 278
+webapp/src/screens/PayDoneScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 187
+webapp/src/screens/PaymentInfoScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 131
+webapp/src/screens/PretripCheckScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 255
+webapp/src/screens/PricingInfoScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 128
+webapp/src/screens/PrivacyScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 8
+webapp/src/screens/ProfileScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 506
+webapp/src/screens/PromoCodeScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 210
+webapp/src/screens/RepeatTripScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 184
+webapp/src/screens/ReportScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 286
+webapp/src/screens/RequestResponsesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 338
+webapp/src/screens/RequestsFeedScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 265
+webapp/src/screens/RidesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 172
+webapp/src/screens/RouteWatchesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 217
+webapp/src/screens/RulesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 8
+webapp/src/screens/SafetyScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 171
+webapp/src/screens/SavedPlacesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 282
+webapp/src/screens/ScheduledOrdersScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 274
+webapp/src/screens/SettingsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 360
+webapp/src/screens/SimpleModeScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 134
+webapp/src/screens/SosScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 247
+webapp/src/screens/SplashScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 56
+webapp/src/screens/SupportTicketScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 228
+webapp/src/screens/SupportTicketsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 218
+webapp/src/screens/SupportYuldashScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 194
+webapp/src/screens/TaxiClassesScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 335
+webapp/src/screens/TaxiDocumentsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 410
+webapp/src/screens/TaxiOnboardingScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 657
+webapp/src/screens/TaxiReceiptScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 491
+webapp/src/screens/TripReceiptScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 282
+webapp/src/screens/TrustScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 167
+webapp/src/screens/TrustedContactsScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 213
+webapp/src/screens/VerifyDriverScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 322
+webapp/src/screens/VoiceRequestScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 295
+webapp/src/screens/WalletScreen.tsx	AST; синтаксис разобран; ручной анализ: все async-обработчики действий; выборочно загрузка/рендер/эффекты; строк 398
+webapp/src/theme.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 62
+webapp/src/ui.css	учтён; содержательная проверка ещё не завершена
+webapp/src/uiPrefs.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 26
+webapp/src/utils/dateInput.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 32
+webapp/src/utils/formDraft.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 127
+webapp/src/utils/format.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 131
+webapp/src/utils/outbox.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 167
+webapp/src/utils/pendingPayment.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 62
+webapp/src/utils/privacy.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 70
+webapp/src/utils/serverTime.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 65
+webapp/src/utils/tripPass.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 88
+webapp/src/utils/useScrollMemory.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 54
+webapp/src/utils/useVisibleInterval.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 57
+webapp/src/vite-env.d.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 24
+webapp/tests/.gitignore	учтён; содержательная проверка ещё не завершена
+webapp/tests/budget-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 134
+webapp/tests/client-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 58
+webapp/tests/contract-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 106
+webapp/tests/draft-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 84
+webapp/tests/fmt-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 23
+webapp/tests/glossary-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 133
+webapp/tests/guard-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 155
+webapp/tests/outbox-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 106
+webapp/tests/pay-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 65
+webapp/tests/privacy-guard-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 128
+webapp/tests/privacy-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 98
+webapp/tests/run.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 119
+webapp/tests/st-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 48
+webapp/tests/states-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 123
+webapp/tests/ui-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 144
+webapp/tests/vis-test.mjs	AST; синтаксис разобран; ручной анализ выборочный; строк 75
+webapp/tsconfig.json	учтён; содержательная проверка ещё не завершена
+webapp/vite.config.ts	AST; синтаксис разобран; ручной анализ выборочный; строк 41
+yookassa-anketa/01_uslugi_boost_ceny.png	БИН; 129686 байт
+yookassa-anketa/02_prilozhenie_poezdki.png	БИН; 190191 байт
