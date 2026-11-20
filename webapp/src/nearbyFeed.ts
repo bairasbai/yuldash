@@ -86,6 +86,7 @@ export interface NearbyFilters {
   /** YYYY-MM-DD или null — все дни. */
   day: string | null;
   conditions: readonly string[];
+  seats?: number;
   /** «Только проверенные» из раздела «Безопасность». */
   verifiedOnly: boolean;
   /** Русские имена выбранных городов. */
@@ -113,6 +114,7 @@ export function nearbyQuery(f: NearbyFilters, limit: number): NearQuery {
     if (!cityFilterActive(f)) query.radius_km = NEARBY_RADIUS_KM;
   }
   if (f.day) query.date = f.day;
+  if ((f.seats ?? 1) > 1) query.seats = f.seats;
   if (f.conditions.length) query.conditions = f.conditions;
   if (f.verifiedOnly) query.verified_only = true;
   if (f.fromCities.length) query.from_cities = f.fromCities;
@@ -129,6 +131,7 @@ export function nearbyContextKey(f: NearbyFilters): string {
   return JSON.stringify([
     f.coords ? [f.coords.lat, f.coords.lng] : null,
     f.day,
+    f.seats ?? 1,
     [...f.conditions].sort(),
     f.verifiedOnly,
     [...f.fromCities].sort(),
@@ -138,7 +141,7 @@ export function nearbyContextKey(f: NearbyFilters): string {
 
 // ---------------------------------------------------------------- состояния ленты
 
-export type NearbyFeedState = "loading" | "error" | "unverified" | "empty" | "filtered" | "list";
+export type NearbyFeedState = "loading" | "error" | "unverified" | "empty" | "filtered" | "seats" | "list";
 
 /**
  * В каком состоянии лента (`nearbyState` в MapScreen.kt).
@@ -166,6 +169,8 @@ export function nearbyFeedState(a: {
   verifiedOnly?: boolean;
   /** Сколько подходящих поездок спрятал этот фильтр (`hidden_unverified`; старый сервер — 0). */
   hiddenUnverified?: number;
+  seatsOn?: boolean;
+  smallerGroupAvailable?: boolean;
 }): NearbyFeedState {
   // Пока грузим и показать нечего — скелетон. Приложение ждёт пустой список с сервера (`nearby.isEmpty()`);
   // здесь ещё и «старый список, который новые условия срезали целиком»: смена условия не должна
@@ -174,7 +179,8 @@ export function nearbyFeedState(a: {
   if (a.fetched === 0) {
     if (a.error) return "error";
     if (a.verifiedOnly && (a.hiddenUnverified ?? 0) > 0) return "unverified";
-    return a.conditionsOn || a.cityActive || a.dayOn ? "filtered" : "empty";
+    if (a.smallerGroupAvailable) return "seats";
+    return a.conditionsOn || a.cityActive || a.dayOn || a.seatsOn ? "filtered" : "empty";
   }
   if (a.shown === 0) return "filtered";
   return "list";
