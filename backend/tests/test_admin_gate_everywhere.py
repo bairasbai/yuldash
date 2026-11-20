@@ -1,38 +1,17 @@
-"""Закрыта ли КАЖДАЯ админская ручка от обычного пользователя.
-
-Почему это отдельный сторож. Проверка «ты админ?» стоит не в одном месте, а внутри каждой
-ручки по отдельности — таких ручек под сотню. Забыть одну строку легко, и снаружи это никак
-не видно: экран у обычного человека админку не показывает, приложение туда не ходит, все
-тесты зелёные. Но адрес открыт, и запрос по нему шлётся из чего угодно.
-
-Цена ошибки максимальная. За админскими адресами лежат: паспортные селфи и справки о
-несудимости водителей, все жалобы и SOS с координатами, разбор споров, ручное одобрение
-таксистов, деньги (кошельки, долги, выплаты), рассылки. Одна забытая строка = чужой человек
-одобряет себе таксиста, читает документы соседей и закрывает жалобы на себя.
-
-Тест не проверяет конкретные ручки списком — он САМ находит все адреса, начинающиеся
-на `/admin`, и проверяет каждый. Новая админская ручка попадает под охрану автоматически,
-без правки этого файла.
-
-Две проверки, потому что одной мало:
-  • живая — обычный пользователь дёргает адрес и не должен получить 200;
-  • по исходникам — в теле обработчика обязана быть проверка роли. Нужна потому, что
-    FastAPI проверяет тело запроса ДО кода ручки: без неё пустое тело даёт 422, и живая
-    проверка зеленеет, не дойдя до самой проверки роли.
-"""
+"""Проверяем все /admin-маршруты через зависимость Telegram-администратора."""
 from __future__ import annotations
 
 import inspect
 import re
 
 import pytest
+from sqlmodel import Session
 
+from app.db import engine
 from app.main import app
-
-# Как в этом проекте пишут «только для админа». Единого хелпера нет: где-то сравнение роли
-# прямо в ручке, где-то локальная функция-страж (`_require_admin`, `_guard_admin`). Ловим оба
-# вида по форме, а не списком имён — иначе новый роутер со своим стражем даст ложное падение.
-_ADMIN_CHECK = re.compile(r"UserRole\.admin|\b_?(?:require|guard|ensure)_admin\s*\(")
+from app.models import AuthSession, UserRole
+from app.security import _decode, make_token, require_telegram_admin
+from app.timeutil import utcnow
 
 # Ручки под /admin, которым проверка роли НЕ нужна, с объяснением почему.
 # Пусто — и пусть таким остаётся: каждая запись здесь это дырка, открытая осознанно.
@@ -93,7 +72,7 @@ def test_обычный_пользователь_не_получает_200_ни_
             continue
         url = re.sub(r"\{[^}]*\}", "1", path)      # /admin/drivers/{user_id}/moderate → /admin/drivers/1/moderate
         r = client.request(method, url, headers=user["auth"], json={})
-        if 200 <= r.status_code < 300:
+        if r.status_code != 403:
             opened.append(f"{method} {path} → {r.status_code} {r.text[:120]}")
     assert not opened, (
         "Обычный пользователь попал в админку — это чужие документы, жалобы и деньги:\n  "
@@ -104,7 +83,6 @@ def test_обычный_пользователь_не_получает_200_ни_
 def test_контроль_админ_в_админку_попадает(client, user_factory):
     """Контрольный случай к тесту выше. Без него проверка ничего не стоит: если бы админские
     адреса были сломаны для всех, «обычный не получает 200» было бы верно по неправильной причине."""
-    from app.models import UserRole
     admin = user_factory("RealAdmin", role=UserRole.admin)
     r = client.get("/admin/drivers/pending", headers=admin["auth"])
     assert r.status_code == 200, (
@@ -113,23 +91,32 @@ def test_контроль_админ_в_админку_попадает(client, 
     )
 
 
+def test_sms_сессия_админа_не_проходит_ни_одну_админскую_ручку(client, user_factory):
+    admin = user_factory("AdminWithoutTelegramProof", role=UserRole.admin)
+    with Session(engine) as session:
+        login = session.get(AuthSession, _decode(admin["token"])["sid"])
+        token = make_token(admin["id"], auth_session=login, auth_method="sms", auth_time=utcnow())
+    unexpected = []
+    for method, path, _ in ADMIN_ROUTES:
+        if path in _INTENTIONALLY_OPEN:
+            continue
+        response = client.request(method, re.sub(r"\{[^}]*\}", "1", path),
+                                  headers={"Authorization": f"Bearer {token}"}, json={})
+        if response.status_code != 403 or response.json()["detail"]["code"] != "telegram_login_required":
+            unexpected.append((method, path, response.status_code))
+    assert not unexpected
+
+
 @pytest.mark.parametrize(
     "method, path, endpoint",
     ADMIN_ROUTES,
     ids=[f"{m} {p}" for m, p, _ in ADMIN_ROUTES],
 )
-def test_в_каждой_админской_ручке_есть_проверка_роли(method, path, endpoint):
-    """Проверка по исходникам — она ловит то, что живая пропускает.
-
-    FastAPI разбирает тело запроса ДО того, как начнёт выполняться код ручки. Значит ручка
-    без проверки роли, но с обязательным телом, ответит обычному пользователю 422, и живой
-    тест сочтёт её закрытой. Здесь смотрим прямо в код: строка про роль обязана быть."""
+def test_каждая_админская_ручка_требует_telegram(method, path, endpoint):
     if path in _INTENTIONALLY_OPEN:
         pytest.skip(_INTENTIONALLY_OPEN[path])
-    assert endpoint is not None, f"{method} {path}: у маршрута нет обработчика — разбор сломался"
-    src = inspect.getsource(endpoint)
-    assert _ADMIN_CHECK.search(src), (
-        f"{method} {path}: в обработчике `{endpoint.__name__}` нет проверки роли админа. "
-        f"Ждали сравнение с UserRole.admin или вызов *_admin(...). Пока её нет, адрес открыт "
-        "всем — а за ним документы водителей, жалобы и деньги."
-    )
+    assert endpoint is not None, (method, path)
+    assert any(
+        getattr(parameter.default, "dependency", None) is require_telegram_admin
+        for parameter in inspect.signature(endpoint).parameters.values()
+    ), f"{method} {path}: нужна зависимость require_telegram_admin"

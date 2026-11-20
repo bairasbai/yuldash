@@ -19,10 +19,10 @@ from ..middleware import user_over_limit
 from ..observability import scrub_exc
 from ..models import (
     Block, Booking, BookingStatus, DriverProfile, InstantOrder, Report, Ride, SosEvent,
-    TripShare, TrustedContact, User, UserRole,
+    TripShare, TrustedContact, User,
 )
 from ..safety_logic import have_met
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import (booking_and_ride_for_user, notify_admin_telegram, pick_lang, push_bilingual,
                         sms_lang_of, push_notification, send_text, sms_will_reach)
 from ..timeutil import utcnow
@@ -517,12 +517,10 @@ class SosHandleIn(BaseModel):
 
 @router.get("/admin/sos")
 def admin_sos_list(status: str = "open", limit: int = 100,
-                   user: User = Depends(current_user), session: Session = Depends(get_session)):
+                   user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Лента сигналов SOS: открытые сверху. Раньше её НЕ СУЩЕСТВОВАЛО — сигнал уходил одним
     сообщением в Telegram, поле status не менялось никем и никогда, и если сообщение не
     прочитали (ночь, шумный чат), следа о происшествии не оставалось нигде."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     q = select(SosEvent).order_by(SosEvent.created_at.desc()).limit(max(1, min(limit, 300)))
     if status in ("open", "handled"):
         q = q.where(SosEvent.status == status)
@@ -581,7 +579,7 @@ def _dup_kind(note: str) -> str:
 
 @router.post("/admin/sos/{event_id}/handle")
 def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
-                     user: User = Depends(current_user), session: Session = Depends(get_session)):
+                     user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """«Принял» — сигнал взят в работу: кто, когда, что сделал. Без этой отметки нельзя было
     отличить разобранный SOS от потерянного, и авто-эскалация была невозможна.
 
@@ -589,8 +587,6 @@ def admin_sos_handle(event_id: int, body: SosHandleIn | None = None,
     тот же вид сигнала (`_dup_kind`), и только в коротком окне — иначе двойное нажатие или
     повтор после обрыва связи создают отдельные события, и без склейки дежурный, уже принявший
     один сигнал, ещё час получает «SOS НЕ ПРИНЯТ» по второму — тому же самому случаю."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     e = session.get(SosEvent, event_id)
     if not e:
         raise herr(404, "Событие не найдено", "Ваҡиға табылманы")
@@ -769,11 +765,9 @@ def _report_counterparty(session: Session, user: User, body: ReportIn) -> int:
 
 @router.get("/admin/reports", response_model=List[ReportOut])
 def admin_reports(status: Optional[str] = None, category: Optional[str] = None,
-                  user: User = Depends(current_user), session: Session = Depends(get_session)):
+                  user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Жалобы для разбора админом (кто на кого, категория, статус). Автора жалобы видит
     ТОЛЬКО эта admin-ручка. Фильтры: ?status=new|reviewing|resolved|rejected, ?category=…"""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     q = select(Report)
     if status:
         q = q.where(Report.status == status)
@@ -989,12 +983,10 @@ class ResolveIn(BaseModel):
 
 @router.post("/admin/reports/{report_id}/resolve", response_model=ReportOut)
 def admin_resolve_report(report_id: int, body: ResolveIn,
-                         user: User = Depends(current_user), session: Session = Depends(get_session)):
+                         user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Разбор жалобы человеком: подтверждена (resolved). Дальше лестница §9: ≥N resolved за
     окно → авто-пауза такси цели. Тяжёлая: keep_pause=False снимает паузу разбора,
     True — оставляет (таймерная пауза quality_pause_hours)."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     # N8 (независимое ревью): блокируем строку ДО проверки статуса — на PostgreSQL второй
     # одновременный клик дождётся commit первого и увидит уже terminal-статус, а не повторит
     # побочки (повторный пуш, повторная пауза, повторный возврат комиссии). На SQLite
@@ -1187,11 +1179,9 @@ def admin_resolve_report(report_id: int, body: ResolveIn,
 
 @router.post("/admin/reports/{report_id}/reject", response_model=ReportOut)
 def admin_reject_report(report_id: int, body: ResolveIn | None = None,
-                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+                        user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Жалоба отклонена (не подтвердилась). Тяжёлая: если других открытых тяжёлых на цель
     нет — пауза разбора снимается (отклонили → не наказываем)."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     # N8: тот же замок и та же идемпотентность, что у resolve — повторный «отклонить»
     # (включая отклонение уже подтверждённой жалобы) не повторяет побочки.
     r = session.exec(select(Report).where(Report.id == report_id).with_for_update()).first()
@@ -1232,10 +1222,8 @@ class QualityPauseIn(BaseModel):
 
 @router.post("/admin/quality/{user_id}/pause")
 def admin_quality_pause(user_id: int, body: QualityPauseIn,
-                        user: User = Depends(current_user), session: Session = Depends(get_session)):
+                        user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Админ вручную ставит/продлевает паузу такси (попутка работает)."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     prof = quality.pause_taxi(session, user_id, hours=body.hours, reason=quality.PAUSE_REASON_ADMIN)
     if prof is None:
         raise herr(404, "Профиль водителя не найден", "Водитель профиле табылманы")
@@ -1246,10 +1234,8 @@ def admin_quality_pause(user_id: int, body: QualityPauseIn,
 
 @router.post("/admin/quality/{user_id}/unpause")
 def admin_quality_unpause(user_id: int,
-                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+                          user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Админ снимает паузу такси (разбор закончен / поставлено ошибочно)."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     prof = quality.unpause_taxi(session, user_id)
     if prof is None:
         raise herr(404, "Профиль водителя не найден", "Водитель профиле табылманы")

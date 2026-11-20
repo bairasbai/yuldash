@@ -28,10 +28,10 @@ from ..ledger import (PayoutError, driver_balance, ledger_entries, owed_to_platf
                       payable_balance, reconcile, request_payout, _reversal_ext_id)
 from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
-    LedgerEntry, LedgerKind, Payment, User, UserRole,
+    LedgerEntry, LedgerKind, Payment, User,
 )
 from ..payments import payments_closed
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..timeutil import utcnow
 from .payments import _activate_payment, _start_yookassa, _sync_provider_status
 
@@ -333,11 +333,9 @@ def wallet_ledger(limit: int = 100, user: User = Depends(current_user), session:
 # ------------------------------ сверка (админ) ------------------------------
 @router.get("/admin/ledger/reconcile")
 def admin_ledger_reconcile(days: int = 1, date_from: str = "", date_to: str = "",
-                           user: User = Depends(current_user), session: Session = Depends(get_session)):
+                           user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Сверка: SUM(earn ledger) ↔ SUM(успешных безналичных оплат) за период. Только админ.
     По умолчанию — сутки. diff ≠ 0 → расхождение (алерт вешает Александр)."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     try:
         end = datetime.fromisoformat(date_to) if date_to else utcnow()
         start = datetime.fromisoformat(date_from) if date_from else end - timedelta(days=max(1, min(days, 366)))
@@ -436,11 +434,9 @@ def wallet_payout(body: PayoutIn, user: User = Depends(current_user), session: S
 
 # ------------------------------ выплаты (админ) ------------------------------
 @router.get("/admin/payouts")
-def admin_payouts(limit: int = 100, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_payouts(limit: int = 100, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Реестр выплат (ledger kind=payout), свежие сверху. Только админ. Пока выплаты авто
     (ЮKassa Payout), реестр — для сверки/контроля; ручное подтверждение появится, если авто нет."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     rows = session.exec(
         select(LedgerEntry).where(LedgerEntry.kind == LedgerKind.payout)
         .order_by(LedgerEntry.id.desc()).limit(max(1, min(limit, 500)))

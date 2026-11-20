@@ -20,9 +20,9 @@ from ..logs import admin_action
 from ..errors import herr
 from ..models import (
     Booking, DriverProfile, InstantOrder, InstantOrderStatus as S, PreTripCheck, TaxiApplication,
-    TaxiApplicationStatus, TaxiCity, User, UserRole,
+    TaxiApplicationStatus, TaxiCity, User,
 )
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import notify_admin_telegram, push_notification
 from ..timeutil import local_date, utcnow
 import logging
@@ -584,20 +584,14 @@ def confirm_pretrip(body: PreTripIn, user: User = Depends(current_user),
 
 
 # ------------------------------ админ: заявки ------------------------------
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
-
-
 @router.get("/admin/taxi/pretrip")
-def admin_pretrip_journal(day: Optional[date] = None, user: User = Depends(current_user),
+def admin_pretrip_journal(day: Optional[date] = None, user: User = Depends(require_telegram_admin),
                           session: Session = Depends(get_session)):
     """Журнал предрейсовых подтверждений за день (по умолчанию — сегодня).
 
     Смысл записи: при разборе ДТП или проверки видно, что водитель заявил в этот день.
     Отдаём только факт и заметку — никаких координат и телефонов пассажиров тут нет.
     """
-    _require_admin(user)
     target = day or pretrip_mod.local_day()
     rows = session.exec(
         select(PreTripCheck).where(PreTripCheck.day == target).order_by(PreTripCheck.created_at.desc())
@@ -622,10 +616,9 @@ def admin_pretrip_journal(day: Optional[date] = None, user: User = Depends(curre
 
 
 @router.get("/admin/taxi-applications")
-def admin_taxi_applications(status: str = "pending", user: User = Depends(current_user),
+def admin_taxi_applications(status: str = "pending", user: User = Depends(require_telegram_admin),
                             session: Session = Depends(get_session)):
     """Очередь заявок таксистов для модерации. status=pending|approved|rejected|all."""
-    _require_admin(user)
     q = select(TaxiApplication)
     if status != "all":
         try:
@@ -715,10 +708,9 @@ def _admin_apply_car(session: Session, user_id: int, body: ApproveIn) -> None:
 
 @router.post("/admin/taxi-applications/{app_id}/approve")
 def admin_approve_taxi(app_id: int, body: ApproveIn | None = None,
-                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+                       user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Одобрить заявку → водитель может возить такси. Push заявителю (двуязычно).
     Опционально body.car_class — админ финально подтверждает класс (economy|comfort)."""
-    _require_admin(user)
     app = _get_app_or_404(session, app_id)
     app.status = TaxiApplicationStatus.approved
     app.comment = None
@@ -751,10 +743,9 @@ class RejectIn(BaseModel):
 
 
 @router.post("/admin/taxi-applications/{app_id}/reject")
-def admin_reject_taxi(app_id: int, body: RejectIn, user: User = Depends(current_user),
+def admin_reject_taxi(app_id: int, body: RejectIn, user: User = Depends(require_telegram_admin),
                       session: Session = Depends(get_session)):
     """Отклонить заявку (с комментарием — водитель увидит и сможет подать снова)."""
-    _require_admin(user)
     app = _get_app_or_404(session, app_id)
     app.status = TaxiApplicationStatus.rejected
     app.comment = body.comment.strip() or None
@@ -811,11 +802,10 @@ def _city_of(session: Session, lat: Optional[float], lng: Optional[float]) -> st
 
 
 @router.get("/admin/taxi/pulse")
-def admin_taxi_pulse(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_taxi_pulse(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """«Пульс такси» — живая сводка для админа: кто на линии (живой presence из Redis),
     активные заказы, счётчики дня, средний подбор и разбивка по городам (ближайший
     Settlement, как в availability). Прагматично: без Redis presence = 0."""
-    _require_admin(user)
     now = utcnow()
     day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     # Заказы: активные (по статусу) + все созданные/закрытые сегодня — двумя запросами.
@@ -889,16 +879,14 @@ class TaxiCityIn(BaseModel):
 
 
 @router.get("/admin/taxi-cities")
-def admin_taxi_cities(user: User = Depends(current_user), session: Session = Depends(get_session)):
-    _require_admin(user)
+def admin_taxi_cities(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     rows = session.exec(select(TaxiCity).order_by(TaxiCity.id)).all()
     return [{"id": c.id, "city": c.city, "enabled": c.enabled, "created_at": c.created_at.isoformat()} for c in rows]
 
 
 @router.post("/admin/taxi-cities")
-def admin_add_taxi_city(body: TaxiCityIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_add_taxi_city(body: TaxiCityIn, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Добавить город (или обновить enabled существующего — без дублей по имени)."""
-    _require_admin(user)
     name = body.city.strip()
     existing = next((c for c in session.exec(select(TaxiCity)).all()
                      if c.city.strip().casefold() == name.casefold()), None)
@@ -912,8 +900,7 @@ def admin_add_taxi_city(body: TaxiCityIn, user: User = Depends(current_user), se
 
 
 @router.delete("/admin/taxi-cities/{city_id}")
-def admin_delete_taxi_city(city_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    _require_admin(user)
+def admin_delete_taxi_city(city_id: int, user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     row = session.get(TaxiCity, city_id)
     if not row:
         raise herr(404, "Город не найден", "Ҡала табылманы")

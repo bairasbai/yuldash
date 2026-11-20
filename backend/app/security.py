@@ -27,6 +27,12 @@ _SESSION_STALE_RU = "Сессия устарела. Войди заново."
 _SESSION_STALE_BA = "Сессия иҫкергән. Яңынан ин."
 
 
+def telegram_login_required() -> HTTPException:
+    return herr(403, "Для доступа администратора войди через Telegram.",
+                "Администратор булараҡ инеү өсөн Telegram аша ин.",
+                code="telegram_login_required")
+
+
 class _BilingualBearer(HTTPBearer):
     """401 с двуязычным detail и `WWW-Authenticate: Bearer` НЕЗАВИСИМО от версии FastAPI.
 
@@ -202,6 +208,8 @@ def issue_tokens(session: Session, user_id: int, *, refresh_raw: Optional[str] =
     if user is None or (review_session and user.role != UserRole.passenger):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
+    if user.role == UserRole.admin and auth_method != "telegram":
+        raise telegram_login_required()
     login = (_active_auth_session(session, user_id, auth_session_id) if auth_session_id
              else _new_auth_session(session, user_id))
     if login is None:
@@ -269,7 +277,7 @@ def rotate_refresh(session: Session, raw: str, rotation_id: Optional[str] = None
             or (review_session and owner.role != UserRole.passenger)):
         raise herr(401, "Не получилось продлить вход. Войди заново.",
                    "Инеүҙе оҙайтып булманы. Яңынан ин.")
-    if rt.auth_epoch != owner.auth_epoch:
+    if rt.auth_epoch != owner.auth_epoch or (owner.role == UserRole.admin and rt.auth_method != "telegram"):
         raise herr(401, _SESSION_STALE_RU, _SESSION_STALE_BA)
     _validate_auth_proof(rt.auth_method, rt.auth_time, review_session)
     if rt.auth_time is not None and rt.auth_session_id is None:
@@ -490,7 +498,8 @@ def authenticate_ws(token: str, session: Session) -> User:
     отозванный через logout, продолжал бы открывать чат до самого истечения JWT."""
     payload = _decode(token)
     user = session.get(User, int(payload["sub"]))
-    if not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session):
+    if (not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session)
+            or _admin_requires_telegram(user, payload)):
         raise JWTError("token revoked or user missing")
     return user
 
@@ -500,6 +509,18 @@ def _session_claim_revoked(payload: dict, user: User, session: Session) -> bool:
         return False
     sid = payload["sid"]
     return not isinstance(sid, str) or _active_auth_session(session, user.id, sid) is None
+
+
+def _admin_requires_telegram(user: User, payload: dict) -> bool:
+    if user.role != UserRole.admin:
+        return False
+    auth_time = payload.get("auth_time")
+    return not (
+        payload.get("amr") == "telegram"
+        and type(auth_time) is int
+        and 0 <= auth_time <= datetime.now(timezone.utc).timestamp()
+        and payload.get("sid")
+    )
 
 
 def _token_revoked(payload: dict, user: User) -> bool:
@@ -546,6 +567,8 @@ def _authenticated_user(cred: HTTPAuthorizationCredentials, session: Session, *,
         raise herr(401, "Пользователь не найден", "Ҡулланыусы табылманы")
     if _token_revoked(payload, user) or _session_claim_revoked(payload, user, session):
         raise herr(401, "Сессия завершена. Войди заново.", "Сессия тамамланды. Яңынан ин.")
+    if _admin_requires_telegram(user, payload):
+        raise telegram_login_required()
     # Номер обязателен: без реального номера приложение не работает (защита от мошенников).
     if is_placeholder_phone(user.phone):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "phone_required")
@@ -557,6 +580,13 @@ def current_user(
     session: Session = Depends(get_session),
 ) -> User:
     return _authenticated_user(cred, session)[0]
+
+
+def require_telegram_admin(user: User = Depends(current_user)) -> User:
+    """current_user has already checked the signed proof and active session."""
+    if user.role != UserRole.admin:
+        raise herr(403, "Нужны права администратора.", "Администратор хоҡуҡтары кәрәк.")
+    return user
 
 
 def lock_authenticated_user(cred: HTTPAuthorizationCredentials, session: Session) -> tuple[User, Optional[str]]:
@@ -573,12 +603,6 @@ def current_user_optional(
     if cred is None:
         return None
     try:
-        payload = _decode(cred.credentials)
-        user_id = int(payload["sub"])
-    except (JWTError, KeyError, ValueError):
+        return _authenticated_user(cred, session)[0]
+    except HTTPException:
         return None
-    user = session.get(User, user_id)
-    if (not user or _token_revoked(payload, user) or _session_claim_revoked(payload, user, session)
-            or is_placeholder_phone(user.phone)):
-        return None
-    return user

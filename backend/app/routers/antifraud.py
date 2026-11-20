@@ -11,16 +11,11 @@ from sqlmodel import Session, select
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
-from ..models import DeviceBan, User, UserRole
-from ..security import current_user
+from ..models import DeviceBan, User
+from ..security import require_telegram_admin
 from .. import antifraud as af
 
 router = APIRouter(tags=["antifraud"])
-
-
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
 
 
 class DeviceBanIn(BaseModel):
@@ -49,14 +44,13 @@ def _ban_out(session: Session, ban: DeviceBan) -> DeviceBanOut:
 
 
 @router.post("/admin/bans/device", response_model=DeviceBanOut)
-def admin_ban_device(body: DeviceBanIn, user: User = Depends(current_user),
+def admin_ban_device(body: DeviceBanIn, user: User = Depends(require_telegram_admin),
                      session: Session = Depends(get_session)):
     """Забанить устройство: по device_id или по user_id (его последнее устройство).
     Идемпотентно. Забаненное устройство не регистрируется и не входит по СВОЕМУ device_id.
     Честно: X-Device-Id задаёт клиент → техничный обход сменой заголовка возможен; это барьер
     от «нового номера на том же телефоне», не от целевого атакующего (усиление — Play Integrity,
     бэклог). Блокируешь юзера — баним и его устройство этой же ручкой."""
-    _require_admin(user)
     device_id = af.normalize_device_id(body.device_id)
     target_user_id = body.user_id
     if not device_id and body.user_id is not None:
@@ -80,10 +74,9 @@ def admin_ban_device(body: DeviceBanIn, user: User = Depends(current_user),
 
 
 @router.delete("/admin/bans/device/{device_id}")
-def admin_unban_device(device_id: str, user: User = Depends(current_user),
+def admin_unban_device(device_id: str, user: User = Depends(require_telegram_admin),
                        session: Session = Depends(get_session)):
     """Снять бан устройства (разобрались — человек невиновен)."""
-    _require_admin(user)
     if not af.unban_device(session, device_id):
         raise herr(404, "Бан не найден", "Бан табылманы")
     admin_action(user.id, "device.unban")   # сам device_id не пишем: это идентификатор телефона
@@ -91,9 +84,8 @@ def admin_unban_device(device_id: str, user: User = Depends(current_user),
 
 
 @router.get("/admin/bans", response_model=List[DeviceBanOut])
-def admin_list_bans(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def admin_list_bans(user: User = Depends(require_telegram_admin), session: Session = Depends(get_session)):
     """Список банов устройств (новые сверху)."""
-    _require_admin(user)
     rows = session.exec(select(DeviceBan).order_by(DeviceBan.id.desc()).limit(500)).all()
     return [_ban_out(session, b) for b in rows]
 
@@ -138,7 +130,7 @@ class TextFlagOut(BaseModel):
 def admin_text_flags(
     kind: Optional[str] = None,
     limit: int = 200,
-    user: User = Depends(current_user),
+    user: User = Depends(require_telegram_admin),
     session: Session = Depends(get_session),
 ):
     """Помеченные тексты, новые сверху. `kind` фильтрует по виду метки.
@@ -147,7 +139,6 @@ def admin_text_flags(
     сотней пометок иначе была бы сотня запросов, и экран админа тормозил бы ровно на тех,
     ради кого он и открыт.
     """
-    _require_admin(user)
     from sqlalchemy import func
     from ..models import TextFlag
 

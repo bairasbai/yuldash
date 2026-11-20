@@ -36,11 +36,11 @@ from ..db import get_session
 from ..logs import admin_action
 from ..errors import herr
 from ..models import (CourierApplication, CourierProfile, ParcelDelivery, Payment, Rating,
-                      User, UserRole)
+                      User)
 from ..safety_logic import ensure_active
 from .drivers import _ensure_owned_doc_url
 from .parcels import _FINAL_STATUSES, live_parcel_conds
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..services import (haversine_km, notify_admin_telegram, push_bilingual, push_notification,
                         user_rating)
 from ..visibility import FEED_MAX, visible_parcels
@@ -919,16 +919,10 @@ def courier_application(user: User = Depends(current_user), session: Session = D
 # ---------------------------------------------------------------------------
 # Админ: заявки курьеров
 # ---------------------------------------------------------------------------
-def _require_admin(user: User) -> None:
-    if user.role != UserRole.admin:
-        raise herr(403, "Только для админа", "Тик администратор өсөн")
-
-
 @router.get("/admin/courier-applications")
-def admin_courier_applications(status: str = "pending", user: User = Depends(current_user),
+def admin_courier_applications(status: str = "pending", user: User = Depends(require_telegram_admin),
                                session: Session = Depends(get_session)):
     """Очередь заявок курьеров для модерации. status=pending|approved|rejected|all."""
-    _require_admin(user)
     q = select(CourierApplication)
     if status != "all":
         if status not in ("pending", "approved", "rejected"):
@@ -963,10 +957,9 @@ def _get_app_or_404(session: Session, app_id: int) -> CourierApplication:
 
 
 @router.post("/admin/courier-applications/{app_id}/approve")
-def admin_approve_courier(app_id: int, user: User = Depends(current_user),
+def admin_approve_courier(app_id: int, user: User = Depends(require_telegram_admin),
                           session: Session = Depends(get_session)):
     """Одобрить заявку → создаём/активируем CourierProfile (car_class = transport заявки). Push курьеру."""
-    _require_admin(user)
     app = _get_app_or_404(session, app_id)
     app.status = "approved"
     app.reject_reason = ""
@@ -997,10 +990,9 @@ class CourierRejectIn(BaseModel):
 
 
 @router.post("/admin/courier-applications/{app_id}/reject")
-def admin_reject_courier(app_id: int, body: CourierRejectIn, user: User = Depends(current_user),
+def admin_reject_courier(app_id: int, body: CourierRejectIn, user: User = Depends(require_telegram_admin),
                          session: Session = Depends(get_session)):
     """Отклонить заявку (с причиной — курьер увидит и сможет подать снова)."""
-    _require_admin(user)
     app = _get_app_or_404(session, app_id)
     app.status = "rejected"
     app.reject_reason = body.reason.strip()

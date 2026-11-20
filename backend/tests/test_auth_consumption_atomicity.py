@@ -518,8 +518,9 @@ def test_admin_event_is_written_only_for_committed_role_change(client, monkeypat
             assert session.get(User, user_id).role.value == "passenger"
         result = requester.post(path, json=body)
         assert result.status_code == 200
-        assert result.json()["user"]["role"] == "admin"
-        assert events == [(user_id, "role.promote")]
+        expected_role = "admin" if kind == "telegram" else "passenger"
+        assert result.json()["user"]["role"] == expected_role
+        assert events == ([(user_id, "role.promote")] if kind == "telegram" else [])
     finally:
         requester.close()
 

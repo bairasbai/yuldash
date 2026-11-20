@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends
 from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -18,9 +18,9 @@ from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
-                      Rating, Settlement, User, UserRole)
+                      Rating, Settlement, User)
 from ..safety_logic import account_paused, ensure_active
-from ..security import current_user
+from ..security import current_user, require_telegram_admin
 from ..timeutil import utcnow
 from .referral import reward_driver_referral
 from .. import car_class
@@ -1421,12 +1421,10 @@ def price_complaint(body: PriceComplaintIn, user: User = Depends(current_user),
 
 
 @router.get("/admin/price-complaints")
-def admin_price_complaints(limit: int = 50, user: User = Depends(current_user),
+def admin_price_complaints(limit: int = 50, user: User = Depends(require_telegram_admin),
                            session: Session = Depends(get_session)):
     """Жалобы на цену для админа: свежие сверху. Нужны, чтобы менять тариф по фактам,
     а не по ощущениям — и чтобы видеть, на какой сумме люди отваливаются."""
-    if user.role != UserRole.admin:
-        raise HTTPException(403, "Только для админа")
     rows = session.exec(
         select(PriceComplaint).order_by(PriceComplaint.id.desc()).limit(max(1, min(limit, 200)))
     ).all()

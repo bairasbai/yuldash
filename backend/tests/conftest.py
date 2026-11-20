@@ -76,7 +76,8 @@ from sqlmodel import Session  # noqa: E402
 from app.main import app  # noqa: E402
 from app.db import engine  # noqa: E402
 from app.models import TaxiApplication, TaxiApplicationStatus, User, UserRole  # noqa: E402
-from app.security import make_token  # noqa: E402
+from app.security import issue_tokens, make_token  # noqa: E402
+from app.timeutil import utcnow  # noqa: E402
 
 
 # SQLite по умолчанию НЕ проверяет внешние ключи — это её историческая особенность, а не наша
@@ -164,8 +165,10 @@ def user_factory(client):
                     status=TaxiApplicationStatus.approved,
                 ))
                 s.commit()
-            tok = make_token(u.id)
-            return {"id": u.id, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
+            uid = u.id
+            tok = (issue_tokens(s, uid, auth_method="telegram", auth_time=utcnow())["access_token"]
+                   if role == UserRole.admin else make_token(uid))
+            return {"id": uid, "token": tok, "auth": {"Authorization": f"Bearer {tok}"}}
 
     return make
 

@@ -23,7 +23,7 @@ from sqlmodel import Session, select
 from app.config import settings
 from app.db import engine
 from app.models import OtpCode, User, UserRole
-from app.routers.auth import _maybe_promote_admin
+from app.routers.auth import _sync_telegram_admin
 
 
 def _code_for(phone: str) -> str:
@@ -118,11 +118,11 @@ def test_admin_phone_matches_regardless_of_format(monkeypatch):
     """`ADMIN_PHONES=8987…` в .env и `+7987…` в базе — один и тот же человек."""
     monkeypatch.setattr(settings, "admin_phones", "89871234567")
     with Session(engine) as s:
-        user = User(phone="+79871234567", name="Владелец")
+        user = User(phone="+79871234567", name="Владелец", telegram_id="qa-phone-format")
         s.add(user)
         s.commit()
         s.refresh(user)
-        _maybe_promote_admin(s, user)
+        _sync_telegram_admin(user, user.telegram_id, user.phone)
         assert user.role == UserRole.admin, "номер в другом формате запер владельца снаружи админки"
 
 
@@ -130,9 +130,9 @@ def test_stranger_does_not_become_admin(monkeypatch):
     """Обратная сторона: нормализация не должна раздавать роль лишним."""
     monkeypatch.setattr(settings, "admin_phones", "89871234567")
     with Session(engine) as s:
-        user = User(phone="+79877654321", name="Чужой")
+        user = User(phone="+79877654321", name="Чужой", telegram_id="qa-unlisted")
         s.add(user)
         s.commit()
         s.refresh(user)
-        _maybe_promote_admin(s, user)
+        _sync_telegram_admin(user, user.telegram_id, user.phone)
         assert user.role != UserRole.admin

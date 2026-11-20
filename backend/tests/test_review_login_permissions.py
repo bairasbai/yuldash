@@ -14,7 +14,7 @@ from app.main import app
 from app.models import (
     Consent, DeviceToken, DriverProfile, RefreshToken, TgAuth, TrustedContact, User, UserRole,
 )
-from app.security import _decode, _hash_refresh, make_token
+from app.security import _decode, _hash_refresh, issue_tokens, make_token
 from app.timeutil import utcnow
 from app.routers import auth
 
@@ -41,7 +41,9 @@ def _account(role):
         session.add(TrustedContact(user_id=user_id, name="QA friend", phone="qa-contact-" + ident))
         session.add(DriverProfile(user_id=user_id, online=True, work_city="QA town"))
         session.commit()
-    return user_id, phone, make_token(user_id)
+        access = (issue_tokens(session, user_id, auth_method="telegram", auth_time=utcnow())["access_token"]
+                  if role == UserRole.admin else make_token(user_id))
+    return user_id, phone, access
 
 
 def _snapshot(user_id):
@@ -90,7 +92,7 @@ def test_fixed_review_login_rejects_existing_privileged_account_without_mutating
 
 @pytest.mark.parametrize("kind", ["sms", "telegram"])
 @pytest.mark.parametrize("role", [UserRole.admin, UserRole.driver])
-def test_normal_verified_login_preserves_existing_privileged_role(client, monkeypatch, role, kind):
+def test_login_of_existing_privileged_account_checks_the_required_method(client, monkeypatch, role, kind):
     user_id, phone, _ = _account(role)
     monkeypatch.setattr(settings, "review_phone", "")
     monkeypatch.setattr(settings, "review_code", "")
@@ -105,10 +107,15 @@ def test_normal_verified_login_preserves_existing_privileged_role(client, monkey
         ident = uuid.uuid4().hex
         with Session(engine) as session:
             session.add(TgAuth(request_id=ident, telegram_id=before["User"]["telegram_id"],
-                               status="sent", code="246810", expires_at=utcnow() + timedelta(minutes=5)))
+                               status="sent", code="246810", shared_phone=phone,
+                               expires_at=utcnow() + timedelta(minutes=5)))
             session.commit()
         path, body = "/auth/tg/verify", {"request_id": ident, "code": "246810"}
     result = client.post(path, json=body, headers={"X-Device-Id": "qa-existing-device"})
+    if role == UserRole.admin and kind == "sms":
+        assert result.status_code == 403 and result.json()["detail"]["code"] == "telegram_login_required"
+        assert _snapshot(user_id) == before
+        return
     assert result.status_code == 200, result.text
     assert result.json()["user"]["id"] == user_id
     assert result.json()["user"]["role"] == role.value

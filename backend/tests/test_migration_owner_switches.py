@@ -1,6 +1,7 @@
 """Check owner settings on fresh, previously migrated and partially seeded schemas."""
 
 import os
+from datetime import timedelta
 
 from alembic import command
 from sqlalchemy import inspect, text
@@ -28,6 +29,56 @@ def _isolated_database(tmp_path, monkeypatch, pg_env, sqlite_file):
         url = f"sqlite:///{(tmp_path / sqlite_file).as_posix()}"
     monkeypatch.setenv("DATABASE_URL", url)
     return create_engine(url, hide_parameters=True), _config(url)
+
+
+def test_admin_cutover_revokes_existing_admin_sessions_and_never_restores_them(tmp_path, monkeypatch):
+    db, config = _isolated_database(
+        tmp_path, monkeypatch, "YULDASH_ADMIN_CUTOVER_MIGRATION_DB", "admin-cutover.sqlite3",
+    )
+    earlier, target = "cm_auth_epoch", "cn_admin_telegram_cutover"
+    previous_revocation = utcnow() - timedelta(days=1)
+    future_cutoff = utcnow() + timedelta(minutes=1)
+    try:
+        assert not inspect(db).get_table_names()
+        command.upgrade(config, earlier)
+        with Session(db) as session:
+            administrator = User(phone="+79990001045", role=UserRole.admin, auth_epoch=9,
+                                 tokens_valid_from=future_cutoff)
+            member = User(phone="+79990001046", auth_epoch=4, tokens_valid_from=previous_revocation)
+            session.add_all([administrator, member])
+            session.flush()
+            admin_id, member_id = administrator.id, member.id
+            session.add_all([
+                AuthSession(id="qa-admin-cutover-live", user_id=admin_id),
+                AuthSession(id="qa-admin-cutover-revoked", user_id=admin_id, revoked_at=previous_revocation),
+                AuthSession(id="qa-member-cutover-live", user_id=member_id),
+            ])
+            session.flush()
+            session.add_all([
+                RefreshToken(user_id=admin_id, token_hash="fixture-cutover-admin", auth_epoch=9,
+                             auth_session_id="qa-admin-cutover-live", expires_at=future_cutoff),
+                RefreshToken(user_id=member_id, token_hash="fixture-cutover-member", auth_epoch=4,
+                             auth_session_id="qa-member-cutover-live", expires_at=future_cutoff),
+            ])
+            session.commit()
+
+        for operation, revision, expected_generation in [
+            (command.upgrade, target, 10), (command.downgrade, earlier, 10),
+            (command.upgrade, target, 11),
+        ]:
+            operation(config, revision)
+            with Session(db) as session:
+                admin = session.get(User, admin_id)
+                passenger = session.get(User, member_id)
+                assert (admin.auth_epoch, admin.tokens_valid_from) == (expected_generation, future_cutoff)
+                assert (passenger.auth_epoch, passenger.tokens_valid_from) == (4, previous_revocation)
+                assert session.get(AuthSession, "qa-admin-cutover-live").revoked_at is not None
+                assert session.get(AuthSession, "qa-admin-cutover-revoked").revoked_at == previous_revocation
+                assert session.get(AuthSession, "qa-member-cutover-live").revoked_at is None
+                assert session.exec(select(RefreshToken).where(RefreshToken.user_id == admin_id)).one().revoked
+                assert not session.exec(select(RefreshToken).where(RefreshToken.user_id == member_id)).one().revoked
+    finally:
+        db.dispose()
 
 
 def test_owner_switch_migration_preserves_existing_values_and_old_users(tmp_path, monkeypatch):

@@ -40,9 +40,8 @@ def _assert_verified_login_chain(client, pair, method):
         assert claims["sid"] == pair["session_id"]
 
 
-def test_admin_promotion_by_phone_and_telegram(monkeypatch, client):
+def test_sms_for_listed_number_keeps_passenger_role(monkeypatch, client):
     monkeypatch.setattr(settings, "admin_phones", "+79990001010")
-    monkeypatch.setattr(settings, "admin_telegram_chat_id", "admin-tg-id")
 
     phone_code = client.post("/auth/request-code", json={"phone": "+79990001010"}).json()["dev_code"]
     by_phone = client.post(
@@ -50,9 +49,15 @@ def test_admin_promotion_by_phone_and_telegram(monkeypatch, client):
         json={"phone": "+79990001010", "code": phone_code, "name": "Phone Admin"},
     )
     assert by_phone.status_code == 200, by_phone.text
-    assert by_phone.json()["user"]["role"] == "admin"
+    assert by_phone.json()["user"]["role"] == "passenger"
+    token = by_phone.json()["access_token"]
+    assert client.get("/admin/drivers/pending", headers={"Authorization": f"Bearer {token}"}).status_code == 403
     _assert_verified_login_chain(client, by_phone.json(), "sms")
 
+
+def test_owner_telegram_id_promotes_without_listed_phone(monkeypatch, client):
+    monkeypatch.setattr(settings, "admin_phones", "")
+    monkeypatch.setattr(settings, "admin_telegram_chat_id", "admin-tg-id")
     start = client.post("/auth/tg/start").json()["request_id"]
     webhook = client.post(
         "/telegram/webhook",
