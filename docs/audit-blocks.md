@@ -2,7 +2,9 @@
 
 Пакет RS-13А/Б на базе `59826fde`. Прошли 37 адресных тестов SQLite и 10 PostgreSQL. Проверены принадлежность брони, срок, пауза, привязка уведомления, прежний контракт общих функций и обе очередности гонки оценок. PWA прошла build и check. Chromium в четырёх сочетаниях языка и темы отклонил чужой черновик, дождался подтверждения и выполнил один POST. После потерянного ответа или 503 на POST и отказа первого чтения кнопка «Проверить» отправила GET и показала подтверждённую текущую оценку.
 
-Локальные доказательства — [SQLite](../test-results/rideshare-release-20261120/rs13-backend-targeted.log), [PostgreSQL](../test-results/rideshare-release-20261120/rs13-postgres-final.log), [PWA check](../test-results/rideshare-release-20261120/rs13-pwa-check.stdout.log), [сборка](../test-results/rideshare-release-20261120/rs13-pwa-build.log), [браузер](../test-results/rideshare-release-20261120/rs13-browser-v3.stdout.log). Браузер использовал подмену API и фикстуру черновика. Android RS-13В, живая доставка уведомления и полный W1-E2E-01 остаются открыты.
+В отдельном Chromium активный `sw.js` обработал синтетическое push-событие. Текущая привязка получила две кнопки и ссылку на поездку. После смены привязки та же нагрузка показала общее уведомление без действий и ссылки на бронь.
+
+Локальные доказательства — [SQLite](../test-results/rideshare-release-20261120/rs13-backend-targeted.log), [PostgreSQL](../test-results/rideshare-release-20261120/rs13-postgres-final.log), [PWA check](../test-results/rideshare-release-20261120/rs13-pwa-check.stdout.log), [сборка](../test-results/rideshare-release-20261120/rs13-pwa-build.log), [браузер](../test-results/rideshare-release-20261120/rs13-pwa-proof.stdout.log), [фоновый модуль](../test-results/rideshare-release-20261120/rs13-worker-proof.stdout.log). Браузерное подтверждение использовало подмену API и фикстуру черновика. Android RS-13В, живая доставка уведомления и полный W1-E2E-01 остаются открыты.
 
 ## W1-E2E-01 — подписка на маршрут из пустого поиска PWA — 20.11.2026
 
