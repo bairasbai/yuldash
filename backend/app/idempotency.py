@@ -16,6 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlmodel import Session, select
 
 from .command_fingerprint import KEY_PREFIX, parse_body, wire_fingerprint
+from .driver_pay_settings import METHOD_NOT_ACCEPTED
 from .errors import herr
 from .logs import log
 from .meeting_points import booking_public_dto
@@ -274,6 +275,7 @@ class BookingTravelerConflict(HTTPException):
 
 
 _FINAL_REFUSALS = {
+    "pay_method_not_accepted": METHOD_NOT_ACCEPTED,
     "guardian_phone_invalid": GUARDIAN_PHONE_INVALID,
     "booking_traveler_women_only": TRAVELER_WOMEN_ONLY,
     "booking_traveler_no_minors": TRAVELER_NO_MINORS,

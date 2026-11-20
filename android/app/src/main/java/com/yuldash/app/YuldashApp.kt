@@ -1440,7 +1440,7 @@ private fun YuldashAppContent() {
                     if (!recovery.needsFreshTerms || recovery.loading || !isDisplayedBookingCurrent()) return@LaunchedEffect
                     recovery.refreshingTerms = true
                     try {
-                        ApiClient.getRide(rideId).onSuccess { fresh ->
+                        ApiClient.getRide(rideId, expectedGeneration = displayedSession).onSuccess { fresh ->
                             if (isActive && isDisplayedBookingCurrent()) ApiClient.runIfCurrentSession(displayedSession) {
                                 if (isDisplayedBookingCurrent()) {
                                     val updatedRide = fresh.toUiRide().withRouteHints(ride)
@@ -1494,15 +1494,16 @@ private fun YuldashAppContent() {
                     meetDropoff = meetingDraft.alighting, onMeetDropoffChange = { meetingDraft.alighting = it },
                     initialMinor = guestChoices?.minor == true,
                     initialForAnother = guestChoices?.forAnother == true,
+                    initialPayMethod = guestChoices?.payMethod ?: "negotiate",
                     trustedContacts = trustedContacts,
                     onTrustedContacts = { openTrustedContacts(returnScreen = Screen.Booking) },
-                    onGuestBooking = if (guestForm) guest@{ minor, forAnother ->
+                    onGuestBooking = if (guestForm) guest@{ minor, forAnother, payMethod ->
                         val ride = displayedRide ?: return@guest
                         val rideId = ride.id.toIntOrNull()?.takeIf { it > 0 } ?: return@guest
                         ApiClient.runIfUnchangedSession(displayedSession) {
                             if (isDisplayedBookingUnchanged() && !ApiClient.isLoggedIn()) {
                                 val draft = GuestBookingDraft(rideId, ride.termsVersion, routePlaces(ride),
-                                    meetingDraft.pickup, meetingDraft.dropoff, selectedSeats, frontSeat, minor, forAnother)
+                                    meetingDraft.pickup, meetingDraft.dropoff, selectedSeats, frontSeat, minor, forAnother, payMethod)
                                 vm.navigateLocally {
                                     destinationAfterLogin = null
                                     guestBookingLogin = GuestBookingLogin(draft, displayedSession, vm.privateNavigationRevision)

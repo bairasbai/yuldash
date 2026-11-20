@@ -14,7 +14,7 @@ import { useAuth } from "../auth/AuthProvider";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
-import type { BookingRow, CreateBookingInput, MeetingPointInput } from "../api/bookings";
+import type { BookingRow, CreateBookingInput, MeetingPointInput, PayMethod } from "../api/bookings";
 import { BookingCommandProblem, bookingCommandOwner, createBooking, readBookingCommand,
   reconcileBookingCommand, type BookingCommand } from "../api/bookingCommands";
 import { bookingRefusalMessage } from "../utils/bookingCommandLabels";
@@ -22,7 +22,7 @@ import { rememberGuestBookingDraft, type GuestBookingOptions, type GuestBookingS
 import { track } from "../analytics";
 import type { Ride } from "../api/rides";
 import { fetchRide } from "../api/rides";
-import { formatWhen, pluralRu, priceLabel } from "../utils/format";
+import { formatWhen, payMethodLabel, pluralRu, priceLabel } from "../utils/format";
 import { IconArrow, IconCheck } from "./Icons";
 import { YuStar, YuWomenOnly, YuLuggage, YuChildSeat } from "./BrandIcons";
 import { FrontSeatChoice, SeatBadges } from "./SeatOptions";
@@ -110,7 +110,15 @@ export default function RideSheet({
   const [reviewedRoute, setReviewedRoute] = useState(() => initialRouteChanged ? null : JSON.stringify(routePlaces(ride)));
   // RS-02 А/Б: условия обновились после 409 (цена/места изменились) — показываем и шлём свежие.
   const [freshRide, setFreshRide] = useState<Ride | null>(null);
+  const [selectedPayMethod, setPayMethod] = useState<PayMethod>(
+    initialSelection?.payMethod ?? initialGuestOptions?.payMethod ?? "negotiate",
+  );
+  const [payAmount, setPayAmount] = useState("");
+  const [payMethodsStatus, setPayMethodsStatus] = useState<"ready" | "loading" | "error">("ready");
   const eff = freshRide ?? ride;
+  const driverPayMethods = eff.driver_pay_methods;
+  const payMethods: readonly PayMethod[] = [...(driverPayMethods?.length ? driverPayMethods : ["cash", "sbp"] as const), "negotiate"];
+  const payMethod = payMethods.includes(selectedPayMethod) ? selectedPayMethod : "negotiate";
   const route = JSON.stringify(routePlaces(eff));
   const routeReviewRequired = reviewedRoute !== route;
   const pickupReady = segmentReady(eff, pickupStop, dropoffStop);
@@ -136,6 +144,7 @@ export default function RideSheet({
       setForAnother(false); setTravelerName(""); setConflictBookingId(undefined);
       setSeats((sameOwner ? initialSeats : undefined) ?? loadFilters()?.seats ?? 1);
       setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
+      setPayMethod("negotiate"); setPayAmount(""); setPayMethodsStatus("ready");
       setReviewedRoute(JSON.stringify(routePlaces(ride)));
       setCommand(undefined); setRecoveredBooking(null); setRestoringCommand(false);
       setOriginalRequest(null);
@@ -177,12 +186,22 @@ export default function RideSheet({
   }
 
   function updateRideTerms(code?: string | null, signal?: AbortSignal) {
-    if (!["price_changed", "ride_terms_changed", "seats_not_enough", "front_seat_taken", "booking_traveler_women_only",
+    const paymentChanged = code === "pay_method_not_accepted";
+    if (!["pay_method_not_accepted", "price_changed", "ride_terms_changed", "seats_not_enough", "front_seat_taken", "booking_traveler_women_only",
       "booking_traveler_no_minors"].includes(code ?? "")) return;
+    const active = () => mounted.current && !signal?.aborted && ownerGeneration === getSessionGeneration() &&
+      selectionOwner.current === `${ownerGeneration}:${ride.id}`;
+    if (paymentChanged) setPayMethodsStatus("loading");
     void fetchRide(ride.id, signal).then(fresh => {
-      if (mounted.current && !signal?.aborted && ownerGeneration === getSessionGeneration() &&
-          selectionOwner.current === `${ownerGeneration}:${ride.id}`) setFreshRide(fresh);
-    }).catch(() => {});
+      if (!active()) return;
+      setFreshRide(fresh);
+      if (paymentChanged) {
+        setPayMethod("negotiate");
+        setPayMethodsStatus("ready");
+      }
+    }).catch(() => {
+      if (paymentChanged && active()) setPayMethodsStatus("error");
+    });
   }
 
   function commandMessage(kind: BookingCommandProblem["kind"]) {
@@ -245,11 +264,12 @@ export default function RideSheet({
     if (bookingInFlight.current || !mounted.current || ownerGeneration !== getSessionGeneration() ||
         selectionOwner.current !== `${ownerGeneration}:${ride.id}` || (restoringCommand && !ownBooking)) return;
     if (retry && !canRetry) return;
+    if (!retry && !ownBooking && payMethodsStatus !== "ready") return;
     if (!isAuthed) {
       if (travelerConflict || seats > available) return;
       const guestBookingNonce = authStatus === "guest"
         ? rememberGuestBookingDraft(ride.id, {
-          seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor, forAnother,
+          seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor, forAnother, payMethod,
         }, ownerGeneration)
         : undefined;
       // All guest choices travel only inside the bounded, one-use draft, never independently in history.
@@ -302,6 +322,8 @@ export default function RideSheet({
       const b = await createBooking(originalInput ?? {
         ride_id: ride.id,
         seats,
+        ...(!parcelCategory && payMethod !== "negotiate" ? { pay_method: payMethod } : {}),
+        ...(!parcelCategory && payAmount !== "" ? { pay_amount: Number(payAmount) } : {}),
         minor_passenger: minor || undefined,
         minor_guardian_name: minor ? guardName.trim() : undefined,
         minor_guardian_phone: minor ? guardPhone.trim() : undefined,
@@ -510,7 +532,27 @@ export default function RideSheet({
           </p>
         </>}
 
-        {showBookingTerms && <BookingTerms />}
+        {showBookingTerms && <>
+          <BookingTerms hasDriverPayMethods={!!eff.driver_pay_methods?.length} />
+          <label className="field">
+            <span className="field__label">{appText("Способ оплаты", "Түләү ысулы")}</span>
+            <select className="field__input" value={payMethod} disabled={busy || payMethodsStatus !== "ready"}
+              onChange={(event) => setPayMethod(event.currentTarget.value as PayMethod)}>
+              {payMethods.map((method) => <option key={method} value={method}>{payMethodLabel(method, ru)}</option>)}
+            </select>
+          </label>
+          {isAuthed && <label className="field">
+            <span className="field__label">{appText("Сумма, ₽ (необязательно)", "Сумма, ₽ (мотлаҡ түгел)")}</span>
+            <input className="field__input" inputMode="numeric" value={payAmount} maxLength={6}
+              disabled={busy || payMethodsStatus !== "ready"}
+              onChange={(event) => setPayAmount(event.currentTarget.value.replace(/\D/g, "").slice(0, 6))} />
+          </label>}
+          {payMethodsStatus === "loading" && <p role="status">{appText("Обновляем способы оплаты…", "Түләү ысулдарын яңыртабыҙ…")}</p>}
+          {payMethodsStatus === "error" && <button type="button" className="btn-ghost"
+            onClick={() => updateRideTerms("pay_method_not_accepted")}>
+            {appText("Проверить способы оплаты", "Түләү ысулдарын тикшерергә")}
+          </button>}
+        </>}
 
         {!retryInput && <FrontSeatChoice
           ride={eff}
@@ -679,7 +721,7 @@ export default function RideSheet({
           disabled={busy || (!isAuthed && (travelerConflict || seats > available)) || (isAuthed && !ownBooking && (restoringCommand ||
             ((!recoveredBooking || canRebook) && ((!retryInput && (!pickupReady || seats < 1 || seats > available)) ||
               (unresolved && parcelCategory && !features.parcels) ||
-              (!unresolved && (choiceConflict || routeReviewRequired))))))}
+              (!unresolved && (choiceConflict || routeReviewRequired || payMethodsStatus !== "ready"))))))}
         >
           {(busy || (restoringCommand && !ownBooking))
             ? (unresolved || restoringCommand) ? appText("Проверяем запрос…", "Һорауҙы тикшерәбеҙ…") : appText("Бронируем…", "Бронлайбыҙ…")

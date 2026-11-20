@@ -3,6 +3,8 @@ export function bookingRefusalMessage(appText: (ru: string, ba: string) => strin
     case "price_changed": return appText("Цена поездки изменилась.", "Сәфәр хаҡы үҙгәрҙе.");
     case "ride_terms_changed": return appText("Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе.");
     case "seats_not_enough": return appText("На этом участке не хватило мест.", "Был участкала урындар етмәне.");
+    case "pay_method_not_accepted": return appText("Водитель изменил способы оплаты. Выбери другой или договорись с ним.",
+      "Йөрөтөүсе түләү ысулдарын үҙгәртте. Икенсеһен һайла йәки уның менән килеш.");
     case "front_seat_taken": return appText("Переднее место уже занято.", "Алғы урын инде алынған.");
     case "guardian_phone_invalid": return appText("Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.");
     case "booking_traveler_women_only": return appText("В поездку «Только женщины» можно бронировать место только для себя.",

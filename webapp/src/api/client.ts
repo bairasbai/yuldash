@@ -498,7 +498,7 @@ export function apiPost<T>(
 export function apiCommand<T>(
   path: string,
   owner: { generation: string; userId: number },
-  opts: { signal?: AbortSignal; method: "GET" | "POST" | "DELETE"; body?: string; key?: string; allowAttempt?: () => Promise<boolean> },
+  opts: { signal?: AbortSignal; method: "GET" | "POST" | "PUT" | "DELETE"; body?: string; key?: string; allowAttempt?: () => Promise<boolean> },
 ): Promise<T> {
   return request<T>(path, {
     method: opts.method, signal: opts.signal, body: opts.body, redirect: "error", cache: "no-store",

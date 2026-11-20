@@ -1,4 +1,4 @@
-import type { MeetingPointInput } from "../api/bookings";
+import type { MeetingPointInput, PayMethod } from "../api/bookings";
 import { getSessionGeneration } from "../api/client";
 
 // A tab-local, one-use handoff. No guardian identity, token or automatic booking.
@@ -8,6 +8,7 @@ const RESTORE = PREFIX + "restore";
 export const GUEST_BOOKING_DRAFT_TTL_MS = 15 * 60 * 1000;
 
 export interface GuestBookingOptions {
+  payMethod?: PayMethod;
   frontSeat?: boolean;
   minor?: boolean;
   forAnother?: boolean;
@@ -63,6 +64,7 @@ function validate(raw: unknown): GuestBookingDraft | null {
         typeof v.nonce !== "string" || !/^[a-zA-Z0-9-]{16,80}$/.test(v.nonce) ||
         typeof v.sourceGeneration !== "string" || typeof v.at !== "number" ||
         !Number.isFinite(v.at) || v.at <= 0 || v.at > Date.now() || Date.now() - v.at > GUEST_BOOKING_DRAFT_TTL_MS ||
+        (v.payMethod !== undefined && !["cash", "sbp", "negotiate"].includes(v.payMethod)) ||
         (v.frontSeat !== undefined && typeof v.frontSeat !== "boolean") ||
         (v.minor !== undefined && typeof v.minor !== "boolean") ||
         (v.forAnother !== undefined && typeof v.forAnother !== "boolean")) return null;
@@ -70,7 +72,7 @@ function validate(raw: unknown): GuestBookingDraft | null {
       seats: v.seats, pickupStop: stop(v.pickupStop), dropoffStop: stop(v.dropoffStop),
       meeting: point(v.meeting), alighting: point(v.alighting),
       ...(v.frontSeat && { frontSeat: true }), ...(v.minor && { minor: true }),
-      ...(v.forAnother && { forAnother: true }) };
+      ...(v.forAnother && { forAnother: true }), ...(v.payMethod && { payMethod: v.payMethod }) };
   } catch { return null; }
 }
 function read(key: string): unknown {
@@ -124,7 +126,7 @@ export function consumeGuestBookingDraft(nonce: unknown, rideId: number, owner: 
     return { seats: draft.seats, pickupStop: draft.pickupStop, dropoffStop: draft.dropoffStop,
       meeting: draft.meeting, alighting: draft.alighting,
       ...(draft.frontSeat && { frontSeat: true }), ...(draft.minor && { minor: true }),
-      ...(draft.forAnother && { forAnother: true }) };
+      ...(draft.forAnother && { forAnother: true }), ...(draft.payMethod && { payMethod: draft.payMethod }) };
   } catch { return null; }
 }
 export function clearPendingGuestBookingDraft(nonce: unknown): void {

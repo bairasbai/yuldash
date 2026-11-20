@@ -21,6 +21,7 @@ from ..antifraud import moderate_text, record_open_text_flag
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
+from ..driver_pay_settings import methods_for_driver, passenger_ride, require_driver_method
 from ..errors import herr
 from ..features import guard_delivery_ride
 from ..models import Block, Booking, BookingStatus, DriverProfile, Message, PayMethod, Payment, Rating, Ride, RideStatus, User
@@ -435,6 +436,7 @@ class BookingDetailsOut(BaseModel):
     price: int
     # Договорённость об оплате (запись, не платёж) — видна обеим сторонам.
     pay_method: str = "negotiate"
+    driver_pay_methods: list[str] = Field(default_factory=list)
     pay_amount: Optional[int] = None
     driver_name: str
     # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings.
@@ -840,6 +842,7 @@ def _book(body: BookIn, user: User, session: Session, *, keyed: bool = False):
         if body.minor_passenger:
             traveler_constraints.append(Ride.no_minors.is_(False))
     while True:
+        require_driver_method(session, ride, pay_method)
         reserved = ride_seats.take(
             session, ride, span_here, body.seats,
             extra_where=[~select(Booking.id).where(
@@ -1051,6 +1054,7 @@ def booking_details(booking_id: int, response: Response, user: User = Depends(cu
         "price": booking.price,
         "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
         "pay_amount": booking.pay_amount,
+        "driver_pay_methods": methods_for_driver(session, ride.driver_id) if passenger_ride(ride) else [],
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "passenger_name": (passenger.name if passenger and passenger.name else "Пассажир"),
         **_traveler_details(booking, ride, booking.status != BookingStatus.cancelled and
@@ -1142,6 +1146,8 @@ def set_pay_agreement(booking_id: int, body: PayAgreementIn, user: User = Depend
             raise herr(403, "Снизить сумму может только водитель — попроси его поменять",
                        "Сумманы тик йөрөтөүсе генә кәметә ала — унан үҙгәртеүен һора")
     if body.pay_method is not None:
+        if ride.driver_id != user.id:
+            require_driver_method(session, ride, body.pay_method)
         booking.pay_method = body.pay_method
     if amount is not None:
         booking.pay_amount = amount

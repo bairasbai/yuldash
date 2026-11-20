@@ -43,7 +43,7 @@ from .models import (
     CommandReceipt, CommissionDebt, Consent, Coupon,
     DriverCancel, OfferDecline, PriceComplaint,
     CouponRedemption, CouponReport, CourierApplication, CourierProfile, DebtStatus, DeviceBan, DeviceToken,
-    DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
+    DriverPaySettings, DriverProfile, DriverSchedule, FamilySmsLog, Incident, InstantOrder, InstantOrderStatus, InviteCode,
     LedgerEntry, Message,
     Notification, OtpCode, ParcelDelivery, Partner, Payment, PromoCode, PromoRedemption,
     AuthSession, Rating, RecentPlace, ReferralBonus, RefreshToken, Report, RequestResponse, Ride, RideRequest,
@@ -785,6 +785,7 @@ def delete_user_account(session: Session, user: User) -> None:
     # следов» — из ветки аудита безопасности, и врозь они друг о друге не знали.
     session.execute(delete(TextFlag).where(TextFlag.user_id == uid))
     session.execute(delete(DriverProfile).where(DriverProfile.user_id == uid))
+    session.execute(delete(DriverPaySettings).where(DriverPaySettings.user_id == uid))
     # 3.21 Доверие: мой уровень «свой», мои инвайт-коды, мои согласия (152-ФЗ — стираем всё).
     session.execute(delete(Consent).where(Consent.user_id == uid))
     session.execute(delete(InviteCode).where(InviteCode.owner_id == uid))

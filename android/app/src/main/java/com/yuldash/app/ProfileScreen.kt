@@ -1624,6 +1624,7 @@ internal fun DriverCabinetScreen(
             driverBookings = driverBookings,
             boardingScope = rateScope,
             boardingOwner = meetingSession,
+            driverPaySettings = { DriverPaySettingsCard(meetingSession) },
             onBoardingResult = { bookingId, result ->
                 if (ApiClient.isCurrentSession(meetingSession)) {
                     val now = SystemClock.elapsedRealtime()
@@ -2921,6 +2922,7 @@ internal fun DriverCabinetContent(
     onRejectBooking: (Int) -> Unit = {},    // F2: отклонить бронь (id) — места вернутся в поездку
     bookingDecisionBlocked: (Int) -> Boolean = { false },
     bookingDecisionRecovery: (@Composable () -> Unit)? = null,
+    driverPaySettings: (@Composable () -> Unit)? = null,
     // RS-03 Б: ответ водителя на предложение места (bookingId, proposalId, версия, принять?).
     onAnswerMeeting: (Int, String, Int, Boolean) -> Unit = { _, _, _, _ -> },
     meetingAnswers: DriverMeetingAnswerState? = null,
@@ -3002,6 +3004,7 @@ internal fun DriverCabinetContent(
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
+        driverPaySettings?.let { settings -> item(key = "rideshare-pay-settings") { settings() } }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {
             item { DriverDebtBanner(debt, onDeclareDebtPaid, paying = debtPaying) }

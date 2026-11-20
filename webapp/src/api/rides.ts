@@ -3,6 +3,8 @@
 import { apiGet, apiPost } from "./client";
 import { cancelRide as cancelDriverRide } from "./driver";
 
+import type { DriverPayMethod } from "./driverPaySettings";
+
 export type RideCategory =
   | "regular"
   | "hospital"
@@ -11,6 +13,7 @@ export type RideCategory =
   | "urgent";
 
 export interface Ride {
+  driver_pay_methods?: DriverPayMethod[];
   id: number;
   driver_id: number;
   from_city: string;
@@ -120,7 +123,7 @@ export function fetchRides(signal?: AbortSignal, q?: RidesQuery): Promise<Ride[]
  * по нему сервер решает, показывать ли «только для своих» и заблокированного водителя.
  */
 export function fetchRide(id: number, signal?: AbortSignal): Promise<Ride> {
-  return apiGet<Ride>(`/rides/${id}`, { signal });
+  return apiGet<Ride>(`/rides/${id}`, { signal, cache: "no-store" });
 }
 
 // ================================================================

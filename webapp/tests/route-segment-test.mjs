@@ -58,7 +58,7 @@ const mockFor = lang => ({
   "/features": `export const useFeatures=()=>({parcels:true}),getFeatures=()=>({parcels:true});`,
   "/AuthProvider": `export const useAuth=()=>({isAuthed:true});`,
   "/OwnBookingsProvider": `export const useOwnBooking=()=>globalThis.__segment.ownBooking,useRefreshOwnBookings=()=>()=>{};`,
-  "/utils/format": `export const pluralRu=(n,s)=>s,dayMonthShort=()=>'',hhmm=()=>'',formatWhen=()=>'',priceLabel=v=>String(v);`,
+  "/utils/format": `export const pluralRu=(n,s)=>s,dayMonthShort=()=>'',hhmm=()=>'',formatWhen=()=>'',priceLabel=v=>String(v),payMethodLabel=v=>v;`,
   "/api/bookingCommands": bookingCommandStub(`export const createBooking=(body,signal)=>{globalThis.__segment.sent.push({body,signal});return globalThis.__segment.send?.()??Promise.resolve({id:55});};`),
 });
 for (const lang of ["ru", "ba"]) {

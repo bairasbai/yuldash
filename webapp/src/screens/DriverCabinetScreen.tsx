@@ -44,6 +44,7 @@ import DeclineBookingButton from "../components/DeclineBookingButton";
 import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
+import { DriverPaySettingsCard } from "../components/DriverPaySettingsCard";
 import { BookingTraveler } from "../components/BookingTraveler";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 import { useFeatures } from "../features";
@@ -421,6 +422,7 @@ export default function DriverCabinetScreen() {
           {/* Сайт шлёт точку на весь рейс (Д2) — видно сразу, без прокрутки. */}
           <RideShareNote />
           <VerifyBanner docs={driver.docs_status} />
+          {user && <DriverPaySettingsCard key={user.id + ":" + generation} userId={user.id} generation={generation} />}
 
           {taxiOn && (
             <SettingsGroup>

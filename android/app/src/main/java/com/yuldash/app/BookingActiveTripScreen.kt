@@ -325,9 +325,10 @@ internal fun BookingScreen(
     onRefreshBookingTerms: (() -> Unit)? = null,
     initialMinor: Boolean = false,
     initialForAnother: Boolean = false,
+    initialPayMethod: String = "negotiate",
     trustedContacts: List<TrustedContact> = emptyList(),
     onTrustedContacts: () -> Unit = {},
-    onGuestBooking: ((Boolean, Boolean) -> Unit)? = null,
+    onGuestBooking: ((Boolean, Boolean, String) -> Unit)? = null,
     onConfirmRide: (payMethod: String, payAmount: Int?, minor: Boolean, guardianName: String, guardianPhone: String,
         travelerName: String?) -> Unit
 ) {
@@ -348,7 +349,9 @@ internal fun BookingScreen(
     val details = detailsRevision.let { currentBookingParentDetails(rawDetails, bookingId, ride) }
     // Договорённость об оплате (ЗАПИСЬ, не платёж): что выбрал пассажир до брони.
     // Способ по умолчанию — «договоримся»; сумма по умолчанию — из цены СВОЕГО участка (RS-02 Б).
-    var payMethod by remember(bookingId) { mutableStateOf("negotiate") }
+    val payChoices = passengerPayChoices(ride.driverPayMethods)
+    var chosenPayMethod by remember(bookingId, initialPayMethod) { mutableStateOf(initialPayMethod) }
+    val payMethod = chosenPayMethod.takeIf { it in payChoices } ?: "negotiate"
     var payAmountText by rememberBookingPayAmount(ride, bookingId, selectedSeats,
         perSeat = segmentPriceRub(ride, pickupStop, dropoffStop) ?: ride.price)
     // Едет подросток: отметка + взрослый на связи (сервер без него бронь не создаст).
@@ -593,7 +596,7 @@ internal fun BookingScreen(
                             bookingPending -> if (passengerCancellation != null) passengerCancellation.open()
                                 else showCancelConfirmation = true
                             bookingCancelled -> onFindAnotherRide()
-                            onGuestBooking != null -> onGuestBooking(minorPassenger, forAnother)
+                            onGuestBooking != null -> onGuestBooking(minorPassenger, forAnother, payMethod)
                             else -> onConfirmRide(
                                 payMethod,
                                 payAmountText.trim().toIntOrNull(),
@@ -791,8 +794,11 @@ internal fun BookingScreen(
                     method = if (bookingId == null) payMethod else (details?.payMethod ?: "negotiate"),
                     amountText = payAmountText,
                     summaryAmount = details?.payAmount,
-                    onMethod = { payMethod = it },
+                    onMethod = { chosenPayMethod = it },
                     onAmount = { payAmountText = it },
+                    options = payChoices,
+                    enabled = !bookingBusy,
+                    showAmount = onGuestBooking == null,
                 )
             }
             if (!canRepeatOriginal) frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)
@@ -1034,96 +1040,6 @@ private fun BookingMeetingCard(
                     style = AppButtonStyle.Secondary,
                     icon = Icons.Default.Map,
                 )
-            }
-        }
-    }
-}
-
-/** Способы оплаты-договорённости: ключ на бэке + иконка + двуязычная подпись.
- * Это ЗАПИСЬ «как договорились платить», НЕ платёж и не движение денег. */
-internal val payMethodKeys = listOf("cash", "sbp", "negotiate")
-
-@Composable
-internal fun payMethodLabel(method: String): String = when (method) {
-    "cash" -> appText("Наличными", "Наличный менән")
-    "sbp" -> appText("Перевод по СБП", "СБП аша күсереү")
-    else -> appText("Договоримся", "Килешербеҙ")
-}
-
-internal fun payMethodIcon(method: String) = when (method) {
-    "cash" -> Icons.Default.Payments
-    "sbp" -> Icons.Default.CreditCard
-    else -> Icons.Default.VolunteerActivism
-}
-
-/**
- * Блок «Как договорились платить» в деталях брони.
- * editable=true (до брони) — пассажир выбирает способ (чипы) и сумму.
- * editable=false (бронь есть) — только показ договорённости обеим сторонам.
- * ВАЖНО: это запись договорённости, а НЕ оплата — деньги через приложение не идут.
- */
-@Composable
-internal fun PayAgreementBlock(
-    editable: Boolean,
-    method: String,
-    amountText: String,
-    summaryAmount: Int?,
-    onMethod: (String) -> Unit,
-    onAmount: (String) -> Unit
-) {
-    Column(
-        Modifier
-            .fillMaxWidth()
-            .border(1.dp, CanonBorder, CanonItemShape)
-            .background(CanonBg, CanonItemShape)
-            .padding(12.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.Handshake, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-            Spacer(Modifier.width(8.dp))
-            Text(appText("Как договорились платить", "Түләү тураһында нисек килешкәнбеҙ"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-        }
-        Text(
-            appText(
-                "Это просто запись договорённости — деньги через приложение не проходят.",
-                "Был — тик килешеү яҙмаһы, аҡса ҡулланма аша үтмәй."
-            ),
-            color = CanonMuted, fontSize = 12.sp, lineHeight = 17.sp
-        )
-        if (editable) {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
-            ) {
-                payMethodKeys.forEach { key ->
-                    // Способ оплаты — решение про деньги, тач-цель ≥ 48dp (§4.5), не мелкий фильтр.
-                    NearbyFilterChip(
-                        payMethodIcon(key), payMethodLabel(key), method == key,
-                        modifier = Modifier.heightIn(min = 48.dp),
-                    ) { onMethod(key) }
-                }
-            }
-            OutlinedTextField(
-                value = amountText,
-                onValueChange = { new -> onAmount(new.filter { it.isDigit() }.take(6)) },
-                label = { Text(appText("Сумма, ₽ (необязательно)", "Сумма, ₽ (мотлаҡ түгел)")) },
-                singleLine = true,
-                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                modifier = Modifier.fillMaxWidth()
-            )
-        } else {
-            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                Surface(color = CanonMint, shape = RoundedCornerShape(999.dp)) {
-                    Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                        Icon(payMethodIcon(method), contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(15.dp))
-                        Spacer(Modifier.width(4.dp))
-                        Text(payMethodLabel(method), color = CanonGreen2, fontWeight = FontWeight.Bold, fontSize = 14.sp)
-                    }
-                }
-                if (summaryAmount != null) {
-                    Text(kopToRub(rideshareRubToKop(summaryAmount)), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
-                }
             }
         }
     }
@@ -2059,7 +1975,14 @@ internal fun ActiveTripContent(
                     AlonePassengerHint(onShare = { showShare = true }, modifier = Modifier.appearIn(1))
                 }
             }
-            if (bookingId != null && (!offline || tripPass?.payMethod in payMethodKeys)) {
+            val editablePayDetails = authorityRevision.let { currentTripPrivateDetails(bookingId) }?.takeIf {
+                !offline && bookingStatus in setOf("confirmed", "onboard") && it.status == bookingStatus && it.role == role
+            }
+            if (editablePayDetails != null) {
+                item(key = "rideshare-pay-agreement") {
+                    ActiveRidePayEditor(editablePayDetails, tripSession, ::isTripSessionCurrent)
+                }
+            } else if (bookingId != null && (!offline || tripPass?.payMethod in payMethodKeys)) {
                 item {
                     Box(Modifier.appearIn(1)) {
                         PayAgreementBlock(
@@ -3182,6 +3105,7 @@ internal fun GuestBookingReviewDialog(review: GuestBookingReview, onReview: () -
         if (review.minorsUnavailable) appText("Водитель берёт только 18+. Продолжай, если поедет взрослый.",
             "Йөрөтөүсе тик 18+ ала. Оло кеше барһа, дауам ит.") else null,
         if (review.termsChanged) appText("Проверь актуальные условия поездки.", "Сәфәрҙең хәҙерге шарттарын тикшер.") else null,
+        if (review.payMethodUnavailable) appText("Водитель изменил способы оплаты.", "Йөрөтөүсе түләү ысулдарын үҙгәртте.") else null,
     )
     AlertDialog(
         onDismissRequest = onBack,

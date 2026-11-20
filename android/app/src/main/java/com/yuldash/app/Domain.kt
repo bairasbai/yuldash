@@ -64,6 +64,7 @@ internal data class Ride(
     val seatsBooked: Int? = null,
     val stopPrices: List<StopPrice> = emptyList(),
     val segmentPrice: Int? = null,
+    val driverPayMethods: List<String> = emptyList(),
 )
 
 internal data class PopularRoute(

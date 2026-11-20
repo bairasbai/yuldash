@@ -10,7 +10,7 @@ function policyMinutes(value: unknown): number | null {
   return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
 }
 
-export function BookingTerms() {
+export function BookingTerms({ hasDriverPayMethods = false }: { hasDriverPayMethods?: boolean }) {
   const { appText } = useLang();
   const [policy, setPolicy] = useState<SafetyPolicy | null>(null);
   const [expanded, setExpanded] = useState(false);
@@ -29,7 +29,9 @@ export function BookingTerms() {
   return (
     <section className="act-card" aria-label={appText("Условия поездки", "Сәфәр шарттары")}>
       <h3 className="act-card__title">{appText("Как платить", "Нисек түләргә")}</h3>
-      <p className="act-card__text">{appText(
+      <p className="act-card__text">{hasDriverPayMethods
+        ? appText("Оплата напрямую водителю.", "Түләү туранан-тура йөрөтөүсеһенә.")
+        : appText(
         "Договорись с водителем о наличных или переводе. Оплата напрямую водителю.",
         "Йөрөтөүсе менән ҡулаҡса йәки күсереү тураһында килеш. Түләү туранан-тура йөрөтөүсеһенә.",
       )}</p>

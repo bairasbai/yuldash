@@ -88,7 +88,7 @@ internal class BookingRecoveryState(val generation: Long) {
 
     private fun requireFreshTerms(code: String?) {
         if (code in setOf("price_changed", "ride_terms_changed", "seats_not_enough", "booking_traveler_women_only",
-            "booking_traveler_no_minors")) requireFreshTerms()
+            "booking_traveler_no_minors", "pay_method_not_accepted")) requireFreshTerms()
     }
 
     fun requireFreshTerms() {
@@ -282,6 +282,8 @@ private fun bookingCommandMessage(problem: CommandIntent.Problem, code: String? 
     CommandIntent.Problem.Rejected -> when (code) {
         "price_changed" -> appText("Цена поездки изменилась.", "Сәфәр хаҡы үҙгәрҙе.")
         "ride_terms_changed" -> appText("Условия поездки изменились.", "Сәфәр шарттары үҙгәрҙе.")
+        "pay_method_not_accepted" -> appText("Водитель изменил способы оплаты. Выбери другой или договорись с ним.",
+            "Йөрөтөүсе түләү ысулдарын үҙгәртте. Икенсеһен һайла йәки уның менән килеш.")
         "seats_not_enough" -> appText("На этом участке не хватило мест.", "Был участкала урындар етмәне.")
         "front_seat_taken" -> appText("Переднее место уже занято.", "Алғы урын инде алынған.")
         "guardian_phone_invalid" -> guardianPhoneBookingError()

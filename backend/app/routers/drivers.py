@@ -4,11 +4,12 @@ import json
 import os
 from urllib.parse import urlparse
 import uuid
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, RedirectResponse
+from fastapi.security import HTTPAuthorizationCredentials
 from starlette.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 from sqlmodel import Session, select
@@ -16,11 +17,12 @@ from sqlmodel import Session, select
 from ..antifraud import moderate_open_text
 from ..config import settings
 from ..db import get_session
+from ..driver_pay_settings import DIRECT_METHODS, decode_methods
 from ..logs import admin_action
 from ..account import _safe_unlink_media
 from ..errors import herr
-from ..models import Booking, BookingStatus, DriverProfile, Rating, Ride, User, UserRole
-from ..security import current_user, require_telegram_admin
+from ..models import Booking, BookingStatus, DriverPaySettings, DriverProfile, Rating, Ride, User, UserRole
+from ..security import bearer, current_user, lock_authenticated_user, require_telegram_admin
 from ..services import (
     DOC_DIR, clear_driver_docs, enforce_upload_quota, notify_admin_telegram, push_notification, read_upload,
     revoke_verification_on_car_change, secure_docs_url, set_driver_docs_verdict,
@@ -30,6 +32,60 @@ from ..storage import get_storage
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["drivers"])
+
+
+class DriverPaySettingsIn(BaseModel):
+    methods: list[str]
+    expected_updated_at: datetime | None
+
+
+def _driver_pay_view(row: DriverPaySettings | None) -> dict:
+    return {
+        "methods": decode_methods(row.methods if row else None),
+        "updated_at": row.updated_at.replace(tzinfo=timezone.utc).isoformat() if row else None,
+    }
+
+
+def _driver_pay_row(session: Session, user_id: int) -> DriverPaySettings | None:
+    return session.exec(select(DriverPaySettings).where(DriverPaySettings.user_id == user_id)).first()
+
+
+@router.get("/driver/pay-settings")
+def get_driver_pay_settings(user: User = Depends(current_user), session: Session = Depends(get_session)):
+    return _driver_pay_view(_driver_pay_row(session, user.id))
+
+
+@router.put("/driver/pay-settings")
+def put_driver_pay_settings(body: DriverPaySettingsIn, cred: HTTPAuthorizationCredentials = Depends(bearer),
+                            session: Session = Depends(get_session)):
+    user, _ = lock_authenticated_user(cred, session)
+    chosen = set(body.methods)
+    if len(chosen) != len(body.methods) or any(method not in DIRECT_METHODS for method in chosen):
+        raise herr(400, "Выбери наличные, СБП или оба способа по одному разу.",
+                   "Ҡулаҡсаны, СБП-ны йәки икеһен дә берәр тапҡыр һайла.", code="pay_method_unknown")
+    normalized = [method for method in DIRECT_METHODS if method in chosen]
+    row = _driver_pay_row(session, user.id)
+    current = _driver_pay_view(row)
+    if normalized == current["methods"]:
+        return current
+    expected = body.expected_updated_at
+    if expected is not None and expected.tzinfo is not None:
+        expected = expected.astimezone(timezone.utc).replace(tzinfo=None)
+    updated_at = row.updated_at if row else None
+    if expected != updated_at:
+        raise herr(409, "Способы оплаты уже изменились. Проверь текущий выбор.",
+                   "Түләү ысулдары үҙгәргән. Әлеге һайлауҙы тикшер.", code="pay_settings_changed", current=current)
+    when = utcnow()
+    if updated_at is not None:
+        when = max(when, updated_at + timedelta(microseconds=1))
+    if row is None:
+        row = DriverPaySettings(user_id=user.id)
+    row.methods = ",".join(normalized)
+    row.updated_at = when
+    saved = _driver_pay_view(row)
+    session.add(row)
+    session.commit()
+    return saved
 
 
 def _doc_name_from_url(url: str) -> str:
