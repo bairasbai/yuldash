@@ -31,17 +31,20 @@ import { frontSeatState } from "../utils/seatOptions";
 import { initialSegment, keepDropoffAfterPickup, routePlaces, segmentReady, withoutRideMatch, seatsOnSpan, segmentPriceRub } from "../utils/pickupStops";
 import { DropoffStopChoice, PickupStopChoice, BookingSegmentNote } from "./PickupStopChoice";
 import { MeetingPointPicker } from "./MeetingPointPicker";
+import { loadFilters } from "../filterPrefs";
 
 export default function RideSheet({
   ride,
   onClose,
   initialSelection,
+  initialSeats,
   initialGuestOptions,
   initialRouteChanged = false,
 }: {
   ride: Ride;
   onClose: () => void;
   initialSelection?: GuestBookingSelection | null;
+  initialSeats?: number;
   initialGuestOptions?: GuestBookingOptions;
   initialRouteChanged?: boolean;
 }) {
@@ -94,7 +97,7 @@ export default function RideSheet({
   /** «Хочу переднее место»: одно на машину, гонку двух нажатий разводит сервер. */
   const [frontSeat, setFrontSeat] = useState(initialGuestOptions?.frontSeat ?? false);
   const acceptedSelection = initialSelection && segmentReady(ride, initialSelection.pickupStop, initialSelection.dropoffStop) ? initialSelection : null;
-  const [seats, setSeats] = useState(acceptedSelection?.seats ?? 1);
+  const [seats, setSeats] = useState(() => acceptedSelection?.seats ?? initialSeats ?? loadFilters()?.seats ?? 1);
   const [pickupStop, setPickupStop] = useState<string | null>(() => acceptedSelection?.pickupStop ?? initialSegment(ride).pickup);
   const [dropoffStop, setDropoffStop] = useState<string | null>(() => acceptedSelection?.dropoffStop ?? initialSegment(ride).dropoff);
   // RS-03 А: точное место встречи/высадки по желанию — сервер проверяет радиус от места.
@@ -121,13 +124,15 @@ export default function RideSheet({
     mounted.current = true;
     const key = `${ownerGeneration}:${ride.id}`;
     if (selectionOwner.current !== key) {
+      const sameOwner = selectionOwner.current.slice(0, selectionOwner.current.lastIndexOf(":")) === ownerGeneration;
       selectionOwner.current = key;
       const segment = initialSegment(withoutRideMatch(ride));
       setPickupStop(segment.pickup); setDropoffStop(segment.dropoff);
       bookingInFlight.current = false; setBusy(false);
       setMinor(false); setGuardName(""); setGuardPhone(""); setFrontSeat(false); setError(null);
       setForAnother(false); setTravelerName(""); setConflictBookingId(undefined);
-      setSeats(1); setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
+      setSeats((sameOwner ? initialSeats : undefined) ?? loadFilters()?.seats ?? 1);
+      setMeetPickup(null); setMeetDropoff(null); setFreshRide(null);
       setReviewedRoute(JSON.stringify(routePlaces(ride)));
       setCommand(undefined); setRecoveredBooking(null); setRestoringCommand(false);
       setOriginalRequest(null);
@@ -169,7 +174,7 @@ export default function RideSheet({
   }
 
   function updateRideTerms(code?: string | null, signal?: AbortSignal) {
-    if (!["price_changed", "ride_terms_changed", "front_seat_taken", "booking_traveler_women_only",
+    if (!["price_changed", "ride_terms_changed", "seats_not_enough", "front_seat_taken", "booking_traveler_women_only",
       "booking_traveler_no_minors"].includes(code ?? "")) return;
     void fetchRide(ride.id, signal).then(fresh => {
       if (mounted.current && !signal?.aborted && ownerGeneration === getSessionGeneration() &&
@@ -238,7 +243,7 @@ export default function RideSheet({
         selectionOwner.current !== `${ownerGeneration}:${ride.id}` || (restoringCommand && !ownBooking)) return;
     if (retry && !canRetry) return;
     if (!isAuthed) {
-      if (travelerConflict) return;
+      if (travelerConflict || seats > available) return;
       const guestBookingNonce = authStatus === "guest"
         ? rememberGuestBookingDraft(ride.id, {
           seats, pickupStop, dropoffStop, meeting: meetPickup, alighting: meetDropoff, frontSeat, minor, forAnother,
@@ -473,13 +478,16 @@ export default function RideSheet({
             // RS-02 В: мест стало меньше выбранного — отправка заблокирована (не clamp молча);
             // человек сам решает: уменьшить или посмотреть другие поездки.
             <div className="sheet__note" role="alert">
-              {appText(`Свободных мест осталось ${available} — уменьшите число или посмотрите другие поездки.`,
-                       `Буш урындар ${available} ҡалды — һанын кәмет йәки башҡа сәфәрҙәрҙе ҡара.`)}
-              <button type="button" className="btn-ghost" style={{ minHeight: 48 }} onClick={() => setSeats(available)}>
+              {appText(`Вас ${seats}, свободно ${available} ${pluralRu(available, "место", "места", "мест")}.`,
+                       `Һеҙ ${seats} кеше, ${available} буш урын бар.`)}
+              <button type="button" className="btn-ghost" style={{ minHeight: 48 }} disabled={busy} onClick={() => { setSeats(available); setError(null); }}>
                 {appText(`Уменьшить до ${available}`, `${available} тиклем кәметеү`)}
               </button>
+              <button type="button" className="btn-ghost" style={{ minHeight: 48 }} disabled={busy} onClick={exit.close}>
+                {appText("Найти другую поездку", "Башҡа сәфәр табыу")}
+              </button>
             </div>
-          ) : (
+          ) : available > 0 ? (
             <label className="field sheet__seats">
               <span className="field__label">{appText("Количество мест", "Урындар һаны")}</span>
               <select className="field__input" style={{ minHeight: 48 }} value={seats} disabled={busy || available < 1}
@@ -487,6 +495,10 @@ export default function RideSheet({
                 {Array.from({ length: Math.max(0, available) }, (_, index) => index + 1).map(count => <option key={count} value={count}>{count}</option>)}
               </select>
             </label>
+          ) : (
+            <button type="button" className="btn-ghost" disabled={busy} onClick={exit.close}>
+              {appText("Найти другую поездку", "Башҡа сәфәр табыу")}
+            </button>
           )}
           <p className="sheet__note" aria-live="polite">
             {available > 0
@@ -656,7 +668,7 @@ export default function RideSheet({
           type="button"
           className="btn-primary sheet__cta"
           onClick={() => book(unresolved && !ownBooking)}
-          disabled={busy || (!isAuthed && travelerConflict) || (isAuthed && !ownBooking && (restoringCommand ||
+          disabled={busy || (!isAuthed && (travelerConflict || seats > available)) || (isAuthed && !ownBooking && (restoringCommand ||
             ((!recoveredBooking || canRebook) && ((!retryInput && (!pickupReady || seats < 1 || seats > available)) ||
               (unresolved && parcelCategory && !features.parcels) ||
               (!unresolved && (choiceConflict || routeReviewRequired))))))}

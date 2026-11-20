@@ -16,10 +16,12 @@
 //  `true` прежде мог поставить только сам человек — это выбор, он сохраняется.
 // ================================================================
 import type { Ride } from "./api/rides";
+import { groupSize } from "./nearbySeats";
 import { isNearbyCondition, matchesNearbyConditions, NEARBY_CONDITION_KEYS, type NearbyCondition } from "./nearbyFeed";
 
 export interface FilterPrefs {
   conditions: NearbyCondition[]; // условия пассажира — стартовые для ленты «Ближайшие»
+  seats: number;
   onlyTrusted: boolean; // «Проверенные водители на карте» (раздел «Безопасность»), только для «Ближайших»
 }
 
@@ -28,6 +30,7 @@ export const TRUSTED_BY_DEFAULT = true;
 
 export const emptyFilters: FilterPrefs = {
   conditions: [],
+  seats: 1,
   onlyTrusted: TRUSTED_BY_DEFAULT,
 };
 
@@ -46,7 +49,7 @@ const LEGACY_CONDITION: Record<string, NearbyCondition> = {
   pets_allowed: "pets",
 };
 
-type Stored = { conditions?: unknown; amenities?: unknown; onlyTrusted?: unknown; verifiedOnly?: unknown } | null;
+type Stored = { conditions?: unknown; amenities?: unknown; onlyTrusted?: unknown; verifiedOnly?: unknown; seats?: unknown } | null;
 
 /** Сохранённое как есть; битое или недоступное хранилище — null. */
 function readStored(): Stored {
@@ -76,13 +79,15 @@ export function loadFilters(): FilterPrefs {
   }
   return {
     conditions: NEARBY_CONDITION_KEYS.filter((k) => keys.has(k)), // порядок — как в шторке
+    seats: groupSize(o?.seats),
     onlyTrusted: trustedChoice(o) ?? TRUSTED_BY_DEFAULT,
   };
 }
 
-function write(conditions: readonly NearbyCondition[], choice: boolean | null): void {
+function write(conditions: readonly NearbyCondition[], seats: number, choice: boolean | null): void {
   try {
-    localStorage.setItem(KEY, JSON.stringify(choice == null ? { conditions } : { conditions, verifiedOnly: choice }));
+    const prefs = { conditions, seats: groupSize(seats) };
+    localStorage.setItem(KEY, JSON.stringify(choice == null ? prefs : { ...prefs, verifiedOnly: choice }));
   } catch {
     /* хранилище недоступно (приватный режим) — настройка живёт, пока открыт экран */
   }
@@ -94,12 +99,13 @@ function write(conditions: readonly NearbyCondition[], choice: boolean | null): 
  * выбор остаётся как был.
  */
 export function saveFilters(f: FilterPrefs): void {
-  write(f.conditions, trustedChoice(readStored()));
+  write(f.conditions, f.seats, trustedChoice(readStored()));
 }
 
 /** Переключатель «Проверенные водители на карте» в «Безопасности» — это и есть выбор человека. */
 export function saveVerifiedOnly(on: boolean): void {
-  write(loadFilters().conditions, on);
+  const { conditions, seats } = loadFilters();
+  write(conditions, seats, on);
 }
 
 /**

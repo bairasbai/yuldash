@@ -42,6 +42,7 @@ export interface NearQuery {
   limit?: number;
   /** YYYY-MM-DD. Пусто = все дни. */
   date?: string;
+  seats?: number;
   offset?: number;
   /**
    * Условия пассажира: women, child, pets, baggage, ac, nosmoke, quiet. Сервер режет ими ДО
@@ -71,6 +72,7 @@ export function nearQueryString(params: NearQuery = {}): string {
   if (params.lng != null) q.set("lng", String(params.lng));
   if (params.radius_km != null) q.set("radius_km", String(params.radius_km));
   if (params.date) q.set("date", params.date);
+  if (params.seats != null && params.seats > 1) q.set("seats", String(params.seats));
   if (params.offset) q.set("offset", String(params.offset));
   list("conditions", params.conditions);
   if (params.verified_only) q.set("verified_only", "true");
@@ -90,6 +92,9 @@ export interface NearRidesPage {
    * показать?». Старый сервер поля не шлёт — считаем 0.
    */
   hidden_unverified?: number;
+  hidden_by_seats?: number;
+  max_free_seats?: number | null;
+  count_at_max_free?: number;
 }
 
 /**

@@ -99,6 +99,7 @@ export interface RidesQuery {
   to_city?: string;
   category?: RideCategory;
   date?: string; // YYYY-MM-DD — только поездки этого дня
+  seats?: number;
   women_only?: boolean;
   pets_allowed?: boolean;
   child_seat?: boolean;
