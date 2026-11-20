@@ -14,6 +14,7 @@ export type RideCategory =
 
 export interface Ride {
   driver_pay_methods?: DriverPayMethod[];
+  card_payment?: false;
   id: number;
   driver_id: number;
   from_city: string;

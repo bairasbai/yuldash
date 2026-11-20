@@ -1,5 +1,6 @@
 package com.yuldash.app.data
 
+import org.json.JSONArray
 import org.json.JSONObject
 
 internal const val PAID_INTEGRATIONS_PAUSED = "external_paid_paused"
@@ -7,6 +8,7 @@ internal const val PAID_INTEGRATIONS_PAUSED = "external_paid_paused"
 internal enum class OwnerSwitchKey(val key: String) {
     PaidIntegrations("external.paid"),
     SmsNotices("external.sms_notices"),
+    RideshareCard("rideshare_card_payments"),
     Sms("login.sms"),
     Telegram("login.telegram"),
     Vk("login.vk"),
@@ -30,7 +32,17 @@ internal data class OwnerSwitchDto(
     val updatedAt: String?,
     val updatedBy: String?,
     val history: List<OwnerSwitchChange>,
+    val localizedBlockers: Map<String, LocalizedSwitchBlocker> = emptyMap(),
 )
+
+internal data class LocalizedSwitchBlocker(val code: String, val ru: String, val ba: String)
+
+internal fun localizedSwitchBlockers(rows: JSONArray?): List<LocalizedSwitchBlocker> =
+    if (rows == null) emptyList() else (0 until rows.length()).mapNotNull {
+        rows.optJSONObject(it)?.let { item ->
+            LocalizedSwitchBlocker(item.getString("code"), item.getString("ru"), item.getString("ba"))
+        }
+    }
 
 internal fun JSONObject.toOwnerSwitches(): Map<OwnerSwitchKey, OwnerSwitchDto> {
     val switches = getJSONObject("switches")
@@ -45,7 +57,10 @@ internal fun JSONObject.toOwnerSwitch(): OwnerSwitchDto {
     return OwnerSwitchDto(
         stored = opt("stored") as? Boolean,
         effective = getBoolean("effective"),
-        blockers = List(blockerRows.length()) { blockerRows.getString(it) },
+        blockers = List(blockerRows.length()) { index ->
+            blockerRows.optJSONObject(index)?.getString("code") ?: blockerRows.getString(index)
+        },
+        localizedBlockers = localizedSwitchBlockers(blockerRows).associateBy { it.code },
         editable = optBoolean("editable", true),
         revision = safeCount(opt("revision")),
         inFlight = safeCount(opt("in_flight")),

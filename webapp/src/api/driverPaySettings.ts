@@ -1,4 +1,5 @@
 import { apiCommand } from "./client";
+import type { LocalizedBlocker } from "./ownerSwitches";
 
 export const DRIVER_PAY_METHODS = ["cash", "sbp"] as const;
 export type DriverPayMethod = typeof DRIVER_PAY_METHODS[number];
@@ -7,6 +8,9 @@ type Owner = { userId: number; generation: string };
 export interface DriverPaySettings {
   methods: DriverPayMethod[];
   updated_at: string | null;
+  card_switch_on?: false;
+  accepts_card?: false;
+  card_blockers?: LocalizedBlocker[];
 }
 
 export function getDriverPaySettings(owner: Owner, signal: AbortSignal) {

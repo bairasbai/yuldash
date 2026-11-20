@@ -34,6 +34,24 @@ class OwnerSwitchDtoTest {
     }
 
     @Test
+    fun cardBlockerKeepsBothLanguagesAndTheStoredRevision() {
+        val card = JSONObject(
+            """{"switches":{"rideshare_card_payments":{"stored":true,"effective":false,"revision":5,
+                "blockers":[{"code":"bank_project_unaccepted","ru":"Банк на проверке","ba":"Банк тикшерелә"}],
+                "history":[]}}}""",
+        ).toOwnerSwitches().getValue(OwnerSwitchKey.RideshareCard)
+
+        assertEquals(true, card.stored)
+        assertFalse(card.effective)
+        assertEquals(5L, card.revision)
+        assertEquals(listOf("bank_project_unaccepted"), card.blockers)
+        assertEquals(
+            LocalizedSwitchBlocker("bank_project_unaccepted", "Банк на проверке", "Банк тикшерелә"),
+            card.localizedBlockers["bank_project_unaccepted"],
+        )
+    }
+
+    @Test
     fun inFlightAcceptsOnlyNonnegativeSafeIntegers() {
         val row = JSONObject("""{"stored":false,"effective":false,"blockers":[],"history":[]}""")
         assertEquals(0L, row.put("in_flight", 0).toOwnerSwitch().inFlight)

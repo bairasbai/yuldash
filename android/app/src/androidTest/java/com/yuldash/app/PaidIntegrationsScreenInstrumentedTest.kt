@@ -4,6 +4,8 @@ import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
@@ -60,6 +62,40 @@ class PaidIntegrationsScreenInstrumentedTest {
     @Test fun bashkirLight() = verifyPause(AppLanguage.Ba, dark = false)
     @Test fun bashkirDark() = verifyPause(AppLanguage.Ba, dark = true)
 
+    @Test fun cardRussianLight() = verifyCard(AppLanguage.Ru, dark = false)
+    @Test fun cardRussianDark() = verifyCard(AppLanguage.Ru, dark = true)
+    @Test fun cardBashkirLight() = verifyCard(AppLanguage.Ba, dark = false)
+    @Test fun cardBashkirDark() = verifyCard(AppLanguage.Ba, dark = true)
+
+    private fun verifyCard(language: AppLanguage, dark: Boolean) {
+        val bashkir = language == AppLanguage.Ba
+        val name = if (bashkir) "Карта менән түләү — әҙерлек" else "Оплата картой — подготовка"
+        val blocker = if (bashkir) "Банк тикшерелә" else "Банк на проверке"
+        server.showCard = true
+        mount(language, dark)
+
+        compose.waitUntil(10_000) {
+            compose.onAllNodesWithContentDescription(name).fetchSemanticsNodes().isNotEmpty()
+        }
+        val card = compose.onNodeWithContentDescription(name)
+        compose.onNodeWithText(blocker).assertIsDisplayed()
+        card.assertIsOn().assertIsEnabled().performClick()
+        compose.waitUntil(10_000) {
+            runCatching { card.assertIsOff().assertIsNotEnabled() }.isSuccess
+        }
+        assertEquals(listOf(Write(false, false, 5)), server.cardWrites.toList())
+    }
+
+    private fun mount(language: AppLanguage, dark: Boolean) {
+        compose.setContent {
+            YuldashTheme(darkTheme = dark) {
+                CompositionLocalProvider(LocalAppLanguage provides language) {
+                    if (mounted.value) AdminSwitchesScreen(onBack = {})
+                }
+            }
+        }
+    }
+
     private fun verifyPause(language: AppLanguage, dark: Boolean) {
         val bashkir = language == AppLanguage.Ba
         val master = if (bashkir) "Түләүле хеҙмәттәр" else "Платные подключения"
@@ -68,13 +104,7 @@ class PaidIntegrationsScreenInstrumentedTest {
         val warning = if (bashkir) "Түләүле хеҙмәттәрҙе туҡтатып торорғамы?" else "Приостановить платные подключения?"
         val cancel = if (bashkir) "Кире алыу" else "Отмена"
         val confirm = if (bashkir) "Туҡтатып тороу" else "Приостановить"
-        compose.setContent {
-            YuldashTheme(darkTheme = dark) {
-                CompositionLocalProvider(LocalAppLanguage provides language) {
-                    if (mounted.value) AdminSwitchesScreen(onBack = {})
-                }
-            }
-        }
+        mount(language, dark)
 
         fun waitToggle(on: Boolean) {
             compose.waitUntil(10_000) {
@@ -126,11 +156,15 @@ class PaidIntegrationsScreenInstrumentedTest {
         private val listener = ServerSocket(0, 8, InetAddress.getByName("127.0.0.1"))
         val url = "http://127.0.0.1:${listener.localPort}"
         val writes = CopyOnWriteArrayList<Write>()
+        val cardWrites = CopyOnWriteArrayList<Write>()
         val errors = CopyOnWriteArrayList<String>()
+        @Volatile var showCard = false
         @Volatile var dropNextWriteReply = false
         @Volatile var revision = 0
             private set
         private var paid = false
+        private var cardStored = true
+        private var cardRevision = 5
         private val worker = thread(isDaemon = true, name = "qa-paid-switch-http") {
             while (!listener.isClosed) {
                 val socket = runCatching { listener.accept() }.getOrNull() ?: break
@@ -149,16 +183,20 @@ class PaidIntegrationsScreenInstrumentedTest {
                 return
             }
             check(headers.any { it.equals("Authorization: Bearer $SYNTHETIC_TOKEN", ignoreCase = true) })
+            fun readWrite(): Write {
+                val length = headers.first { it.startsWith("Content-Length:", ignoreCase = true) }
+                    .substringAfter(':').trim().toInt()
+                val payload = JSONObject((1..length).map { reader.read().toChar() }.joinToString(""))
+                return Write(payload.getBoolean("value"), payload.getBoolean("confirm"),
+                    payload.getInt("expected_revision"))
+            }
             when (route) {
                 "GET /admin/switches" -> writeResponse(socket, 200, JSONObject().put("switches", JSONObject()
                     .put("external.paid", row(paid, paid, revision))
-                    .put("external.sms_notices", row(true, paid, 0, blocked = !paid))))
+                    .put("external.sms_notices", row(true, paid, 0, blocked = !paid))
+                    .apply { if (showCard) put("rideshare_card_payments", cardRow()) }))
                 "POST /admin/switches/external.paid" -> {
-                    val length = headers.first { it.startsWith("Content-Length:", ignoreCase = true) }
-                        .substringAfter(':').trim().toInt()
-                    val payload = JSONObject((1..length).map { reader.read().toChar() }.joinToString(""))
-                    val write = Write(payload.getBoolean("value"), payload.getBoolean("confirm"),
-                        payload.getInt("expected_revision"))
+                    val write = readWrite()
                     writes += write
                     check(write.revision == revision)
                     if (!write.value && !write.confirmed) {
@@ -174,6 +212,14 @@ class PaidIntegrationsScreenInstrumentedTest {
                     }
                     writeResponse(socket, 200, row(paid, paid, revision))
                 }
+                "POST /admin/switches/rideshare_card_payments" -> {
+                    val write = readWrite()
+                    cardWrites += write
+                    check(showCard && cardStored && !write.value && !write.confirmed && write.revision == cardRevision)
+                    cardStored = false
+                    cardRevision++
+                    writeResponse(socket, 200, cardRow())
+                }
                 else -> error("Unexpected route: $route")
             }
         }
@@ -182,6 +228,9 @@ class PaidIntegrationsScreenInstrumentedTest {
             JSONObject().put("stored", stored).put("effective", effective).put("revision", revision)
                 .put("blockers", JSONArray().apply { if (blocked) put("external_paid_paused") })
                 .put("history", JSONArray())
+
+        private fun cardRow() = row(cardStored, true, cardRevision).put("blockers", JSONArray().put(JSONObject()
+            .put("code", "bank_project_unaccepted").put("ru", "Банк на проверке").put("ba", "Банк тикшерелә")))
 
         private fun writeResponse(socket: Socket, status: Int, result: JSONObject) {
             val body = result.toString().toByteArray(Charsets.UTF_8)

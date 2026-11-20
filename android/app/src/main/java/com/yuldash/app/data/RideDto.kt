@@ -51,6 +51,7 @@ data class RideDto(
     val stopPrices: List<StopPriceDto> = emptyList(),
     val segmentPrice: Int? = null,
     val driverPayMethods: List<String> = emptyList(),
+    val cardPayment: Boolean = false,
 )
 
 /** JSON поездки с сервера → RideDto. Один шов вместо копипасты в getRides/getNearbyRides.
@@ -81,6 +82,7 @@ internal fun JSONObject.toRideDto(): RideDto {
     driverSince = optString("driver_since"),
     driverIsWoman = optBoolean("driver_is_woman"),
     driverPayMethods = driverPayMethodList(optJSONArray("driver_pay_methods")),
+    cardPayment = optBoolean("card_payment", false),
     petsAllowed = optBoolean("pets_allowed"),
     childSeat = optBoolean("child_seat"),
     womenOnly = optBoolean("women_only"),

@@ -35,6 +35,7 @@ data class BookingDetailsDto(
     val seats: Int,
     val price: Int,
     val driverPayMethods: List<String> = emptyList(),
+    val cardPayment: Boolean = false,
     val payMethod: String = "negotiate",   // договорённость об оплате (запись, не платёж): cash/sbp/negotiate
     val payAmount: Int? = null,            // сумма договорённости, ₽ (опц.)
     val driverName: String,
@@ -120,6 +121,7 @@ internal fun parseBookingDetailsDto(o: JSONObject, startedElapsedMs: Long? = nul
         seats = o.optInt("seats", 1),
         price = o.optInt("price"),
         driverPayMethods = driverPayMethodList(o.optJSONArray("driver_pay_methods")),
+        cardPayment = o.optBoolean("card_payment", false),
         payMethod = o.optString("pay_method", "negotiate"),
         payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
         driverName = o.optString("driver_name"),

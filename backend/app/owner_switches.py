@@ -6,6 +6,7 @@ from typing import Literal
 from sqlalchemy import text, update
 from sqlmodel import Session, select
 
+from .card_payments import BANK_PROJECT_UNACCEPTED, CARD_PAYMENTS_SWITCH
 from .config import settings
 from .errors import herr
 from .models import AppSetting, User
@@ -17,7 +18,8 @@ LOGIN_KEYS = tuple(f"login.{method}" for method in LOGIN_METHODS)
 PAID_SWITCH = "external.paid"
 SMS_NOTICES_SWITCH = "external.sms_notices"
 EXTERNAL_KEYS = (PAID_SWITCH, SMS_NOTICES_SWITCH)
-SWITCH_KEYS = (*LOGIN_KEYS, *EXTERNAL_KEYS)
+OWNER_SWITCH_KEYS = (*EXTERNAL_KEYS, CARD_PAYMENTS_SWITCH)
+SWITCH_KEYS = (*LOGIN_KEYS, *OWNER_SWITCH_KEYS)
 PAID_PAUSED = "external_paid_paused"
 
 
@@ -91,6 +93,8 @@ def sms_notice_blockers() -> tuple[str, ...]:
 def switch_state(key: str, row: AppSetting | None, *, paid_enabled: bool) -> SwitchState:
     if row is None:
         return SwitchState(None, False, ("switch_storage_unavailable",))
+    if key == CARD_PAYMENTS_SWITCH:
+        return SwitchState(row.value, False, (BANK_PROJECT_UNACCEPTED,))
     if key == PAID_SWITCH:
         return SwitchState(row.value, row.value is True, ())
     if key == SMS_NOTICES_SWITCH:

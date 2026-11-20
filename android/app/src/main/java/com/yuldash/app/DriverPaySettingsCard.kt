@@ -122,6 +122,14 @@ private fun DriverPaySettingsForSession(generation: Long) {
                             Text(payMethodLabel(method), style = CanonBody, color = CanonText)
                         }
                     }
+                    val cardBlockers = snapshot?.cardBlockers.orEmpty()
+                    AnimatedVisibility(cardBlockers.isNotEmpty()) {
+                        Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.xs)) {
+                            Text(appText("Оплата картой пока недоступна.", "Карта менән түләү әлегә мөмкин түгел."),
+                                style = CanonCaption, color = CanonMuted)
+                            cardBlockers.forEach { Text(appText(it.ru, it.ba), style = CanonCaption, color = CanonMuted) }
+                        }
+                    }
                     AnimatedVisibility(status == DriverPayStatus.Review || status == DriverPayStatus.Saved) {
                         Text(if (status == DriverPayStatus.Review)
                             appText("Проверь текущий выбор и сохрани снова.", "Әлеге һайлауҙы тикшер һәм ҡабат һаҡла.")

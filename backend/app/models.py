@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, false, text
 from sqlmodel import SQLModel, Field
 
 from .timeutil import utcnow
@@ -296,6 +296,8 @@ class DriverPaySettings(SQLModel, table=True):
     user_id: int = Field(unique=True, foreign_key="user.id")
     methods: str = Field(default="", max_length=8)
     updated_at: datetime = Field(default_factory=utcnow)
+    accepts_card: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false()))
+    accepts_card_at: Optional[datetime] = None
 
 
 class DriverProfile(SQLModel, table=True):

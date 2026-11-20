@@ -79,7 +79,7 @@ private fun OwnerSwitchesForSession(generation: Long, onBack: () -> Unit) {
 
     fun save(method: OwnerSwitchKey, value: Boolean, confirmed: Boolean = false,
              revision: Long? = (state as? OwnerSwitchLoad.Ready)?.rows?.get(method)?.revision) {
-        if (saving != null) return
+        if (saving != null || (method == OwnerSwitchKey.RideshareCard && value)) return
         saving = method
         confirmation = null
         saveError = null
@@ -190,19 +190,23 @@ private fun OwnerSwitchCard(
     val name = when (method) {
         OwnerSwitchKey.PaidIntegrations -> appText("Платные подключения", "Түләүле хеҙмәттәр")
         OwnerSwitchKey.SmsNotices -> appText("SMS-уведомления", "SMS-хәбәрҙәр")
+        OwnerSwitchKey.RideshareCard -> appText("Оплата картой — подготовка", "Карта менән түләү — әҙерлек")
         OwnerSwitchKey.Sms -> "SMS"
         OwnerSwitchKey.Telegram -> "Telegram"
         OwnerSwitchKey.Vk -> "VK ID"
         OwnerSwitchKey.WhatsApp -> "WhatsApp"
     }
-    val wanted = row.stored ?: row.effective
+    val card = method == OwnerSwitchKey.RideshareCard
+    val effective = !card && row.effective
+    val wanted = row.stored ?: effective
     val locked = method == OwnerSwitchKey.Telegram
-    val revisionAvailable = !method.key.startsWith("external.") || row.revision != null
-    val canEnable = row.blockers.all { it == PAID_INTEGRATIONS_PAUSED }
-    val status = if (row.blockers.isEmpty()) ownerSwitchLabel(row.effective) else appText("Сейчас недоступно", "Әле эшләмәй")
+    val needsRevision = card || method.key.startsWith("external.")
+    val revisionAvailable = !needsRevision || row.revision != null
+    val canEnable = !card && row.blockers.all { it == PAID_INTEGRATIONS_PAUSED }
+    val status = if (!card && row.blockers.isEmpty()) ownerSwitchLabel(effective) else appText("Сейчас недоступно", "Әле эшләмәй")
     val stored = when {
         row.stored == null -> appText("По умолчанию", "Ғәҙәттә")
-        row.stored != row.effective -> appText("Сохранено", "Һаҡланған") + " — " + ownerSwitchLabel(wanted)
+        row.stored != effective -> appText("Сохранено", "Һаҡланған") + " — " + ownerSwitchLabel(wanted)
         else -> null
     }
     val locale = if (LocalAppLanguage.current == AppLanguage.Ba) Locale.forLanguageTag("ba-RU") else Locale.forLanguageTag("ru-RU")
@@ -237,7 +241,10 @@ private fun OwnerSwitchCard(
             )
             if (!row.editable) Text(appText("Эту настройку меняет владелец.", "Был көйләүҙе хужа үҙгәртә."),
                 style = CanonCaption, color = CanonMuted)
-            row.blockers.forEach { Text(ownerSwitchBlocker(it), style = CanonCaption, color = CanonMuted) }
+            row.blockers.forEach { code ->
+                val label = row.localizedBlockers[code]
+                Text(if (label == null) ownerSwitchBlocker(code) else appText(label.ru, label.ba), style = CanonCaption, color = CanonMuted)
+            }
             row.inFlight?.takeIf { it > 0 }?.let { count ->
                 Text(appText("SMS в процессе отправки — $count", "Ебәрелеп ятҡан SMS — $count"),
                     style = CanonCaption, color = CanonMuted)

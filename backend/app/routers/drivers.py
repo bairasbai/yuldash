@@ -11,10 +11,11 @@ from fastapi import APIRouter, Depends, Request
 from fastapi.responses import FileResponse, RedirectResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from starlette.concurrency import run_in_threadpool
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
+from ..card_payments import card_blockers, reject_card_enable
 from ..config import settings
 from ..db import get_session
 from ..driver_pay_settings import DIRECT_METHODS, decode_methods
@@ -37,12 +38,16 @@ router = APIRouter(tags=["drivers"])
 class DriverPaySettingsIn(BaseModel):
     methods: list[str]
     expected_updated_at: datetime | None
+    accepts_card: StrictBool | None = None
 
 
 def _driver_pay_view(row: DriverPaySettings | None) -> dict:
     return {
         "methods": decode_methods(row.methods if row else None),
         "updated_at": row.updated_at.replace(tzinfo=timezone.utc).isoformat() if row else None,
+        "card_switch_on": False,
+        "accepts_card": False,
+        "card_blockers": card_blockers(),
     }
 
 
@@ -59,6 +64,8 @@ def get_driver_pay_settings(user: User = Depends(current_user), session: Session
 def put_driver_pay_settings(body: DriverPaySettingsIn, cred: HTTPAuthorizationCredentials = Depends(bearer),
                             session: Session = Depends(get_session)):
     user, _ = lock_authenticated_user(cred, session)
+    if body.accepts_card is True:
+        raise reject_card_enable()
     chosen = set(body.methods)
     if len(chosen) != len(body.methods) or any(method not in DIRECT_METHODS for method in chosen):
         raise herr(400, "Выбери наличные, СБП или оба способа по одному разу.",
@@ -66,7 +73,8 @@ def put_driver_pay_settings(body: DriverPaySettingsIn, cred: HTTPAuthorizationCr
     normalized = [method for method in DIRECT_METHODS if method in chosen]
     row = _driver_pay_row(session, user.id)
     current = _driver_pay_view(row)
-    if normalized == current["methods"]:
+    clear_card = row is not None and body.accepts_card is False and (row.accepts_card or row.accepts_card_at is not None)
+    if normalized == current["methods"] and not clear_card:
         return current
     expected = body.expected_updated_at
     if expected is not None and expected.tzinfo is not None:
@@ -81,6 +89,9 @@ def put_driver_pay_settings(body: DriverPaySettingsIn, cred: HTTPAuthorizationCr
     if row is None:
         row = DriverPaySettings(user_id=user.id)
     row.methods = ",".join(normalized)
+    if clear_card:
+        row.accepts_card = False
+        row.accepts_card_at = None
     row.updated_at = when
     saved = _driver_pay_view(row)
     session.add(row)

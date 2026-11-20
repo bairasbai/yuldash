@@ -3,7 +3,7 @@
 import math
 import secrets
 from datetime import datetime, timedelta
-from typing import Optional
+from typing import Literal, Optional
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response
 from fastapi.encoders import jsonable_encoder
@@ -437,6 +437,7 @@ class BookingDetailsOut(BaseModel):
     # Договорённость об оплате (запись, не платёж) — видна обеим сторонам.
     pay_method: str = "negotiate"
     driver_pay_methods: list[str] = Field(default_factory=list)
+    card_payment: Literal[False] = False
     pay_amount: Optional[int] = None
     driver_name: str
     # Кого везёт водитель (приёмка 18.10, п.14). Имя и так есть в /driver/bookings.
@@ -1214,6 +1215,7 @@ def trip_receipt(booking_id: int, response: Response, user: User = Depends(curre
         "dropoff_stop": booking.dropoff_stop if segment_visible else None,
         "depart_at": ride.depart_at.isoformat() if ride.depart_at else "",
         "seats": booking.seats,
+        "card_payment": False,
         "amount": amount,                       # ₽; договорённость (pay_amount) или цена брони
         "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
         "paid": bool(booking.paid),
