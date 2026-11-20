@@ -18,7 +18,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getSessionGeneration } from "../api/client";
+import { useAuth } from "../auth/AuthProvider";
 import { fetchDriverStatus, setDriverOnline, type DriverStatus } from "../api/driver";
 import { commissionLabel } from "../utils/commissionLabel";
 import {
@@ -193,6 +194,12 @@ function useNowMs(active = true): number {
 }
 
 export default function InstantDriverTripScreen() {
+  const { user, status } = useAuth();
+  if (status !== "authed" || !user) return null;
+  return <OwnedInstantDriverTripScreen key={`${user.id}:${getSessionGeneration()}`} />;
+}
+
+function OwnedInstantDriverTripScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -238,34 +245,71 @@ export default function InstantDriverTripScreen() {
     setActive(order);
   }, []);
 
+  const loadEpochRef = useRef(0);
+
   // ---------------- Загрузка: заявка таксиста + статус водителя + активная поездка ----------------
   const load = useCallback((signal?: AbortSignal) => {
+    const epoch = ++loadEpochRef.current;
+    const generation = getSessionGeneration();
+    const current = () => !signal?.aborted && epoch === loadEpochRef.current
+      && generation === getSessionGeneration();
     setBoot("loading");
     fetchTaxiApplication(signal)
       .then((app) => {
+        if (!current()) return;
         if (app.status !== "approved") {
           setBoot("need-approval");
           return;
         }
         return fetchDriverStatus(signal).then((st) => {
+          if (!current()) return;
           setDriver(st);
-          setBoot("ready");
-          // Восстановление активной поездки (id в localStorage — у водителя нет /mine).
+          // Пока результат чтения неизвестен, не выдаём сбой за окончание поездки.
           const saved = Number(localStorage.getItem(ACTIVE_KEY) || 0);
-          if (saved) {
-            fetchInstantOrder(saved)
-              .then((o) => {
-                if (!canRestoreDriverOrder(activeIdRef.current, saved)) return;
-                if (["accepted", "arriving", "onboard"].includes(o.status)) setCurrentActive(o);
-                else clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved);
-              })
-              .catch(() => clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved));
+          if (!saved) {
+            setBoot("ready");
+            return;
           }
+          return fetchInstantOrder(saved, signal)
+            .then((o) => {
+              if (!current()) return;
+              if (!canRestoreDriverOrder(activeIdRef.current, saved)
+                  || Number(localStorage.getItem(ACTIVE_KEY) || 0) !== saved) {
+                setBoot("error");
+                return;
+              }
+              if (!o || o.id !== saved || o.role !== "driver") {
+                setBoot("error");
+                return;
+              }
+              if (["accepted", "arriving", "onboard"].includes(o.status)) {
+                setCurrentActive(o);
+              } else if (["scheduled", "created", "searching", "offered", "done", "cancelled", "expired"].includes(o.status)) {
+                clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved);
+              } else {
+                setBoot("error");
+                return;
+              }
+              setBoot("ready");
+            })
+            .catch((e) => {
+              if (!current()) return;
+              const released = e instanceof ApiError
+                && ((e.status === 404 && e.code === "instant_order_not_found")
+                  || (e.status === 403 && e.code === "instant_order_access_denied"));
+              if (released && canRestoreDriverOrder(activeIdRef.current, saved)
+                  && clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved)) {
+                setBoot("ready");
+              } else {
+                // Неизвестная ошибка не доказывает окончание/потерю доступа к поездке.
+                setBoot("error");
+              }
+            });
         });
       })
       .catch((e) => {
-        if (signal?.aborted || e?.name === "AbortError") return;
-        // 404 = заявка не подана → онбординг; иначе ошибка.
+        if (!current() || e?.name === "AbortError") return;
+        // 404 здесь относится к заявке/статусу, не к восстановлению заказа.
         if (e instanceof ApiError && e.status === 404) setBoot("need-approval");
         else setBoot("error");
       });
@@ -274,7 +318,10 @@ export default function InstantDriverTripScreen() {
   useEffect(() => {
     const ac = new AbortController();
     load(ac.signal);
-    return () => ac.abort();
+    return () => {
+      ++loadEpochRef.current;
+      ac.abort();
+    };
   }, [load]);
 
   // Готовность на сегодня, смена и зона — отдельными запросами: их отсутствие не должно ломать экран.
@@ -353,6 +400,7 @@ export default function InstantDriverTripScreen() {
 
   // ---------------- Опрос оффера (пока на линии и нет активной поездки) ----------------
   useEffect(() => {
+    if (boot !== "ready") return;
     if (!online || active) {
       setOfferBlocked(null);
       return;
@@ -376,7 +424,7 @@ export default function InstantDriverTripScreen() {
       alive = false;
       window.clearInterval(iv);
     };
-  }, [online, active]);
+  }, [boot, online, active]);
 
   // ---------------- Спрос рядом: раз в минуту, пока на линии без поездки ----------------
   useEffect(() => {

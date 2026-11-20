@@ -153,6 +153,7 @@ const ALL_SUITES = [
   { test: "active-trip-details-sync-test", src: null, out: null, bundle: false },
   { test: "payment-draft-sync-test", src: null, out: null, bundle: false },
   // Отмена пассажиром освобождает экран водителя и не затирает следующий заказ.
+  { test: "driver-restore-failure-test", src: null, out: null, bundle: false },
   { test: "driver-cancelled-order-test", src: null, out: null, bundle: false },
   // Медленный accept не сопровождается противоречивым decline от таймера.
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },

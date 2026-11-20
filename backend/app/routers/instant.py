@@ -646,12 +646,14 @@ def cancel_scheduled(order_id: int, user: User = Depends(current_user),
     return isv.order_payload(session, order, user)
 
 
-def _order_for_view(session: Session, order_id: int, user: User) -> InstantOrder:
+def _order_for_view(session: Session, order_id: int, user: User, *, details_error_codes: bool = False) -> InstantOrder:
     order = session.get(InstantOrder, order_id)
     if not order:
-        raise herr(404, "Заказ не найден", "Заказ табылманы")
+        raise herr(404, "Заказ не найден", "Заказ табылманы",
+                   code="instant_order_not_found" if details_error_codes else None)
     if user.id not in (order.passenger_id, order.driver_id, order.current_offer_driver_id):
-        raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
+        raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ",
+                   code="instant_order_access_denied" if details_error_codes else None)
     return order
 
 
@@ -706,7 +708,7 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
 @router.get("/instant/orders/{order_id}")
 def get_order(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Детали заказа. По пути разрешаем протухший оффер (ленивый таймаут без фонового воркера)."""
-    order = _order_for_view(session, order_id, user)
+    order = _order_for_view(session, order_id, user, details_error_codes=True)
     order = isv.reconcile_offer(session, order)
     return isv.order_payload(session, order, user)
 
