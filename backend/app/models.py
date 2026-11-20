@@ -207,6 +207,8 @@ class OtpSendAttempt(SQLModel, table=True):
     bucket_keys: list = Field(sa_column=Column(JSON, nullable=False))
     created_at: datetime = Field(index=True)
     updated_at: datetime
+    sms_ru_message_id: Optional[str] = Field(default=None, index=True, unique=True, max_length=64)
+    sms_ru_status_code: Optional[int] = None
 
 
 class OtpBudgetAlert(SQLModel, table=True):

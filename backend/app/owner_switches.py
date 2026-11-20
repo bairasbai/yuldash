@@ -9,6 +9,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .errors import herr
 from .models import AppSetting
+from .smsru import login_blockers as smsru_login_blockers
 
 
 LOGIN_METHODS = ("sms", "telegram", "vk", "whatsapp")
@@ -49,7 +50,7 @@ def _sms_blockers() -> tuple[str, ...]:
     if settings.sms_provider == "mock" and not settings.is_prod:
         return ()
     if settings.sms_provider == "smsru":
-        required = {"SMS_RU_API_ID": settings.sms_ru_api_id}
+        return smsru_login_blockers()
     elif settings.sms_provider == "smsdar":
         required = {"SMSDAR_ID": settings.smsdar_id, "SMSDAR_PASSWORD": settings.smsdar_password}
     else:
@@ -69,7 +70,7 @@ def login_state(key: str, row: AppSetting | None) -> SwitchState:
         return SwitchState(row.value, not blockers, blockers)
     if key == "login.sms":
         blockers = _sms_blockers()
-        enabled = (not settings.is_prod) if row.value is None else row.value
+        enabled = (settings.sms_provider == "mock" and not settings.is_prod) if row.value is None else row.value
         return SwitchState(row.value, enabled and not blockers, blockers)
     if key == "login.vk":
         return SwitchState(row.value, False, ("vk_id_integration_pending",))

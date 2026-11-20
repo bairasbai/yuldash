@@ -8,7 +8,10 @@ from sqlalchemy import inspect, text
 from sqlmodel import Session, create_engine, select
 
 from app.db import engine
-from app.models import AppSetting, AppSettingChange, AuthSession, OtpBudgetBucket, OtpCode, RefreshToken, User, UserRole
+from app.models import (
+    AppSetting, AppSettingChange, AuthSession, OtpBudgetBucket, OtpCode, OtpSendAttempt,
+    RefreshToken, User, UserRole,
+)
 from app.timeutil import utcnow
 from test_migrations_match_the_models import _config
 
@@ -79,6 +82,42 @@ def test_sms_budget_migration_preserves_history_and_expires_verifiers_on_rollbac
             assert session.get(User, member_id).phone == phone
             assert len(session.exec(select(OtpCode).where(OtpCode.phone == phone)).all()) == 2
             assert not session.exec(select(OtpBudgetBucket)).all()
+    finally:
+        db.dispose()
+
+
+def test_smsru_receipt_migration_preserves_existing_budget_attempt(tmp_path, monkeypatch):
+    db, config = _isolated_database(tmp_path, monkeypatch, "YULDASH_SMSRU_MIGRATION_DB", "smsru-receipts.sqlite3")
+    previous, target = "co_sms_budget", "cp_smsru_receipts"
+    attempt_id = "synthetic-legacy-reservation"
+    try:
+        assert not inspect(db).get_table_names()
+        command.upgrade(config, target)
+        command.downgrade(config, previous)
+        with db.begin() as connection:
+            connection.execute(text(
+                "INSERT INTO otpsendattempt (id, provider_idempotency_key, state, bucket_keys, created_at, updated_at) "
+                "VALUES (:id, :id, 'unknown', '[]', :now, :now)"
+            ), {"id": attempt_id, "now": utcnow()})
+        command.upgrade(config, target)
+        db.dispose()
+        assert any(index["column_names"] == ["sms_ru_message_id"] and index["unique"]
+                   for index in inspect(db).get_indexes("otpsendattempt"))
+        with Session(db) as session:
+            attempt = session.get(OtpSendAttempt, attempt_id)
+            assert attempt.state == "unknown" and attempt.sms_ru_message_id is None
+            attempt.sms_ru_message_id, attempt.sms_ru_status_code = "000011-000009", 102
+            session.commit()
+        command.downgrade(config, previous)
+        with db.connect() as connection:
+            assert connection.execute(text("SELECT state FROM otpsendattempt WHERE id = :id"),
+                                      {"id": attempt_id}).scalar_one() == "unknown"
+        command.upgrade(config, target)
+        db.dispose()
+        with Session(db) as session:
+            attempt = session.get(OtpSendAttempt, attempt_id)
+            assert attempt.state == "unknown"
+            assert attempt.sms_ru_message_id is None and attempt.sms_ru_status_code is None
     finally:
         db.dispose()
 

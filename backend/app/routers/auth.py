@@ -30,8 +30,8 @@ from ..models import (
     WebPushSubscription,
 )
 from ..otp_budget import (
-    BudgetExceeded, RESEND_SECONDS, SmsDelivery, finish_sms, notify_service_limit, record_service_limit,
-    reserve_sms, send_login_sms as send_sms, sms_verifier,
+    BudgetExceeded, RESEND_SECONDS, SmsDelivery, SmsSendResult, finish_sms, notify_service_limit,
+    record_service_limit, recover_interrupted_sms, reserve_sms, send_login_sms as send_sms, sms_verifier,
 )
 from ..security import (
     SMS_PHONE_RE, bearer, current_user, gen_otp, is_placeholder_phone, issue_tokens, normalize_phone,
@@ -402,10 +402,12 @@ def _request_code(body: PhoneIn, session: Session, x_device_id: str, peer: str):
     except Exception as error:
         log.warning("[OTP_SEND] unknown delivery outcome=%s", type(error).__name__)
         outcome = SmsDelivery.UNKNOWN
-    if not isinstance(outcome, SmsDelivery):
+    if not isinstance(outcome, (SmsDelivery, SmsSendResult)):
         outcome = SmsDelivery.UNKNOWN
     finish_sms(session, admission.attempt_id, outcome)
     session.commit()
+    if isinstance(outcome, SmsSendResult):
+        outcome = outcome.delivery
     if outcome == SmsDelivery.FAILED:
         raise herr(502, "Не получилось отправить код. Попробуй ещё раз через минуту.",
                    "Кодты ебәреп булманы. Бер минуттан ҡабатлап ҡара.",
@@ -464,6 +466,7 @@ def _verify_sms_login(body: VerifyIn, session: Session, x_device_id: str):
     refuse_disabled("sms", session)
     _lock_otp_phone(session, body.phone)
     _guard_otp_daily_budget(session, body.phone)
+    recover_interrupted_sms(session, body.phone)
     usable = OtpSendAttempt.state.in_(("sent", "unknown"))
     if not settings.is_prod:
         usable = or_(usable, OtpCode.attempt_id.is_(None))

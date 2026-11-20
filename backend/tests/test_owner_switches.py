@@ -94,7 +94,9 @@ def test_switches_show_state_and_require_telegram_operator(client, user_factory,
         monkeypatch.setattr(settings, "sms_ru_api_id", "synthetic-key")
         response = client.post(SMS_PATH, headers=admin["auth"], json={"value": True})
         assert response.status_code == 409
-        assert response.json()["detail"]["blockers"] == ["sms_atomic_budget_pending"]
+        assert response.json()["detail"]["blockers"] == [
+            "SMS_FROM", "SMS_BUDGET_HMAC_KEY", "smsru_confirmation_pending",
+        ]
         assert client.get("/config/login-methods").json()["methods"] == ["telegram"]
 
 
@@ -149,7 +151,7 @@ def test_repeat_stored_choice_keeps_history_when_channel_becomes_blocked(client,
     assert repeated.status_code == 200
     state = repeated.json()
     assert state["stored"] is True and state["effective"] is False
-    assert state["blockers"] == ["sms_atomic_budget_pending"]
+    assert state["blockers"] == ["SMS_FROM", "SMS_BUDGET_HMAC_KEY", "smsru_confirmation_pending"]
     assert state["history"] == enabled.json()["history"]
 
 

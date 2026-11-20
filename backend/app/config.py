@@ -42,6 +42,8 @@ class Settings(BaseSettings):
     sms_provider: str = "mock"          # mock | smsru | smsdar
     sms_ru_api_id: str = ""             # api_id из кабинета sms.ru (нужен для sms_provider=smsru)
     sms_from: str = ""                  # буквенный отправитель sms.ru после модерации (напр. Yuldash)
+    sms_ru_login_ready: bool = False    # только после договора, подтверждения шаблонов и проверки доставки
+    sms_notify_enabled: bool = False    # отдельный допуск для SOS и других SMS-уведомлений
     # --- SMSDAR (go.smsdar.ru, API api.zmtech.ru) — нужен sms_provider=smsdar ---
     smsdar_id: str = ""                 # ID из Профиль → Получить API ключ
     smsdar_password: str = ""           # API-ключ (password). НЕ в git — только в .env
@@ -1196,6 +1198,8 @@ class Settings(BaseSettings):
         if self.is_prod and self.sms_provider.strip().lower() == "mock":
             warn.append("SMS_PROVIDER=mock — SMS не уходят: близкие не получат SOS и ссылку «поделиться» "
                         "по SMS (в приложении есть «Скопировать/Отправить ссылку»); тексты не должны обещать SMS")
+        elif self.is_prod and not self.sms_notify_enabled:
+            warn.append("SMS_NOTIFY_ENABLED=false — SMS-уведомления близким выключены")
         # Публичные документы на yulbash.ru/terms прямо обещают: «Комиссия с поездок не берётся,
         # расчёты производятся напрямую между пользователями». Пока денежные флаги выключены —
         # это правда. Включили хоть один, не переписав документы, — сервис публично обещает одно,

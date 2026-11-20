@@ -3,7 +3,6 @@
 from calendar import timegm
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-from enum import StrEnum
 from hashlib import sha256
 import hmac
 from ipaddress import ip_address
@@ -20,20 +19,16 @@ from .config import settings
 from .errors import herr
 from .logs import log
 from .models import OtpBudgetAlert, OtpBudgetBucket, OtpCode, OtpSendAttempt, User, UserRole
+from .smsru import SmsDelivery, SmsSendResult, send_login_code
 from .timeutil import utcnow
 
 
 RESEND_SECONDS = 60
 HOUR_SECONDS = 3600
 DAY_SECONDS = 86400
+DISPATCH_RECOVERY_SECONDS = 30
 _SERVICE_SUBJECT = "global"
 _MOCK_KEY = "yuldash-local-mock-sms-budget-v1"
-
-
-class SmsDelivery(StrEnum):
-    SENT = "sent"
-    FAILED = "failed"
-    UNKNOWN = "unknown"
 
 
 class BudgetExceeded(Exception):
@@ -216,23 +211,58 @@ def notify_service_limit(session: Session) -> None:
         log.warning("[OTP_LIMIT] notification outcome=%s", type(error).__name__)
 
 
-def send_login_sms(phone: str, code: str, *, lang: str, provider_key: str) -> SmsDelivery:
-    """The local provider accepts without external delivery."""
+def send_login_sms(phone: str, code: str, *, lang: str, provider_key: str) -> SmsDelivery | SmsSendResult:
     if settings.sms_provider == "mock" and not settings.is_prod:
         return SmsDelivery.SENT
+    if settings.sms_provider == "smsru":
+        # SMS.ru assigns its own ID and has no documented caller idempotency key.
+        return send_login_code(phone, code, lang=lang)
     return SmsDelivery.FAILED
 
 
-def finish_sms(session: Session, attempt_id: str, outcome: SmsDelivery) -> bool:
+def recover_interrupted_sms(session: Session, phone: str) -> None:
+    """Allow a possibly delivered, still current code after the dispatch wait window."""
+    now = utcnow()
+    attempts = select(OtpCode.attempt_id).where(
+        OtpCode.phone == phone, OtpCode.channel == "sms", OtpCode.expires_at > now,
+    )
+    session.execute(update(OtpSendAttempt).where(
+        OtpSendAttempt.id.in_(attempts), OtpSendAttempt.state == "reserved",
+        OtpSendAttempt.created_at <= now - timedelta(seconds=DISPATCH_RECOVERY_SECONDS),
+    ).values(state="unknown", updated_at=now))
+
+
+def finish_sms(session: Session, attempt_id: str, outcome: SmsDelivery | SmsSendResult) -> bool:
     """Persist one transition and refund only the originally reserved daily quota."""
     now = utcnow()
-    sources = ("reserved",) if outcome == SmsDelivery.UNKNOWN else ("reserved", "unknown")
+    result = SmsSendResult(outcome) if isinstance(outcome, SmsDelivery) else outcome
+    # A late response can carry the ID after recovery marked the send unknown.
+    sources = ("reserved", "unknown")
+    allowed = OtpSendAttempt.state.in_(sources)
+    if result.message_id:
+        allowed = allowed & (
+            OtpSendAttempt.sms_ru_message_id.is_(None) | (OtpSendAttempt.sms_ru_message_id == result.message_id)
+        )
+    if result.delivery == SmsDelivery.FAILED:
+        allowed = allowed & OtpSendAttempt.sms_ru_message_id.is_(None)
+    if result.delivery == SmsDelivery.UNKNOWN:
+        unknown_source = OtpSendAttempt.state == "reserved"
+        if result.message_id:
+            unknown_source = unknown_source | (
+                (OtpSendAttempt.state == "unknown") & OtpSendAttempt.sms_ru_message_id.is_(None)
+            )
+        allowed = allowed & unknown_source
+    fields = {"state": result.delivery.value, "updated_at": now}
+    if result.message_id is not None:
+        fields["sms_ru_message_id"] = result.message_id
+    if result.provider_status is not None:
+        fields["sms_ru_status_code"] = result.provider_status
     created = session.execute(update(OtpSendAttempt).where(
-        OtpSendAttempt.id == attempt_id, OtpSendAttempt.state.in_(sources),
-    ).values(state=outcome.value, updated_at=now).returning(OtpSendAttempt.created_at)).scalar_one_or_none()
+        OtpSendAttempt.id == attempt_id, allowed,
+    ).values(**fields).returning(OtpSendAttempt.created_at)).scalar_one_or_none()
     if created is None:
         return False
-    if outcome == SmsDelivery.FAILED:
+    if result.delivery == SmsDelivery.FAILED:
         service_day = _window(created, DAY_SECONDS)
         refunded = session.execute(update(OtpBudgetBucket).where(
             *_bucket_filter("service_day", _SERVICE_SUBJECT, service_day),
