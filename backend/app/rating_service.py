@@ -19,6 +19,7 @@
 Здесь всё сведено в одну функцию: обе ручки зовут её и потому ведут себя одинаково.
 """
 import hashlib
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -28,6 +29,7 @@ from sqlmodel import Session, select
 
 from .antifraud import moderate_open_text
 from .errors import herr
+from .logs import log
 from .models import DriverProfile, Rating, User
 from .safety_logic import account_paused, clean_tags
 from .timeutil import utcnow
@@ -41,13 +43,18 @@ TOO_LATE_RU = "Эту поездку оценить уже нельзя — пр
 TOO_LATE_BA = "Был сәфәрҙе баһалап булмай инде — бик күп ваҡыт үтте."
 
 
-def guard_rating_window(happened_at: Optional[datetime], now: Optional[datetime] = None) -> None:
+def guard_rating_window(happened_at: Optional[datetime], now: Optional[datetime] = None,
+                        *, error_code: str | None = None) -> None:
     """Не поздно ли оценивать. `happened_at` неизвестно → пропускаем (данных нет — не наказываем)."""
     if happened_at is None:
         return
     now = now or utcnow()
-    if now - happened_at > timedelta(days=RATING_WINDOW_DAYS):
-        raise herr(409, TOO_LATE_RU, TOO_LATE_BA)
+    if not _rating_window_open(happened_at, now):
+        raise herr(409, TOO_LATE_RU, TOO_LATE_BA, code=error_code)
+
+
+def _rating_window_open(happened_at: Optional[datetime], now: datetime) -> bool:
+    return happened_at is None or now - happened_at <= timedelta(days=RATING_WINDOW_DAYS)
 
 
 # Сколько поездка считается «свежей» для оценки на паузе. Ровно столько же, сколько после
@@ -62,7 +69,7 @@ PAUSED_BA = ("Аккаунт паузала: хәҙер тик яңы сәфәр
 
 def guard_rating_on_pause(session: Session, rater_id: int,
                           happened_at: Optional[datetime] = None,
-                          now: Optional[datetime] = None) -> None:
+                          now: Optional[datetime] = None, *, error_code: str | None = None) -> None:
     """Пауза лестницы и оценки: свежую поездку оценить можно, старую — нет (волна 161).
 
     Тут встретились два правильных правила, и грань между ними тонкая.
@@ -82,10 +89,8 @@ def guard_rating_on_pause(session: Session, rater_id: int,
     if not account_paused(session, rater_id):
         return
     now = now or utcnow()
-    свежая = (happened_at is not None
-              and now - happened_at <= timedelta(hours=FRESH_RATING_HOURS))
-    if not свежая:
-        raise herr(403, PAUSED_RU, PAUSED_BA)
+    if not _fresh_rating(happened_at, now):
+        raise herr(403, PAUSED_RU, PAUSED_BA, code=error_code)
 
 
 def rating_allowed_now(session: Session, user_id: int, happened_at: Optional[datetime]) -> bool:
@@ -97,6 +102,15 @@ def rating_allowed_now(session: Session, user_id: int, happened_at: Optional[dat
     except HTTPException:
         return False
     return True
+
+
+def rating_allowed_fast(user_id: int, happened_at: Optional[datetime],
+                        paused: set[int], now: datetime) -> bool:
+    return _rating_window_open(happened_at, now) and (user_id not in paused or _fresh_rating(happened_at, now))
+
+
+def _fresh_rating(happened_at: Optional[datetime], now: datetime) -> bool:
+    return happened_at is not None and now - happened_at <= timedelta(hours=FRESH_RATING_HOURS)
 
 
 def booking_rating_open(booking, ride, user_id: int) -> bool:
@@ -151,11 +165,23 @@ def _lock_rating_slot(session: Session, rater_id: int, booking_id: Optional[int]
         raise RuntimeError("Rating locking requires PostgreSQL or SQLite")
 
 
+@dataclass(frozen=True)
+class RatingResult:
+    avg: float
+    count: int
+    my_stars: int
+    kept: bool = False
+
+
 def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
                  text: str = "", tags: str = "", booking_id: Optional[int] = None,
                  order_id: Optional[int] = None, place: str = "rating",
-                 happened_at: Optional[datetime] = None, advise: bool = True) -> tuple[float, int]:
-    """Поставить/обновить оценку и пересчитать витрину. Возвращает (среднее, число оценок).
+                 happened_at: Optional[datetime] = None, advise: bool = True,
+                 only_if_new: bool = False, with_outcome: bool = False) -> tuple[float, int] | RatingResult:
+    """Поставить/обновить оценку и пересчитать витрину. Быстрая оценка сохраняет прежние звёзды.
+
+    Общие вызывающие получают пару (среднее, количество). API попутки запрашивает
+    фактические звёзды и признак сохранения прежней оценки через with_outcome.
 
     Текст идёт на модерацию: помечаем (не режем и не рвём сохранение) и публикуем только после
     решения админа. Метки — из закрытого списка, ими не оскорбить, поэтому они видны сразу.
@@ -164,10 +190,13 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
     пути (проверка плана 24.10.2026): водитель, только что высадивший человека, по такому пушу поймёт,
     кто поставил единицу, а пассажир, возможно, ещё на трассе. Балл и лестница считаются как обычно.
     """
-    guard_rating_on_pause(session, rater.id, happened_at)
+    from .services import driver_rating, rated_as_driver, user_rating
+
+    guard_rating_on_pause(session, rater.id, happened_at,
+                          error_code="rating_paused" if with_outcome else None)
     stars = max(1, min(5, int(stars)))
-    text = (text or "").strip()[:500]
-    tags = clean_tags(tags)
+    text = "" if only_if_new else (text or "").strip()[:500]
+    tags = "" if only_if_new else clean_tags(tags)
     if text:
         # Отзыв виден в публичном профиле — то же открытое поле, что комментарий к поездке.
         # Раньше проверки тут не было вовсе, и телефон в отзыве не попадал даже в счётчик.
@@ -180,6 +209,12 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
     _lock_rating_slot(session, rater.id, booking_id, order_id)
     cond = (Rating.booking_id == booking_id) if booking_id is not None else (Rating.order_id == order_id)
     existing = session.exec(select(Rating).where(cond, Rating.rater_id == rater.id)).first()
+    if only_if_new and existing:
+        avg, count = user_rating(session, ratee_id)
+        result = RatingResult(avg, count, existing.stars, kept=True)
+        session.rollback()
+        log.info("[RATE] src=notification stars=%s kept=true", result.my_stars)
+        return result if with_outcome else (result.avg, result.count)
     if existing:
         existing.stars = stars
         # Пустое НЕ затирает уже поставленное: первый тап уходит со звёздами, метки прилетают
@@ -195,9 +230,9 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
                            ratee_id=ratee_id, stars=stars, text=text, tags=tags,
                            text_published=False))
     session.commit()
+    if booking_id is not None:
+        log.info("[RATE] src=%s stars=%s kept=false", "notification" if only_if_new else "app", stars)
 
-    # локальный импорт: services тянет модели по кругу
-    from .services import driver_rating, rated_as_driver, user_rating
     avg, cnt = user_rating(session, ratee_id)     # витрина: доверие человеку одно, все роли вместе
 
     # Санкции — по той роли, за которую наказываем (волна 194; у курьера то же чинили в 186).
@@ -215,4 +250,4 @@ def apply_rating(session: Session, rater: User, ratee_id: int, *, stars: int,
         if d_cnt > 0 and advise:
             from . import quality
             quality.maybe_low_rating_advice(session, ratee_id, d_avg)
-    return avg, cnt
+    return RatingResult(avg, cnt, stars) if with_outcome else (avg, cnt)

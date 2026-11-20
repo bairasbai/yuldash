@@ -23,7 +23,7 @@
 """
 import sys
 from dataclasses import dataclass
-from datetime import timedelta
+from datetime import timedelta, timezone
 from typing import Callable
 
 from sqlmodel import Session, select
@@ -32,7 +32,9 @@ from .config import settings
 from .db import engine
 from .models import Booking, BookingStatus, InstantOrder, InstantOrderStatus, ParcelDelivery, Rating, Ride
 from .logs import log
-from .services import push_notification
+from .rating_service import RATING_WINDOW_DAYS, rating_allowed_fast
+from .safety_logic import suspended_user_ids
+from .services import _is_quiet_hour, push_notification
 from .timeutil import utcnow
 
 # Пол по возрасту поездки: бронь живёт от создания до поездки считанные дни → 30 дней
@@ -209,6 +211,10 @@ def rate_reminder_once(session: Session, dry_run: bool = False) -> list[tuple[in
 def _по_сервису(session: Session, сервис: Сервис, dry_run: bool) -> list:
     """Один сервис: найти завершённые поездки без напоминания и написать не оценившим."""
     reminded: list[tuple[int, int]] = []
+    booking_service = сервис.ключ == "booking"
+    now = utcnow()
+    if booking_service and _is_quiet_hour(now):
+        return reminded
     items = сервис.найти(session)
     if not items:
         return reminded
@@ -216,6 +222,7 @@ def _по_сервису(session: Session, сервис: Сервис, dry_run: 
     # на каждого участника: за сутки таких поездок столько же, сколько поездок в городе.
     rated = сервис.оценки(session, items)
     справочник = сервис.справочник(session, items)
+    paused = suspended_user_ids(session) if booking_service else set()
     for item in items:
         стороны = сервис.стороны(справочник, item)
         # Нет второй стороны — оценивать некого, молчим обоим. Так было и у попутки
@@ -223,15 +230,30 @@ def _по_сервису(session: Session, сервис: Сервис, dry_run: 
         # без водителя, и «оцени поездку» человеку, который так и не уехал, — это насмешка.
         if any(uid is None for uid in стороны):
             стороны = ()
-        for uid in стороны:
+        for index, uid in enumerate(стороны):
             if (item.id, uid) in rated:
                 continue              # уже оценил эту поездку → не напоминаем
+            options = {}
+            if booking_service:
+                depart = справочник[item.ride_id].depart_at
+                if depart is None or not rating_allowed_fast(uid, depart, paused, now):
+                    continue
+                until = depart + timedelta(days=RATING_WINDOW_DAYS)
+                # Quiet hours are already checked for this pass; avoid a second decision at the boundary.
+                options = {
+                    "urgent": True,
+                    "data": {
+                        "type": "booking_done", "id": str(item.id), "rate": "1", "private": "1",
+                        "rate_role": "passenger" if index == 0 else "driver",
+                        "rate_until": str(int(until.replace(tzinfo=timezone.utc).timestamp())),
+                    },
+                }
             if not dry_run:
                 push_notification(
                     session, uid, "ride",
                     сервис.заголовок[0], сервис.заголовок[1],
                     сервис.текст[0], сервис.текст[1],
-                    ref_kind=сервис.ключ, ref_id=item.id,
+                    ref_kind=сервис.ключ, ref_id=item.id, **options,
                 )
             reminded.append((item.id, uid))
         # Помечаем ВСЕГДА (даже если оба уже оценили или вторая сторона пропала) →
