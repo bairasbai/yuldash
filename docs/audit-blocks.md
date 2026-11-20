@@ -3667,3 +3667,8 @@ PWA/backend совпадают с принятыми SHA, новых строк 
 ## Android CI — push main на 30bdbda, 19–20.11.2026 UTC
 
 Отдельный [push-прогон main 44621624820](https://github.com/bairasbai/yuldash/actions/runs/44621624820) на точном [30bdbda6c084c4159652b1b4eb85ea6e7d2db659](https://github.com/bairasbai/yuldash/commit/30bdbda6c084c4159652b1b4eb85ea6e7d2db659) завершён: **6/6 jobs success**. В [логе Android unit](https://github.com/bairasbai/yuldash/actions/runs/44621624820/job/135904519881) сверены checkout того же SHA и результаты: `OfflineTripParentAuthorityTest` **50/50**, `ActiveTripPassengerContactsTest` **29/29**. Это проверка конкретного дерева main, отдельно от CI чернового PR #244 и исторических отказов. Она не доказывает причину прежних сбоев, стабильность при повторе или готовность native/UI и выпуска.
+
+
+## Попутка — подтверждение CI после слияния #247, 20.11.2026 UTC
+
+[PR #247](https://github.com/bairasbai/yuldash/pull/247) слит в main коммитом [ebdfecf517e5225e0fd98a6ff0b16e24ba47e146](https://github.com/bairasbai/yuldash/commit/ebdfecf517e5225e0fd98a6ff0b16e24ba47e146). Отдельный [push CI 44685675266](https://github.com/bairasbai/yuldash/actions/runs/44685675266) на этом SHA: **6/6 задач успешно**. В [логе Android unit](https://github.com/bairasbai/yuldash/actions/runs/44685675266/job/136119298889) подтверждены checkout этого SHA и итоги классов: `ActiveTripPassengerContactsTest` 29/29, `OfflineTripParentAuthorityTest` 50/50. Это результат влитого дерева, отдельно от CI черновика #247; не отдельный отчёт о сценарии высадки, не нативная приёмка и не подтверждение выпуска или выкладки.
