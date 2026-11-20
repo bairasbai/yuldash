@@ -56,6 +56,8 @@ def test_sms_budget_migration_preserves_history_and_expires_verifiers_on_rollbac
             ), {"phone": phone, "now": now, "deadline": deadline})
 
         command.upgrade(config, target)
+        # SQLite can retain stale index metadata on connections opened before external DDL.
+        db.dispose()
         budget_indexes = inspect(db).get_indexes("otpbudgetbucket")
         assert any(index["column_names"] == ["window_start"] for index in budget_indexes)
         with Session(db) as session:
