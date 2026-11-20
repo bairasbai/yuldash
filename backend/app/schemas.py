@@ -5,7 +5,7 @@
 Узко-локальные In-схемы остаются внутри своих роутеров.
 """
 from datetime import datetime
-from typing import Optional
+from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
 
@@ -115,6 +115,7 @@ class RideOut(BaseModel):
     boosted: bool = False             # активный Boost (для подсветки/бейджа на клиенте)
     driver_name: str
     driver_pay_methods: list[str] = Field(default_factory=list)
+    card_payment: Literal[False] = False
     driver_rating: float
     driver_rating_count: int = 0   # число учтённых оценок → клиент: «Новичок» при <5 или «★ X · N оценок» (честно, не фейк)
     driver_verified: bool

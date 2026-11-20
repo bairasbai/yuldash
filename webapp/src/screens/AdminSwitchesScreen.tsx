@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, useSyncExternalStore } from "react";
 import { useNavigate } from "react-router-dom";
 import { ApiError, getSessionGeneration } from "../api/client";
 import {
-  fetchOwnerSwitches, OWNER_SWITCHES, PAID_PAUSED, PAID_SWITCH, saveOwnerSwitch,
+  fetchOwnerSwitches, OWNER_SWITCHES, PAID_PAUSED, PAID_SWITCH, RIDESHARE_CARD_SWITCH, saveOwnerSwitch,
   type OwnerSwitchKey, type OwnerSwitches,
 } from "../api/ownerSwitches";
 import AlertDialog from "../components/AlertDialog";
@@ -86,7 +86,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
 
   async function save(key: OwnerSwitchKey, value: boolean, confirmed = false,
                       revision = state.phase === "ready" ? state.rows[key]?.revision : undefined) {
-    if (activeWrite.current) return;
+    if (activeWrite.current || (key === RIDESHARE_CARD_SWITCH && value)) return;
     const source = new AbortController();
     activeWrite.current = source;
     setBusy(key);
@@ -120,6 +120,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
 
   const labels: Record<OwnerSwitchKey, string> = {
     [PAID_SWITCH]: appText("Платные подключения", "Түләүле хеҙмәттәр"),
+    [RIDESHARE_CARD_SWITCH]: appText("Оплата картой — подготовка", "Карта менән түләү — әҙерлек"),
     "external.sms_notices": appText("SMS-уведомления", "SMS-хәбәрҙәр"),
     "login.sms": "SMS", "login.telegram": "Telegram", "login.vk": "VK ID", "login.whatsapp": "WhatsApp",
   };
@@ -169,22 +170,25 @@ function SwitchesForSession({ generation }: { generation: string }) {
         {state.phase === "ready" && options.map((key) => {
           const row = state.rows[key];
           if (!row) return null;
-          const wanted = row.stored ?? row.effective;
+          const card = key === RIDESHARE_CARD_SWITCH;
+          const effective = !card && row.effective;
+          const wanted = row.stored ?? effective;
           const locked = key === "login.telegram";
           const inFlight = row.in_flight ?? 0;
-          const revisionAvailable = !key.startsWith("external.") ||
+          const needsRevision = card || key.startsWith("external.");
+          const revisionAvailable = !needsRevision ||
             (typeof row.revision === "number" && Number.isSafeInteger(row.revision) && row.revision >= 0);
-          const canEnable = row.blockers.every((code) => code === PAID_PAUSED);
+          const canEnable = !card && row.blockers.every((code) => code === PAID_PAUSED);
           return (
             <section key={key} className="acard">
               <div className="acard__row acard__row--between">
                 <div className="acard__grow">
                   <h3 className="acard__title">{labels[key]}</h3>
                   <p id={`${key}-status`} className="acard__sub">
-                    {row.blockers.length ? appText("Сейчас недоступно", "Әле эшләмәй") : onOff(row.effective)}
+                    {(card || row.blockers.length > 0) ? appText("Сейчас недоступно", "Әле эшләмәй") : onOff(effective)}
                     {row.stored === null
                       ? ` · ${appText("По умолчанию", "Ғәҙәттә")}`
-                      : row.stored !== row.effective
+                      : row.stored !== effective
                         ? ` · ${appText("Сохранено", "Һаҡланған")} — ${onOff(row.stored)}` : ""}
                   </p>
                 </div>
@@ -208,8 +212,10 @@ function SwitchesForSession({ generation }: { generation: string }) {
               {row.editable === false && <p className="acard__note">
                 {appText("Эту настройку меняет владелец.", "Был көйләүҙе хужа үҙгәртә.")}
               </p>}
-              {row.blockers.map((code) => <p key={code} className="acard__note">
-                {blockerLabels[code] ?? appText("Подключение ещё не готово.", "Тоташтырыу әле әҙер түгел.")}
+              {row.blockers.map((blocker) => <p key={typeof blocker === "string" ? blocker : blocker.code} className="acard__note">
+                {typeof blocker === "string"
+                  ? blockerLabels[blocker] ?? appText("Подключение ещё не готово.", "Тоташтырыу әле әҙер түгел.")
+                  : appText(blocker.ru, blocker.ba)}
               </p>)}
               {Number.isSafeInteger(inFlight) && inFlight > 0 && <p className="acard__note">
                 {appText(`SMS в процессе отправки — ${inFlight}`, `Ебәрелеп ятҡан SMS — ${inFlight}`)}

@@ -2,15 +2,18 @@ import { apiGet, apiPost } from "./client";
 
 export const PAID_SWITCH = "external.paid";
 export const PAID_PAUSED = "external_paid_paused";
+export const RIDESHARE_CARD_SWITCH = "rideshare_card_payments";
 export const OWNER_SWITCHES = [
-  PAID_SWITCH, "external.sms_notices", "login.sms", "login.telegram", "login.vk", "login.whatsapp",
+  PAID_SWITCH, "external.sms_notices", RIDESHARE_CARD_SWITCH, "login.sms", "login.telegram", "login.vk", "login.whatsapp",
 ] as const;
 export type OwnerSwitchKey = typeof OWNER_SWITCHES[number];
+
+export type LocalizedBlocker = { code: string; ru: string; ba: string };
 
 export interface OwnerSwitch {
   stored: boolean | null;
   effective: boolean;
-  blockers: string[];
+  blockers: (string | LocalizedBlocker)[];
   editable?: boolean;
   revision?: number;
   in_flight?: number;

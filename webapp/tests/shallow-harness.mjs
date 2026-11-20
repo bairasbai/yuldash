@@ -25,6 +25,7 @@ export function useState(v){const s=h(),i=s.i++;if(!(i in s.values))s.values[i]=
 export function useRef(v){const s=h(),i=s.i++;return s.values[i]??={current:v};}
 export function useMemo(fn,deps){const s=h(),i=s.i++;const old=s.values[i];if(!old||!deps||!same(old.deps,deps))s.values[i]={deps,value:fn()};return s.values[i].value;}
 export const useCallback=(fn,deps)=>useMemo(()=>fn,deps);
+export const useSyncExternalStore=(_subscribe,snapshot)=>snapshot();
 export function useEffect(fn,deps){const s=h(),i=s.i++;const old=s.values[i];if(!old||!deps||!same(old.deps,deps)){const slot={deps,cleanup:old?.cleanup};s.values[i]=slot;s.effects.push(()=>{slot.cleanup?.();const c=fn();slot.cleanup=typeof c==="function"?c:undefined;});}}
 export const useLayoutEffect=useEffect;
 export const createContext=v=>({value:v});

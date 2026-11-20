@@ -89,6 +89,7 @@ export interface BookingRow {
 /** Детали брони — экран Booking (GET /bookings/{id}/details). */
 export interface BookingDetails extends BoardingUndoTerms, CompletedContactWindow {
   driver_pay_methods?: DriverPayMethod[];
+  card_payment?: false;
   /** Сервер разрешил оценку; чужие звёзды не раскрываются. */
   can_rate?: boolean;
   my_stars?: number;
@@ -220,6 +221,7 @@ export interface TripState extends BoardingUndoTerms {
 
 /** Квитанция завершённой поездки (GET /trips/{id}/receipt). */
 export interface TripReceipt extends CompletedContactWindow {
+  card_payment?: false;
   pickup_stop?: string | null;
   dropoff_stop?: string | null;
   my_stars?: number | null;

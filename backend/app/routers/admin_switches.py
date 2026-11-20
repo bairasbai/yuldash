@@ -8,13 +8,14 @@ from pydantic import BaseModel, Field, StrictBool, StrictInt
 from sqlalchemy import func, or_
 from sqlmodel import Session, select
 
+from ..card_payments import CARD_PAYMENTS_SWITCH, card_blockers, reject_card_enable
 from ..config import settings
 from ..db import get_session
 from ..errors import herr
 from ..logs import admin_action
 from ..models import AppSetting, AppSettingChange, OtpSendAttempt, User, UserRole
 from ..owner_switches import (
-    EXTERNAL_KEYS, LOGIN_KEYS, PAID_PAUSED, PAID_SWITCH, SWITCH_KEYS,
+    LOGIN_KEYS, OWNER_SWITCH_KEYS, PAID_PAUSED, PAID_SWITCH, SWITCH_KEYS,
     login_settings, paid_owner, require_complete_login_settings, stored_on, switch_state,
 )
 from ..security import bearer, lock_authenticated_user, normalize_phone, require_telegram_admin
@@ -31,8 +32,8 @@ class SwitchChangeIn(BaseModel):
     expected_revision: StrictInt | None = Field(default=None, ge=0)
 
 
-def _external_revision(session: Session, key: str) -> int | None:
-    if key not in EXTERNAL_KEYS:
+def _owner_revision(session: Session, key: str) -> int | None:
+    if key not in OWNER_SWITCH_KEYS:
         return None
     return session.exec(select(func.max(AppSettingChange.id)).where(AppSettingChange.key == key)).one() or 0
 
@@ -50,7 +51,7 @@ def _switch_view(session: Session, row: AppSetting, *, paid_enabled: bool, edita
     view = {
         "stored": state.stored,
         "effective": state.effective,
-        "blockers": list(state.blockers),
+        "blockers": card_blockers() if row.key == CARD_PAYMENTS_SWITCH else list(state.blockers),
         "updated_at": row.updated_at.replace(tzinfo=timezone.utc) if row.updated_at else None,
         "updated_by_name": author_name,
         "history": [
@@ -98,7 +99,7 @@ def get_switches(admin: User = Depends(require_telegram_admin), session: Session
                     .correlate(AppSetting).scalar_subquery())
         snapshot = session.exec(select(AppSetting, revision).where(AppSetting.key.in_(keys))).all()
         rows = {row.key: row for row, _ in snapshot}
-        revisions = {row.key: value or 0 for row, value in snapshot if row.key in EXTERNAL_KEYS}
+        revisions = {row.key: value or 0 for row, value in snapshot if row.key in OWNER_SWITCH_KEYS}
     else:
         rows = login_settings(session)
     require_complete_login_settings(rows)
@@ -111,7 +112,7 @@ def get_switches(admin: User = Depends(require_telegram_admin), session: Session
 
 
 def _requires_owner(key: str) -> bool:
-    return key in EXTERNAL_KEYS or (key == "login.sms" and settings.sms_provider != "mock")
+    return key in OWNER_SWITCH_KEYS or (key == "login.sms" and settings.sms_provider != "mock")
 
 
 def _check_disable_sms(session: Session, rows: dict[str, AppSetting], confirm: bool) -> None:
@@ -140,6 +141,8 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
     if _requires_owner(key) and not paid_owner(actor):
         raise herr(403, "Эту настройку меняет владелец.", "Был көйләүҙе хужа үҙгәртә.",
                    code="switch_owner_required")
+    if key == CARD_PAYMENTS_SWITCH and body.value:
+        raise reject_card_enable()
     rows = login_settings(session, lock="update")
     require_complete_login_settings(rows)
     row = rows.get(key)
@@ -148,7 +151,7 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
                    code="switch_storage_unavailable")
     paid_enabled = stored_on(rows, PAID_SWITCH)
     state = switch_state(key, row, paid_enabled=paid_enabled)
-    revision = _external_revision(session, key)
+    revision = _owner_revision(session, key)
     if revision is not None and body.expected_revision is None:
         raise herr(422, "Обнови список настроек.", "Көйләүҙәр исемлеген яңырт.",
                    code="switch_revision_required")
@@ -176,7 +179,7 @@ def set_switch(key: str, body: SwitchChangeIn, admin: User = Depends(require_tel
     ))
     session.flush()
     result = _switch_view(session, row, paid_enabled=stored_on(rows, PAID_SWITCH),
-                          revision=_external_revision(session, key))
+                          revision=_owner_revision(session, key))
     actor_id = actor.id
     session.commit()
     admin_action(actor_id, "switch.update", target=key, previous=old_value, value=body.value)

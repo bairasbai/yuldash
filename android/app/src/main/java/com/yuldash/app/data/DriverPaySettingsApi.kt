@@ -11,11 +11,18 @@ internal fun driverPayMethodList(array: JSONArray?): List<String> {
     return directDriverPayMethods.filter { it in values }
 }
 
-internal data class DriverPaySettingsDto(val methods: List<String>, val updatedAt: String?)
+internal data class DriverPaySettingsDto(
+    val methods: List<String>,
+    val updatedAt: String?,
+    val cardBlockers: List<LocalizedSwitchBlocker> = emptyList(),
+)
 
 internal fun JSONObject.toDriverPaySettings(): DriverPaySettingsDto =
-    DriverPaySettingsDto(driverPayMethodList(getJSONArray("methods")),
-        if (isNull("updated_at")) null else getString("updated_at"))
+    DriverPaySettingsDto(
+        driverPayMethodList(getJSONArray("methods")),
+        if (isNull("updated_at")) null else getString("updated_at"),
+        localizedSwitchBlockers(optJSONArray("card_blockers")),
+    )
 
 internal suspend fun ApiClient.getDriverPaySettings(generation: Long): Result<DriverPaySettingsDto> =
     accountSettingsRequest("GET", "/driver/pay-settings", generation).mapCatching(JSONObject::toDriverPaySettings)

@@ -107,6 +107,10 @@ export function DriverPaySettingsCard({ userId, generation }: { userId: number; 
           {status === "review" && (
             <p role="status">{appText("Проверь текущий выбор и сохрани снова.", "Әлеге һайлауҙы тикшер һәм ҡабат һаҡла.")}</p>
           )}
+          {!!settings.card_blockers?.length && <div>
+            <p className="act-card__text">{appText("Оплата картой пока недоступна.", "Карта менән түләү әлегә мөмкин түгел.")}</p>
+            {settings.card_blockers.map((item) => <p className="act-card__text" key={item.code}>{appText(item.ru, item.ba)}</p>)}
+          </div>}
           {status === "saved" && <p role="status">{appText("Способы оплаты сохранены.", "Түләү ысулдары һаҡланды.")}</p>}
           <button type="button" className="btn-primary" disabled={!changed || saving} onClick={() => void save()}>
             {saving ? appText("Сохраняем…", "Һаҡлайбыҙ…") : appText("Сохранить", "Һаҡларға")}

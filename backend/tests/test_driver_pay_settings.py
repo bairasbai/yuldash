@@ -4,10 +4,12 @@ from threading import Barrier
 from uuid import uuid4
 
 from alembic import command
-from sqlalchemy import inspect
-from sqlmodel import Session, select
+from sqlalchemy import inspect, text
+from sqlmodel import Session
 
-from app.models import DriverPaySettings, User, UserRole
+from app.card_payments import card_blockers
+from app.models import User, UserRole
+from app.timeutil import utcnow
 from test_last_seat_race import _ride, _seats_left
 from test_migration_owner_switches import _isolated_database
 
@@ -23,7 +25,8 @@ def test_settings_store_only_the_users_choice_and_repeat_without_a_new_revision(
     driver = user_factory("Pay settings owner", role=UserRole.driver)
     other = user_factory("Other settings owner", role=UserRole.driver)
     url = "/driver/pay-settings"
-    empty = {"methods": [], "updated_at": None}
+    empty = {"methods": [], "updated_at": None, "card_switch_on": False, "accepts_card": False,
+             "card_blockers": card_blockers()}
     assert client.get(url, headers=driver["auth"]).json() == empty
     assert client.get(url).status_code == 401
 
@@ -150,8 +153,11 @@ def test_pay_settings_migration_keeps_existing_driver_on_upgrade_and_rollback(tm
         )
         with Session(db) as session:
             assert session.get(User, uid).role == UserRole.driver
-            assert session.exec(select(DriverPaySettings)).first() is None
-            session.add(DriverPaySettings(user_id=uid, methods="sbp"))
+            assert session.execute(text("SELECT id FROM driverpaysettings")).first() is None
+            session.execute(
+                text("INSERT INTO driverpaysettings (user_id, methods, updated_at) VALUES (:uid, 'sbp', :updated)"),
+                {"uid": uid, "updated": utcnow()},
+            )
             session.commit()
         command.downgrade(config, previous)
         assert not inspect(db).has_table("driverpaysettings")
@@ -159,6 +165,6 @@ def test_pay_settings_migration_keeps_existing_driver_on_upgrade_and_rollback(tm
             assert session.get(User, uid).role == UserRole.driver
         command.upgrade(config, current)
         with Session(db) as session:
-            assert session.exec(select(DriverPaySettings)).first() is None
+            assert session.execute(text("SELECT id FROM driverpaysettings")).first() is None
     finally:
         db.dispose()
