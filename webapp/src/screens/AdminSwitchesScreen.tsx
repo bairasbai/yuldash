@@ -31,6 +31,9 @@ function SwitchesForSession({ generation }: { generation: string }) {
   const [confirmation, setConfirmation] = useState<Confirmation | null>(null);
   const [saveError, setSaveError] = useState("");
   const activeWrite = useRef<AbortController | null>(null);
+  const confirmationHost = useRef<HTMLDivElement>(null);
+  const smsControl = useRef<HTMLButtonElement>(null);
+  const restoreSmsFocus = useRef(false);
 
   useEffect(() => {
     const source = new AbortController();
@@ -48,6 +51,36 @@ function SwitchesForSession({ generation }: { generation: string }) {
   }, [generation, revision]);
 
   useEffect(() => () => activeWrite.current?.abort(), []);
+
+  useEffect(() => {
+    if (!confirmation) return;
+    const host = confirmationHost.current;
+    const options = host?.querySelectorAll<HTMLButtonElement>("button:not([disabled])");
+    const first = options?.[0];
+    const last = options?.[options.length - 1];
+    if (!host || !first || !last) return;
+    restoreSmsFocus.current = true;
+    first.focus();
+    function trapTab(event: KeyboardEvent) {
+      if (event.key !== "Tab") return;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last?.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first?.focus();
+      }
+    }
+    host.addEventListener("keydown", trapTab);
+    return () => host.removeEventListener("keydown", trapTab);
+  }, [confirmation]);
+
+  useEffect(() => {
+    if (restoreSmsFocus.current && !confirmation && busy === null && smsControl.current?.disabled === false) {
+      smsControl.current.focus();
+      restoreSmsFocus.current = false;
+    }
+  }, [confirmation, busy, state.phase]);
 
   async function save(key: LoginSwitch, value: boolean, confirmed = false) {
     if (activeWrite.current) return;
@@ -136,6 +169,7 @@ function SwitchesForSession({ generation }: { generation: string }) {
                   </p>
                 </div>
                 <button type="button" className="acity__switch" role="switch" aria-label={labels[key]}
+                  ref={key === "login.sms" ? smsControl : undefined}
                   aria-checked={wanted} aria-describedby={`${key}-status`}
                   disabled={busy !== null || confirmation !== null || locked || (!wanted && row.blockers.length > 0)}
                   onClick={() => void save(key, !wanted)}>
@@ -172,17 +206,20 @@ function SwitchesForSession({ generation }: { generation: string }) {
         })}
       </div>
       {confirmation && (
-        <AlertDialog
-          title={appText("Отключить SMS?", "SMS-ты һүндерергәме?")}
-          text={appText(
-            `Без способа входа останутся аккаунты пользователей — ${confirmation.affected}.`,
-            `Инеү ысулы ҡалмаясаҡ ҡулланыусы аккаунттары — ${confirmation.affected}.`,
-          )}
-          dismiss={{ label: appText("Отмена", "Кире алыу"), onClick: () => setConfirmation(null) }}
-          confirm={{ label: appText("Отключить SMS", "SMS-ты һүндереү"), tone: "danger",
-            onClick: () => void save(confirmation.key, confirmation.value, true) }}
-          onClose={() => setConfirmation(null)}
-        />
+        <div ref={confirmationHost}>
+          <AlertDialog
+            title={appText("Отключить SMS?", "SMS-ты һүндерергәме?")}
+            descriptionId="owner-sms-switch-warning"
+            text={appText(
+              `Без способа входа останутся аккаунты пользователей — ${confirmation.affected}.`,
+              `Инеү ысулы ҡалмаясаҡ ҡулланыусы аккаунттары — ${confirmation.affected}.`,
+            )}
+            dismiss={{ label: appText("Отмена", "Кире алыу"), onClick: () => setConfirmation(null) }}
+            confirm={{ label: appText("Отключить SMS", "SMS-ты һүндереү"), tone: "danger",
+              onClick: () => void save(confirmation.key, confirmation.value, true) }}
+            onClose={() => setConfirmation(null)}
+          />
+        </div>
       )}
     </>
   );

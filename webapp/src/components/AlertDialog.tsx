@@ -11,6 +11,7 @@ export type AlertTone = "danger" | "green" | "warn";
 export default function AlertDialog({
   title,
   text,
+  descriptionId,
   children,
   confirm,
   dismiss,
@@ -18,6 +19,7 @@ export default function AlertDialog({
 }: {
   title: string;
   text?: string;
+  descriptionId?: string;
   children?: ReactNode;
   confirm?: { label: string; tone?: AlertTone; onClick: () => void; disabled?: boolean; busy?: boolean };
   dismiss?: { label: string; onClick: () => void; disabled?: boolean; tone?: "green" | "muted" };
@@ -34,9 +36,10 @@ export default function AlertDialog({
 
   return (
     <div className="adlg-backdrop" onClick={onClose} role="presentation">
-      <div className="adlg" role="alertdialog" aria-modal="true" aria-label={title} onClick={(e) => e.stopPropagation()}>
+      <div className="adlg" role="alertdialog" aria-modal="true" aria-label={title}
+        aria-describedby={text ? descriptionId : undefined} onClick={(e) => e.stopPropagation()}>
         <h2 className="adlg__title">{title}</h2>
-        {text && <p className="adlg__text">{text}</p>}
+        {text && <p className="adlg__text" id={descriptionId}>{text}</p>}
         {children}
         {(confirm || dismiss) && (
           <div className="adlg__actions">
