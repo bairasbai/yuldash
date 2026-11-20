@@ -883,7 +883,7 @@ internal fun mapFeedFrom(popular: List<PopularRoute>, feed: FeedDto? = null): Li
     if (feed.month > 0) cards += MapFeedCard(FeedKind.Community, "За месяц", "Айға",
         "${feed.month} ${ridesRu(feed.month)}", "Айына ${feed.month} сәфәр",
         if (feed.drivers > 0) "${feed.drivers} ${driversRu(feed.drivers)} за рулём" else "Спасибо, что вы вместе ❤️",
-        if (feed.drivers > 0) "Юлда ${feed.drivers} водитель" else "Бергә булғанға рәхмәт ❤️",
+        if (feed.drivers > 0) "Юлда ${feed.drivers} йөрөтөүсе" else "Бергә булғанға рәхмәт ❤️",
         "месяц", "ай")
     if (feed.year > 0) cards += MapFeedCard(FeedKind.Community, "За год", "Йылға",
         "${feed.year} ${ridesRu(feed.year)}", "Йылына ${feed.year} сәфәр",

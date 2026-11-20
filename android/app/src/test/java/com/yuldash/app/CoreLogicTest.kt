@@ -151,6 +151,7 @@ class CoreLogicTest {
         assertTrue(cards.any { it.kind == FeedKind.Live && it.title.startsWith("21 ") })
         assertTrue(cards.any { it.kind == FeedKind.Top && it.title == "Темясово → Уфа" && it.pill == "9 раз" })
         assertTrue(cards.any { it.title.startsWith("1234 ") && it.sub.startsWith("42 ") })
+        assertTrue(cards.any { it.titleBa == "Айына 1234 сәфәр" && it.subBa == "Юлда 42 йөрөтөүсе" })
         assertTrue(cards.any { it.kind == FeedKind.Donate && it.title.startsWith("12 500 ₽") })
     }
 
