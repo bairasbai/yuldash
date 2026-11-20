@@ -141,6 +141,7 @@ def smsru_ready(monkeypatch):
     from app.config import settings
 
     monkeypatch.setattr(settings, "sms_provider", "smsru")
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", "test-id")
 
     def synthetic_get(url, *, params, **kwargs):

@@ -49,6 +49,7 @@ def канал_молчит(monkeypatch):
 def канал_живой(monkeypatch):
     """Обратная сторона: оператор подключён, сообщения уходят по-настоящему."""
     monkeypatch.setattr(settings, "sms_provider", "smsru")
+    monkeypatch.setattr(settings, "sms_notify_enabled", True)
     monkeypatch.setattr(settings, "sms_ru_api_id", "test-id")
     monkeypatch.setattr("app.routers.safety._send_sos_sms", lambda phones, *a, **kw: None)
     monkeypatch.setattr("app.routers.safety.notify_admin_telegram", lambda *a, **kw: True)
