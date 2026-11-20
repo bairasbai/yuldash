@@ -781,7 +781,7 @@ internal fun NearbySkeletonCard() {
 }
 
 @Composable
-internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false, onWatchRoute: (() -> Unit)? = null) {
+internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Boolean = false, watchAction: @Composable () -> Unit = {}) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -813,18 +813,7 @@ internal fun NearbyEmptyCard(hasRoute: Boolean, onRetry: () -> Unit, error: Bool
             TextButton(onClick = onRetry) {
                 Text(if (error) appText("Повторить", "Ҡабатлау") else appText("Обновить", "Яңыртыу"), color = CanonGreen2, fontWeight = FontWeight.Bold)
             }
-            // F13 «карауль поездку»: подпишись на маршрут — уведомим, как только появится машина.
-            if (onWatchRoute != null) {
-                Spacer(Modifier.height(4.dp))
-                AppButton(
-                    text = appText("Следить за маршрутом", "Маршрутты күҙәтеү"),
-                    onClick = onWatchRoute,
-                    style = AppButtonStyle.Secondary,
-                    icon = Icons.Default.NotificationsActive,
-                    fillWidth = false,
-                    height = 46.dp,
-                )
-            }
+            if (!error) watchAction()
             // F19 «Позови водителя»: на реальной пустой выдаче (не ошибка сети) — мягкий призыв
             // пригласить знакомого водителя. Спрос сам растит предложение (виральность «между своими»).
             if (!error) {
@@ -1272,16 +1261,19 @@ internal fun NearbyFilterChip(
     modifier: Modifier = Modifier,
     onToggle: () -> Unit,
 ) {
+    val background by animateColorAsState(if (active) CanonGreen2 else CanonSurface, tween(CanonMotion.QUICK), label = "filterChipBackground")
+    val foreground by animateColorAsState(if (active) CanonOnFilled else CanonText, tween(CanonMotion.QUICK), label = "filterChipText")
+    val tint by animateColorAsState(if (active) CanonOnFilled else CanonGreen2, tween(CanonMotion.QUICK), label = "filterChipIcon")
     Surface(
         modifier = modifier.bounceClick(onToggle),
-        color = if (active) CanonGreen2 else CanonSurface,
+        color = background,
         shape = RoundedCornerShape(999.dp),
         border = BorderStroke(1.dp, if (active) Color.Transparent else CanonBorder)
     ) {
         Row(modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, contentDescription = null, tint = if (active) Color.White else CanonGreen2, modifier = Modifier.size(15.dp))
+            Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(15.dp))
             Spacer(Modifier.width(4.dp))
-            Text(label, color = if (active) Color.White else CanonText, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
+            Text(label, color = foreground, fontWeight = FontWeight.Bold, fontSize = 12.sp, maxLines = 1)
         }
     }
 }

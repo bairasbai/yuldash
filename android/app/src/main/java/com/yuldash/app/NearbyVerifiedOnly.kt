@@ -101,7 +101,7 @@ internal fun unverifiedRidesText(n: Int): String = appText(
  * Включены другие фильтры — ниже «Сбросить фильтры» ([onReset]), путь назад, как в «Нет поездок с такими условиями».
  */
 @Composable
-internal fun NearbyUnverifiedCard(hidden: Int, onShow: () -> Unit, onReset: (() -> Unit)? = null) {
+internal fun NearbyUnverifiedCard(hidden: Int, onShow: () -> Unit, onReset: (() -> Unit)? = null, watchAction: @Composable () -> Unit = {}) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         colors = CardDefaults.cardColors(containerColor = CanonSurface),
@@ -132,6 +132,7 @@ internal fun NearbyUnverifiedCard(hidden: Int, onShow: () -> Unit, onReset: (() 
                     Text(appText("Сбросить фильтры", "Фильтрҙы бушат"), color = CanonGreen2, style = CanonBodyStrong)
                 }
             }
+            watchAction()
         }
     }
 }

@@ -3,11 +3,13 @@
 Проверяем: CRUD подписок; матчинг при публикации поездки шлёт push подходящему сторожу
 и НЕ шлёт неподходящему; анти-спам (второй пуш в сутки не уходит); протухшие игнорируются.
 """
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 
 import app.services as services
 from app.db import engine
-from app.models import Notification, RouteWatch
+from app.models import DeviceToken, Notification, RouteWatch, WebPushSubscription
 from app.timeutil import utcnow
 from sqlmodel import Session, select
 
@@ -62,11 +64,81 @@ def test_delete_foreign_watch_404(client, user_factory):
     assert any(w["id"] == wid for w in client.get("/route-watch", headers=owner["auth"]).json())
 
 
-def test_duplicate_watch_updates_not_duplicates(client, user_factory):
+def test_duplicate_watch_preserves_the_notification_quota_and_expiry(client, user_factory):
     u = user_factory("Dup")
-    a = client.post("/route-watch", headers=u["auth"], json={"from_city": "Сибай", "to_city": "Уфа"})
-    b = client.post("/route-watch", headers=u["auth"], json={"from_city": " сибай ", "to_city": "УФА"})
-    assert a.json()["id"] == b.json()["id"]   # тот же маршрут (регистр/пробелы) → обновили, не размножили
+    a = client.post("/route-watch", headers=u["auth"], json={
+        "from_city": "Сибай", "to_city": "Уфа", "watch_date": "2030-05-01T00:15:00+05:00",
+    }).json()
+    last = utcnow().replace(microsecond=0)
+    with Session(engine) as session:
+        row = session.get(RouteWatch, a["id"])
+        row.last_notified_at = last
+        session.commit()
+    b = client.post("/route-watch", headers=u["auth"], json={
+        "from_city": " сибай ", "to_city": "УФА", "watch_date": "2030-05-01T01:00:00",
+    }).json()
+    assert b["id"] == a["id"]
+    assert b["watch_date"] == a["watch_date"]
+    assert b["expires_at"] == a["expires_at"]
+    assert b["last_notified_at"] == last.isoformat()
+
+
+def test_date_direction_and_watch_kind_have_distinct_subscriptions(client, user_factory):
+    user = user_factory("Different routes")
+    headers = user["auth"]
+    route = {"from_city": "Сибай", "to_city": "Уфа"}
+    suffixes = ({}, {"watch_date": "2030-05-01T00:00:00"}, {"direction": "both"}, {"watch_kind": "requests"})
+    ids = {client.post("/route-watch", headers=headers, json={**route, **extra}).json()["id"] for extra in suffixes}
+    assert len(ids) == len(suffixes)
+    for bad_place in ("", "A", "Уфа ⑤"):
+        bad = client.post("/route-watch", headers=headers, json={**route, "from_city": bad_place})
+        assert bad.status_code == 400
+        assert bad.json()["detail"]["code"] == "watch_place_invalid"
+    assert {watch["id"] for watch in client.get("/route-watch", headers=headers).json()} == ids
+
+
+def test_registration_status_is_account_scoped_and_does_not_expose_tokens(client, user_factory):
+    watcher = user_factory("With channels")
+    other = user_factory("Without channels")
+    with Session(engine) as session:
+        session.add(DeviceToken(user_id=watcher["id"], token="synthetic-route-watch-token"))
+        session.add(WebPushSubscription(user_id=watcher["id"], endpoint="https://fixture.invalid/route-watch"))
+        session.commit()
+    route = {"from_city": "Сибай", "to_city": "Уфа"}
+    for user, expected in ((watcher, True), (other, False)):
+        created = client.post("/route-watch", headers=user["auth"], json=route)
+        assert created.status_code == 200, created.text
+        response = client.get("/route-watch", headers=user["auth"]).json()
+        assert response == [created.json()]
+        status = response[0]
+        assert status["registered_push_channels"] == {"app": expected, "web": expected}
+        assert status["last_notified_at"] is None
+        assert "quiet_from" in status and "quiet_to" in status
+        assert {"token", "endpoint", "auth", "user_id"}.isdisjoint(status)
+
+
+def test_parallel_posts_share_one_watch_and_serialize_account_limit(client, user_factory, monkeypatch):
+    from app.routers import route_watch
+
+    user = user_factory("Parallel watcher")
+    monkeypatch.setattr(route_watch, "MAX_WATCHES_PER_USER", 2)
+
+    def post_pair(routes):
+        barrier = Barrier(2)
+
+        def post(route):
+            barrier.wait(timeout=5)
+            return client.post("/route-watch", headers=user["auth"], json={"from_city": route, "to_city": "Уфа"})
+
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            return list(workers.map(post, routes))
+
+    first = post_pair(["Сибай", "сибай"])
+    assert [response.status_code for response in first] == [200, 200]
+    assert first[0].json()["id"] == first[1].json()["id"]
+    last = post_pair(["Баймак", "Акъяр"])
+    assert sorted(response.status_code for response in last) == [200, 400]
+    assert len(client.get("/route-watch", headers=user["auth"]).json()) == 2
 
 
 # ---------------------------- Матчинг ----------------------------

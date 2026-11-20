@@ -133,7 +133,7 @@ internal fun PassengerModeHome(
     onInstantLogin: () -> Unit,
     onTaxiOnboarding: () -> Unit = {},   // §11: из заглушки «Такси скоро» — в онбординг таксиста
     onClinicRides: () -> Unit = {},       // F22: раздел «Поездки к клинике» (проброс в карту попутки)
-    onRouteWatch: (String?, String?) -> Unit = { _, _ -> },   // F13: «карауль поездку» из карты попутки
+    onRouteWatch: (String?, String?, String?) -> Unit = { _, _, _ -> },
     onOpenScheduled: () -> Unit = {},     // «На время»: предзаказ создан → «Мои предзаказы»
     onSavedPlaces: () -> Unit = {},
     // Способ расчёта живёт выше экрана: он общий для всех заказов и переживает уходы с экрана.

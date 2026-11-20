@@ -807,7 +807,7 @@ object ApiClient {
             write(editor)
             editor.remove(SosRetryIntent.PREF_KEY)
         }
-        if (saved) sosRetryIntent = SosRetryIntent(selected)
+        if (saved) sosRetryIntent = SosRetryIntent(selected).also { appCtx?.let(com.yuldash.app.SearchHistory::clearForNewSession) }
         return OfflineTripSnapshotHooks.authWriteResult(saved)
     }
     /** Старт входа через Telegram. Возвращает request_id — app по нему строит ссылку t.me/<bot>?start=request_id. */
@@ -895,7 +895,7 @@ object ApiClient {
         limit: Int,
         date: String? = null,   // F4: «когда едем» — YYYY-MM-DD, только поездки этого дня
         conditions: Set<String> = emptySet(),   // условия пассажира: сервер режет ДО порций и count (DESIGN023)
-        verifiedOnly: Boolean = false,
+        verifiedOnly: Boolean = false, seats: Int = 1,
         fromCities: Set<String> = emptySet(), toCities: Set<String> = emptySet(),   // «Откуда»/«Куда»: любой из городов (RideCities.kt)
     ): Result<NearbyPage> {
         val params = buildList {
@@ -909,13 +909,14 @@ object ApiClient {
             if (verifiedOnly) add("verified_only=true")
             if (fromCities.isNotEmpty()) add("from_cities=" + enc(fromCities.sorted().joinToString(",")))
             if (toCities.isNotEmpty()) add("to_cities=" + enc(toCities.sorted().joinToString(",")))
+            if (seats > 1) add("seats=$seats")
             add("limit=$limit")
         }
         val path = "/rides/near?" + params.joinToString("&")
         // auth=true: токен (если есть) → сервер прячет заблокированных. Аноним по-прежнему видит всё.
         return call("GET", path, null, auth = true).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
-            NearbyPage((0 until arr.length()).map { arr.getJSONObject(it).toRideDto() }, obj.optInt("count"), obj.optInt("hidden_unverified"))
+            parseNearbyPage(obj, (0 until arr.length()).map { arr.getJSONObject(it).toRideDto() })
         }
     }
 
@@ -6482,7 +6483,6 @@ data class PriceHintDto(
 )
 
 /** Страница «Ближайших»: показанные + всего на маршруте (для кнопки «Показать ещё»). */
-data class NearbyPage(val items: List<RideDto>, val total: Int, val hiddenUnverified: Int = 0)   // hidden_unverified: спрятал «только проверенные» (17.10.2026; старый сервер — 0)
 
 /** F14: точка сбора по ориентиру (публичный справочник). titleRu/titleBa — двуязычное название. */
 data class PickupPointDto(
