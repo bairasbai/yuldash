@@ -8,12 +8,15 @@ import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.test.assertIsOff
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.v2.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollToNode
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
@@ -71,12 +74,14 @@ class PaidIntegrationsScreenInstrumentedTest {
         val bashkir = language == AppLanguage.Ba
         val name = if (bashkir) "Карта менән түләү — әҙерлек" else "Оплата картой — подготовка"
         val blocker = if (bashkir) "Банк тикшерелә" else "Банк на проверке"
+        val firstSwitch = if (bashkir) "Түләүле хеҙмәттәр" else "Платные подключения"
         server.showCard = true
         mount(language, dark)
 
         compose.waitUntil(10_000) {
-            compose.onAllNodesWithContentDescription(name).fetchSemanticsNodes().isNotEmpty()
+            compose.onAllNodesWithContentDescription(firstSwitch).fetchSemanticsNodes().isNotEmpty()
         }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText(blocker))
         val card = compose.onNodeWithContentDescription(name)
         compose.onNodeWithText(blocker).assertIsDisplayed()
         card.assertIsOn().assertIsEnabled().performClick()
