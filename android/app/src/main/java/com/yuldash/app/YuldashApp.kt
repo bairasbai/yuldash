@@ -1227,6 +1227,7 @@ private fun YuldashAppContent() {
             // «назад» и «перейти». Держать их здесь значило раздувать выбор экрана до
             // размера, который Android отказывается ускорять (см. AppNavAdmin.kt).
             Screen.AdminCabinet,
+            Screen.AdminSwitches,
             Screen.AdminDrivers,
             Screen.AdminReports,
             Screen.AdminTextFlags,
