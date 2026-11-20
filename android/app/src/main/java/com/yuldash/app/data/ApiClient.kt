@@ -692,31 +692,11 @@ object ApiClient {
 
     /** Публичные доступные способы входа; токен не нужен даже при протухшем прежнем входе. */
     suspend fun loginMethods(): Result<List<String>> =
-        // mapCatching, не map: битый успешный ответ — это сбой, а не падение приложения.
-        call("GET", "/config/login-methods", null, auth = false).mapCatching { obj ->
-            val methods = obj.getJSONArray("methods")
-            (0 until methods.length()).mapNotNull { methods.opt(it) as? String }
-        }
+        call("GET", "/config/login-methods", null, auth = false).mapCatching(JSONObject::toLoginMethods)
 
-    internal suspend fun ownerSwitches(generation: Long): Result<Map<OwnerSwitchKey, OwnerSwitchDto>> =
-        call("GET", "/admin/switches", null, auth = true, expectedGeneration = generation, freshRead = true)
-            .mapCatching(JSONObject::toOwnerSwitches)
-
-    internal suspend fun setOwnerSwitch(
-        key: OwnerSwitchKey,
-        value: Boolean,
-        confirm: Boolean,
-        generation: Long,
-        revision: Long?,
-    ): Result<OwnerSwitchDto> = call(
-        "POST", "/admin/switches/${key.key}",
-        JSONObject().put("value", value).put("confirm", confirm).put("expected_revision", revision),
-        auth = true,
-        isRetry = true, // Одна запись за действие, включая ответ 401.
-        retryOnNetwork = false,
-        expectedGeneration = generation,
-        singleAttemptMutation = true,
-    ).mapCatching(JSONObject::toOwnerSwitch)
+    internal suspend fun ownerSwitchRequest(path: String, generation: Long, body: JSONObject? = null): Result<JSONObject> =
+        call(if (body == null) "GET" else "POST", path, body, auth = true, expectedGeneration = generation,
+            freshRead = body == null, retryOnNetwork = body == null, isRetry = body != null, singleAttemptMutation = body != null)
 
     // ---------- Авторизация по SMS-коду ----------
 

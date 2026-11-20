@@ -368,7 +368,9 @@ class SecondaryDeep3ContentTest {
             }
         }
         composeRule.onNodeWithText("Кабинет админа").assertIsDisplayed()   // заголовок TopBar
+        composeRule.onNodeWithText("Выключатели").assertIsDisplayed()
         composeRule.onNodeWithText("Заявка за пользователя").assertIsDisplayed()
+        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Модерация водителей"))
         composeRule.onNodeWithText("Модерация водителей").assertIsDisplayed()
     }
 
@@ -396,6 +398,7 @@ class SecondaryDeep3ContentTest {
                 )
             }
         }
+        composeRule.onNode(hasScrollToNodeAction()).performScrollToNode(hasText("Модерация водителей"))
         composeRule.onNodeWithText("Модерация водителей").performClick()
         assertTrue(opened)
     }
