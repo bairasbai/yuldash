@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
+from app import login_methods
 from app.db import engine
 from app.main import app
 from app.models import OtpCode, RefreshToken, User
@@ -110,15 +111,17 @@ def test_parallel_wrong_codes_cannot_cross_phone_wide_budget(client, monkeypatch
 def test_parallel_code_issuance_sends_at_most_three_sms_per_minute(client, monkeypatch, requests):
     phone = _phone()
     ready = threading.Barrier(requests)
-    original = auth._lock_otp_phone
+    original = login_methods.login_settings
     sent = []
 
-    def lock_after_all_requests_arrive(session, normalized_phone):
-        assert normalized_phone == phone
-        ready.wait(timeout=10)
-        return original(session, normalized_phone)
+    def lock_after_all_requests_arrive(session, *, lock=None):
+        # On SQLite the group lock is the first write and already serializes
+        # the requests. Bring the threads together before taking it.
+        if lock == "share":
+            ready.wait(timeout=10)
+        return original(session, lock=lock)
 
-    monkeypatch.setattr(auth, "_lock_otp_phone", lock_after_all_requests_arrive)
+    monkeypatch.setattr(login_methods, "login_settings", lock_after_all_requests_arrive)
     monkeypatch.setattr(auth, "send_sms", lambda *a, **kw: sent.append("synthetic SMS"))
     with ThreadPoolExecutor(max_workers=requests) as pool:
         results = list(pool.map(lambda i: _post("/auth/request-code", {

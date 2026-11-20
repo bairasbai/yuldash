@@ -26,7 +26,7 @@ def _webhook_cleanup(client):
 
 
 @pytest.mark.parametrize("cleanup", [False, True], ids=["verify-only", "with-webhook-cleanup"])
-def test_successful_login_cannot_reset_sms_issuance_throttle(client, monkeypatch, cleanup):
+def test_successful_login_cannot_reset_sms_issuance_throttle(client, monkeypatch, cleanup, telegram_login_ready):
     clock = [datetime.now(timezone.utc)]
 
     class ClockDatetime(datetime):
