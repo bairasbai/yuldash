@@ -498,8 +498,9 @@ sentry_sdk.init = _init
 PHONE = "+79171234567"
 def _fake_network(self, request):        # вместо интернета: ответы Telegram и sms.ru
     if request.url.host == "sms.ru":
-        return httpx.Response(200, json={"status": "OK", "sms": {PHONE: {"status_code": 100}}},
-                              request=request)
+        return httpx.Response(200, json={"status": "OK", "status_code": 100, "sms": {
+            PHONE[1:]: {"status": "OK", "status_code": 100, "sms_id": "000527-70102042"},
+        }}, request=request)
     return httpx.Response(200, json={"ok": True}, request=request)
 httpx.HTTPTransport.handle_request = _fake_network
 
@@ -510,6 +511,7 @@ from fastapi import FastAPI
 from fastapi.testclient import TestClient
 from app import services
 from app.middleware import unhandled_exception_handler
+from app.smsru import SmsDelivery, send_login_code
 
 app = FastAPI()
 app.add_exception_handler(Exception, unhandled_exception_handler)
@@ -517,7 +519,7 @@ app.add_exception_handler(Exception, unhandled_exception_handler)
 @app.post("/otp")
 def otp():
     assert services.notify_admin_telegram("новая заявка") is True
-    services.send_sms(PHONE, "582731")
+    assert send_login_code(PHONE, "582731", lang="ru").delivery == SmsDelivery.SENT
     raise RuntimeError("сбой после отправки")
 
 r = TestClient(app, raise_server_exceptions=False).post("/otp")
@@ -531,7 +533,8 @@ def test_настоящий_sentry_не_уносит_ключи_из_исход�
     events = _события_пробы(
         _SDK_PROBE_OUTGOING, tmp_path,
         TELEGRAM_BOT_TOKEN=ТОКЕН_БОТА, ADMIN_TELEGRAM_CHAT_ID="-1001234567890",
-        SMS_PROVIDER="smsru", SMS_RU_API_ID=КЛЮЧ_SMS_RU, SMS_NOTIFY_ENABLED="true",
+        SMS_PROVIDER="smsru", SMS_RU_API_ID=КЛЮЧ_SMS_RU, SMS_FROM="SyntheticSender",
+        SMS_RU_LOGIN_READY="true", SMS_BUDGET_HMAC_KEY="synthetic-budget-key",
     )
     errors = [e for e in events if "сбой после отправки" in json.dumps(e, ensure_ascii=False)]
     assert errors, f"SDK не собрал событие о сбое — проверять нечего: {events!r}"[:2000]
