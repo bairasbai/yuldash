@@ -88,8 +88,9 @@ internal fun parseRideDeparture(value: String): LocalDateTime? =
 internal fun formatRideDeparture(date: LocalDate, time: LocalTime): String =
     date.atTime(time).format(rideDepartureFormat)
 
-internal fun initialRideDeparture(value: String, now: LocalDateTime): LocalDateTime {
-    val initial = parseRideDeparture(value) ?: now.plusHours(3)
+internal fun initialRideDeparture(value: String, now: LocalDateTime, suggestedDate: LocalDate? = null): LocalDateTime {
+    val fallback = now.plusHours(3)
+    val initial = parseRideDeparture(value) ?: suggestedDate?.atTime(fallback.toLocalTime()) ?: fallback
     val date = initial.toLocalDate().coerceAtLeast(now.toLocalDate())
         .coerceAtMost(LocalDate.of(now.year + RIDE_DEPARTURE_YEARS_AHEAD, 12, 31))
     return date.atTime(initial.toLocalTime().withSecond(0).withNano(0))
@@ -121,9 +122,9 @@ private fun rideDepartureMonths(): List<String> = listOf(
 
 /** Черновик живёт только в диалоге; форма получает дату исключительно после подтверждения. */
 @Composable
-internal fun RideDeparturePicker(initialValue: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit) {
+internal fun RideDeparturePicker(initialValue: String, onDismiss: () -> Unit, onConfirm: (String) -> Unit, suggestedDate: LocalDate? = null) {
     val today = LocalDate.now()
-    val initial = remember(initialValue) { initialRideDeparture(initialValue, LocalDateTime.now()) }
+    val initial = remember(initialValue, suggestedDate) { initialRideDeparture(initialValue, LocalDateTime.now(), suggestedDate) }
     var year by rememberSaveable(initialValue) { mutableIntStateOf(initial.year) }
     var month by rememberSaveable(initialValue) { mutableIntStateOf(initial.monthValue) }
     var day by rememberSaveable(initialValue) { mutableIntStateOf(initial.dayOfMonth) }

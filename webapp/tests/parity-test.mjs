@@ -266,7 +266,7 @@ check(
   "кнопка «Застрял на трассе» / «Юлда ҡалдым» одинакова в приложении и на сайте"
 );
 check(
-  aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
+  aCreate.includes('mutableStateOf(template?.seatsTotal?.toString() ?: "4")') && aCreate.includes("SeatOptionsCard(") &&
     wCreate.includes("useState(initialReturnDraft?.seats ?? SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&
     wCreate.includes("back_max_two: backMaxTwo") && wCreate.includes("front_seat_available: frontSeatAvailable"),
   "создание поездки: 4 места по умолчанию и тумблеры «сзади двое» / «переднее свободно» в обоих клиентах"
