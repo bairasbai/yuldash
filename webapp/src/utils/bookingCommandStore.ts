@@ -1,5 +1,6 @@
 import { API_BASE, isAccountSession } from "../api/client";
 import { COMMAND_KEY_PREFIX } from "./commandFingerprint";
+import type { RideSeriesIntent, RideSeriesResult } from "./rideSeriesIntent";
 
 type State = "unknown" | "applied" | "rejected" | "closed_no_effect";
 interface CommandSlot {
@@ -19,7 +20,7 @@ export interface RidePublication extends CommandSlot {
   stopLanguage: "ru" | "ba";
   utcOffsetMinutes: number;
 }
-type PublicationRow = RidePublication | { key: string; state: "released" };
+type PublicationRow = RidePublication | RideSeriesIntent | { key: string; state: "released" };
 export interface BookingCommandOwner {
   userId: number;
   generation: string;
@@ -139,9 +140,12 @@ function publicationTransaction<T>(
 }
 
 export function readPublicationSlot(owner: BookingCommandOwner) {
-  return publicationTransaction(owner, ([row]) => ({
-    result: { revision: row?.key ?? null, command: row?.state === "released" ? undefined : row },
-  }));
+  return publicationTransaction<{
+    revision: string | null; command?: RidePublication; series?: RideSeriesIntent;
+  }>(owner, ([row]) => {
+    if (row && "mode" in row) return { result: { revision: row.key, series: row } };
+    return { result: { revision: row?.key ?? null, command: row?.state === "released" ? undefined : row } };
+  });
 }
 
 type PublicationReservation =
@@ -153,6 +157,7 @@ export function reserveRidePublication(
   normalization: Pick<RidePublication, "draftHash" | "stopLanguage" | "utcOffsetMinutes">,
 ) {
   return publicationTransaction<PublicationReservation>(owner, ([prior]) => {
+    if (prior && "mode" in prior) return { result: { status: "stale" } };
     if (prior && prior.state !== "released") return { result: { status: "existing", command: prior } };
     if ((prior?.key ?? null) !== revision) return { result: { status: "stale" } };
     const command: RidePublication = {
@@ -167,7 +172,7 @@ export function resolveRidePublication(
   owner: BookingCommandOwner, command: RidePublication, state: Exclude<State, "unknown">,
 ): Promise<boolean> {
   return publicationTransaction(owner, ([current]) => {
-    if (current?.key !== command.key) return { result: false };
+    if (current?.key !== command.key || "mode" in current) return { result: false };
     if (current.state !== "unknown") return { result: current.state === state };
     return { result: true, updated: [{ ...current, state }] };
   });
@@ -175,7 +180,62 @@ export function resolveRidePublication(
 
 export function releaseRidePublication(owner: BookingCommandOwner, command: RidePublication): Promise<boolean> {
   return publicationTransaction(owner, ([current]) => {
-    if (current?.key !== command.key || current.state === "unknown" || current.state === "released") return { result: false };
+    if (current?.key !== command.key || "mode" in current ||
+        current.state === "unknown" || current.state === "released") return { result: false };
+    return { result: true, updated: [{ key: current.key, state: "released" }] };
+  });
+}
+
+
+export function reserveRideSeries(owner: BookingCommandOwner, revision: string | null, series: RideSeriesIntent) {
+  return publicationTransaction(owner, ([prior]) => {
+    if ((prior?.key ?? null) !== revision || (prior && (!("state" in prior) || prior.state !== "released"))) {
+      return { result: false };
+    }
+    return { result: true, updated: [series] };
+  });
+}
+
+export function updateRideSeries(owner: BookingCommandOwner, series: RideSeriesIntent, updates: RideSeriesResult[]) {
+  return publicationTransaction<RideSeriesIntent | undefined>(owner, ([current]) => {
+    if (current?.key !== series.key || !("mode" in current)) return { result: undefined };
+    const byDate = new Map(updates.map(item => [item.depart_at, item]));
+    const items = current.items.map(item => {
+      const update = byDate.get(item.depart_at);
+      return item.outcome === "unknown" && update ? { ...item, ...update } : item;
+    });
+    const updated = { ...current, items };
+    return { result: updated, updated: [updated] };
+  });
+}
+
+export function replaceRejectedSeriesDates(
+  owner: BookingCommandOwner, series: RideSeriesIntent, retry: RideSeriesIntent, replacedDates: string[],
+) {
+  return publicationTransaction<RideSeriesIntent | undefined>(owner, ([current]) => {
+    if (current?.key !== series.key || !("mode" in current) || current.items.some(item => item.outcome === "unknown")) {
+      return { result: undefined };
+    }
+    const rejected = current.items.filter(item => item.outcome === "rejected");
+    const replaced = new Set(replacedDates);
+    if (!replaced.size || replaced.size !== replacedDates.length || replaced.size !== retry.items.length ||
+        replacedDates.some(date => !rejected.some(item => item.depart_at === date))) {
+      return { result: undefined };
+    }
+    const retained = current.items.filter(item => !replaced.has(item.depart_at));
+    if (retry.items.some(item => retained.some(ride => ride.depart_at === item.depart_at))) {
+      return { result: undefined };
+    }
+    const updated = { ...retry, items: [...retained, ...retry.items].sort((a, b) => a.depart_at.localeCompare(b.depart_at)) };
+    return { result: updated, updated: [updated] };
+  });
+}
+
+export function releaseRideSeries(owner: BookingCommandOwner, series: RideSeriesIntent) {
+  return publicationTransaction(owner, ([current]) => {
+    if (current?.key !== series.key || !("mode" in current) || current.items.some(item => item.outcome === "unknown")) {
+      return { result: false };
+    }
     return { result: true, updated: [{ key: current.key, state: "released" }] };
   });
 }

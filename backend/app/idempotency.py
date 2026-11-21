@@ -1,6 +1,6 @@
 """Транзакционная защита команд попутки при потере ответа."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
@@ -256,6 +256,31 @@ def read_intent(session: Session, owner_id: int, key: str) -> dict:
     return _view(session, owner_id, _find(session, owner_id, validate_key(key)))
 
 
+def read_matching_intent(session: Session, owner_id: int, command: Command) -> dict:
+    """Сверяет исход с тем же отпечатком, даже после окончания окна прямого повтора."""
+    receipt = _find(session, owner_id, command.key)
+    if receipt is not None:
+        _match(receipt, command)
+    return _view(session, owner_id, receipt)
+
+
+def bind_ride_series(session: Session, owner_id: int, base_key: str, payload_hash: str) -> None:
+    """Фиксирует общую часть серии до публикации первой новой даты."""
+    # Внутренний ключ с двоеточием недоступен через обычные команды и ручку close.
+    command = Command(f"series:{base_key}", Scope.RIDE_CREATE, None, payload_hash)
+    try:
+        _lock(session, owner_id, command.key)
+        receipt = _find(session, owner_id, command.key)
+        if receipt is None:
+            _save(session, owner_id, command, "closed_no_effect", result_code="ride_series_bound")
+            session.commit()
+        else:
+            _match(receipt, command)
+    finally:
+        if session.in_transaction():
+            session.rollback()
+
+
 GUARDIAN_PHONE_INVALID = (400, "Проверь номер телефона взрослого.", "Оло кешенең телефон номерын тикшер.")
 TRAVELER_WOMEN_ONLY = (
     409, "В поездку «Только женщины» можно бронировать место только для себя.",
@@ -321,9 +346,9 @@ _FINAL_REFUSALS = {
 }
 
 
-def _final_refusal(error: HTTPException) -> str | None:
+def _final_refusal(error: HTTPException, extra: Mapping[str, tuple] | None = None) -> str | None:
     code = error.detail.get("code") if isinstance(error.detail, dict) else None
-    saved = _FINAL_REFUSALS.get(code)
+    saved = (extra or {}).get(code) or _FINAL_REFUSALS.get(code)
     return code if saved and error.status_code == saved[0] else None
 
 
@@ -383,7 +408,8 @@ def _winner(session: Session, owner_id: int, command: Command, error: IntegrityE
 
 def execute(session: Session, owner_id: int, command: Command, apply: Callable[[], Applied], *,
             replay_response: Callable[[dict], Any] | None = None, prepare: Callable[[], None] | None = None,
-            rejected_response: Callable[[str], HTTPException | None] | None = None) -> Any:
+            rejected_response: Callable[[str], HTTPException | None] | None = None,
+            final_refusals: Mapping[str, tuple] | None = None) -> Any:
     """apply пишет во вложенной транзакции. Только execute завершает внешнюю."""
     def replay(receipt: CommandReceipt) -> Any:
         current = _replay(session, owner_id, command, receipt, rejected_response)
@@ -420,7 +446,7 @@ def execute(session: Session, owner_id: int, command: Command, apply: Callable[[
                     _save(session, owner_id, command, "applied",
                           ref_id=applied.ref_id, ref_created_at=applied.ref_created_at)
             except HTTPException as error:
-                code = _final_refusal(error)
+                code = _final_refusal(error, final_refusals)
                 if code is not None:
                     conflict = error if isinstance(error, BookingTravelerConflict) else None
                     _save(session, owner_id, command, "rejected", result_code=code, conflict=conflict)

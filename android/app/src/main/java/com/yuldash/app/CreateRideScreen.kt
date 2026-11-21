@@ -287,6 +287,7 @@ internal fun CreateRideScreen(
     onBack: () -> Unit, onPublish: (Ride) -> Unit, prefill: RideCreatePrefill = RideCreatePrefill(),
     onPublicationResolved: () -> Unit = {},
     onOpenReturnTemplate: ((com.yuldash.app.data.RideReturnTemplate) -> Unit)? = null,
+    onSeriesPublished: (() -> Unit)? = null,
 ) {
     // rememberSaveable, а не remember: Android выгружает приложение из памяти, пока человек
     // отвечает на звонок или смотрит карту в другом приложении. Экран после этого
@@ -319,6 +320,7 @@ internal fun CreateRideScreen(
     var noMinors by rememberSaveable { mutableStateOf(template?.noMinors ?: false) }
     var waypoints by rememberSaveable { mutableStateOf(template?.waypoints.orEmpty()) }
     var recurrence by rememberSaveable { mutableStateOf("none") }
+    var seriesDates by rememberSaveable { mutableStateOf(arrayListOf<String>()) }
     var category by rememberSaveable { mutableStateOf(template?.category ?: "regular") }
     var partnerId by rememberSaveable { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
     var partners by remember { mutableStateOf<List<com.yuldash.app.data.MedicalPartnerDto>>(emptyList()) }
@@ -353,7 +355,7 @@ internal fun CreateRideScreen(
         .put("pets_allowed", petsAllowed).put("child_seat", childSeat).put("women_only", womenOnly)
         .put("smoking", smoking).put("baggage", baggage).put("air_conditioner", airConditioner).put("quiet", quiet)
         .put("no_minors", noMinors).put("back_max_two", backMaxTwo).put("front_seat_available", frontSeatAvailable)
-        .put("waypoints", JSONArray(waypoints)).put("recurrence", recurrence)
+        .put("waypoints", JSONArray(waypoints)).put("recurrence", if (recurrence == "series") "none" else recurrence)
         .put("pickup", pickup.trim()).put("pickup_lat", pickupLat ?: JSONObject.NULL)
         .put("pickup_lng", pickupLng ?: JSONObject.NULL).put("only_trusted", onlyTrusted)
         .put("pickup_point_id", pickupPointId ?: JSONObject.NULL)
@@ -363,11 +365,24 @@ internal fun CreateRideScreen(
         .put("stop_prices", JSONArray(if (stopPricesStore.enabled) stopPricesStore.values else emptyList<String>()))
 
     var publishedRide by remember { mutableStateOf<Ride?>(null) }
+    val series = if (onSeriesPublished != null) {
+        rememberRideSeries(::publicationBody, seriesDates, stopPricesStore.errorText, onPublicationResolved, onSeriesPublished)
+    } else null
+    val seriesMode = recurrence == "series" && series != null
+    val hasSeries = series?.slot != null
+    val seriesLabel = if (seriesDates.isEmpty()) "" else appText(
+        "Выбрано дат: ${seriesDates.size}", "Һайланған көндәр: ${seriesDates.size}",
+    )
     val publication = rememberRidePublication(::publicationBody, stopPricesStore.errorText, if (isBa) "ba" else "ru", onPublicationResolved) {
         if (onOpenReturnTemplate == null) onPublish(it) else publishedRide = it
     }
-    val notice: (@Composable () -> Unit)? = if (template == null) publication.notice else {
-        { publication.notice?.invoke(); RideReturnTemplateNotice(template) }
+    val notice: (@Composable () -> Unit)? = if (!hasSeries && series?.ready != false &&
+        publication.notice == null && template == null) null else {
+        {
+            if (series != null) RideSeriesResults(series)
+            if (!hasSeries) publication.notice?.invoke()
+            if (template != null) RideReturnTemplateNotice(template)
+        }
     }
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
@@ -376,8 +391,8 @@ internal fun CreateRideScreen(
         topBar = { ScreenTopBar(appText("Создать поездку", "Сәфәр булдырыу"), onBack) }
     ) { padding ->
         CreateRideFormContent(
-            from = from, to = to, dateText = dateTime, seats = seats, price = price, comment = comment,
-            typeKey = category, recurrence = recurrence,
+            from = from, to = to, dateText = if (seriesMode) seriesLabel else dateTime, seats = seats, price = price, comment = comment,
+            typeKey = category, recurrence = recurrence, seriesOption = series != null,
             receiverName = receiverName, parcelSize = parcelSize,
             pickup = pickup, pinned = pickupLat != null,
             womenOnly = womenOnly, childSeat = childSeat, petsAllowed = petsAllowed,
@@ -387,12 +402,15 @@ internal fun CreateRideScreen(
             onFrontSeatAvailable = { frontSeatAvailable = it; seats = clampSeatsText(seats, backMaxTwo, it) },
             priceHint = priceHint,
             fuelDistanceKm = priceHintDto?.distanceKm, fuelEstimateKop = priceHintDto?.fuelEstimateKop,
-            loading = publication.busy, error = publication.error,
+            loading = publication.busy || series?.busy == true, error = series?.error ?: publication.error,
             onFromChange = { from = it }, onToChange = { to = it },
             onSeatsChange = { seats = clampSeatsText(it.filter(Char::isDigit), backMaxTwo, frontSeatAvailable) },
             onPriceChange = { price = it.filter(Char::isDigit) },
             onCommentChange = { comment = it },
-            onSelectType = { category = it }, onSelectRecurrence = { recurrence = it },
+            onSelectType = { category = it }, onSelectRecurrence = {
+                recurrence = it
+                if (it == "series" && seriesDates.isEmpty()) showDeparturePicker = true
+            },
             partners = partners, selectedPartnerId = partnerId, onSelectPartner = { partnerId = it },
             onReceiverNameChange = { receiverName = it }, onParcelSizeChange = { parcelSize = it },
             onPickupChange = { pickup = it; pickupPointId = null }, onOpenPicker = { showPicker = true },
@@ -402,9 +420,10 @@ internal fun CreateRideScreen(
             onPetsAllowed = { petsAllowed = it }, onBaggage = { baggage = it },
             onAirConditioner = { airConditioner = it }, onSmoking = { smoking = it },
             onOnlyTrusted = { onlyTrusted = it }, onQuiet = { quiet = it }, onNoMinors = { noMinors = it }, onWaypointsChange = { waypoints = it },
-            onPublish = publication.publish,
-            publishLabel = publication.label,
-            publicationEnabled = publication.ready,
+            onPublish = if (seriesMode) checkNotNull(series).publish else publication.publish,
+            publishLabel = if (seriesMode) appText("Опубликовать серию", "Серияны баҫтырырға") else publication.label,
+            publicationEnabled = !hasSeries && (series == null || series.ready) && publication.ready &&
+                (!seriesMode || seriesDates.size >= 2),
             publicationNotice = notice,
             allowNegotiatedPrice = template?.price == 0,
             onCancel = onBack,
@@ -440,7 +459,19 @@ internal fun CreateRideScreen(
                 onDone = { publishedRide = null; onPublish(ride) },
             )
         }
-        if (showDeparturePicker) {
+        if (showDeparturePicker && seriesMode) {
+            RideDatesPicker(seriesDates.ifEmpty { listOfNotNull(dateTime.takeIf(String::isNotBlank)) }, minimum = 1,
+                onDismiss = { showDeparturePicker = false }, onConfirm = { picked ->
+                    if (picked.size == 1) {
+                        dateTime = picked.single()
+                        recurrence = "none"
+                        seriesDates = arrayListOf()
+                    } else {
+                        seriesDates = ArrayList(picked)
+                    }
+                    showDeparturePicker = false
+                })
+        } else if (showDeparturePicker) {
             RideDeparturePicker(
                 initialValue = dateTime,
                 suggestedDate = template?.suggestedDate,
@@ -539,12 +570,15 @@ internal fun CreateRideFormContent(
     publicationEnabled: Boolean = true,
     publicationNotice: (@Composable () -> Unit)? = null,
     allowNegotiatedPrice: Boolean = false,
+    seriesOption: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
     val isHospital = typeKey == "hospital"
-    val dateLabel = appText("Дата и время", "Дата һәм ваҡыт")
-    val datePlaceholder = appText("Выбери дату и время", "Дата һәм ваҡыт һайла")
+    val dateLabel = if (recurrence == "series") appText("Даты и время", "Көндәр һәм ваҡыт")
+        else appText("Дата и время", "Дата һәм ваҡыт")
+    val datePlaceholder = if (recurrence == "series") appText("Выбери несколько дат", "Бер нисә көн һайла")
+        else appText("Выбери дату и время", "Дата һәм ваҡыт һайла")
     val datePickerDescription = "$dateLabel: ${dateText.ifBlank { datePlaceholder }}"
     LazyColumn(
         modifier = modifier.padding(16.dp),
@@ -654,8 +688,9 @@ internal fun CreateRideFormContent(
                     "weekdays" to appText("По будням", "Эш көндәрендә"),
                     "daily" to appText("Каждый день", "Һәр көн"),
                     "weekly" to appText("Еженедельно", "Аҙна һайын"),
-                )
-                LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                ) + if (seriesOption) listOf("series" to appText("Несколько дат", "Бер нисә көн")) else emptyList()
+                LazyRow(modifier = Modifier.testTag("ride_recurrence_modes"),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     items(recOpts, key = { it.first }) { (key, label) ->
                         FilledTonalButton(
                             onClick = { onSelectRecurrence(key) },
@@ -667,7 +702,7 @@ internal fun CreateRideFormContent(
                         ) { Text(label, fontSize = 14.sp, maxLines = 1) }
                     }
                 }
-                if (recurrence != "none") Text(appText("Создадим ближайшие 4 рейса этой серии.", "Был серияның иң яҡын 4 рейсын булдырабыҙ."), color = CanonMuted, fontSize = 12.sp)
+                if (recurrence != "none" && recurrence != "series") Text(appText("Создадим ближайшие 4 рейса этой серии.", "Был серияның иң яҡын 4 рейсын булдырабыҙ."), color = CanonMuted, fontSize = 12.sp)
             }
         }
         item {

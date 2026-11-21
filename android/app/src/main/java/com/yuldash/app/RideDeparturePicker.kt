@@ -113,7 +113,7 @@ internal fun rideDepartureTime(hour: String, minute: String): LocalTime? {
 }
 
 @Composable
-private fun rideDepartureMonths(): List<String> = listOf(
+internal fun rideDepartureMonths(): List<String> = listOf(
     "Январь" to "Ғинуар", "Февраль" to "Февраль", "Март" to "Март",
     "Апрель" to "Апрель", "Май" to "Май", "Июнь" to "Июнь",
     "Июль" to "Июль", "Август" to "Август", "Сентябрь" to "Сентябрь",
@@ -277,7 +277,7 @@ private fun DepartureChoice(
 }
 
 @Composable
-private fun DepartureTimeField(
+internal fun DepartureTimeField(
     label: String, value: String, tag: String, invalid: Boolean,
     onChange: (String) -> Unit, modifier: Modifier = Modifier,
 ) {

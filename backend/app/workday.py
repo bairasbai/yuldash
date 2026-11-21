@@ -583,7 +583,8 @@ def record_heartbeat(session: Session, driver_id: int, now: Optional[datetime] =
 
 
 # ------------------------------ «один попутчик домой» ------------------------------
-def guard_publish_ride(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:
+def guard_publish_ride(session: Session, driver_id: int, now: Optional[datetime] = None, *,
+                       refusal_code: str | None = None) -> None:
     """POST /rides во время блока отдыха: первая публикация — «один попутчик домой»
     (пропускаем и помечаем return_ride_used; флаг закоммитит сам эндпоинт вместе с
     поездкой — не съедаем попытку, если публикация упала). Вторая → мягкий 403.
@@ -595,7 +596,7 @@ def guard_publish_ride(session: Session, driver_id: int, now: Optional[datetime]
         wd.return_ride_used = True
         session.add(wd)
         return
-    raise herr(403, *return_ride_message())
+    raise herr(403, *return_ride_message(), code=refusal_code)
 
 
 def guard_respond_request(session: Session, driver_id: int, now: Optional[datetime] = None) -> None:

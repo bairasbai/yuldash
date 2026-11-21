@@ -816,14 +816,17 @@ def guard_women_only_publish(session: Session, user) -> None:
     безопасности незнакомому человеку.
     """
     from .errors import herr
+    guard_women_only(user, msg=MSG_WOMEN_ONLY_DRIVER)      # пол: female / male / не указан
+    if not has_verified_female_driver_profile(session, user):
+        raise herr(403, MSG_WOMEN_ONLY_UNVERIFIED[0], MSG_WOMEN_ONLY_UNVERIFIED[1])
+
+
+def has_verified_female_driver_profile(session: Session, user) -> bool:
     from .models import DriverProfile
 
-    guard_women_only(user, msg=MSG_WOMEN_ONLY_DRIVER)      # пол: female / male / не указан
-    профиль = session.exec(
-        select(DriverProfile).where(DriverProfile.user_id == user.id)
-    ).first()
-    if not is_verified_female_driver(user, профиль):
-        raise herr(403, MSG_WOMEN_ONLY_UNVERIFIED[0], MSG_WOMEN_ONLY_UNVERIFIED[1])
+    profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == user.id)
+                           .execution_options(populate_existing=True)).first()
+    return is_verified_female_driver(user, profile)
 
 
 def guard_women_only(user, *, msg: tuple[str, str]) -> None:
