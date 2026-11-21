@@ -1,0 +1,13 @@
+........................................................................ [ 55%]
+..........................................................               [100%]
+=============================== warnings summary ===============================
+../../../../../tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/fastapi/testclient.py:1
+  /tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/fastapi/testclient.py:1: StarletteDeprecationWarning: Using `httpx` with `starlette.testclient` is deprecated; install `httpx2` instead.
+    from starlette.testclient import TestClient as TestClient  # noqa
+
+tests/test_parcel_chat.py: 61 warnings
+  /tmp/yuldash-audit-20261116-venv/lib/python3.12/site-packages/sqlalchemy/engine/default.py:964: DeprecationWarning: The default datetime adapter is deprecated as of Python 3.12; see the sqlite3 documentation for suggested replacement recipes
+    cursor.execute(statement, parameters)
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+130 passed, 62 warnings in 24.01s
