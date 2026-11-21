@@ -7,20 +7,26 @@ const source = readFileSync(new URL("../src/screens/InstantOrderScreen.tsx", imp
 const views = source.slice(source.indexOf("function ComposeView("), source.indexOf("function TrackingView("));
 assert.ok(views.includes("function PlacePicker("));
 const h = globalThis.__taxiOriginTest = {
-  bucket: null, estimates: [], orders: [], used: [], recent: [],
+  bucket: null, now: 1000, owner: {userId:17,generation:'A'}, estimates: [], orders: [], used: [], recent: [],
   places: [{id:1,label:"Дом",address:"Уфа, дом",kind:"home",lat:54.73,lng:55.95},
     {id:2,label:"Работа",address:"Уфа, работа",kind:"work",lat:54.75,lng:55.99}],
 };
 const prelude = `
 const h=globalThis.__taxiOriginTest;
+const Date=class extends globalThis.Date {static now(){return h.now}},performance={now:()=>h.now};
 const __jsx=(type,props,...children)=>({type,props:{...props,children}}), __fragment='fragment';
 const useState=initial=>{const b=h.bucket,i=b.si++;if(!(i in b.states))b.states[i]=typeof initial==='function'?initial():initial;return [b.states[i],v=>b.states[i]=typeof v==='function'?v(b.states[i]):v]};
 const useRef=initial=>{const b=h.bucket,i=b.ri++;return b.refs[i]??={current:initial}};
 const useEffect=fn=>h.bucket.effects.push(fn);
+const getAccountSession=()=>h.owner,isAccountSession=o=>o.userId===h.owner.userId&&o.generation===h.owner.generation;
+const taxiQuoteWindowMs=s=>s>0?s*1000:30000;
+const taxiQuoteMatches=(q,k,o)=>!!q&&q.input===k&&q.generation===o.generation&&q.userId===o.userId;
+const taxiQuoteFresh=(q,w,m)=>w-q.wall<q.validForMs&&m-q.monotonic<q.validForMs;
 const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru}), useNavigate=()=>()=>{};
 const rememberedPayMethod=()=>'cash',useRouteWeather=()=>null,track=()=>{};
 const PAY_METHODS_OPEN=[{code:'cash',shortRu:'Наличные',shortBa:'Наличный'}];
 class ApiError extends Error{};
+const kopExactLabel=p=>(p/100)+' ₽';
 const priceLabel=p=>p+' ₽',categoryLabel=cat=>cat,minDateTimeNow=()=>'',maxDateTimeInDays=()=>'',SCHEDULE_MAX_DAYS=7;
 const fetchNearbyDrivers=async()=>({drivers:[]});
 const instantEstimate=async body=>{h.estimates.push(body);return {price:300,eta_min:10,distance_km:5,options:[]}};
@@ -55,6 +61,9 @@ assert.ok(picker(tree,true),'При from=null доступен выбор под
 // Без назначения кнопки «Заказать» нет вовсе — как в Android (hasFooter = toPoint != null):
 // заказать нельзя ни так, ни так.
 assert.ok(!submit(tree)||submit(tree).props.disabled===true,'Без назначения заказать нельзя');
+const previousWindow=globalThis.window,previousDocument=globalThis.document;
+globalThis.window={setInterval:()=>1,clearInterval(){},addEventListener(){},removeEventListener(){}};
+globalThis.document={addEventListener(){},removeEventListener(){}};
 const previousNavigator=Object.getOwnPropertyDescriptor(globalThis,'navigator');
 Object.defineProperty(globalThis,'navigator',{configurable:true,value:{geolocation:{getCurrentPosition(ok,fail){fail({code:1})}}}});
 try {
@@ -93,6 +102,43 @@ try {
   const expected={from_lat:54.73,from_lng:55.95,to_lat:54.75,to_lng:55.99,from_text:'Дом',to_text:'Работа'};
   for(const [key,value]of Object.entries(expected)){assert.equal(h.orders[0][key],value);assert.equal(h.estimates.at(-1)[key],value)}
   assert.equal(ordered.id,81);assert.ok(h.used.includes(1)&&h.used.includes(2));
+  // Same production form, controlled hooks/API (not a mounted browser). A stale click
+  // must update only; even two same-tick handlers need another explicit confirmation.
+  const quoteForm=bucket();
+  let quoteTree=render(ComposeView,props(),quoteForm);
+  for(const fn of quoteForm.effects)fn();
+  await new Promise(setImmediate);
+  quoteTree=render(ComposeView,props(),quoteForm);
+  const beforeOrders=h.orders.length,beforeEstimates=h.estimates.length;
+  const oldFreshAction=submit(quoteTree).props.onClick;
+  h.now+=30000;
+  quoteTree=render(ComposeView,props(),quoteForm);
+  const staleAction=submit(quoteTree).props.onClick;
+  staleAction();staleAction();
+  await new Promise(setImmediate);
+  assert.equal(h.estimates.length,beforeEstimates+1,'Same-tick double tap refreshes once');
+  assert.equal(h.orders.length,beforeOrders,'Expired quote cannot create automatically');
+  quoteTree=render(ComposeView,props(),quoteForm);
+  const review=all(quoteTree).find(n=>n.type==='AlertDialog');
+  assert.ok(review,'Fresh amount requires a separate dialog action');
+  oldFreshAction();await new Promise(setImmediate);
+  assert.equal(h.orders.length,beforeOrders,'Old handler cannot authorize a replaced quote');
+  h.owner={userId:17,generation:'B'};
+  review.props.confirm.onClick();await new Promise(setImmediate);
+  assert.equal(h.orders.length,beforeOrders,'Old account cannot submit through its dialog');
+  h.owner={userId:17,generation:'A'};
+  review.props.confirm.onClick();review.props.confirm.onClick();
+  await new Promise(setImmediate);
+  assert.equal(h.orders.length,beforeOrders+1,'Separate confirmation creates only once');
+  // A route change invalidates a saved handler before effects have run.
+  const routeForm=bucket();let routeTree=render(ComposeView,props(),routeForm);
+  for(const fn of routeForm.effects)fn();await new Promise(setImmediate);
+  routeTree=render(ComposeView,props(),routeForm);const previousRouteAction=submit(routeTree).props.onClick;
+  const previousDestination=to;to={...to,lat:to.lat+0.001};
+  render(ComposeView,props(),routeForm);const ordersBeforeRoute=h.orders.length;
+  previousRouteAction();await new Promise(setImmediate);
+  assert.equal(h.orders.length,ordersBeforeRoute,'Changed render invalidates old route before effect');
+  to=previousDestination;
   // Проверка чувствительности: модель прежнего UI без редактируемого поля А.
   const baseline=views.replace(/<PlacePicker\s+origin[\s\S]*?\n        \/>/,'<div className="taxi-route__row">{from?.text}</div>');
   assert.notEqual(baseline,views);
@@ -101,5 +147,6 @@ try {
   console.log('✓ GPS отказ → ручная подача из сохранённых → отдельное назначение → изменение подачи сохраняет назначение → estimate/create с обеими точками → поиск машины; прежний UI не предоставляет выбор подачи');
 } finally {
   if(previousNavigator)Object.defineProperty(globalThis,'navigator',previousNavigator);else delete globalThis.navigator;
+  globalThis.window=previousWindow;globalThis.document=previousDocument;
   delete globalThis.__taxiOriginTest;
 }

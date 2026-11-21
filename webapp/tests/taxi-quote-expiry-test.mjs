@@ -1,0 +1,21 @@
+// Production freshness rules: request RTT, frozen background timers and owner/input binding.
+import assert from 'node:assert/strict';
+import { build } from 'esbuild';
+const result = await build({ entryPoints: [new URL('../src/utils/taxiQuote.ts', import.meta.url).pathname], bundle: true, write: false, platform: 'node', format: 'esm' });
+const { taxiQuoteFresh: fresh, taxiQuoteMatches: matches, taxiQuoteWindowMs: windowMs } = await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
+const owner={userId:17,generation:'A'};
+const stamp={...owner,input:'route-A',wall:1000,monotonic:100,validForMs:windowMs(120)};
+assert.equal(windowMs(120),120000);
+for(const ttl of [0,-1,undefined,NaN,Infinity])assert.equal(windowMs(ttl),30000,'No snapshot uses UI recency, not a price lock');
+assert.equal(matches(stamp,'route-A',owner),true);
+for(const [input,who] of [['route-B',owner],['route-A',null],['route-A',{...owner,userId:18}],['route-A',{...owner,generation:'B'}]])assert.equal(matches(stamp,input,who),false);
+assert.equal(matches(null,'route-A',owner),false);
+assert.equal(fresh(stamp,120999,120099),true);
+assert.equal(fresh(stamp,121000,120100),false,'Exact TTL boundary expires');
+assert.equal(fresh(stamp,122000,100),false,'Suspended monotonic timer: wall clock expires');
+assert.equal(fresh(stamp,1000,121100),false,'Monotonic expires even when wall clock stalls');
+assert.equal(fresh(stamp,999,200),false,'Wall rollback fails closed');
+assert.equal(fresh(stamp,2000,99),false,'Monotonic rollback fails closed');
+assert.equal(fresh(stamp,NaN,200),false);
+assert.equal(fresh(stamp,121001,120101),false,'Response arriving after TTL cannot authorize create');
+console.log('✓ quote TTL boundary / request-start RTT / background / rollback / owner / input / no-lock recency');

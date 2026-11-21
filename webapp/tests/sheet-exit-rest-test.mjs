@@ -204,7 +204,7 @@ const Driver = await load(
   autoStubs(
     "components/TaxiDriverTripActions.tsx",
     [
-      [/\/api\/client$/, `export class ApiError extends Error {}`],
+      [/\/api\/client$/, `export const getAccountSession=()=>null,isAccountSession=()=>false;export class ApiError extends Error {}`],
       [/\/api\/instant$/, `const call = (n) => (...a) => globalThis.__restExit.api(n, ...a); export const acceptDestination = call("accept"), ackPaymentMethod = call("ackPay"), ackDestination = call("ack"), declineDestination = call("decline"), toggleStop = call("stop");`],
       [/\/PayMethodPicker$/, `export const PAY_METHODS_OPEN = [{ code: "cash", ru: "Наличные", ba: "Наличный" }, { code: "sbp", ru: "СБП", ba: "СБП" }, { code: "negotiate", ru: "Договоримся", ba: "Килешәбеҙ" }];`],
     ],
@@ -216,7 +216,7 @@ const Driver = await load(
 
 const Taxi = await load(
   "src/screens/InstantOrderScreen.tsx",
-  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {}`]], SHEET_EXIT)
+  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export const getAccountSession=()=>null,isAccountSession=()=>false;export class ApiError extends Error {}`]], SHEET_EXIT)
 );
 
 // ---------------------------------------------------------------- 5. код вручения (посылки)
@@ -230,7 +230,7 @@ const Respond = await load(
   autoStubs(
     "screens/RequestsFeedScreen.tsx",
     [
-      [/\/api\/client$/, `export class ApiError extends Error { constructor(m) { super(m); } } export const getSessionGeneration=()=>"test-owner";`],
+      [/\/api\/client$/, `export const getAccountSession=()=>null,isAccountSession=()=>false;export class ApiError extends Error { constructor(m) { super(m); } } export const getSessionGeneration=()=>"test-owner";`],
       [/\/api\/requests$/, `export const fetchRequestsFeed = () => (globalThis.__restExit.feed ? Promise.resolve({items:globalThis.__restExit.feed,partial:false}) : new Promise(() => {})); export const respondToRequest = (...a) => globalThis.__restExit.api("respond", ...a);`],
       [/\/analytics$/, `export const track = (n) => globalThis.__restExit.calls.push(["track", n]);`],
       [/^react-router-dom$/, `export const useNavigate = () => () => {};`],

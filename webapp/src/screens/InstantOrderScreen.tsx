@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getAccountSession, isAccountSession } from "../api/client";
 import { useFeatures } from "../features";
 import {
   fetchTaxiAvailability,
@@ -59,6 +59,8 @@ import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, Ic
 import { YuMoon, YuWomenOnly } from "../components/BrandIcons";
 import { priceLabel, kopExactLabel } from "../utils/format";
 import { serverMs } from "../utils/serverTime";
+import { taxiQuoteFresh, taxiQuoteMatches, taxiQuoteWindowMs, type TaxiQuoteStamp } from "../utils/taxiQuote";
+import AlertDialog from "../components/AlertDialog";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
 import TaxiTripProgress from "../components/TaxiTripProgress";
@@ -421,52 +423,104 @@ function ComposeView({
     };
   }, [from?.lat, from?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Оценка, как только есть обе точки (и при смене класса).
+  const [quoteStamp, setQuoteStamp] = useState<TaxiQuoteStamp | null>(null);
+  const [quoteReview, setQuoteReview] = useState<string | null>(null);
+  const [, tickQuote] = useState(0);
+  const quoteRequest = useRef(0);
+  const ordering = useRef(false);
+  const composeAlive = useRef(false);
+  const owner = getAccountSession();
+  const ownerKey = owner ? `${owner.userId}:${owner.generation}` : "";
+  // Include every price input, in route order. Labels do not affect the price.
+  const quoteInput = JSON.stringify([from?.lat, from?.lng, to?.lat, to?.lng,
+    category, when, schedAt, options, stops.map((s) => [s.lat, s.lng]), roundTrip, returnWaitMin]);
+  const inputRef = useRef(quoteInput);
+  inputRef.current = quoteInput;
+
   useEffect(() => {
-    if (!from || !to) {
-      setEstimate(null);
-      return;
-    }
-    let alive = true;
+    composeAlive.current = true;
+    const tick = () => tickQuote((n) => n + 1);
+    const interval = window.setInterval(tick, 1000);
+    window.addEventListener("focus", tick);
+    document.addEventListener("visibilitychange", tick);
+    return () => {
+      composeAlive.current = false;
+      ++quoteRequest.current;
+      window.clearInterval(interval);
+      window.removeEventListener("focus", tick);
+      document.removeEventListener("visibilitychange", tick);
+    };
+  }, []);
+
+  async function refreshQuote(review: boolean) {
+    if (!from || !to || (when === "later" && !schedAt)) return;
+    const session = getAccountSession();
+    if (!session) return;
+    const request = ++quoteRequest.current;
+    const input = quoteInput;
+    const started = { wall: Date.now(), monotonic: performance.now() };
+    const current = () => composeAlive.current && request === quoteRequest.current
+      && input === inputRef.current && isAccountSession(session);
     setEstimating(true);
     setError(null);
-    instantEstimate({
-      from_lat: from.lat,
-      from_lng: from.lng,
-      to_lat: to.lat,
-      to_lng: to.lng,
-      from_text: from.text,
-      to_text: to.text,
-      category,
-      // Опции и остановки входят в цену: считать без них значит показать сумму,
-      // которой в заказе не будет.
-      ...(options.length ? { options } : {}),
-      ...(stops.length ? { waypoints: stops.map((s) => ({ lat: s.lat, lng: s.lng, text: s.text })) } : {}),
-      // Круговой рейс меняет цену: считать без него значит показать не ту сумму.
-      ...(roundTrip ? { round_trip: true, return_wait_min: returnWaitMin } : {}),
-      // Предзаказ считаем на время подачи, а не на сейчас: иначе человек запоминает
-      // дневное число, а машина утром приезжает по ночной ставке.
-      ...(when === "later" && schedAt
-        ? { scheduled_at: new Date(schedAt).toISOString() }
-        : {}),
-    })
-      .then((e) => alive && setEstimate(e))
-      .catch((e) => {
-        if (!alive) return;
-        setEstimate(null);
-        setError(
-          e instanceof ApiError && e.status === 404
-            ? appText("Оценка появится после обновления сервиса.", "Баһалау яңыртыуҙан һуң күренәсәк.")
-            : e instanceof ApiError && e.message
-              ? e.message
-              : appText("Не получилось оценить поездку.", "Сәфәрҙе баһаларға булманы.")
-        );
-      })
-      .finally(() => alive && setEstimating(false));
-    return () => {
-      alive = false;
-    };
-  }, [from?.lat, from?.lng, to?.lat, to?.lng, category, when, schedAt, options, stops, roundTrip, returnWaitMin]); // eslint-disable-line react-hooks/exhaustive-deps
+    try {
+      const e = await instantEstimate({
+        from_lat: from.lat,
+        from_lng: from.lng,
+        to_lat: to.lat,
+        to_lng: to.lng,
+        from_text: from.text,
+        to_text: to.text,
+        category,
+        // Опции и остановки входят в цену: считать без них значит показать сумму,
+        // которой в заказе не будет.
+        ...(options.length ? { options } : {}),
+        ...(stops.length ? { waypoints: stops.map((s) => ({ lat: s.lat, lng: s.lng, text: s.text })) } : {}),
+        // Круговой рейс меняет цену: считать без него значит показать не ту сумму.
+        ...(roundTrip ? { round_trip: true, return_wait_min: returnWaitMin } : {}),
+        // Предзаказ считаем на время подачи, а не на сейчас: иначе человек запоминает
+        // дневное число, а машина утром приезжает по ночной ставке.
+        ...(when === "later" && schedAt
+          ? { scheduled_at: new Date(schedAt).toISOString() }
+          : {}),
+      });
+      if (!current()) return;
+      if (!Number.isFinite(e.price) || e.price <= 0) throw new Error("Invalid estimate");
+      setEstimate(e);
+      setQuoteStamp({ input, ...session, ...started, validForMs: taxiQuoteWindowMs(e.price_locked_sec) });
+      if (review) setQuoteReview(input);
+    } catch (e) {
+      if (!current()) return;
+      setEstimate(null);
+      setQuoteStamp(null);
+      setQuoteReview(null);
+      setError(
+        e instanceof ApiError && e.status === 404
+          ? appText("Оценка появится после обновления сервиса.", "Баһалау яңыртыуҙан һуң күренәсәк.")
+          : e instanceof ApiError && e.message
+            ? e.message
+            : appText("Не получилось оценить поездку.", "Сәфәрҙе баһаларға булманы.")
+      );
+    } finally {
+      if (current()) setEstimating(false);
+    }
+  }
+
+  // A previous route/account/response cannot authorize creation on the new form.
+  useEffect(() => {
+    setQuoteReview(null);
+    setQuoteStamp(null);
+    setEstimate(null);
+    if (from && to) void refreshQuote(false);
+    else setEstimating(false);
+    return () => { ++quoteRequest.current; };
+  }, [quoteInput, ownerKey]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const stampRef = useRef(quoteStamp);
+  stampRef.current = quoteStamp;
+  const quoteMatches = taxiQuoteMatches(quoteStamp, quoteInput, owner);
+  const quoteFresh = quoteMatches && taxiQuoteFresh(quoteStamp, Date.now(), performance.now());
+  const reviewingQuote = quoteReview === quoteInput && quoteMatches;
 
   // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
   const weather = useRouteWeather({
@@ -482,8 +536,19 @@ function ComposeView({
     return opt ? opt.price : cat === category ? estimate?.price ?? null : null;
   }
 
-  async function order() {
-    if (!from || !to || busy) return;
+  async function order(reviewConfirmed = false) {
+    if (!from || !to || busy || estimating || ordering.current
+        || quoteInput !== inputRef.current || (reviewingQuote && !reviewConfirmed)) return;
+    const session = getAccountSession();
+    if (!session || !owner || !isAccountSession(owner) || quoteStamp !== stampRef.current) return;
+    ordering.current = true;
+    // Read clocks on the action too: background timers may have been suspended.
+    if (!taxiQuoteMatches(quoteStamp, quoteInput, session)
+        || !taxiQuoteFresh(quoteStamp, Date.now(), performance.now())) {
+      try { await refreshQuote(true); } finally { ordering.current = false; }
+      return; // Updating an estimate NEVER creates an order.
+    }
+    const current = () => composeAlive.current && quoteInput === inputRef.current && isAccountSession(session);
     setBusy(true);
     setError(null);
     // Начало заказа такси — без координат/адресов, только безопасный контекст.
@@ -521,24 +586,31 @@ function ComposeView({
         }
         // datetime-local → ISO с локальной таймзоной (бэк нормализует в UTC).
         await createScheduledOrder({ ...body, scheduled_at: new Date(schedAt).toISOString() });
+        if (!current()) return;
         track("instant_order_schedule", { category });
         onScheduled();
       } else {
         const o = await createInstantOrder(body);
+        if (!current()) return;
         track("instant_order_create", { category });
         onOrdered(o);
       }
     } catch (e) {
+      if (!current()) return;
+      setQuoteReview(null);
       setError(
         e instanceof ApiError && e.message
           ? e.message
           : appText("Не получилось создать заказ. Попробуй снова.", "Заказ булманы. Ҡабат ҡара.")
       );
-      setBusy(false);
+    } finally {
+      ordering.current = false;
+      if (composeAlive.current && isAccountSession(session)) setBusy(false);
     }
   }
 
-  const canOrder = !!from && !!to && !busy && (when === "now" || !!schedAt);
+  const canOrder = !!from && !!to && !!owner && !estimating
+    && !busy && !reviewingQuote && (when === "now" || !!schedAt);
 
   /* Как в Android: форма заказа живёт в шторке над картой (TaxiSheetScaffold, halfBodyFraction 0.32).
      Пока нет назначения — шторка развёрнута, после выбора — наполовину, карта важнее длинной формы. */
@@ -729,14 +801,12 @@ function ComposeView({
         </div>
       )}
 
-      {/* Пока человек думает, цена не вырастет. Молчаливая заморозка никого не успокаивает —
-          успокаивает только названная. 0 секунд = выключена, тогда молчим и не обещаем. */}
-      {to && when === "now" && (estimate?.price_locked_sec ?? 0) > 0 && (
-        <div className="taxi-pickup taxi-pickup--win">
-          {appText(
-            `Цена закреплена на ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} мин — пока думаешь, не вырастет`,
-            `Хаҡ ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} минутҡа беркетелгән — уйлағанда артмай`,
-          )}
+      {/* TTL limits UI recency; Redis loss can still change the fare during creation. */}
+      {to && estimate && quoteMatches && (
+        <div className="taxi-compose__note">
+          {quoteFresh
+            ? appText("Предварительная оценка. Сумма может уточниться при оформлении.", "Яҡынса баһа. Заказ биргәндә сумма үҙгәрергә мөмкин.")
+            : appText("Оценка устарела. Обнови её перед заказом.", "Баһа иҫкерҙе. Заказ бирер алдынан яңырт.")}
         </div>
       )}
 
@@ -1021,7 +1091,6 @@ function ComposeView({
         </div>
       )}
 
-      {error && <div className="auth__error">{error}</div>}
 
       {estimate && (
         <div className="taxi-estimate-hint">
@@ -1035,6 +1104,8 @@ function ComposeView({
         }
         footer={
           to ? (
+            <div>
+              {error && <div role="alert" className="auth__error">{error}</div>}
             <div className="taxi-order-footer">
               {/* Чип способа оплаты 54dp (InstantControlShape) + «Заказать» CanonGreen2/CanonOnFilled, как в Android. */}
               <button
@@ -1049,17 +1120,20 @@ function ComposeView({
               <button
                 type="button"
                 className="btn-primary submit-btn taxi-order-footer__cta"
-                onClick={order}
+                onClick={() => void order()}
                 disabled={!canOrder}
               >
                 {busy
                   ? appText("Отправляем…", "Ебәрәбеҙ…")
-                  : when === "later"
-                    ? appText("Заказать на время", "Ваҡытҡа заказ итеү")
-                    : estimate
-                      ? appText(`Заказать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — заказ итеү`)
-                      : appText("Заказать", "Заказ итеү")}
+                  : estimating
+                    ? appText("Считаем…", "Иҫәпләйбеҙ…")
+                    : !quoteFresh
+                      ? appText("Обновить оценку", "Баһаны яңыртыу")
+                      : when === "later"
+                        ? appText("Заказать на время", "Ваҡытҡа заказ итеү")
+                        : appText("Заказать поездку", "Сәфәргә заказ биреү")}
               </button>
+            </div>
             </div>
           ) : (
             <button type="button" className="btn-soft" onClick={() => navigate("/scheduled")}>
@@ -1068,6 +1142,19 @@ function ComposeView({
           )
         }
       />
+      {reviewingQuote && estimate && (
+        <AlertDialog
+          title={appText("Оценка обновлена", "Баһа яңыртылды")}
+          // Legacy estimate.price is RUB; convert explicitly for the exact KOP formatter.
+          text={appText(
+            `Примерно ${kopExactLabel(Math.round(estimate.price * 100))}. Сумма может уточниться при оформлении. Заказать поездку?`,
+            `Яҡынса ${kopExactLabel(Math.round(estimate.price * 100))}. Заказ биргәндә сумма үҙгәрергә мөмкин. Сәфәргә заказ бирергәме?`,
+          )}
+          confirm={{ label: when === "later" ? appText("Заказать на время", "Ваҡытҡа заказ") : appText("Заказать поездку", "Сәфәргә заказ биреү"), onClick: () => void order(true), disabled: estimating || busy }}
+          dismiss={{ label: appText("Вернуться", "Кире ҡайтыу"), onClick: () => setQuoteReview(null), disabled: busy || estimating }}
+          onClose={() => { if (!busy && !estimating) setQuoteReview(null); }}
+        />
+      )}
     </>
   );
 }
