@@ -34,6 +34,7 @@ class SyntheticBank:
         self.by_key = {}
         self.lose_deal_response = False
         self.lose_payment_response = False
+        self.lose_settlement_response = set()
         self.on_first_deal = None
 
     def handle(self, request):
@@ -56,10 +57,17 @@ class SyntheticBank:
         if resource == "deals":
             result.update(status="opened", type="safe_deal", fee_moment="deal_closed",
                           balance={"currency": "RUB", "value": "0"}, payout_balance={"currency": "RUB", "value": "0"})
-        else:
-            assert resource == "payments"
+        elif resource == "payments":
             result.update(status="pending", paid=False, amount=body["amount"], deal=body["deal"],
                           confirmation={"type": "redirect", "confirmation_url": "https://yoomoney.ru/checkout/synthetic"})
+        elif resource == "payouts":
+            result.update(status="pending", amount=body["amount"], deal=body["deal"])
+        else:
+            assert resource == "refunds"
+            payment = self.objects[body["payment_id"]]
+            reductions = body.get("deal", {}).get("refund_settlements", payment["deal"]["settlements"])
+            result.update(status="pending", amount=body["amount"], payment_id=payment["id"],
+                          deal={"id": payment["deal"]["id"], "refund_settlements": reductions})
         self.by_key[key] = provider_id
         self.objects[provider_id] = result
         if resource == "deals" and self.on_first_deal is not None:
@@ -70,6 +78,9 @@ class SyntheticBank:
         if resource == "payments" and self.lose_payment_response:
             self.lose_payment_response = False
             raise httpx.ReadTimeout("Synthetic response lost")
+        if resource in self.lose_settlement_response:
+            self.lose_settlement_response.remove(resource)
+            raise httpx.ReadTimeout("Synthetic settlement response lost")
         return httpx.Response(200, json=result)
 
     def finish_payment(self):

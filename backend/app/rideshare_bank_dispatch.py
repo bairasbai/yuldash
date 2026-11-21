@@ -20,7 +20,7 @@ from .rideshare_bank_booking import (
     checked_bank_booking,
     lock_booking_participants,
 )
-from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankCheckout, RideshareBankOperation
+from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankApproval, RideshareBankCheckout, RideshareBankOperation
 from .rideshare_bank_provider import (
     BankObservation,
     BankOutcomeUnknown,
@@ -34,6 +34,7 @@ from .rideshare_bank_provider import (
     prepare_refund,
 )
 from .rideshare_bank_recipient import BankRecipientUnavailable, bank_recipient_token
+from .rideshare_bank_settlement import lock_bank_settlement
 from .timeutil import utcnow
 
 
@@ -115,6 +116,32 @@ def _prepare_request(session: Session, runtime: BankRuntime, checkout: Rideshare
     return request
 
 
+def _send_window(operation: RideshareBankOperation) -> tuple[datetime, datetime] | None:
+    if operation.provider_id is not None or operation.state not in BANK_ACTIVE_STATES:
+        return None
+    now = utcnow()
+    if operation.lease_until is not None and operation.lease_until > now:
+        return None
+    cutoff = (operation.dispatched_at or now) + _PROVIDER_KEY_LIFETIME - _LEASE
+    if now >= cutoff:
+        operation.state = "needs_reconciliation"
+        return None
+    return now, min(now + _LEASE, cutoff)
+
+
+def _admit_request(session: Session, runtime: BankRuntime, checkout: RideshareBankCheckout,
+                   operation: RideshareBankOperation, window: tuple[datetime, datetime],
+                   payout_token: str | None = None) -> BankDispatch:
+    now, send_before = window
+    request = _prepare_request(session, runtime, checkout, operation, payout_token)
+    operation.dispatched_at = operation.dispatched_at or now
+    operation.state = "dispatched"
+    operation.lease_token = uuid4().hex
+    operation.lease_until = now + _LEASE
+    session.flush()
+    return BankDispatch(checkout.id, operation.id, operation.lease_token, send_before, request)
+
+
 def claim_bank_dispatch(session: Session, checkout_id: int, *, runtime: BankRuntime) -> BankDispatch | None:
     """Admit at most one POST. The lease is usable only after the caller commits."""
     runtime.check_environment()
@@ -131,33 +158,43 @@ def claim_bank_dispatch(session: Session, checkout_id: int, *, runtime: BankRunt
     if revisions != BankSwitchRevision(checkout.paid_revision, checkout.card_revision):
         raise BankCheckoutUnavailable("bank_confirmation_required")
     operation = _next_operation(session, checkout)
-    if operation is None or operation.provider_id is not None:
+    if operation is None or operation.resource not in (BankResource.deal.value, BankResource.payment.value):
         return None
-    now = utcnow()
-    if operation.lease_until is not None and operation.lease_until > now:
+    window = _send_window(operation)
+    if window is None:
         return None
-    cutoff = (operation.dispatched_at or now) + _PROVIDER_KEY_LIFETIME - _LEASE
-    if now >= cutoff:
-        operation.state = "needs_reconciliation"
-        return None
+    terms = check_bank_charge(session, booking, driver, checkout.recipient_version, runtime)
+    if terms.amount_kop != checkout.amount_kop or terms.driver_consent_at != checkout.driver_consent_at:
+        raise BankCheckoutUnavailable("bank_checkout_changed")
+    return _admit_request(session, runtime, checkout, operation, window)
 
-    token = None
-    if operation.resource in (BankResource.deal.value, BankResource.payment.value):
-        terms = check_bank_charge(session, booking, driver, checkout.recipient_version, runtime)
-        if terms.amount_kop != checkout.amount_kop or terms.driver_consent_at != checkout.driver_consent_at:
-            raise BankCheckoutUnavailable("bank_checkout_changed")
-    elif operation.resource == BankResource.payout.value:
-        if checkout.receipt_conflict or booking.payment_method != CARD_RECEIPT_METHOD or not booking.paid:
-            raise BankCheckoutUnavailable("bank_payment_unavailable")
-        token = _payout_token(session, driver.id, checkout, runtime)
 
-    request = _prepare_request(session, runtime, checkout, operation, token)
-    operation.dispatched_at = operation.dispatched_at or now
-    operation.state = "dispatched"
-    operation.lease_token = uuid4().hex
-    operation.lease_until = now + _LEASE
-    session.flush()
-    return BankDispatch(checkout.id, operation.id, operation.lease_token, min(operation.lease_until, cutoff), request)
+def _claim_bank_settlement(session: Session, checkout_id: int, operation_id: str, *,
+                           runtime: BankRuntime) -> BankDispatch | None:
+    operation = session.get(RideshareBankOperation, operation_id)
+    approval = session.get(RideshareBankApproval, operation_id)
+    if (operation is None or operation.checkout_id != checkout_id or
+            operation.resource not in (BankResource.refund.value, BankResource.payout.value) or
+            approval is None or approval.approved_by is None):
+        return None
+    owner_id, resource = approval.approved_by, BankResource(operation.resource)
+    context = lock_bank_settlement(session, checkout_id, resource, owner_id, runtime=runtime)
+    operation = session.get(RideshareBankOperation, operation_id, with_for_update=True, populate_existing=True)
+    approval = session.get(RideshareBankApproval, operation_id, with_for_update=True, populate_existing=True)
+    if (operation is None or operation.checkout_id != checkout_id or operation.resource != resource.value
+            or approval is None or approval.approved_by != owner_id):
+        return None
+    window = _send_window(operation)
+    if window is None:
+        return None
+    payout_token = None
+    if resource == BankResource.payout:
+        if context.payout_revisions() != BankSwitchRevision(approval.paid_revision, approval.card_revision):
+            raise BankCheckoutUnavailable("bank_confirmation_required")
+        if operation.dispatched_at is None:
+            payout_token = _payout_token(session, context.driver.id, context.checkout, runtime)
+    return _admit_request(session, runtime, context.checkout, operation, window, payout_token)
+
 
 
 def _apply_bank_result(session: Session, checkout_id: int, operation_id: str, runtime: BankRuntime,
@@ -202,10 +239,13 @@ def _check_provider(runtime: BankRuntime, provider: YooKassaSafeDeal) -> None:
 
 
 def dispatch_bank_operation(engine: Engine, checkout_id: int, *, runtime: BankRuntime,
-                            provider: YooKassaSafeDeal) -> str | None:
+                            provider: YooKassaSafeDeal, settlement_operation_id: str | None = None) -> str | None:
     _check_provider(runtime, provider)
     with Session(engine) as session:
-        claim = claim_bank_dispatch(session, checkout_id, runtime=runtime)
+        if settlement_operation_id is None:
+            claim = claim_bank_dispatch(session, checkout_id, runtime=runtime)
+        else:
+            claim = _claim_bank_settlement(session, checkout_id, settlement_operation_id, runtime=runtime)
         session.commit()
     if claim is None:
         return None

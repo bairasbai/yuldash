@@ -185,7 +185,7 @@ def test_bank_accounting_upgrade_requires_empty_history_for_downgrade(tmp_path, 
         names = ("ridesharebankposting", "ridesharebankoperation", "ridesharebankcheckout")
         # The initial migration can create current metadata. Restore the previous shape.
         with db.begin() as connection:
-            for table in names:
+            for table in ("ridesharebankapproval", *names):
                 if inspect(connection).has_table(table):
                     connection.execute(text(f"DROP TABLE {table}"))
         command.upgrade(config, target)

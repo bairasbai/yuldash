@@ -79,6 +79,17 @@ class RideshareBankOperation(SQLModel, table=True):
     lease_until: datetime | None = None
 
 
+class RideshareBankApproval(SQLModel, table=True):
+    __table_args__ = (UniqueConstraint("command_id", name="uq_rideshare_bank_owner_command"),)
+
+    operation_id: str = Field(primary_key=True, foreign_key="ridesharebankoperation.id", max_length=32)
+    command_id: str = Field(max_length=32)
+    approved_by: int | None = Field(default=None, foreign_key="user.id", ondelete="SET NULL")
+    approved_at: datetime = Field(default_factory=utcnow)
+    paid_revision: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+    card_revision: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
+
+
 class RideshareBankPosting(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("amount_kop > 0 AND settlement_kop > 0 AND settlement_kop <= amount_kop",
