@@ -2,10 +2,13 @@
 
 from concurrent.futures import ThreadPoolExecutor
 from configparser import ConfigParser
+from dataclasses import replace
 from datetime import timedelta
+from functools import partial
 from pathlib import Path
 from threading import Event
 from types import SimpleNamespace
+from uuid import uuid4
 
 import httpx
 import pytest
@@ -26,6 +29,14 @@ from test_rideshare_bank_dispatch import send
 from test_rideshare_bank_receipt import include_synthetic_receipt as include_synthetic_receipt
 
 
+@pytest.fixture
+def worker_checkout(bank_checkout):
+    service = bank_checkout
+    service.runtime = replace(service.runtime, provider_account_id=uuid4().hex)
+    service.begin = partial(service.begin, selected_runtime=service.runtime)
+    return service
+
+
 def _run(service, provider=None):
     return queue.run_bank_reconciliation(engine, runtime=service.runtime, provider=provider or service.provider)
 
@@ -37,9 +48,9 @@ def _pending_payment(service):
     return checkout_id, service.fake.requests[-1][2]
 
 
-def test_reconciliation_updates_the_receipt_on_pause_without_starting_work(client, bank_checkout,
+def test_reconciliation_updates_the_receipt_on_pause_without_starting_work(client, worker_checkout,
                                                                         include_synthetic_receipt):
-    service = bank_checkout
+    service = worker_checkout
     include_synthetic_receipt(service)
     checkout_id = service.begin()
     assert _run(service) == []
@@ -59,8 +70,8 @@ def test_reconciliation_updates_the_receipt_on_pause_without_starting_work(clien
 
 
 @pytest.mark.parametrize("detached", [False, True])
-def test_existing_operation_reconciles_after_detachment_or_direct_payment(bank_checkout, detached):
-    service = bank_checkout
+def test_existing_operation_reconciles_after_detachment_or_direct_payment(worker_checkout, detached):
+    service = worker_checkout
     checkout_id, payment_id = _pending_payment(service)
     with Session(engine) as db:
         checkout = db.get(RideshareBankCheckout, checkout_id)
@@ -82,8 +93,8 @@ def test_existing_operation_reconciles_after_detachment_or_direct_payment(bank_c
             assert db.get(Booking, service.booking_id).payment_method == "cash"
 
 
-def test_read_lease_prevents_a_competing_tick_after_the_poll_interval(bank_checkout, monkeypatch):
-    service = bank_checkout
+def test_read_lease_prevents_a_competing_tick_after_the_poll_interval(worker_checkout, monkeypatch):
+    service = worker_checkout
     checkout_id, payment_id = _pending_payment(service)
     service.fake.finish_payment(payment_id)
     clock = [utcnow()]
@@ -110,8 +121,8 @@ def test_read_lease_prevents_a_competing_tick_after_the_poll_interval(bank_check
     assert [call[0] for call in service.fake.requests] == ["POST", "POST", "GET"]
 
 
-def test_expired_read_claim_can_be_taken_over_and_late_finish_does_not_shorten_it(bank_checkout, monkeypatch):
-    service = bank_checkout
+def test_expired_read_claim_can_be_taken_over_and_late_finish_does_not_shorten_it(worker_checkout, monkeypatch):
+    service = worker_checkout
     checkout_id, payment_id = _pending_payment(service)
     clock = [utcnow()]
     monkeypatch.setattr(queue, "utcnow", lambda: clock[0])
@@ -130,8 +141,8 @@ def test_expired_read_claim_can_be_taken_over_and_late_finish_does_not_shorten_i
     assert [call[0] for call in service.fake.requests] == ["POST", "POST", "GET"]
 
 
-def test_worker_never_replaces_the_claimed_operation_with_a_new_one(bank_checkout, monkeypatch):
-    service = bank_checkout
+def test_worker_never_replaces_the_claimed_operation_with_a_new_one(worker_checkout, monkeypatch):
+    service = worker_checkout
     checkout_id, payment_id = _pending_payment(service)
     claim = queue._claim_bank_read
 
@@ -159,8 +170,8 @@ def test_worker_never_replaces_the_claimed_operation_with_a_new_one(bank_checkou
 
 
 @pytest.mark.parametrize("outcome", ["empty", "incomplete", "ambiguous", "404", "timeout"])
-def test_unconfirmed_read_never_sends_or_restarts_an_operation(bank_checkout, outcome):
-    service = bank_checkout
+def test_unconfirmed_read_never_sends_or_restarts_an_operation(worker_checkout, outcome):
+    service = worker_checkout
     checkout_id = service.begin()
     service.fake.lose_deal_response = True
     assert send(service, checkout_id) == "needs_reconciliation"
@@ -191,8 +202,8 @@ def test_unconfirmed_read_never_sends_or_restarts_an_operation(bank_checkout, ou
         assert operation.provider_id is None and operation.state == "needs_reconciliation"
 
 
-def test_read_pass_does_not_claim_a_different_configured_account(bank_checkout):
-    service = bank_checkout
+def test_read_pass_does_not_claim_a_different_configured_account(worker_checkout):
+    service = worker_checkout
     checkout_id, _ = _pending_payment(service)
     with Session(engine) as db:
         db.get(RideshareBankCheckout, checkout_id).provider_account_id = "other-synthetic-account"

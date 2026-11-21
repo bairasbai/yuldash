@@ -11899,8 +11899,8 @@
       "path": "backend/tests/test_rideshare_bank_worker.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "a79acc9cf08770322419e8266f0f2cdbe38197b0acd2083c324bdb849977b5c9",
-      "lines": 252
+      "sha256": "bf574f51b8ddad81d0f169d5d77061b362082d780af517fdb00508318f79467f",
+      "lines": 263
     },
     {
       "path": "backend/tests/test_rideshare_card_switch.py",
