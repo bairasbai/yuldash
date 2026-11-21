@@ -3254,8 +3254,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CallbackRequestJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "8a8dafdefc79bedd83acb3fcfb57b9cc0cb8cdce8bfaaa2c46fadb2fd6d6bbf7",
-      "lines": 307
+      "sha256": "ce6b60ab3d51655cb08389d2c4ce41a902c6274223e6b0114433fa7f1001845c",
+      "lines": 309
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CancelledInTransitTest.kt",
