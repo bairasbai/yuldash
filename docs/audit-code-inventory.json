@@ -79,23 +79,23 @@
   },
   "counts_by_kind": {
     "android_main": 257,
-    "backend_main": 140,
-    "infra_resource_config": 442,
+    "backend_main": 142,
+    "infra_resource_config": 443,
     "public_site_promo": 91,
     "pwa_main": 372,
-    "test_support": 1369
+    "test_support": 1372
   },
   "counts_by_block": {
     "B01": 178,
     "B02": 423,
     "B03": 123,
     "B04": 82,
-    "B05": 62,
+    "B05": 67,
     "B06": 106,
     "B07": 150,
     "B08": 222,
     "B09": 791,
-    "B10": 442,
+    "B10": 443,
     "B11": 92
   },
   "excluded_counts": {
@@ -6905,6 +6905,13 @@
       "lines": 91
     },
     {
+      "path": "backend/alembic/versions/db_chat_message_receipt.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "7bdd52c7da3f6ce9d7dd2f52ed5498143c4ffc317c5e04bdd876cdd0cbb03e79",
+      "lines": 28
+    },
+    {
       "path": "backend/alembic/versions/f10_payment_agreement.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7391,8 +7398,8 @@
       "path": "backend/app/account.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "313af59b3b2c2ad17e314e32d89f74514adadf15d6a9128ac9f6c4530eabd4b9",
-      "lines": 840
+      "sha256": "7926e9cff1233940ccb733b35d1e8f66e8252dbaa8edb5415341066b5b265f26",
+      "lines": 843
     },
     {
       "path": "backend/app/ads_expire.py",
@@ -7458,6 +7465,20 @@
       "lines": 931
     },
     {
+      "path": "backend/app/chat_receipt_models.py",
+      "kind": "backend_main",
+      "block": "B05",
+      "sha256": "8ad34746acfc43bc24b7935501dcf9ff3126bb7e9bb38bf7dc37cbf5bde98723",
+      "lines": 19
+    },
+    {
+      "path": "backend/app/chat_receipts.py",
+      "kind": "backend_main",
+      "block": "B05",
+      "sha256": "c8961da603acde3f2a471f6cffe52ce59eff73a9cbabae100c9a777e93d4e9b9",
+      "lines": 175
+    },
+    {
       "path": "backend/app/class_rollout.py",
       "kind": "backend_main",
       "block": "B09",
@@ -7468,8 +7489,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "a369db43b8b57c5df432e81ff8bf514a3f926b7c298e9cab436528bd3c6dc0d4",
-      "lines": 1082
+      "sha256": "4eeb4a5b9ee2f21f227de10df633c5e5af2391828be6b782854992609a6d27ab",
+      "lines": 1089
     },
     {
       "path": "backend/app/collusion.py",
@@ -7489,8 +7510,8 @@
       "path": "backend/app/config.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "68d1b1cb9aacc0137e3d38adc231625f0d69462c88bafe195790acfe4d48735f",
-      "lines": 1248
+      "sha256": "3bb9ca4d3ea54aa0029ba10bde3cc50d097784a3a88f88488776d6c496ffc89d",
+      "lines": 1262
     },
     {
       "path": "backend/app/data/city_districts.json",
@@ -7678,8 +7699,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "0c0bc9c41f4d0b1df6ef66960f202b68a79219fb1f64d1f3bd26bad8fd000af4",
-      "lines": 2296
+      "sha256": "0ae553544381dc35d35656726ed93ba906ec718af83e9ff9603c050df76b9e60",
+      "lines": 2297
     },
     {
       "path": "backend/app/observability.py",
@@ -7958,8 +7979,8 @@
       "path": "backend/app/routers/chat.py",
       "kind": "backend_main",
       "block": "B05",
-      "sha256": "775b9aae1b642ab73a47b9766258fbf8d2ca00cc73e4b09bc95aeeb085635ca0",
-      "lines": 958
+      "sha256": "36424a073a8fac0d2b5b7af74fd5e7ac9a37ad0ed77f119aad0076d5424de6c9",
+      "lines": 1192
     },
     {
       "path": "backend/app/routers/command_intents.py",
@@ -8161,8 +8182,8 @@
       "path": "backend/app/routers/safety.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "f238412f90eb7d11c3f2c93274e2c6f4b40da89479091d1199b6ef668c084335",
-      "lines": 1832
+      "sha256": "aff0539674a66b629ec6b3afeb27035c55d80af2a7a85b650237ecd86a36e4d8",
+      "lines": 1837
     },
     {
       "path": "backend/app/routers/seasonal.py",
@@ -8266,8 +8287,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "3937cfb01e1bbde64fd0af3e74211c249b1ea77b971f7032709b025a1f9ef3c7",
-      "lines": 2228
+      "sha256": "117592cdca02628edac8c3099f3be037ab061b4047cf4b09398326f5df8295b2",
+      "lines": 2238
     },
     {
       "path": "backend/app/sms_reconcile.py",
@@ -8987,8 +9008,8 @@
       "path": "backend/tests/test_account_deletion.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "c61a3ec18f79cffab7a13ba4080b8a99ced1139cbc65f3f81497fd8bb56aa09d",
-      "lines": 424
+      "sha256": "ddfc74358faed5c18b8de298d627b0f02f940b9846a3ddda3b144725694423fb",
+      "lines": 437
     },
     {
       "path": "backend/tests/test_account_deletion_bound_offer.py",
@@ -9605,6 +9626,20 @@
       "block": "B05",
       "sha256": "ddb17fa9a8224b1569f44f4b1c43440baecd784bf6e1c2566378053620fe3a67",
       "lines": 119
+    },
+    {
+      "path": "backend/tests/test_chat_receipts.py",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "563514abcf994c273ebcd378c27c88f3413070efca8180fe6032c14608bdcfa2",
+      "lines": 263
+    },
+    {
+      "path": "backend/tests/test_chat_receipts_postgres.py",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "b563bede50046d7e7f3854b81eeb4037520418412a2f9649823304df2b0126cb",
+      "lines": 123
     },
     {
       "path": "backend/tests/test_chat_ws_idempotency.py",
@@ -10718,6 +10753,13 @@
       "block": "B02",
       "sha256": "8672a07bb72f365d74985b10448efe55fbf0b975d4b75c7db3058572aa262a9c",
       "lines": 65
+    },
+    {
+      "path": "backend/tests/test_migration_chat_message_receipt.py",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "e3504140df748a770b5d465c32e7881748955a1c64b0afcc237be66a2c8f9273",
+      "lines": 117
     },
     {
       "path": "backend/tests/test_migration_command_receipt.py",

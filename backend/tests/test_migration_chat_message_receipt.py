@@ -1,4 +1,5 @@
 from datetime import datetime, timedelta, timezone
+import os
 
 import pytest
 from alembic import command
@@ -9,6 +10,7 @@ from sqlmodel import Session, create_engine, select
 from app import cleanup
 from app.chat_receipt_models import ChatMessageReceipt
 from app.config import Settings
+from app.db import engine
 from app.models import Booking, Message, Ride, User
 from app.timeutil import utcnow
 from test_migrations_match_the_models import _config
@@ -29,13 +31,21 @@ def test_receipts_are_disabled_without_a_start_and_normalize_explicit_offsets():
 
 
 def test_chat_receipt_migration_keeps_history_and_cascades_with_message(tmp_path, monkeypatch):
-    url = f"sqlite:///{(tmp_path / 'chat-receipt-migration.sqlite3').as_posix()}"
+    pg_database = os.environ.get("RS06_MIGRATION_TEST_DB")
+    if pg_database:
+        assert engine.dialect.name == "postgresql" and engine.url.host == "127.0.0.1"
+        assert pg_database == "rs06_receipts_migration" and pg_database != engine.url.database
+        url = engine.url.set(database=pg_database).render_as_string(hide_password=False)
+    else:
+        url = f"sqlite:///{(tmp_path / 'chat-receipt-migration.sqlite3').as_posix()}"
     monkeypatch.setenv("DATABASE_URL", url)
     database = create_engine(url, hide_parameters=True)
+    assert not inspect(database).get_table_names()
 
-    @event.listens_for(database, "connect")
-    def enforce_foreign_keys(connection, _):
-        connection.execute("PRAGMA foreign_keys=ON")
+    if database.dialect.name == "sqlite":
+        @event.listens_for(database, "connect")
+        def enforce_foreign_keys(connection, _):
+            connection.execute("PRAGMA foreign_keys=ON")
 
     cfg = _config(url)
     try:
@@ -83,17 +93,20 @@ def test_chat_receipt_migration_keeps_history_and_cascades_with_message(tmp_path
             session.commit()
 
         # A legacy development SQLite database could have foreign keys turned off.
-        with database.connect() as connection:
-            connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
-            connection.execute(ChatMessageReceipt.__table__.insert().values(
-                message_id=message_id + 1000, user_id=recipient_id, updated_at=utcnow(),
-            ))
-            connection.commit()
-            connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+        expected_orphans = 0
+        if database.dialect.name == "sqlite":
+            with database.connect() as connection:
+                connection.exec_driver_sql("PRAGMA foreign_keys=OFF")
+                connection.execute(ChatMessageReceipt.__table__.insert().values(
+                    message_id=message_id + 1000, user_id=recipient_id, updated_at=utcnow(),
+                ))
+                connection.commit()
+                connection.exec_driver_sql("PRAGMA foreign_keys=ON")
+            expected_orphans = 1
 
         monkeypatch.setattr(cleanup, "engine", database)
         rule = next(rule for rule in cleanup._rules(utcnow()) if rule[1] == "chatmessagereceipt")
-        assert cleanup._delete_batched(*rule[1:]) == 1
+        assert cleanup._delete_batched(*rule[1:]) == expected_orphans
         with Session(database) as session:
             remaining = session.get(ChatMessageReceipt, (message_id, recipient_id))
             assert remaining is not None and remaining.read

@@ -13,6 +13,7 @@ from typing import List, Literal, Optional
 
 from ..db import get_session
 from ..errors import herr
+from ..chat_receipts import lock_receipt_pair
 from ..config import settings
 from ..logs import admin_action, log
 from ..middleware import user_over_limit
@@ -1262,6 +1263,8 @@ def create_block(body: BlockIn, user: User = Depends(current_user), session: Ses
     # ещё не ездил. Ограничивать это нельзя: кнопка «Заблокировать» и есть его защита.
     if not session.get(User, body.blocked_user_id):
         raise herr(404, "Пользователь не найден", "Ҡулланыусы табылманы")
+    if settings.chat_receipts_since is not None:
+        lock_receipt_pair(session, user.id, body.blocked_user_id)
     existing = session.exec(
         select(Block).where(Block.user_id == user.id, Block.blocked_user_id == body.blocked_user_id)
     ).first()
@@ -1320,6 +1323,8 @@ def list_blocks(user: User = Depends(current_user), session: Session = Depends(g
 @router.delete("/blocks/{blocked_user_id}")
 def unblock(blocked_user_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Убрать пользователя из чёрного списка."""
+    if settings.chat_receipts_since is not None:
+        lock_receipt_pair(session, user.id, blocked_user_id)
     rows = session.exec(
         select(Block).where(Block.user_id == user.id, Block.blocked_user_id == blocked_user_id)
     ).all()
