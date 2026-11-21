@@ -315,7 +315,9 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         awaitUi { posts(w).count { it.path == "/bookings/${w.id}/rate" } == 1 &&
             compose.onAllNodes(text(w, "qa-parent-retry-${w.id}")).fetchSemanticsNodes().isNotEmpty() }
         scroll(w, hasText("Сказать «Рәхмәт»"))
-        node(w, "Сказать «Рәхмәт»").performClick()
+        val availableThanks = text(w, "Сказать «Рәхмәт»") and hasClickAction() and isEnabled()
+        awaitUi { compose.onAllNodes(availableThanks).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(availableThanks).performClick()
         awaitUi { posts(w).count { it.path == "/bookings/${w.id}/thanks" } == 1 &&
             compose.onAllNodes(tag(w, "rideshareThanksRetry")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(tag(w, "rideshareThanksRetry")).performClick()
