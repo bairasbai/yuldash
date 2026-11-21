@@ -9589,8 +9589,8 @@
       "path": "backend/tests/test_command_idempotency.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "3c007f3812bee9db84085ba013202b3243f3ed5f8c954dedd6e0d74d8cb64192",
-      "lines": 597
+      "sha256": "b75e2477206ea1888075f37e2897322b3d6e6d72eefd22615ec24b17696f3c1e",
+      "lines": 599
     },
     {
       "path": "backend/tests/test_commission_promise_matches_reality.py",
