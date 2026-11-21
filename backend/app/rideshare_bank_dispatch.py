@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from cryptography.fernet import InvalidToken
+from sqlalchemy import and_, or_
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
@@ -28,6 +29,7 @@ from .rideshare_bank_provider import (
     BankRequestRejected,
     BankResource,
     YooKassaSafeDeal,
+    bank_notification,
     prepare_deal,
     prepare_payment,
     prepare_payout,
@@ -41,6 +43,7 @@ from .timeutil import utcnow
 # Keep a full send lease in reserve before the provider's idempotency deadline.
 _LEASE = timedelta(seconds=60)
 _PROVIDER_KEY_LIFETIME = timedelta(hours=24)
+_BANK_CLOCK_MARGIN = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -206,7 +209,7 @@ def _apply_bank_result(session: Session, checkout_id: int, operation_id: str, ru
     booking_id = snapshot.booking_id
     booking = lock_booking_payment(session, booking_id) if booking_id is not None else None
     checkout = _lock_checkout(session, checkout_id)
-    if checkout.booking_id != (booking.id if booking is not None else None):
+    if checkout.booking_id != (booking.id if booking is not None else None) or checkout.test_mode != runtime.test_mode:
         raise BankCheckoutUnavailable("bank_checkout_changed")
     operation = session.get(RideshareBankOperation, operation_id, with_for_update=True, populate_existing=True)
     if (operation is None or operation.checkout_id != checkout.id or
@@ -268,17 +271,78 @@ def dispatch_bank_operation(engine: Engine, checkout_id: int, *, runtime: BankRu
 
 
 def reconcile_bank_operation(engine: Engine, checkout_id: int, operation_id: str, *,
-                             runtime: BankRuntime, provider: YooKassaSafeDeal) -> str | None:
+                             runtime: BankRuntime, provider: YooKassaSafeDeal,
+                             search_unknown: bool = False) -> str | None:
     """Read an already admitted object, including while the switches are paused."""
     _check_provider(runtime, provider)
     with Session(engine) as session:
         checkout = session.get(RideshareBankCheckout, checkout_id)
         operation = session.get(RideshareBankOperation, operation_id)
         if (checkout is None or checkout.test_mode != runtime.test_mode or
-                operation is None or operation.checkout_id != checkout_id or operation.provider_id is None):
+                operation is None or operation.checkout_id != checkout_id or operation.dispatched_at is None):
             return None
         resource, provider_id = BankResource(operation.resource), operation.provider_id
+        if provider_id is None:
+            if (not search_unknown or operation.state not in BANK_ACTIVE_STATES or
+                    operation.request_ciphertext is None):
+                return None
+            first_dispatch = operation.dispatched_at
+            payment_id = None
+            if resource == BankResource.refund:
+                payment_id = _successful_provider_id(session, checkout_id, BankResource.payment)
+                if payment_id is None:
+                    raise BankCheckoutUnavailable("bank_payment_unavailable")
+    if provider_id is None:
+        provider_id = provider.find_operation(
+            resource, operation_id, since=first_dispatch - _BANK_CLOCK_MARGIN,
+            until=min(utcnow(), first_dispatch + _PROVIDER_KEY_LIFETIME) + _BANK_CLOCK_MARGIN, payment_id=payment_id,
+        )
+        if provider_id is None:
+            return None
+    return _fetch_bank_result(engine, checkout_id, operation_id, resource, provider_id,
+                              runtime=runtime, provider=provider)
+
+
+def reconcile_bank_notification(engine: Engine, payload: object, *, runtime: BankRuntime,
+                                provider: YooKassaSafeDeal) -> str | None:
+    """Verify a notified object after the ingress has admitted the notification."""
+    _check_provider(runtime, provider)
+    hint = bank_notification(payload)
+    if hint is None:
+        return None
+    with Session(engine) as session:
+        candidate = RideshareBankOperation.provider_id == hint.provider_id
+        if hint.operation_id is not None:
+            candidate = or_(candidate, and_(
+                RideshareBankOperation.id == hint.operation_id,
+                RideshareBankOperation.provider_id.is_(None),
+                RideshareBankOperation.state.in_(BANK_ACTIVE_STATES),
+                RideshareBankOperation.request_ciphertext.is_not(None),
+            ))
+        matches = session.exec(
+            select(RideshareBankOperation.id, RideshareBankOperation.checkout_id)
+            .join(RideshareBankCheckout, RideshareBankCheckout.id == RideshareBankOperation.checkout_id)
+            .where(RideshareBankCheckout.test_mode == runtime.test_mode,
+                   RideshareBankOperation.resource == hint.resource.value,
+                   RideshareBankOperation.dispatched_at.is_not(None),
+                   RideshareBankOperation.state != "queued", candidate)
+            .limit(2),
+        ).all()
+        if len(matches) != 1:
+            return None
+        operation_id, checkout_id = matches[0]
+        if hint.operation_id is not None and operation_id != hint.operation_id:
+            return None
+    return _fetch_bank_result(engine, checkout_id, operation_id, hint.resource, hint.provider_id,
+                              runtime=runtime, provider=provider)
+
+
+def _fetch_bank_result(engine: Engine, checkout_id: int, operation_id: str,
+                       resource: BankResource, provider_id: str, *,
+                       runtime: BankRuntime, provider: YooKassaSafeDeal) -> str | None:
     observation = provider.fetch(resource, provider_id)
+    if resource == BankResource.deal and observation.status == "closed":
+        raise BankOutcomeUnknown("Closed bank deal requires reconciliation")
     with Session(engine) as session:
         state = _apply_bank_result(session, checkout_id, operation_id, runtime, observation)
         session.commit()
