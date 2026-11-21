@@ -1,3 +1,5 @@
+from datetime import datetime, timezone
+
 from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -1002,6 +1004,7 @@ class Settings(BaseSettings):
     # означает «никогда больше», хотя человеку нужно просто «поездка закончилась» (аудит
     # 2026-08-06). 48 часов — забытые вещи и расчёты находятся именно в этот срок.
     chat_after_trip_hours: int = 48
+    chat_receipts_since: datetime | None = None
     max_upload_mb: int = 10                        # лимит размера загрузки (фото/аудио)
     max_uploads_per_day: int = 60                  # лимит загрузок на юзера в сутки (анти disk-fill / спам)
     allowed_image_ext: str = "jpg,jpeg,png,webp"  # разрешённые расширения фото
@@ -1019,6 +1022,17 @@ class Settings(BaseSettings):
     s3_signed_url_ttl: int = 3600   # TTL подписанного (presigned) URL, сек (по умолч. 1 час)
 
     model_config = SettingsConfigDict(env_file=".env", extra="ignore")
+
+    @field_validator("chat_receipts_since", mode="before")
+    @classmethod
+    def _utc_receipt_start(cls, value: datetime | str | None) -> datetime | None:
+        if isinstance(value, str):
+            value = datetime.fromisoformat(value.strip()) if value.strip() else None
+        if value is None:
+            return None
+        if not isinstance(value, datetime) or value.utcoffset() is None:
+            raise ValueError("chat_receipts_since requires a time zone")
+        return value.astimezone(timezone.utc)
 
     @field_validator("payments_provider", mode="before")
     @classmethod

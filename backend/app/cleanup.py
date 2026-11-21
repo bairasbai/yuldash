@@ -147,7 +147,7 @@ KEEP_FOREVER = {
 # Но SQL строится f-строкой по имени таблицы, поэтому явно ограничиваем набор — страховка от
 # будущей правки, где в table случайно попадёт внешнее значение (см. review-plan 2026-07-03, P3).
 _ALLOWED_TABLES = frozenset({
-    "message", "otpcode", "tgauth", "otpbudgetbucket", "otpsendattempt", "otpbudgetalert",
+    "message", "chatmessagereceipt", "otpcode", "tgauth", "otpbudgetbucket", "otpsendattempt", "otpbudgetalert",
     "uploadevent", "refreshtoken", "adevent", "offerdecline",
     "drivercancel",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
@@ -173,6 +173,9 @@ def _rules(now):
     return [
         # --- Фаза 1: эфемерное (безопасно, основной объём) ---
         ("сообщения чата >30д", "message", "created_at < :c", {"c": cut(MSG_DAYS)}),
+        ("осиротевшие квитанции чата", "chatmessagereceipt",
+         'NOT EXISTS (SELECT 1 FROM message m WHERE m.id = chatmessagereceipt.message_id) '
+         'OR NOT EXISTS (SELECT 1 FROM "user" u WHERE u.id = chatmessagereceipt.user_id)', {}),
         ("коды входа (OTP) >1д", "otpcode", "created_at < :c", {"c": cut(OTP_DAYS)}),
         ("попытки отправки SMS >30д", "otpsendattempt", "created_at < :c", {"c": cut(SMS_ATTEMPT_DAYS)}),
         ("счётчики отправки SMS >2д после окна", "otpbudgetbucket",
@@ -344,7 +347,11 @@ def _delete_batched(table, where, params):
     # owner in the DELETE itself after the wait, even if its numeric id is unchanged.
     # Expired cooldowns and recipient attempts can also change before the delete.
     recheck = f" AND ({where})" if table in {"webpushsubscription", "otpbudgetbucket", "ridesharebankrecipientsetup"} else ""
-    keys = {"otpbudgetbucket": "scope, subject, window_start", "otpbudgetalert": "service_day, kind"}
+    keys = {
+        "otpbudgetbucket": "scope, subject, window_start",
+        "otpbudgetalert": "service_day, kind",
+        "chatmessagereceipt": "message_id, user_id",
+    }
     columns = keys.get(table, "id")
     locator = f"({columns})" if table in keys else columns
     sql = text(f"DELETE FROM {table} WHERE {locator} IN "
