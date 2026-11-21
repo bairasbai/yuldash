@@ -28,7 +28,10 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.Collections
 import java.util.IdentityHashMap
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -61,6 +64,8 @@ class RideshareCompletedBoundaryTest {
     @Volatile private var bankCheckoutEnabled = false
     @Volatile private var bankCommandAccepted = false
     @Volatile private var bankCommandKey: String? = null
+    private val staleBankRead = AtomicBoolean(false)
+    @Volatile private var oldBankReadArrived: CountDownLatch? = null
     private var contentMounted = false
 
     private fun awaitBackgroundCompletion() = runBlocking {
@@ -134,13 +139,18 @@ class RideshareCompletedBoundaryTest {
                             return MockResponse().setResponseCode(503).setBody("{}")
                         }
                         if (bankCommandKey != null && key == "GET /command-intents/$bankCommandKey") {
+                            if (bankCommandAccepted && oldBankReadArrived?.await(10, TimeUnit.SECONDS) == false) {
+                                fixtureFailures += "Display's prior status GET was not observed"
+                            }
                             return MockResponse().setBody(if (bankCommandAccepted)
                                 """{"state":"applied","scope":"booking.card_confirm","ref_id":42,"current":{"accepted":true}}"""
                             else """{"state":"unseen","scope":null}""")
                         }
                     }
                     if (request.method == "GET" && request.path in setOf("/bookings/42/card-payment", "/bookings/43/card-payment") && bearer == "Bearer $tokenA") {
-                        val status = if (bankStatusEnabled || bankCommandAccepted) "waiting_bank" else "unavailable"
+                        val stale = bankCommandAccepted && staleBankRead.compareAndSet(true, false)
+                        if (stale) oldBankReadArrived?.countDown()
+                        val status = if (bankStatusEnabled || (bankCommandAccepted && !stale)) "waiting_bank" else "unavailable"
                         return MockResponse().setHeader("Content-Type", "application/json")
                             .setBody("""{"currency":"RUB","payment_status":"$status","amount_kop":45000,"paid_kop":0,"refund_status":"not_started","refunded_kop":0,"refund_coverage":"none"}""")
                     }
@@ -320,6 +330,8 @@ class RideshareCompletedBoundaryTest {
         compose.runOnIdle { mounted.value = true }
         findWhenReady("Проверяем, принято ли подтверждение.")
         assertEquals(1, posts())
+        oldBankReadArrived = CountDownLatch(1)
+        staleBankRead.set(true)
         bankCommandAccepted = true
         findWhenReady("Проверить оплату").performClick()
         findWhenReady("Ждём подтверждения банка")

@@ -9,7 +9,7 @@ import {
   type BookingCommandOwner, type SavedCardConfirmation,
 } from "./bookingCommandStore";
 import { commandFingerprint } from "./commandFingerprint";
-import type { PaymentRead } from "./useRideshareCardPayment";
+import type { CardPaymentReader, PaymentRead } from "./useRideshareCardPayment";
 
 type CheckoutError = "read" | "storage" | "link" | "confirm" | null;
 type CheckoutView = {
@@ -42,7 +42,7 @@ export function useRideshareCardCheckout(
   bookingId: number | null,
   owner: BookingCommandOwner | null,
   canAct: () => boolean,
-  bank: PaymentRead & { refresh: () => void },
+  bank: CardPaymentReader,
 ) {
   const key = owner && bookingId !== null ? JSON.stringify([owner.namespace, owner.generation, bookingId]) : "";
   const input = useRef({ key, owner, bookingId, canAct, bank });
@@ -53,7 +53,7 @@ export function useRideshareCardCheckout(
 
   function current(session: Session) {
     const now = input.current;
-    return lifetime.current === session && !session.signal.aborted && now.key === session.key &&
+    return lifetime.current === session && !session.signal.aborted && key === session.key && now.key === session.key &&
       now.owner !== null && isCurrentBookingOwner(now.owner) && now.canAct();
   }
 
@@ -72,8 +72,9 @@ export function useRideshareCardCheckout(
     if (outcome === "applied") {
       const prior = JSON.parse(saved.wireBody).retry_after_payment_id;
       if (observed.payment_status === "unavailable" || observed.payment_status === "not_started" ||
-          (observed.payment_status === "canceled" && prior !== null && observed.payment_attempt_id === prior)) return saved;
+          (prior !== null && (observed.payment_attempt_id == null || observed.payment_attempt_id === prior))) return saved;
     }
+    if (!input.current.bank.acceptObserved(observed)) return saved;
     if (!await releaseCardConfirmation(actor, saved)) return readCardConfirmation(actor, saved.bookingId);
     return undefined;
   }

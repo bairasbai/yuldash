@@ -114,8 +114,9 @@ internal fun rememberRideshareCardCheckout(
         if (outcome == CardConfirmationOutcome.Applied) {
             val prior = saved.retryAfterPaymentId
             if (observed.payment == RideshareBankStatus.Unavailable || observed.payment == RideshareBankStatus.NotStarted ||
-                (observed.payment == RideshareBankStatus.Canceled && prior != null && observed.paymentAttemptId == prior)) return saved
+                (prior != null && (observed.paymentAttemptId == null || observed.paymentAttemptId == prior))) return saved
         }
+        if (!currentBank.acceptObserved(observed)) return saved
         return if (RideshareCardCheckoutApi.release(owner, saved).getOrThrow()) null
         else RideshareCardCheckoutApi.read(owner, saved.bookingId).getOrThrow()
     }

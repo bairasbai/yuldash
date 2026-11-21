@@ -1616,15 +1616,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCardCheckout.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "f19074d30efaa37e632df0dfb897d1a2b3e900536a633a9dee1d503fb19103ee",
-      "lines": 314
+      "sha256": "42d7e74e433df06bcfa6630a975e49db7001faa759a471232359993ab7e56b38",
+      "lines": 315
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCardPaymentSummary.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "16805a972ef8a5ffbb6ddb8f2a12daeab02282e4abef02985e5a2ee9643863af",
-      "lines": 136
+      "sha256": "09d72f97788cea449e5728bad1ad7f97a7de9885782b4fc9196e57f541226e65",
+      "lines": 151
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
@@ -4388,8 +4388,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "b2b3d1e307ad6b6afd945f7b67a27315f232f69f1232ff3ef807ff5db43ac2e0",
-      "lines": 390
+      "sha256": "931a43d6440eaff52717aef2fdd73c013994c226842475a439724d54a35b0cbf",
+      "lines": 402
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedGuardTest.kt",
@@ -17233,15 +17233,15 @@
       "path": "webapp/src/utils/useRideshareCardCheckout.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "55f34c6e77f8a34b0ce31d94cc6e7031d87cf959b5a26f04c7d7b143676ae641",
-      "lines": 219
+      "sha256": "673b80036b6d269eb3f331d8e1d91bf78b2e1f7efcf133d56eff2cbf03800870",
+      "lines": 220
     },
     {
       "path": "webapp/src/utils/useRideshareCardPayment.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "ca3b024871eb47e3684ba8c4cec165690b6338bf7be48489a1910b80bbfb818e",
-      "lines": 62
+      "sha256": "0de781606420e0b9897f3209bd8de1d69a16337a4e3711c6602dbdc9acc76172",
+      "lines": 76
     },
     {
       "path": "webapp/src/utils/useScrollMemory.ts",
@@ -18059,8 +18059,8 @@
       "path": "webapp/tests/receipt-owner-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "e43b4be802a9b6b9c522c1a3ddb7b7f3cf5e1078c922df610454301cfeb205f3",
-      "lines": 388
+      "sha256": "0baccd08933a3644c302204162acb4c36356575bbf2f20214e6b714e484ff961",
+      "lines": 420
     },
     {
       "path": "webapp/tests/receipt-rate-later-test.mjs",

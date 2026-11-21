@@ -32,6 +32,7 @@ internal data class CardPaymentRead(
     val loading: Boolean,
     val error: Boolean,
     val refresh: () -> Unit,
+    val acceptObserved: (RideshareCardPayment) -> Boolean = { false },
 ) {
     fun replacesDirectPayment(receiptHasObligation: Boolean) =
         payment?.replacesDirectPayment(receiptHasObligation) ?: receiptHasObligation
@@ -50,24 +51,38 @@ internal fun rememberRideshareCardPayment(
     var loading by remember(receipt, generation) { mutableStateOf(false) }
     var error by remember(receipt, generation) { mutableStateOf(false) }
     var revision by remember(receipt, generation) { mutableIntStateOf(0) }
+    val requestEpoch = remember(receipt, generation) { mutableIntStateOf(0) }
 
     val foreground = lifecycleState.isAtLeast(Lifecycle.State.RESUMED)
     LaunchedEffect(receipt, generation, foreground, revision) {
         if (receipt == null || !foreground || !allowed()) return@LaunchedEffect
         val requestRevision = revision
+        val epoch = ++requestEpoch.intValue
         loading = true
         error = false
         val read = ApiClient.rideshareCardPayment(receipt.bookingId, generation)
-        if (!currentCoroutineContext().isActive || !allowed() || requestRevision != revision) return@LaunchedEffect
+        if (!currentCoroutineContext().isActive || !allowed() || requestRevision != revision || epoch != requestEpoch.intValue) {
+            return@LaunchedEffect
+        }
         read.onSuccess { payment = it }.onFailure {
             if ((it as? ApiException)?.status in setOf(401, 403, 404)) payment = null
             error = true
         }
         loading = false
     }
-    return CardPaymentRead(payment, loading, error) {
-        if (receipt != null && allowed() && !loading) revision++
-    }
+    return CardPaymentRead(payment, loading, error,
+        refresh = { if (receipt != null && allowed() && !loading) revision++ },
+        acceptObserved = { observed ->
+            if (receipt == null || !allowed() || !ApiClient.isCurrentSession(generation)) false
+            else {
+                requestEpoch.intValue++
+                payment = observed
+                loading = false
+                error = false
+                true
+            }
+        },
+    )
 }
 
 @Composable

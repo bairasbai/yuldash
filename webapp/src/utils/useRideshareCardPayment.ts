@@ -8,6 +8,11 @@ export interface PaymentRead {
   phase: "idle" | "loading" | "error";
 }
 
+export type CardPaymentReader = PaymentRead & {
+  refresh: () => void;
+  acceptObserved: (payment: RideshareCardPayment) => boolean;
+};
+
 const emptyRead: PaymentRead = { payment: null, phase: "idle" };
 
 export function useRideshareCardPayment(
@@ -19,15 +24,16 @@ export function useRideshareCardPayment(
   active.current = { receipt, generation, canRead };
   const inflight = useRef<AbortController | null>(null);
   const [ownedRead, setRead] = useState<{ receipt: TripReceipt; generation: string; read: PaymentRead } | null>(null);
+  const current = useCallback(() => receipt !== null && active.current.receipt === receipt &&
+    active.current.generation === generation && getSessionGeneration() === generation && active.current.canRead(receipt),
+  [receipt, generation]);
 
   const refresh = useCallback(() => {
-    const isCurrent = () => receipt !== null && active.current.receipt === receipt &&
-      active.current.generation === generation && getSessionGeneration() === generation && active.current.canRead(receipt);
-    if (!receipt || !isCurrent() || inflight.current) return;
+    if (!receipt || !current() || inflight.current) return;
     const request = new AbortController();
     inflight.current = request;
     const setPhase = (phase: PaymentRead["phase"], payment?: RideshareCardPayment | null) => {
-      if (!isCurrent() || request.signal.aborted || inflight.current !== request) return;
+      if (!current() || request.signal.aborted || inflight.current !== request) return;
       setRead((prior) => ({ receipt, generation, read: {
         phase,
         payment: payment !== undefined ? payment :
@@ -41,7 +47,15 @@ export function useRideshareCardPayment(
         setPhase("error", denied ? null : undefined);
       })
       .finally(() => { if (inflight.current === request) inflight.current = null; });
-  }, [receipt, generation]);
+  }, [receipt, generation, current]);
+
+  const acceptObserved = useCallback((payment: RideshareCardPayment) => {
+    if (!receipt || !current()) return false;
+    inflight.current?.abort();
+    inflight.current = null;
+    setRead({ receipt, generation, read: { payment, phase: "idle" } });
+    return true;
+  }, [receipt, generation, current]);
 
   useEffect(() => {
     if (!receipt) return;
@@ -58,5 +72,5 @@ export function useRideshareCardPayment(
   }, [receipt, refresh]);
 
   const read = ownedRead?.receipt === receipt && ownedRead.generation === generation ? ownedRead.read : emptyRead;
-  return { ...read, refresh };
+  return { ...read, refresh, acceptObserved };
 }

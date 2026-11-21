@@ -165,12 +165,44 @@ for (const lang of ["ru", "ba"]) {
     const stillPending = await checkoutUntil(s, read => read.view.confirmationState === "applied" && !read.view.busy);
     assert.equal(stillPending.canRepeat, false);
     assert.equal(findLeaf(s, "PayTripCard"), undefined);
-    fixture.status = "waiting_bank";
-    fixture.attemptId = nextId;
+    let reads = 0;
+    const old = { ...bankReceipt("canceled"), payment_attempt_id: fixture.attemptId };
+    const next = { ...bankReceipt("waiting_bank"), payment_attempt_id: nextId };
+    h.bank = async () => reads++ === 0 ? old : next;
     fixture.offer = null;
     stillPending.refresh();
     await checkoutUntil(s, read => !read.view.pending && read.canOpenBank && !read.view.busy);
+    assert.equal(findLeaf(s, "PayTripCard"), undefined);
+    assert.equal(findLeaf(s, "RideshareCardPaymentSummary").props.read.payment.payment_attempt_id, nextId);
     assert.equal(fixture.posts.length, 1);
+    s.unmount();
+  });
+
+  await t.test(`${lang}: a retained card confirmation never starts the next booking with identical terms`, async () => {
+    reset();
+    const { fixture } = checkoutFixture("start");
+    const original = h.command;
+    const posts = [];
+    h.command = async (path, owner, options) => {
+      if (path === "/bookings/43/card-payment/terms") return fixture.offer;
+      if (options.method === "POST") posts.push(path);
+      if (path === "/bookings/43/commands/v1/card-confirm") return { accepted: true };
+      return original(path, owner, options);
+    };
+    const s = open(Screen);
+    await s.settle();
+    const available = await checkoutUntil(s, read => read.offer?.action === "start");
+    available.choose();
+    const retained = await checkoutUntil(s, read => read.view.selected !== null);
+    h.bookingId = 43;
+    s.render();
+    await checkoutUntil(s, read => read.offer?.action === "start" && !read.view.selected && !read.view.busy);
+    retained.confirm();
+    for (let i = 0; i < 5; i++) {
+      await new Promise(resolve => setImmediate(resolve));
+      await s.settle();
+    }
+    assert.deepEqual(posts, []);
     s.unmount();
   });
   await t.test(`${lang}: an admitted card payment takes precedence and a canceled charge releases direct payment`, async () => {
