@@ -417,10 +417,11 @@ async def instant_chat_ws(websocket: WebSocket, order_id: int):
                 with Session(engine) as session:
                     if is_blocked(session, user_id, other_id):
                         continue
-                    # Заказ мог завершиться, пока сокет висел: перепроверяем окно записи —
-                    # после done/отмены новые сообщения не принимаем (read-only).
-                    o2 = session.get(InstantOrder, order_id)
-                    if not o2 or o2.status not in ORDER_CHAT_WRITABLE:
+                    # То же окно, что у REST и handshake: активный заказ либо
+                    # ещё действующее lost-item окно. Проверяем заново перед записью.
+                    try:
+                        _order_for_chat(session, order_id, user_id, write=True)
+                    except HTTPException:
                         break
                     # Анти-флуд (см. пояснение в booking-чате): сокет не должен обходить REST-потолок.
                     if _chat_burst_reached(session, user_id, Message.order_id == order_id):
