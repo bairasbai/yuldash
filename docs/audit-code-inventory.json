@@ -7979,8 +7979,8 @@
       "path": "backend/app/routers/chat.py",
       "kind": "backend_main",
       "block": "B05",
-      "sha256": "36424a073a8fac0d2b5b7af74fd5e7ac9a37ad0ed77f119aad0076d5424de6c9",
-      "lines": 1192
+      "sha256": "9e05cf6b672820a5aed834a1a964f7399c5f7ee944336fd52a0967506f7a50fd",
+      "lines": 1200
     },
     {
       "path": "backend/app/routers/command_intents.py",
@@ -9631,8 +9631,8 @@
       "path": "backend/tests/test_chat_receipts.py",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "563514abcf994c273ebcd378c27c88f3413070efca8180fe6032c14608bdcfa2",
-      "lines": 263
+      "sha256": "b8c19586872a38148a6eeaa9c7d7595a49150a30ee967ff8f71c02b4e0703edd",
+      "lines": 273
     },
     {
       "path": "backend/tests/test_chat_receipts_postgres.py",

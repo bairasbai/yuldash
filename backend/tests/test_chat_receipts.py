@@ -147,7 +147,7 @@ def test_block_and_closed_window_hide_receipts_while_preserving_history(client, 
     assert _state(client, bid, passenger)["open"]
     _finish(bid, days_ago=3)
     assert not _post(client, bid, passenger, read_ids=[message])["open"]
-    assert _unread(client, bid, passenger) is None
+    assert _unread(client, bid, passenger) == 0
     page = client.get(f"/bookings/{bid}/message-page", headers=passenger["auth"]).json()
     assert [row["id"] for row in page["messages"]] == [message]
     with Session(engine) as session:
@@ -261,3 +261,13 @@ def test_overflow_receipt_survives_a_disconnected_ack(client, user_factory, enab
         assert receive(peer, 3)["items"][0]["message_id"] == second
         surviving = receive(peer, 3)
         assert surviving is not None and surviving["items"][0]["message_id"] == third
+
+def test_push_hint_is_sent_only_with_the_enabled_receipt_protocol(client, user_factory, enabled, monkeypatch):
+    driver, passenger, bid = _confirmed_booking(client, user_factory, "ReceiptPushHint")
+    payloads = []
+    monkeypatch.setattr(chat, "push_notification", lambda *args, **kwargs: payloads.append(kwargs["data"]))
+    first = send(client, bid, driver, "Текущее сообщение")["id"]
+    assert payloads[-1] == {"type": "chat", "id": bid, "mid": first}
+    monkeypatch.setattr(settings, "chat_receipts_since", None)
+    send(client, bid, passenger, "Старый режим")
+    assert payloads[-1] == {"type": "chat", "id": bid}

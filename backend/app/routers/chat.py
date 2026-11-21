@@ -405,7 +405,7 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     send_push, session, current_other,
                     sender.name or "Новое сообщение",
                     (msg.text or "Сообщение")[:120],
-                    {"type": "chat", "id": booking_id, "mid": msg.id},
+                    _booking_chat_push_data(booking_id, msg),
                 )
     except WebSocketDisconnect:
         manager.disconnect(booking_id, websocket)
@@ -836,6 +836,14 @@ def _booking_message_frame(msg: Message, request_id: Optional[str] = None) -> di
     return frame
 
 
+def _booking_chat_push_data(booking_id: int, message: Message) -> dict:
+    data = {"type": "chat", "id": booking_id}
+    since = settings.chat_receipts_since
+    if since is not None and message.created_at >= since.replace(tzinfo=None):
+        data["mid"] = message.id
+    return data
+
+
 @router.post("/bookings/{booking_id}/messages", response_model=Message | HiddenMessageReceipt)
 def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session),
                  idempotency_key: Optional[str] = Header(None, min_length=1, max_length=128)):
@@ -857,7 +865,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         user.name or "Новое сообщение", user.name or "Яңы хәбәр",
         preview, preview,
         ref_kind="booking", ref_id=booking_id,
-        data={"type": "chat", "id": booking_id, "mid": msg.id},
+        data=_booking_chat_push_data(booking_id, msg),
     )
     return msg
 
@@ -1183,7 +1191,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=("Чат открыт" if last is None else _message_preview(last)),
             has_messages=last is not None,
-            unread=unread.get(b.id, 0) if b.id in chat_peers else None,
+            unread=unread.get(b.id, 0) if since is not None else None,
             depart_at=(ride.depart_at if ride else None),
         ))
     return out
