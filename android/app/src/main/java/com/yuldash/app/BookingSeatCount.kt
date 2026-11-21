@@ -96,7 +96,8 @@ internal fun BookingSeatCount(available: Int, selected: Int, price: Int, enabled
                 }
                 AnimatedContent(targetState = price * selected, label = "bookingTotal") { total ->
                     Text(
-                        appText("Итого: ", "Бөтәһе: ") + kopToRub(rideshareRubToKop(total)),
+                        if (price == 0) appText("Цена по договорённости с водителем", "Хаҡты йөрөтөүсе менән килешеп билдәлә")
+                        else appText("Итого: ", "Бөтәһе: ") + kopToRub(rideshareRubToKop(total)),
                         style = CanonBodyStrong, color = CanonText,
                     )
                 }
