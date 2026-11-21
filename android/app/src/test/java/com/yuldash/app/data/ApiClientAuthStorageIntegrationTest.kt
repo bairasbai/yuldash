@@ -4,7 +4,9 @@ import android.app.Application
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.test.core.app.ApplicationProvider
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.Dispatcher
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
@@ -51,15 +53,21 @@ class ApiClientAuthStorageIntegrationTest {
         ApiClient.init(context)
         ApiClient.logout()
         ApiClient.init(context)
+        awaitSnapshotCleanup()
     }
 
     @After fun cleanup() {
         // Restore the real selected store even when a test injected a failing editor.
         ApiClient.init(context)
         ApiClient.logout()
+        awaitSnapshotCleanup()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
+    }
+
+    private fun awaitSnapshotCleanup() = runBlocking {
+        withTimeout(5_000) { while (!OfflineTripSnapshots.ensureResetCommitted()) delay(10) }
     }
 
     @Test fun loginPersistsCompleteIdentityBeforePublishingSession() = runBlocking {
