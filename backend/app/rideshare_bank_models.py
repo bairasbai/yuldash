@@ -41,6 +41,7 @@ class RideshareBankCheckout(SQLModel, table=True):
     card_revision: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))
     recipient_version: str | None = Field(default=None, max_length=32)
     driver_consent_at: datetime | None = None
+    next_bank_check_at: datetime | None = Field(default=None, index=True)
     receipt_conflict: bool = Field(default=False, sa_column=Column(Boolean, nullable=False, server_default=false()))
 
 
