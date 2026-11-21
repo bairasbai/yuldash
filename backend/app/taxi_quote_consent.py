@@ -7,10 +7,11 @@ import hashlib
 import json
 from contextlib import contextmanager
 from datetime import timedelta
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from redis.exceptions import RedisError, WatchError
 from sqlalchemy import or_, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlmodel import Session, select
 
 from . import car_class, price_freeze, promo_ride
@@ -22,6 +23,56 @@ from .timeutil import utcnow
 SCHEMA = "taxi-initial-consent-v1"
 _PREFIX = "taxi:initial-quote:v1:"
 _META = ("night_k", "pickup_k", "weather_k", "dynamic_k", "pricing_cap_k", "pricing_version")
+
+
+def result_unavailable():
+    error = herr(503, "Не получилось проверить заказ. Попробуй ещё раз.",
+                 "Заказды тикшереп булманы. Яңынан һынап ҡара.",
+                 code="taxi_consent_result_unavailable")
+    error.headers = {"Cache-Control": "no-store"}
+    return error
+
+
+def read_result(session: Session, owner: int, request_key: str) -> dict:
+    """Positive evidence only. A missing MVCC row is NEVER a final negative result.
+
+    No order body/PII projection, reconciliation, Redis, user lock or domain mutation.
+    Deletion of the order deletes its metadata under the existing retention policy.
+    """
+    result = {"schema": "taxi-consent-result-v1", "state": "unknown"}
+    try:
+        row = session.exec(select(
+            InstantOrder.id, InstantOrder.consent_quote_id, InstantOrder.consent_snapshot_json,
+        ).where(InstantOrder.passenger_id == owner,
+                InstantOrder.consent_request_key == request_key)).one_or_none()
+        if row is None:
+            return result
+        order_id, quote_id, raw = row
+        if not isinstance(quote_id, str) or str(UUID(quote_id)) != quote_id or UUID(quote_id).version != 4:
+            raise ValueError("Invalid consent quote")
+        snapshots = json.loads(raw)
+        quoted, accepted = snapshots["quote"], snapshots["accepted"]
+        for snapshot in (quoted, accepted):
+            if (snapshot["schema"] != SCHEMA or snapshot["request_key"] != request_key
+                    or snapshot["quote_id"] != quote_id):
+                raise ValueError("Invalid consent identity")
+            amounts = [snapshot[k] for k in ("price_kop", "promo_discount_kop", "payable_kop")]
+            if any(type(n) is not int or n < 0 for n in amounts):
+                raise ValueError("Invalid consent amount")
+            price, promo, payable = amounts
+            parts = snapshot["breakdown"]
+            if (set(parts) != {k + "_kop" for k in ("ride_price", "pickup_fee", "options_fee", "weather_fee")}
+                    or any(type(n) is not int or n < 0 for n in parts.values())
+                    or sum(parts.values()) != price or price - promo != payable):
+                raise ValueError("Invalid consent breakdown")
+        if (accepted["payable_kop"] > quoted["payable_kop"]
+                or accepted["promo_discount_kop"] != quoted["promo_discount_kop"]):
+            raise ValueError("Invalid accepted consent")
+    except (SQLAlchemyError, ValueError, TypeError, KeyError, AttributeError):
+        # Never send SQL parameters, snapshot values or the correlator to logs/errors.
+        raise result_unavailable() from None
+    return {**result, "state": "committed", "order_id": order_id,
+            "initial_payable_kop": accepted["payable_kop"], "next": "fetch_order"}
 
 
 def canonical(value) -> str:

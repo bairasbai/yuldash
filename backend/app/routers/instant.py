@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -178,6 +178,19 @@ class ConsentQuoteIn(EstimateIn):
     @classmethod
     def normalize_options(cls, value):
         return sorted(set(v.strip().lower() for v in value))
+
+
+class ConsentResultIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_key: UUID
+
+
+@router.post("/instant/orders/result/v1")
+def get_consent_result(body: ConsentResultIn, response: Response,
+                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Read a committed owner-scoped result; unknown never authorizes another create."""
+    response.headers["Cache-Control"] = "no-store"
+    return consent.read_result(session, user.id, str(body.request_key))
 
 
 class ConfirmedOrderIn(OrderIn):
