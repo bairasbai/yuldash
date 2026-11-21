@@ -31,6 +31,7 @@ function ChatCard({
   subtitle,
   message,
   time,
+  unread = 0,
   verified,
   onClick,
 }: {
@@ -40,10 +41,12 @@ function ChatCard({
   subtitle: string;
   message: string;
   time?: string;
+  unread?: number | null;
   verified: boolean;
   onClick: () => void;
 }) {
   const { appText } = useLang();
+  const newCount = unread ?? 0;
   return (
     <button type="button" className="inbox-row" onClick={onClick}>
       <span className="inbox-row__avatar" aria-hidden>
@@ -60,6 +63,12 @@ function ChatCard({
         </span>
         <span className="inbox-row__route">{subtitle}</span>
         {message && <span className="inbox-row__last">{message}</span>}
+        {newCount > 0 && (
+          <span className="tchat__badge inbox-row__badge" role="img"
+            aria-label={appText(`Новых сообщений: ${newCount}`, `Яңы хәбәрҙәр: ${newCount}`)}>
+            {newCount > 99 ? "99+" : newCount}
+          </span>
+        )}
       </span>
       {time && <span className="inbox-row__when">{time}</span>}
     </button>
@@ -240,6 +249,7 @@ export default function ChatInboxScreen() {
                 subtitle={c.route}
                 message={c.last_message ?? ""}
                 time={c.depart_at ? formatDepart(c.depart_at) : ""}
+                unread={c.unread}
                 verified={!!c.peer_verified}
                 onClick={() => navigate(`/trip/${c.booking_id}/chat`)}
               />

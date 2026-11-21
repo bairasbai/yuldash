@@ -30,6 +30,7 @@ import { clearOutbox } from "../utils/outbox";
 import { clearAllDrafts } from "../utils/formDraft";
 import { clearPersonalLocal, clearPersonalSearchHistory, syncPersonalSession } from "../utils/privacy";
 import { clearSessionCaches } from "../utils/sessionCaches";
+import { pruneChatReceipts } from "../utils/chatReceiptStore";
 
 type Status = "loading" | "authed" | "guest" | "unavailable";
 
@@ -114,6 +115,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       retryGeneration = null;
       ac?.abort();
       syncPersonalSession(getSessionGeneration());
+      const generation = getSessionGeneration();
+      void pruneChatReceipts(generation, () => generation === getSessionGeneration()).catch(() => {});
       void pruneRatingDraft();
       setUser(null);
       if (!getToken()) {
@@ -123,7 +126,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       setStatus("loading");
       const request = new AbortController();
       ac = request;
-      const generation = getSessionGeneration();
       fetchMe(request.signal)
       .then((me) => {
         if (!mounted.current || request.signal.aborted || generation !== getSessionGeneration() || !getToken()) return;

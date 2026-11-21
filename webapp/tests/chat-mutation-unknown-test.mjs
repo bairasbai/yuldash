@@ -14,10 +14,11 @@ const mocks = lang => ({
   "/auth/AuthProvider": `export const useAuth=()=>({user:{id:7}});`,
   "/api/client": `export const getSessionGeneration=()=> 'synthetic-owner';`,
   "/api/bookings": `export const fetchBookingDetails=async()=>({role:'passenger',driver_name:'Синтетический водитель',from_city:'Сибай',to_city:'Акъяр'});`,
-  "/api/chat": `export const fetchMessages=async()=>[{...globalThis.__chatMutationUnknown.initial}];
+  "/api/chat": `export const fetchChatMessagePage=async()=>({messages:[{...globalThis.__chatMutationUnknown.initial}],has_more:false});
     export const openBookingChat=()=>({close(){},send:async()=>null}),sendMessageRest=async()=>{throw Error('unexpected send');};
     export const editMessage=(booking,id,value)=>{const h=globalThis.__chatMutationUnknown;h.edits.push({booking,id,value});return h.edit(value);};
     export const deleteMessage=(booking,id,scope)=>{const h=globalThis.__chatMutationUnknown;h.deletes.push({booking,id,scope});return h.remove(scope);};`,
+  "/utils/useChatReceipts": `const view={items:new Map(),unread:null,refresh(){}};export const useChatReceipts=()=>view;`,
   "/utils/outbox": `export const acknowledgeMessage=async()=>{},createOutboxId=()=> 'unused',enqueue=async()=>{},isPermanentRejection=()=>false,outboxCount=()=>0,subscribeOutbox=()=>()=>{},watchOutbox=()=>()=>{};`,
 });
 function reset() { Object.assign(h, { initial: { ...original }, server: { ...original }, edits: [], deletes: [], edit: async () => {}, remove: async () => {} }); }

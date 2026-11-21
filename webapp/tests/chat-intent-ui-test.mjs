@@ -19,10 +19,11 @@ mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(t
 mocks['../i18n/lang']=`export const useLang=()=>({appText:ru=>ru});`;
 mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}globalThis.intentErrorClass=ApiError;export const getSessionGeneration=()=>globalThis.intentUI.generation;`;
 mocks['../api/chat']=`import{ApiError}from'../api/client';const h=()=>globalThis.intentUI;
- export const fetchMessages=async()=>[];
+ export const fetchChatMessagePage=async()=>({messages:[],has_more:false});
  export const openBookingChat=(id,handlers)=>{h().handlers=handlers;return{send:(text,key)=>{const s=h();s.wsSends.push([id,text,key]);return s.wsBehavior(text,key);},close:()=>{h().closes++;}};};
  export const sendMessageRest=async(id,text,voice,key)=>{const s=h();s.restSends.push([id,text,key]);return s.restBehavior(text,key);};
  export const editMessage=()=>null,deleteMessage=()=>null;`;
+mocks['../utils/useChatReceipts']=`const view={items:new Map(),unread:null,refresh(){}};export const useChatReceipts=()=>view;`;
 mocks['../utils/outbox']=`import{ApiError}from'../api/client';const h=()=>globalThis.intentUI;
  export const createOutboxId=()=> 'intent-'+(++h().seq);
  export const enqueue=async(id,kind,text,key)=>{const s=h();s.enqueues.push([id,kind,text,key]);await s.saveBehavior();s.actions.set(key,{id,kind,text,key});};
