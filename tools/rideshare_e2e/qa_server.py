@@ -48,6 +48,7 @@ database = Path(sys.argv[1]).resolve()
 port = int(sys.argv[2])
 telegram_secret = os.environ.get("RSACC_TELEGRAM_SECRET", "")
 telegram_token = "synthetic-local-qa-bot" if telegram_secret else ""
+bank_control_key = os.environ.get("RSACC_BANK_CONTROL_KEY", "")
 if (
     settings.env != "dev"
     or settings.sms_provider != "mock"
@@ -62,6 +63,10 @@ if (
     raise RuntimeError("The local stand requires a fresh SQLite database and mock providers")
 
 run_id = uuid4().hex
+if bank_control_key:
+    from qa_bank import mount_synthetic_bank
+
+    mount_synthetic_bank(app, engine, bank_control_key)
 
 
 @app.middleware("http")
@@ -80,8 +85,8 @@ def qa_stand():
         raise RuntimeError("The stand is connected to a different database")
     return {
         "run_id": run_id, "database": str(database), "sms": "mock",
-        "external": "blocked", "telegram_mock": bool(telegram_secret),
+        "external": "blocked", "telegram_mock": bool(telegram_secret), "bank_mock": bool(bank_control_key),
     }
 
 
-uvicorn.run(app, host="127.0.0.1", port=port, access_log=False)
+uvicorn.run(app, host="127.0.0.1", port=port, access_log=False, proxy_headers=False)

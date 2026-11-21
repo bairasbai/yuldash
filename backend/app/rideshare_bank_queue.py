@@ -32,7 +32,8 @@ class BankQueueResult:
     state: str | None
 
 
-def claim_due_bank_checkout(engine: Engine, *, test_mode: bool, ready_before: datetime) -> int | None:
+def claim_due_bank_checkout(engine: Engine, *, test_mode: bool, ready_before: datetime,
+                            checkout_id: int | None = None) -> int | None:
     """Commit the next poll time before any authorization locks or provider calls."""
     checkout, operation = RideshareBankCheckout, RideshareBankOperation
     may_charge = select(Booking.id).where(
@@ -59,6 +60,8 @@ def claim_due_bank_checkout(engine: Engine, *, test_mode: bool, ready_before: da
         checkout.test_mode == test_mode, due,
         or_(active, and_(checkout.closed_at.is_(None), may_charge, opened_deal, ~prior_payment)),
     ).order_by(checkout.next_bank_check_at.asc().nulls_first(), checkout.id).limit(1)
+    if checkout_id is not None:
+        candidates = candidates.where(checkout.id == checkout_id)
     if engine.dialect.name == "postgresql":
         candidates = candidates.with_for_update(skip_locked=True, of=checkout)
     now = utcnow()
@@ -100,7 +103,7 @@ def _process_checkout(engine: Engine, checkout_id: int, *, runtime: BankRuntime,
 
 
 def run_bank_queue(engine: Engine, *, runtime: BankRuntime, provider: YooKassaSafeDeal,
-                   limit: int = _MAX_BATCH) -> list[BankQueueResult]:
+                   limit: int = _MAX_BATCH, checkout_id: int | None = None) -> list[BankQueueResult]:
     """Give each due checkout one step. A paused or uncertain item does not block the batch."""
     if type(limit) is not int or not 1 <= limit <= _MAX_BATCH:
         raise ValueError("Invalid bank queue batch size")
@@ -108,14 +111,15 @@ def run_bank_queue(engine: Engine, *, runtime: BankRuntime, provider: YooKassaSa
     ready_before = utcnow()
     results = []
     for _ in range(limit):
-        checkout_id = claim_due_bank_checkout(engine, test_mode=runtime.test_mode, ready_before=ready_before)
-        if checkout_id is None:
+        claimed = claim_due_bank_checkout(engine, test_mode=runtime.test_mode,
+                                          ready_before=ready_before, checkout_id=checkout_id)
+        if claimed is None:
             break
         try:
-            state = _process_checkout(engine, checkout_id, runtime=runtime, provider=provider)
+            state = _process_checkout(engine, claimed, runtime=runtime, provider=provider)
         except BankCheckoutUnavailable:
             state = "blocked"
         except (BankOutcomeUnknown, BankSettlementUnavailable):
             state = "unconfirmed"
-        results.append(BankQueueResult(checkout_id, state))
+        results.append(BankQueueResult(claimed, state))
     return results
