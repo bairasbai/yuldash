@@ -12,9 +12,11 @@
 //  release-2026-07 → до этого 404/405 → «Такси скоро».
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, type NavigateFunction } from "react-router-dom";
+import { useLocation, useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getAccountSession, isAccountSession } from "../api/client";
+import { requestedScheduledTaxiId, requestedTaxiOrderMatches } from "../utils/scheduledTaxiContext";
+import type { TripPassOwner } from "../utils/tripPass";
 import { useFeatures } from "../features";
 import {
   fetchTaxiAvailability,
@@ -147,6 +149,15 @@ function passengerOrderIsActive(order: InstantOrder): boolean {
 }
 
 export default function InstantOrderScreen() {
+  const location = useLocation();
+  const owner = getAccountSession();
+  if (!owner) return <LoadingList count={2} />;
+  const requestedId = requestedScheduledTaxiId(location.state, owner);
+  return <PassengerTaxiOrder key={JSON.stringify([owner.userId, owner.generation, requestedId])}
+    owner={owner} requestedId={requestedId} />;
+}
+
+function PassengerTaxiOrder({ owner, requestedId }: { owner: TripPassOwner; requestedId: number | null }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -162,6 +173,9 @@ export default function InstantOrderScreen() {
   const [to, setTo] = useState<Point | null>(null);
 
   const [order, setOrder] = useState<InstantOrder | null>(null);
+  const loadEpoch = useRef(0);
+  const detailsEpoch = useRef(0);
+  const lifetime = useRef<AbortController | null>(null);
 
   // Как в Android: во время поиска и самой поездки нижние вкладки уходят, чтобы
   // случайный тап не выбросил человека из критического сценария.
@@ -183,9 +197,25 @@ export default function InstantOrderScreen() {
   }, [order]);
 
   // ---------------- boot: гео → доступность → восстановление активного ----------------
-  const boot = useCallback(() => {
+  const boot = useCallback((signal?: AbortSignal) => {
+    const epoch = ++loadEpoch.current;
+    const read = ++detailsEpoch.current;
+    const current = () => !signal?.aborted && epoch === loadEpoch.current && isAccountSession(owner);
+    if (!current()) return;
     setView("boot");
+    if (requestedId !== null) {
+      fetchInstantOrder(requestedId, signal)
+        .then((o) => {
+          if (!current() || read !== detailsEpoch.current) return;
+          if (!requestedTaxiOrderMatches(o, requestedId)) { setView("error"); return; }
+          setOrder(o);
+          setView("tracking");
+        })
+        .catch(() => { if (current() && read === detailsEpoch.current) setView("error"); });
+      return;
+    }
     const proceed = (pt: GeoPoint | null) => {
+      if (!current()) return;
       if (pt) {
         const origin = { lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") };
         setFrom(origin);
@@ -196,13 +226,14 @@ export default function InstantOrderScreen() {
         reverseGeocode(pt.lat, pt.lng)
           .then((r) => {
             // Ручной выбор мог произойти, пока геокодер отвечал.
-            if (r.title) setFrom((current) => current === origin ? { ...origin, text: r.title } : current);
+            if (current() && r.title) setFrom((value) => value === origin ? { ...origin, text: r.title } : value);
           })
           .catch(() => {});
       }
       // Сначала — есть ли уже живой заказ (восстановление экрана).
-      fetchMyOrders(5)
+      fetchMyOrders(5, signal)
         .then((list) => {
+          if (!current()) return;
           const live = list.find(passengerOrderIsActive);
           if (live) {
             setOrder(live);
@@ -212,11 +243,12 @@ export default function InstantOrderScreen() {
           checkAvailability(pt);
         })
         // Пока свои заказы не прочитаны, отсутствие активной поездки неизвестно.
-        .catch(() => setView("error"));
+        .catch(() => { if (current()) setView("error"); });
     };
     const checkAvailability = (pt: GeoPoint | null) => {
       fetchTaxiAvailability(pt?.lat, pt?.lng)
         .then((av) => {
+          if (!current()) return;
           if (av.enabled) setView("compose");
           else {
             setGateMsg(av.message);
@@ -225,6 +257,7 @@ export default function InstantOrderScreen() {
           }
         })
         .catch((e) => {
+          if (!current()) return;
           // Старый сервер без функции — гейт; временный отказ — повтор загрузки.
           if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
             setGateMsg(null);
@@ -242,33 +275,46 @@ export default function InstantOrderScreen() {
     } else {
       proceed(null);
     }
-  }, [appText]);
+  }, [appText, owner.userId, owner.generation, requestedId]);
 
   useEffect(() => {
-    boot();
+    const ac = new AbortController();
+    lifetime.current = ac;
+    boot(ac.signal);
+    return () => { ++loadEpoch.current; ac.abort(); };
   }, [boot]);
 
   // ---------------- Поллинг активного заказа ----------------
   useEffect(() => {
     if (view !== "tracking" || !order) return;
+    const ac = new AbortController();
+    const epoch = loadEpoch.current;
     let alive = true;
     const tick = () => {
-      fetchInstantOrder(order.id)
-        .then((o) => alive && setOrder(o))
+      if (!alive || ac.signal.aborted || epoch !== loadEpoch.current || !isAccountSession(owner)) return;
+      const read = ++detailsEpoch.current;
+      fetchInstantOrder(order.id, ac.signal)
+        .then((o) => { if (alive && epoch === loadEpoch.current && read === detailsEpoch.current && isAccountSession(owner)
+          && requestedTaxiOrderMatches(o, order.id)) setOrder(o); })
         .catch(() => {});
     };
     const iv = window.setInterval(tick, POLL_MS);
     return () => {
       alive = false;
+      ac.abort();
       window.clearInterval(iv);
     };
   }, [view, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function backToCompose() {
+    if (lifetime.current?.signal.aborted || !isAccountSession(owner)) return;
+    ++loadEpoch.current;
+    ++detailsEpoch.current;
     setActiveTaxiOrder(null);
     setOrder(null);
     setTo(null);
     setView("compose");
+    if (requestedId !== null) navigate("/taxi", { replace: true, state: null });
   }
 
   /**
@@ -279,11 +325,15 @@ export default function InstantOrderScreen() {
    * круг поллинга подтянет его сам.
    */
   const refreshOrder = useCallback(() => {
-    if (!order) return;
-    fetchInstantOrder(order.id)
-      .then(setOrder)
+    if (!order || lifetime.current?.signal.aborted || !isAccountSession(owner)) return;
+    const epoch = loadEpoch.current;
+    const read = ++detailsEpoch.current;
+    const signal = lifetime.current?.signal;
+    fetchInstantOrder(order.id, signal)
+      .then((o) => { if (!signal?.aborted && epoch === loadEpoch.current && read === detailsEpoch.current && isAccountSession(owner)
+        && requestedTaxiOrderMatches(o, order.id)) setOrder(o); })
       .catch(() => {});
-  }, [order]);
+  }, [order, owner.userId, owner.generation]);
 
   // Живой заказ сохраняется; отсутствие флага закрывает только новую форму.
   if (view === "compose" && !features.taxi) {
@@ -307,7 +357,7 @@ export default function InstantOrderScreen() {
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <div className="state" role="alert">
           <p>{appText("Не получилось загрузить такси. Проверь сеть и повтори.", "Таксиҙы йөкләп булманы. Селтәрҙе тикшереп ҡабатла.")}</p>
-          <button type="button" className="btn-primary" onClick={boot}>
+          <button type="button" className="btn-primary" onClick={() => boot(lifetime.current?.signal)}>
             {appText("Повторить", "Ҡабатлау")}
           </button>
         </div>

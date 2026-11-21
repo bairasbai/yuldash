@@ -1,3 +1,9 @@
+## 21.11.2026 — PWA: контекст истёкшего предзаказа (отдельно от TF08)
+
+План: real HTTP/Chromium RED на main c465413a, затем narrow same-ID expired context с текущим owner/session, GET деталей и guards; Back/новый заказ/отмена/гонки; RU/BA × темы; штатные PWA gates/secrets и независимая приёмка перед отдельным push. Backend, Android и отдельно опубликованный TF08 не включаются.
+
+RED на неизменённом main:1failed/3passed (будущее ожидание, busy scheduled, cancelled — контроли); настоящий same-ID POST expired без wait_until, online PWA потеряла карточку и открыла форму. Стенд — собственная SQLite+настоящий FastAPI/Chromium, nativeonline в Docker internal без externaldefault route, страницы ограничены loopback. Узкий контекст реализован: same-ID/passenger/owner+generation → свежий GET, без глобального восстановления expired. Контроли scheduled/cancelled main не исправляются этим пакетом; TF08 остаётся отдельно. Callback-регрессии41/41, включая поздние poll/refresh одного ID, прошли; исходный ранний RED признан неподтверждённым по readiness, точечный корректный RED фиксируется отдельно; полный npm check пересчитывается после read-ticket правки; итоговая browser/build/secret проверка и независимая приёмка фиксируются отдельно, общий TAXI-E2E не принят. Новых переводов нет: используются существующие RU/BA карточка и действия.
+
 ## Попутка — RS-08 банковская оплата — 21.11.2026
 
 ### Ссылка для банковского подтверждения

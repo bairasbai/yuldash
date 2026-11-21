@@ -9,10 +9,11 @@
 //    в том числе подхваченные из истории заказов;
 //  • опрос раз в 30 с; сбой обновления виден плашкой, а не молчит.
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getAccountSession, isAccountSession } from "../api/client";
+import { expiredScheduledContext } from "../utils/scheduledTaxiContext";
 import {
   fetchScheduled,
   fetchMyOrders,
@@ -82,6 +83,8 @@ export default function ScheduledOrdersScreen() {
   const [actionNote, setActionNote] = useState("");
   const [cancelTarget, setCancelTarget] = useState<InstantOrder | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const activationEpoch = useRef(0);
+  useEffect(() => () => { ++activationEpoch.current; }, []);
 
   const mergeActivated = async (loadedActivated: InstantOrder[], signal?: AbortSignal) => {
     const recent = await fetchMyOrders(5, signal).catch(() => [] as InstantOrder[]);
@@ -140,16 +143,24 @@ export default function ScheduledOrdersScreen() {
 
   async function activate(id: number) {
     if (busyId) return;
+    const owner = getAccountSession();
+    if (!owner) return;
+    const epoch = ++activationEpoch.current;
+    const current = () => epoch === activationEpoch.current && isAccountSession(owner);
     setBusyId(id);
     setActionNote("");
     try {
-      await activateScheduled(id);
-      navigate("/taxi"); // заказ ушёл в поиск → экран заказа восстановит его
+      const result = await activateScheduled(id);
+      if (!current()) return;
+      const context = expiredScheduledContext(result, id, owner);
+      // The ordinary path is unchanged; only this explicit no-driver attempt needs its ID.
+      navigate("/taxi", context ? { state: context } : undefined);
     } catch (e) {
+      if (!current()) return;
       setActionNote(serverSaid(e));
       load(); // гонка (уже активирован/отменён) → обновим список
     } finally {
-      setBusyId(0);
+      if (current()) setBusyId(0);
     }
   }
 
