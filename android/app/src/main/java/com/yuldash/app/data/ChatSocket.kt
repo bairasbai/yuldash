@@ -6,6 +6,9 @@ import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONObject
+import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withTimeoutOrNull
+import kotlin.coroutines.resume
 import java.util.concurrent.Executors
 import java.util.concurrent.ScheduledExecutorService
 import java.util.concurrent.TimeUnit
@@ -35,7 +38,7 @@ class ChatSocket(
     private val onRejectedDetailed: (Int, String, Int, String) -> Unit = { _, _, _, _ -> },
     private val onHistoryChanged: () -> Unit = {},
     private val onContinuityLost: () -> Unit = {},
-    private val onReceiptsChanged: () -> Unit = {},
+    private val onReceipt: (List<ReceiptEvent>) -> Unit = {},
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
@@ -45,6 +48,13 @@ class ChatSocket(
         val deleted: Boolean = false, val edited: Boolean = false, val voiceUrl: String? = null,
         val hiddenForMe: Boolean = false,
     )
+    data class ReceiptEvent(val messageId: Int, val userId: Int, val delivered: Boolean, val read: Boolean)
+    private class ReceiptWaiter(
+        val requested: Set<Int>,
+        val finish: (BookingChatReceiptPage?) -> Unit,
+    )
+    private var receiptWaiter: ReceiptWaiter? = null
+    private var receiptTimeoutConnection = -1L
 
     private var ws: WebSocket? = null
     @Volatile private var closed = false   // выставлен из UI-потока в close(), читается из ws-потока
@@ -115,6 +125,7 @@ class ChatSocket(
         if (closed || !ApiClient.isCurrentSession(ownerSession)) return
         if (live) { live = false; ApiClient.runIfCurrentSession(ownerSession) { onContinuityLost() } }
         val currentConnection = ++connection
+        finishReceipt(null)
         var authenticatedToken: String? = null // guarded by this monitor; the token actually sent on this connection
         // Закрываем предыдущий сокет ПЕРЕД созданием нового: при гонке reconnect↔connect иначе оставались
         // бы два живых WS на один канал → дубли сообщений. Код 4999 (терминальный диапазон) → его onClosed
@@ -161,7 +172,18 @@ class ChatSocket(
                                 } else if (o.optString("type") == "history_changed") {
                                     onHistoryChanged()
                                 } else if (o.optString("type") == "receipt" && path == null) {
-                                    if ((o.optJSONArray("items")?.length() ?: 0) > 0) onReceiptsChanged()
+                                    val rows = o.getJSONArray("items")
+                                    val changes = List(rows.length()) { index ->
+                                        val row = rows.getJSONObject(index)
+                                        ReceiptEvent(row.getInt("message_id"), row.getInt("user_id"),
+                                            row.getBoolean("delivered"), row.getBoolean("read"))
+                                    }.filter { it.messageId > 0 && it.userId > 0 }
+                                    if (changes.isNotEmpty()) onReceipt(changes)
+                                } else if (o.optString("type") == "receipt_ack" && path == null) {
+                                    receiptWaiter?.let { waiter ->
+                                        val page = parseBookingChatReceiptPage(o)
+                                        if (page.items.all { it.messageId in waiter.requested }) finishReceipt(page)
+                                    }
                                 } else if (o.optString("type") == "rejected") {
                                     // Rejection belongs only to this connection and login.
                                     onRejected(o.optInt("temp_id"), o.optString("reason"))
@@ -181,6 +203,7 @@ class ChatSocket(
                     synchronized(this@ChatSocket) {
                         if (closed || connection != currentConnection) return
                         ws = null
+                        finishReceipt(null)
                         if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
                         val wasLive = live; live = false
                         ApiClient.runIfCurrentSession(ownerSession) { if (wasLive) onContinuityLost(); onConnected(false) }
@@ -197,6 +220,7 @@ class ChatSocket(
                     synchronized(this@ChatSocket) {
                         if (closed || connection != currentConnection) return
                         ws = null
+                        finishReceipt(null)
                         if (!ApiClient.isCurrentSession(ownerSession)) { close(); return }
                         val wasLive = live; live = false
                         ApiClient.runIfCurrentSession(ownerSession) { if (wasLive) onContinuityLost(); onConnected(false) }
@@ -242,9 +266,49 @@ class ChatSocket(
         closed = true   // глушит запланированные и будущие реконнекты
         live = false
         connection++
+        finishReceipt(null)
         NetworkMonitor.unsubscribe(netListener)   // отписка обязательна — не будим мёртвый канал, не течём
         ws?.close(1000, null)
         ws = null
         // НЕ глушим executor общего клиента — он живёт на весь процесс и нужен другим чатам.
+    }
+
+    /** One receipt batch per connection awaits the server's explicit acknowledgement. */
+    internal suspend fun sendReceipt(delivered: Set<Int>, read: Set<Int>): BookingChatReceiptPage? =
+        withTimeoutOrNull(3_500L) {
+            suspendCancellableCoroutine { continuation ->
+                synchronized(this@ChatSocket) {
+                    val socket = ws
+                    if (path != null || closed || !live || socket == null || receiptWaiter != null ||
+                        receiptTimeoutConnection == connection || !ApiClient.isCurrentSession(ownerSession)
+                    ) {
+                        continuation.resume(null)
+                        return@synchronized
+                    }
+                    val frame = bookingChatReceiptBody(delivered, read).put("type", "receipt")
+                    val waiter = ReceiptWaiter(delivered + read) { result ->
+                        if (continuation.isActive) continuation.resume(result)
+                    }
+                    receiptWaiter = waiter
+                    continuation.invokeOnCancellation {
+                        synchronized(this@ChatSocket) {
+                            if (receiptWaiter === waiter) {
+                                receiptWaiter = null
+                                receiptTimeoutConnection = connection
+                            }
+                        }
+                    }
+                    if (receiptWaiter !== waiter) return@synchronized
+                    if (!ApiClient.runIfCurrentSession(ownerSession) {
+                            if (!socket.send(frame.toString())) finishReceipt(null)
+                        }) finishReceipt(null)
+                }
+            }
+        }
+
+    private fun finishReceipt(page: BookingChatReceiptPage?) {
+        val waiter = receiptWaiter
+        receiptWaiter = null
+        waiter?.finish?.invoke(page)
     }
 }

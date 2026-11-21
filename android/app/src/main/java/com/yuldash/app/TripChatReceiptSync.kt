@@ -8,6 +8,7 @@ import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BookingChatReceipt
 import com.yuldash.app.data.BookingChatReceiptOwner
 import com.yuldash.app.data.BookingChatReceiptStore
+import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.CHAT_RECEIPT_BATCH_SIZE
 import com.yuldash.app.data.CHAT_RECEIPT_INTERVAL_MS
 import com.yuldash.app.data.MessageDto
@@ -33,6 +34,8 @@ internal class TripChatReceiptSync(
     private val owner: BookingChatReceiptOwner,
     private val scope: CoroutineScope,
     private val active: () -> Boolean,
+    private val incoming: () -> List<MessageDto>,
+    private val socket: () -> ChatSocket?,
 ) {
     private val storage = BookingChatReceiptStore(owner, bookingId)
     private val staged = mutableMapOf<Int, Boolean>()
@@ -54,6 +57,24 @@ internal class TripChatReceiptSync(
     fun refresh() {
         restorePending = true
         runPump()
+    }
+
+    fun receive(changes: List<ChatSocket.ReceiptEvent>) {
+        if (!current()) return
+        if (view.since == null) { refresh(); return }
+        val items = view.items.toMutableMap()
+        var restore = false
+        for (change in changes) {
+            val previous = items[change.messageId]
+            val own = change.userId == owner.userId
+            if (previous == null || own) restore = true
+            if (previous == null) continue
+            val candidate = if (own) BookingChatReceipt(change.messageId, myDelivered = change.delivered, myRead = change.read)
+                else BookingChatReceipt(change.messageId, peerDelivered = change.delivered, peerRead = change.read)
+            items[change.messageId] = previous.including(candidate)
+        }
+        if (items != view.items) view = view.copy(items = items, revision = view.revision + 1)
+        if (restore) refresh()
     }
 
     fun stage(messages: List<MessageDto>, read: Boolean) {
@@ -139,6 +160,7 @@ internal class TripChatReceiptSync(
             val next = page.nextAfterId
             if (next == null) {
                 view = TripChatReceiptView(since, items, page.unread, view.revision + 1)
+                stage(incoming(), read = false)
                 return
             }
             check(next > cursor)
@@ -169,7 +191,9 @@ internal class TripChatReceiptSync(
         if (wait > 0) { schedule(wait); return }
         val ids = eligible.map { it.message.id }.toSet()
         val read = eligible.filter { it.read }.map { it.message.id }.toSet()
-        val reply = ApiClient.confirmBookingChatReceipts(bookingId, ids, read, owner.generation).getOrThrow()
+        val socketReply = socket()?.sendReceipt(ids, read)
+        if (!current()) return
+        val reply = socketReply ?: ApiClient.confirmBookingChatReceipts(bookingId, ids, read, owner.generation).getOrThrow()
         if (!current()) return
         if (reply.since != since) { invalidate(); refresh(); return }
         withContext(Dispatchers.IO) { storage.settle(ids, reply.items) }

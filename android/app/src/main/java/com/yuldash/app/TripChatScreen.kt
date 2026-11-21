@@ -255,9 +255,6 @@ internal fun TripChatScreen(
         if (atBottom && resumed && !chat.historyLoading) chat.markSeen()
     }
     val receipts = chat.receiptView
-    LaunchedEffect(chat, visible, receipts.revision, chat.historyLoading) {
-        if (!chat.historyLoading) chat.stageDelivered(visible)
-    }
     LaunchedEffect(chat, listState, resumed, receipts.revision, chat.historyLoading) {
         if (!resumed || chat.historyLoading || receipts.since == null) return@LaunchedEffect
         snapshotFlow {

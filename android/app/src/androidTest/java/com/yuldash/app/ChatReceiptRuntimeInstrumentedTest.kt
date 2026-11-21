@@ -33,8 +33,12 @@ class ChatReceiptRuntimeInstrumentedTest {
         val fixture = localJson("/__qa/chat/fixture/$profile")
         val bookingId = fixture.getInt("booking")
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
-        ApiClient.saveToken(fixture.getString("token"))
-        runBlocking { OfflineTripSnapshots.ensureResetCommitted() }
+        val phone = if (profile == "receiver") "+79990006312" else "+79990006321"
+        val otp = localJson("/auth/request-code", JSONObject().put("phone", phone).put("channel", "sms"))
+        runBlocking {
+            ApiClient.verifyCode(phone, otp.getString("dev_code"), "RS06 Runtime").getOrThrow()
+            assertTrue(OfflineTripSnapshots.ensureResetCommitted())
+        }
         val language = if (arguments.getString("chatLang") == "ba") AppLanguage.Ba else AppLanguage.Ru
         val dark = arguments.getString("chatTheme") == "dark"
         val oldLanguage = AppPrefs.language(context)
@@ -91,11 +95,17 @@ class ChatReceiptRuntimeInstrumentedTest {
         compose.onNode(matcher).assertExists()
     }
 
-    private fun localJson(path: String): JSONObject {
+    private fun localJson(path: String, body: JSONObject? = null): JSONObject {
         val connection = URI("http://127.0.0.1:8000$path").toURL().openConnection() as HttpURLConnection
         connection.connectTimeout = 3_000
         connection.readTimeout = 5_000
         return try {
+            if (body != null) {
+                connection.requestMethod = "POST"
+                connection.doOutput = true
+                connection.setRequestProperty("Content-Type", "application/json")
+                connection.outputStream.use { it.write(body.toString().toByteArray(Charsets.UTF_8)) }
+            }
             assertEquals(200, connection.responseCode)
             JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
         } finally { connection.disconnect() }

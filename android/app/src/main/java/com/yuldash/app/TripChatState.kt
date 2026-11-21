@@ -76,14 +76,12 @@ internal class TripChatState(
     private var resyncPending = false
     private val receiptOwner = ApiClient.bookingChatReceiptOwner(tripSession)
     private val receiptSync = bookingId?.let { id ->
-        receiptOwner?.let { owner -> TripChatReceiptSync(id, owner, scope, isHistoryParentCurrent) }
+        receiptOwner?.let { owner -> TripChatReceiptSync(id, owner, scope, isActive, { messages }, { socket }) }
     }
     val receiptView: TripChatReceiptView get() = receiptSync?.view ?: TripChatReceiptView()
     val hasOlderMessages: Boolean get() = history.hasOlder
 
     fun loadOlderMessages() = history.loadOlder()
-
-    fun stageDelivered(rows: List<MessageDto>) { receiptSync?.stage(rows, read = false) }
 
     fun markVisible(ids: Set<Int>) {
         if (ids.isNotEmpty() && !historyLoading) receiptSync?.stage(visibleMessages.filter { it.id in ids }, read = true)
@@ -181,7 +179,7 @@ internal class TripChatState(
             expectedGeneration = tripSession,
             onHistoryChanged = { scope.launch { historyChanged() } },
             onContinuityLost = { continuityLost() },
-            onReceiptsChanged = { scope.launch { receiptSync?.refresh() } },
+            onReceipt = { changes -> scope.launch { receiptSync?.receive(changes) } },
             onMessage = { inc ->
                 // Граница непрерывности на момент приёма кадра: кадр, «переживший» обрыв, — задержанный.
                 val receivedEpoch = continuityEpoch.get()
