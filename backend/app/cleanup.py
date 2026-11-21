@@ -84,6 +84,7 @@ KEEP_FOREVER = {
     "user": "сам аккаунт — живёт, пока человек им пользуется",
     "driverprofile": "профиль водителя = часть аккаунта",
     "driverpaysettings": "способы оплаты водителя = часть аккаунта",
+    "ridesharebankrecipient": "Одна версия реквизита на водителя. Отзыв стирает секрет, удаление аккаунта удаляет строку.",
     "courierprofile": "профиль курьера = часть аккаунта",
     "safetyprofile": "страйки и паузы — репутация, действует пока жив аккаунт",
     "trust": "уровень доверия — репутация аккаунта",
@@ -102,6 +103,9 @@ KEEP_FOREVER = {
     "referralbonus": "кому уже начисляли бонус — без этого начислим второй раз",
     # Деньги и документы: закон о бухучёте, споры, налоги. Чистить нельзя.
     "payment": "деньги — хранится по закону",
+    "ridesharebankcheckout": "Попытка остаётся для сверки и разбирательств. До живого запуска согласуем срок хранения.",
+    "ridesharebankoperation": "Операция и ключ нужны для повторов и сверки. Ночная очистка их не затрагивает.",
+    "ridesharebankposting": "Проводка подтверждает расчёт по сделке. Срок хранения согласуем до живого запуска.",
     "ledgerentry": "кошелёк водителя append-only: история денег не редактируется",
     "commissiondebt": "долг по комиссии — деньги",
     "promoredemption": "какой промокод человек уже применял (один на жизнь аккаунта)",
@@ -226,6 +230,7 @@ def _rules(now):
          # останавливала чистку броней навсегда, молча: строк удалено 0, ошибка в логе.
          "AND NOT EXISTS (SELECT 1 FROM ledgerentry le WHERE le.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.booking_id = booking.id) "
+         "AND NOT EXISTS (SELECT 1 FROM ridesharebankcheckout bank WHERE bank.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM requestresponse rr WHERE rr.booking_id = booking.id) "
          "AND NOT EXISTS (SELECT 1 FROM report rp WHERE rp.booking_id = booking.id)",
          {"c": cut(TRIP_DAYS)}),
@@ -327,10 +332,22 @@ def _delete_batched(table, where, params):
     locator = f"({columns})" if table in keys else columns
     sql = text(f"DELETE FROM {table} WHERE {locator} IN "
                f"(SELECT {columns} FROM {table} WHERE {where} LIMIT :_batch){recheck}")
+    lock_bookings = table == "booking" and engine.dialect.name == "postgresql"
+    if lock_bookings:
+        # A bank checkout can attach while cleanup is running. Skip locked rows and
+        # recheck references in a fresh statement after acquiring the booking locks.
+        find_bookings = text(f"SELECT id FROM booking WHERE {where} LIMIT :_batch FOR UPDATE SKIP LOCKED")
+        delete_bookings = text(f"DELETE FROM booking WHERE id IN :_ids AND ({where})").bindparams(
+            bindparam("_ids", expanding=True),
+        )
     total = 0
     while True:
         with engine.begin() as conn:
-            n = conn.execute(sql, {**params, "_batch": _BATCH}).rowcount or 0
+            if lock_bookings:
+                ids = conn.execute(find_bookings, {**params, "_batch": _BATCH}).scalars().all()
+                n = conn.execute(delete_bookings, {**params, "_ids": ids}).rowcount or 0
+            else:
+                n = conn.execute(sql, {**params, "_batch": _BATCH}).rowcount or 0
         total += n
         if n < _BATCH:      # неполный чанк → больше подходящих строк нет
             break

@@ -8,7 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 from sqlmodel import Session, select
 
-from app import cleanup, login_methods, otp_budget
+from app import cleanup, login_methods, otp_budget, security
 from app.config import settings
 from app.db import engine
 from app.main import app
@@ -24,6 +24,7 @@ def sms_clock(monkeypatch):
     moment = [utcnow().replace(hour=12, minute=0, second=0, microsecond=0)]
     monkeypatch.setattr(otp_budget, "utcnow", lambda: moment[0])
     monkeypatch.setattr(auth, "utcnow", lambda: moment[0])
+    monkeypatch.setattr(security, "utcnow", lambda: moment[0])
     return moment
 
 

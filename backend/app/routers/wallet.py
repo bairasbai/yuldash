@@ -20,6 +20,8 @@ from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
 
+from ..booking_payment import booking_amount_kop as _booking_amount_kop
+from ..booking_payment import check_direct_payment_allowed, lock_booking_payment
 from ..config import settings
 from ..db import get_session
 from ..debt import ledger_note_text
@@ -246,14 +248,6 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
 
 
 # ------------------------------ оплата брони плановой поездки ------------------------------
-def _booking_amount_kop(booking: Booking) -> int:
-    amount_rub = booking.pay_amount if booking.pay_amount is not None else booking.price
-    amount_kop = int(amount_rub) * 100  # договорённость в ₽ → копейки; None — старая бронь
-    if amount_kop <= 0:
-        raise herr(409, "У брони нет суммы к оплате", "Брондә түләргә сумма юҡ")
-    return amount_kop
-
-
 def booking_cashless_allowed(session: Session, booking: Booking) -> bool:
     """Банковский проект попутки не принят: настройки не снимают этот запрет."""
     return False
@@ -263,7 +257,10 @@ def booking_cashless_allowed(session: Session, booking: Booking) -> bool:
 def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user),
                 session: Session = Depends(get_session)):
     """Пассажир оплачивает ЗАВЕРШЁННУЮ бронь плановой поездки. Только владелец, только done."""
-    booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
+    if body.method in {"card", "sbp"}:
+        booking = session.get(Booking, booking_id, with_for_update=True, populate_existing=True)
+    else:
+        booking = lock_booking_payment(session, booking_id)
     if not booking:
         raise herr(404, "Бронь не найдена", "Бронь табылманы")
     if booking.passenger_id != user.id:                   # анти-IDOR
@@ -281,6 +278,7 @@ def pay_booking(booking_id: int, body: PayIn, user: User = Depends(current_user)
     if booking.paid:
         return {"status": "already_paid", "method": booking.payment_method}
     _guard_method(body.method)
+    check_direct_payment_allowed(session, booking_id)
     amount_kop = _booking_amount_kop(booking)
     if body.method == "cash":
         from .. import ledger

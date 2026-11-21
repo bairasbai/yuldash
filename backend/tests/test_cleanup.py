@@ -1,15 +1,19 @@
 # -*- coding: utf-8 -*-
 """Ретеншен-чистка (app.cleanup): убирает эфемерное, бережёт важное.
 Ключевое — бронь С рейтингом НЕ удаляется (репутацию не теряем), аккаунт цел."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
+import pytest
 from sqlmodel import Session, select
 
 from app import cleanup
+from app.booking_payment import lock_booking_payment
 from app.db import engine
 from app.models import (
     Booking, BookingStatus, Message, OtpCode, Rating, RefreshToken, Ride, RideStatus, User,
 )
+from app.rideshare_bank_models import RideshareBankCheckout
 from app.timeutil import utcnow
 
 
@@ -25,7 +29,11 @@ def test_cleanup_purges_ephemeral_keeps_important(client, user_factory):
         s.add(ride); s.commit(); s.refresh(ride)
         b_keep = Booking(ride_id=ride.id, passenger_id=uid, status=BookingStatus.done, created_at=_old(200))
         b_del = Booking(ride_id=ride.id, passenger_id=uid, status=BookingStatus.done, created_at=_old(200))
-        s.add(b_keep); s.add(b_del); s.commit(); s.refresh(b_keep); s.refresh(b_del)
+        b_bank = Booking(ride_id=ride.id, passenger_id=uid, status=BookingStatus.done, created_at=_old(200))
+        s.add_all([b_keep, b_del, b_bank])
+        s.flush()
+        bank = RideshareBankCheckout(booking_id=b_bank.id, amount_kop=10_000, payout_kop=10_000, test_mode=True)
+        s.add(bank)
         s.add(Rating(booking_id=b_keep.id, rater_id=uid, ratee_id=uid, stars=5, created_at=_old(200)))
         old_msg = Message(booking_id=b_del.id, sender_id=uid, text="старое", created_at=_old(40))
         new_msg = Message(booking_id=b_keep.id, sender_id=uid, text="свежее", created_at=utcnow())
@@ -34,7 +42,7 @@ def test_cleanup_purges_ephemeral_keeps_important(client, user_factory):
         s.add(RefreshToken(user_id=uid, token_hash="cleanup-dead", revoked=True,
                            expires_at=_old(5), created_at=_old(5)))
         s.commit()
-        keep_b, del_b, old_m, new_m = b_keep.id, b_del.id, old_msg.id, new_msg.id
+        keep_b, del_b, old_m, new_m, bank_b, bank_id = b_keep.id, b_del.id, old_msg.id, new_msg.id, b_bank.id, bank.id
 
     cleanup.main()   # реальная чистка
 
@@ -43,10 +51,39 @@ def test_cleanup_purges_ephemeral_keeps_important(client, user_factory):
         assert s.get(Message, new_m) is not None                                # свежее осталось
         assert s.get(Booking, keep_b) is not None                               # бронь С рейтингом сохранена
         assert s.get(Booking, del_b) is None                                    # бронь без рейтинга удалена
+        assert s.get(Booking, bank_b) is not None
+        assert s.get(RideshareBankCheckout, bank_id).booking_id == bank_b
         assert s.exec(select(RefreshToken).where(RefreshToken.token_hash == "cleanup-dead")).first() is None
         assert s.exec(select(OtpCode).where(OtpCode.phone == "+79990001122")).first() is None
         assert s.get(User, uid) is not None                                     # АККАУНТ ЦЕЛ
         assert s.exec(select(Rating).where(Rating.booking_id == keep_b)).first() is not None  # рейтинг цел
+
+
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="Booking row locks require PostgreSQL")
+def test_cleanup_skips_a_booking_locked_by_a_new_bank_checkout(client, user_factory):
+    uid = user_factory(name="Синтетический участник банковской попытки")["id"]
+    with Session(engine) as session:
+        ride = Ride(driver_id=uid, from_city="A", to_city="B", depart_at=utcnow())
+        session.add(ride)
+        session.flush()
+        booking = Booking(ride_id=ride.id, passenger_id=uid, status=BookingStatus.done, created_at=_old(200))
+        session.add(booking)
+        session.flush()
+        booking_id = booking.id
+        session.commit()
+    _, table, where, params = next(rule for rule in cleanup._rules(utcnow()) if rule[1] == "booking")
+    with ThreadPoolExecutor(max_workers=1) as workers:
+        with Session(engine) as session:
+            assert lock_booking_payment(session, booking_id) is not None
+            bank = RideshareBankCheckout(booking_id=booking_id, amount_kop=10_000, payout_kop=10_000, test_mode=True)
+            session.add(bank)
+            session.flush()
+            bank_id = bank.id
+            workers.submit(cleanup._delete_batched, table, where, params).result(timeout=8)
+            session.commit()
+    with Session(engine) as session:
+        assert session.get(Booking, booking_id) is not None
+        assert session.get(RideshareBankCheckout, bank_id).booking_id == booking_id
 
 
 def test_cleanup_dry_run_deletes_nothing(client, user_factory):
