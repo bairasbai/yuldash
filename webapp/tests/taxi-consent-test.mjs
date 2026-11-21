@@ -75,7 +75,7 @@ test('recency includes RTT and background elapsed wall/monotonic time; rollback 
   assert.equal(h.taxiConsentFresh(stamp, 1100, 499), false);
 });
 test('reload marker contains only opaque generation/environment; one tab cannot clear another slot', () => {
-  const store = new Store(); const a = h.markTaxiPending(store, g, environment), b = h.markTaxiPending(store, g, environment);
+  const store = new Store(); const a = h.markTaxiPending(store, g, environment, crypto.randomUUID()), b = h.markTaxiPending(store, g, environment, crypto.randomUUID());
   assert.notEqual(a, b); assert.deepEqual(h.pendingTaxiMarkers(store, g, environment).sort(), [a, b].sort());
   for (const value of store.data.values()) {
     const marker = JSON.parse(value); assert.deepEqual(Object.keys(marker).sort(), ['e', 'g', 'v']);
@@ -87,20 +87,54 @@ test('reload marker contains only opaque generation/environment; one tab cannot 
 });
 test('stale generation reader cannot erase a newer unknown-result barrier', () => {
   const store = new Store();
-  const current = h.markTaxiPending(store, another, environment);
+  const current = h.markTaxiPending(store, another, environment, crypto.randomUUID());
   const saved = store.getItem(current);
   assert.deepEqual(h.pendingTaxiMarkers(store, g, environment), []);
   assert.equal(store.getItem(current), saved);
   assert.deepEqual(h.pendingTaxiMarkers(store, another, environment), [current]);
 });
 test('environment binding and storage failures fail closed', () => {
-  const store = new Store(); const key = h.markTaxiPending(store, g, environment);
+  const store = new Store(); const key = h.markTaxiPending(store, g, environment, crypto.randomUUID());
   assert.deepEqual(h.pendingTaxiMarkers(store, g, environment + '/other'), []); assert.equal(store.getItem(key) !== null, true);
-  assert.throws(() => h.markTaxiPending(store, 'not-a-random-session', environment));
-  assert.throws(() => h.markTaxiPending({ setItem() { throw Error('denied'); } }, g, environment));
+  assert.throws(() => h.markTaxiPending(store, 'not-a-random-session', environment, another));
+  assert.throws(() => h.markTaxiPending({ getItem() { return null; }, setItem() { throw Error('denied'); } }, g, environment, another));
   store.setItem(h.TAXI_CONSENT_MARKER_PREFIX + crypto.randomUUID(), '{broken');
   assert.throws(() => h.pendingTaxiMarkers(store, g, environment));
   assert.throws(() => h.clearTaxiPending(store, 'unrelated-key'));
+});
+
+test('v2 suffix is the server key; v1 stays opaque and can never be looked up or cleared as v2', () => {
+  const store = new Store();
+  const legacy = h.TAXI_CONSENT_MARKER_PREFIX + g;
+  store.setItem(legacy, JSON.stringify({ v: 1, g, e: environment }));
+  const current = h.markTaxiPending(store, g, environment, another);
+  assert.equal(current, h.TAXI_CONSENT_MARKER_PREFIX + another);
+  assert.throws(() => h.markTaxiPending(store, g, environment, another));
+  const [old, now] = h.pendingTaxiResults(store, g, environment);
+  assert.equal(old.requestKey, null); assert.equal(old.version, 1);
+  assert.equal(now.requestKey, another); assert.equal(now.version, 2);
+  assert.throws(() => h.clearOwnedTaxiPending(store, old, g, environment));
+  assert.throws(() => h.clearOwnedTaxiPending(store, now, another, environment));
+  assert.throws(() => h.clearOwnedTaxiPending(store, now, g, environment + '/other'));
+  store.setItem(current, JSON.stringify({ v: 1, g, e: environment }));
+  assert.equal(h.ownsTaxiPending(store, now, g, environment), false);
+  store.setItem(current, JSON.stringify({ v: 2, g: another, e: environment }));
+  assert.throws(() => h.clearOwnedTaxiPending(store, now, g, environment));
+  assert.equal(store.length, 2);
+});
+test('result is positive-only and historical amount never replaces current authorized card', () => {
+  const committed = { schema: 'taxi-consent-result-v1', state: 'committed', order_id: 17, initial_payable_kop: 45000, next: 'fetch_order' };
+  assert.equal(h.readTaxiOrderResult(committed).order_id, 17);
+  assert.equal(h.readTaxiOrderResult({ schema: 'taxi-consent-result-v1', state: 'unknown' }).state, 'unknown');
+  for (const change of [{ state: 'absent' }, { order_id: 0 }, { order_id: 1.5 }, { initial_payable_kop: -1 }, { next: 'create' }, { extra: true }]) {
+    assert.throws(() => h.readTaxiOrderResult({ ...committed, ...change }));
+  }
+  assert.throws(() => h.readTaxiOrderResult({ schema: 'taxi-consent-result-v1', state: 'unknown', order_id: 17 }));
+  const order = { id: 17, role: 'passenger', passenger_id: 7, status: 'expired', passenger_price_kop: 60000 };
+  assert.equal(h.readRecoveredTaxiOrder(order, 17, 7).passenger_price_kop, 60000);
+  for (const change of [{ id: 18 }, { role: 'driver' }, { passenger_id: 8 }, { status: 'scheduled' }, { passenger_price_kop: -1 }, { passenger_price_kop: undefined }]) {
+    assert.throws(() => h.readRecoveredTaxiOrder({ ...order, ...change }, 17, 7));
+  }
 });
 
 await Promise.all(pendingTests);

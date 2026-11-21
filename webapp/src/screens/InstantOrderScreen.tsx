@@ -1066,7 +1066,7 @@ function ComposeView({
           </TaxiConsentFields>
         }
         footer={
-          to ? (
+          to || protectedNow ? (
             <div className={`taxi-order-footer${protectedNow ? " taxi-order-footer--consent" : ""}`}>
               {/* Чип способа оплаты 54dp (InstantControlShape) + «Заказать» CanonGreen2/CanonOnFilled, как в Android. */}
               <button

@@ -1,6 +1,6 @@
 import { API_BASE, apiCommand, getAccountSession, getSessionGeneration, isAccountSession } from "./client";
 import type { InstantOrder, OrderInput } from "./instant";
-import { consentGeneration, readTaxiQuote, readTaxiConsentResult, taxiConsentEnvironment, taxiConsentInput } from "../utils/taxiConsent";
+import { consentGeneration, readTaxiQuote, readTaxiConsentResult, readTaxiOrderResult, taxiConsentEnvironment, taxiConsentInput } from "../utils/taxiConsent";
 
 export type TaxiConsentQuote = {
   schema: "taxi-initial-consent-v1"; quote_id: string; request_key: string;
@@ -42,4 +42,18 @@ export async function confirmTaxiConsent(body: string, original: TaxiConsentQuot
     "/instant/orders/confirmed/v1", owner, { method: "POST", body, oneShot: true, allowAttempt });
   if (!isAccountSession(owner)) throw new Error("Consent session changed");
   return readTaxiConsentResult(result, original, owner.userId);
+}
+
+/** Positive-only read; request_key is a correlator, never an authentication credential. */
+export async function fetchTaxiConsentResult(requestKey: string, owner: TaxiConsentOwner,
+  allowAttempt: () => Promise<boolean>) {
+  requireLocal(owner);
+  if (!consentGeneration(requestKey)) throw new Error("Invalid result key");
+  const environment = localTaxiConsentEnvironment();
+  const result = await apiCommand<unknown>("/instant/orders/result/v1", owner, {
+    method: "POST", body: JSON.stringify({ request_key: requestKey }), oneShot: true,
+    allowAttempt: async () => localTaxiConsentEnvironment() === environment && isAccountSession(owner) && await allowAttempt(),
+  });
+  if (!isAccountSession(owner) || localTaxiConsentEnvironment() !== environment) throw new Error("Result scope changed");
+  return readTaxiOrderResult(result);
 }

@@ -68,29 +68,70 @@ export function taxiConsentFresh(stamp: ConsentStamp, wall = Date.now(), mono = 
     && Math.max(a, b) < stamp.validForMs;
 }
 
-/** No body, quote pair, price, token, user ID or fingerprint is persisted here. */
-export function pendingTaxiMarkers(storage: Storage, generation: string, environment: string): string[] {
+/** V1 suffixes were local UUIDs, never server correlators. V2 stores only the real key. */
+export type TaxiPendingMarker = { key: string; version: 1 | 2; requestKey: string | null };
+export function pendingTaxiResults(storage: Storage, generation: string, environment: string): TaxiPendingMarker[] {
   const keys = Array.from({ length: storage.length }, (_, i) => storage.key(i))
     .filter((k): k is string => !!k && k.startsWith(TAXI_CONSENT_MARKER_PREFIX));
-  const matching: string[] = [];
+  const matching: TaxiPendingMarker[] = [];
   for (const key of keys) {
     const marker = JSON.parse(storage.getItem(key) ?? "null");
-    if (!marker || Object.keys(marker).sort().join() !== "e,g,v" || marker.v !== 1
-        || !consentGeneration(marker.g) || typeof marker.e !== "string"
-        || !UUID.test(key.slice(TAXI_CONSENT_MARKER_PREFIX.length))) throw new Error("Invalid pending marker");
-    // Reads from a stale tab must never delete a newer session's UNKNOWN barrier.
-    if (marker.g === generation && marker.e === environment) matching.push(key);
+    const suffix = key.slice(TAXI_CONSENT_MARKER_PREFIX.length);
+    if (!marker || Object.keys(marker).sort().join() !== "e,g,v" || ![1, 2].includes(marker.v)
+        || !consentGeneration(marker.g) || typeof marker.e !== "string" || !UUID.test(suffix)) {
+      throw new Error("Invalid pending marker");
+    }
+    // A stale reader must not delete or adopt another login/environment's barrier.
+    if (marker.g === generation && marker.e === environment) {
+      matching.push({ key, version: marker.v, requestKey: marker.v === 2 ? suffix : null });
+    }
   }
   return matching;
 }
+export function pendingTaxiMarkers(storage: Storage, generation: string, environment: string): string[] {
+  return pendingTaxiResults(storage, generation, environment).map(marker => marker.key);
+}
 
-export function markTaxiPending(storage: Storage, generation: string, environment: string): string {
-  if (!consentGeneration(generation)) throw new Error("Unscoped consent session");
-  const key = TAXI_CONSENT_MARKER_PREFIX + crypto.randomUUID();
-  const value = JSON.stringify({ v: 1, g: generation, e: environment });
+export function markTaxiPending(storage: Storage, generation: string, environment: string, requestKey: string): string {
+  if (!consentGeneration(generation) || !UUID.test(requestKey)) throw new Error("Unscoped consent request");
+  const key = TAXI_CONSENT_MARKER_PREFIX + requestKey;
+  if (storage.getItem(key) !== null) throw new Error("Pending marker already exists");
+  const value = JSON.stringify({ v: 2, g: generation, e: environment });
   storage.setItem(key, value);
   if (storage.getItem(key) !== value) throw new Error("Pending marker was not saved");
   return key;
+}
+
+export function ownsTaxiPending(storage: Storage, marker: TaxiPendingMarker, generation: string, environment: string): boolean {
+  return marker.version === 2 && !!marker.requestKey && pendingTaxiResults(storage, generation, environment)
+    .some(found => found.version === 2 && found.key === marker.key && found.requestKey === marker.requestKey);
+}
+export function clearOwnedTaxiPending(storage: Storage, marker: TaxiPendingMarker, generation: string, environment: string): void {
+  if (!ownsTaxiPending(storage, marker, generation, environment)) throw new Error("Pending marker changed");
+  clearTaxiPending(storage, marker.key);
+}
+
+export type TaxiOrderResult = { schema: "taxi-consent-result-v1"; state: "unknown" }
+  | { schema: "taxi-consent-result-v1"; state: "committed"; order_id: number; initial_payable_kop: number; next: "fetch_order" };
+export function readTaxiOrderResult(raw: unknown): TaxiOrderResult {
+  const r = raw as TaxiOrderResult;
+  if (r?.schema === "taxi-consent-result-v1") {
+    if (r.state === "unknown" && Object.keys(r).sort().join() === "schema,state") return r;
+    if (r.state === "committed" && Object.keys(r).sort().join() === "initial_payable_kop,next,order_id,schema,state"
+        && Number.isSafeInteger(r.order_id) && r.order_id > 0 && r.next === "fetch_order"
+        && Number.isSafeInteger(r.initial_payable_kop) && r.initial_payable_kop >= 0) return r;
+  }
+  throw new Error("Invalid taxi order result");
+}
+export function readRecoveredTaxiOrder(raw: unknown, id: number, userId: number): InstantOrder {
+  const order = raw as InstantOrder;
+  if (!order || order.id !== id || !Number.isSafeInteger(id) || id <= 0 || order.role !== "passenger"
+      || !["created", "searching", "offered", "accepted", "arriving", "onboard", "done", "cancelled", "expired"].includes(order.status)
+      || (order.passenger_id != null && order.passenger_id !== userId)
+      || !Number.isSafeInteger(order.passenger_price_kop) || order.passenger_price_kop < 0) {
+    throw new Error("Unconfirmed current order");
+  }
+  return order;
 }
 
 export function clearTaxiPending(storage: Storage, key: string): void {
