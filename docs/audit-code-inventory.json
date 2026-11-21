@@ -79,15 +79,15 @@
   },
   "counts_by_kind": {
     "android_main": 247,
-    "backend_main": 135,
-    "infra_resource_config": 439,
+    "backend_main": 138,
+    "infra_resource_config": 442,
     "public_site_promo": 91,
     "pwa_main": 365,
-    "test_support": 1356
+    "test_support": 1360
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 390,
+    "B02": 397,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -95,7 +95,7 @@
     "B07": 150,
     "B08": 222,
     "B09": 790,
-    "B10": 439,
+    "B10": 442,
     "B11": 92
   },
   "excluded_counts": {
@@ -6800,6 +6800,13 @@
       "lines": 41
     },
     {
+      "path": "backend/alembic/versions/da_route_watch_dispatch.py",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "4729345dd4bfc6fb047994e255ae61e42cd06c866c408b25cc916bd5fb84240f",
+      "lines": 91
+    },
+    {
       "path": "backend/alembic/versions/f10_payment_agreement.py",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -7286,8 +7293,8 @@
       "path": "backend/app/account.py",
       "kind": "backend_main",
       "block": "B01",
-      "sha256": "8742a017156c100d8b7c72fe6c91661d76b8c21cbf78cb0a96882eefb75c7ad6",
-      "lines": 833
+      "sha256": "313af59b3b2c2ad17e314e32d89f74514adadf15d6a9128ac9f6c4530eabd4b9",
+      "lines": 840
     },
     {
       "path": "backend/app/ads_expire.py",
@@ -7363,8 +7370,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "050d0fe35bd0e8d2fa6f20b851607052780c704c97881ed9540d3266cbe2c136",
-      "lines": 1074
+      "sha256": "a369db43b8b57c5df432e81ff8bf514a3f926b7c298e9cab436528bd3c6dc0d4",
+      "lines": 1082
     },
     {
       "path": "backend/app/collusion.py",
@@ -7573,8 +7580,8 @@
       "path": "backend/app/models.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "d149eddfd6e9ec7441dd0b442f5513086e22629a341ba24fb7fc534109a86dc3",
-      "lines": 2295
+      "sha256": "0c0bc9c41f4d0b1df6ef66960f202b68a79219fb1f64d1f3bd26bad8fd000af4",
+      "lines": 2296
     },
     {
       "path": "backend/app/observability.py",
@@ -7764,6 +7771,27 @@
       "block": "B02",
       "sha256": "165d9fc3b27a9257956a21ff18bbd0f227853d3f960fb1fbe07988b5723cb543",
       "lines": 30
+    },
+    {
+      "path": "backend/app/route_watch_dispatch.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "fbc387d37ef2ac0d4f8fa50874e054ece9348e2aa2e61d3cad595853e66bf6c2",
+      "lines": 294
+    },
+    {
+      "path": "backend/app/route_watch_models.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "00bffc2ea3ba255862282e2228f752d4eb7efa8d585106a47ce905fa28d139c3",
+      "lines": 33
+    },
+    {
+      "path": "backend/app/route_watch_worker.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "3444ef529f638f78ce621dfa24b1cc98be20653f029cef329dc7726a6877c11d",
+      "lines": 44
     },
     {
       "path": "backend/app/routers/__init__.py",
@@ -7986,8 +8014,8 @@
       "path": "backend/app/routers/rides.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "04a75b990c711e3f80d7c03fe458e2d199d3041a4823423768c036a49fcdc64a",
-      "lines": 1669
+      "sha256": "d11c43f971135bfd2f9e0a5f109b183fd6ec2fef09fe0f393836e5ccd64075ff",
+      "lines": 1654
     },
     {
       "path": "backend/app/routers/rideshare_bank.py",
@@ -8126,8 +8154,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "192afca50b496826bcdefbc37c8e8116b857bdf22b30881afed707ceb6da62d3",
-      "lines": 2242
+      "sha256": "27d855557601d00f4022bc743425caceddead04705762131bdd0c0ef85f4ee8c",
+      "lines": 2212
     },
     {
       "path": "backend/app/sms_reconcile.py",
@@ -8154,8 +8182,8 @@
       "path": "backend/app/stop_search.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "6ede59eb61afd95059f15ea72b441d873d55f6631b32d3472c5abee9ff7512eb",
-      "lines": 193
+      "sha256": "9e7ec0fc6cdba4cfc63a88c8c615bfe867db5a09c765c3c7c20fed0f2d16dc64",
+      "lines": 212
     },
     {
       "path": "backend/app/storage.py",
@@ -8182,8 +8210,8 @@
       "path": "backend/app/timeutil.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "7eb06fdeb5d1e7dbf9f70f485f5d2fef2328c8d00f66db9bec841a3e02712076",
-      "lines": 116
+      "sha256": "b9c328b3f937949ab7537d65a16a5d07bb8cd4e767a06153356bf0659c84e7ce",
+      "lines": 119
     },
     {
       "path": "backend/app/trip_wake.py",
@@ -8526,6 +8554,20 @@
       "kind": "infra_resource_config",
       "block": "B10",
       "sha256": "757fe1f22d7d0b10c293e5a74b2e649034d01d5a5c07c4db63bb2448895f9fb3",
+      "lines": 9
+    },
+    {
+      "path": "backend/deploy/yuldash-route-watch-worker.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "a353a1bfa15b220d355317628b2bf52d150a7a5727cda0609888ceac5ae6a86b",
+      "lines": 20
+    },
+    {
+      "path": "backend/deploy/yuldash-route-watch-worker.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "e0ed6b9879c825cc87597e87826209a72e0dd5cb77227fe28fcf9842361203da",
       "lines": 9
     },
     {
@@ -10681,8 +10723,8 @@
       "path": "backend/tests/test_no_query_per_item.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "66a09b6ad60b489e8ad316f3bbc6fc2a41924c0be2e9d541a0547e7fc1cbfe3a",
-      "lines": 303
+      "sha256": "ef3306c566ee8d94aa8861b8de2f7fbf2504d105ee3eb672aa425e311ab8ce97",
+      "lines": 304
     },
     {
       "path": "backend/tests/test_no_real_number_no_service.py",
@@ -12043,6 +12085,27 @@
       "lines": 110
     },
     {
+      "path": "backend/tests/test_route_watch.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "410dd7fab7de935f5e8b4feb9ec918475d1d639cc65f0dceb436e366bd3c3a9d",
+      "lines": 226
+    },
+    {
+      "path": "backend/tests/test_route_watch_dispatch.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "ddb211da8f18e61444ff703490ce194b696128343c08a9518737987f7a2abc8d",
+      "lines": 310
+    },
+    {
+      "path": "backend/tests/test_route_watch_migration.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "5ff577937ee6b219f6518a4a1fbad8c8f89e52f1fd0008ad28a96ec38d187bf0",
+      "lines": 50
+    },
+    {
       "path": "backend/tests/test_route_watch_push_destination.py",
       "kind": "test_support",
       "block": "B06",
@@ -12053,8 +12116,15 @@
       "path": "backend/tests/test_route_watch_respects_privacy.py",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "7f69ce8d461cf1613e4bc1b7fedba03d9ad395ac66132610f127fa530ec7cb4b",
-      "lines": 90
+      "sha256": "0d6df6909594583e893509700d76a58219833845841429f88416a4006b817445",
+      "lines": 98
+    },
+    {
+      "path": "backend/tests/test_route_watch_stops.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "57d607e2eed53488f8d695db5a7fce6ff4f2663eae6bbf8c7aa406d749fb78ea",
+      "lines": 84
     },
     {
       "path": "backend/tests/test_safety_edges.py",
