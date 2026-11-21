@@ -33,6 +33,10 @@ def _action(scope, trip):
         "booking.no_show": (driver, booking_path + "/no-show", booking, None),
         "booking.driver_status": (driver, booking_path + "/driver-status", booking, {"status": "arriving"}),
         "booking.trip_status": (passenger, booking_path + "/trip-status", booking, {"status": "arrived"}),
+        "booking.card_confirm": (passenger, booking_path + "/card-confirm", booking, {
+            "amount_kop": 30_000, "paid_revision": 0, "card_revision": 0,
+            "recipient_version": "a" * 32, "driver_consent_at": "2030-01-02T09:00:00Z",
+        }),
     }[scope]
 
 

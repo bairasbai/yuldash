@@ -40,6 +40,7 @@ class Scope(str, Enum):
     BOOKING_NO_SHOW = "booking.no_show"
     BOOKING_DRIVER_STATUS = "booking.driver_status"
     BOOKING_TRIP_STATUS = "booking.trip_status"
+    BOOKING_CARD_CONFIRM = "booking.card_confirm"
 
     @property
     def ref_kind(self) -> str:
@@ -179,6 +180,10 @@ def _current(session: Session, owner_id: int, receipt: CommandReceipt) -> dict |
     booking = session.get(Booking, receipt.ref_id, populate_existing=True)
     if booking is None or booking.created_at != receipt.ref_created_at:
         return None
+    if receipt.scope == Scope.BOOKING_CARD_CONFIRM.value:
+        if booking.passenger_id != owner_id:
+            raise _denied()
+        return {"accepted": True}
     ride = session.get(Ride, booking.ride_id, populate_existing=True)
     if ride is None:
         return None
