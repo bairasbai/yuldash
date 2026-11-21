@@ -81,6 +81,7 @@ async function readDate(
   const path = "/command-intents/" + encodeURIComponent(date.commandKey);
   const view = await apiCommand<{
     state: string; scope: string | null; ref_kind: string | null; ref_id: number | null; result_code: string | null;
+    ru?: string; ba?: string;
     current: { id: number; driver_id: number } | null;
   }>(path + (close ? "/close" : ""), owner, {
     method: close ? "POST" : "GET", signal, oneShot: close,
@@ -95,7 +96,9 @@ async function readDate(
     return { depart_at, outcome: "applied", ride_id: view.ref_id, already: true, code: view.result_code };
   }
   if (view.state === "rejected" || view.state === "closed_no_effect") {
-    return { depart_at, outcome: "rejected", code: view.result_code };
+    return { depart_at, outcome: "rejected",
+      code: view.state === "closed_no_effect" ? "idempotency_closed_no_effect" : view.result_code,
+      ru: view.ru, ba: view.ba };
   }
   throw new Error("Unexpected series state");
 }

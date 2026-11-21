@@ -125,6 +125,21 @@ class RidePublicationApiTest {
         assertEquals(slot.hash, sent.getString("payload_hash"))
     }
 
+    @Test fun restoredSeriesRefusalRetainsBothLanguages() = runBlocking {
+        val intent = RideSeriesIntent.create(JSONObject(body.toString()).put("recurrence", "none"), listOf(depart))
+        val slot = RidePublicationApi.reserveSeries(generation(), intent).getOrThrow()
+        assertEquals("/me", request().path)
+        server.enqueue(MockResponse().setBody("""{"scope":"ride.create","state":"rejected","current":null,
+            "result_code":"time_passed","ru":"Время выезда уже прошло","ba":"Сығыу ваҡыты үтеп киткән"}"""))
+        val verified = RidePublicationApi.checkSeries(generation(), slot.key).getOrThrow()
+        assertEquals("/command-intents/" + intent.dates.single().commandKey, request().path)
+        val refusal = verified.rows.single().result
+        assertEquals(CommandIntent.State.Rejected, refusal.state)
+        assertEquals("Время выезда уже прошло", refusal.ru)
+        assertEquals("Сығыу ваҡыты үтеп киткән", refusal.ba)
+        assertEquals(verified, RidePublicationApi.savedSeries(generation()).getOrThrow())
+    }
+
     @Test fun latePublishResponseCannotOverwriteCloseOutcome() = runBlocking {
         server.enqueue(MockResponse().setBody("""{"id":42,"driver_id":7,"status":"active"}""")
             .setBodyDelay(550, TimeUnit.MILLISECONDS))

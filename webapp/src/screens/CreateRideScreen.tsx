@@ -249,7 +249,7 @@ export default function CreateRideScreen() {
   ];
 
   const canSubmit =
-    from.trim().length > 0 && to.trim().length > 0 && (seriesMode ? departures.length >= 2 : when.length > 0) && !busy &&
+    from.trim().length > 0 && to.trim().length > 0 && (seriesMode ? departures.length > 0 : when.length > 0) && !busy &&
     !!publication && !publication.storageUnavailable && !publicationStale;
   const command = publication?.command;
   const series = publication?.series;
@@ -273,7 +273,8 @@ export default function CreateRideScreen() {
   }, [owner, confirmedDraftHash]);
 
   async function submit() {
-    if (!owner || !publication || series || (command && (!canReplay || seriesMode)) || submitting.current || !canSubmit ||
+    const submittingSeries = seriesMode && departures.length > 1;
+    if (!owner || !publication || series || (command && (!canReplay || submittingSeries)) || submitting.current || !canSubmit ||
         ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     const request = new AbortController();
     operation.current = request;
@@ -282,15 +283,16 @@ export default function CreateRideScreen() {
     setError(null);
     try {
     const stopLanguage = command?.stopLanguage ?? (lang === "ba" ? "ba" : "ru");
-    const wallTime = seriesMode ? 0 : Date.parse(when + "Z");
-    const utcOffsetMinutes = seriesMode ? 0 : command?.utcOffsetMinutes ?? (new Date(when).getTime() - wallTime) / 60_000;
+    const singleWhen = seriesMode && !submittingSeries ? seriesDays[0] + "T" + seriesTime : when;
+    const wallTime = submittingSeries ? 0 : Date.parse(singleWhen + "Z");
+    const utcOffsetMinutes = submittingSeries ? 0 : command?.utcOffsetMinutes ?? (new Date(singleWhen).getTime() - wallTime) / 60_000;
     const selectedStops = await resolveRideStops(waypoints, from.trim(), to.trim(), stopLanguage === "ba");
     if (request.signal.aborted || !isCurrentBookingOwner(owner) ||
         ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     const body: RideCreateInput = {
       from_city: from.trim(),
       to_city: to.trim(),
-      depart_at: seriesMode ? departures[0] : new Date(wallTime + utcOffsetMinutes * 60_000).toISOString(),
+      depart_at: submittingSeries ? departures[0] : new Date(wallTime + utcOffsetMinutes * 60_000).toISOString(),
       seats_total: clampSeats(seats, backMaxTwo, frontSeatAvailable),
       back_max_two: backMaxTwo,
       front_seat_available: frontSeatAvailable,
@@ -332,7 +334,7 @@ export default function CreateRideScreen() {
     }
       const draftHash = await publicationDraftHash(draft);
       if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
-      if (seriesMode) {
+      if (submittingSeries) {
         const { depart_at: _ignored, ...common } = body;
         const saved = await publishRideSeries(common, departures, owner, publication.revision, draftHash, request.signal);
         if (!request.signal.aborted && isCurrentBookingOwner(owner)) {

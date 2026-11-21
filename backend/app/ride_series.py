@@ -39,6 +39,15 @@ _CLOSED = ("Действие закрыто без выполнения.", "Ғә
 _UNKNOWN = ("Результат пока неизвестен. Проверь его ещё раз.", "Һөҙөмтә әлегә билдәһеҙ. Тағы бер тапҡыр тикшер.")
 
 
+def localize_series_receipt(view: dict) -> dict:
+    if view["state"] == "rejected" and view["scope"] == Scope.RIDE_CREATE:
+        refusal = REFUSALS.get(view["result_code"])
+        if refusal is not None:
+            _, ru, ba = refusal
+            return {**view, "ru": ru, "ba": ba}
+    return view
+
+
 @dataclass(frozen=True)
 class SeriesDate:
     departure: datetime

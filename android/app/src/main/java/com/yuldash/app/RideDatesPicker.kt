@@ -56,7 +56,7 @@ internal fun RideDatesPicker(
             Text(title, style = CanonTitle, color = CanonText)
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = { month = month.minusMonths(1) }, enabled = month > YearMonth.from(today)) {
-                    Text(appText("Назад", "Кире"), style = CanonCaption)
+                    Text(appText("Назад", "Артҡа"), style = CanonCaption)
                 }
                 Text("${months[month.monthValue - 1]} ${month.year}", style = CanonButton,
                     color = CanonText, modifier = Modifier.weight(1f))

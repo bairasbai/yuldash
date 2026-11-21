@@ -160,12 +160,15 @@ for (const lang of ["ru", "ba"]) {
       try {
         h.render(); await h.settle();
         const submit = publish(h.tree);
-        assert.equal(submit.props.disabled, days.length === 1);
+        assert.equal(submit.props.disabled, false);
         await submit.props.onClick(); await h.settle();
-        assert.deepEqual(fixture.published, []);
         if (days.length === 1) {
           assert.deepEqual(fixture.seriesPublished, []);
+          assert.equal(fixture.published.length, 1);
+          assert.equal(fixture.published[0].depart_at, new Date(days[0] + "T10:30").toISOString());
+          assert.equal(fixture.published[0].recurrence, "none");
         } else {
+          assert.deepEqual(fixture.published, []);
           const [batch] = fixture.seriesPublished;
           assert.equal(fixture.seriesPublished.length, 1);
           assert.deepEqual(batch.departures, days.map(day => new Date(day + "T10:30").toISOString()));

@@ -248,6 +248,12 @@ def test_series_capacity_refusal_keeps_its_receipt_after_limit_changes(client, s
     applied, rejected = response.json()["items"]
     assert applied["outcome"] == "applied"
     assert rejected["outcome"] == "rejected" and rejected["code"] == "too_many_rides"
+    key = headers["Idempotency-Key"] + "-" + (start + timedelta(days=1)).strftime("%Y%m%d%H%M")
+    receipt = client.get(f"/command-intents/{key}", headers=driver["auth"])
+    assert receipt.status_code == 200, receipt.text
+    assert receipt.json()["state"] == "rejected"
+    assert receipt.json()["result_code"] == rejected["code"]
+    assert (receipt.json()["ru"], receipt.json()["ba"]) == (rejected["ru"], rejected["ba"])
     monkeypatch.setattr(rides.settings, "flood_active_rides_max", 5)
     replay = client.post("/rides/series", json={**body, "departures": [later]}, headers=headers)
     assert replay.json()["items"][0]["code"] == "too_many_rides"

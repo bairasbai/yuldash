@@ -9,6 +9,7 @@ from sqlmodel import Session
 from ..db import get_session
 from ..idempotency import Command, Scope, close_intent, read_intent, validate_key
 from ..models import User
+from ..ride_series import localize_series_receipt
 from ..security import current_user
 
 
@@ -31,10 +32,10 @@ class CloseIn(BaseModel):
 def get_intent(key: str, response: Response, user: User = Depends(current_user),
                session: Session = Depends(get_session)):
     response.headers["Cache-Control"] = "no-store"
-    return read_intent(session, user.id, key)
+    return localize_series_receipt(read_intent(session, user.id, key))
 
 
 @router.post("/{key}/close")
 def close(key: str, body: CloseIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     command = Command(validate_key(key), body.scope, body.target_id, body.payload_hash)
-    return close_intent(session, user.id, command)
+    return localize_series_receipt(close_intent(session, user.id, command))

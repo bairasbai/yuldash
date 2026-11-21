@@ -247,6 +247,34 @@ class CreateRidePublishJourneyTest {
     }
 
     @Test fun twoDatesUseOneSeriesRequestAndShowBothOutcomes() {
+        chooseSeriesDates(1, 3)
+        compose.onNodeWithText("Сохранить 2/10").performScrollTo().performClick()
+        publishButton().assertIsEnabled().performClick()
+        awaitInList("Опубликовано 1 из 2")
+        awaitInList("Время отправления прошло")
+        compose.onNodeWithText("Время отправления прошло").assertIsDisplayed()
+        assertEquals(1, requests.count { it == "POST /rides/series" })
+        assertEquals(0, requests.count { it == "POST /rides/commands/v1" })
+        assertEquals(2, JSONObject(bodies.single()).getJSONArray("departures").length())
+        assertTrue(published.isEmpty())
+        awaitInList("Готово")
+        compose.onNodeWithText("Готово").performClick()
+        compose.waitUntil(15000) { resolved.get() == 1 }
+    }
+
+    @Test fun oneNewDateUsesTheOrdinaryPublicationCommand() {
+        val date = chooseSeriesDates(1).atDay(1)
+        compose.onNodeWithText("Сохранить 1/10").performScrollTo().performClick()
+        publishButton().assertIsEnabled().performClick()
+        awaitPublished()
+        assertEquals(1, requests.count { it == "POST /rides/commands/v1" })
+        assertEquals(0, requests.count { it == "POST /rides/series" })
+        val body = JSONObject(bodies.single())
+        assertEquals("none", body.getString("recurrence"))
+        assertEquals(date, OffsetDateTime.parse(body.getString("depart_at")).toLocalDate())
+    }
+
+    private fun chooseSeriesDates(vararg days: Int): YearMonth {
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 CreateRideScreen(onBack = {}, onPublish = { published.add(it) },
@@ -262,20 +290,10 @@ class CreateRidePublishJourneyTest {
         val nextMonth = YearMonth.now().plusMonths(1)
         val monthLabel = nextMonth.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.forLanguageTag("ru"))
             .replaceFirstChar { it.uppercaseChar() }
-        compose.onNodeWithContentDescription("1 $monthLabel ${nextMonth.year}").performScrollTo().performClick()
-        compose.onNodeWithContentDescription("3 $monthLabel ${nextMonth.year}").performScrollTo().performClick()
-        compose.onNodeWithText("Сохранить 2/10").performScrollTo().performClick()
-        publishButton().assertIsEnabled().performClick()
-        awaitInList("Опубликовано 1 из 2")
-        awaitInList("Время отправления прошло")
-        compose.onNodeWithText("Время отправления прошло").assertIsDisplayed()
-        assertEquals(1, requests.count { it == "POST /rides/series" })
-        assertEquals(0, requests.count { it == "POST /rides/commands/v1" })
-        assertEquals(2, JSONObject(bodies.single()).getJSONArray("departures").length())
-        assertTrue(published.isEmpty())
-        awaitInList("Готово")
-        compose.onNodeWithText("Готово").performClick()
-        compose.waitUntil(15000) { resolved.get() == 1 }
+        days.forEach { day ->
+            compose.onNodeWithContentDescription("$day $monthLabel ${nextMonth.year}").performScrollTo().performClick()
+        }
+        return nextMonth
     }
 
     private fun fillForm(mount: Boolean = true, language: AppLanguage = AppLanguage.Ru) {

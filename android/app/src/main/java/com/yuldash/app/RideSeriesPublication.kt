@@ -167,8 +167,12 @@ internal fun RideSeriesResults(series: RideSeriesUi) {
             val departs = OffsetDateTime.parse(row.date.departureUtc).atZoneSameInstant(ZoneId.systemDefault()).toLocalDateTime()
             val stamp = formatRideDeparture(departs.toLocalDate(), departs.toLocalTime())
             val description = when (result.state) {
-                CommandIntent.State.Applied -> if (result.already) appText("Уже опубликовано", "Элек баҫтырылған")
-                    else appText("В ленте", "Таҫмала")
+                CommandIntent.State.Applied -> when {
+                    result.code == "idempotency_result_gone" -> appText("Поездка была опубликована. Карточка недоступна.",
+                        "Сәфәр баҫтырылған ине. Карточка асыҡ түгел.")
+                    result.already -> appText("Уже опубликовано", "Элек баҫтырылған")
+                    else -> appText("В ленте", "Таҫмала")
+                }
                 CommandIntent.State.Closed -> appText("Запрос закрыт", "Һорау ябылды")
                 CommandIntent.State.Rejected -> (if (ba) result.ba else result.ru).takeUnless { it.isNullOrBlank() }
                     ?: appText("Поездку не опубликовали", "Сәфәр баҫтырылманы")

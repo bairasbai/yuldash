@@ -134,7 +134,8 @@ internal object RidePublicationApi {
                         rideId = if (outcome.state == CommandIntent.State.Applied) item.getInt("ref_id") else null,
                         already = outcome.state == CommandIntent.State.Applied,
                         code = if (outcome.state == CommandIntent.State.Closed) "idempotency_closed_no_effect"
-                        else item.seriesText("result_code"))
+                        else item.seriesText("result_code"),
+                        ru = item.seriesText("ru"), ba = item.seriesText("ba"))
                 }
             val result = response.getOrNull()
             if (result == null) failure = response.exceptionOrNull()

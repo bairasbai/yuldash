@@ -460,9 +460,15 @@ internal fun CreateRideScreen(
             )
         }
         if (showDeparturePicker && seriesMode) {
-            RideDatesPicker(seriesDates.ifEmpty { listOfNotNull(dateTime.takeIf(String::isNotBlank)) }, minimum = 2,
+            RideDatesPicker(seriesDates.ifEmpty { listOfNotNull(dateTime.takeIf(String::isNotBlank)) }, minimum = 1,
                 onDismiss = { showDeparturePicker = false }, onConfirm = { picked ->
-                    seriesDates = ArrayList(picked)
+                    if (picked.size == 1) {
+                        dateTime = picked.single()
+                        recurrence = "none"
+                        seriesDates = arrayListOf()
+                    } else {
+                        seriesDates = ArrayList(picked)
+                    }
                     showDeparturePicker = false
                 })
         } else if (showDeparturePicker) {

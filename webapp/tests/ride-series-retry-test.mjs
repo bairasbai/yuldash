@@ -78,6 +78,8 @@ globalThis.fetch = async (url, options) => {
   assert.ok(path.endsWith((await pending()).items.find(row => row.depart_at === dateB).commandKey));
   reads.push(path);
   if (phase === "unknown") return response({ state: "unseen", scope: null });
+  if (phase === "receipt-refusal") return response({ state: "rejected", scope: "ride.create",
+    result_code: "time_passed", ru: "Время выезда уже прошло", ba: "Сығыу ваҡыты үтеп киткән" });
   return response({ state: "applied", scope: "ride.create", ref_kind: "ride", ref_id: 52, current: {id: 52, driver_id: 7} });
 };
 
@@ -129,7 +131,17 @@ assert.equal(listPosts.length, oldCount);
 console.log("PASS expired checking and confirmed closure obey the original date fingerprint");
 
 assert.equal(await first.releaseRideSeries(owner, closed), true);
-const pendingBeforeSwitch = await submit(first, closed.key, [dateB]);
+const awaitingReceipt = await submit(first, closed.key, [dateB]);
+phase = "receipt-refusal";
+const refusal = await second.checkRideSeries(owner, awaitingReceipt, request());
+assert.equal(refusal.items[0].ru, "Время выезда уже прошло");
+assert.equal(refusal.items[0].ba, "Сығыу ваҡыты үтеп киткән");
+assert.equal(refusal.items[0].outcome, "rejected");
+assert.equal(await second.releaseRideSeries(owner, refusal), true);
+console.log("PASS restored receipt keeps the refusal reason in both languages");
+
+phase = "unknown";
+const pendingBeforeSwitch = await submit(first, refusal.key, [dateB]);
 const beforeSwitch = listPosts.length;
 const nextGeneration = await second.setSession(token(9), "test-refresh-other");
 const other = second.bookingCommandOwner({ id: 9, created_at: "2026-06-02T00:00:00Z" }, nextGeneration);
