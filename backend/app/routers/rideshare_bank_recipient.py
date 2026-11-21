@@ -49,6 +49,8 @@ class ExpectedRecipient(BaseModel):
 class RecipientSetup(BaseModel):
     setup_id: str
     expires_at: datetime
+    mode: Literal["synthetic"] = "synthetic"
+    version: str | None
 
 
 class RecipientConsent(BaseModel):
@@ -60,6 +62,10 @@ class RecipientConsent(BaseModel):
 class RecipientConfirmation(BaseModel):
     version: str
     confirmed_at: datetime
+
+
+class RecipientReceipt(BaseModel):
+    confirmation: RecipientConfirmation | None
 
 
 def _driver_only(user: User) -> None:
@@ -155,7 +161,8 @@ def begin_recipient_setup(body: ExpectedRecipient, response: Response, session: 
             paid_revision=switches.paid, card_revision=switches.card, expires_at=now + _SETUP_DURATION,
         )
         session.add(attempt)
-    result = RecipientSetup(setup_id=attempt.id, expires_at=attempt.expires_at.replace(tzinfo=timezone.utc))
+    result = RecipientSetup(setup_id=attempt.id, expires_at=attempt.expires_at.replace(tzinfo=timezone.utc),
+                            version=attempt.expected_version)
     session.commit()
     response.headers["Cache-Control"] = "no-store"
     return result
@@ -184,6 +191,12 @@ def recipient_confirmation(setup_id: SetupId, response: Response, session: Datab
     attempt = _owned_attempt(session, driver, fingerprint, setup_id)
     response.headers["Cache-Control"] = "no-store"
     return _receipt(attempt, utcnow())
+
+
+@router.get("/setup/{setup_id}/receipt", response_model=RecipientReceipt)
+def recipient_setup_receipt(setup_id: SetupId, response: Response, session: Database,
+                            credentials: Credentials) -> RecipientReceipt:
+    return RecipientReceipt(confirmation=recipient_confirmation(setup_id, response, session, credentials))
 
 
 @router.post("/setup/{setup_id}/confirm", response_model=RecipientConfirmation)

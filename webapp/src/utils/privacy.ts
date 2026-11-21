@@ -47,6 +47,7 @@ const PERSONAL_PREFIXES = [
   // Отмена в пути, которую вкладка уже видела: номер брони, машина и госномер (без телефона).
   "yuldash.inTransit.",
   "yuldash.guestBooking.", // one-use guest selection; cleared at every account boundary
+  "yuldash.driver.bank.recipient.setup.", // незавершённое подключение реквизита текущего входа
 ];
 
 /**

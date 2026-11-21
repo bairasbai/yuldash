@@ -6934,12 +6934,17 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
  * хотя ошибка тут означала бы, что человек видит СВОИ сообщения в чате как чужие.
  * `java.util.Base64` есть с Android 8, у нас minSdk 26 — работает и в приложении, и в тесте.
  */
-internal fun parseJwtUserId(token: String): Int? = runCatching {
+internal fun parseJwtUserId(token: String): Int? = parseJwtClaims(token)?.optString("sub")?.toIntOrNull()
+
+internal fun parseJwtAuthSessionId(token: String): String? =
+    (parseJwtClaims(token)?.opt("sid") as? String)?.takeIf { it.matches(Regex("[a-f0-9]{64}")) }
+
+private fun parseJwtClaims(token: String): JSONObject? = runCatching {
     val payload = token.split(".").getOrNull(1) ?: return null
     val pad = (4 - payload.length % 4) % 4          // JWT пишут без хвостовых «=», добавляем обратно
     val normalized = payload + "=".repeat(pad)
     val json = String(java.util.Base64.getUrlDecoder().decode(normalized), Charsets.UTF_8)
-    JSONObject(json).optString("sub").toIntOrNull()
+    JSONObject(json)
 }.getOrNull()
 
 private fun JSONObject.optNullableString(key: String): String? {

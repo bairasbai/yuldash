@@ -1624,7 +1624,12 @@ internal fun DriverCabinetScreen(
             driverBookings = driverBookings,
             boardingScope = rateScope,
             boardingOwner = meetingSession,
-            driverPaySettings = { DriverPaySettingsCard(meetingSession) },
+            driverPaySettings = {
+                Column(verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
+                    DriverPaySettingsCard(meetingSession)
+                    DriverBankRecipientCard(meetingSession)
+                }
+            },
             onBoardingResult = { bookingId, result ->
                 if (ApiClient.isCurrentSession(meetingSession)) {
                     val now = SystemClock.elapsedRealtime()
