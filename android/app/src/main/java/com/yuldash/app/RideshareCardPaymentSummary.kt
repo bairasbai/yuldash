@@ -71,7 +71,7 @@ internal fun rememberRideshareCardPayment(
 }
 
 @Composable
-internal fun RideshareCardPaymentSummary(read: CardPaymentRead, isDriver: Boolean) {
+internal fun RideshareCardPaymentSummary(read: CardPaymentRead, isDriver: Boolean, actions: @Composable () -> Unit = {}) {
     val payment = read.payment?.takeIf { it.hasOperation }
     AppCard {
         Column(Modifier.padding(CanonSpace.md), verticalArrangement = Arrangement.spacedBy(CanonSpace.sm)) {
@@ -109,6 +109,7 @@ internal fun RideshareCardPaymentSummary(read: CardPaymentRead, isDriver: Boolea
             TextButton(onClick = read.refresh, enabled = !read.loading) {
                 Text(appText("Обновить статус", "Торошто яңыртырға"))
             }
+            actions()
         }
     }
 }

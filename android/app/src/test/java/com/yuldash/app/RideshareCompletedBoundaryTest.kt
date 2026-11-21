@@ -58,6 +58,9 @@ class RideshareCompletedBoundaryTest {
     private val ownedJobs = CopyOnWriteArrayList<Job>()
     @Volatile private var httpReceipt: TripReceiptDto? = null
     @Volatile private var bankStatusEnabled = false
+    @Volatile private var bankCheckoutEnabled = false
+    @Volatile private var bankCommandAccepted = false
+    @Volatile private var bankCommandKey: String? = null
     private var contentMounted = false
 
     private fun awaitBackgroundCompletion() = runBlocking {
@@ -113,8 +116,31 @@ class RideshareCompletedBoundaryTest {
                     val key = "${request.method} ${request.path}"
                     val bearer = request.getHeader("Authorization")
                     requests += key to bearer
+                    if (bankCheckoutEnabled && bearer == "Bearer $tokenA") {
+                        if (key == "GET /bookings/42/card-payment/terms") {
+                            val json = if (bankCommandAccepted) """{"action":null}""" else
+                                """{"action":"start","confirmation":{"amount_kop":45000,"paid_revision":1,"card_revision":1,"recipient_version":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","driver_consent_at":"2026-11-21T04:00:00Z","retry_after_payment_id":null}}"""
+                            return MockResponse().setHeader("Content-Type", "application/json").setBody(json)
+                        }
+                        if (key == "GET /me") {
+                            return MockResponse().setBody("""{"id":11,"created_at":"2026-01-01T00:00:00Z"}""")
+                        }
+                        if (key == "POST /bookings/42/commands/v1/card-confirm") {
+                            bankCommandKey = request.getHeader("Idempotency-Key")
+                            val body = org.json.JSONObject(request.body.readUtf8())
+                            if (bankCommandKey?.startsWith("cmd1_") != true || body.optInt("amount_kop") != 45000) {
+                                fixtureFailures += "Wrong card confirmation payload or key"
+                            }
+                            return MockResponse().setResponseCode(503).setBody("{}")
+                        }
+                        if (bankCommandKey != null && key == "GET /command-intents/$bankCommandKey") {
+                            return MockResponse().setBody(if (bankCommandAccepted)
+                                """{"state":"applied","scope":"booking.card_confirm","ref_id":42,"current":{"accepted":true}}"""
+                            else """{"state":"unseen","scope":null}""")
+                        }
+                    }
                     if (request.method == "GET" && request.path in setOf("/bookings/42/card-payment", "/bookings/43/card-payment") && bearer == "Bearer $tokenA") {
-                        val status = if (bankStatusEnabled) "waiting_bank" else "unavailable"
+                        val status = if (bankStatusEnabled || bankCommandAccepted) "waiting_bank" else "unavailable"
                         return MockResponse().setHeader("Content-Type", "application/json")
                             .setBody("""{"currency":"RUB","payment_status":"$status","amount_kop":45000,"paid_kop":0,"refund_status":"not_started","refunded_kop":0,"refund_coverage":"none"}""")
                     }
@@ -128,7 +154,7 @@ class RideshareCompletedBoundaryTest {
                         return MockResponse().setResponseCode(403).setBody("{}")
                     }
                     val id = match.groupValues[1].toInt()
-                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":${!bankStatusEnabled},"card_payment_obligation":$bankStatusEnabled,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":${!bankStatusEnabled && !bankCheckoutEnabled},"card_payment_obligation":$bankStatusEnabled,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
                 }
             }
             start()
@@ -263,6 +289,49 @@ class RideshareCompletedBoundaryTest {
         list.performScrollToNode(refresh)
         compose.onNode(refresh).performClick()
         compose.waitUntil(5_000) { bankReads() == 2 }
+    }
+
+    @Test fun lostCardConfirmationRemainsPendingWhenCompletionReopens() {
+        bankCheckoutEnabled = true
+        mount()
+        val list = compose.onNodeWithTag("rideshareCompletedList")
+        fun findWhenReady(label: String): SemanticsNodeInteraction {
+            val target = hasText(label, substring = true)
+            compose.waitUntil(12_000) {
+                compose.mainClock.advanceTimeBy(100)
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                try {
+                    list.performScrollToNode(target)
+                    true
+                } catch (_: AssertionError) {
+                    false
+                }
+            }
+            return compose.onNode(target).assertIsDisplayed()
+        }
+        fun posts() = requests.count { it.first == "POST /bookings/42/commands/v1/card-confirm" }
+        findWhenReady("Оплатить картой").performClick()
+        findWhenReady("Сумма к оплате")
+        findWhenReady("Подтвердить оплату").performClick()
+        findWhenReady("Проверяем, принято ли подтверждение.")
+        assertEquals(1, posts())
+        compose.runOnIdle { mounted.value = false }
+        compose.waitForIdle()
+        compose.runOnIdle { mounted.value = true }
+        findWhenReady("Проверяем, принято ли подтверждение.")
+        assertEquals(1, posts())
+        bankCommandAccepted = true
+        findWhenReady("Проверить оплату").performClick()
+        findWhenReady("Ждём подтверждения банка")
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            runBlocking {
+                val owner = BookingCommandApi.commandOwner(ApiClient.queueSessionGeneration()).getOrThrow()
+                RideshareCardCheckoutApi.read(owner, 42).getOrThrow() == null
+            }
+        }
+        assertEquals(1, posts())
     }
 
     @Test fun ordinaryCompletedActionsRemainAvailable() {

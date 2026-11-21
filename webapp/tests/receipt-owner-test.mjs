@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { IDBFactory } from "fake-indexeddb";
 import { all, bundleComponent, button, checker, langMock, mount, text } from "./shallow-harness.mjs";
 
 const t = checker();
@@ -10,9 +11,17 @@ const bankReceipt = (status = "unavailable") => ({ currency: "RUB", payment_stat
   paid_kop: status === "succeeded" ? 45000 : 0, refund_status: "not_started", refunded_kop: 0,
   refund_coverage: "none", payout_status: null, paid_out_kop: null, payout_remaining_kop: null });
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
-const clientMock = `export class ApiError extends Error{constructor(status){super('fixture');this.status=status;}}globalThis.__receiptOwner.ApiError=ApiError;export const getSessionGeneration=()=>globalThis.__receiptOwner.generation;export const apiGet=(path, options)=>globalThis.__receiptOwner.bank(path,options);`;
+const clientMock = `export class ApiError extends Error{constructor(status){super('fixture');this.status=status;}}
+const h=globalThis.__receiptOwner;
+h.ApiError=ApiError;
+export const API_BASE='http://127.0.0.1:8000';
+export const getSessionGeneration=()=>h.generation;
+export const apiGet=(path, options)=>h.bank(path,options);
+export const isAccountSession=(owner)=>owner.userId===h.user?.id&&owner.generation===h.generation;
+export const apiCommand=(...args)=>h.command(...args);`;
 function reset() {
-  Object.assign(h, { generation: "A", bookingId: 42, calls: [], routes: [], clips: [], shares: [], thanks: [], pays: [], remembered: [],
+  globalThis.indexedDB = new IDBFactory();
+  Object.assign(h, { generation: "A", bookingId: 42, user: null, calls: [], routes: [], clips: [], shares: [], thanks: [], pays: [], remembered: [], bankLinks: [],
     receipt: async id => receipt(id), tip: async () => ({ already_thanked: false, money: { sbp: "+70000000001", name: "PRIVATE-42" } }),
     thank: async () => ({}), pay: async () => ({ ok: true }), bank: async () => bankReceipt(), share: undefined, clip: async () => {} });
 }
@@ -21,12 +30,13 @@ Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
   clipboard: { writeText: async value => { h.clips.push(value); return h.clip(value); } },
 } });
 const timers = new Map(); const focusListeners = new Set(); let timerId = 0;
-globalThis.window = { location: { pathname: "/trips/42/receipt", href: "" }, setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id),
+globalThis.window = { location: { pathname: "/trips/42/receipt", href: "", assign: url => h.bankLinks.push(url) }, setTimeout: fn => { timers.set(++timerId, fn); return timerId; }, clearTimeout: id => timers.delete(id),
   addEventListener: (event, fn) => { if (event === "focus") focusListeners.add(fn); },
   removeEventListener: (event, fn) => { if (event === "focus") focusListeners.delete(fn); },
 };
 const mocks = lang => ({
   "/i18n/lang": langMock(lang),
+  "/auth/AuthProvider": `export const useAuth=()=>({user:globalThis.__receiptOwner.user});`,
   "react-router-dom": `export const useNavigate=()=> (...a)=>globalThis.__receiptOwner.routes.push(a),useParams=()=>({id:String(globalThis.__receiptOwner.bookingId)});`,
   "/api/client": clientMock,
   "./client": clientMock,
@@ -45,11 +55,124 @@ const findLeaf = (s, name) => all(s.tree).find(n => n.type === name);
 const shareButton = s => all(s.tree).find(n => n.type === "button" && (text(n).includes("Поделиться квитанцией") || text(n).includes("Квитанция менән бүлешеү")));
 const thanksButton = s => all(s.tree).find(n => n.type === "button" && (text(n).includes("Сказать рәхмәт") || text(n).includes("Рәхмәт әйтеү")));
 
+function checkoutFixture(action) {
+  const priorId = "a".repeat(32);
+  const nextId = "b".repeat(32);
+  const terms = { amount_kop: 45000, paid_revision: 1, card_revision: 1, recipient_version: "c".repeat(32),
+    driver_consent_at: "2026-11-21T04:00:00Z", retry_after_payment_id: action === "retry" ? priorId : null };
+  const fixture = { outcome: "unseen", status: action === "retry" ? "canceled" : "unavailable",
+    attemptId: action === "retry" ? priorId : null, posts: [], offer: { action, confirmation: terms } };
+  h.user = { id: 12, created_at: "2025-01-01T00:00:00Z" };
+  h.bank = async () => ({ ...bankReceipt(fixture.status), payment_attempt_id: fixture.attemptId });
+  h.command = async (path, owner, options) => {
+    assert.equal(owner.userId, h.user.id);
+    assert.equal(owner.generation, h.generation);
+    assert.equal(options.signal.aborted, false);
+    if (path === "/bookings/42/card-payment/terms") return fixture.offer ?? {};
+    if (path === "/bookings/42/commands/v1/card-confirm") {
+      assert.equal(options.method, "POST");
+      assert.equal(options.oneShot, true);
+      assert.match(options.key, /^cmd1_/);
+      assert.deepEqual(JSON.parse(options.body), terms);
+      fixture.posts.push(options.key);
+      if (action === "retry") {
+        fixture.outcome = "applied";
+        return { accepted: true };
+      }
+      throw new Error("Simulated loss before any client acknowledgement");
+    }
+    if (path.startsWith("/command-intents/")) {
+      assert.equal(options.method, "GET");
+      assert.equal(path, "/command-intents/" + fixture.posts[0]);
+      return fixture.outcome === "unseen" ? { state: "unseen", scope: null } :
+        { state: "applied", scope: "booking.card_confirm", ref_id: 42, current: { accepted: true } };
+    }
+    assert.equal(path, "/bookings/42/card-payment/checkout-link?expected_payment_id=" + nextId);
+    return { checkout_url: "https://yoomoney.ru/checkout/synthetic" };
+  };
+  return { fixture, nextId };
+}
+
+async function checkoutUntil(s, condition) {
+  for (let i = 0; i < 30; i++) {
+    await new Promise(resolve => setImmediate(resolve));
+    await s.settle();
+    const controls = findLeaf(s, "RideshareCardCheckout")?.props.checkout;
+    if (controls && condition(controls)) return controls;
+  }
+  throw new Error("Checkout control did not reach the expected state");
+}
+
+await t.test("the bank redirect accepts only exact trusted HTTPS authorities", async () => {
+  const trusted = await bundleComponent("src/api/rideshareCardCheckout.ts", { mocks: mocks("ru"), exportName: "trustedCardCheckoutUrl" });
+  assert.equal(trusted("https://yoomoney.ru/checkout/synthetic"), true);
+  assert.equal(trusted("https://yookassa.ru:443/checkout/synthetic"), true);
+  for (const url of ["http://yoomoney.ru", "https://yoomoney.ru.invalid", "https://user@yoomoney.ru",
+    "https://yoomoney.ru@invalid.example", "https://yoomoney.ru:444", "https://yoomoney.ru:",
+    "https://%79oomoney.ru/checkout", " https://yoomoney.ru", ["https://yoomoney.ru"]]) {
+    assert.equal(trusted(url), false);
+  }
+});
+
 for (const lang of ["ru", "ba"]) {
   const Screen = await bundleComponent("src/screens/TripReceiptScreen.tsx", { mocks: mocks(lang),
-    real: ["/utils/completedBookingPrivacy", "/utils/useRideshareCardPayment", "/api/rideshareCardPayment"] });
+    real: ["/utils/completedBookingPrivacy", "/utils/useRideshareCardPayment", "/api/rideshareCardPayment",
+      "/utils/useRideshareCardCheckout", "/utils/bookingCommandStore"] });
   const Pay = await bundleComponent("src/components/PayTripCard.tsx", { mocks: mocks(lang) });
   const Sbp = await bundleComponent("src/components/SbpPay.tsx", { mocks: mocks(lang) });
+  await t.test(`${lang}: a lost card confirmation survives reopening and no automatic POST is sent`, async () => {
+    reset();
+    const { fixture, nextId } = checkoutFixture("start");
+    const starting = open(Screen);
+    await starting.settle();
+    const initial = await checkoutUntil(starting, read => read.offer?.action === "start");
+    initial.choose();
+    const confirmation = await checkoutUntil(starting, read => read.view.selected !== null);
+    assert.equal(confirmation.view.selected.confirmation.amount_kop, 45000);
+    confirmation.confirm();
+    confirmation.confirm();
+    await checkoutUntil(starting, read => read.canRepeat && !read.view.busy);
+    assert.equal(fixture.posts.length, 1);
+    assert.equal(findLeaf(starting, "PayTripCard"), undefined);
+    starting.unmount();
+    const restored = open(Screen);
+    await restored.settle();
+    const pending = await checkoutUntil(restored, read => read.canRepeat && !read.view.busy);
+    assert.equal(fixture.posts.length, 1);
+    assert.equal(findLeaf(restored, "PayTripCard"), undefined);
+    fixture.outcome = "applied";
+    fixture.status = "waiting_bank";
+    fixture.attemptId = nextId;
+    fixture.offer = null;
+    pending.refresh();
+    const waiting = await checkoutUntil(restored, read => read.canOpenBank && !read.view.pending && !read.view.busy);
+    waiting.openBank();
+    await checkoutUntil(restored, read => !read.view.busy && h.bankLinks.length === 1);
+    assert.deepEqual(h.bankLinks, ["https://yoomoney.ru/checkout/synthetic"]);
+    assert.equal(fixture.posts.length, 1);
+    restored.unmount();
+  });
+
+  await t.test(`${lang}: old canceled status cannot release direct payment during a new card attempt`, async () => {
+    reset();
+    const { fixture, nextId } = checkoutFixture("retry");
+    const s = open(Screen);
+    await s.settle();
+    const retry = await checkoutUntil(s, read => read.offer?.action === "retry");
+    retry.choose();
+    const confirmation = await checkoutUntil(s, read => read.view.selected !== null);
+    confirmation.confirm();
+    const stillPending = await checkoutUntil(s, read => read.view.confirmationState === "applied" && !read.view.busy);
+    assert.equal(stillPending.canRepeat, false);
+    assert.equal(findLeaf(s, "PayTripCard"), undefined);
+    fixture.status = "waiting_bank";
+    fixture.attemptId = nextId;
+    fixture.offer = null;
+    stillPending.refresh();
+    await checkoutUntil(s, read => !read.view.pending && read.canOpenBank && !read.view.busy);
+    assert.equal(fixture.posts.length, 1);
+    s.unmount();
+  });
   await t.test(`${lang}: an admitted card payment takes precedence and a canceled charge releases direct payment`, async () => {
     reset();
     h.receipt = async id => receipt(id, { card_payment_obligation: true });

@@ -1,11 +1,13 @@
+import type { ReactNode } from "react";
 import { hasBankPayment, type BankStatus } from "../api/rideshareCardPayment";
 import { useLang } from "../i18n/lang";
 import { kopExactLabel } from "../utils/format";
 import type { PaymentRead } from "../utils/useRideshareCardPayment";
 
-export default function RideshareCardPaymentSummary({ read, driver }: {
+export default function RideshareCardPaymentSummary({ read, driver, children }: {
   read: PaymentRead & { refresh: () => void };
   driver: boolean;
+  children?: ReactNode;
 }) {
   const { appText } = useLang();
   const labels: Record<BankStatus, string> = {
@@ -61,6 +63,7 @@ export default function RideshareCardPaymentSummary({ read, driver }: {
         {read.phase === "loading" ? appText("Обновляем статус…", "Торошто яңыртабыҙ…")
           : appText("Обновить статус", "Торошто яңыртырға")}
       </button>
+      {children}
     </section>
   );
 }

@@ -367,11 +367,12 @@ async function request<T>(
   init: RequestInit & {
     auth?: boolean; _retried?: boolean; _generation?: string; _userId?: number; _deletionConfirmation?: boolean;
     _allowAttempt?: () => Promise<boolean>;
+    _withoutAuthReplay?: boolean;
     onResponse?: (response: Response) => void;
   } = {}
 ): Promise<T> {
   const { auth = true, headers, _retried = false, _generation = getSessionGeneration(), _userId,
-    _deletionConfirmation, _allowAttempt, onResponse, ...rest } = init;
+    _deletionConfirmation, _allowAttempt, _withoutAuthReplay, onResponse, ...rest } = init;
   const checkSession = () => {
     if (auth && (_generation !== getSessionGeneration() || (_userId !== undefined && !tokenMatchesUser(getToken(), _userId)))) {
       throw new ApiError(409, genericByStatus(409, isBashkir()));
@@ -411,6 +412,7 @@ async function request<T>(
   if (!_deletionConfirmation || !res.ok) checkSession();
 
   if (res.status === 401) {
+    if (_withoutAuthReplay) throw new ApiError(401, genericByStatus(401, isBashkir()));
     // Access протух → один раз пробуем обновить по refresh и повторить запрос.
     if (auth && !_retried && getRefreshToken()) {
       const refreshed = getToken() !== sentToken || await runRefresh(_generation, sentToken);
@@ -498,11 +500,13 @@ export function apiPost<T>(
 export function apiCommand<T>(
   path: string,
   owner: { generation: string; userId: number },
-  opts: { signal?: AbortSignal; method: "GET" | "POST" | "PUT" | "DELETE"; body?: string; key?: string; allowAttempt?: () => Promise<boolean> },
+  opts: { signal?: AbortSignal; method: "GET" | "POST" | "PUT" | "DELETE"; body?: string; key?: string;
+    allowAttempt?: () => Promise<boolean>; oneShot?: boolean },
 ): Promise<T> {
   return request<T>(path, {
     method: opts.method, signal: opts.signal, body: opts.body, redirect: "error", cache: "no-store",
     _generation: owner.generation, _userId: owner.userId, _allowAttempt: opts.allowAttempt,
+    _withoutAuthReplay: opts.oneShot,
     headers: {
       ...(opts.body !== undefined ? { "Content-Type": "application/json" } : {}),
       ...(opts.key ? { "Idempotency-Key": opts.key } : {}),

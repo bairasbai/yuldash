@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import { useLang } from "../i18n/lang";
+import { useAuth } from "../auth/AuthProvider";
 import { completedContactsVisible, useCompletedContactExpiry } from "../utils/completedBookingPrivacy";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { fetchReceipt, reportBookingLostItem, type TripReceipt } from "../api/bookings";
@@ -15,12 +16,15 @@ import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
 import SbpPay from "../components/SbpPay";
 import PayTripCard from "../components/PayTripCard";
 import ReceiptRateDriver from "../components/ReceiptRateDriver";
+import RideshareCardCheckout from "../components/RideshareCardCheckout";
 import RideshareCardPaymentSummary from "../components/RideshareCardPaymentSummary";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare, IconSearch } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { useRideshareCardPayment } from "../utils/useRideshareCardPayment";
+import { useRideshareCardCheckout } from "../utils/useRideshareCardCheckout";
+import { bookingCommandOwner } from "../utils/bookingCommandStore";
 
 type State =
   | { kind: "loading" }
@@ -30,6 +34,7 @@ type State =
 
 export default function TripReceiptScreen() {
   const { appText, lang } = useLang();
+  const { user } = useAuth();
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const { id } = useParams();
@@ -117,8 +122,10 @@ export default function TripReceiptScreen() {
   const driverReceipt = state.kind === "ready" && state.r.role === "driver";
   const r = state.kind === "ready" ? state.r : null;
   const bankPayment = useRideshareCardPayment(passengerReceipt || driverReceipt ? r : null, generation, currentReceipt);
-  const bankReplacesDirect = replacesDirectPayment(bankPayment.payment, r?.card_payment_obligation === true);
-  const showBank = bankReplacesDirect || hasBankPayment(bankPayment.payment);
+  const checkout = useRideshareCardCheckout(passengerReceipt && r ? r.booking_id : null,
+    bookingCommandOwner(user, generation), () => r !== null && passengerReceipt && currentReceipt(r), bankPayment);
+  const showBank = replacesDirectPayment(bankPayment.payment, r?.card_payment_obligation === true) || hasBankPayment(bankPayment.payment);
+  const bankReplacesDirect = checkout.holdsDirect || replacesDirectPayment(bankPayment.payment, r?.card_payment_obligation === true);
   const bankOwnsPayment = useRef(bankReplacesDirect);
   bankOwnsPayment.current = bankReplacesDirect;
   const deadline = driverReceipt ? r?.completedContactDeadline : undefined;
@@ -334,7 +341,11 @@ ${priceLabel(r.amount, false)}`
           </button>
 
           {/* Неоплаченная поездка — способ рассчитаться. Оплачено: блока нет. */}
-          {showBank && <RideshareCardPaymentSummary read={bankPayment} driver={driverReceipt} />}
+          {showBank ? (
+            <RideshareCardPaymentSummary read={{ ...bankPayment, refresh: checkout.refresh }} driver={driverReceipt}>
+              {passengerReceipt && <RideshareCardCheckout checkout={checkout} insideSummary />}
+            </RideshareCardPaymentSummary>
+          ) : passengerReceipt && <RideshareCardCheckout checkout={checkout} insideSummary={false} />}
           {passengerReceipt && !state.r.paid && !bankReplacesDirect && (
             <PayTripCard
               kind="booking"

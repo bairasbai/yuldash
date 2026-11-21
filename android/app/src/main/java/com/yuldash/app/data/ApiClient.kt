@@ -1046,10 +1046,12 @@ object ApiClient {
             frontSeat, pickupStop, dropoffStop, expectedPrice, expectedTermsVersion, meeting, alighting, travelerName),
         expectedGeneration, previousKey, retry, onPrepared)
 
-    internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null, blockDuringDeletion: Boolean = false): Result<JSONObject> =
+    internal suspend fun bookingCommandRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null,
+        blockDuringDeletion: Boolean = false, withoutAuthReplay: Boolean = false): Result<JSONObject> =
         call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
             singleAttemptMutation = true, wireBody = body, expectedBase = base,
-            admitWire = if (blockDuringDeletion) ({ BookingCommandApi.publicationAllowed(generation) }) else null)
+            admitWire = if (blockDuringDeletion) ({ BookingCommandApi.publicationAllowed(generation) }) else null,
+            withoutAuthReplay = withoutAuthReplay)
 
     internal suspend fun ridePublicationRequest(method: String, path: String, body: String?, generation: Long, base: String, key: String? = null): Result<JSONObject> =
         call(method, path, null, auth = true, expectedGeneration = generation, idempotencyKey = key,
@@ -3582,6 +3584,7 @@ object ApiClient {
         onDeletionConfirmed: (() -> Unit)? = null,
         admitWire: (() -> Boolean)? = null,
         freshRead: Boolean = false,
+        withoutAuthReplay: Boolean = false,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3691,6 +3694,8 @@ object ApiClient {
                     testTrace?.invoke("ВЫШЛИ из вызова $method $path успешно (код $code)")
                     if (!idempotent) OfflineTripSnapshotHooks.acceptedPrivateChange(path, snapshotOwner)
                     Result.success(obj)
+                } else if (code == 401 && auth && withoutAuthReplay) {
+                    Result.failure(ApiException(401, genericByStatus(401, langBa)))
                 } else if (code == 401 && auth && !isRetry && !refreshToken.isNullOrBlank()) {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                     conn?.disconnect(); conn = null
