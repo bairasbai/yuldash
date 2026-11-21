@@ -1076,6 +1076,20 @@ class Tariff(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class TaxiConsentAttempt(SQLModel, table=True):
+    """Ephemeral admission fence, never a copy of an order or its request."""
+    __table_args__ = (
+        UniqueConstraint("quote_id", name="uq_taxi_attempt_quote"),
+        CheckConstraint("state IN ('issued', 'closed', 'committed')", name="ck_taxi_attempt_state"),
+    )
+    owner_id: int = Field(sa_column=Column(Integer, ForeignKey("user.id", ondelete="CASCADE"),
+                                          primary_key=True, nullable=False))
+    request_key: str = Field(primary_key=True, max_length=36)
+    quote_id: str = Field(max_length=36)
+    expires_at: datetime = Field(index=True)
+    state: str = Field(default="issued", max_length=12)
+
+
 class InstantOrder(SQLModel, table=True):
     """Быстрый заказ (такси-режим). Отдельный поток от плановых поездок (Ride/Booking).
     Все переходы статусов — под row-lock, идемпотентные. Координаты в БД нужны для трека

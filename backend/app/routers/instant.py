@@ -193,6 +193,14 @@ def get_consent_result(body: ConsentResultIn, response: Response,
     return consent.read_result(session, user.id, str(body.request_key))
 
 
+@router.post("/instant/orders/close-attempt/v1")
+def close_consent_attempt(body: ConsentResultIn, response: Response,
+                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Explicitly fence a pending attempt; this endpoint never creates/cancels a trip."""
+    response.headers["Cache-Control"] = "no-store"
+    return consent.close_attempt(session, user.id, str(body.request_key))
+
+
 class ConfirmedOrderIn(OrderIn):
     model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
     quote_id: UUID
@@ -606,6 +614,7 @@ def create_confirmed_order(body: ConfirmedOrderIn, user: User = Depends(current_
             if replay.consent_request_digest != request_hash:
                 raise consent.conflict("taxi_consent_key_conflict")
             return _consent_payload(session, replay, user)
+        attempt = consent.admit_attempt(session, user.id, str(body.request_key), str(body.quote_id))
         _guard_consent_input(body)
         ensure_active(session, user.id, refresh=False)  # read-only gate: retain passenger lock
         _guard_taxi_available(session, body.from_lat, body.from_lng)
@@ -658,6 +667,8 @@ def create_confirmed_order(body: ConfirmedOrderIn, user: User = Depends(current_
         )).first()
         if other_live is not None:
             raise consent.conflict("taxi_consent_active_order")
+        attempt.state = "committed"
+        session.add(attempt)
         session.commit()
         session.refresh(order)
     except Exception:

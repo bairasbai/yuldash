@@ -149,7 +149,7 @@ KEEP_FOREVER = {
 _ALLOWED_TABLES = frozenset({
     "message", "otpcode", "tgauth", "otpbudgetbucket", "otpsendattempt", "otpbudgetalert",
     "uploadevent", "refreshtoken", "adevent", "offerdecline",
-    "drivercancel",
+    "drivercancel", "taxiconsentattempt",
     "sosevent", "report", "tripshare", "requestresponse", "riderequest",
     "booking", "ride", "notification", "instantorder", "parceldelivery",
     "analyticsevent", "waitlistentry", "pricecomplaint",
@@ -170,6 +170,9 @@ def _rules(now):
         "AND NOT EXISTS (SELECT 1 FROM refreshtoken WHERE auth_session_id = authsession.id)"
     )
     return [
+        # Quote TTL is unchanged. Physical deletion uses the existing nightly cleanup;
+        # absence never reopens admission. Accepted order metadata remains with its order.
+        ("протухшие ограждения попыток такси", "taxiconsentattempt", "expires_at <= :now", {"now": now}),
         # --- Фаза 1: эфемерное (безопасно, основной объём) ---
         ("сообщения чата >30д", "message", "created_at < :c", {"c": cut(MSG_DAYS)}),
         ("коды входа (OTP) >1д", "otpcode", "created_at < :c", {"c": cut(OTP_DAYS)}),
@@ -335,8 +338,9 @@ def _delete_batched(table, where, params):
     # PostgreSQL may wait for a concurrent rebind. Recheck the subscription's new
     # owner in the DELETE itself after the wait, even if its numeric id is unchanged.
     # Expired cooldowns and recipient attempts can also change before the delete.
-    recheck = f" AND ({where})" if table in {"webpushsubscription", "otpbudgetbucket", "ridesharebankrecipientsetup"} else ""
-    keys = {"otpbudgetbucket": "scope, subject, window_start", "otpbudgetalert": "service_day, kind"}
+    recheck = f" AND ({where})" if table in {"webpushsubscription", "otpbudgetbucket", "ridesharebankrecipientsetup", "taxiconsentattempt"} else ""
+    keys = {"otpbudgetbucket": "scope, subject, window_start", "otpbudgetalert": "service_day, kind",
+            "taxiconsentattempt": "owner_id, request_key"}
     columns = keys.get(table, "id")
     locator = f"({columns})" if table in keys else columns
     sql = text(f"DELETE FROM {table} WHERE {locator} IN "

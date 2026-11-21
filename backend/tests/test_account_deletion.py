@@ -12,6 +12,7 @@
 живут дальше. Иначе нарушитель одним тапом уничтожал доказательства против себя.
 """
 from datetime import date, timedelta
+from uuid import uuid4
 
 from cryptography.fernet import Fernet
 from sqlalchemy import text as satext
@@ -80,6 +81,8 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
     with Session(engine) as s:
         user = s.get(User, uid)
         phone = user.phone
+        s.add(M.TaxiConsentAttempt(owner_id=uid, request_key=str(uuid4()), quote_id=str(uuid4()),
+                                   expires_at=utcnow() + timedelta(minutes=2)))
         s.add(M.DriverPaySettings(user_id=uid, methods="cash"))
         save_bank_recipient(s, uid, "synthetic-payout-token", expected_version=None,
                             cipher=Fernet(Fernet.generate_key()), scope=BankRecipientScope(True, None))

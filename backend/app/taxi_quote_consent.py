@@ -6,7 +6,7 @@ No raw route, address, recipient or phone is copied into cache/consent metadata.
 import hashlib
 import json
 from contextlib import contextmanager
-from datetime import timedelta
+from datetime import datetime, timedelta
 from uuid import UUID, uuid4
 
 from redis.exceptions import RedisError, WatchError
@@ -17,7 +17,7 @@ from sqlmodel import Session, select
 from . import car_class, price_freeze, promo_ride
 from .config import settings
 from .errors import herr
-from .models import InstantOrder, PromoCode, PromoRedemption, Tariff
+from .models import InstantOrder, PromoCode, PromoRedemption, Tariff, TaxiConsentAttempt
 from .timeutil import utcnow
 
 SCHEMA = "taxi-initial-consent-v1"
@@ -73,6 +73,48 @@ def read_result(session: Session, owner: int, request_key: str) -> dict:
         raise result_unavailable() from None
     return {**result, "state": "committed", "order_id": order_id,
             "initial_payable_kop": accepted["payable_kop"], "next": "fetch_order"}
+
+
+def locked_attempt(session: Session, owner: int, key: str) -> TaxiConsentAttempt | None:
+    # The caller already holds the same owner lock as confirm; row lock also fences GC.
+    return session.exec(select(TaxiConsentAttempt).where(
+        TaxiConsentAttempt.owner_id == owner, TaxiConsentAttempt.request_key == key,
+    ).with_for_update().execution_options(populate_existing=True)).one_or_none()
+
+
+def admit_attempt(session: Session, owner: int, key: str, quote_id: str) -> TaxiConsentAttempt:
+    row = locked_attempt(session, owner, key)
+    # No guessing/backfill/cache fallback for old, closed, deleted or unissued records.
+    if row is None or row.state != "issued" or row.quote_id != quote_id or row.expires_at <= utcnow():
+        raise conflict()
+    return row
+
+
+def close_attempt(session: Session, owner: int, key: str) -> dict:
+    from .security import lock_refresh_user
+    try:
+        lock_refresh_user(session, owner)
+        result = read_result(session, owner, key)
+        if result["state"] == "committed":
+            return result  # Never change/cancel a committed order or its replay.
+        row = locked_attempt(session, owner, key)
+        result = {"schema": "taxi-consent-close-v1", "state": "unknown",
+                  "history": "unverified", "admission": "blocked"}
+        if row is None:
+            # This is NOT proof of history. Mandatory SQL admission denies the old pair,
+            # including after GC; issuing a fresh quote never reconstructs this pair.
+            return result
+        if row.state == "committed":
+            return {**result, "state": "retired", "history": "created_unavailable"}
+        row.state = "closed"
+        session.add(row)
+        session.commit()  # Only the successful commit permits a closed/not_created answer.
+        return {**result, "state": "closed", "history": "not_created"}
+    except SQLAlchemyError:
+        raise result_unavailable() from None
+    finally:
+        if session.in_transaction():
+            session.rollback()
 
 
 def canonical(value) -> str:
@@ -194,11 +236,21 @@ def issue(session: Session, redis, owner: int, body, est: dict) -> dict:
         "pricing_inputs_digest": pricing_inputs(session, est, body),
     }
     data["snapshot_digest"] = digest(data)
+    from .security import lock_refresh_user
     try:
+        lock_refresh_user(session, owner)
+        session.add(TaxiConsentAttempt(owner_id=owner, request_key=key, quote_id=quote_id,
+                                       expires_at=datetime.fromisoformat(data["expires_at"])))
+        session.flush()
         if not redis.set(_PREFIX + str(owner) + ":" + quote_id, canonical(data), ex=ttl, nx=True):
             raise unavailable()
-    except RedisError:
+        session.commit()
+    except (RedisError, SQLAlchemyError):
+        session.rollback()
         raise unavailable() from None
+    except Exception:
+        session.rollback()
+        raise
     return public_snapshot(data)
 
 
