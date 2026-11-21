@@ -4066,8 +4066,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/OfflineTripParentAuthorityTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "b89ed7a91ba5e83382f281d6cedefc279f5a77665e81a4952f32b050a51a5bc2",
-      "lines": 910
+      "sha256": "765f23d3b2af5a0359235613fe24f6ca4befb9cc0f6d42a1d77008e29a088150",
+      "lines": 912
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/OfflineTripRestoreWiringTest.kt",
