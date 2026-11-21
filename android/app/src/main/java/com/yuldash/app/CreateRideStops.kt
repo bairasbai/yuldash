@@ -169,11 +169,11 @@ internal class StopPricesStore(
 }
 
 @Composable
-internal fun rememberStopPricesStore(): StopPricesStore {
+internal fun rememberStopPricesStore(initial: List<Int> = emptyList()): StopPricesStore {
     val err = appText("Проверь цены остановок: каждая больше предыдущей и меньше цены маршрута.",
                       "Туҡталыш хаҡтарын тикшер: һәр береһе алдағыһынан ҙур һәм юл хаҡынан бәләкәй.")
-    val enabled = rememberSaveable { mutableStateOf(false) }
-    val values = rememberSaveable { mutableStateOf<List<String>>(arrayListOf()) }
+    val enabled = rememberSaveable { mutableStateOf(initial.isNotEmpty()) }
+    val values = rememberSaveable { mutableStateOf<List<String>>(ArrayList(initial.map(Int::toString))) }
     return remember(err, enabled, values) { StopPricesStore(err, enabled, values) }
 }
 

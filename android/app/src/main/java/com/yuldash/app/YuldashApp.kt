@@ -404,7 +404,7 @@ private fun YuldashAppContent() {
     var driverProfileId by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<Int>("driverProfileId", screenStateOwner)) { mutableStateOf(0) }   // чей публичный профиль открыть (0 = никакой)
     var createRideReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("createRideReturnScreen")) { mutableStateOf(Screen.Home) }
     var createRideReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("createRideReturnHomeTab")) { mutableStateOf(HomeTab.Request) }
-    var createRidePrefillDate by rememberSaveable(saver = rootNavigationStateSaver<String?>("createRidePrefillDate")) { mutableStateOf<String?>(null) }   // F15: дата-шаблон праздника для формы поездки
+    var createRidePrefill by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String?>("createRidePrefill", screenStateOwner)) { mutableStateOf<String?>(null) }
     var trustedContactsReturnScreen by rememberSaveable(saver = rootNavigationStateSaver<Screen>("trustedContactsReturnScreen")) { mutableStateOf(Screen.SimpleMode) }
     var trustedContactsReturnHomeTab by rememberSaveable(saver = rootNavigationStateSaver<HomeTab>("trustedContactsReturnHomeTab")) { mutableStateOf(HomeTab.Profile) }
     var selectedBookingStatus by rememberSaveable(screenStateOwner, saver = rootNavigationStateSaver<String>("selectedBookingStatus", screenStateOwner)) { mutableStateOf("") }
@@ -1000,14 +1000,12 @@ private fun YuldashAppContent() {
         if (prev != null && prev != screen && prev != Screen.Home) { navPopping = true; screen = prev }
         else openHome(startHomeTab)
     }
-    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request, prefillDate: String? = null) {
+    fun openCreateRide(returnScreen: Screen = Screen.Home, returnHomeTab: HomeTab = HomeTab.Request, prefillDate: String? = null, template: com.yuldash.app.data.RideReturnTemplate? = null) {
         createRideReturnScreen = returnScreen
         createRideReturnHomeTab = returnHomeTab
-        createRidePrefillDate = prefillDate   // null для обычного создания → форма как раньше
+        if (template != null) screenStates.removeState(createRideStateKey(screenStateOwner, createRidePrefill))
+        if (template != null || prefillDate != null) createRidePrefill = template?.savedJson() ?: prefillDate
         screen = Screen.CreateRide
-    }
-    fun closeCreateRide() {
-        if (createRideReturnScreen == Screen.Home) openHome(createRideReturnHomeTab) else screen = createRideReturnScreen
     }
     fun openTrustedContacts(returnScreen: Screen = Screen.SimpleMode, returnHomeTab: HomeTab = HomeTab.Profile) {
         trustedContactsReturnScreen = returnScreen
@@ -1221,7 +1219,7 @@ private fun YuldashAppContent() {
         // Состояние экрана переживает уход с него: ушёл в «Способы оплаты» и вернулся —
         // маршрут, цена и введённый текст на месте. Обычный `when` уничтожает композицию
         // ушедшего экрана вместе с его состоянием, и человек вводил адрес заново.
-        screenStates.SaveableStateProvider("$screenStateOwner:${scr.name}") {
+        screenStates.SaveableStateProvider(if (scr == Screen.CreateRide) createRideStateKey(screenStateOwner, createRidePrefill) else "$screenStateOwner:${scr.name}") {
         when (scr) {
             // Кабинет админа — двадцать один экран, и все просят одно и то же:
             // «назад» и «перейти». Держать их здесь значило раздувать выбор экрана до
@@ -1377,12 +1375,13 @@ private fun YuldashAppContent() {
                 onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt },
             )
             Screen.CreateRide -> CreateRideScreen(
-                prefillDate = createRidePrefillDate,   // F15: если пришли из баннера — дата праздника уже стоит
+                prefill = remember(createRidePrefill) { RideCreatePrefill.restore(createRidePrefill) },
                 onBack = { goBack() },
                 onPublicationResolved = { ridesReload++ },
+                onOpenReturnTemplate = { openCreateRide(createRideReturnScreen, createRideReturnHomeTab, template = it) },
                 onPublish = {
-                    screenStates.removeState("$screenStateOwner:${Screen.CreateRide.name}")
-                    Toast.makeText(context, if (language == AppLanguage.Ba) "Сәфәр баҫтырылды" else "Поездка опубликована", Toast.LENGTH_SHORT).show()
+                    screenStates.removeState(createRideStateKey(screenStateOwner, createRidePrefill))
+                    createRidePrefill = null
                     if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)
                 }
             )
@@ -1709,6 +1708,8 @@ private fun YuldashAppContent() {
                 rides = rides,
                 onBack = { goBack() },
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
+                onReturnRide = { openCreateRide(returnScreen = Screen.DriverCabinet, template = it) },
+                onReviewRidePublication = { createRideReturnScreen = Screen.DriverCabinet; screen = Screen.CreateRide },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
                 onRequestsFeed = { screen = Screen.RequestsFeed },

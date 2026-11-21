@@ -273,19 +273,20 @@ internal const val RIDE_PRICE_MAX = 100_000
 /**
  * Чистая валидация формы поездки: маршрут задан (откуда/куда не пусто) и цена — целое число
  * в диапазоне [RIDE_PRICE_MIN..RIDE_PRICE_MAX]. Без Compose/сети → тестируется прямым вызовом на JVM.
- * «Плохие» кейсы: пустой from/to → false; цена 0/отрицательная/пустая/нечисло/вне диапазона → false.
+ * Ноль допускается в обратном шаблоне с договорной ценой.
  */
-internal fun createRideValid(from: String, to: String, price: String): Boolean {
+internal fun createRideValid(from: String, to: String, price: String, allowNegotiatedPrice: Boolean = false): Boolean {
     if (from.isBlank() || to.isBlank()) return false
     val p = price.trim().toIntOrNull() ?: return false
-    return p in RIDE_PRICE_MIN..RIDE_PRICE_MAX
+    return (allowNegotiatedPrice && p == 0) || p in RIDE_PRICE_MIN..RIDE_PRICE_MAX
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CreateRideScreen(
-    onBack: () -> Unit, onPublish: (Ride) -> Unit, prefillDate: String? = null,
+    onBack: () -> Unit, onPublish: (Ride) -> Unit, prefill: RideCreatePrefill = RideCreatePrefill(),
     onPublicationResolved: () -> Unit = {},
+    onOpenReturnTemplate: ((com.yuldash.app.data.RideReturnTemplate) -> Unit)? = null,
 ) {
     // rememberSaveable, а не remember: Android выгружает приложение из памяти, пока человек
     // отвечает на звонок или смотрит карту в другом приложении. Экран после этого
@@ -295,29 +296,30 @@ internal fun CreateRideScreen(
     // Переведены только поля, которые человек ввёл руками. Загруженное с сервера
     // (`partners`, `geoRoutes`, `priceHintDto`) и временное (`showPicker`, `publishing`)
     // переживать выгрузку не должно — оно перезапросится или начнётся заново.
-    var from by rememberSaveable { mutableStateOf("") }
-    var to by rememberSaveable { mutableStateOf("") }
+    val template = prefill.template
+    var from by rememberSaveable { mutableStateOf(template?.fromCity.orEmpty()) }
+    var to by rememberSaveable { mutableStateOf(template?.toCity.orEmpty()) }
     // F15: если открыли из баннера «на праздник» — дата события уже стоит (можно поменять пикером).
-    var dateTime by rememberSaveable { mutableStateOf(prefillDate.orEmpty()) }
-    var seats by rememberSaveable { mutableStateOf("4") }   // обычная легковая: 1 спереди + 3 сзади (14.10.2026)
-    var backMaxTwo by rememberSaveable { mutableStateOf(false) }
-    var frontSeatAvailable by rememberSaveable { mutableStateOf(true) }
-    var price by rememberSaveable { mutableStateOf("300") }
+    var dateTime by rememberSaveable { mutableStateOf(prefill.date.orEmpty()) }
+    var seats by rememberSaveable { mutableStateOf(template?.seatsTotal?.toString() ?: "4") }
+    var backMaxTwo by rememberSaveable { mutableStateOf(template?.backMaxTwo ?: false) }
+    var frontSeatAvailable by rememberSaveable { mutableStateOf(template?.frontSeatAvailable ?: true) }
+    var price by rememberSaveable { mutableStateOf(template?.price?.toString() ?: "300") }
     var comment by rememberSaveable { mutableStateOf("") }
-    var petsAllowed by rememberSaveable { mutableStateOf(false) }
-    var childSeat by rememberSaveable { mutableStateOf(false) }
-    var womenOnly by rememberSaveable { mutableStateOf(false) }
-    var smoking by rememberSaveable { mutableStateOf(false) }
-    var baggage by rememberSaveable { mutableStateOf(false) }
-    var airConditioner by rememberSaveable { mutableStateOf(false) }
-    var onlyTrusted by rememberSaveable { mutableStateOf(false) }   // «только для своих» (L3)
-    var quiet by rememberSaveable { mutableStateOf(false) }
+    var petsAllowed by rememberSaveable { mutableStateOf(template?.petsAllowed ?: false) }
+    var childSeat by rememberSaveable { mutableStateOf(template?.childSeat ?: false) }
+    var womenOnly by rememberSaveable { mutableStateOf(template?.womenOnly ?: false) }
+    var smoking by rememberSaveable { mutableStateOf(template?.smoking ?: false) }
+    var baggage by rememberSaveable { mutableStateOf(template?.baggage ?: false) }
+    var airConditioner by rememberSaveable { mutableStateOf(template?.airConditioner ?: false) }
+    var onlyTrusted by rememberSaveable { mutableStateOf(template?.onlyTrusted ?: false) }
+    var quiet by rememberSaveable { mutableStateOf(template?.quiet ?: false) }
     // Водитель заранее говорит, берёт ли подростков без сопровождения. Честнее, чем отказывать
     // на месте, когда ребёнок уже стоит у дороги.
-    var noMinors by rememberSaveable { mutableStateOf(false) }
-    var waypoints by rememberSaveable { mutableStateOf(listOf<String>()) }
+    var noMinors by rememberSaveable { mutableStateOf(template?.noMinors ?: false) }
+    var waypoints by rememberSaveable { mutableStateOf(template?.waypoints.orEmpty()) }
     var recurrence by rememberSaveable { mutableStateOf("none") }
-    var category by rememberSaveable { mutableStateOf("regular") }
+    var category by rememberSaveable { mutableStateOf(template?.category ?: "regular") }
     var partnerId by rememberSaveable { mutableStateOf<Int?>(null) }   // F22: клиника-назначение (для category=hospital)
     var partners by remember { mutableStateOf<List<com.yuldash.app.data.MedicalPartnerDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getMedicalPartners().onSuccess { partners = it } }   // справочник клиник (тихо; форма работает и без него)
@@ -333,7 +335,7 @@ internal fun CreateRideScreen(
     var priceHintDto by remember { mutableStateOf<PriceHintDto?>(null) }
     val priceHint = priceHintDto?.takeIf { it.count > 0 }?.avg ?: 0
     var showDeparturePicker by remember { mutableStateOf(false) }
-    val stopPricesStore = rememberStopPricesStore()   // RS-02 Б: цены остановок (редактор — CreateRideStops.kt)
+    val stopPricesStore = rememberStopPricesStore(template?.stopPrices.orEmpty())
     var geoRoutes by remember { mutableStateOf<List<SettlementRouteDto>>(emptyList()) }
     LaunchedEffect(Unit) { ApiClient.getSettlementPopularRoutes().onSuccess { geoRoutes = it } }
     LaunchedEffect(from, to) {
@@ -360,7 +362,13 @@ internal fun CreateRideScreen(
         .put("stop_prices_enabled", stopPricesStore.enabled)
         .put("stop_prices", JSONArray(if (stopPricesStore.enabled) stopPricesStore.values else emptyList<String>()))
 
-    val publication = rememberRidePublication(::publicationBody, stopPricesStore.errorText, if (isBa) "ba" else "ru", onPublicationResolved, onPublish)
+    var publishedRide by remember { mutableStateOf<Ride?>(null) }
+    val publication = rememberRidePublication(::publicationBody, stopPricesStore.errorText, if (isBa) "ba" else "ru", onPublicationResolved) {
+        if (onOpenReturnTemplate == null) onPublish(it) else publishedRide = it
+    }
+    val notice: (@Composable () -> Unit)? = if (template == null) publication.notice else {
+        { publication.notice?.invoke(); RideReturnTemplateNotice(template) }
+    }
     if (RideCategoryBlocked(category, onBack, onBack) { category = "regular" }) return
     Box(Modifier.fillMaxSize()) {
     Scaffold(
@@ -397,7 +405,8 @@ internal fun CreateRideScreen(
             onPublish = publication.publish,
             publishLabel = publication.label,
             publicationEnabled = publication.ready,
-            publicationNotice = publication.notice,
+            publicationNotice = notice,
+            allowNegotiatedPrice = template?.price == 0,
             onCancel = onBack,
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
@@ -424,9 +433,17 @@ internal fun CreateRideScreen(
             modifier = Modifier.padding(padding),
         )
     }
+        publishedRide?.let { ride ->
+            if (onOpenReturnTemplate != null) RidePublishedSheet(
+                ride,
+                onTemplate = { publishedRide = null; onOpenReturnTemplate(it) },
+                onDone = { publishedRide = null; onPublish(ride) },
+            )
+        }
         if (showDeparturePicker) {
             RideDeparturePicker(
                 initialValue = dateTime,
+                suggestedDate = template?.suggestedDate,
                 onDismiss = { showDeparturePicker = false },
                 onConfirm = { dateTime = it; showDeparturePicker = false },
             )
@@ -521,6 +538,7 @@ internal fun CreateRideFormContent(
     publishLabel: String? = null,
     publicationEnabled: Boolean = true,
     publicationNotice: (@Composable () -> Unit)? = null,
+    allowNegotiatedPrice: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
@@ -791,7 +809,7 @@ internal fun CreateRideFormContent(
                 text = publishLabel ?: appText("Опубликовать", "Баҫтырыу"),
                 loading = loading,
                 onClick = onPublish,
-                enabled = publicationEnabled && !loading && createRideValid(from, to, price),   // маршрут задан + цена в диапазоне
+                enabled = publicationEnabled && !loading && createRideValid(from, to, price, allowNegotiatedPrice),
                 modifier = Modifier.testTag("publish_btn"),
             )
         }

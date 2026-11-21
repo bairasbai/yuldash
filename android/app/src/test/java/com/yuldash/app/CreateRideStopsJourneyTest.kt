@@ -75,7 +75,7 @@ class CreateRideStopsJourneyTest {
     private fun mount() {
         compose.setContent {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                CreateRideScreen(onBack = {}, onPublish = { published += it }, prefillDate = "02.01.2030, 10:00")
+                CreateRideScreen(onBack = {}, onPublish = { published += it }, prefill = RideCreatePrefill(date = "02.01.2030, 10:00"))
             }
         }
         edit("Откуда", "Уфа")

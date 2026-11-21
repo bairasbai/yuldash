@@ -46,6 +46,7 @@ import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
 import { DriverPaySettingsCard } from "../components/DriverPaySettingsCard";
 import { DriverBankRecipientCard } from "../components/DriverBankRecipientCard";
+import { ReturnRideAction, useReturnRideAction } from "../components/ReturnRideAction";
 import { BookingTraveler } from "../components/BookingTraveler";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 import { useFeatures } from "../features";
@@ -138,6 +139,7 @@ export default function DriverCabinetScreen() {
   const { user } = useAuth();
   const ru = lang !== "ba";
   const navigate = useNavigate();
+  const returnRide = useReturnRideAction();
   // Такси выключено на сервере (`/config/features`) — без линии, приоритета, поездок такси и
   // готовности к работе, как в Android (taxiOn, ProfileScreen.kt). Анкета таксиста и сроки
   // документов остаются: набор идёт и до запуска.
@@ -536,6 +538,7 @@ export default function DriverCabinetScreen() {
                   {/* Управление рейсом — завершить (пассажирам «оцените») или снять (сломалась
                       машина, заболел, передумал). Раньше человеку с сайта оставалось только не приехать. */}
                   <div className="driver-ride__row">
+                    <ReturnRideAction rideId={r.id} controls={returnRide} />
                     <button type="button" className="driver-ride__outlined" onClick={() => finishRide(r.id)} disabled={finishing === r.id}>
                       {finishing === r.id ? appText("Завершаем…", "Тамамлайбыҙ…") : appText("Завершить рейс", "Рейсты тамамлау")}
                     </button>
@@ -643,14 +646,18 @@ export default function DriverCabinetScreen() {
           ) : (
             <div className="archive-list">
               {archive.slice(0, 12).map((r) => (
-                <ArchiveRideRow
-                  key={r.id}
-                  from={r.from_city}
-                  to={r.to_city}
-                  when={formatWhen(r.depart_at, ru)}
-                  status={r.status ?? "done"}
-                  price={r.price}
-                />
+                <div key={r.id}>
+                  <ArchiveRideRow
+                    from={r.from_city}
+                    to={r.to_city}
+                    when={formatWhen(r.depart_at, ru)}
+                    status={r.status ?? "done"}
+                    price={r.price}
+                  />
+                  <div className="driver-ride__row">
+                    <ReturnRideAction rideId={r.id} controls={returnRide} />
+                  </div>
+                </div>
               ))}
             </div>
           )}

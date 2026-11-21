@@ -78,23 +78,23 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 248,
+    "android_main": 252,
     "backend_main": 140,
     "infra_resource_config": 442,
     "public_site_promo": 91,
-    "pwa_main": 365,
-    "test_support": 1363
+    "pwa_main": 372,
+    "test_support": 1368
   },
   "counts_by_block": {
-    "B01": 177,
-    "B02": 403,
+    "B01": 178,
+    "B02": 417,
     "B03": 123,
     "B04": 82,
     "B05": 62,
     "B06": 106,
     "B07": 150,
     "B08": 222,
-    "B09": 790,
+    "B09": 791,
     "B10": 442,
     "B11": 92
   },
@@ -888,8 +888,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/BookingActiveTripScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "364811b0dd4197ed7a270db2a1821ca3609ba10866a10e800b5c9bac2763adfb",
-      "lines": 3404
+      "sha256": "2a3b81bd546855a060fed642674059f35f6710d858b7eb4ee5010af2d0a2100b",
+      "lines": 3400
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/BookingCommandRecovery.kt",
@@ -1056,15 +1056,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "29d77b84af4391d837c5eb45aea38710320ad186621929393f506e0bda61ca5e",
-      "lines": 1165
+      "sha256": "c277c5a4bfa1f4ba306ca25cabbdc28b4bc960e42d119876c82a535e2bd65125",
+      "lines": 1147
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideStops.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "d594a14b7ae48ad3558ee9f4f110e579bc93e618cd4b7f3ccaf55e715fe90bd4",
-      "lines": 141
+      "sha256": "d51df427cdae6cf38e39b3d7ce65f45607757d5c1c59962a34a402c4bbb8034a",
+      "lines": 363
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/DeliveryGate.kt",
@@ -1532,8 +1532,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "6530f26531bd9aef023cead4499a23f5725439665a9f6fa6ed0357ae52c7eb00",
-      "lines": 4729
+      "sha256": "15fb76bf076bc5c13501ef2e74fa491ac8f316f88ba7117bf42c998b9791d433",
+      "lines": 4742
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -1595,8 +1595,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideDeparturePicker.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "beb260b98b1f6960aaa183090351f8c6d9bf0def807c4b898ee86df0203f5b13",
-      "lines": 313
+      "sha256": "5f9fd1edfda02b4b226b4dce51ed24f3e9a3ef42aa4467c63f8f5d312b842263",
+      "lines": 314
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RidePaymentMethods.kt",
@@ -1604,6 +1604,13 @@
       "block": "B07",
       "sha256": "a78d22333753ec4ac6270d1767cdcd185f7f95cbb0011ddaeadbfb972081264c",
       "lines": 108
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RideTemplate.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "ddd8a361aebe1a2db5418a22df686dbf12fb0628fd1b6175467314456eaaeae9",
+      "lines": 155
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideUiMapper.kt",
@@ -1735,8 +1742,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/SeatOptions.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "cebdfef510112e414b0aafa3327ae7b93cea183451f2879871bf6f34fac891a0",
-      "lines": 219
+      "sha256": "f02adafa734a881fe510ff53beb6562da0e2f10b7d254683205c8d5190b6c12b",
+      "lines": 225
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/SecondaryScreens.kt",
@@ -2043,8 +2050,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "b7d7d033bb65ed130ca45595350e6e4a2dfcc1286e9e7ce9c975d7a313bb4eeb",
-      "lines": 2716
+      "sha256": "4ef7b8a9e72677f78908092e1ab11ea45170fb70cc1d022955bb5e0e121966f5",
+      "lines": 2717
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -2071,8 +2078,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "9a69cca1329c78f88ad55fe236c1fde11258567d2b22238b01d185ecd09a6415",
-      "lines": 7578
+      "sha256": "f93e195eada621de384cec8a07dc2e605ca8a235663b05707d3bea1448eeb358",
+      "lines": 7556
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2327,6 +2334,20 @@
       "lines": 109
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/data/RideSeriesApi.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "0c7e9874c98621c92e7b3dc113666738ef58408866c21478a01910b702946e86",
+      "lines": 45
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/RideSeriesIntent.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "f16a6bddc61163ddf59f37c8182781fe23bd07eb8bfb7eca044beb21388bf45a",
+      "lines": 49
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/data/RideshareCardCheckoutApi.kt",
       "kind": "android_main",
       "block": "B02",
@@ -2360,6 +2381,13 @@
       "block": "B01",
       "sha256": "8e939354020c7d19590623696d6415b744d175573d754d5fb1852772f929c13d",
       "lines": 110
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/SessionTokenClaims.kt",
+      "kind": "android_main",
+      "block": "B01",
+      "sha256": "0215dc8467119af4b5219c1f9ec06a4af893ed07853ecb56d091c54b5ba17591",
+      "lines": 18
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
@@ -2988,8 +3016,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta07DriverFinishTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ab22ea505a33d1594361d83b62e18b5eebaa32d92c5acc2c11e114934579fc48",
-      "lines": 252
+      "sha256": "97c4bc3bf98381e095d9ea9ca25278cac0ef484acae5ccd311680552a5fad012",
+      "lines": 253
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/AuditDelta08ScheduledPayloadTest.kt",
@@ -3317,8 +3345,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CreateRideStopsJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "e3dca1f05e698e438ef84000814ca6195e8ac6ebb4bc5b9ba742b2ac5d37e147",
-      "lines": 145
+      "sha256": "e66bff405ab5ebddfc461289cf0de8faaaf704159ff604dea18d2b6d6730393c",
+      "lines": 147
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CreateRideStopsTest.kt",
@@ -4369,6 +4397,13 @@
       "block": "B02",
       "sha256": "716e4c543a7d2a8a6d513974c0abad4cccd9aaa084d17f074d468bd6394ebd65",
       "lines": 136
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/RideTemplateTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "65cf8a22420773be1c1cb48035c9fb65cf9900f44c0416988789ff5f7f4e4565",
+      "lines": 76
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RidesDeepContentTest.kt",
@@ -5776,6 +5811,13 @@
       "block": "B06",
       "sha256": "549c0cd9811bd59d244d6f3aa3f2d207d3f78a31910ed79a6755efaa72c34a9e",
       "lines": 212
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/RideSeriesIntentTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "a87aa57bd9b008027d7108c0d4efecc4a6816cb9f7e931abc39f09de61f13e7c",
+      "lines": 57
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/RideshareCardCheckoutApiTest.kt",
@@ -15084,8 +15126,8 @@
       "path": "webapp/src/api/driver.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "c64e378d4c00fd2e41492a8c2dfee586160d0a8a9f3f284ff22df335d5fa7176",
-      "lines": 435
+      "sha256": "0ce63f4da39942cb2c0b55ab987560fdf0f64307ba7996d53519da73c371c206",
+      "lines": 496
     },
     {
       "path": "webapp/src/api/driverBankRecipient.ts",
@@ -15219,6 +15261,13 @@
       "block": "B08",
       "sha256": "d9587c51d96425f518c9017d01987d978bf670d42422382c39f16eb4ba36f118",
       "lines": 33
+    },
+    {
+      "path": "webapp/src/api/rideSeries.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "f00115984f0818bff72b8c31246278879d5fc3c9999bd2a245b7e1bfb56fd119",
+      "lines": 122
     },
     {
       "path": "webapp/src/api/rides.ts",
@@ -15844,6 +15893,13 @@
       "lines": 17
     },
     {
+      "path": "webapp/src/components/ReturnRideAction.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "e5123d7d08cba40185379fb9791a3cde3def5527792dd7ca9c3d6b9b64757b69",
+      "lines": 106
+    },
+    {
       "path": "webapp/src/components/RideCard.tsx",
       "kind": "pwa_main",
       "block": "B02",
@@ -15856,6 +15912,20 @@
       "block": "B02",
       "sha256": "7bab1b7a7f7bf2dd5ac5eb0ede4f2912fc863c163ba1120c0e59dcbbdd4dbf82",
       "lines": 205
+    },
+    {
+      "path": "webapp/src/components/RideSeriesFields.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "98ba140830c14cceb51ae31e7c22914fc19fc7932020fd832b752c6e28167292",
+      "lines": 133
+    },
+    {
+      "path": "webapp/src/components/RideSeriesRecovery.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "0811ba44d9ae0fccdc3f6d6f78598dfe20a0f28c747ef1c7b70e82c8dcd1e572",
+      "lines": 143
     },
     {
       "path": "webapp/src/components/RideSheet.tsx",
@@ -16533,15 +16603,15 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "6804013958dbb3cffe2d11cdac72f36adb33e01b15f735f8a109e76268f30203",
-      "lines": 656
+      "sha256": "fa5b55692758bf19987054d29c32eb69ab9e24670394fe475a2baa9360eea852",
+      "lines": 1053
     },
     {
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "096ac2a89e88cac8ebce019598fea819ebe7d00e759cbde298958b069e1c912a",
-      "lines": 1049
+      "sha256": "e0ecda6036a85197f98360fb430b32241e18539bfcfe294204c3c71531d86d5e",
+      "lines": 1056
     },
     {
       "path": "webapp/src/screens/DriverEarningsScreen.tsx",
@@ -17058,8 +17128,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "2303acb2d34bbf8f974901006bbf81e288ed553dee12c024507dfbc9d1a3cca5",
-      "lines": 21181
+      "sha256": "74b8e93e98d0bddf4f797141d638e13cf85da0f734097b30b4b6a77a2783a4cd",
+      "lines": 21225
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -17079,8 +17149,8 @@
       "path": "webapp/src/utils/bookingCommandStore.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "5b78c0d8c3c7ea403826c6f22261f72d43814150044b2ae7b2b62e3429c8d17d",
-      "lines": 323
+      "sha256": "df8649ab577df042c106a8ce74753fc67b98404fd09239ae50b526b83c87f935",
+      "lines": 383
     },
     {
       "path": "webapp/src/utils/bookingLink.ts",
@@ -17335,6 +17405,20 @@
       "lines": 26
     },
     {
+      "path": "webapp/src/utils/rideSeriesIntent.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "61c8c69a2e9a9e6e95181a6b172f25c548e74a51162436db360e397505d15aad",
+      "lines": 55
+    },
+    {
+      "path": "webapp/src/utils/rideTemplate.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "4011a0d3580d1505e27ff5853eb9ac22c94195d759488c87912b7dfab974816a",
+      "lines": 40
+    },
+    {
       "path": "webapp/src/utils/searchHistory.ts",
       "kind": "pwa_main",
       "block": "B09",
@@ -17494,6 +17578,13 @@
       "block": "B02",
       "sha256": "0de781606420e0b9897f3209bd8de1d69a16337a4e3711c6602dbdc9acc76172",
       "lines": 76
+    },
+    {
+      "path": "webapp/src/utils/useSavedPublication.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "d41adf1e75f3d3ae149b504f2e77b51db3be6053ca0c3242c1405e2e7b4b447f",
+      "lines": 47
     },
     {
       "path": "webapp/src/utils/useScrollMemory.ts",
@@ -17786,8 +17877,8 @@
       "path": "webapp/tests/create-ride-stops-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "fdcfa72ff1037d7e4092c6addb40185b290a87fbeb04639becdba4b4dd42e564",
-      "lines": 207
+      "sha256": "9f70d768ea50a9396a8251d2a716d84f69f75f055e04983689bbf13b600b829e",
+      "lines": 236
     },
     {
       "path": "webapp/tests/cross-tab-session-test.mjs",
@@ -17961,8 +18052,8 @@
       "path": "webapp/tests/features-parcel-rides-test.mjs",
       "kind": "test_support",
       "block": "B04",
-      "sha256": "f3b97b000359b8422e74f445392bbb5cc2fd08ab3b05ab36bbf963629f7e52d3",
-      "lines": 83
+      "sha256": "da342519c1d11f392246bfb6378a809af1f3f0b83f9c45d587a1e065607a4c34",
+      "lines": 84
     },
     {
       "path": "webapp/tests/features-test.mjs",
@@ -18255,7 +18346,7 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5e0ea6cbb4ac87195b4d043ed72bb85236b6771d02fdda453813769a78a6a888",
+      "sha256": "d56a3b3941eb63e9e96bae5f853f0e0165fda94ab35cf1f83623a2c6c910b290",
       "lines": 294
     },
     {
@@ -18357,6 +18448,27 @@
       "lines": 279
     },
     {
+      "path": "webapp/tests/ride-series-recovery-content-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "45c14e41dc1f47ae53915615897f1fab3ace12796413f31de4a1df14e8599b6d",
+      "lines": 50
+    },
+    {
+      "path": "webapp/tests/ride-series-retry-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "0a0f2fdaaad4b0739863cdfd8aa2c285fef93481df465f3fc114c7e6659d4b5a",
+      "lines": 140
+    },
+    {
+      "path": "webapp/tests/ride-template-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "51371b220a92d07d31665f6b50190f5f45d1859115a50ac180759d90d8b57f37",
+      "lines": 112
+    },
+    {
       "path": "webapp/tests/rideshare-local-regression-test.mjs",
       "kind": "test_support",
       "block": "B02",
@@ -18395,8 +18507,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7a7bfcefc864b9e987b3c6b8173af45f506d47937f4da9af4a9200c3f349ea16",
-      "lines": 348
+      "sha256": "2f0599d3cda34a6c3af82bbb2a543a2d613fdf242d54cc74a201828bebfd702f",
+      "lines": 351
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",
