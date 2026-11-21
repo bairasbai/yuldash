@@ -79,15 +79,15 @@
   },
   "counts_by_kind": {
     "android_main": 248,
-    "backend_main": 138,
+    "backend_main": 139,
     "infra_resource_config": 442,
     "public_site_promo": 91,
     "pwa_main": 365,
-    "test_support": 1361
+    "test_support": 1362
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 399,
+    "B02": 401,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -7703,6 +7703,13 @@
       "lines": 95
     },
     {
+      "path": "backend/app/ride_seats.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "062286781da6cc43a74ac74d48ca375f1c5e6cb70351b64774646017d6e72b99",
+      "lines": 266
+    },
+    {
       "path": "backend/app/ride_stops.py",
       "kind": "backend_main",
       "block": "B02",
@@ -8028,8 +8035,8 @@
       "path": "backend/app/routers/rides.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "d11c43f971135bfd2f9e0a5f109b183fd6ec2fef09fe0f393836e5ccd64075ff",
-      "lines": 1654
+      "sha256": "80956696f9498b8014edd17f813a7d5665e8596fae8bec4019cb1f3663d75c24",
+      "lines": 1711
     },
     {
       "path": "backend/app/routers/rideshare_bank.py",
@@ -8154,8 +8161,8 @@
       "path": "backend/app/schemas.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "6cb172387e3c934331f99f5537c0956330e64e5f749967d620f2f4776d5b4533",
-      "lines": 130
+      "sha256": "a7dead67fe1fec4e284fc9950a628c3ad5f71e7a71ba5c479640a87cbd5fae5b",
+      "lines": 155
     },
     {
       "path": "backend/app/security.py",
@@ -11901,6 +11908,13 @@
       "block": "B02",
       "sha256": "a96239c4ce59267d6babe9f4de330497a090e6965ea4dd6b3f1e42e53be38891",
       "lines": 56
+    },
+    {
+      "path": "backend/tests/test_ride_return_template.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "7bf246bdf900863dc5251df1ba11f834cc50b584ef8be8514dc23b9c0affbea1",
+      "lines": 133
     },
     {
       "path": "backend/tests/test_ride_tips.py",

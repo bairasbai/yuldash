@@ -182,18 +182,23 @@ def any_free_sql(n: int = 1):
 
 # ---- RS-02 Б: цены до остановок (целые рубли, исключение D7 из AGENTS.md §8) ----
 
-def parse_stop_prices(ride) -> list[int]:
-    """Цены до остановок из JSON-снимка рейса; «»/битые/не список — одна цена на весь маршрут."""
-    raw = (getattr(ride, "stop_prices_json", "") or "").strip()
+def decode_stop_prices(raw: str) -> Optional[list[int]]:
+    """Цены из снимка. Пустой ряд означает полную цену, None означает повреждение."""
+    raw = (raw or "").strip()
     if not raw:
         return []
     try:
         data = json.loads(raw)
     except ValueError:
-        return []
+        return None
     if not isinstance(data, list) or not all(isinstance(p, int) and not isinstance(p, bool) for p in data):
-        return []
+        return None
     return data
+
+
+def parse_stop_prices(ride) -> list[int]:
+    """Для прежних рейсов с битым снимком действует полная цена маршрута."""
+    return decode_stop_prices(getattr(ride, "stop_prices_json", "")) or []
 
 
 def validate_stop_prices(ride, prices: Sequence[int], entry: Optional[dict] = None) -> list[int]:

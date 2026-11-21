@@ -4,7 +4,7 @@
 и в роутерах `rides`. Чтобы не плодить циклический импорт — держим её здесь.
 Узко-локальные In-схемы остаются внутри своих роутеров.
 """
-from datetime import datetime
+from datetime import date, datetime
 from typing import Literal, Optional
 
 from pydantic import BaseModel, Field
@@ -55,6 +55,31 @@ class RideIn(BaseModel):
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
     partner_id: Optional[int] = None  # F22: клиника-назначение (для category=hospital), опционально
+
+
+class RideTemplateOut(BaseModel):
+    """Поля для новой обратной поездки в формате RideIn, без времени выезда."""
+
+    from_city: str
+    to_city: str
+    waypoints: str
+    seats_total: int
+    price: int
+    stop_prices: list[int]
+    category: RideCategory
+    pets_allowed: bool
+    child_seat: bool
+    women_only: bool
+    smoking: bool
+    baggage: bool
+    air_conditioner: bool
+    only_trusted: bool
+    quiet: bool
+    no_minors: bool
+    back_max_two: bool
+    front_seat_available: bool
+    dropped: list[str]
+    suggested_date: Optional[date] = None
 
 
 class RideOut(BaseModel):
