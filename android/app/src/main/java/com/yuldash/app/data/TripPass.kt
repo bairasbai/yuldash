@@ -23,99 +23,6 @@ import org.json.JSONObject
  * (Android Keystore, как токен сессии). Телефон/координаты НЕ логируем.
  */
 
-/** Снимок брони, сохранённый локально для показа без сети. */
-data class TripPass(
-    val bookingId: Int,
-    val fromCity: String,
-    val toCity: String,
-    val departAt: String,      // ISO с сервера, форматируется на экране
-    val driverName: String,
-    val driverCar: String,
-    // Госномер — по нему у машины и сверяют. Хранить локально ОБЯЗАТЕЛЬНО: сверяют ровно там,
-    // где связи может не быть (перевал, ночная трасса), а без сети деталей брони не поднять.
-    // Дефолт держит паспорта, сохранённые прошлой версией приложения.
-    val driverPlate: String = "",
-    val driverPhone: String,   // ПДн — только в secure-хранилище, не логировать
-    val boardingCode: String,
-    val pickup: String,
-    val pickupLat: Double?,
-    val pickupLng: Double?,
-    val price: Int,
-    val seats: Int,
-    val paymentNote: String,   // договорённость об оплате (если есть), иначе пусто
-    val savedAt: Long,
-    // Nullable defaults keep old snapshots honest: their payment method was never saved.
-    val payMethod: String? = null,
-    val payAmount: Int? = null,
-    val pickupStop: String? = null, val dropoffStop: String? = null, val rideHasStops: Boolean = false,
-    // RS-03 А: своя точная точка встречи — в паспорт пассажира (показать и офлайн); уезжает
-    // вместе с паспортом при done/cancelled. Старые снимки — дефолты.
-    val meetLat: Double? = null, val meetLng: Double? = null, val meetNote: String = "",
-    val meetLandmarkRu: String = "", val meetLandmarkBa: String = "",
-) {
-    val effectivePayAmount: Int get() = payAmount ?: price
-
-    fun toJson(): JSONObject = JSONObject().apply {
-        put("booking_id", bookingId)
-        put("from_city", fromCity)
-        put("to_city", toCity)
-        put("depart_at", departAt)
-        put("driver_name", driverName)
-        put("driver_car", driverCar)
-        put("driver_plate", driverPlate)
-        put("driver_phone", driverPhone)
-        put("boarding_code", boardingCode)
-        put("pickup", pickup)
-        if (pickupLat != null) put("pickup_lat", pickupLat)
-        if (pickupLng != null) put("pickup_lng", pickupLng)
-        put("price", price)
-        put("seats", seats)
-        put("payment_note", paymentNote)
-        put("saved_at", savedAt)
-        put("pay_method", payMethod ?: JSONObject.NULL)
-        put("pay_amount", payAmount ?: JSONObject.NULL)
-        put("pickup_stop", pickupStop ?: JSONObject.NULL)
-        put("dropoff_stop", dropoffStop ?: JSONObject.NULL)
-        put("ride_has_stops", rideHasStops)
-        if (meetLat != null) put("meet_lat", meetLat)
-        if (meetLng != null) put("meet_lng", meetLng)
-        put("meet_note", meetNote)
-        put("meet_landmark_ru", meetLandmarkRu)
-        put("meet_landmark_ba", meetLandmarkBa)
-    }
-
-    companion object {
-        fun fromJson(o: JSONObject): TripPass = TripPass(
-            bookingId = o.optInt("booking_id"),
-            fromCity = o.optString("from_city"),
-            toCity = o.optString("to_city"),
-            departAt = o.optString("depart_at"),
-            driverName = o.optString("driver_name"),
-            driverCar = o.optString("driver_car"),
-            driverPlate = o.optString("driver_plate"),
-            driverPhone = o.optString("driver_phone"),
-            boardingCode = o.optString("boarding_code"),
-            pickup = o.optString("pickup"),
-            pickupLat = if (o.isNull("pickup_lat")) null else o.optDouble("pickup_lat"),
-            pickupLng = if (o.isNull("pickup_lng")) null else o.optDouble("pickup_lng"),
-            price = o.optInt("price"),
-            seats = o.optInt("seats", 1),
-            paymentNote = o.optString("payment_note"),
-            savedAt = o.optLong("saved_at"),
-            payMethod = if (o.isNull("pay_method")) null else o.optString("pay_method"),
-            payAmount = if (o.isNull("pay_amount")) null else o.optInt("pay_amount"),
-            pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
-            dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
-            rideHasStops = o.optBoolean("ride_has_stops"),
-            meetLat = if (o.isNull("meet_lat")) null else o.optDouble("meet_lat"),
-            meetLng = if (o.isNull("meet_lng")) null else o.optDouble("meet_lng"),
-            meetNote = o.optString("meet_note"),
-            meetLandmarkRu = o.optString("meet_landmark_ru"),
-            meetLandmarkBa = o.optString("meet_landmark_ba"),
-        )
-    }
-}
-
 /**
  * Локальное хранилище паспортов поездок (по booking id). Secure — внутри телефон водителя.
  * Сохранённые байты не дают доступа: общий process gate разрешает только текущую проекцию.
@@ -297,6 +204,8 @@ object Outbox {
     private var seq = System.currentTimeMillis()
     // Только ID, без текста: общий отправитель мог снять отказанное сообщение раньше экрана.
     private val refusedActions = mutableSetOf<Long>()
+    private var claimedRating: Long? = null
+    private const val RATING_ATTEMPTED = "attempted"
 
     init {
         ApiClient.onSessionReset { synchronized(this) { refusedActions.clear() } }
@@ -389,7 +298,7 @@ object Outbox {
 
     /** Сколько действий в очереди по конкретной брони (для плашки «N в очереди»). */
     @Synchronized fun count(context: Context, bookingId: Int): Int =
-        readAll(context)?.count { it.bookingId == bookingId } ?: 0
+        readAll(context)?.count { it.bookingId == bookingId && it.kind != "rate" } ?: 0
 
     /** Есть ли вообще что отправлять (любая бронь) — чтобы не дёргать flush на пустой очереди при старте (M4). */
     @Synchronized fun hasPending(context: Context): Boolean = readAll(context)?.isNotEmpty() == true
@@ -414,6 +323,57 @@ object Outbox {
         if (existing != null) return existing == action
         list.add(action)
         return writeAll(context, list).also { if (it) refusedActions.remove(action.id) }
+    }
+
+    @Synchronized internal fun saveRating(context: Context, bookingId: Int, rating: QueuedRating, generation: Long): OutboxAction? {
+        if (bookingId <= 0 || !rating.fresh() || generation != ApiClient.queueSessionGeneration() ||
+            OfflineTripSnapshots.currentOwner()?.namespace != rating.owner) return null
+        val list = readAll(context) ?: return null
+        if (securePrefs == null || prefs !== securePrefs) return null
+        list.firstOrNull { it.kind == "rate" && it.bookingId == bookingId &&
+            QueuedRating.read(it)?.let { old -> old.owner == rating.owner && old.fresh() } == true }?.let { return it }
+        val action = OutboxAction(nextId(), bookingId, "rate", "${rating.owner}:${rating.until}", System.currentTimeMillis())
+        return action.takeIf { writeAll(context, list + action) }
+    }
+
+    @Synchronized internal fun cancelRating(context: Context, bookingId: Int, owner: String, id: Long, generation: Long): Boolean {
+        if (generation != ApiClient.queueSessionGeneration() || claimedRating == id) return false
+        val rows = readAll(context) ?: return false
+        val action = rows.firstOrNull { it.id == id && it.bookingId == bookingId &&
+            it.kind == "rate" && QueuedRating.read(it)?.owner == owner } ?: return false
+        return writeAll(context, rows.filterNot { it == action })
+    }
+
+    @Synchronized internal fun canCancelRating(context: Context, id: Long): Boolean =
+        claimedRating != id && readAll(context)?.any { it.id == id && it.kind == "rate" } == true
+
+    internal fun ratingAttempted(action: OutboxAction): Boolean = action.requestKey == RATING_ATTEMPTED
+
+    @Synchronized internal fun queuedRating(context: Context, id: Long, bookingId: Int): OutboxAction? =
+        readAll(context)?.firstOrNull { it.id == id && it.bookingId == bookingId && it.kind == "rate" }
+
+    private suspend fun sendRating(context: Context, action: OutboxAction, generation: Long,
+                                   refreshIfUnauthorized: Boolean): Result<QueuedActionResult> {
+        val rating = QueuedRating.read(action) ?: return Result.failure(IllegalArgumentException("Invalid rating"))
+        fun admitted() = rating.fresh() && !RateNotificationAction.locked(context) &&
+            OfflineTripSnapshots.currentOwner()?.let { it.namespace == rating.owner && it.generation == generation } == true
+        synchronized(this) {
+            if (!admitted() || securePrefs == null || prefs !== securePrefs ||
+                readAll(context)?.contains(action) != true) return Result.failure(IllegalStateException("Rating unavailable"))
+            claimedRating = action.id
+        }
+        fun admitAttempt(): Boolean = synchronized(this) {
+            if (!admitted() || claimedRating != action.id) return@synchronized false
+            val rows = readAll(context) ?: return@synchronized false
+            val saved = rows.firstOrNull { it.id == action.id } ?: return@synchronized false
+            saved.requestKey == RATING_ATTEMPTED ||
+                writeAll(context, rows.map { if (it == saved) it.copy(requestKey = RATING_ATTEMPTED) else it })
+        }
+        return try {
+            ApiClient.sendQueuedAction(action, generation, RatingSend(refreshIfUnauthorized, ::admitted, ::admitAttempt))
+        } finally {
+            synchronized(this) { claimedRating = null }
+        }
     }
 
     /** Exact owner/action acknowledgement; a failed disk cleanup never undoes server delivery. */
@@ -477,18 +437,33 @@ object Outbox {
         shouldContinue: () -> Boolean = { true },
         /** Сервер окончательно отказал, действие снято с очереди (чат пометит «Не доставлено»). */
         onRefused: (OutboxAction) -> Unit = {},
-    ): Boolean = flushMutex.withLock {
+    ): Boolean = flushMutex.withLock { flushLocked(context, expectedGeneration, shouldContinue, onRefused) }
+
+    internal suspend fun flushConfirmedRating(context: Context, generation: Long, id: Long) {
+        if (!flushMutex.tryLock()) return
+        try {
+            flushLocked(context, generation, { true }, {}, ratingId = id)
+        } finally {
+            flushMutex.unlock()
+        }
+    }
+
+    private suspend fun flushLocked(
+        context: Context, expectedGeneration: Long, shouldContinue: () -> Boolean,
+        onRefused: (OutboxAction) -> Unit, ratingId: Long? = null,
+    ): Boolean {
         // Capture the caller's login before waiting for another flush; never adopt its successor.
-        if (expectedGeneration != ApiClient.queueSessionGeneration() || !shouldContinue()) return@withLock false
+        if (expectedGeneration != ApiClient.queueSessionGeneration() || !shouldContinue()) return false
         var changed = false
         val generation = synchronized(this) {
             sp(context)
-            val plain = plainPrefs ?: return@withLock false
-            if (!recoverOfflineWrites(plain, securePrefs)) return@withLock false
-            if (migration?.writable == false) return@withLock false
+            val plain = plainPrefs ?: return false
+            if (!recoverOfflineWrites(plain, securePrefs)) return false
+            if (migration?.writable == false) return false
             queueGeneration
         }
         val session = expectedGeneration
+        val attemptedRatings = mutableSetOf<Long>()
         // Протухшие СТАТУСЫ выбрасываем, сообщения — никогда.
         //
         // `createdAt` лежал в очереди с самого начала и не использовался нигде. А между тем
@@ -505,35 +480,52 @@ object Outbox {
         // отправленный через час, всё ещё про эту поездку.
         while (true) {
             // Only this caller stops; pending actions and the global startup flush remain intact.
-            if (!shouldContinue()) return@withLock changed
+            if (!shouldContinue()) return changed
             val action = synchronized(this) {
-                if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
-                val current = readAll(context) ?: return@withLock changed
+                if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return changed
+                val current = readAll(context) ?: return changed
                 val now = System.currentTimeMillis()
-                val fresh = current.filter { it.kind == "message" || now - it.createdAt <= STATUS_MAX_AGE_MS }
+                val fresh = current.filter {
+                    if (it.kind == "rate") QueuedRating.read(it)?.let { rating ->
+                        rating.fresh() && rating.owner == OfflineTripSnapshots.currentOwner()?.namespace
+                    } == true else it.kind == "message" || now - it.createdAt <= STATUS_MAX_AGE_MS
+                }
                 if (fresh.size != current.size) {
-                    if (!writeAll(context, fresh)) return@withLock changed
+                    if (!writeAll(context, fresh)) return changed
                     changed = true
                 }
-                fresh.firstOrNull()
+                fresh.firstOrNull { (ratingId == null || (it.id == ratingId && it.kind == "rate")) &&
+                    (it.kind != "rate" || (it.id !in attemptedRatings && !RateNotificationAction.locked(context))) }
             } ?: break
-            if (!shouldContinue()) return@withLock changed
-            val result = ApiClient.sendQueuedAction(action, session)
+            if (!shouldContinue()) return changed
+            val result = if (action.kind == "rate") sendRating(context, action, session, refreshIfUnauthorized = ratingId == null)
+                else ApiClient.sendQueuedAction(action, session)
             val failure = result.exceptionOrNull()
+            if (action.kind == "rate" && failure != null && (failure !is ApiException ||
+                    failure.status !in setOf(403, 404, 409, 410, 422))) {
+                attemptedRatings += action.id
+                if (ratingId == null) RateNotificationAction.stillPending(context, action, session)
+                continue
+            }
             if (failure != null && (failure !is ApiException ||
                     failure.status == 408 || failure.status == 429 || failure.status in 500..599)) break
             synchronized(this) {
-                if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return@withLock changed
+                if (generation != queueGeneration || session != ApiClient.queueSessionGeneration()) return changed
                 // Merge with the live queue: messages added during HTTP must not be overwritten.
-                val current = readAll(context) ?: return@withLock changed
+                val current = readAll(context) ?: return changed
                 val remaining = current.filterNot { it.id == action.id }
                 // Acknowledge this completed request even if its UI closed during HTTP.
-                if (!writeAll(context, remaining)) return@withLock changed
+                if (!writeAll(context, remaining)) return changed
                 if (failure != null) refusedActions.add(action.id) else refusedActions.remove(action.id)
                 changed = true
             }
             if (failure != null) onRefused(action)
+            if (action.kind == "rate") {
+                val rating = QueuedRating.read(action)
+                if (rating != null) RateNotificationAction.result(context, action.bookingId, rating.owner, session,
+                    result.getOrNull() as? QueuedActionResult.RatingApplied)
+            }
         }
-        changed
+        return changed
     }
 }
