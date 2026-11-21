@@ -36,6 +36,7 @@ def _new_session(user):
 def _begin(client, auth, version):
     response = client.post(f"{PATH}/setup", headers=auth, json={"version": version})
     assert response.status_code == 200, response.text
+    assert response.json()["mode"] == "synthetic" and response.json()["version"] == version
     return f"{PATH}/setup/{response.json()['setup_id']}"
 
 
@@ -60,11 +61,13 @@ def test_confirmed_attempt_is_private_and_replayable_only_for_the_exact_command(
     path = _begin(client, auth, original.json()["version"])
     assert _begin(client, auth, original.json()["version"]) == path
     assert client.get(path, headers=auth).json() is None
+    assert client.get(f"{path}/receipt", headers=auth).json() == {"confirmation": None}
     token = _token()
     assert _confirm(client, path, auth, token, consent=False).status_code == 422
     assert _confirm(client, path, _new_session(service.driver), token).status_code == 404
     unrelated = _new_session(user_factory(role=UserRole.driver, taxi_approved=False))
     assert client.get(path, headers=unrelated).status_code == 404
+    assert client.get(f"{path}/receipt", headers=unrelated).status_code == 404
     assert _confirm(client, path, unrelated, token).status_code == 404
     assert client.get(PATH, headers=service.passenger["auth"]).status_code == 403
 
@@ -74,6 +77,7 @@ def test_confirmed_attempt_is_private_and_replayable_only_for_the_exact_command(
     assert first.json()["version"] != original.json()["version"]
     service.toggle(PAID_SWITCH, False)
     assert client.get(path, headers=auth).json() == first.json()
+    assert client.get(f"{path}/receipt", headers=auth).json() == {"confirmation": first.json()}
     assert _confirm(client, path, auth, token).json() == first.json()
     assert _confirm(client, path, auth, _token()).status_code == 409
     assert client.get(PATH, headers=auth).json()["state"] == "disabled"

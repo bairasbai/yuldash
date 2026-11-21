@@ -6925,23 +6925,6 @@ internal fun parseMessageDto(o: JSONObject): MessageDto =
         requestId = o.optString("request_id"),
     )
 
-/**
- * Мой user_id из токена (поле `sub`). Кривой токен или не-число — `null`, без падения.
- *
- * Отдельной функцией, а не внутри класса, по одной причине: так её видит тест. Раньше
- * разбор жил внутри `myUserId()` и опирался на `android.util.Base64` — а он часть Android,
- * и в тестах на компьютере это пустышка, которая всегда отдаёт null. Проверить было нечем,
- * хотя ошибка тут означала бы, что человек видит СВОИ сообщения в чате как чужие.
- * `java.util.Base64` есть с Android 8, у нас minSdk 26 — работает и в приложении, и в тесте.
- */
-internal fun parseJwtUserId(token: String): Int? = runCatching {
-    val payload = token.split(".").getOrNull(1) ?: return null
-    val pad = (4 - payload.length % 4) % 4          // JWT пишут без хвостовых «=», добавляем обратно
-    val normalized = payload + "=".repeat(pad)
-    val json = String(java.util.Base64.getUrlDecoder().decode(normalized), Charsets.UTF_8)
-    JSONObject(json).optString("sub").toIntOrNull()
-}.getOrNull()
-
 private fun JSONObject.optNullableString(key: String): String? {
     return normalizeOptionalJsonString(
         hasValue = has(key),

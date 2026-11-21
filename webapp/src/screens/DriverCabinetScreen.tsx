@@ -45,6 +45,7 @@ import { BookingSegmentNote } from "../components/PickupStopChoice";
 import { SubHeader } from "./ConsentsScreen";
 import { useAuth } from "../auth/AuthProvider";
 import { DriverPaySettingsCard } from "../components/DriverPaySettingsCard";
+import { DriverBankRecipientCard } from "../components/DriverBankRecipientCard";
 import { BookingTraveler } from "../components/BookingTraveler";
 import { useVisibleInterval } from "../utils/useVisibleInterval";
 import { useFeatures } from "../features";
@@ -423,6 +424,7 @@ export default function DriverCabinetScreen() {
           <RideShareNote />
           <VerifyBanner docs={driver.docs_status} />
           {user && <DriverPaySettingsCard key={user.id + ":" + generation} userId={user.id} generation={generation} />}
+          {user && <DriverBankRecipientCard key={"bank:" + user.id + ":" + generation} userId={user.id} generation={generation} />}
 
           {taxiOn && (
             <SettingsGroup>
