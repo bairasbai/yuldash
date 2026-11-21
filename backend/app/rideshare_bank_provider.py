@@ -144,6 +144,10 @@ def _https_url(value: object, *, hosts: frozenset[str] | None = None) -> str:
     return value
 
 
+def validate_checkout_url(value: object) -> str:
+    return _https_url(value, hosts=_CHECKOUT_HOSTS)
+
+
 def _prepare(resource: BankResource, operation_id: str, key: str, body: dict) -> BankRequest:
     reference = _identifier(operation_id)
     if not isinstance(key, str) or not _KEY.fullmatch(key):
@@ -234,7 +238,7 @@ def _observation(resource: BankResource, payload: object, expected_test: bool) -
         confirmation = _object(data["confirmation"]) if "confirmation" in data else {}
         checkout = confirmation.get("confirmation_url")
         return BankObservation(**fields, settlement_kop=_settlement(deal, "settlements"),
-                               checkout_url=None if checkout is None else _https_url(checkout, hosts=_CHECKOUT_HOSTS))
+                               checkout_url=None if checkout is None else validate_checkout_url(checkout))
     if resource == BankResource.refund:
         return BankObservation(**fields, payment_id=_identifier(data.get("payment_id")),
                                settlement_kop=_settlement(deal, "refund_settlements"))

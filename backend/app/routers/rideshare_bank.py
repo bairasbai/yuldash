@@ -13,10 +13,11 @@ from ..config import settings
 from ..db import get_session
 from ..driver_pay_settings import passenger_ride
 from ..errors import herr
-from ..models import Booking, Ride, User
+from ..models import Booking, BookingStatus, Ride, User
 from ..rideshare_bank_booking import (
     BankCheckoutUnavailable, BankRuntime, BankSwitchRevision, bank_switches, check_bank_charge, start_bank_checkout,
 )
+from ..rideshare_bank_confirmation import open_bank_confirmation
 from ..rideshare_bank_models import (
     RideshareBankCheckout, RideshareBankOperation, RideshareBankPosting, RideshareBankRecipient,
 )
@@ -73,6 +74,10 @@ class CardPaymentConfirmation(BaseModel):
 class CardPaymentTerms(BaseModel):
     confirmation: CardPaymentConfirmation | None = None
     blocked_reason: str | None = None
+
+
+class CardCheckoutLink(BaseModel):
+    checkout_url: str | None = None
 
 
 def receipt_bank_runtime() -> BankRuntime | None:
@@ -147,6 +152,36 @@ def card_payment_receipt(booking_id: int, response: Response, user: User = Depen
         paid_out_kop=payout if is_driver else None,
         payout_remaining_kop=driver_share - refund_share - payout_share if is_driver else None,
     )
+
+
+@router.get("/bookings/{booking_id}/card-payment/checkout-link", response_model=CardCheckoutLink)
+def card_checkout_link(booking_id: int, response: Response, user: User = Depends(current_user),
+                       session: Session = Depends(get_session),
+                       runtime: BankRuntime | None = Depends(receipt_bank_runtime)) -> CardCheckoutLink:
+    _, ride = _load_card_booking(session, booking_id, user.id, passenger_only=True)
+    response.headers["Cache-Control"] = "no-store"
+    if runtime is None or (runtime.test_mode and settings.is_prod):
+        return CardCheckoutLink()
+    row = session.exec(
+        select(RideshareBankCheckout.id.label("checkout_id"), RideshareBankOperation.id.label("operation_id"),
+               RideshareBankOperation.confirmation_ciphertext)
+        .select_from(RideshareBankCheckout)
+        .join(RideshareBankOperation, RideshareBankOperation.checkout_id == RideshareBankCheckout.id)
+        .join(Booking, Booking.id == RideshareBankCheckout.booking_id)
+        .join(Ride, Ride.id == Booking.ride_id)
+        .where(Booking.id == booking_id, Booking.passenger_id == user.id, Booking.status == BookingStatus.done,
+               Booking.paid.is_(False),
+               Ride.driver_id == ride.driver_id, Ride.category == ride.category,
+               RideshareBankCheckout.closed_at.is_(None), RideshareBankCheckout.test_mode == runtime.test_mode,
+               RideshareBankOperation.resource == BankResource.payment.value, RideshareBankOperation.state == "pending",
+               RideshareBankOperation.dispatched_at.is_not(None), RideshareBankOperation.provider_id.is_not(None),
+               RideshareBankOperation.confirmation_ciphertext.is_not(None)),
+    ).one_or_none()
+    if row is None:
+        return CardCheckoutLink()
+    return CardCheckoutLink(checkout_url=open_bank_confirmation(
+        runtime.cipher, row.checkout_id, row.operation_id, runtime.test_mode, row.confirmation_ciphertext,
+    ))
 
 
 @router.get("/bookings/{booking_id}/card-payment/terms", response_model=CardPaymentTerms)
