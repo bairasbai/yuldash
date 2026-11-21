@@ -1,0 +1,9 @@
+[Unit]
+Description=Check admitted rideshare bank operations every minute
+
+[Timer]
+OnCalendar=*:0/1
+Persistent=false
+
+[Install]
+WantedBy=timers.target
