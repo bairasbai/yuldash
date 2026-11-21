@@ -79,15 +79,15 @@
   },
   "counts_by_kind": {
     "android_main": 244,
-    "backend_main": 132,
-    "infra_resource_config": 435,
+    "backend_main": 133,
+    "infra_resource_config": 437,
     "public_site_promo": 91,
     "pwa_main": 362,
-    "test_support": 1351
+    "test_support": 1352
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 379,
+    "B02": 381,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -95,7 +95,7 @@
     "B07": 149,
     "B08": 222,
     "B09": 790,
-    "B10": 435,
+    "B10": 437,
     "B11": 92
   },
   "excluded_counts": {
@@ -7678,8 +7678,8 @@
       "path": "backend/app/rideshare_bank_dispatch.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "f4d84adfb4b0e153dd3f311507f810b523e411d4e88d3b3e413dafb0f31ad5d2",
-      "lines": 376
+      "sha256": "85a7f6d052f9d170916c465aa60e780ec8c4f6577b74bb14c4cd7e858fe8dd23",
+      "lines": 378
     },
     {
       "path": "backend/app/rideshare_bank_models.py",
@@ -7699,8 +7699,8 @@
       "path": "backend/app/rideshare_bank_queue.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "f950899e185247d36e8a0379cb5e1abf441859de91c2f2aaa80dc48e9f7eada8",
-      "lines": 130
+      "sha256": "a0aa1bc86d2ca3769c95cd3c5cad8a34b2efd93980bd5da9c6685b23cde347b0",
+      "lines": 227
     },
     {
       "path": "backend/app/rideshare_bank_recipient.py",
@@ -7722,6 +7722,13 @@
       "block": "B07",
       "sha256": "b8fa45031fb3395d507b8e2f3b724426649fd8dbbc47bbfa4576324c44103ff8",
       "lines": 151
+    },
+    {
+      "path": "backend/app/rideshare_bank_worker.py",
+      "kind": "backend_main",
+      "block": "B02",
+      "sha256": "165d9fc3b27a9257956a21ff18bbd0f227853d3f960fb1fbe07988b5723cb543",
+      "lines": 30
     },
     {
       "path": "backend/app/routers/__init__.py",
@@ -8449,6 +8456,20 @@
       "kind": "infra_resource_config",
       "block": "B10",
       "sha256": "480433e756d2a1bd6e02115083211cb1c2d76cfb616ebcb4cb9046d830b23cae",
+      "lines": 9
+    },
+    {
+      "path": "backend/deploy/yuldash-rideshare-bank-worker.service",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "ca75036a7438b080726627cc6f5cb372900e11620e12359c2d1c2250952d0584",
+      "lines": 19
+    },
+    {
+      "path": "backend/deploy/yuldash-rideshare-bank-worker.timer",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "757fe1f22d7d0b10c293e5a74b2e649034d01d5a5c07c4db63bb2448895f9fb3",
       "lines": 9
     },
     {
@@ -11873,6 +11894,13 @@
       "block": "B02",
       "sha256": "364189e6caaee06d00b65a74bdd807ffffdff6c609ee4b83c60637893c46e9c4",
       "lines": 250
+    },
+    {
+      "path": "backend/tests/test_rideshare_bank_worker.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "bf574f51b8ddad81d0f169d5d77061b362082d780af517fdb00508318f79467f",
+      "lines": 263
     },
     {
       "path": "backend/tests/test_rideshare_card_switch.py",

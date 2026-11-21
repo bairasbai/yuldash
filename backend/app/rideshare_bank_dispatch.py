@@ -299,13 +299,15 @@ class BankReadResult:
 
 def inspect_bank_operation(engine: Engine, checkout_id: int, operation_id: str, *,
                            runtime: BankRuntime, provider: YooKassaSafeDeal,
-                           search_unknown: bool) -> BankReadResult:
+                           search_unknown: bool, active_only: bool = False) -> BankReadResult:
     _check_provider(runtime, provider)
     with Session(engine) as session:
         checkout = session.get(RideshareBankCheckout, checkout_id)
         operation = session.get(RideshareBankOperation, operation_id)
         if (checkout is None or not runtime.owns_checkout(checkout) or
                 operation is None or operation.checkout_id != checkout_id or operation.dispatched_at is None):
+            return BankReadResult()
+        if active_only and operation.state not in BANK_ACTIVE_STATES:
             return BankReadResult()
         resource, provider_id = BankResource(operation.resource), operation.provider_id
         if provider_id is None:
