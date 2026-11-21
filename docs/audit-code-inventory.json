@@ -15826,7 +15826,7 @@
       "path": "webapp/src/components/RideSeriesRecovery.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "5a55dc1a987df158f4aa705a8283c67266c40f7479f4bad96128a55edef13f2b",
+      "sha256": "0811ba44d9ae0fccdc3f6d6f78598dfe20a0f28c747ef1c7b70e82c8dcd1e572",
       "lines": 143
     },
     {
@@ -17030,8 +17030,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "93174aea6d24afdc0d4a60a23047ce42bde0ce879d63c2de05c689eef938fdd0",
-      "lines": 21219
+      "sha256": "74b8e93e98d0bddf4f797141d638e13cf85da0f734097b30b4b6a77a2783a4cd",
+      "lines": 21225
     },
     {
       "path": "webapp/src/uiPrefs.ts",

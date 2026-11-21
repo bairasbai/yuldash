@@ -74,7 +74,7 @@ export default function RideSeriesRecovery({
               <div>{detail}</div>
               {editing && item.outcome === "rejected" && (
                 <label>
-                  <input type="checkbox" checked={selectedRejected.includes(item.depart_at)} disabled={busy}
+                  <input type="checkbox" className="checkbox" checked={selectedRejected.includes(item.depart_at)} disabled={busy}
                     aria-label={appText(`Заменить дату ${label}`, `${label} көнөн алмаштырырға`)}
                     onChange={() => selectRejected(item.depart_at)} />
                   {appText("Заменить дату", "Көндө алмаштырырға")}
