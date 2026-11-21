@@ -33,6 +33,7 @@ class SyntheticBank:
         self.objects = {}
         self.by_key = {}
         self.lookup_pages = {}
+        self.fail_reads = set()
         self.lose_deal_response = False
         self.lose_payment_response = False
         self.lose_settlement_response = set()
@@ -51,6 +52,8 @@ class SyntheticBank:
                 objects = [value for key, value in self.objects.items() if key.startswith(f"synthetic-{resource}-")]
                 return httpx.Response(200, json={"type": "list", "items": objects})
             self.requests.append(("GET", resource, path[0]))
+            if path[0] in self.fail_reads:
+                raise httpx.ReadTimeout("Synthetic bank read lost")
             return httpx.Response(200, json=self.objects[path[0]])
         key = request.headers["Idempotence-Key"]
         self.requests.append(("POST", resource, key, request.content))

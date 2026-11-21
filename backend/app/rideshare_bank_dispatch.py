@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from uuid import uuid4
 
 from cryptography.fernet import InvalidToken
+from sqlalchemy import and_, or_
 from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
@@ -28,6 +29,7 @@ from .rideshare_bank_provider import (
     BankRequestRejected,
     BankResource,
     YooKassaSafeDeal,
+    bank_notification,
     prepare_deal,
     prepare_payment,
     prepare_payout,
@@ -297,6 +299,47 @@ def reconcile_bank_operation(engine: Engine, checkout_id: int, operation_id: str
         )
         if provider_id is None:
             return None
+    return _fetch_bank_result(engine, checkout_id, operation_id, resource, provider_id,
+                              runtime=runtime, provider=provider)
+
+
+def reconcile_bank_notification(engine: Engine, payload: object, *, runtime: BankRuntime,
+                                provider: YooKassaSafeDeal) -> str | None:
+    """Verify a notified object after the ingress has admitted the notification."""
+    _check_provider(runtime, provider)
+    hint = bank_notification(payload)
+    if hint is None:
+        return None
+    with Session(engine) as session:
+        candidate = RideshareBankOperation.provider_id == hint.provider_id
+        if hint.operation_id is not None:
+            candidate = or_(candidate, and_(
+                RideshareBankOperation.id == hint.operation_id,
+                RideshareBankOperation.provider_id.is_(None),
+                RideshareBankOperation.state.in_(BANK_ACTIVE_STATES),
+                RideshareBankOperation.request_ciphertext.is_not(None),
+            ))
+        matches = session.exec(
+            select(RideshareBankOperation.id, RideshareBankOperation.checkout_id)
+            .join(RideshareBankCheckout, RideshareBankCheckout.id == RideshareBankOperation.checkout_id)
+            .where(RideshareBankCheckout.test_mode == runtime.test_mode,
+                   RideshareBankOperation.resource == hint.resource.value,
+                   RideshareBankOperation.dispatched_at.is_not(None),
+                   RideshareBankOperation.state != "queued", candidate)
+            .limit(2),
+        ).all()
+        if len(matches) != 1:
+            return None
+        operation_id, checkout_id = matches[0]
+        if hint.operation_id is not None and operation_id != hint.operation_id:
+            return None
+    return _fetch_bank_result(engine, checkout_id, operation_id, hint.resource, hint.provider_id,
+                              runtime=runtime, provider=provider)
+
+
+def _fetch_bank_result(engine: Engine, checkout_id: int, operation_id: str,
+                       resource: BankResource, provider_id: str, *,
+                       runtime: BankRuntime, provider: YooKassaSafeDeal) -> str | None:
     observation = provider.fetch(resource, provider_id)
     if resource == BankResource.deal and observation.status == "closed":
         raise BankOutcomeUnknown("Closed bank deal requires reconciliation")

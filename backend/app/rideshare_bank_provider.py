@@ -35,6 +35,14 @@ _STATUSES = {
     BankResource.refund: frozenset({"pending", "succeeded", "canceled"}),
     BankResource.payout: frozenset({"pending", "succeeded", "canceled"}),
 }
+_NOTIFICATION_RESOURCES = {
+    "payment.waiting_for_capture": BankResource.payment,
+    "payment.succeeded": BankResource.payment,
+    "payment.canceled": BankResource.payment,
+    "refund.succeeded": BankResource.refund,
+    "payout.succeeded": BankResource.payout,
+    "payout.canceled": BankResource.payout,
+}
 
 
 class BankOutcomeUnknown(RuntimeError):
@@ -70,6 +78,30 @@ class BankObservation:
     payout_balance_kop: int | None = None
     expires_at: str | None = None
     checkout_url: str | None = field(default=None, repr=False)
+
+
+@dataclass(frozen=True)
+class BankNotification:
+    resource: BankResource
+    provider_id: str
+    operation_id: str | None
+
+
+def bank_notification(payload: object) -> BankNotification | None:
+    """Extract reference hints while leaving the bank's current state to an authenticated GET."""
+    if not isinstance(payload, dict) or payload.get("type") != "notification":
+        return None
+    event = payload.get("event")
+    resource = _NOTIFICATION_RESOURCES.get(event) if isinstance(event, str) else None
+    if resource is None:
+        return None
+    try:
+        value = _object(payload.get("object"))
+        metadata = _object(value["metadata"]) if "metadata" in value else {}
+        reference = _identifier(metadata[_META_KEY]) if _META_KEY in metadata else None
+        return BankNotification(resource, _identifier(value.get("id")), reference)
+    except ValueError:
+        return None
 
 
 def _identifier(value: object) -> str:
