@@ -26,6 +26,10 @@ internal data class RideSeriesIntent(
 
     companion object {
         const val MAX_DATES = 10
+        private val keyPattern = Regex("[A-Za-z0-9_-]{16,115}")
+
+        fun minute(value: String): String =
+            OffsetDateTime.parse(value).toInstant().truncatedTo(ChronoUnit.MINUTES).toString()
 
         fun create(
             draft: JSONObject,
@@ -33,11 +37,9 @@ internal data class RideSeriesIntent(
             baseKey: String = CommandFingerprint.KEY_PREFIX + UUID.randomUUID(),
         ): RideSeriesIntent {
             require(departures.size in 1..MAX_DATES)
-            require(baseKey.matches(Regex("[A-Za-z0-9_-]{16,115}")))
+            require(baseKey.matches(keyPattern))
             val ride = JSONObject(draft.toString()).apply { remove("depart_at") }
-            val dates = departures.map {
-                OffsetDateTime.parse(it).toInstant().truncatedTo(ChronoUnit.MINUTES).toString()
-            }.distinct().sorted()
+            val dates = departures.map(::minute).distinct().sorted()
             return RideSeriesIntent(baseKey, ride.toString(), dates.map { utc ->
                 val dateBody = JSONObject().put("ride", ride).put("depart_at", utc)
                 val fingerprint = CommandFingerprint.create("ride.create", null, dateBody)

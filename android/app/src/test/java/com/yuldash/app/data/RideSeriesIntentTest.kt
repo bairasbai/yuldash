@@ -54,4 +54,30 @@ class RideSeriesIntentTest {
             RideSeriesIntent.create(draft, listOf(early), "x".repeat(116))
         }
     }
+
+    @Test
+    fun replacementPreservesPublishedAndUnselectedRefusedDates() {
+        val stored = mutableMapOf<String, String>()
+        val store = RideSeriesStore(stored::get, { account, value ->
+            if (value != null) stored[account] = value else stored.remove(account)
+            true
+        }, clock = { 1000L })
+        val third = "2030-11-05T05:00:00Z"
+        val initial = RideSeriesIntent.create(draft, listOf(early, late, third), baseKey)
+        store.reserve("driver", initial)
+        val (first, second, other) = initial.dates
+        val published = RideSeriesResult(CommandIntent.State.Applied, rideId = 42)
+        val refused = RideSeriesResult(CommandIntent.State.Rejected, code = "time_passed")
+        val closed = RideSeriesResult(CommandIntent.State.Closed, code = "idempotency_closed_no_effect")
+        store.settle("driver", baseKey, mapOf(first to published, second to refused, other to closed))
+        assertThrows(RidePublicationIntent.Failure::class.java) {
+            store.replaceRejected("driver", baseKey, setOf(late), listOf(early))
+        }
+        val replacement = store.replaceRejected("driver", baseKey, setOf(late), listOf("2030-11-07T05:00:00Z"))
+        assertEquals(listOf(published, closed, RideSeriesResult()), replacement.rows.map { it.result })
+        assertFalse(replacement.key == baseKey)
+        assertEquals(replacement, store.current("driver"))
+        assertEquals(null, store.current("other driver"))
+        assertThrows(RidePublicationIntent.Failure::class.java) { store.release("driver", replacement.key) }
+    }
 }
