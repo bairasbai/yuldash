@@ -117,7 +117,7 @@ def test_payout_response_lost_preserves_reserve_and_frozen_token_after_reapprova
         dispatch(paid_checkout, payout)
     with Session(engine) as session:
         save_bank_recipient(session, service.driver["id"], "synthetic-new-token",
-                            expected_version=service.version, cipher=service.runtime.cipher)
+                            expected_version=service.version, cipher=service.runtime.cipher, scope=service.runtime.recipient_scope)
         session.commit()
         revisions = bank_switches(session)
         assert reauthorize_bank_payout(session, checkout_id, payout, owner_id=owner["id"],
@@ -204,7 +204,7 @@ def test_owner_can_release_an_unsent_payout_after_the_recipient_changes(paid_che
     before = len(service.fake.requests)
     with Session(engine) as session:
         save_bank_recipient(session, service.driver["id"], "synthetic-new-token",
-                            expected_version=service.version, cipher=service.runtime.cipher)
+                            expected_version=service.version, cipher=service.runtime.cipher, scope=service.runtime.recipient_scope)
         session.commit()
     with pytest.raises(BankCheckoutUnavailable, match="bank_recipient_changed"):
         dispatch(paid_checkout, payout)

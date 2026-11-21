@@ -81,7 +81,9 @@ def _next_operation(session: Session, checkout: RideshareBankCheckout,
 
 def _payout_token(session: Session, driver_id: int, checkout: RideshareBankCheckout, runtime: BankRuntime) -> str:
     try:
-        return bank_recipient_token(session, driver_id, checkout.recipient_version, cipher=runtime.cipher)
+        return bank_recipient_token(
+            session, driver_id, checkout.recipient_version, cipher=runtime.cipher, scope=runtime.recipient_scope,
+        )
     except BankRecipientUnavailable:
         raise BankCheckoutUnavailable("bank_recipient_changed") from None
 
