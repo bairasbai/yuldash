@@ -7,7 +7,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 `main.py` разрезан без дублирования логики (поведение 1:1).
 """
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterable
 from datetime import timedelta, timezone
 import base64
 import json
@@ -469,7 +469,8 @@ _fcm_app = None
 
 
 def send_push(session: Session, user_id: int, title: str, body: str,
-              data: dict | None = None, data_only: bool = False) -> None:
+              data: dict | None = None, data_only: bool = False, *,
+              before_send: Callable[[], bool] | None = None) -> None:
     """Push на все устройства пользователя — и в приложение (FCM), и в браузер (Web Push).
 
     Два канала намеренно: Firebase доставляет только в приложение из магазина, а человек,
@@ -483,10 +484,14 @@ def send_push(session: Session, user_id: int, title: str, body: str,
     обходит эту проверку в фоне и может показать сообщение прошлого аккаунта после выхода.
     title/body кладём в data; высокий приоритет сохраняет доставку оффера такси через сервис.
     Параметр data_only оставлен для совместимости вызовов, безопасный формат общий для всех.
-    В браузере такого различия нет: там уведомление рисует service worker в любом случае."""
+    В браузере такого различия нет: там уведомление рисует service worker в любом случае.
+    before_send обновляет допуск непосредственно перед вызовом транспорта."""
     # Браузер — ПЕРВЫМ и отдельно: раньше функция выходила на первой же строке, когда
     # Firebase не настроен, и веб-подписки не получали вообще ничего.
-    _send_web_push(session, user_id, title, body, data)
+    if before_send is None:
+        _send_web_push(session, user_id, title, body, data)
+    else:
+        _send_web_push(session, user_id, title, body, data, before_send=before_send)
     if not settings.firebase_credentials:
         return
     try:
@@ -509,6 +514,8 @@ def send_push(session: Session, user_id: int, title: str, body: str,
                                               android=messaging.AndroidConfig(priority="high")))
         # Устойчивость к нагрузке: один batch-вызов вместо N последовательных сетевых round-trip
         # (массовые каскадные уведомления перестают тормозить обработчик).
+        if before_send is not None and not before_send():
+            return
         resp = messaging.send_each(messages)
         # Чистим МЁРТВЫЕ токены (приложение удалено/токен протух) — иначе DeviceToken растёт вечно.
         # В ОТДЕЛЬНОЙ сессии: commit в переданной session сбросил бы ORM-объекты вызывающего.
@@ -584,7 +591,7 @@ def _rating_web_push(session: Session, recipient_id: int, data: dict | None) -> 
 
 
 def _send_web_push(session: Session, user_id: int, title: str, body: str,
-                   data: dict | None = None) -> None:
+                   data: dict | None = None, *, before_send: Callable[[], bool] | None = None) -> None:
     """Web Push во все браузеры человека. Тихо ничего, если VAPID-ключи не настроены.
 
     Сообщение шифруется ключами САМОЙ подписки (`p256dh` + `auth`) — этим занимается
@@ -634,6 +641,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         else:
             content = {"title": "Юлдаш", "tag": "yuldash", "url": "/"}
         payload = json.dumps(content, ensure_ascii=False)
+        if before_send is not None and not before_send():
+            break
         try:
             webpush(
                 subscription_info={
@@ -894,106 +903,83 @@ def _city_keys(name: str) -> set[str]:
         return {_norm_city(v) for v in name_variants(s, name)} - {""}
 
 
-def _push_async(items: "list") -> None:
+def send_push_item(session: Session, item: tuple) -> None:
+    user_id, title, body, data, *checks = item
+    options = {"before_send": checks[0]} if checks else {}
+    send_push(session, user_id, title, body, data=data, **options)
+
+
+def _push_async(items: Iterable[tuple]) -> None:
     """FCM-рассылка в фоновом daemon-потоке (своя сессия) — сеть не держит обработчик запроса.
-    items: список (user_id, title, body, data). Ошибки глотаем: пуш вторичен, запись в ленте уже есть.
+    items выдаёт (user_id, title, body, data) с необязательной проверкой доступности.
+    Запись в ленте уже есть.
 
     Ночью молчим: сюда приходят только новости про маршруты («появилась поездка», «пассажир
     на твоём маршруте»), а они прекрасно ждут до утра. Запись в Центре уведомлений уже сделана
     отдельно — человек проснётся и увидит (аудит 2026-08-08, волна 105).
     """
     if _is_quiet_hour():
-        log.info(f"[NOTIFY] тихие часы — {len(items)} оповещений о маршрутах без звука")
+        log.info("[NOTIFY] тихие часы — оповещения о маршрутах без звука")
         return
 
     def run():
         try:
             with Session(engine) as s:
-                for uid, title, body, data in items:
-                    send_push(s, uid, title, body, data=data)
+                for item in items:
+                    send_push_item(s, item)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[ROUTE_WATCH] async push error: {e}")
     threading.Thread(target=run, daemon=True).start()
 
 
-def notify_route_watchers(session: Session, ride: Ride) -> int:
-    """Матчинг новой поездки с подписками «карауль поездку».
-    Находит непротухшие подписки, чей маршрут совпал с поездкой, и шлёт push + пишет
-    запись уведомления. Анти-спам: не чаще 1 пуша на подписку в сутки (last_notified_at).
-    Возвращает число оповещённых подписок (для тестов/логов). Не роняет публикацию поездки."""
+def route_watch_fit(session: Session, watch: RouteWatch, ride: Ride, entry: dict):
+    """Совпадение с доступным участком, по правилам ленты и поиска."""
+    from . import ride_seats, stop_search
+
+    fv = stop_search.variants(session, watch.from_city, entry)
+    tv = stop_search.variants(session, watch.to_city, entry)
+    if not fv or not tv:
+        return stop_search.NO_FIT
+    from_stops = stop_search.stop_searchable(watch.from_city)
+    to_stops = stop_search.stop_searchable(watch.to_city)
+    shapes = [(fv, tv, from_stops, to_stops)]
+    if watch.direction == "both":
+        shapes.append((tv, fv, to_stops, from_stops))
+    for froms, tos, allow_from, allow_to in shapes:
+        fit = stop_search.route_fit(ride, froms, tos, entry, from_stops=allow_from, to_stops=allow_to)
+        if fit.ok:
+            span = stop_search.matched_span(fit)
+            free = (ride_seats.free_on(ride, span[:2], span[2]) if span is not None
+                    else ride_seats.max_free(ride, len(fit.stops) + 1))
+            if free >= 1:
+                return fit
+    return stop_search.NO_FIT
+
+
+def route_watch_body(ride: Ride, fit) -> tuple[str, str]:
+    base = f"{ride.from_city} → {ride.to_city}"
+    ru = ba = base
+    if fit.matched_stop:
+        ru += f" · садишься в: {fit.matched_stop}"
+        ba += f" · ултырыу урыны: {fit.matched_stop}"
+    if fit.matched_dropoff_stop:
+        ru += f" · выйдешь в: {fit.matched_dropoff_stop}"
+        ba += f" · төшөү урыны: {fit.matched_dropoff_stop}"
+    return ru, ba
+
+
+def notify_route_watchers(session: Session, event_id: int) -> int:
+    """Пробует доставить сохранённую группу сразу. Невыполненное подберёт таймер."""
+    from .route_watch_dispatch import dispatch_event, push_items
+
+    bind = session.get_bind()
     try:
-        now = utcnow()
-        r_from, r_to = _city_keys(ride.from_city), _city_keys(ride.to_city)
-        # Берём только непротухшие подписки; чужие водителю (сам себе не шлём).
-        watches = session.exec(
-            select(RouteWatch).where(
-                RouteWatch.expires_at > now,
-                RouteWatch.user_id != ride.driver_id,
-            )
-        ).all()
-        notified = 0
-        to_push: list = []   # (user_id, title, body, data) — FCM отправим в фоне после записи в ленту
-        # Кого оповещать НЕЛЬЗЯ (аудит 2026-08-07). Рассылка обходила обе защиты сразу:
-        #  • чёрный список — человек, которого водитель заблокировал, получал пуш о его поездке;
-        #  • «только для своих» — закрытую поездку лента прячет и забронировать её нельзя,
-        #    а пуш о ней приходил кому угодно. Само существование поездки — тоже информация:
-        #    «кто, куда и когда едет» в Баймаке узнают по одному оповещению.
-        # Локальный импорт: trust_service тянет services на верхнем уровне — прямой импорт
-        # здесь замкнул бы круг на старте приложения.
-        from .visibility import may_be_notified
-        blocked = set(blocked_user_ids(session, ride.driver_id))
-        for w in watches:
-            if w.watch_kind not in ("rides", "both"):   # G3: эта подписка караулит заявки, не поездки
-                continue
-            w_from, w_to = _city_keys(w.from_city), _city_keys(w.to_city)
-            forward = bool(w_from & r_from) and bool(w_to & r_to)
-            backward = w.direction == "both" and bool(w_from & r_to) and bool(w_to & r_from)
-            if not (forward or backward):
-                continue
-            # Дата: если у подписки задан день — матчим только поездку в этот календарный день.
-            # Дни сравниваем в МЕСТНОМ календаре: подписка «на 15-е» обязана поймать выезд
-            # в четыре утра 15-го, который в базе лежит четырнадцатым числом (волна 79).
-            if w.watch_date is not None and local_date(w.watch_date) != local_date(ride.depart_at):
-                continue
-            # Анти-спам: 1 пуш на подписку в сутки.
-            if w.last_notified_at is not None and (now - w.last_notified_at) < timedelta(hours=24):
-                continue
-            # Проверка доверия стоит ПОСЛЕ дешёвых отсевов, и это не косметика.
-            #
-            # Она единственная здесь ходит в базу — по два запроса на подписчика. Стояла первой,
-            # то есть у поездки «только для своих» доверие проверялось у КАЖДОГО подписчика ленты,
-            # включая тех, чья подписка вообще про другой маршрут. При пятистах подписках и трёх
-            # подходящих это тысяча запросов вместо шести — и растёт вместе с числом пользователей.
-            #
-            # Порядок проверок на результат не влияет: все они одинаково отсеивают подписчика,
-            # и от перестановки набор получивших уведомление не меняется — меняется только цена.
-            # Через общую точку: она проверяет и «только для своих», и чёрный список —
-            # человек, которого водитель заблокировал, не должен узнать даже о существовании
-            # его поездки (волна 77). Позиция после дешёвых отсевов сохранена.
-            if not may_be_notified(session, w.user_id, ride.driver_id,
-                                   bool(ride.only_trusted), blocked):
-                continue
-            route = f"{ride.from_city} → {ride.to_city}"   # города — как есть (имена собственные)
-            # Строку в Центре уведомлений пишем СИНХРОННО (лента должна отдаться сразу), а FCM-пуш
-            # (сеть) — в фоне ниже, чтобы N подписчиков не держали обработчик создания поездки.
-            push_notification(
-                session, w.user_id, "route_watch",
-                "Появилась поездка", "Сәфәр барлыҡҡа килде",
-                route, route,
-                ref_kind="ride", ref_id=ride.id, push=False,
-            )
-            to_push.append((w.user_id, "Появилась поездка", route,
-                            {"type": "ride", "id": str(ride.id)}))
-            w.last_notified_at = now
-            session.add(w)
-            notified += 1
-        if notified:
-            session.commit()
-        if to_push:
-            _push_async(to_push)   # FCM-рассылка вне обработчика запроса
-        return notified
-    except Exception as e:  # noqa: BLE001 — оповещение сторожей не должно ронять публикацию поездки
-        log.warning(f"[ROUTE_WATCH] notify error: {e}")
+        notices = dispatch_event(bind, event_id)
+        if notices:
+            _push_async(push_items(bind, notices))
+        return len(notices)
+    except SQLAlchemyError as exc:
+        log.warning("[ROUTE_WATCH] dispatch deferred: %s", type(exc).__name__)
         return 0
 
 

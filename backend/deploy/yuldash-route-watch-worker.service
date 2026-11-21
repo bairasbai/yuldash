@@ -1,0 +1,20 @@
+[Unit]
+Description=Dispatch stored Yuldash route watch events
+After=network.target postgresql.service
+
+[Service]
+Type=oneshot
+User=yuldash
+WorkingDirectory=/opt/yuldash
+EnvironmentFile=-/opt/yuldash/.env
+ExecStart=/opt/yuldash/.venv/bin/python -m app.route_watch_worker
+TimeoutStartSec=120
+TimeoutStopSec=15
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+ProtectKernelTunables=yes
+ProtectControlGroups=yes
+RestrictSUIDSGID=yes
+ReadWritePaths=-/opt/yuldash/media -/opt/yuldash/private

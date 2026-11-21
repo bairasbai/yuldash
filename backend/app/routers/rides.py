@@ -7,6 +7,7 @@ from datetime import date as date_type, datetime, timedelta
 from functools import lru_cache
 from types import SimpleNamespace
 from typing import List, Optional
+from uuid import uuid4
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query
 from fastapi.responses import JSONResponse
@@ -29,11 +30,12 @@ from .. import workday as workday_mod
 from .. import meeting_points
 from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
 from ..ride_stops import MAX_STOPS, parse_stops, split_raw
+from ..route_watch_dispatch import GroupKey, enqueue_route_watch
 from ..safety_logic import (ensure_active, guard_women_only_publish)
 from ..schemas import RideIn, RideOut, RideTemplateOut
 from .. import stop_search
 from ..security import current_user, current_user_optional
-from ..timeutil import client_dt_to_utc, utcnow
+from ..timeutil import RIDE_PAST_GRACE_HOURS, client_dt_to_utc, utcnow
 # Планка «завершить можно только начавшуюся поездку» — одна на все три двери
 # к этому переходу (bookings.py, family.py и эта ручка).
 from .bookings import DONE_EARLY_GRACE, notify_cancelled_in_transit
@@ -59,8 +61,6 @@ router = APIRouter(tags=["rides"])
 # Окно, в котором повторная публикация с тем же содержимым считается тем же самым тапом.
 # Столько же, сколько у посылок (routers/parcels.py): одно правило — одно число.
 _DUPLICATE_WINDOW_SEC = 60
-
-RIDE_PAST_GRACE_HOURS = 2   # сколько часов после depart_at поездка ещё видна в выдаче (поздняя бронь / уехал впритык)
 
 # Перф (2026-07): дефолтный потолок выдачи /rides и /rides/near. Раньше limit=None
 # означал «отдать ВСЁ» — на 30k+ поездок (11k активных) каждый запрос сериализовал
@@ -245,7 +245,8 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
             geo = _ride_coordinates(origin, destination)
 
     current = idempotency.execute(
-        session, user.id, command, lambda: _create_ride(body, user, session, keyed=True, geo=geo), prepare=prepare,
+        session, user.id, command, lambda: _create_ride(body, user, session, keyed=True, geo=geo, command_key=command.key),
+        prepare=prepare,
     )
     return JSONResponse(current)
 
@@ -269,7 +270,8 @@ def _ride_coordinates(origin: str, destination: str) -> dict:
     return {"from_lat": frm[0], "from_lng": frm[1], "to_lat": to[0], "to_lng": to[1]}
 
 
-def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = False, geo: dict | None = None):
+def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = False,
+                 geo: dict | None = None, command_key: str | None = None):
     ensure_active(session, user.id, refresh=not keyed)
     guard_delivery_ride(body.category)
     # Отдых водителя (волна 2, §8): во время блока такси разрешена ОДНА попутка «домой»
@@ -393,6 +395,7 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
     ride = Ride(driver_id=user.id, seats_left=body.seats_total, stop_prices_json=stop_prices_json,
                 **dump, **geo)
     session.add(ride)
+    siblings = []
     # Регулярная поездка: сразу создаём ближайшие 4 рейса серии (реальные, бронируемые).
     if body.recurrence and body.recurrence != "none":
         step = {"weekly": timedelta(weeks=1)}.get(body.recurrence, timedelta(days=1))
@@ -410,8 +413,10 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
             if body.recurrence == "weekdays" and local_now(dt).weekday() >= 5:   # пропускаем сб/вс
                 continue
             # RS-02 Б: цены остановок в серию — копия списка.
-            session.add(Ride(driver_id=user.id, seats_left=body.seats_total,
-                             stop_prices_json=stop_prices_json, **{**dump, "depart_at": dt}, **geo))
+            sibling = Ride(driver_id=user.id, seats_left=body.seats_total,
+                           stop_prices_json=stop_prices_json, **{**dump, "depart_at": dt}, **geo)
+            session.add(sibling)
+            siblings.append(sibling)
             made += 1
     # Перенесённое с отменённой поездки поднятие достаётся этой — молча и сразу.
     # Остаток читаем под замком строки водителя (тот же мягкий замок, что у «Снять поездку»): иначе
@@ -423,23 +428,29 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
     if apply_boost_credit(user, ride, utcnow()):
         session.add(user)
         session.add(ride)
+    session.flush()
+    watch_events = enqueue_route_watch(
+        session, ride,
+        source_key=command_key or f"ride:{ride.id}:{ride.terms_version}",
+        group_key=GroupKey("recurrence", command_key or uuid4().hex) if siblings else None,
+        siblings=siblings,
+    )
     if keyed:
-        session.flush()
         current = idempotency.ride_command_dto(session, ride)
 
         def after_commit():
             for place, flag in flags:
                 record_open_text_flag(flag, user.id, place=place, ref_id=ride.id, session=session)
-            _notify_new_ride(session, ride, point_id)
+            _notify_new_ride(session, ride, point_id, watch_events)
 
         return idempotency.Applied(ride.id, ride.created_at, current, after_commit)
     session.commit()
     session.refresh(ride)
-    _notify_new_ride(session, ride, point_id)
+    _notify_new_ride(session, ride, point_id, watch_events)
     return ride
 
 
-def _notify_new_ride(session: Session, ride: Ride, point_id: int | None) -> None:
+def _notify_new_ride(session: Session, ride: Ride, point_id: int | None, watch_events: list[int]) -> None:
     # F14: пополняем справочник ориентиров реально выбранной точкой (usage_count / новый ориентир).
     record_pickup_choice(
         session, city=ride.from_city, point_id=point_id,
@@ -447,14 +458,8 @@ def _notify_new_ride(session: Session, ride: Ride, point_id: int | None) -> None
     )
     session.refresh(ride)   # record_pickup_choice коммитит → объект ride «протух», обновляем перед сериализацией
     notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
-    notify_route_watchers(session, ride)   # «карауль поездку»: оповещаем подходящих сторожей (push + запись)
-    # Рассылка пишет уведомления и коммитит — после этого объект поездки «протухает», и в ответ
-    # уходил ПУСТОЙ JSON. Ловилось только там, где на маршрут кто-то подписан: без подписчиков
-    # рассылка ничего не пишет и не коммитит, поэтому в тестах и на пустой базе всё выглядело
-    # исправно (аудит 2026-08-08, волна 78). Для водителя это выглядело как сбой публикации:
-    # поездка на сервере создана, а приложению не с чем работать — и он жмёт «Опубликовать» снова.
-    # Тот же рефреш строкой выше стоит после записи ориентира; здесь его просто забыли.
-    session.refresh(ride)
+    if watch_events:
+        notify_route_watchers(session, watch_events[0])
 
 
 class RideEditIn(BaseModel):
@@ -738,7 +743,7 @@ def search_rides(
                 if fit.ok:
                     # RS-02 А: место нужно на участке запроса; участок неоднозначен —
                     # общий отсев «хоть на одном» уже сделан в SQL.
-                    sp = _definite_span(row, fit, entry)
+                    sp = stop_search.matched_span(fit)
                     if sp is not None and ride_seats.free_on(row, (sp[0], sp[1]), sp[2]) < seats:
                         continue
                     fits[row.id] = fit
@@ -1075,26 +1080,6 @@ def _dropoff(fit, pickup, *, by_query: bool):
     if len(later) != 1:
         return None, False
     return (None, True) if later[0] == len(fit.stops) else (fit.stops[later[0]], False)
-
-
-def _definite_span(ride, fit, entry) -> Optional[tuple]:
-    """RS-02 А: (a, b, n) участка запроса на рейсе по итогу route_fit — только если оба конца
-    однозначны; n = число участков рейса. None — участок неопределён, действует общий отсев SQL."""
-    stops = parse_stops(ride, entry) if (_f_waypoints(ride) or "") else []
-    n = len(stops)
-    if getattr(fit, "matched_from_start", False):
-        a = 0
-    elif getattr(fit, "matched_stop", None) is not None and fit.matched_stop in stops:
-        a = stops.index(fit.matched_stop) + 1
-    else:
-        return None
-    if getattr(fit, "matched_to_end", False):
-        b = n + 1
-    elif getattr(fit, "matched_dropoff_stop", None) is not None and fit.matched_dropoff_stop in stops:
-        b = stops.index(fit.matched_dropoff_stop) + 1
-    else:
-        return None
-    return a, max(a, b), n + 1
 
 
 def _marks_span(row, matched, dropoff, entry) -> Optional[tuple]:

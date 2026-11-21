@@ -18,21 +18,11 @@
 """
 from __future__ import annotations
 
-import pytest
-
 from app.models import UserRole
 
 EARLY = "2030-08-15T04:00:00+05:00"    # 15 августа, 4 утра по Уфе → в базе 14-е, 23:00 UTC
 MIDDAY = "2030-08-15T14:00:00+05:00"   # тот же день, но никуда не смещается
 LATE = "2030-08-15T23:30:00+05:00"     # поздний вечер: в базе уже 15-е, 18:30 UTC
-
-
-@pytest.fixture
-def caught_pushes(monkeypatch):
-    import app.services as svc
-    sent: list[int] = []
-    monkeypatch.setattr(svc, "send_push", lambda s, uid, t, b, data=None: sent.append(uid))
-    return sent
 
 
 def _ride(client, drv, depart_at: str, comment: str) -> int:
@@ -71,7 +61,7 @@ def test_дневной_и_поздний_рейсы_остались_на_ме�
     assert midday not in _found_on(client, "2030-08-16"), "дневной рейс уехал в завтра"
 
 
-def test_караул_на_день_ловит_ранний_рейс(client, user_factory, caught_pushes):
+def test_караул_на_день_ловит_ранний_рейс(client, user_factory, route_watch_pushes):
     watcher = user_factory("КараулитЗухра")
     r = client.post("/route-watch", headers=watcher["auth"], json={
         "from_city": "Баймак", "to_city": "Сибай", "direction": "forward",
@@ -81,11 +71,11 @@ def test_караул_на_день_ловит_ранний_рейс(client, use
 
     _ride(client, user_factory("КараулВодитель", role=UserRole.driver), EARLY, "ранний под караул")
 
-    assert watcher["id"] in caught_pushes, \
+    assert watcher["id"] in route_watch_pushes, \
         "подписка на 15-е пропустила рейс, который выезжает 15-го в четыре утра"
 
 
-def test_караул_не_срабатывает_на_чужой_день(client, user_factory, caught_pushes):
+def test_караул_не_срабатывает_на_чужой_день(client, user_factory, route_watch_pushes):
     """Сторож на перегиб: сдвинув сутки, легко начать слать оповещения за соседние дни."""
     watcher = user_factory("КараулитАйгуль")
     r = client.post("/route-watch", headers=watcher["auth"], json={
@@ -101,4 +91,4 @@ def test_караул_не_срабатывает_на_чужой_день(clien
     _ride(client, user_factory("НаканунеВодитель", role=UserRole.driver),
           "2030-08-14T09:00:00+05:00", "рейс накануне утром")
 
-    assert watcher["id"] not in caught_pushes, "пришло оповещение про поездку не в тот день"
+    assert watcher["id"] not in route_watch_pushes, "пришло оповещение про поездку не в тот день"

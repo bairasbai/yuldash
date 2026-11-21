@@ -24,9 +24,9 @@ def _publish_ride(client, driver, frm="Сибай", to="Уфа", depart="2030-05
 
 
 def _capture_push(monkeypatch):
-    """Подменяем services.send_push — собираем user_id, кому реально ушёл бы push."""
+    """Собираем получателей после проверки видимости, синхронно с тестом."""
     sent: list[int] = []
-    monkeypatch.setattr(services, "send_push", lambda session, user_id, title, body, data=None: sent.append(user_id))
+    monkeypatch.setattr(services, "_push_async", lambda items: sent.extend(item[0] for item in items))
     return sent
 
 
