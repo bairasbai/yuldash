@@ -9,7 +9,7 @@ from sqlmodel import Session, select
 from app import idempotency, route_watch_dispatch
 from app.command_fingerprint import wire_fingerprint
 from app.db import engine
-from app.models import CommandReceipt, Ride, TextFlag, UserRole
+from app.models import CommandReceipt, DriverProfile, Ride, TextFlag, User, UserRole
 from app.routers import rides
 from app.route_watch_models import RouteWatchEvent
 from app.timeutil import utcnow
@@ -252,3 +252,50 @@ def test_series_capacity_refusal_keeps_its_receipt_after_limit_changes(client, s
     replay = client.post("/rides/series", json={**body, "departures": [later]}, headers=headers)
     assert replay.json()["items"][0]["code"] == "too_many_rides"
     assert _ride_ids(driver["id"]) == [applied["ride_id"]]
+
+
+@pytest.mark.parametrize("revoke", [False, True])
+def test_series_prepares_women_only_once_and_rechecks_verification_on_write(client, series, monkeypatch, revoke):
+    driver, draft, headers, start = series
+    with Session(engine) as session:
+        actor = session.get(User, driver["id"])
+        actor.gender = "female"
+        profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver["id"])).first()
+        if profile is None:
+            profile = DriverProfile(user_id=driver["id"])
+        profile.gender_verified = True
+        session.add(profile)
+        session.commit()
+
+    guards = []
+    guard = rides.guard_women_only_publish
+    executor = idempotency.execute
+
+    def guard_once(session, user):
+        guards.append(user.id)
+        return guard(session, user)
+
+    applied = []
+
+    def execute_then_maybe_revoke(*args, **kwargs):
+        result = executor(*args, **kwargs)
+        applied.append(result["id"])
+        if revoke and len(applied) == 1:
+            with Session(engine) as session:
+                profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver["id"])).one()
+                profile.gender_verified = False
+                session.commit()
+        return result
+
+    monkeypatch.setattr(rides, "guard_women_only_publish", guard_once)
+    monkeypatch.setattr(idempotency, "execute", execute_then_maybe_revoke)
+    dates = [(start + timedelta(days=index)).isoformat() for index in range(3)]
+    response = client.post("/rides/series", json={"ride": {**draft, "women_only": True}, "departures": dates},
+                           headers=headers)
+    assert response.status_code == 200, response.text
+    expected = 1 if revoke else 3
+    assert response.json()["published"] == expected
+    assert len(_ride_ids(driver["id"])) == expected
+    assert guards == [driver["id"]]
+    if revoke:
+        assert {item["code"] for item in response.json()["items"][1:]} == {"series_publishing_forbidden"}

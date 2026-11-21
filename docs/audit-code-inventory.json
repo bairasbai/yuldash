@@ -8035,8 +8035,8 @@
       "path": "backend/app/routers/rides.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "6913f112c0b7b7c1d7d35ca0248600deb1282c14c0be6ae61731d4690aa80b60",
-      "lines": 1759
+      "sha256": "1e80038caf78fe0ef81fd1e35d431edea10c021d969cacddfb4d99efe9e89f79",
+      "lines": 1765
     },
     {
       "path": "backend/app/routers/rideshare_bank.py",
@@ -8154,8 +8154,8 @@
       "path": "backend/app/safety_logic.py",
       "kind": "backend_main",
       "block": "B08",
-      "sha256": "b58d773a57f713f60a0800201800ff8c4bada96ad02ea258f2fef75886cdf23b",
-      "lines": 903
+      "sha256": "d8cb0ba4a86d1bcce7d578c5e4b205ab97b6b658d1d95f5484d4d7853f279f2c",
+      "lines": 939
     },
     {
       "path": "backend/app/schemas.py",
@@ -11913,8 +11913,8 @@
       "path": "backend/tests/test_ride_series.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "4a4d86e363e6b447399d3e54c2d6c4307cf680899de887c7fab7dcda4762ea91",
-      "lines": 254
+      "sha256": "b5f51e2724b29e0201a80d9b726d7f2347e5cbd93e17ea924faffe501c26f2fe",
+      "lines": 301
     },
     {
       "path": "backend/tests/test_ride_tips.py",

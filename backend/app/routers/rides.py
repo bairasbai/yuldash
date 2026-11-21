@@ -32,7 +32,7 @@ from .. import meeting_points
 from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
 from ..ride_stops import parse_stops, split_raw
 from ..route_watch_dispatch import GroupKey, enqueue_route_watch
-from ..safety_logic import (ensure_active, guard_women_only_publish)
+from ..safety_logic import ensure_active, guard_women_only_publish, has_verified_female_driver_profile
 from ..schemas import RideIn, RideOut, RideSeriesIn, RideSeriesOut
 from .. import stop_search
 from ..security import current_user, current_user_optional
@@ -374,7 +374,7 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
     # мужчина за рулём зовёт в машину только женщин, и та едет, думая, что проверено
     # (решение Александра, 2026-08-08). Пол — по желанию, поэтому «не указан» получает не
     # отказ, а просьбу заполнить профиль (см. guard_women_only).
-    if getattr(body, "women_only", False):
+    if series is None and body.women_only:
         # Не просто «женщина по профилю», а подтверждённая модератором (волна 168): иначе
         # отметка становится приманкой — мужчина ставит себе «женщина» и зовёт в машину
         # только женщин, а они едут, думая, что кто-то это проверил.
@@ -453,7 +453,13 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
     # это тот же самый тап. «Исправил и опубликовал заново» отличается хотя бы одним полем
     # и проходит как новая поездка. Лочим строку водителя: иначе два запроса пройдут SELECT
     # одновременно и оба вставят.
-    session.exec(select(User).where(User.id == user.id).with_for_update()).first()
+    driver_lock = select(User).where(User.id == user.id).with_for_update()
+    if series is not None and body.women_only:
+        driver = session.exec(driver_lock.execution_options(populate_existing=True)).first()
+        if driver is None or not has_verified_female_driver_profile(session, driver):
+            raise ride_series.refusal("series_publishing_forbidden")
+    else:
+        session.exec(driver_lock).first()
     twin = _recent_twin_ride(session, user.id, body)
     if twin is not None:
         if keyed:
