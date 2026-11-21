@@ -3,7 +3,8 @@
 import json
 import re
 from collections import Counter
-from datetime import date as date_type, datetime, timedelta
+from dataclasses import dataclass
+from datetime import date as date_type, datetime, timedelta, timezone
 from functools import lru_cache
 from types import SimpleNamespace
 from typing import List, Optional
@@ -15,7 +16,7 @@ from pydantic import BaseModel, Field
 from sqlalchemy import and_, func, or_, text
 from sqlmodel import Session, select
 
-from .. import idempotency
+from .. import idempotency, ride_series
 from ..antifraud import moderate_open_text, moderate_text, record_open_text_flag
 from ..config import settings
 from ..db import get_session
@@ -25,14 +26,14 @@ from ..flood import TOO_MANY_RIDES, guard_open_items
 from ..geo import bare_name, by_exact_names, lookup, name_variants, settlements_snapshot
 from ..logs import log
 from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Ride, RideCategory,
-                      RideStatus, User, UserRole)
+                      RideStatus, TextFlag, User, UserRole)
 from .. import workday as workday_mod
 from .. import meeting_points
 from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
 from ..ride_stops import parse_stops, split_raw
 from ..route_watch_dispatch import GroupKey, enqueue_route_watch
 from ..safety_logic import (ensure_active, guard_women_only_publish)
-from ..schemas import RideIn, RideOut
+from ..schemas import RideIn, RideOut, RideSeriesIn, RideSeriesOut
 from .. import stop_search
 from ..security import current_user, current_user_optional
 from ..timeutil import RIDE_PAST_GRACE_HOURS, client_dt_to_utc, utcnow
@@ -251,10 +252,91 @@ def create_ride(body: RideIn, user: User = Depends(current_user), session: Sessi
     return JSONResponse(current)
 
 
-def _guard_open_rides(session, user_id):
+@dataclass(frozen=True)
+class _PreparedRideSeries:
+    group: GroupKey
+    geo: dict
+    stops: str
+    flags: tuple[tuple[str, str], ...]
+
+
+def _publish_flags(comment: str, pickup: str, stops: str) -> tuple[tuple[str, str], ...]:
+    return tuple((place, moderate_text(value, check_contact=False)) for place, value in (
+        ("ride_comment", comment), ("pickup", pickup), ("waypoints", stops),
+    ))
+
+
+def _series_refusal(error: HTTPException) -> HTTPException:
+    code = error.detail.get("code") if isinstance(error.detail, dict) else None
+    if code in ride_series.REFUSALS:
+        return error
+    if error.status_code == 400:
+        return ride_series.refusal("series_details_invalid")
+    if error.status_code == 403:
+        return ride_series.refusal("series_publishing_forbidden")
+    return error
+
+
+@router.post("/rides/series", response_model=RideSeriesOut)
+def create_ride_series(body: RideSeriesIn, user: User = Depends(current_user),
+                       session: Session = Depends(get_session), keyed_body: idempotency.KeyedBody = None):
+    command = ride_series.series_command(body, keyed_body)
+    group = GroupKey("series", command.base_key)
+    owner_id = user.id
+    draft = body.ride.model_dump()
+    prepared = None
+    preparation_error = None
+
+    def prepare_date(publication: Session, date: ride_series.SeriesDate):
+        nonlocal prepared, preparation_error
+        now = utcnow().replace(tzinfo=timezone.utc, second=0, microsecond=0)
+        date_error = ride_series.refusal("time_passed") if date.departure < now else None
+        if date_error is None and prepared is None and preparation_error is None:
+            try:
+                ensure_active(publication, owner_id, refresh=False)
+                guard_delivery_ride(body.ride.category)
+                if body.ride.women_only:
+                    driver = publication.get(User, owner_id)
+                    if driver is None:
+                        raise ride_series.refusal("series_publishing_forbidden")
+                    guard_women_only_publish(publication, driver)
+                _guard_ride_partner(publication, body.ride.partner_id)
+                origin, destination = body.ride.from_city.strip(), body.ride.to_city.strip()
+                _guard_route_cities(origin, destination)
+                stops = _clean_publish_stops(body.ride.waypoints)
+                flags = _publish_flags(body.ride.comment, body.ride.pickup, stops)
+                publication.rollback()
+                prepared = _PreparedRideSeries(group, _ride_coordinates(origin, destination), stops, flags)
+            except HTTPException as error:
+                preparation_error = _series_refusal(error)
+
+        def apply():
+            if date_error is not None:
+                raise date_error
+            if preparation_error is not None:
+                raise preparation_error
+            try:
+                driver = publication.get(User, owner_id)
+                if driver is None:
+                    raise ride_series.refusal("series_publishing_forbidden")
+                ride = RideIn(**draft, depart_at=date.departure)
+                return _create_ride(ride, driver, publication, keyed=True, geo=prepared.geo,
+                                    command_key=date.command.key, series=prepared)
+            except HTTPException as error:
+                raise _series_refusal(error) from None
+
+        return apply
+
+    response = ride_series.publish_dates(session, owner_id, command, prepare_date)
+    if any(item.outcome == "applied" and not item.already for item in response.items):
+        notify_map_changed()
+    return response
+
+
+def _guard_open_rides(session, user_id, *, code: str | None = None):
     guard_open_items(session, Ride.id, Ride.driver_id == user_id, Ride.status == RideStatus.active,
                      limit=settings.flood_active_rides_max,
-                     ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1])
+                     ru=TOO_MANY_RIDES[0], ba=TOO_MANY_RIDES[1], code=code)
 
 
 def _guard_ride_partner(session: Session, partner_id: int | None) -> None:
@@ -271,7 +353,7 @@ def _ride_coordinates(origin: str, destination: str) -> dict:
 
 
 def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = False,
-                 geo: dict | None = None, command_key: str | None = None):
+                 geo: dict | None = None, command_key: str | None = None, series: _PreparedRideSeries | None = None):
     ensure_active(session, user.id, refresh=not keyed)
     guard_delivery_ride(body.category)
     # Отдых водителя (волна 2, §8): во время блока такси разрешена ОДНА попутка «домой»
@@ -328,7 +410,8 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
     # норма и суть «между своими», комиссии тут нет. Ловим мат и фишинг («переведи предоплату»).
     # Города проверяем так же, как в расписании водителя: «Сибай → Сибай» — это опечатка,
     # а название без единой буквы («🚗🚗», «...») превращает ленту в мусор (волна 108).
-    _guard_route_cities(body.from_city, body.to_city)
+    if series is None:
+        _guard_route_cities(body.from_city, body.to_city)
     # «Где встречаемся» — такое же открытое поле, как комментарий, и его тоже видит весь
     # район. Проверки тут не было вовсе. Правила те же, что у комментария попутки:
     # ловим мат и фишинг, телефон НЕ помечаем — обмен номерами между соседями это норма
@@ -338,11 +421,9 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
         moderate_open_text(body.pickup, user.id, check_contact=False, place="pickup", session=session)
     # Остановки по пути — тоже открытое поле (их видит весь район, по ним выбирают, где садиться):
     # строгая проверка формы и та же модерация, что у «Где встречаемся» (18.10.2026).
-    body.waypoints = _clean_publish_stops(body.waypoints)
+    body.waypoints = series.stops if series is not None else _clean_publish_stops(body.waypoints)
     if keyed:
-        flags = [(place, moderate_text(value, check_contact=False)) for place, value in (
-            ("ride_comment", body.comment), ("pickup", body.pickup), ("waypoints", body.waypoints),
-        )]
+        flags = series.flags if series is not None else _publish_flags(body.comment, body.pickup, body.waypoints)
     else:
         moderate_open_text(body.waypoints, user.id, check_contact=False, place="waypoints", session=session)
     # F22: клиника-назначение (опц.). Если указана — проверяем, что она есть и активна
@@ -376,11 +457,16 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
     twin = _recent_twin_ride(session, user.id, body)
     if twin is not None:
         if keyed:
-            return idempotency.Applied(twin.id, twin.created_at, idempotency.ride_command_dto(session, twin))
+            current = {"id": twin.id, "already": True} if series is not None else idempotency.ride_command_dto(session, twin)
+            return idempotency.Applied(twin.id, twin.created_at, current)
         return twin
     if keyed:
-        workday_mod.guard_publish_ride(session, user.id)
-        _guard_open_rides(session, user.id)
+        if series is None:
+            workday_mod.guard_publish_ride(session, user.id)
+            _guard_open_rides(session, user.id)
+        else:
+            workday_mod.guard_publish_ride(session, user.id, refusal_code="rest_block")
+            _guard_open_rides(session, user.id, code="too_many_rides")
 
     # (время выезда уже приведено к UTC выше, вместе с проверкой «не в прошлом»)
     # RS-02 Б: цены остановок проверяем до записи (по частям waypoints и полной цене);
@@ -429,13 +515,29 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
         session.add(user)
         session.add(ride)
     session.flush()
+    group = series.group if series is not None else None
+    if siblings:
+        group = GroupKey("recurrence", command_key or uuid4().hex)
     watch_events = enqueue_route_watch(
         session, ride,
         source_key=command_key or f"ride:{ride.id}:{ride.terms_version}",
-        group_key=GroupKey("recurrence", command_key or uuid4().hex) if siblings else None,
+        group_key=group,
         siblings=siblings,
     )
     if keyed:
+        if series is not None:
+            first = not ride_series.has_published_date(session, user.id, series.group.value)
+            if first:
+                session.add_all([TextFlag(user_id=user.id, kind=flag, place=place, ref_id=ride.id)
+                                 for place, flag in flags if flag])
+
+            def after_series_commit():
+                if first:
+                    for place, flag in flags:
+                        record_open_text_flag(flag, user.id, place=place, ref_id=ride.id, session=None)
+                    _record_ride_pickup(session, ride, point_id)
+
+            return idempotency.Applied(ride.id, ride.created_at, {"id": ride.id, "already": False}, after_series_commit)
         current = idempotency.ride_command_dto(session, ride)
 
         def after_commit():
@@ -451,15 +553,18 @@ def _create_ride(body: RideIn, user: User, session: Session, *, keyed: bool = Fa
 
 
 def _notify_new_ride(session: Session, ride: Ride, point_id: int | None, watch_events: list[int]) -> None:
-    # F14: пополняем справочник ориентиров реально выбранной точкой (usage_count / новый ориентир).
-    record_pickup_choice(
-        session, city=ride.from_city, point_id=point_id,
-        title_ru=ride.pickup, lat=ride.pickup_lat, lng=ride.pickup_lng,
-    )
+    _record_ride_pickup(session, ride, point_id)
     session.refresh(ride)   # record_pickup_choice коммитит → объект ride «протух», обновляем перед сериализацией
     notify_map_changed()   # новая поездка → пины на карте у всех обновятся live (не дожидаясь 25с-опроса)
     if watch_events:
         notify_route_watchers(session, watch_events[0])
+
+
+def _record_ride_pickup(session: Session, ride: Ride, point_id: int | None) -> None:
+    record_pickup_choice(
+        session, city=ride.from_city, point_id=point_id,
+        title_ru=ride.pickup, lat=ride.pickup_lat, lng=ride.pickup_lng,
+    )
 
 
 class RideEditIn(BaseModel):
