@@ -78,24 +78,24 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 257,
+    "android_main": 260,
     "backend_main": 142,
-    "infra_resource_config": 443,
+    "infra_resource_config": 444,
     "public_site_promo": 91,
     "pwa_main": 372,
-    "test_support": 1372
+    "test_support": 1374
   },
   "counts_by_block": {
-    "B01": 178,
+    "B01": 179,
     "B02": 423,
     "B03": 123,
     "B04": 82,
     "B05": 67,
-    "B06": 106,
+    "B06": 109,
     "B07": 150,
     "B08": 222,
-    "B09": 791,
-    "B10": 443,
+    "B09": 792,
+    "B10": 444,
     "B11": 92
   },
   "excluded_counts": {
@@ -388,6 +388,13 @@
       "lines": 191
     },
     {
+      "path": "android/app/src/androidTest/java/com/yuldash/app/RateNotificationRuntimeInstrumentedTest.kt",
+      "kind": "infra_resource_config",
+      "block": "B10",
+      "sha256": "1fd6d340c653d6bfa80626479cc3f018e4bc1c6b0134fb7badbf615a4d2746b1",
+      "lines": 161
+    },
+    {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ReceiptParityInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
@@ -671,8 +678,8 @@
       "path": "android/app/src/main/AndroidManifest.xml",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "177d0dcee9e7e40eab7a0577e8f7b2e55fd96038a41b8658955c7b5e28d2ffe4",
-      "lines": 107
+      "sha256": "ea7b9dfea1a8ec87851f766ce6c50a1bec42b96200dcb9bf321588c478119316",
+      "lines": 108
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/AccessibilityScreens.kt",
@@ -2099,8 +2106,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "f93e195eada621de384cec8a07dc2e605ca8a235663b05707d3bea1448eeb358",
-      "lines": 7556
+      "sha256": "f59ed987e393b5d5c8c8172e63b8db3a630441af4703b55041a8a2e9ee6cf90a",
+      "lines": 7562
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2211,8 +2218,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/FcmService.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "33e633122dadf7c69c338b3ddc1188be86a595fa7202abfe3ff677e6881aa68e",
-      "lines": 170
+      "sha256": "866713bd3239e94cb737f544aceb306ababc8fdba32a9a2279c220cd4bf79b99",
+      "lines": 184
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/GeocoderClient.kt",
@@ -2292,6 +2299,13 @@
       "lines": 76
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/data/OneShotMutation.kt",
+      "kind": "android_main",
+      "block": "B09",
+      "sha256": "deb60dd67a437bbb02262cd647f416873ffdcbd5e1afc00969955d01b2d46597",
+      "lines": 42
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/data/OwnerSwitchApi.kt",
       "kind": "android_main",
       "block": "B09",
@@ -2325,6 +2339,13 @@
       "block": "B02",
       "sha256": "cd165d8a336c5d0cb2c3fbfbdfbc5fe21af6664c4ad0dea4079979ce9186e861",
       "lines": 23
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/RateNotificationAction.kt",
+      "kind": "android_main",
+      "block": "B06",
+      "sha256": "7781cec09124e0f1bd5f5a0ba628d69129292da4eecde755f8916cbb27fc7a78",
+      "lines": 241
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/RequestRouteDtos.kt",
@@ -2442,8 +2463,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "126dce98a11ecc34b818729d7d3ea80f16b253564ef7a7388167baf8cb13e085",
-      "lines": 519
+      "sha256": "016ea66e4e392ee4d46ff7edb1d0ea0e686a4ff0573e63a3b7bdad97a585f50f",
+      "lines": 531
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
@@ -2451,6 +2472,13 @@
       "block": "B02",
       "sha256": "e658c649a26978e62a8095131db78eb737880e212ef8e9b05d4ee08ef3cc51c2",
       "lines": 60
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDto.kt",
+      "kind": "android_main",
+      "block": "B01",
+      "sha256": "7952f5470b7d481c9e5303146f4ac619ef39ea58598a1749b10ec3e982b22d80",
+      "lines": 96
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPaymentDto.kt",
@@ -4038,8 +4066,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/OfflineTripParentAuthorityTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "b89ed7a91ba5e83382f281d6cedefc279f5a77665e81a4952f32b050a51a5bc2",
-      "lines": 910
+      "sha256": "765f23d3b2af5a0359235613fe24f6ca4befb9cc0f6d42a1d77008e29a088150",
+      "lines": 912
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/OfflineTripRestoreWiringTest.kt",
@@ -5120,6 +5148,13 @@
       "lines": 162
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/TripLocationRideTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "5a1557029b0192fe6497850d2b687b7c14ade8deb4e027a72c381572c9d099d7",
+      "lines": 355
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/TripLocationTerminalTest.kt",
       "kind": "test_support",
       "block": "B06",
@@ -5848,6 +5883,13 @@
       "lines": 212
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/RateNotificationActionTest.kt",
+      "kind": "test_support",
+      "block": "B06",
+      "sha256": "c66f1755f9e392e41382b0759ffc3f6dd6479f496482a9b0f98bc7aada6fac57",
+      "lines": 176
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/RidePublicationApiTest.kt",
       "kind": "test_support",
       "block": "B02",
@@ -6082,8 +6124,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/walk/l2_3/NoPersonalDataLoggingTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "5fef79552f9015db22b2e933fa3e7d74411174023d09831d2da4d77bcb424cf4",
-      "lines": 65
+      "sha256": "8a68e7115ba2285555b11b877e7088e7f6c49c8a8c61ad4f42c82efdd6443323",
+      "lines": 66
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/walk/l2_3/OfflineMigrationGuardsTest.kt",
