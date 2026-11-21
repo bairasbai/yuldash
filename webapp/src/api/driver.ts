@@ -106,6 +106,33 @@ export function setDriverGender(gender: "female" | "male" | ""): Promise<DriverS
 // ----------------------------- Мои поездки / архив -----------------------------
 export type DriverRidesStatus = "active" | "all" | "done" | "cancelled";
 
+export interface ReturnRideTemplate {
+  from_city: string;
+  to_city: string;
+  waypoints: string;
+  seats_total: number;
+  price: number;
+  stop_prices: number[];
+  category: "regular" | "urgent";
+  pets_allowed: boolean;
+  child_seat: boolean;
+  women_only: boolean;
+  smoking: boolean;
+  baggage: boolean;
+  air_conditioner: boolean;
+  only_trusted: boolean;
+  quiet: boolean;
+  no_minors: boolean;
+  back_max_two: boolean;
+  front_seat_available: boolean;
+  dropped: string[];
+  suggested_date: string | null;
+}
+
+export function fetchReturnTemplate(rideId: number, signal?: AbortSignal) {
+  return apiGet<ReturnRideTemplate>(`/rides/${rideId}/return-template`, { signal });
+}
+
 /** GET /driver/rides?status= — поездки водителя (RideOut[]). */
 export function fetchDriverRides(
   status: DriverRidesStatus = "active",

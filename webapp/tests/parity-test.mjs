@@ -267,7 +267,7 @@ check(
 );
 check(
   aCreate.includes('mutableStateOf("4")') && aCreate.includes("SeatOptionsCard(") &&
-    wCreate.includes("useState(SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&
+    wCreate.includes("useState(initialReturnDraft?.seats ?? SEATS_DEFAULT)") && wCreate.includes("<SeatOptionsFields") &&
     wCreate.includes("back_max_two: backMaxTwo") && wCreate.includes("front_seat_available: frontSeatAvailable"),
   "создание поездки: 4 места по умолчанию и тумблеры «сзади двое» / «переднее свободно» в обоих клиентах"
 );
