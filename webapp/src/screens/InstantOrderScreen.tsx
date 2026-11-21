@@ -1617,7 +1617,7 @@ function TrackingView({
           <div className="taxi-driver__actions">
             <button
               type="button"
-              className="taxi-icon-btn"
+              className="taxi-icon-btn taxi-trip-contact"
               onClick={onOpenChat}
               aria-label={appText("Чат с водителем", "Йөрөтөүсе менән чат")}
             >
@@ -1625,7 +1625,7 @@ function TrackingView({
             </button>
             {order.driver_phone && (
               <a
-                className="taxi-icon-btn taxi-icon-btn--call"
+                className="taxi-icon-btn taxi-icon-btn--call taxi-trip-contact"
                 href={`tel:${order.driver_phone}`}
                 aria-label={appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")}
               >

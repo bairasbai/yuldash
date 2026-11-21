@@ -96,7 +96,7 @@ export default function WaitlistForm({ city = "" }: { city?: string }) {
       </p>
 
       {/* Кем человек будет. Водителю — свой ответ и своя очередь: их ждут сильнее. */}
-      <div className="chips">
+      <div className="chips taxi-waitlist-roles">
         <button
           type="button"
           className={"chip" + (role === "passenger" ? " chip--on" : "")}
