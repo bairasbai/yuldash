@@ -9,11 +9,12 @@ from alembic import command
 from sqlalchemy import inspect, text
 from sqlmodel import Session
 
+from app.cleanup import _delete_batched, _rules
 from app.config import settings
 from app.db import engine
 from app.models import UserRole
 from app.owner_switches import PAID_SWITCH
-from app.rideshare_bank_models import RideshareBankRecipient, RideshareBankRecipientSetup
+from app.rideshare_bank_models import RideshareBankCheckout, RideshareBankRecipient, RideshareBankRecipientSetup
 from app.rideshare_bank_recipient import BankRecipientUnavailable, bank_recipient_token
 from app.routers.rideshare_bank import receipt_bank_runtime
 from app.security import issue_tokens
@@ -221,3 +222,33 @@ def test_setup_migration_preserves_legacy_recipients_and_cascades_from_driver(tm
         assert inspect(db).has_table("ridesharebankrecipient")
     finally:
         db.dispose()
+
+
+def test_cleanup_keeps_recoverable_and_referenced_recipient_receipts(user_factory):
+    driver_id = user_factory(role=UserRole.driver, taxi_approved=False)["id"]
+    now = utcnow()
+    old = now - timedelta(days=2)
+    current_version, checkout_version, unused_version, recent_version = (uuid4().hex for _ in range(4))
+    ids = {}
+    with Session(engine) as db:
+        db.add(RideshareBankRecipient(user_id=driver_id, version=current_version))
+        db.add(RideshareBankCheckout(test_mode=True, amount_kop=100, payout_kop=100, recipient_version=checkout_version,
+                                     closed_at=now))
+        for name, version, confirmed_at in (
+            ("current", current_version, old), ("checkout", checkout_version, old), ("unused", unused_version, old),
+            ("recent", recent_version, now - timedelta(hours=1)), ("expired", None, None),
+        ):
+            row = RideshareBankRecipientSetup(
+                user_id=driver_id, session_fingerprint="a" * 64, test_mode=True, paid_revision=1, card_revision=1,
+                expires_at=old, result_version=version, confirmed_at=confirmed_at,
+            )
+            db.add(row)
+            ids[name] = row.id
+        db.commit()
+
+    _, table, where, params = next(rule for rule in _rules(now) if rule[1] == "ridesharebankrecipientsetup")
+    assert _delete_batched(table, f"({where}) AND user_id = :driver_id", {**params, "driver_id": driver_id}) == 2
+    with Session(engine) as db:
+        assert {name for name, setup_id in ids.items() if db.get(RideshareBankRecipientSetup, setup_id) is not None} == {
+            "current", "checkout", "recent",
+        }

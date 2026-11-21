@@ -131,11 +131,12 @@ def test_slow_post_and_second_worker_share_one_admitted_operation(bank_checkout,
         assert session.get(RideshareBankCheckout, checkout_id).next_bank_check_at == queue_clock[0] + timedelta(minutes=1)
 
 
-def _seed_detached_checkouts(db, *, count=1):
+def _seed_detached_checkouts(db, *, count=1, provider_account_id=None):
     ids = []
     with Session(db) as session:
         for _ in range(count):
-            checkout = RideshareBankCheckout(test_mode=True, amount_kop=100, payout_kop=100)
+            checkout = RideshareBankCheckout(test_mode=True, amount_kop=100, payout_kop=100,
+                                            provider_account_id=provider_account_id)
             session.add(checkout)
             session.flush()
             session.add(RideshareBankOperation(checkout_id=checkout.id, resource="deals",
@@ -147,7 +148,7 @@ def _seed_detached_checkouts(db, *, count=1):
 
 def test_unconfirmed_older_item_does_not_block_following_checkout(bank_checkout):
     service = bank_checkout
-    older, = _seed_detached_checkouts(engine)
+    older, = _seed_detached_checkouts(engine, provider_account_id=service.runtime.provider_account_id)
     with Session(engine) as session:
         operation = session.exec(select(RideshareBankOperation).where(RideshareBankOperation.checkout_id == older)).one()
         operation.request_ciphertext = b"synthetic prior request"

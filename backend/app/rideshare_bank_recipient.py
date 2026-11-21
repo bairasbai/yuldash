@@ -1,7 +1,7 @@
 """Keep versioned payout tokens separate from the ordinary driver profile."""
 
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 import json
 from uuid import uuid4
 
@@ -12,6 +12,9 @@ from .models import UserRole
 from .rideshare_bank_models import RideshareBankRecipient
 from .security import lock_refresh_user
 from .timeutil import utcnow
+
+
+BANK_RECIPIENT_RECEIPT_WINDOW = timedelta(hours=24)
 
 
 class BankRecipientUnavailable(ValueError):
