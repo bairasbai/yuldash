@@ -118,30 +118,21 @@ internal fun rememberRidePublication(
         )
         val categorySent = body.getString("category")
         if (rideCategoryClosed(categorySent)) return
-        val stopInputs = body.getJSONArray("waypoints").strings()
-        val pricesEnabled = body.getBoolean("stop_prices_enabled")
-        val priceInputs = body.getJSONArray("stop_prices").strings()
         publishError = null
         publicationStatus = null
         publishing = true
         publishScope.launch {
             try {
-                val stops = try {
-                    resolveRideStops(stopInputs, body.getString("from_city"), body.getString("to_city"),
-                        if (draft.stopLanguage == "ba") AppLanguage.Ba else AppLanguage.Ru)
+                val prepared = try {
+                    prepareRidePublicationBody(body, if (draft.stopLanguage == "ba") AppLanguage.Ba else AppLanguage.Ru)
                 } catch (error: Exception) {
                     if (error is kotlinx.coroutines.CancellationException) throw error
                     publishError = if (error is RideStopException) stopErrors.getValue(error.problem) else serverSaid(error, errPublish)
                     return@launch
                 }
                 if (!ApiClient.isCurrentSession(session) || rideCategoryClosed(categorySent)) return@launch
-                val prices = if (pricesEnabled && stops.isNotEmpty()) {
-                    stopPricesInputValid(body.getInt("price"), stops.size, priceInputs.filter { it.isNotBlank() })
-                        ?: run { publishError = stopPriceError; return@launch }
-                } else emptyList()
-                body.remove("stop_prices_enabled")
-                body.put("stop_prices", JSONArray(prices)).put("waypoints", stops.joinToString(" | "))
-                    .put("depart_at", draft.departAt)
+                if (!prepared) { publishError = stopPriceError; return@launch }
+                body.put("depart_at", draft.departAt)
                 val submitted = RidePublicationApi.publish(session, body, draft, previous?.key, retry)
                 if (!ApiClient.isCurrentSession(session)) return@launch
                 submitted.onSuccess { (slot, outcome) ->
@@ -175,6 +166,18 @@ internal fun rememberRidePublication(
 }
 
 private fun JSONArray.strings(): List<String> = List(length()) { getString(it) }
+
+internal suspend fun prepareRidePublicationBody(body: JSONObject, language: AppLanguage): Boolean {
+    val stops = resolveRideStops(body.getJSONArray("waypoints").strings(), body.getString("from_city"),
+        body.getString("to_city"), language)
+    val prices = if (body.getBoolean("stop_prices_enabled") && stops.isNotEmpty()) {
+        val inputs = body.getJSONArray("stop_prices").strings().filter { it.isNotBlank() }
+        stopPricesInputValid(body.getInt("price"), stops.size, inputs) ?: return false
+    } else emptyList()
+    body.remove("stop_prices_enabled")
+    body.put("stop_prices", JSONArray(prices)).put("waypoints", stops.joinToString(" | "))
+    return true
+}
 
 internal fun publicationDraftHash(body: JSONObject): String =
     CommandFingerprint.create("ride.create.draft", null, body).payloadHash

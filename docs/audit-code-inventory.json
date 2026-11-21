@@ -78,7 +78,7 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 254,
+    "android_main": 257,
     "backend_main": 140,
     "infra_resource_config": 442,
     "public_site_promo": 91,
@@ -87,7 +87,7 @@
   },
   "counts_by_block": {
     "B01": 178,
-    "B02": 420,
+    "B02": 423,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -1056,8 +1056,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "c277c5a4bfa1f4ba306ca25cabbdc28b4bc960e42d119876c82a535e2bd65125",
-      "lines": 1147
+      "sha256": "32ed1e9ae57fd236f034ba6064f2b3f0dbb7a4157b46a3bf86d0f3e9564d20e3",
+      "lines": 1176
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideStops.kt",
@@ -1592,10 +1592,17 @@
       "lines": 76
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/RideDatesPicker.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "bfefb69b84ad2f096d5d22537dcde6b9158f0ed944dcae6b22ec062d4df103a2",
+      "lines": 119
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/RideDeparturePicker.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "5f9fd1edfda02b4b226b4dce51ed24f3e9a3ef42aa4467c63f8f5d312b842263",
+      "sha256": "75a7e8e25894ce1df32a6482576c3ea3fe60b3f306cf38fe7756beee9ac18ef3",
       "lines": 314
     },
     {
@@ -1604,6 +1611,20 @@
       "block": "B07",
       "sha256": "a78d22333753ec4ac6270d1767cdcd185f7f95cbb0011ddaeadbfb972081264c",
       "lines": 108
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RidePublicationRecovery.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "8f7dc80cdc9e9ae856ce292e81f3b55382632fc0dd94ceb3e84e02cdcc2c0b58",
+      "lines": 246
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/RideSeriesPublication.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "37e469e70bd5caab47a6404f9481402cb2b9f4713312e0fa6e98fb7bbbe0be82",
+      "lines": 230
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideTemplate.kt",
@@ -2050,8 +2071,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "4ef7b8a9e72677f78908092e1ab11ea45170fb70cc1d022955bb5e0e121966f5",
-      "lines": 2717
+      "sha256": "e767723156a88af0b9bd163d0e32ec30c1da6a3244d7ebde7bdbf42d8b6af3eb",
+      "lines": 2721
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -3345,8 +3366,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/CreateRidePublishJourneyTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ebf8db8df025fe7f9fd5be0c4a78e15fce975c6167b5be0a938d33b0785d75ce",
-      "lines": 314
+      "sha256": "03804360af1ce283aaa6c048ddf24a203f3d12328a3f58ae7d4a0bacb563b460",
+      "lines": 357
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/CreateRideStopsHintTest.kt",

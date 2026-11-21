@@ -24,6 +24,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.time.LocalDate
 import java.time.OffsetDateTime
+import java.time.YearMonth
+import java.time.format.TextStyle
 import java.util.Locale
 import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicInteger
@@ -74,6 +76,15 @@ class CreateRidePublishJourneyTest {
                             created = bodies.last()
                             json(JSONObject(checkNotNull(created)).put("id", 42).put("driver_id", 7).put("status", "active").put("seats_left", 3).toString(), 201)
                         }
+                    }
+                    if (request.method == "POST" && request.path == "/rides/series") {
+                        keys.add(checkNotNull(request.getHeader("Idempotency-Key")))
+                        val raw = request.body.readUtf8().also(bodies::add)
+                        val dates = JSONObject(raw).getJSONArray("departures")
+                        return json("""{"published":1,"failed":1,"unresolved":0,"items":[
+                            {"depart_at":"${dates.getString(0)}","outcome":"applied","ride_id":42,"already":false},
+                            {"depart_at":"${dates.getString(1)}","outcome":"rejected","already":false,"code":"time_passed",
+                            "ru":"Время отправления прошло","ba":"Юлға сығыу ваҡыты үтте"}]}""")
                     }
                     if (revealReceipt && request.requestUrl!!.encodedPath.startsWith("/command-intents/")) {
                         val ride = JSONObject(bodies.first()).put("id", 42).put("driver_id", 7)
@@ -233,6 +244,38 @@ class CreateRidePublishJourneyTest {
         assertEquals(1, bodies.size)
         verifyPayload(bodies.single())
         compose.runOnIdle { assertEquals("42", vm.rides.single { it.id == "42" }.id) }
+    }
+
+    @Test fun twoDatesUseOneSeriesRequestAndShowBothOutcomes() {
+        compose.setContent {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                CreateRideScreen(onBack = {}, onPublish = { published.add(it) },
+                    onSeriesPublished = { resolved.incrementAndGet() })
+            }
+        }
+        edit("Откуда", "Уфа")
+        edit("Куда", "Сибай")
+        list().performScrollToNode(hasTestTag("ride_recurrence_modes"))
+        compose.onNodeWithTag("ride_recurrence_modes").performScrollToNode(hasText("Несколько дат"))
+        compose.onNodeWithText("Несколько дат").assertIsDisplayed().performClick()
+        compose.onNodeWithText("Дальше").performClick()
+        val nextMonth = YearMonth.now().plusMonths(1)
+        val monthLabel = nextMonth.month.getDisplayName(TextStyle.FULL_STANDALONE, Locale.forLanguageTag("ru"))
+            .replaceFirstChar { it.uppercaseChar() }
+        compose.onNodeWithContentDescription("1 $monthLabel ${nextMonth.year}").performScrollTo().performClick()
+        compose.onNodeWithContentDescription("3 $monthLabel ${nextMonth.year}").performScrollTo().performClick()
+        compose.onNodeWithText("Сохранить 2/10").performScrollTo().performClick()
+        publishButton().assertIsEnabled().performClick()
+        awaitInList("Опубликовано 1 из 2")
+        awaitInList("Время отправления прошло")
+        compose.onNodeWithText("Время отправления прошло").assertIsDisplayed()
+        assertEquals(1, requests.count { it == "POST /rides/series" })
+        assertEquals(0, requests.count { it == "POST /rides/commands/v1" })
+        assertEquals(2, JSONObject(bodies.single()).getJSONArray("departures").length())
+        assertTrue(published.isEmpty())
+        awaitInList("Готово")
+        compose.onNodeWithText("Готово").performClick()
+        compose.waitUntil(15000) { resolved.get() == 1 }
     }
 
     private fun fillForm(mount: Boolean = true, language: AppLanguage = AppLanguage.Ru) {
