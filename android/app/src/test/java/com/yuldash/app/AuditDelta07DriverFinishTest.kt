@@ -3,11 +3,12 @@ package com.yuldash.app
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.snapshots.Snapshot
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithText
-import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
 import com.yuldash.app.data.ApiClient
@@ -157,11 +158,11 @@ class AuditDelta07DriverFinishTest {
         waitForText("Подъезжаю")
         composeRule.onNodeWithText("Подъезжаю").assertIsDisplayed()
 
-        composeRule.onNodeWithText("Завершить поездку").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Завершить поездку").assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick)
         composeRule.onNodeWithText("Завершить поездку?").assertIsDisplayed()
         assertEquals(emptyList<String>(), synchronized(sentStatuses) { sentStatuses.toList() })
 
-        composeRule.onNodeWithText("Да, завершить").assertIsDisplayed().performClick()
+        composeRule.onNodeWithText("Да, завершить").assertIsDisplayed().performSemanticsAction(SemanticsActions.OnClick)
         composeRule.waitUntil(timeoutMillis = 10_000) {
             org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
             synchronized(sentStatuses) { sentStatuses.any { it.contains("\"status\":\"done\"") } }
