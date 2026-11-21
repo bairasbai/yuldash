@@ -22,11 +22,19 @@ def _ride(driver, free, *, origin="Групповое", destination="Сборн�
 
 
 @pytest.mark.parametrize("path", ["/rides", "/rides/near"])
-def test_group_size_bounds_and_default(client, path):
+def test_group_size_bounds_and_default(client, path, user_factory):
+    driver = user_factory("Driver for default group size", role=UserRole.driver)
+    origin = f"Проверка размера группы {driver['id']}"
+    ride_id = _ride(driver, 3, origin=origin)
+    route = {"from_city": origin}
     assert client.get(path, params={"seats": 0}).status_code == 422
     assert client.get(path, params={"seats": 9}).status_code == 422
-    assert client.get(path, params={"seats": 8}).status_code == 200
-    assert client.get(path, params={"seats": 1}).json() == client.get(path).json()
+    assert client.get(path, params={**route, "seats": 8}).status_code == 200
+    explicit = client.get(path, params={**route, "seats": 1}).json()
+    default = client.get(path, params=route).json()
+    items = default if path == "/rides" else default["items"]
+    assert [ride["id"] for ride in items] == [ride_id]
+    assert explicit == default
 
 
 def test_group_size_bypasses_unfiltered_cache(client, user_factory, monkeypatch):
