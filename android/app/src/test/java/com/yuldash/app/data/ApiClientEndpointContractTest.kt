@@ -9,6 +9,8 @@ import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONArray
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -60,6 +62,28 @@ class ApiClientEndpointContractTest {
         ApiClient.logout()
         ApiClient.resetForTest()
         server.shutdown()
+    }
+
+    @Test
+    fun bookingPolicyReadsOptionalMinutesWithoutSendingSessionToken() = runBlocking {
+        server.enqueue(MockResponse().setBody("""{"late_cancel_before_min":37,"no_show_wait_min":8}"""))
+        val current = ApiClient.getSafetyPolicy(authenticated = false).getOrThrow()
+        assertEquals(37, current.lateCancelBeforeMin)
+        assertEquals(8, current.noShowWaitMin)
+        val request = requireNotNull(server.takeRequest(2, TimeUnit.SECONDS))
+        assertEquals("GET", request.method)
+        assertEquals("/safety/policy", request.path)
+        assertNull(request.getHeader("Authorization"))
+
+        server.enqueue(MockResponse().setBody("""{"late_cancel_before_min":"37","no_show_wait_min":8.5}"""))
+        val malformed = ApiClient.getSafetyPolicy(authenticated = false).getOrThrow()
+        assertNull(malformed.lateCancelBeforeMin)
+        assertNull(malformed.noShowWaitMin)
+
+        server.enqueue(MockResponse().setBody("{}"))
+        val old = ApiClient.getSafetyPolicy(authenticated = false).getOrThrow()
+        assertNull(old.lateCancelBeforeMin)
+        assertNull(old.noShowWaitMin)
     }
 
     /**
