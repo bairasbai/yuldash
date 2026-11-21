@@ -6,11 +6,15 @@ const h = globalThis.__receiptOwner = {};
 const receipt = (id = 42, extra = {}) => ({ booking_id: id, ride_id: 7, role: "passenger", from_city: "Сибай", to_city: "Акъяр",
   depart_at: "2030-01-02T10:00:00Z", seats: 1, amount: 450, pay_method: "cash", paid: false, driver_name: `Driver-${id}`, driver_verified: true,
   pickup_stop: "Ургаза", dropoff_stop: "Бурибай", my_stars: 4, ...extra });
+const bankReceipt = (status = "unavailable") => ({ currency: "RUB", payment_status: status, amount_kop: 45000,
+  paid_kop: status === "succeeded" ? 45000 : 0, refund_status: "not_started", refunded_kop: 0,
+  refund_coverage: "none", payout_status: null, paid_out_kop: null, payout_remaining_kop: null });
 const deferred = () => { let resolve, reject; const promise = new Promise((a, b) => { resolve = a; reject = b; }); return { promise, resolve, reject }; };
+const clientMock = `export class ApiError extends Error{constructor(status){super('fixture');this.status=status;}}globalThis.__receiptOwner.ApiError=ApiError;export const getSessionGeneration=()=>globalThis.__receiptOwner.generation;export const apiGet=(path, options)=>globalThis.__receiptOwner.bank(path,options);`;
 function reset() {
   Object.assign(h, { generation: "A", bookingId: 42, calls: [], routes: [], clips: [], shares: [], thanks: [], pays: [], remembered: [],
     receipt: async id => receipt(id), tip: async () => ({ already_thanked: false, money: { sbp: "+70000000001", name: "PRIVATE-42" } }),
-    thank: async () => ({}), pay: async () => ({ ok: true }), share: undefined, clip: async () => {} });
+    thank: async () => ({}), pay: async () => ({ ok: true }), bank: async () => bankReceipt(), share: undefined, clip: async () => {} });
 }
 Object.defineProperty(globalThis, "navigator", { configurable: true, value: {
   get share() { return h.share ? async data => { h.shares.push(data); return h.share(data); } : undefined; },
@@ -24,7 +28,8 @@ globalThis.window = { location: { pathname: "/trips/42/receipt", href: "" }, set
 const mocks = lang => ({
   "/i18n/lang": langMock(lang),
   "react-router-dom": `export const useNavigate=()=> (...a)=>globalThis.__receiptOwner.routes.push(a),useParams=()=>({id:String(globalThis.__receiptOwner.bookingId)});`,
-  "/api/client": `export class ApiError extends Error{constructor(status){super('fixture');this.status=status;}}globalThis.__receiptOwner.ApiError=ApiError;export const getSessionGeneration=()=>globalThis.__receiptOwner.generation;`,
+  "/api/client": clientMock,
+  "./client": clientMock,
   "/api/bookings": `export const fetchReceipt=(id,signal)=>{const h=globalThis.__receiptOwner;h.calls.push({kind:'receipt',id,generation:h.generation,signal});return h.receipt(id,signal);};export const reportBookingLostItem=async()=>({ok:true,chat_open_until:'2030-01-01T00:00:00Z'});`,
   "/api/family": `export const fetchBookingTip=(id,signal)=>{const h=globalThis.__receiptOwner;h.calls.push({kind:'tip',id,generation:h.generation,signal});return h.tip(id,signal);};export const thankBooking=id=>{const h=globalThis.__receiptOwner;h.thanks.push({id,generation:h.generation});return h.thank(id);};`,
   "/api/wallet": `export const payBooking=(id,method)=>{const h=globalThis.__receiptOwner;h.pays.push({id,method,generation:h.generation});return h.pay(id,method);};export const payInstantOrder=()=>{throw Error('unexpected order payment');};`,
@@ -41,9 +46,43 @@ const shareButton = s => all(s.tree).find(n => n.type === "button" && (text(n).i
 const thanksButton = s => all(s.tree).find(n => n.type === "button" && (text(n).includes("Сказать рәхмәт") || text(n).includes("Рәхмәт әйтеү")));
 
 for (const lang of ["ru", "ba"]) {
-  const Screen = await bundleComponent("src/screens/TripReceiptScreen.tsx", { mocks: mocks(lang), real: ["/utils/completedBookingPrivacy"] });
+  const Screen = await bundleComponent("src/screens/TripReceiptScreen.tsx", { mocks: mocks(lang),
+    real: ["/utils/completedBookingPrivacy", "/utils/useRideshareCardPayment", "/api/rideshareCardPayment"] });
   const Pay = await bundleComponent("src/components/PayTripCard.tsx", { mocks: mocks(lang) });
   const Sbp = await bundleComponent("src/components/SbpPay.tsx", { mocks: mocks(lang) });
+  await t.test(`${lang}: an admitted card payment takes precedence and a canceled charge releases direct payment`, async () => {
+    reset();
+    let status = "waiting_bank";
+    h.bank = async (path, options) => {
+      assert.equal(path, "/bookings/42/card-payment");
+      assert.equal(options._generation, "A");
+      assert.equal(options.cache, "no-store");
+      return bankReceipt(status);
+    };
+    const s = open(Screen); await s.settle();
+    assert.equal(findLeaf(s, "PayTripCard"), undefined);
+    const card = findLeaf(s, "RideshareCardPaymentSummary");
+    assert.equal(card.props.read.payment.payment_status, "waiting_bank");
+    status = "canceled";
+    card.props.read.refresh(); await s.settle();
+    assert.ok(findLeaf(s, "PayTripCard"));
+    assert.equal(findLeaf(s, "RideshareCardPaymentSummary").props.read.payment.payment_status, "canceled");
+    assert.deepEqual(h.pays, []);
+    s.unmount();
+  });
+  await t.test(`${lang}: a late private bank receipt cannot follow the old account to another booking`, async () => {
+    reset();
+    const held = deferred();
+    h.bank = (path, options) => options._generation === "A" ? held.promise : Promise.resolve(bankReceipt());
+    const s = open(Screen); await s.settle();
+    h.generation = "B"; h.bookingId = 43;
+    s.render(); await s.settle();
+    held.resolve(bankReceipt("succeeded")); await s.settle();
+    assert.equal(findLeaf(s, "RideshareCardPaymentSummary"), undefined);
+    assert.equal(findLeaf(s, "PayTripCard").props.id, 43);
+    assert.deepEqual(h.pays, []);
+    s.unmount();
+  });
   await t.test(`${lang}: receipt distinguishes own segment and parent ride, displays only my rating 1..5`, async () => {
     reset(); const s = open(Screen); await s.settle();
     assert.ok(text(s.tree).includes("Ургаза")); assert.ok(text(s.tree).includes("Бурибай"));

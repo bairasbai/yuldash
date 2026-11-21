@@ -10,14 +10,17 @@ import { useLang } from "../i18n/lang";
 import { completedContactsVisible, useCompletedContactExpiry } from "../utils/completedBookingPrivacy";
 import { ApiError, getSessionGeneration } from "../api/client";
 import { fetchReceipt, reportBookingLostItem, type TripReceipt } from "../api/bookings";
+import { hasBankPayment, replacesDirectPayment, RIDESHARE_CARD_RECEIPT_METHOD } from "../api/rideshareCardPayment";
 import { thankBooking, fetchBookingTip, type TipInfo } from "../api/family";
 import SbpPay from "../components/SbpPay";
 import PayTripCard from "../components/PayTripCard";
 import ReceiptRateDriver from "../components/ReceiptRateDriver";
+import RideshareCardPaymentSummary from "../components/RideshareCardPaymentSummary";
 import { LoadingList, ErrorState } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconArrow, IconReceipt, IconHeart, IconCheck, IconShare, IconSearch } from "../components/Icons";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
+import { useRideshareCardPayment } from "../utils/useRideshareCardPayment";
 
 type State =
   | { kind: "loading" }
@@ -113,6 +116,12 @@ export default function TripReceiptScreen() {
   const passengerReceipt = state.kind === "ready" && state.r.role === "passenger";
   const driverReceipt = state.kind === "ready" && state.r.role === "driver";
   const r = state.kind === "ready" ? state.r : null;
+  const bankPayment = useRideshareCardPayment(passengerReceipt || driverReceipt ? r : null, generation, currentReceipt);
+  const bankReceipt = r?.pay_method === RIDESHARE_CARD_RECEIPT_METHOD;
+  const bankReplacesDirect = bankReceipt || replacesDirectPayment(bankPayment.payment);
+  const showBank = bankReceipt || hasBankPayment(bankPayment.payment);
+  const bankOwnsPayment = useRef(bankReplacesDirect);
+  bankOwnsPayment.current = bankReplacesDirect;
   const deadline = driverReceipt ? r?.completedContactDeadline : undefined;
   useCompletedContactExpiry([deadline]);
   const pickup = r?.pickup_stop === "" ? r.from_city : r?.pickup_stop;
@@ -286,18 +295,20 @@ ${priceLabel(r.amount, false)}`
               <span className="info-row__k">{appText("Твоя оценка", "Һинең баһаң")}</span>
               <span className="info-row__v">{ownStars} / 5</span>
             </div>}
-            <div className="info-row">
-              <span className="info-row__k">{appText("Способ оплаты", "Түләү ысулы")}</span>
-              <span className="info-row__v">{payMethodLabel(state.r.pay_method, ru)}</span>
-            </div>
-            <div className="info-row">
-              <span className="info-row__k">{appText("Статус оплаты", "Түләү хәле")}</span>
-              <span className="info-row__v">
-                {state.r.paid
-                  ? appText("Оплачено", "Түләнгән")
-                  : appText("По договорённости", "Килешеү буйынса")}
-              </span>
-            </div>
+            {!bankReplacesDirect && <>
+              <div className="info-row">
+                <span className="info-row__k">{appText("Способ оплаты", "Түләү ысулы")}</span>
+                <span className="info-row__v">{payMethodLabel(state.r.pay_method, ru)}</span>
+              </div>
+              <div className="info-row">
+                <span className="info-row__k">{appText("Статус оплаты", "Түләү хәле")}</span>
+                <span className="info-row__v">
+                  {state.r.paid
+                    ? appText("Оплачено", "Түләнгән")
+                    : appText("По договорённости", "Килешеү буйынса")}
+                </span>
+              </div>
+            </>}
           </div>
 
           <div className="receipt__total">
@@ -324,13 +335,14 @@ ${priceLabel(r.amount, false)}`
           </button>
 
           {/* Неоплаченная поездка — способ рассчитаться. Оплачено: блока нет. */}
-          {passengerReceipt && !state.r.paid && (
+          {showBank && <RideshareCardPaymentSummary read={bankPayment} driver={driverReceipt} />}
+          {passengerReceipt && !state.r.paid && !bankReplacesDirect && (
             <PayTripCard
               kind="booking"
               id={bookingId}
               amountLabel={priceLabel(state.r.amount, ru)}
               onPaid={() => load()}
-              canAct={() => currentReceipt(state.r)}
+              canAct={() => currentReceipt(state.r) && !bankOwnsPayment.current}
             />
           )}
 

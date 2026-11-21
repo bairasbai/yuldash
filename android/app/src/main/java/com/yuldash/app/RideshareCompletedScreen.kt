@@ -78,6 +78,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.RIDESHARE_CARD_RECEIPT_METHOD
 import com.yuldash.app.data.TipInfoDto
 import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.launch
@@ -210,6 +211,7 @@ internal fun RideshareCompletedSession(
         ?: ride?.price?.takeIf { it > 0 }
     val payMethod = receipt?.payMethod?.takeIf(String::isNotBlank) ?: fallbackPayMethod
     val paid = receipt?.paid == true
+    val bankPayment = rememberRideshareCardPayment(receipt, completedSession, ::canAct)
     val reportTo = afterTripReportTo(receipt, isDriver)   // «Сообщить о проблеме»: окно держит сервер (6 ч, PR174)
 
     TripAuthorityContent({ isCurrent() && (receipt == null || com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(receipt)) }) { RideshareCompletedContent(
@@ -224,6 +226,7 @@ internal fun RideshareCompletedSession(
         amount = amount,
         payMethod = payMethod,
         paid = paid,
+        bankPayment = bankPayment,
         receiptLoading = receiptLoading,
         receiptError = receiptError,
         onRetryReceipt = {
@@ -390,6 +393,7 @@ internal fun RideshareCompletedContent(
     problemReport: (@Composable () -> Unit)? = null,   // «Сообщить о проблеме» пассажиру (RideshareBoarding.kt)
     guardianContact: (@Composable () -> Unit)? = null,
     travelerContact: (@Composable () -> Unit)? = null,
+    bankPayment: CardPaymentRead? = null,
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -470,10 +474,11 @@ internal fun RideshareCompletedContent(
                 }
             }
             if (problemReport != null) item { problemReport() }
-            item {
-                RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid)
-            }
-            if (showOnlinePay) item { onlinePay() }
+            val showBank = bankPayment != null && (bankPayment.payment?.hasOperation == true || payMethod == RIDESHARE_CARD_RECEIPT_METHOD)
+            val bankReplacesDirect = showBank && (bankPayment?.payment?.replacesDirectPayment == true || payMethod == RIDESHARE_CARD_RECEIPT_METHOD)
+            if (showBank && bankPayment != null) item { RideshareCardPaymentSummary(bankPayment, isDriver) }
+            if (!bankReplacesDirect) item { RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid) }
+            if (showOnlinePay && !bankReplacesDirect) item { onlinePay() }
             AnimatedVisibilityItem(visible = receiptError != null) {
                 CompletedInlineMessage(
                     text = receiptError.orEmpty(),

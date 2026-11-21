@@ -23,6 +23,7 @@ const mocks = lang => ({
     export const reportBookingLostItem=id=>{const h=globalThis.__receiptLostItem;h.posts.push({id,generation:h.generation});return h.lost(id);};`,
   "/api/family": `export const fetchBookingTip=async()=>({already_thanked:false,money:null}),thankBooking=async()=>({});`,
   "/utils/format": `export const formatWhen=v=>v,priceLabel=v=>String(v)+' ₽',payMethodLabel=v=>v;`,
+  "/utils/useRideshareCardPayment": `export const useRideshareCardPayment=()=>({payment:null,phase:'idle',refresh() {}});`,
 });
 // Слова каждой стороне свои: водитель не «забыл вещь в своей машине», а ищет вещь, оставленную пассажиром.
 const LOST = {

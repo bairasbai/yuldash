@@ -4929,6 +4929,10 @@ object ApiClient {
     suspend fun getTripReceipt(bookingId: Int, expectedGeneration: Long? = null): Result<TripReceiptDto> =
         OfflineTripSnapshotHooks.receipt(bookingId, expectedGeneration)
 
+    internal suspend fun rideshareCardPayment(bookingId: Int, expectedGeneration: Long): Result<RideshareCardPayment> =
+        call("GET", "/bookings/$bookingId/card-payment", null, auth = true,
+            expectedGeneration = expectedGeneration, freshRead = true).mapCatching(::parseRideshareCardPayment)
+
     // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
     // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
     // 409 — экраны показывают текст ошибки как есть (он двуязычный, приходит с сервера).
