@@ -82,19 +82,19 @@
     "backend_main": 136,
     "infra_resource_config": 439,
     "public_site_promo": 91,
-    "pwa_main": 367,
-    "test_support": 1360
+    "pwa_main": 372,
+    "test_support": 1361
   },
   "counts_by_block": {
     "B01": 178,
-    "B02": 400,
+    "B02": 405,
     "B03": 123,
     "B04": 82,
     "B05": 62,
     "B06": 106,
     "B07": 150,
     "B08": 222,
-    "B09": 790,
+    "B09": 791,
     "B10": 439,
     "B11": 92
   },
@@ -15165,6 +15165,13 @@
       "lines": 33
     },
     {
+      "path": "webapp/src/api/rideSeries.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "9fa937f88c97ef5618f0d2affb5f5677e3594531710bb17352011f6e15413ad7",
+      "lines": 122
+    },
+    {
       "path": "webapp/src/api/rides.ts",
       "kind": "pwa_main",
       "block": "B02",
@@ -15807,6 +15814,20 @@
       "block": "B02",
       "sha256": "7bab1b7a7f7bf2dd5ac5eb0ede4f2912fc863c163ba1120c0e59dcbbdd4dbf82",
       "lines": 205
+    },
+    {
+      "path": "webapp/src/components/RideSeriesFields.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "98ba140830c14cceb51ae31e7c22914fc19fc7932020fd832b752c6e28167292",
+      "lines": 133
+    },
+    {
+      "path": "webapp/src/components/RideSeriesRecovery.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "a75d3e1c299823182869fcbd25744b6ba96157da04a4dde8d1cc365f88be082e",
+      "lines": 119
     },
     {
       "path": "webapp/src/components/RideSheet.tsx",
@@ -16484,8 +16505,8 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "745da26c1eb3958ae8abe8fd7b30348f08321cd1e73956d61c65aa6ca8a50714",
-      "lines": 956
+      "sha256": "a0aa95a72b1d4c06d0f83f55f8c4c97f7d4e0f4265a906c168aaaf634b32309d",
+      "lines": 1053
     },
     {
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
@@ -17009,8 +17030,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "2303acb2d34bbf8f974901006bbf81e288ed553dee12c024507dfbc9d1a3cca5",
-      "lines": 21181
+      "sha256": "93174aea6d24afdc0d4a60a23047ce42bde0ce879d63c2de05c689eef938fdd0",
+      "lines": 21219
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -17030,8 +17051,8 @@
       "path": "webapp/src/utils/bookingCommandStore.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "5b78c0d8c3c7ea403826c6f22261f72d43814150044b2ae7b2b62e3429c8d17d",
-      "lines": 323
+      "sha256": "98931e11cb5ecffb55eb6c627f2a357e749cc41132646102e3a66736e7341b1a",
+      "lines": 377
     },
     {
       "path": "webapp/src/utils/bookingLink.ts",
@@ -17286,6 +17307,13 @@
       "lines": 26
     },
     {
+      "path": "webapp/src/utils/rideSeriesIntent.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "61c8c69a2e9a9e6e95181a6b172f25c548e74a51162436db360e397505d15aad",
+      "lines": 55
+    },
+    {
       "path": "webapp/src/utils/rideTemplate.ts",
       "kind": "pwa_main",
       "block": "B02",
@@ -17452,6 +17480,13 @@
       "block": "B02",
       "sha256": "0de781606420e0b9897f3209bd8de1d69a16337a4e3711c6602dbdc9acc76172",
       "lines": 76
+    },
+    {
+      "path": "webapp/src/utils/useSavedPublication.ts",
+      "kind": "pwa_main",
+      "block": "B09",
+      "sha256": "d41adf1e75f3d3ae149b504f2e77b51db3be6053ca0c3242c1405e2e7b4b447f",
+      "lines": 47
     },
     {
       "path": "webapp/src/utils/useScrollMemory.ts",
@@ -17744,8 +17779,8 @@
       "path": "webapp/tests/create-ride-stops-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "fdcfa72ff1037d7e4092c6addb40185b290a87fbeb04639becdba4b4dd42e564",
-      "lines": 207
+      "sha256": "9f70d768ea50a9396a8251d2a716d84f69f75f055e04983689bbf13b600b829e",
+      "lines": 236
     },
     {
       "path": "webapp/tests/cross-tab-session-test.mjs",
@@ -17919,8 +17954,8 @@
       "path": "webapp/tests/features-parcel-rides-test.mjs",
       "kind": "test_support",
       "block": "B04",
-      "sha256": "f3b97b000359b8422e74f445392bbb5cc2fd08ab3b05ab36bbf963629f7e52d3",
-      "lines": 83
+      "sha256": "da342519c1d11f392246bfb6378a809af1f3f0b83f9c45d587a1e065607a4c34",
+      "lines": 84
     },
     {
       "path": "webapp/tests/features-test.mjs",
@@ -18315,6 +18350,13 @@
       "lines": 279
     },
     {
+      "path": "webapp/tests/ride-series-retry-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "97dd2a0a4d3439ee8b54a01618b777021add2cc2f10b590edabde21012375ef1",
+      "lines": 137
+    },
+    {
       "path": "webapp/tests/ride-template-test.mjs",
       "kind": "test_support",
       "block": "B02",
@@ -18360,8 +18402,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "fc63af907545d6cc37148d201d035a88007048138367ca42d3e1ffbd8a2c8d7d",
-      "lines": 349
+      "sha256": "5216b8e6e83ad52ab3ffc0154e529fa5df7cf8c5658a1fe8c0e2fcb3f2807ee1",
+      "lines": 350
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",

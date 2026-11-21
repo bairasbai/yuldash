@@ -2564,6 +2564,44 @@ button.list-row:active {
   font-weight: var(--weight-semibold);
   transition: border-color var(--motion-quick) ease, background var(--motion-quick) ease, transform var(--motion-quick) ease;
 }
+.ride-series-picker {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+.ride-series-month {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.ride-series-grid {
+  overflow-x: auto;
+}
+.ride-series-week {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(48px, 1fr));
+  text-align: center;
+}
+.ride-series-week .opt-chip,
+.ride-series-month .opt-chip {
+  min-width: 48px;
+  min-height: 48px;
+  justify-content: center;
+  padding: 0;
+}
+.ride-series-count {
+  margin: 0;
+  color: var(--muted);
+}
+.ride-series-results {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: grid;
+  gap: 10px;
+  text-align: left;
+}
 .opt-chip:active {
   transform: scale(0.97);
 }
