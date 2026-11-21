@@ -11703,8 +11703,8 @@
       "path": "backend/tests/test_rides_seats_filter.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "2b7fd740e733cedaffc52667586ca9887f85a28809ab066e1733716eace9f7d0",
-      "lines": 101
+      "sha256": "785f3ea11a4a3fa7bb21b59394934156ab804a2f7d0c4a6e26aab73190e3431a",
+      "lines": 109
     },
     {
       "path": "backend/tests/test_rideshare_bank_accounting.py",
