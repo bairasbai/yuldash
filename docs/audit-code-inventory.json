@@ -4374,8 +4374,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "2cf3b532c8d72a67a5686b8ace9e0541007d72607cf48c0240416df04e9f22cb",
-      "lines": 314
+      "sha256": "3f9070a2b430d6662f210c52bd0de468260e30a18658b857e9a374c255ba9f15",
+      "lines": 321
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedGuardTest.kt",
@@ -4409,8 +4409,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareRatingReopenTest.kt",
       "kind": "test_support",
       "block": "B08",
-      "sha256": "93b90a11339054b29426c28bf7290446644267ec6bed88c422dd3e92f4d0bed2",
-      "lines": 224
+      "sha256": "3166f7acf83e834a825744521a9a2d58fa680a3abb2ab23bf322ed967140e568",
+      "lines": 228
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareSmallFixesTest.kt",

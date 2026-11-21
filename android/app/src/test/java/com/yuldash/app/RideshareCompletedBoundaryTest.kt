@@ -128,7 +128,7 @@ class RideshareCompletedBoundaryTest {
                         return MockResponse().setResponseCode(403).setBody("{}")
                     }
                     val id = match.groupValues[1].toInt()
-                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":true,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":${!bankStatusEnabled},"card_payment_obligation":$bankStatusEnabled,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
                 }
             }
             start()
@@ -248,12 +248,19 @@ class RideshareCompletedBoundaryTest {
         bankStatusEnabled = true
         mount()
         fun bankReads() = requests.count { it.first == "GET /bookings/42/card-payment" && it.second == "Bearer $tokenA" }
-        compose.waitUntil(5_000) { bankReads() == 1 }
+        compose.waitUntil(12_000) { bankReads() == 1 }
+        val list = compose.onNodeWithTag("rideshareCompletedList")
+        list.performScrollToNode(hasText("Оплата картой"))
         val waiting = hasText("Ждём подтверждения банка")
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(waiting)
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodes(waiting).fetchSemanticsNodes().isNotEmpty()
+        }
+        list.performScrollToNode(waiting)
         compose.onNode(waiting).assertIsDisplayed()
         val refresh = hasText("Обновить статус")
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(refresh)
+        list.performScrollToNode(refresh)
         compose.onNode(refresh).performClick()
         compose.waitUntil(5_000) { bankReads() == 2 }
     }
