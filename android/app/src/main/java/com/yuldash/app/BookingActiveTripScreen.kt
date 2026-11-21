@@ -801,7 +801,7 @@ internal fun BookingScreen(
                     showAmount = onGuestBooking == null,
                 )
             }
-            if (!canRepeatOriginal) frontSeatItem(ride, bookingId, details, frontSeat, onFrontSeatChange)
+            if (!canRepeatOriginal) bookingSeatAndTermsItems(ride, bookingId, details, frontSeat, onFrontSeatChange, canCreateBooking, onGuestBooking != null)
             if (bookingId == null && !canRepeatOriginal) {
                 if (ride.category !in setOf("parcel", "cargo") && (!ride.womenOnly || forAnother)) item {
                     BookingTravelerChoice(forAnother, travelerName, ride.womenOnly, onGuestBooking != null,
