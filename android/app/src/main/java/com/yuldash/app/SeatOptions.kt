@@ -163,12 +163,14 @@ private fun FrontSeatNote(title: String, text: String) {
  * после — пометка в самой брони (пассажиру — что просил, водителю — что просят).
  * Живёт здесь, а не в BookingActiveTripScreen.kt: большой файл не растёт (FileSizeRatchetTest).
  */
-internal fun LazyListScope.frontSeatItem(
+internal fun LazyListScope.bookingSeatAndTermsItems(
     ride: Ride,
     bookingId: Int?,
     details: BookingDetailsDto?,
     frontSeat: Boolean,
     onFrontSeatChange: (Boolean) -> Unit,
+    showTerms: Boolean,
+    guest: Boolean,
 ) {
     if (bookingId == null) {
         item(key = "front-seat") {
@@ -185,6 +187,10 @@ internal fun LazyListScope.frontSeatItem(
                 icon = Icons.Default.AirlineSeatReclineNormal,
             )
         }
+    }
+    if (bookingId == null && showTerms && ride.category !in setOf("parcel", "cargo")) {
+        item(key = "booking-terms-${ride.id}") { BookingTermsCard(ride.driverPayMethods.isNotEmpty()) }
+        item(key = "booking-scam-tip-${ride.id}") { BookingScamTip(guest = guest) }
     }
 }
 
