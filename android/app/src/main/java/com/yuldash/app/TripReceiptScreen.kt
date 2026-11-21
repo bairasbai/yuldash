@@ -148,7 +148,10 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
     var ratedStars by remember(r.bookingId, expectedGeneration) { mutableIntStateOf(0) }
     var rateBusy by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
     val rateErr = appText("Оценка не ушла. Проверь сеть и попробуй ещё раз.", "Баһа ебәрелмәне. Селтәрҙе тикшереп, тағы бер тапҡыр ҡара.")
-    val payLabel = payMethodLabel(r.payMethod)
+    val bankPayment = rememberRideshareCardPayment(r, expectedGeneration, ::current)
+    val bankReplacesDirect = bankPayment.replacesDirectPayment(r.cardPaymentObligation)
+    val showBank = bankReplacesDirect || bankPayment.payment?.hasOperation == true
+    val payLabel = if (bankReplacesDirect) appText("Оплата картой", "Карта менән түләү") else payMethodLabel(r.payMethod)
     val shareChooser = appText("Поделиться квитанцией", "Квитанция менән бүлешеү")
     // Строки для шеринга считаем ЗАРАНЕЕ (appText — @Composable, внутри buildString его звать нельзя).
     val shTitle = appText("Юлдаш · Квитанция поездки", "Юлдаш · Сәфәр квитанцияһы")
@@ -177,8 +180,10 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
             }
         }
 
-        // Сумма + способ оплаты (акцент)
-        AppCard {
+        if (showBank) RideshareCardPaymentSummary(bankPayment, isDriver)
+
+        // Сумма + способ расчёта напрямую
+        if (!bankReplacesDirect) AppCard {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Column(Modifier.weight(1f)) {

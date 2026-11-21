@@ -236,6 +236,7 @@ export interface TripReceipt extends CompletedContactWindow {
   seats: number;
   amount: number;
   pay_method: PayMethod;
+  card_payment_obligation?: boolean;
   paid: boolean;
   driver_name: string;
   driver_verified: boolean;

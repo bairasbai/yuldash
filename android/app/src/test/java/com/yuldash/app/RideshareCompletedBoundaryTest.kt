@@ -57,6 +57,7 @@ class RideshareCompletedBoundaryTest {
     private val fixtureFailures = CopyOnWriteArrayList<String>()
     private val ownedJobs = CopyOnWriteArrayList<Job>()
     @Volatile private var httpReceipt: TripReceiptDto? = null
+    @Volatile private var bankStatusEnabled = false
     private var contentMounted = false
 
     private fun awaitBackgroundCompletion() = runBlocking {
@@ -112,6 +113,11 @@ class RideshareCompletedBoundaryTest {
                     val key = "${request.method} ${request.path}"
                     val bearer = request.getHeader("Authorization")
                     requests += key to bearer
+                    if (request.method == "GET" && request.path in setOf("/bookings/42/card-payment", "/bookings/43/card-payment") && bearer == "Bearer $tokenA") {
+                        val status = if (bankStatusEnabled) "waiting_bank" else "unavailable"
+                        return MockResponse().setHeader("Content-Type", "application/json")
+                            .setBody("""{"currency":"RUB","payment_status":"$status","amount_kop":45000,"paid_kop":0,"refund_status":"not_started","refunded_kop":0,"refund_coverage":"none"}""")
+                    }
                     val traveler = Regex("^/bookings/(42|43)/completed-traveler$").matchEntire(request.path.orEmpty())
                     if (request.method == "GET" && traveler != null && bearer == "Bearer $tokenA") {
                         return MockResponse().setBody("""{"booking_id":${traveler.groupValues[1]},"role":"passenger"}""")
@@ -122,7 +128,7 @@ class RideshareCompletedBoundaryTest {
                         return MockResponse().setResponseCode(403).setBody("{}")
                     }
                     val id = match.groupValues[1].toInt()
-                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":true,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
+                    return MockResponse().setHeader("Content-Type", "application/json").setBody("""{"booking_id":$id,"ride_id":9,"role":"passenger","from_city":"Уфа","to_city":"Бирск","depart_at":"2026-10-07T10:00:00","seats":1,"amount":400,"pay_method":"cash","paid":${!bankStatusEnabled},"card_payment_obligation":$bankStatusEnabled,"driver_name":"Водитель","driver_verified":true,"counterparty_name":"Водитель","my_stars":0,"my_rating_tags":""}""")
                 }
             }
             start()
@@ -238,6 +244,27 @@ class RideshareCompletedBoundaryTest {
             compose.waitUntil(5000) { calls.contains(kind to 43) }
         }
     }
+    @Test fun bankStatusLoadsAfterReceiptAndRefreshReadsTheSameBooking() {
+        bankStatusEnabled = true
+        mount()
+        fun bankReads() = requests.count { it.first == "GET /bookings/42/card-payment" && it.second == "Bearer $tokenA" }
+        compose.waitUntil(12_000) { bankReads() == 1 }
+        val list = compose.onNodeWithTag("rideshareCompletedList")
+        list.performScrollToNode(hasText("Оплата картой"))
+        val waiting = hasText("Ждём подтверждения банка")
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodes(waiting).fetchSemanticsNodes().isNotEmpty()
+        }
+        list.performScrollToNode(waiting)
+        compose.onNode(waiting).assertIsDisplayed()
+        val refresh = hasText("Обновить статус")
+        list.performScrollToNode(refresh)
+        compose.onNode(refresh).performClick()
+        compose.waitUntil(5_000) { bankReads() == 2 }
+    }
+
     @Test fun ordinaryCompletedActionsRemainAvailable() {
         mount()
         node("receipt").performScrollTo().performClick(); assertEquals(1, receipts)

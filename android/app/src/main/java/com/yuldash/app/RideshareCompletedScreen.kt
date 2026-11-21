@@ -210,6 +210,7 @@ internal fun RideshareCompletedSession(
         ?: ride?.price?.takeIf { it > 0 }
     val payMethod = receipt?.payMethod?.takeIf(String::isNotBlank) ?: fallbackPayMethod
     val paid = receipt?.paid == true
+    val bankPayment = rememberRideshareCardPayment(receipt, completedSession) { canAct() }
     val reportTo = afterTripReportTo(receipt, isDriver)   // «Сообщить о проблеме»: окно держит сервер (6 ч, PR174)
 
     TripAuthorityContent({ isCurrent() && (receipt == null || com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(receipt)) }) { RideshareCompletedContent(
@@ -224,6 +225,8 @@ internal fun RideshareCompletedSession(
         amount = amount,
         payMethod = payMethod,
         paid = paid,
+        bankPayment = bankPayment,
+        bankObligation = receipt?.cardPaymentObligation == true,
         receiptLoading = receiptLoading,
         receiptError = receiptError,
         onRetryReceipt = {
@@ -390,6 +393,8 @@ internal fun RideshareCompletedContent(
     problemReport: (@Composable () -> Unit)? = null,   // «Сообщить о проблеме» пассажиру (RideshareBoarding.kt)
     guardianContact: (@Composable () -> Unit)? = null,
     travelerContact: (@Composable () -> Unit)? = null,
+    bankPayment: CardPaymentRead? = null,
+    bankObligation: Boolean = false,
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -470,10 +475,12 @@ internal fun RideshareCompletedContent(
                 }
             }
             if (problemReport != null) item { problemReport() }
-            item {
-                RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid)
+            val bankReplacesDirect = bankPayment?.replacesDirectPayment(bankObligation) ?: bankObligation
+            if (bankPayment != null && (bankReplacesDirect || bankPayment.payment?.hasOperation == true)) {
+                item { RideshareCardPaymentSummary(bankPayment, isDriver) }
             }
-            if (showOnlinePay) item { onlinePay() }
+            if (!bankReplacesDirect) item { RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid) }
+            if (showOnlinePay && !bankReplacesDirect) item { onlinePay() }
             AnimatedVisibilityItem(visible = receiptError != null) {
                 CompletedInlineMessage(
                     text = receiptError.orEmpty(),

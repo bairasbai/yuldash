@@ -4929,6 +4929,10 @@ object ApiClient {
     suspend fun getTripReceipt(bookingId: Int, expectedGeneration: Long? = null): Result<TripReceiptDto> =
         OfflineTripSnapshotHooks.receipt(bookingId, expectedGeneration)
 
+    internal suspend fun rideshareCardPayment(bookingId: Int, expectedGeneration: Long): Result<RideshareCardPayment> =
+        call("GET", "/bookings/$bookingId/card-payment", null, auth = true,
+            expectedGeneration = expectedGeneration, freshRead = true).mapCatching(::parseRideshareCardPayment)
+
     // ═══════════ Закрытие пробелов такси / курьера (аудит 2026-07-26) ═══════════
     // Сервер уже умеет всё ниже; здесь только доступ. Все ручки идемпотентны или дают понятный
     // 409 — экраны показывают текст ошибки как есть (он двуязычный, приходит с сервера).
@@ -7103,17 +7107,6 @@ data class PayoutStatusDto(
 )
 /** Результат вывода (POST /wallet/payout). status: ok | already (идемпотентный повтор той же попытки). */
 data class PayoutResultDto(val status: String, val entryId: Int, val amountKop: Int, val balanceKop: Int)
-/** Результат оплаты поездки (POST /bookings/{id}/pay, POST /instant/orders/{id}/pay).
- *  status: paid (наличные) | already_paid | succeeded (mock/dev) | pending (ждём подтверждения ЮKassa).
- *  pending + confirmationUrl → открыть браузер, потом поллить getPaymentStatus(paymentId). */
-data class PayTripResultDto(
-    val status: String,
-    val method: String,
-    val paymentId: Int?,
-    val confirmationUrl: String?,
-) {
-    val isPaid: Boolean get() = status == "paid" || status == "already_paid" || status == "succeeded"
-}
 /** День в разбивке заработка (GET /driver/earnings). sum — в ₽ (не копейки). */
 data class DriverEarningsDayDto(val date: String, val sum: Int, val trips: Int)
 /** Заработок водителя за период (GET /driver/earnings?period=week|month|all).

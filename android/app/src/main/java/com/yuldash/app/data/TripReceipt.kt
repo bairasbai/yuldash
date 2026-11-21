@@ -15,6 +15,7 @@ data class TripReceiptDto(
     val canRate: Boolean = false,   // срок оценки ещё открыт — «Оценить водителя» в квитанции (приёмка 18.10, п.7)
     val pickupStop: String? = null, val dropoffStop: String? = null,
     val cardPayment: Boolean = false,
+    val cardPaymentObligation: Boolean = false,
 )
 
 /** Keep raw null / empty / published stop values distinct; legacy is never guessed. */
@@ -36,6 +37,7 @@ internal fun parseTripReceiptDto(o: JSONObject): TripReceiptDto = TripReceiptDto
     myRatingTags = o.optString("my_rating_tags"), counterpartyId = o.optInt("counterparty_id"), problemReportSec = o.optInt("problem_report_sec"),
     canRate = o.optBoolean("can_rate"),
     cardPayment = o.optBoolean("card_payment", false),
+    cardPaymentObligation = o.optBoolean("card_payment_obligation", false),
     pickupStop = if (o.isNull("pickup_stop")) null else o.optString("pickup_stop"),
     dropoffStop = if (o.isNull("dropoff_stop")) null else o.optString("dropoff_stop"),
 )
