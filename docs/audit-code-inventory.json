@@ -15959,8 +15959,8 @@
       "path": "webapp/src/components/RideSeriesFields.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "98ba140830c14cceb51ae31e7c22914fc19fc7932020fd832b752c6e28167292",
-      "lines": 133
+      "sha256": "9c0a42f9f59eda335df50320631ea63d8f22be9adfeecd8750163dd6dedd5a1e",
+      "lines": 131
     },
     {
       "path": "webapp/src/components/RideSeriesRecovery.tsx",
@@ -16645,7 +16645,7 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "58dacadbf60a01cf680223965cfc7fbb68c531bdabba1d78422994f0611a12f1",
+      "sha256": "be15c93e5bf8706bcb2861c24d0fa7114a804e3d2eca1f95fa7e1d79296b1e0d",
       "lines": 1055
     },
     {

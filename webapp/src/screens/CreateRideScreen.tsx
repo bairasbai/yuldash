@@ -646,7 +646,7 @@ export default function CreateRideScreen() {
             }
           }}>{appText("Несколько дат", "Бер нисә көн")}</button>
         {seriesMode && <RideSeriesFields days={seriesDays} time={seriesTime} onDays={setSeriesDays} onTime={setSeriesTime}
-          minimum={2} disabled={busy} />}
+          disabled={busy} />}
 
         <div className="field-row">
           <div className="field" style={{ flex: 1 }}>

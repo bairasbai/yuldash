@@ -24,10 +24,10 @@ export function rideSeriesDepartures(days: string[], time: string): string[] {
 }
 
 export default function RideSeriesFields({
-  days, time, onDays, onTime, disabled, limit = MAX_RIDE_SERIES_DATES, minimum = 1,
+  days, time, onDays, onTime, disabled, limit = MAX_RIDE_SERIES_DATES,
 }: {
   days: string[]; time: string; onDays: (days: string[]) => void;
-  onTime: (time: string) => void; disabled?: boolean; limit?: number; minimum?: 1 | 2;
+  onTime: (time: string) => void; disabled?: boolean; limit?: number;
 }) {
   const { appText, lang } = useLang();
   const today = minDateTimeNow().slice(0, 10);
@@ -119,9 +119,7 @@ export default function RideSeriesFields({
         ))}
       </div>
       <p role="status" className="ride-series-count">
-        {minimum === 2 && days.length < minimum
-          ? appText("Выбери хотя бы две даты.", "Кәмендә ике көн һайла.")
-          : appText(`Выбрано дат: ${days.length} из ${limit}`, `Һайланған көндәр: ${days.length} / ${limit}`)}
+        {appText(`Выбрано дат: ${days.length} из ${limit}`, `Һайланған көндәр: ${days.length} / ${limit}`)}
       </p>
       <label className="field">
         <span className="field__label">{appText("Время выезда в каждый день", "Һәр көн сығыу ваҡыты")}</span>
