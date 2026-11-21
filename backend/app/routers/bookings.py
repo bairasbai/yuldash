@@ -18,7 +18,7 @@ from .. import meeting_points     # RS-03: точка встречи/высад�
 from .. import ride_seats         # RS-02 А: единственная дверь записи свободных мест
 from .. import trip_wake
 from ..antifraud import moderate_text, record_open_text_flag
-from ..booking_payment import check_direct_payment_allowed, lock_booking_payment
+from ..booking_payment import booking_has_bank_obligation, check_direct_payment_allowed, lock_booking_payment
 from ..config import settings
 from ..flood import TOO_FAST_CREATING, guard_burst
 from ..db import get_session
@@ -1223,6 +1223,7 @@ def trip_receipt(booking_id: int, response: Response, user: User = Depends(curre
         "amount": amount,                       # ₽; договорённость (pay_amount) или цена брони
         "pay_method": booking.pay_method.value if hasattr(booking.pay_method, "value") else booking.pay_method,
         "paid": bool(booking.paid),
+        "card_payment_obligation": booking_has_bank_obligation(session, booking.id),
         "driver_name": (driver.name if driver and driver.name else "Водитель"),
         "driver_verified": bool(driver.verified) if driver else False,
         "counterparty_name": (counterparty.name if counterparty and counterparty.name else

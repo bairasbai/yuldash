@@ -52,7 +52,7 @@ export default function RideshareCardPaymentSummary({ read, driver }: {
         </p>}
       </div>}
       {!payment && read.phase === "idle" && <p className="act-card__text">
-        {appText("Проверь статус в банке", "Банктағы торошто тикшер")}
+        {appText("Статус оплаты уточняется", "Түләү торошо асыҡлана")}
       </p>}
       {read.phase === "error" && <p className="act-card__text" role="alert">
         {appText("Статус не обновился. Проверь связь и повтори.", "Торош яңырманы. Бәйләнеште тикшереп ҡабатла.")}

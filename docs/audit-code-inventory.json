@@ -1616,15 +1616,15 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCardPaymentSummary.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "a011f98295e226db8d92483cc4c926382a997dcc8853a04ad59a1cd1073543e5",
-      "lines": 132
+      "sha256": "b12ec9161eb4ac65d134fadb2b6c7fc2d84fa7c892ec66ce01a5255b7e672345",
+      "lines": 135
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "36fc0f002dabe0ff5b384c48932c168ba9b222c9d62b56face3c94e34a56396c",
-      "lines": 1047
+      "sha256": "55ef80c7a0db5f83b625d6c6b20219b81add695aaf532b866f1728457d642560",
+      "lines": 1049
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareDecline.kt",
@@ -1959,8 +1959,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/TripReceiptScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "6b742fc35bed505de9d91d308ebc19354e529da01a399a8e496be6fd2354311f",
-      "lines": 462
+      "sha256": "4d5db43cdc7a608aeb7bf9e3c08f59ff902a5165b2ea09b325b236d1629568b5",
+      "lines": 461
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/TripRouteLabel.kt",
@@ -2295,8 +2295,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/RideshareCardPayment.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "69832a0e4674a9638e54602c60ab052113b3efdfaa284ea108ce6a575ef26f29",
-      "lines": 60
+      "sha256": "74c21e9b6481c5e0d099328ffe12d36b1a5ff602c67c916f7e0b998617e7bd95",
+      "lines": 59
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/RouteWatchApi.kt",
@@ -2351,8 +2351,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripReceipt.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "5369f963bb4d5307616f28ab8cd271fa8c7d9ab419b6c61b26a5667a69479f24",
-      "lines": 41
+      "sha256": "c9fa0a78e312a0b498b1c19bd687d4b9e0652edaed87dfe1c973d0568f1086f0",
+      "lines": 43
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ui/theme/Theme.kt",
@@ -4367,8 +4367,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedBoundaryTest.kt",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "612d929ae23a5a5994a1ead00e72286b7a596d90c6809510dd2f175afd072033",
-      "lines": 294
+      "sha256": "6c1bfff12c7499f3c90d079c72642d6eeb2a5c9ac092ca12c1f0c2dba8783228",
+      "lines": 298
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/RideshareCompletedGuardTest.kt",
@@ -7720,8 +7720,8 @@
       "path": "backend/app/routers/bookings.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "a14e393a1723edddd9ed99d0b505e86aeea86215b5dd5cc2d8b124b2746fa268",
-      "lines": 2619
+      "sha256": "ca07708bc61f8a0aaa16b333151f03f20e6cd24ab4d221a98ad3862d827c0ea4",
+      "lines": 2620
     },
     {
       "path": "backend/app/routers/carphoto.py",
@@ -11801,8 +11801,8 @@
       "path": "backend/tests/test_rideshare_bank_receipt.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "27ab6cccbb5872aed3d3e54993bd2b5434799380e1515043d619a745ef4089b6",
-      "lines": 118
+      "sha256": "87be17348174dbfdae3c89c3ac65a8b2c58fc2164db4ce7d8b60f98ecf527a12",
+      "lines": 141
     },
     {
       "path": "backend/tests/test_rideshare_bank_recipient.py",
@@ -14762,7 +14762,7 @@
       "path": "webapp/src/api/bookings.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "d8677b14e87c3a326a416b75f3c2870525bd0fa48977b24ff3b8280ff6515421",
+      "sha256": "ecc313fbe3a140f2a27408d9b10b88d0a6b29cfccfdc0cadd2fde8356865275e",
       "lines": 674
     },
     {
@@ -14958,8 +14958,8 @@
       "path": "webapp/src/api/rideshareCardPayment.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "72f73efc9e85c5ae060fad01f60b18750f304866630b2a956f3fcb2d438f4147",
-      "lines": 52
+      "sha256": "bfa3a7de0d07d9b2383ea3ae1e3a0479161bcbadfb4331c8ca8dcb6fc3c64f40",
+      "lines": 50
     },
     {
       "path": "webapp/src/api/routeWatch.ts",
@@ -15581,7 +15581,7 @@
       "path": "webapp/src/components/RideshareCardPaymentSummary.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "20c2abc1c2c72a4288cb841a99a0c0f8111fa46619e3f7597f805b393910a9ec",
+      "sha256": "d8baead833df183c4fa9acb80ffeaecfa8192b5a91478845f8eec7fcf4bb4afc",
       "lines": 66
     },
     {
@@ -16715,8 +16715,8 @@
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "7525ffe154746af7894c3952b05f83a3bba74a50d0f7dd973734348f194ed4ed",
-      "lines": 434
+      "sha256": "b921a672c71f32627cf11b3006593c3da71c21c87651eb6bb219b420c8e0b480",
+      "lines": 433
     },
     {
       "path": "webapp/src/screens/TrustScreen.tsx",
@@ -18003,8 +18003,8 @@
       "path": "webapp/tests/receipt-owner-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "0de50620bcfb89d7442fa887d1c4801057fb21c65157b0b750bd7d6b44025bc7",
-      "lines": 259
+      "sha256": "c86f3c31db55b1a45cfdb1e118e3d7423126326b3b03cab43bb40039d75dd38a",
+      "lines": 265
     },
     {
       "path": "webapp/tests/receipt-rate-later-test.mjs",
@@ -18045,8 +18045,8 @@
       "path": "webapp/tests/rideshare-local-regression-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "d5071f9ff21303b693446b333dcce144c4fac71e27bf92b9c12739a6b8ba662d",
-      "lines": 891
+      "sha256": "36fe0eb7cbdf2e9ce7c84a3623039a03426c332978411ac286a7d6d5234cf03e",
+      "lines": 890
     },
     {
       "path": "webapp/tests/roadside-network-retry-test.mjs",

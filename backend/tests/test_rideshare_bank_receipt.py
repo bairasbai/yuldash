@@ -9,6 +9,7 @@ from app.db import engine
 from app.main import app
 from app.models import Booking, Ride, RideCategory
 from app.owner_switches import PAID_SWITCH
+from app.rideshare_bank_dispatch import reconcile_bank_operation
 from app.rideshare_bank_provider import BankResource
 from app.routers.rideshare_bank import receipt_bank_runtime
 from test_rideshare_bank_dispatch import bank_checkout as bank_checkout
@@ -27,6 +28,28 @@ def include_synthetic_receipt(monkeypatch):
 def get_receipt(client, service, actor=None):
     return client.get(f"/bookings/{service.booking_id}/card-payment",
                       headers=(actor or service.passenger)["auth"])
+
+
+def test_trip_receipt_remembers_the_bank_obligation_if_card_status_cannot_load(client, bank_checkout):
+    service = bank_checkout
+    path = f"/trips/{service.booking_id}/receipt"
+
+    def obligation(actor):
+        reply = client.get(path, headers=actor["auth"])
+        assert reply.status_code == 200 and reply.headers["Cache-Control"] == "no-store"
+        return reply.json()["card_payment_obligation"]
+
+    assert not obligation(service.passenger)
+    checkout = service.begin()
+    assert send(service, checkout) == "succeeded"
+    assert not obligation(service.passenger)
+    assert send(service, checkout) == "pending"
+    service.toggle(PAID_SWITCH, False)
+    assert obligation(service.passenger) and obligation(service.driver)
+    (operation_id, provider_id), = (pair for pair in service.fake.by_key.items() if pair[1].startswith("synthetic-payments-"))
+    service.fake.objects[provider_id]["status"] = "canceled"
+    assert reconcile_bank_operation(engine, checkout, operation_id, runtime=service.runtime, provider=service.provider) == "canceled"
+    assert not obligation(service.passenger)
 
 
 def test_receipt_filters_environment_and_participants_before_showing_amount(client, bank_checkout, user_factory,

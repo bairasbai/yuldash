@@ -10,7 +10,6 @@ import { observeTripPass, observeTripPassList, readTripPassRevision, readTripPas
 import type { TripPassOwner } from "../utils/tripPass";
 import { driverStep, emitDriverAction } from "../utils/driverActions";
 import { readContactClock, setCompletedContactDeadline, type CompletedContactWindow } from "../utils/completedBookingPrivacy";
-import type { RIDESHARE_CARD_RECEIPT_METHOD } from "./rideshareCardPayment";
 
 export type BookingStatus =
   | "pending"
@@ -236,7 +235,8 @@ export interface TripReceipt extends CompletedContactWindow {
   depart_at: string;
   seats: number;
   amount: number;
-  pay_method: PayMethod | typeof RIDESHARE_CARD_RECEIPT_METHOD;
+  pay_method: PayMethod;
+  card_payment_obligation?: boolean;
   paid: boolean;
   driver_name: string;
   driver_verified: boolean;

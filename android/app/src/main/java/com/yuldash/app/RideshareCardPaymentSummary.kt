@@ -32,7 +32,10 @@ internal data class CardPaymentRead(
     val loading: Boolean,
     val error: Boolean,
     val refresh: () -> Unit,
-)
+) {
+    fun replacesDirectPayment(receiptHasObligation: Boolean) =
+        payment?.replacesDirectPayment(receiptHasObligation) ?: receiptHasObligation
+}
 
 @Composable
 internal fun rememberRideshareCardPayment(
@@ -96,7 +99,7 @@ internal fun RideshareCardPaymentSummary(read: CardPaymentRead, isDriver: Boolea
                     }
                 }
             } else if (!read.error && !read.loading) {
-                Text(appText("Проверь статус в банке", "Банктағы торошто тикшер"), style = CanonBody, color = CanonText)
+                Text(appText("Статус оплаты уточняется", "Түләү торошо асыҡлана"), style = CanonBody, color = CanonText)
             }
             if (read.loading) LinearProgressIndicator(modifier = Modifier.fillMaxWidth())
             if (read.error) Text(

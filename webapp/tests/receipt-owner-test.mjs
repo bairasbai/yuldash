@@ -52,17 +52,23 @@ for (const lang of ["ru", "ba"]) {
   const Sbp = await bundleComponent("src/components/SbpPay.tsx", { mocks: mocks(lang) });
   await t.test(`${lang}: an admitted card payment takes precedence and a canceled charge releases direct payment`, async () => {
     reset();
-    let status = "waiting_bank";
+    h.receipt = async id => receipt(id, { card_payment_obligation: true });
+    let status = "first_read_failed";
     h.bank = async (path, options) => {
       assert.equal(path, "/bookings/42/card-payment");
       assert.equal(options._generation, "A");
       assert.equal(options.cache, "no-store");
+      if (status === "first_read_failed") throw new Error("offline");
       return bankReceipt(status);
     };
     const s = open(Screen); await s.settle();
     assert.equal(findLeaf(s, "PayTripCard"), undefined);
     const card = findLeaf(s, "RideshareCardPaymentSummary");
-    assert.equal(card.props.read.payment.payment_status, "waiting_bank");
+    assert.equal(card.props.read.phase, "error");
+    status = "waiting_bank";
+    card.props.read.refresh(); await s.settle();
+    assert.equal(findLeaf(s, "RideshareCardPaymentSummary").props.read.payment.payment_status, "waiting_bank");
+    assert.equal(findLeaf(s, "PayTripCard"), undefined);
     status = "canceled";
     card.props.read.refresh(); await s.settle();
     assert.ok(findLeaf(s, "PayTripCard"));

@@ -78,7 +78,6 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.yuldash.app.data.ApiClient
-import com.yuldash.app.data.RIDESHARE_CARD_RECEIPT_METHOD
 import com.yuldash.app.data.TipInfoDto
 import com.yuldash.app.data.TripReceiptDto
 import kotlinx.coroutines.launch
@@ -227,6 +226,7 @@ internal fun RideshareCompletedSession(
         payMethod = payMethod,
         paid = paid,
         bankPayment = bankPayment,
+        bankObligation = receipt?.cardPaymentObligation == true,
         receiptLoading = receiptLoading,
         receiptError = receiptError,
         onRetryReceipt = {
@@ -394,6 +394,7 @@ internal fun RideshareCompletedContent(
     guardianContact: (@Composable () -> Unit)? = null,
     travelerContact: (@Composable () -> Unit)? = null,
     bankPayment: CardPaymentRead? = null,
+    bankObligation: Boolean = false,
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -474,9 +475,10 @@ internal fun RideshareCompletedContent(
                 }
             }
             if (problemReport != null) item { problemReport() }
-            val showBank = bankPayment != null && (bankPayment.payment?.hasOperation == true || payMethod == RIDESHARE_CARD_RECEIPT_METHOD)
-            val bankReplacesDirect = showBank && (bankPayment?.payment?.replacesDirectPayment == true || payMethod == RIDESHARE_CARD_RECEIPT_METHOD)
-            if (showBank && bankPayment != null) item { RideshareCardPaymentSummary(bankPayment, isDriver) }
+            val bankReplacesDirect = bankPayment?.replacesDirectPayment(bankObligation) ?: bankObligation
+            if (bankPayment != null && (bankReplacesDirect || bankPayment.payment?.hasOperation == true)) {
+                item { RideshareCardPaymentSummary(bankPayment, isDriver) }
+            }
             if (!bankReplacesDirect) item { RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid) }
             if (showOnlinePay && !bankReplacesDirect) item { onlinePay() }
             AnimatedVisibilityItem(visible = receiptError != null) {

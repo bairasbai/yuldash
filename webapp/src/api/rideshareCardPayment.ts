@@ -16,14 +16,12 @@ export interface RideshareCardPayment {
   payout_remaining_kop: number | null;
 }
 
-export const RIDESHARE_CARD_RECEIPT_METHOD = "rideshare_card";
-
 export function hasBankPayment(payment: RideshareCardPayment | null): boolean {
   return payment !== null && payment.payment_status !== "unavailable" && payment.payment_status !== "not_started";
 }
 
-export function replacesDirectPayment(payment: RideshareCardPayment | null): boolean {
-  return hasBankPayment(payment) && payment?.payment_status !== "canceled";
+export function replacesDirectPayment(payment: RideshareCardPayment | null, receiptHasObligation: boolean): boolean {
+  return payment?.payment_status !== "canceled" && (hasBankPayment(payment) || receiptHasObligation);
 }
 
 export async function fetchRideshareCardPayment(

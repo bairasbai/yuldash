@@ -28,10 +28,9 @@ internal data class RideshareCardPayment(
     val payoutRemainingKop: Int?,
 ) {
     val hasOperation get() = payment != RideshareBankStatus.Unavailable && payment != RideshareBankStatus.NotStarted
-    val replacesDirectPayment get() = hasOperation && payment != RideshareBankStatus.Canceled
+    fun replacesDirectPayment(receiptHasObligation: Boolean) =
+        payment != RideshareBankStatus.Canceled && (hasOperation || receiptHasObligation)
 }
-
-internal const val RIDESHARE_CARD_RECEIPT_METHOD = "rideshare_card"
 
 internal fun parseRideshareCardPayment(value: JSONObject): RideshareCardPayment {
     require(value.getString("currency") == "RUB")
