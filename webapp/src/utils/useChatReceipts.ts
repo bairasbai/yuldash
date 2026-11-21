@@ -241,7 +241,7 @@ export function useChatReceipts(
     }, { root: feed });
     for (const node of feed.querySelectorAll("[data-message-id]")) observer.observe(node);
     return () => { observing = false; observer.disconnect(); };
-  }, [feedRef, historyReady, messages, view.since, visible]);
+  }, [feedRef, historyReady, messages, view, visible]);
 
   return { ...view, refresh };
 }

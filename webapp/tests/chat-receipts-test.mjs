@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import { fileURLToPath } from "node:url";
 import { IDBFactory, IDBKeyRange } from "fake-indexeddb";
 import { build } from "esbuild";
-import { checker } from "./shallow-harness.mjs";
+import { bundleComponent, checker, mount } from "./shallow-harness.mjs";
 
 const { outputFiles } = await build({
   stdin: {
@@ -107,6 +107,63 @@ await tests.test("the request interval is reserved atomically across tabs", asyn
   assert.equal(result.filter(delay => delay === 0).length, 1);
   assert.ok(result.some(delay => delay > 0 && delay <= 1500));
   assert.deepEqual(await pending(first), []);
+});
+
+await tests.test("a visible Read is observed again after a temporary IndexedDB failure", async () => {
+  const view = [flags(120, { my_delivered: true })];
+  const h = globalThis.__chatReceiptObservation = { reads: 0, visible: true, view };
+  const timers = new Map();
+  let serial = 0;
+  globalThis.window = {
+    setTimeout(run) { const id = ++serial; timers.set(id, run); return id; },
+    clearTimeout(id) { timers.delete(id); },
+  };
+  globalThis.document = { visibilityState: "visible" };
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: { onLine: true } });
+  globalThis.getComputedStyle = () => ({ visibility: "visible" });
+  globalThis.IntersectionObserver = class {
+    constructor(show) { this.show = show; }
+    observe(target) { queueMicrotask(() => this.show([{ target, isIntersecting: h.visible }])); }
+    disconnect() {}
+  };
+  const rect = { top: 0, bottom: 80, left: 0, right: 80, width: 80, height: 80 };
+  const node = { getBoundingClientRect: () => rect, dataset: { messageId: "120" } };
+  const feedRef = { current: {
+    getBoundingClientRect: () => rect, contains: target => target === node, querySelectorAll: () => [node],
+  } };
+  const useReceipts = await bundleComponent("src/utils/useChatReceipts.ts", {
+    exportName: "useChatReceipts",
+    real: ["./chatReceipts"],
+    mocks: {
+      "/api/client": `export class ApiError extends Error {} export const isAccountSession = () => true;`,
+      "/api/chat": `export const fetchChatReceipts = async () => ({
+        open: true, receipts_since: "${cutoff}", items: globalThis.__chatReceiptObservation.view, next_after_message_id: null, unread: 1,
+      }); export const fetchConversations = async () => []; export const postChatReceipts = async () => {};`,
+      "./chatReceiptStore": `export const claimChatReceiptSend = async () => 0;
+        export const clearChatReceipts = async () => {};
+        export const pendingChatReceipts = async () => [];
+        export const settleChatReceipts = async () => {};
+        export const saveChatReceipts = async (_scope, current, entries) => {
+          if (!current() || !entries.some(row => row.read)) return;
+          if (++globalThis.__chatReceiptObservation.reads === 1) throw Error("transient IndexedDB failure");
+        };`,
+    },
+  });
+  const messages = [message(120)];
+  const fixture = mount(() => useReceipts(scope, messages, feedRef, true, true));
+  const runTimers = async () => {
+    const callbacks = [...timers.values()];
+    timers.clear();
+    for (const run of callbacks) run();
+    await fixture.settle();
+  };
+  try {
+    await fixture.settle();
+    await runTimers();
+    assert.equal(h.reads, 1);
+    await runTimers();
+    assert.equal(h.reads, 2);
+  } finally { fixture.unmount(); }
 });
 
 tests.done();
