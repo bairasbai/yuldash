@@ -34,6 +34,8 @@ import { useDraftSync, clearDraft, readDraft } from "../utils/formDraft";
 import { minDateTimeNow } from "../utils/dateInput";
 import { SEATS_DEFAULT, clampSeats, seatCap } from "../utils/seatOptions";
 import { SeatOptionsFields } from "../components/SeatOptions";
+import { ReturnRideAction, useReturnRideAction } from "../components/ReturnRideAction";
+import { RIDE_DRAFT, type ReturnRideDraft } from "../utils/rideTemplate";
 
 type Amenity =
   | "baggage"
@@ -47,8 +49,6 @@ type Amenity =
 
 type Recur = "none" | "daily" | "weekdays" | "weekly";
 
-/** Ключ черновика формы «Опубликовать поездку». */
-const RIDE_DRAFT = "create-ride";
 /** Строка с правилом остановок; поля остановок ссылаются на неё через aria-describedby. */
 const STOPS_RULE_ID = "create-ride-stops-rule";
 
@@ -66,9 +66,15 @@ export default function CreateRideScreen() {
     [status, userId, accountCreated, generation]);
   const operation = useRef<AbortController | null>(null);
   const { publication, setSavedPublication, reloadPublication } = useSavedPublication(owner, operation);
+  const returnRide = useReturnRideAction();
+  const [initialReturnDraft] = useState(() => {
+    const existing = readDraft<ReturnRideDraft>(RIDE_DRAFT);
+    return existing?.returnTemplate ? existing : null;
+  });
+  const returnTemplate = initialReturnDraft?.returnTemplate;
 
-  const [from, setFrom] = useState("");
-  const [to, setTo] = useState("");
+  const [from, setFrom] = useState(initialReturnDraft?.from ?? "");
+  const [to, setTo] = useState(initialReturnDraft?.to ?? "");
   // Погода по названиям городов: человек печатает «Баймак → Сибай», геокодит сервер.
   const weather = useRouteWeather({ fromCity: from.trim(), toCity: to.trim() });
 
@@ -93,33 +99,33 @@ export default function CreateRideScreen() {
       ac.abort();
     };
   }, [from, to]);
-  const [when, setWhen] = useState(""); // datetime-local
+  const [when, setWhen] = useState(initialReturnDraft?.when ?? ""); // datetime-local
   // Обычная легковая — 4 места: 1 спереди + 3 сзади (решение Александра, 2026-10-14).
-  const [seats, setSeats] = useState(SEATS_DEFAULT);
+  const [seats, setSeats] = useState(initialReturnDraft?.seats ?? SEATS_DEFAULT);
   // Опции мест: «сзади максимум двое» режет число мест до 3 (до 2, если спереди свой человек).
-  const [backMaxTwo, setBackMaxTwo] = useState(false);
-  const [frontSeatAvailable, setFrontSeatAvailable] = useState(true);
+  const [backMaxTwo, setBackMaxTwo] = useState(initialReturnDraft?.backMaxTwo ?? false);
+  const [frontSeatAvailable, setFrontSeatAvailable] = useState(initialReturnDraft?.frontSeatAvailable ?? true);
   const maxSeats = seatCap(backMaxTwo, frontSeatAvailable);
-  const [price, setPrice] = useState("");
-  const [category, setCategory] = useState<RideCategory>("regular");
+  const [price, setPrice] = useState(initialReturnDraft?.price ?? "");
+  const [category, setCategory] = useState<RideCategory>(initialReturnDraft?.category ?? "regular");
   /** Только для «возьму посылку»: кому отдать и что за груз. */
-  const [receiverName, setReceiverName] = useState("");
-  const [parcelSize, setParcelSize] = useState("");
+  const [receiverName, setReceiverName] = useState(initialReturnDraft?.receiverName ?? "");
+  const [parcelSize, setParcelSize] = useState(initialReturnDraft?.parcelSize ?? "");
   /**
    * Остановки по пути: A → точки → B. Не «удобство», а способ быть найденным:
    * человек из Темясово ищет поездку из Темясово, а не «Сибай → Уфа», и без этих
    * названий объявление проезжает мимо него.
    */
-  const [waypoints, setWaypoints] = useState<string[]>([]);
-  const [partnerId, setPartnerId] = useState<number | null>(null);
+  const [waypoints, setWaypoints] = useState<string[]>(initialReturnDraft?.waypoints ?? []);
+  const [partnerId, setPartnerId] = useState<number | null>(initialReturnDraft?.partnerId ?? null);
   // RS-02 Б: цена до каждой остановки (выключена — одна цена за весь маршрут, как раньше).
-  const [stopPricesOn, setStopPricesOn] = useState(false);
-  const [stopPriceValues, setStopPriceValues] = useState<string[]>([]);
+  const [stopPricesOn, setStopPricesOn] = useState(initialReturnDraft?.stopPricesOn ?? false);
+  const [stopPriceValues, setStopPriceValues] = useState<string[]>(initialReturnDraft?.stopPriceValues ?? []);
   const [splitBusy, setSplitBusy] = useState(false);
   const [splitFailed, setSplitFailed] = useState(false);
   const stopNames = waypoints.map((w) => w.trim()).filter(Boolean);
 
-  const [amen, setAmen] = useState<Record<Amenity, boolean>>({
+  const [amen, setAmen] = useState<Record<Amenity, boolean>>(initialReturnDraft?.amen ?? {
     baggage: false,
     child_seat: false,
     pets_allowed: false,
@@ -129,12 +135,12 @@ export default function CreateRideScreen() {
     quiet: false,
     no_minors: false,
   });
-  const [onlyTrusted, setOnlyTrusted] = useState(false);
-  const [recurrence, setRecurrence] = useState<Recur>("none");
-  const [comment, setComment] = useState("");
+  const [onlyTrusted, setOnlyTrusted] = useState(initialReturnDraft?.onlyTrusted ?? false);
+  const [recurrence, setRecurrence] = useState<Recur>(initialReturnDraft?.recurrence ?? "none");
+  const [comment, setComment] = useState(initialReturnDraft?.comment ?? "");
   // Ориентир встречи из справочника города — «у мечети», «автовокзал».
-  const [pickup, setPickup] = useState("");
-  const [pickupPointId, setPickupPointId] = useState<number | null>(null);
+  const [pickup, setPickup] = useState(initialReturnDraft?.pickup ?? "");
+  const [pickupPointId, setPickupPointId] = useState<number | null>(initialReturnDraft?.pickupPointId ?? null);
 
   const [showMore, setShowMore] = useState(false);
 
@@ -150,7 +156,8 @@ export default function CreateRideScreen() {
   // Форма длинная: маршрут, время, цена, удобства, комментарий. Отвлёкся на звонок,
   // айфон выгрузил вкладку — и всё заново. Черновик держит заполненное до публикации.
   const draft = { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup, pickupPointId,
-    receiverName, parcelSize, waypoints, partnerId, backMaxTwo, frontSeatAvailable, stopPricesOn, stopPriceValues };
+    receiverName, parcelSize, waypoints, partnerId, backMaxTwo, frontSeatAvailable, stopPricesOn, stopPriceValues,
+    returnTemplate };
   const draftSnapshot = JSON.stringify(draft);
   const latestDraft = useRef(draftSnapshot);
   latestDraft.current = draftSnapshot;
@@ -287,7 +294,7 @@ export default function CreateRideScreen() {
       quiet: amen.quiet,
       no_minors: amen.no_minors,
       // Бэк хранит «курение», а тумблер — «без курения»: инвертируем.
-      smoking: amen.non_smoking ? false : undefined,
+      smoking: amen.non_smoking ? false : returnTemplate?.smoking,
       partner_id: category === "hospital" ? partnerId : null,
       // Поля посылки шлём только там, где они значат хоть что-то.
       receiver_name: category === "parcel" ? receiverName.trim() || undefined : undefined,
@@ -474,6 +481,7 @@ export default function CreateRideScreen() {
           >
             {appText("Поднять в ленте", "Таҫмала күтәреү")}
           </button>
+          <ReturnRideAction rideId={done.id} controls={returnRide} published />
           <button
             type="button"
             className="btn-ghost"
@@ -503,6 +511,11 @@ export default function CreateRideScreen() {
 
       <div className="form">
         {recoveryPanel}
+        {returnTemplate && <p>
+          {appText("Заполни заново время, место встречи и комментарий для обратной поездки.",
+            "Кире сәфәр өсөн ваҡытты, осрашыу урынын һәм аңлатманы яңынан яҙ.")}
+          {returnTemplate.dropped.includes("stop_prices") && " " + appText("Проверь цены остановок.", "Туҡталыш хаҡтарын тикшер.")}
+        </p>}
         {/* Подсказки из справочника: одно написание на всех. «Темясово»
             человек напишет пятью способами, и заявка не совпадёт ни с одной поездкой. */}
         <CityField
