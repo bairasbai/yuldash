@@ -1004,11 +1004,8 @@ private fun YuldashAppContent() {
         createRideReturnScreen = returnScreen
         createRideReturnHomeTab = returnHomeTab
         if (template != null) screenStates.removeState(createRideStateKey(screenStateOwner, createRidePrefill))
-        createRidePrefill = template?.savedJson() ?: prefillDate
+        if (template != null || prefillDate != null) createRidePrefill = template?.savedJson() ?: prefillDate
         screen = Screen.CreateRide
-    }
-    fun closeCreateRide() {
-        if (createRideReturnScreen == Screen.Home) openHome(createRideReturnHomeTab) else screen = createRideReturnScreen
     }
     fun openTrustedContacts(returnScreen: Screen = Screen.SimpleMode, returnHomeTab: HomeTab = HomeTab.Profile) {
         trustedContactsReturnScreen = returnScreen
@@ -1384,6 +1381,7 @@ private fun YuldashAppContent() {
                 onOpenReturnTemplate = { openCreateRide(createRideReturnScreen, createRideReturnHomeTab, template = it) },
                 onPublish = {
                     screenStates.removeState(createRideStateKey(screenStateOwner, createRidePrefill))
+                    createRidePrefill = null
                     if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)
                 }
             )
@@ -1711,6 +1709,7 @@ private fun YuldashAppContent() {
                 onBack = { goBack() },
                 onCreateRide = { openCreateRide(returnScreen = Screen.DriverCabinet) },
                 onReturnRide = { openCreateRide(returnScreen = Screen.DriverCabinet, template = it) },
+                onReviewRidePublication = { createRideReturnScreen = Screen.DriverCabinet; screen = Screen.CreateRide },
                 onVerifyDriver = { screen = Screen.VerifyDriver },
                 onBoost = { screen = Screen.Boost },
                 onRequestsFeed = { screen = Screen.RequestsFeed },

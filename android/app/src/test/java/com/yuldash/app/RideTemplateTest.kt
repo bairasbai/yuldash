@@ -48,6 +48,8 @@ class RideTemplateTest {
         val template = RideReturnTemplate.parse(fixture().put("price", 0).put("stop_prices", JSONArray()))
         assertEquals(0, template.price)
         assertTrue(template.stopPrices.isEmpty())
+        assertTrue(createRideValid(template.fromCity, template.toCity, "0", allowNegotiatedPrice = true))
+        assertFalse(createRideValid(template.fromCity, template.toCity, "0"))
         val holiday = RideCreatePrefill.restore("02.01.2030, 10:00")
         assertEquals("02.01.2030, 10:00", holiday.date)
         assertNull(holiday.template)

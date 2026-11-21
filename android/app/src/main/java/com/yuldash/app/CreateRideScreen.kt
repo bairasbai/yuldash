@@ -273,12 +273,12 @@ internal const val RIDE_PRICE_MAX = 100_000
 /**
  * Чистая валидация формы поездки: маршрут задан (откуда/куда не пусто) и цена — целое число
  * в диапазоне [RIDE_PRICE_MIN..RIDE_PRICE_MAX]. Без Compose/сети → тестируется прямым вызовом на JVM.
- * «Плохие» кейсы: пустой from/to → false; цена 0/отрицательная/пустая/нечисло/вне диапазона → false.
+ * Ноль допускается в обратном шаблоне с договорной ценой.
  */
-internal fun createRideValid(from: String, to: String, price: String): Boolean {
+internal fun createRideValid(from: String, to: String, price: String, allowNegotiatedPrice: Boolean = false): Boolean {
     if (from.isBlank() || to.isBlank()) return false
     val p = price.trim().toIntOrNull() ?: return false
-    return p in RIDE_PRICE_MIN..RIDE_PRICE_MAX
+    return (allowNegotiatedPrice && p == 0) || p in RIDE_PRICE_MIN..RIDE_PRICE_MAX
 }
 
 @OptIn(ExperimentalMaterial3Api::class)
@@ -406,6 +406,7 @@ internal fun CreateRideScreen(
             publishLabel = publication.label,
             publicationEnabled = publication.ready,
             publicationNotice = notice,
+            allowNegotiatedPrice = template?.price == 0,
             onCancel = onBack,
             // «Умные» поля с собственными эффектами (гео-подсказки) — слотами, чтобы Content остался чистым.
             fromField = { AddressSuggestField(from, { from = it }, appText("Откуда", "Ҡайҙан"), Icons.Default.LocationOn) },
@@ -537,6 +538,7 @@ internal fun CreateRideFormContent(
     publishLabel: String? = null,
     publicationEnabled: Boolean = true,
     publicationNotice: (@Composable () -> Unit)? = null,
+    allowNegotiatedPrice: Boolean = false,
     modifier: Modifier = Modifier,
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
@@ -807,7 +809,7 @@ internal fun CreateRideFormContent(
                 text = publishLabel ?: appText("Опубликовать", "Баҫтырыу"),
                 loading = loading,
                 onClick = onPublish,
-                enabled = publicationEnabled && !loading && createRideValid(from, to, price),   // маршрут задан + цена в диапазоне
+                enabled = publicationEnabled && !loading && createRideValid(from, to, price, allowNegotiatedPrice),
                 modifier = Modifier.testTag("publish_btn"),
             )
         }

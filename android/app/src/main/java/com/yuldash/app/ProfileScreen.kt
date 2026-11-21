@@ -1384,6 +1384,7 @@ internal fun DriverCabinetScreen(
     focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},
     onOpenCompletedTrip: (Int) -> Unit = {},
     onReturnRide: ((com.yuldash.app.data.RideReturnTemplate) -> Unit)? = null,
+    onReviewRidePublication: () -> Unit = onCreateRide,
 ) {
     val taxiOn = rememberFeatures().isOn(Feature.Taxi)   // запуск волнами: такси выключено → без линии, панели и поездок такси
     // Реальные опубликованные поездки водителя с сервера (раньше фильтровали демо-список по имени → всегда пусто).
@@ -1741,6 +1742,7 @@ internal fun DriverCabinetScreen(
             },
             onCreateRide = onCreateRide,
             returnRide = returnRide,
+            onReviewRidePublication = onReviewRidePublication,
             onVerifyDriver = onVerifyDriver,
             onBoost = onBoost,
             onRequestsFeed = onRequestsFeed,
@@ -2922,6 +2924,7 @@ internal fun DriverCabinetContent(
     onBoost: () -> Unit,
     onRequestsFeed: () -> Unit,
     returnRide: RideReturnActions? = null,
+    onReviewRidePublication: () -> Unit = onCreateRide,
     onMyResponses: () -> Unit = {},
     archive: List<com.yuldash.app.data.RideDto> = emptyList(),
     archiveLoading: Boolean = false,
@@ -3198,7 +3201,7 @@ internal fun DriverCabinetContent(
                         onPrimary = onBoost,
                         onSecondary = onCreateRide
                     )
-                    RideReturnTemplateButton(ride.id.toIntOrNull(), returnRide, onCreateRide)
+                    RideReturnTemplateButton(ride.id.toIntOrNull(), returnRide, onReviewRidePublication)
                     // RS-02 А: загрузка по участкам — «Сибай → Ургаза: занято 3 из 3».
                     RideLegsLoad(ride)
                     // F1: управление рейсом — завершить (брони → done, пассажирам «оцените») или снять (с подтверждением).
@@ -3399,8 +3402,10 @@ internal fun DriverCabinetContent(
                 )
             }
             else -> items(archive, key = { "arch-${it.id}" }) { ride ->
-                ArchiveRideCard(ride)
-                RideReturnTemplateButton(ride.id, returnRide, onCreateRide)
+                Column {
+                    ArchiveRideCard(ride)
+                    RideReturnTemplateButton(ride.id, returnRide, onReviewRidePublication)
+                }
             }
         }
         scheduleSection?.let { section -> item { section() } }
