@@ -7265,8 +7265,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "4a4cb37afe6f7fbc559db5102d5af23fed9b52a1fbdd328724bcd1a853b724fe",
-      "lines": 1048
+      "sha256": "a3d09b9c23f1e12f8c1e7595d48472ef0d098c74496ba11b9fa593bbf4f569c4",
+      "lines": 1065
     },
     {
       "path": "backend/app/collusion.py",
@@ -9295,8 +9295,8 @@
       "path": "backend/tests/test_cleanup.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "cb3bd944ee96893e61d53d6d463c85be8fa5da16007c7d319da12e9a19c91535",
-      "lines": 213
+      "sha256": "6c82429e15c4ef0fb305087a45e22d922f4e369eeeaa8e4fb0d9201c0da5c73e",
+      "lines": 329
     },
     {
       "path": "backend/tests/test_cleanup_bound_offer.py",
@@ -11962,8 +11962,8 @@
       "path": "backend/tests/test_sms_budget.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "c5ad2dd76a202292aaba6b6e661c58d5ea57403000f89dd4f54db95cebe1e005",
-      "lines": 272
+      "sha256": "af91a08d2529783a25101049669b2cf91ff6efba056add9a2601a2816d26a349",
+      "lines": 273
     },
     {
       "path": "backend/tests/test_sms_speaks_to_the_family.py",
