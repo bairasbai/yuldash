@@ -12,6 +12,7 @@ from sqlmodel import Session, select
 from app import idempotency
 from app.db import engine
 from app.models import Block, Booking, CommandReceipt, Ride, RideCategory, SafetyProfile, TextFlag, UserRole
+from app.route_watch_models import RouteWatchEvent
 from app.routers import bookings, rides
 from app.timeutil import utcnow
 from test_booking_multiseat_retry import _snapshot
@@ -506,8 +507,8 @@ def test_repeat_publication_after_short_dedupe_window_keeps_original_series(clie
     payload = {"from_city": "Баймак", "to_city": "Сибай", "depart_at": "2030-01-01T10:00:00",
                "price": 300, "seats_total": 3, "recurrence": "weekly"}
     headers = {**driver["auth"], "Idempotency-Key": KEY}
-    sent = []
-    monkeypatch.setattr(rides, "notify_route_watchers", lambda session, ride: sent.append(ride.id))
+    dispatched_event_ids = []
+    monkeypatch.setattr(rides, "notify_route_watchers", lambda session, event_id: dispatched_event_ids.append(event_id))
     real_transport = client._transport.handle_request
 
     def drop_reply(request):
@@ -538,7 +539,8 @@ def test_repeat_publication_after_short_dedupe_window_keeps_original_series(clie
     with Session(engine) as session:
         series = session.exec(select(Ride).where(Ride.driver_id == driver["id"])).all()
         assert len(series) == 5
-    assert sent == [first_id]
+        first_event_id = session.exec(select(RouteWatchEvent.id).where(RouteWatchEvent.ride_id == first_id)).one()
+        assert dispatched_event_ids == [first_event_id]
 
 
 def test_slow_geocoding_does_not_block_close_and_publication_rechecks_key(client, user_factory, monkeypatch):
