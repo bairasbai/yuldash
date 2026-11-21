@@ -268,7 +268,7 @@ class TripLocationRideTest {
 
     @Test fun queuedFinishSurvivesTheEarlyChannelClose() = closingStepSurvivesTheEarlyChannelClose {
         ApiClient.sendQueuedAction(com.yuldash.app.data.OutboxAction(1L, 101, "driver_status", "done", System.currentTimeMillis()),
-            ApiClient.queueSessionGeneration())
+            ApiClient.queueSessionGeneration()).map { }
     }
 
     @Test fun noNetworkPausesAndRetriesWithoutExtendingPermission() {

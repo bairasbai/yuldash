@@ -90,11 +90,11 @@ object ApiClient {
     // A NEW client per request, not newBuilder() of a shared one: OkHttp keeps "failed" addresses in the
     // client's route database, so one lost reply sent every later mutation to the other address (IPv6)
     // with no fallback. The pool keeps no idle socket: a server-closed one must not eat an explicit retry.
-    private fun oneShotTransport(): OkHttpClient = OkHttpClient.Builder().retryOnConnectionFailure(false)
+    private fun oneShotTransport(totalTimeoutMs: Long = 0): OkHttpClient = OkHttpClient.Builder().retryOnConnectionFailure(false)
         .connectionPool(ConnectionPool(0, 1, TimeUnit.NANOSECONDS))
         .followRedirects(false).followSslRedirects(false)
         .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
-        .connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
+        .callTimeout(totalTimeoutMs, TimeUnit.MILLISECONDS).connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
         .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
 
     /**
@@ -1670,7 +1670,9 @@ object ApiClient {
         return { bookingReceiptListeners -= listener }
     }
 
-    internal suspend fun sendQueuedAction(action: OutboxAction, generation: Long): Result<Unit> {
+    internal suspend fun sendQueuedAction(
+        action: OutboxAction, generation: Long, ratingSend: RatingSend? = null,
+    ): Result<QueuedActionResult> {
         return when (action.kind) {
             "message" -> call("POST", "/bookings/${action.bookingId}/messages",
                 JSONObject().put("text", action.payload), auth = true, expectedGeneration = generation,
@@ -1679,15 +1681,40 @@ object ApiClient {
                     if (receipt.hiddenForMe && isCurrentSession(generation)) bookingReceiptListeners.forEach { listener ->
                         runCatching { listener(action.bookingId, generation, receipt) }
                     }
-                    Unit
+                    QueuedActionResult.MessageAccepted(receipt)
                 }
             "trip_status" -> OfflineTripSnapshotHooks.tripStatus(action.bookingId, action.payload, generation) {
-                call("POST", "/bookings/${action.bookingId}/trip-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation) }
+                call("POST", "/bookings/${action.bookingId}/trip-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation)
+            }.map { QueuedActionResult.ActionApplied }
             "driver_status" -> OfflineTripSnapshotHooks.driverStatus(action.bookingId, action.payload, generation) {
-                call("POST", "/bookings/${action.bookingId}/driver-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation) }
-            else -> Result.success(Unit)
+                call("POST", "/bookings/${action.bookingId}/driver-status", JSONObject().put("status", action.payload), auth = true, expectedGeneration = generation)
+            }.map { QueuedActionResult.ActionApplied }
+            "rate" -> {
+                val owner = OfflineTripSnapshots.currentOwner()
+                val rating = QueuedRating.read(action)
+                if (ratingSend == null || action.bookingId <= 0 || rating?.fresh() != true ||
+                    owner == null || owner.namespace != rating.owner || owner.generation != generation) {
+                    Result.failure(IllegalStateException("Rating requires its original session"))
+                } else sendQueuedRating(action.bookingId, generation, ratingSend)
+            }
+            else -> Result.failure(ApiException(422, "Unknown queued action"))
         }
     }
+
+    private suspend fun sendQueuedRating(bookingId: Int, generation: Long, send: RatingSend): Result<QueuedActionResult.RatingApplied> =
+        call("POST", "/bookings/$bookingId/rate", JSONObject().put("stars", 5).put("from_notification", true),
+            auth = true, expectedGeneration = generation, retryOnNetwork = false, admitWire = send.admit,
+            singleAttemptMutation = true, mutationTimeoutMs = 6_000, withoutAuthReplay = !send.refreshIfUnauthorized,
+            claimBody = send.claimBody).mapCatching { response ->
+            val kept = response.get("kept")
+            val stars = response.get("my_stars")
+            val rateeId = response.get("ratee_id")
+            val average = (response.get("rating") as? Number)?.toDouble()
+            val count = response.get("count")
+            require(kept is Boolean && stars is Int && stars in 1..5 && (kept || stars == 5))
+            require(rateeId is Int && rateeId > 0 && average != null && average in 1.0..5.0 && count is Int && count > 0)
+            QueuedActionResult.RatingApplied(rateeId, average, count, kept, stars)
+        }
 
     suspend fun editMessage(bookingId: Int, messageId: Int, text: String): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages/$messageId/edit", JSONObject().put("text", text), auth = true).map { }
@@ -3585,6 +3612,8 @@ object ApiClient {
         admitWire: (() -> Boolean)? = null,
         freshRead: Boolean = false,
         withoutAuthReplay: Boolean = false,
+        mutationTimeoutMs: Long = 0,
+        claimBody: (() -> Boolean)? = null,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3630,6 +3659,9 @@ object ApiClient {
                         override fun isOneShot() = true // Also for empty DELETE: 503/408 follow-ups must not resend it.
                         override fun writeTo(sink: BufferedSink) {
                             if (admitWire?.invoke() == false) throw IOException("Command session ended before send")
+                            if (claimBody != null && (!claimBody() || admitWire?.invoke() == false)) {
+                                throw IOException("Command could not record send attempt")
+                            }
                             sink.write(bytes)
                         }
                     }
@@ -3646,7 +3678,7 @@ object ApiClient {
                     val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     if (admitWire?.invoke() == false) return@withContext staleSession()
-                    mutationResponse = oneShotTransport().newCall(request).execute()
+                    mutationResponse = oneShotTransport(mutationTimeoutMs).newCall(request).execute()
                     code = mutationResponse.code
                     snapshotRead?.status(code)
                     serverUnreachable.value = false
@@ -3700,12 +3732,12 @@ object ApiClient {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                     conn?.disconnect(); conn = null
                     mutationResponse?.close(); mutationResponse = null
-                    val refreshed = tryRefresh(usedToken, generation)
+                    val refreshed = tryRefresh(usedToken, generation, admitWire.takeIf { mutationTimeoutMs > 0 })
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
                         idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
                         wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed,
-                        admitWire = admitWire, freshRead = freshRead)
+                        admitWire = admitWire, freshRead = freshRead, mutationTimeoutMs = mutationTimeoutMs, claimBody = claimBody)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -3826,7 +3858,8 @@ object ApiClient {
 
     /** Обновить пару токенов по refresh. Mutex: при пачке 401 рефреш идёт один раз.
      *  `staleToken` — access, с которым словили 401; если он уже сменился — другой поток обновил. */
-    internal suspend fun tryRefresh(staleToken: String?, generation: Long): Result<Unit> = refreshMutex.withLock {
+    internal suspend fun tryRefresh(staleToken: String?, generation: Long, admitWire: (() -> Boolean)? = null): Result<Unit> = refreshMutex.withLock {
+        if (admitWire?.invoke() == false) return@withLock staleSession()
         val intent = synchronized(sessionLock) {
             if (!sameSession(generation)) return@withLock staleSession()
             if (token != null && token != staleToken) return@withLock Result.success(Unit)
@@ -3846,7 +3879,9 @@ object ApiClient {
         }
         val (rt, rotationId) = intent
         val result = call("POST", "/auth/refresh", JSONObject().put("refresh_token", rt).put("rotation_id", rotationId),
-            auth = false, isRetry = true, expectedGeneration = generation)
+            auth = false, isRetry = true, expectedGeneration = generation,
+            singleAttemptMutation = admitWire != null, admitWire = admitWire,
+            retryOnNetwork = admitWire == null)
         synchronized(sessionLock) {
             if (!sameSession(generation)) return@withLock staleSession()
             result.exceptionOrNull()?.let { failure ->
