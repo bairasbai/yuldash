@@ -1,11 +1,13 @@
 """Чат по броне: REST (история/отправка), WebSocket (реальное время),
 инбокс диалогов, лента уведомлений. Плюс зеркальные чаты такси-заказа и посылки."""
+import asyncio
 import json
 import hashlib
 from datetime import datetime, timedelta
 from typing import List, Literal, Optional
 
-from fastapi import APIRouter, Depends, Header, HTTPException, WebSocket, WebSocketDisconnect
+from anyio import CapacityLimiter, from_thread, to_thread
+from fastapi import APIRouter, Depends, Header, HTTPException, Query, WebSocket, WebSocketDisconnect
 from pydantic import BaseModel, Field, ValidationError
 from jose import JWTError
 from sqlmodel import Session, select
@@ -13,6 +15,10 @@ from sqlalchemy.exc import IntegrityError
 from starlette.concurrency import run_in_threadpool
 
 from ..antifraud import moderate_text
+from ..chat_receipts import (
+    ReceiptBatch, ReceiptItem, apply_receipt_batch, lock_receipt_pair, receipt_conditions,
+    receipt_items, unread_counts, visible_to_user,
+)
 from ..config import settings
 from ..db import engine, get_session
 from ..errors import herr
@@ -24,12 +30,15 @@ from ..models import (
 from ..security import authenticate_ws, current_user
 from ..ws_guard import watch_ws_access
 from ..services import (
-    booking_and_ride_for_user, is_blocked, manager, notify_chat_message,
+    blocked_user_ids, booking_and_ride_for_user, is_blocked, lock_booking_and_ride_for_user, manager, notify_chat_message,
     public_media_url, push_notification, send_push, user_bookings,
 )
 from ..timeutil import utcnow
 
 router = APIRouter(tags=["chat"])
+# REST fan-out can already occupy the shared worker pool. Use a bounded pool share
+# for final receipt delivery so it can still check access and release its SQL locks.
+_receipt_delivery_limit = CapacityLimiter(8)
 
 
 class HiddenMessageReceipt(BaseModel):
@@ -286,7 +295,11 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
         passenger_id, driver_id = booking.passenger_id, ride.driver_id
 
     other_id = driver_id if user_id == passenger_id else passenger_id
-    manager.register(booking_id, websocket)
+    async def send_receipts(items: list[dict]) -> None:
+        await to_thread.run_sync(_send_locked_receipt_frame, websocket, token, booking_id, items,
+                                 limiter=_receipt_delivery_limit)
+
+    manager.register(booking_id, websocket, send_receipts=send_receipts)
     # Сторож открытого канала (волна 141): раньше токен перепроверялся раз в 15 ОТПРАВЛЕННЫХ
     # сообщений — то есть у молчащего слушателя не перепроверялся никогда. Вышел из аккаунта,
     # а чужая переписка продолжала приходить в уже открытое окно.
@@ -298,14 +311,60 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
         ))(s2.get(Booking, booking_id),
            s2.get(Ride, s2.get(Booking, booking_id).ride_id) if s2.get(Booking, booking_id) else None),
         on_close=lambda: manager.disconnect(booking_id, websocket))
+    pending_receipts: ReceiptBatch | None = None
+    next_receipt_write = 0.0
+    loop = asyncio.get_running_loop()
+
+    async def flush_receipts(reply: bool = True, next_batch: ReceiptBatch | None = None) -> None:
+        nonlocal pending_receipts, next_receipt_write
+        if pending_receipts is None:
+            return
+        await asyncio.sleep(max(0.0, next_receipt_write - loop.time()))
+        batch, pending_receipts = pending_receipts, next_batch
+        next_receipt_write = loop.time() + 1.0
+        result = await run_in_threadpool(_apply_socket_receipts, token, booking_id, batch)
+        if result is None:
+            return
+        page, changed = result
+        if changed:
+            await manager.broadcast(booking_id, {"type": "receipt", "items": changed})
+        if reply:
+            await websocket.send_json({"type": "receipt_ack", **page.model_dump(mode="json")})
+
     try:
         while True:
-            data = await websocket.receive_text()
+            if pending_receipts is not None and loop.time() >= next_receipt_write:
+                await flush_receipts()
+            if pending_receipts is None:
+                data = await websocket.receive_text()
+            else:
+                try:
+                    async with asyncio.timeout(max(0.0, next_receipt_write - loop.time())):
+                        data = await websocket.receive_text()
+                except TimeoutError:
+                    continue
             try:
                 payload = json.loads(data)
             except (json.JSONDecodeError, ValueError):
                 continue
-            if not isinstance(payload, dict) or payload.get("type") != "message":
+            if not isinstance(payload, dict):
+                continue
+            if payload.get("type") == "receipt" and settings.chat_receipts_since is not None:
+                try:
+                    incoming = ReceiptBatch.model_validate({k: v for k, v in payload.items() if k != "type"})
+                except ValidationError:
+                    await _reject(websocket, payload, reason="invalid_request", status_code=422)
+                    continue
+                if pending_receipts is None:
+                    pending_receipts = incoming
+                else:
+                    combined = pending_receipts.joined(incoming)
+                    if combined is None:
+                        await flush_receipts(next_batch=incoming)
+                    else:
+                        pending_receipts = combined
+                continue
+            if payload.get("type") != "message":
                 continue
             with Session(engine) as session:
                 # A retry is a read of an existing private message: current access still matters.
@@ -346,10 +405,11 @@ async def websocket_endpoint(websocket: WebSocket, booking_id: int):
                     send_push, session, current_other,
                     sender.name or "Новое сообщение",
                     (msg.text or "Сообщение")[:120],
-                    {"type": "chat", "id": booking_id},
+                    _booking_chat_push_data(booking_id, msg),
                 )
     except WebSocketDisconnect:
-        pass
+        manager.disconnect(booking_id, websocket)
+        await flush_receipts(reply=False)
     finally:
         страж.cancel()          # сторож живёт ровно столько, сколько канал
         manager.disconnect(booking_id, websocket)   # снятие регистрации при ЛЮБОМ выходе — нет утечки сокета
@@ -776,6 +836,14 @@ def _booking_message_frame(msg: Message, request_id: Optional[str] = None) -> di
     return frame
 
 
+def _booking_chat_push_data(booking_id: int, message: Message) -> dict:
+    data = {"type": "chat", "id": booking_id}
+    since = settings.chat_receipts_since
+    if since is not None and message.created_at >= since.replace(tzinfo=None):
+        data["mid"] = message.id
+    return data
+
+
 @router.post("/bookings/{booking_id}/messages", response_model=Message | HiddenMessageReceipt)
 def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_user), session: Session = Depends(get_session),
                  idempotency_key: Optional[str] = Header(None, min_length=1, max_length=128)):
@@ -797,7 +865,7 @@ def send_message(booking_id: int, body: MessageIn, user: User = Depends(current_
         user.name or "Новое сообщение", user.name or "Яңы хәбәр",
         preview, preview,
         ref_kind="booking", ref_id=booking_id,
-        data={"type": "chat", "id": booking_id},   # канал «Сообщения» + deep-link
+        data=_booking_chat_push_data(booking_id, msg),
     )
     return msg
 
@@ -814,6 +882,165 @@ def list_messages(booking_id: int, limit: int = 500,
     rows = list(reversed(rows))
     # Скрытые «у себя» этим юзером не показываем (на сервере остаются — для спора/SOS).
     return [m for m in rows if user.id not in _hidden_ids(m)]
+
+
+class BookingMessagePage(BaseModel):
+    messages: list[Message]
+    next_before_id: int | None
+    next_after_id: int | None
+    has_more: bool
+
+
+@router.get("/bookings/{booking_id}/message-page", response_model=BookingMessagePage)
+def booking_message_page(booking_id: int, before_id: int | None = Query(None, gt=0),
+                         after_id: int | None = Query(None, gt=0), limit: int = Query(500, ge=1, le=500),
+                         user: User = Depends(current_user), session: Session = Depends(get_session)):
+    # The same participants can read historical messages after the writing window has closed.
+    booking_and_ride_for_user(session, booking_id, user)
+    if before_id is not None and after_id is not None:
+        raise herr(422, "Выбери одно направление истории", "Тарихтың бер йүнәлешен һайла")
+    cursor = before_id if before_id is not None else after_id
+    if cursor is not None:
+        _msg_in_booking(session, booking_id, cursor)
+    query = select(Message).where(Message.booking_id == booking_id, visible_to_user(user.id))
+    if after_id is not None:
+        query = query.where(Message.id > after_id).order_by(Message.id)
+    else:
+        if before_id is not None:
+            query = query.where(Message.id < before_id)
+        query = query.order_by(Message.id.desc())
+    rows = session.exec(query.limit(limit + 1)).all()
+    page = rows[:limit] if after_id is not None else list(reversed(rows[:limit]))
+    return BookingMessagePage(
+        messages=page, next_before_id=page[0].id if page else None, next_after_id=page[-1].id if page else None,
+        has_more=len(rows) > limit,
+    )
+
+
+class BookingReceiptPage(BaseModel):
+    open: bool
+    receipts_since: datetime | None
+    items: list[ReceiptItem] = Field(default_factory=list)
+    next_after_message_id: int | None = None
+    unread: int = 0
+
+
+def _booking_peer(booking: Booking, ride: Ride, user_id: int) -> int:
+    return ride.driver_id if booking.passenger_id == user_id else booking.passenger_id
+
+
+def _receipts_since(booking: Booking, ride: Ride, user_id: int, session: Session) -> datetime | None:
+    since = settings.chat_receipts_since
+    if since is None or _booking_chat_closed(booking, ride):
+        return None
+    peer = _booking_peer(booking, ride, user_id)
+    return None if is_blocked(session, user_id, peer) else since
+
+
+def _receipt_page(session: Session, booking_id: int, user_id: int, peer_id: int, since: datetime,
+                  *, after: int | None = None, limit: int = 500, ids: set[int] | None = None) -> BookingReceiptPage:
+    items, cursor = receipt_items(session, booking_id, user_id, peer_id, since.replace(tzinfo=None),
+                                  after=after, limit=limit, ids=ids)
+    unread = unread_counts(session, user_id, {booking_id: peer_id}, since.replace(tzinfo=None)).get(booking_id, 0)
+    return BookingReceiptPage(open=True, receipts_since=since, items=items, next_after_message_id=cursor, unread=unread)
+
+
+@router.get("/bookings/{booking_id}/receipts", response_model=BookingReceiptPage)
+def get_booking_receipts(booking_id: int, after_message_id: int | None = Query(None, gt=0),
+                         limit: int = Query(500, ge=1, le=500), user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    since = _receipts_since(booking, ride, user.id, session)
+    if since is None:
+        return BookingReceiptPage(open=False, receipts_since=None)
+    if after_message_id is not None:
+        _msg_in_booking(session, booking_id, after_message_id)
+    return _receipt_page(session, booking_id, user.id, _booking_peer(booking, ride, user.id), since,
+                         after=after_message_id, limit=limit)
+
+
+def _apply_booking_receipts(booking_id: int, batch: ReceiptBatch, user: User,
+                            session: Session) -> tuple[BookingReceiptPage, list[dict]]:
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    actor = user.id
+    since = _receipts_since(booking, ride, actor, session)
+    if since is None:
+        return BookingReceiptPage(open=False, receipts_since=None), []
+    peer = _booking_peer(booking, ride, actor)
+    lock_receipt_pair(session, actor, peer)
+    booking, ride = lock_booking_and_ride_for_user(session, booking_id, user)
+    since = _receipts_since(booking, ride, actor, session)
+    if since is None or peer != _booking_peer(booking, ride, actor):
+        return BookingReceiptPage(open=False, receipts_since=None), []
+
+    ids, changed = apply_receipt_batch(session, booking_id, actor, peer, since.replace(tzinfo=None), batch)
+    session.commit()
+
+    booking, ride = booking_and_ride_for_user(session, booking_id, user)
+    since = _receipts_since(booking, ride, actor, session)
+    if since is None or peer != _booking_peer(booking, ride, actor):
+        return BookingReceiptPage(open=False, receipts_since=None), []
+    return _receipt_page(session, booking_id, actor, peer, since, ids=ids), changed
+
+
+@router.post("/bookings/{booking_id}/receipts", response_model=BookingReceiptPage)
+def post_booking_receipts(booking_id: int, batch: ReceiptBatch, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    page, changed = _apply_booking_receipts(booking_id, batch, user, session)
+    if changed:
+        notify_chat_message(booking_id, {"type": "receipt", "items": changed})
+    return page
+
+
+def _apply_socket_receipts(token: str | None, booking_id: int, batch: ReceiptBatch):
+    with Session(engine) as session:
+        try:
+            user = authenticate_ws(token or "", session)
+            return _apply_booking_receipts(booking_id, batch, user, session)
+        except (HTTPException, JWTError):
+            return None
+
+
+async def _enqueue_receipt_frame(websocket: WebSocket, items: list[dict]) -> None:
+    # A stalled socket must not hold the database lock indefinitely. Clients
+    # that miss a live frame reconcile through the receipt endpoint.
+    try:
+        async with asyncio.timeout(0.5):
+            await websocket.send_json({"type": "receipt", "items": items})
+    except TimeoutError:
+        pass
+
+
+def _send_locked_receipt_frame(websocket: WebSocket, token: str | None, booking_id: int,
+                              items: list[dict]) -> None:
+    if settings.chat_receipts_since is None or not items:
+        return
+    with Session(engine) as session:
+        try:
+            user = authenticate_ws(token or "", session)
+            booking, ride = booking_and_ride_for_user(session, booking_id, user)
+            actor, peer = user.id, _booking_peer(booking, ride, user.id)
+            lock_receipt_pair(session, actor, peer)
+            session.expire_all()
+            user = authenticate_ws(token or "", session)
+            booking, ride = booking_and_ride_for_user(session, booking_id, user)
+        except (HTTPException, JWTError):
+            return
+        since = _receipts_since(booking, ride, actor, session)
+        if user.id != actor or since is None or peer != _booking_peer(booking, ride, actor):
+            return
+        ids = {item["message_id"] for item in items}
+        visible = set(session.exec(
+            select(Message.id)
+            .where(*receipt_conditions(booking_id, actor, since.replace(tzinfo=None)), Message.id.in_(ids))
+            .order_by(Message.id)
+            .with_for_update(read=True)
+        ).all())
+        filtered = [item for item in items if item["message_id"] in visible]
+        if filtered:
+            # The block writer must wait until this authorized frame is enqueued.
+            # The session and its transaction still belong to this worker thread.
+            from_thread.run(_enqueue_receipt_frame, websocket, filtered)
 
 
 def _hidden_ids(m: Message) -> set:
@@ -897,6 +1124,7 @@ class ConversationOut(BaseModel):
     route: str
     last_message: str
     has_messages: bool  # visible messages for this viewer, not a test of preview text
+    unread: int | None = None
     depart_at: Optional[datetime] = None   # время выезда — различать треды одного маршрута в инбоксе
 
 
@@ -933,6 +1161,19 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
         for b in bookings
     }
     peers_by_id = {u.id: u for u in session.exec(select(User).where(User.id.in_(peer_ids))).all()} if peer_ids else {}
+    since = settings.chat_receipts_since
+    unread: dict[int, int] = {}
+    chat_peers: dict[int, int] = {}
+    if since is not None:
+        blocked = blocked_user_ids(session, user.id)
+        for booking in bookings:
+            ride = rides_by_id.get(booking.ride_id)
+            if ride is None or _booking_chat_closed(booking, ride):
+                continue
+            peer = _booking_peer(booking, ride, user.id)
+            if peer not in blocked:
+                chat_peers[booking.id] = peer
+        unread = unread_counts(session, user.id, chat_peers, since.replace(tzinfo=None))
     out: list = []
     for b in bookings:
         last = last_by_booking.get(b.id)
@@ -950,6 +1191,7 @@ def conversations(user: User = Depends(current_user), session: Session = Depends
             route=(f"{ride.from_city} → {ride.to_city}" if ride else ""),
             last_message=("Чат открыт" if last is None else _message_preview(last)),
             has_messages=last is not None,
+            unread=unread.get(b.id, 0) if since is not None else None,
             depart_at=(ride.depart_at if ride else None),
         ))
     return out

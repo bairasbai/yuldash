@@ -19,6 +19,7 @@ from sqlmodel import Session, select
 
 from app import models as M
 from app.account import delete_user_account
+from app.chat_receipt_models import ChatMessageReceipt
 from app.db import engine
 from app.models import SQLModel, User, UserRole
 from app.rideshare_bank_models import (
@@ -166,6 +167,15 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.add(ride); s.commit(); s.refresh(ride)
         my_booking = M.Booking(ride_id=ride.id, passenger_id=oid, status=M.BookingStatus.done)
         s.add(my_booking); s.commit(); s.refresh(my_booking)
+        incoming = M.Message(booking_id=my_booking.id, sender_id=oid, text="Встречаемся у вокзала")
+        outgoing = M.Message(booking_id=my_booking.id, sender_id=uid, text="Хорошо")
+        s.add_all([incoming, outgoing])
+        s.flush()
+        receipt_message_ids = [incoming.id, outgoing.id]
+        s.add_all([
+            ChatMessageReceipt(message_id=incoming.id, user_id=uid, delivered=True),
+            ChatMessageReceipt(message_id=outgoing.id, user_id=oid, delivered=True, read=True),
+        ])
         inc_against_me = M.Incident(booking_id=my_booking.id, reporter_id=oid, respondent_id=uid,
                                     type="rude", description="Нахамил в дороге",
                                     evidence_urls="/secure/evidence/victim.jpg")
@@ -334,6 +344,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # посылку они держат — на Postgres это ровно то, что роняло /me/delete.
         pm = s.exec(select(M.Message).where(M.Message.parcel_id == parcel_id)).all()
         assert pm == []
+        assert s.exec(select(ChatMessageReceipt).where(
+            ChatMessageReceipt.message_id.in_(receipt_message_ids),
+        )).all() == []
 
 
 def test_accused_deleting_account_does_not_destroy_victims_case(client, user_factory, monkeypatch):

@@ -35,6 +35,7 @@ from fastapi import HTTPException
 from sqlalchemy import and_, delete, func, or_, update
 from sqlmodel import Session, select
 
+from .chat_receipt_models import ChatMessageReceipt
 from .config import settings
 from .errors import herr
 from .timeutil import utcnow
@@ -488,6 +489,8 @@ def delete_user_account(session: Session, user: User) -> None:
         msg.append(Message.order_id.in_(order_ids))
     if parcel_ids:
         msg.append(Message.parcel_id.in_(parcel_ids))
+    dele(ChatMessageReceipt, ChatMessageReceipt.user_id == uid,
+         ChatMessageReceipt.message_id.in_(select(Message.id).where(or_(*msg))))
     dele(Message, *msg)
     # 3.2 Рейтинги: мной поставленные/полученные + по удаляемым броням/заказам/посылкам.
     rating = [Rating.rater_id == uid, Rating.ratee_id == uid]

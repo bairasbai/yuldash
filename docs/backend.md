@@ -146,6 +146,12 @@
 **Админ:** `GET /admin/drivers?status`, `POST /admin/drivers/{id}/approve`, `GET /admin/reports`, `GET /admin/ads`...
 **Платежи:** `POST /payments`, `GET /payments/mine`.
 
+### Квитанции чата попутки
+
+Кандидат RS-06А добавляет `GET /bookings/{id}/message-page` для истории и `GET/POST /bookings/{id}/receipts` для отдельных отметок. Пачка POST содержит `delivered_ids` и `read_ids`. Прочтение включает доставку, а обновление сохраняет прежние положительные флаги. WebSocket получает те же списки в кадре `receipt` и возвращает `receipt_ack` отправителю. После commit в чат уходит кадр `receipt` с массивом `items`. При включённых квитанциях пуш содержит `mid` для чтения сообщения.
+
+Если `CHAT_RECEIPTS_SINCE` не задана, отметки закрыты, а счётчик в инбоксе равен `null`. Если дата задана, она должна содержать часовой пояс и сохраняет прежнюю историю вне протокола. Выкладка сервера и миграция рабочей базы требуют отдельного решения. [План RS-06](plans/rideshare/RS-06-chat-delivered-read.md)
+
 ## 5.1 🆕 Эндпоинты (2026-06-28, большая сессия — всё на проде)
 - **Поток заявок (замкнут):** `GET /requests/feed` (водитель видит заявки), `POST /requests/{id}/respond` (отклик + push пассажиру; нет устройства → Telegram админу), `GET /requests/{id}/responses`, `POST /responses/{id}/accept` (создаёт Ride+Booking). Таблица `RequestResponse`. `/responses` и `/accept` пускают admin (принять ЗА юзера).
 - **Профиль:** `POST /me/update` (имя и/или `avatar_url`, оба опц.). `User.avatar_url` (миграция `migrate_avatar.sql`). `conversations`/`RideOut`/отклики отдают аватары.
