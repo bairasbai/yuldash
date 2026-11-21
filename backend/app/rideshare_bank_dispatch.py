@@ -152,7 +152,7 @@ def _admit_request(session: Session, runtime: BankRuntime, checkout: RideshareBa
 def claim_bank_dispatch(session: Session, checkout_id: int, *, runtime: BankRuntime,
                         expected_operation_id: str | None = None) -> BankDispatch | None:
     """Admit at most one POST. The lease is usable only after the caller commits."""
-    runtime.check_environment()
+    runtime.require_writes()
     before = session.get(RideshareBankCheckout, checkout_id, populate_existing=True)
     if before is None or before.booking_id is None:
         raise BankCheckoutUnavailable("bank_booking_unavailable")
@@ -161,7 +161,7 @@ def claim_bank_dispatch(session: Session, checkout_id: int, *, runtime: BankRunt
     revisions = bank_switches(session, lock=True)
     booking = checked_bank_booking(session, booking_id, passenger, driver)
     checkout = _lock_checkout(session, checkout_id)
-    if checkout.booking_id != booking_id or checkout.closed_at is not None or checkout.test_mode != runtime.test_mode:
+    if checkout.booking_id != booking_id or checkout.closed_at is not None or not runtime.owns_checkout(checkout):
         raise BankCheckoutUnavailable("bank_checkout_changed")
     if revisions != BankSwitchRevision(checkout.paid_revision, checkout.card_revision):
         raise BankCheckoutUnavailable("bank_confirmation_required")
@@ -214,7 +214,7 @@ def _apply_bank_result(session: Session, checkout_id: int, operation_id: str, ru
     booking_id = snapshot.booking_id
     booking = lock_booking_payment(session, booking_id) if booking_id is not None else None
     checkout = _lock_checkout(session, checkout_id)
-    if checkout.booking_id != (booking.id if booking is not None else None) or checkout.test_mode != runtime.test_mode:
+    if checkout.booking_id != (booking.id if booking is not None else None) or not runtime.owns_checkout(checkout):
         raise BankCheckoutUnavailable("bank_checkout_changed")
     operation = session.get(RideshareBankOperation, operation_id, with_for_update=True, populate_existing=True)
     if (operation is None or operation.checkout_id != checkout.id or
@@ -235,6 +235,7 @@ def _apply_bank_result(session: Session, checkout_id: int, operation_id: str, ru
             url = observation.checkout_url
             operation.confirmation_ciphertext = seal_bank_confirmation(
                 runtime.cipher, checkout.id, operation.id, checkout.test_mode, url,
+                account_id=runtime.provider_account_id,
             ) if operation.state == observation.status == "pending" and url is not None else None
     operation.lease_token = operation.lease_until = None
     return operation.state
@@ -244,11 +245,14 @@ def _check_provider(runtime: BankRuntime, provider: YooKassaSafeDeal) -> None:
     runtime.check_environment()
     if runtime.test_mode != provider.test_mode:
         raise BankCheckoutUnavailable("bank_provider_environment")
+    if not runtime.test_mode and runtime.provider_account_id != provider.account_id:
+        raise BankCheckoutUnavailable("bank_provider_account")
 
 
 def dispatch_bank_operation(engine: Engine, checkout_id: int, *, runtime: BankRuntime,
                             provider: YooKassaSafeDeal, settlement_operation_id: str | None = None,
                             expected_operation_id: str | None = None) -> str | None:
+    runtime.require_writes()
     _check_provider(runtime, provider)
     with Session(engine) as session:
         if settlement_operation_id is not None:
@@ -267,6 +271,7 @@ def dispatch_bank_operation(engine: Engine, checkout_id: int, *, runtime: BankRu
             return None
     if utcnow() >= claim.send_before:
         return None
+    runtime.require_writes()
     try:
         observation = provider.submit(claim.request)
     except (BankOutcomeUnknown, BankRequestRejected):
@@ -299,7 +304,7 @@ def inspect_bank_operation(engine: Engine, checkout_id: int, operation_id: str, 
     with Session(engine) as session:
         checkout = session.get(RideshareBankCheckout, checkout_id)
         operation = session.get(RideshareBankOperation, operation_id)
-        if (checkout is None or checkout.test_mode != runtime.test_mode or
+        if (checkout is None or not runtime.owns_checkout(checkout) or
                 operation is None or operation.checkout_id != checkout_id or operation.dispatched_at is None):
             return BankReadResult()
         resource, provider_id = BankResource(operation.resource), operation.provider_id
@@ -344,6 +349,7 @@ def reconcile_bank_notification(engine: Engine, payload: object, *, runtime: Ban
             select(RideshareBankOperation.id, RideshareBankOperation.checkout_id)
             .join(RideshareBankCheckout, RideshareBankCheckout.id == RideshareBankOperation.checkout_id)
             .where(RideshareBankCheckout.test_mode == runtime.test_mode,
+                   RideshareBankCheckout.provider_account_id == runtime.provider_account_id,
                    RideshareBankOperation.resource == hint.resource.value,
                    RideshareBankOperation.dispatched_at.is_not(None),
                    RideshareBankOperation.state != "queued", candidate)

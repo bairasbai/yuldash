@@ -11,7 +11,7 @@ from sqlalchemy import func
 from sqlmodel import Session, select
 
 from .booking_payment import booking_amount_kop, booking_has_bank_obligation, lock_booking_payment
-from .card_payments import CARD_PAYMENTS_SWITCH
+from .card_payments import BANK_PROJECT_UNACCEPTED, CARD_PAYMENTS_SWITCH
 from .config import settings
 from .driver_pay_settings import passenger_ride
 from .models import AppSettingChange, Booking, BookingStatus, DriverPaySettings, Payment, Ride, User, UserRole
@@ -40,10 +40,21 @@ class BankRuntime:
     test_mode: bool
     cipher: Fernet
     return_url: Callable[[int], str]
+    provider_account_id: str | None = None
 
     def check_environment(self) -> None:
         if self.test_mode and settings.is_prod:
             raise BankCheckoutUnavailable("bank_test_in_production")
+
+    def require_writes(self) -> None:
+        self.check_environment()
+        if not self.test_mode:
+            raise BankCheckoutUnavailable(BANK_PROJECT_UNACCEPTED)
+
+    def owns_checkout(self, checkout: RideshareBankCheckout) -> bool:
+        return (checkout.test_mode == self.test_mode
+                and (self.test_mode or self.provider_account_id is not None)
+                and checkout.provider_account_id == self.provider_account_id)
 
 
 @dataclass(frozen=True)
@@ -134,7 +145,7 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
                         credentials: HTTPAuthorizationCredentials | None = None,
                         retry_after_payment_id: str | None = None) -> RideshareBankCheckout:
     """Confirm new work or resume that same attempt using a fresh read of the switches."""
-    runtime.check_environment()
+    runtime.require_writes()
     if credentials is not None and current_user(credentials, session).id != passenger_id:
         raise BankCheckoutUnavailable("bank_booking_unavailable")
     passenger, driver = lock_booking_participants(session, booking_id, passenger_id=passenger_id)
@@ -150,7 +161,7 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
     checkout = session.exec(select(RideshareBankCheckout).where(
         RideshareBankCheckout.booking_id == booking_id, RideshareBankCheckout.closed_at.is_(None),
     ).with_for_update().execution_options(populate_existing=True)).one_or_none()
-    if checkout is not None and (checkout.test_mode != runtime.test_mode):
+    if checkout is not None and not runtime.owns_checkout(checkout):
         raise BankCheckoutUnavailable("bank_checkout_changed")
     if (checkout is not None and retry_after_payment_id is None and
             booking.paid and booking.payment_method == CARD_RECEIPT_METHOD):
@@ -207,7 +218,8 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
         if booking_has_bank_obligation(session, booking_id):
             raise BankCheckoutUnavailable("bank_booking_unavailable")
         checkout = RideshareBankCheckout(booking_id=booking_id, amount_kop=amount, payout_kop=amount,
-                                        test_mode=runtime.test_mode, recipient_version=recipient_version,
+                                        test_mode=runtime.test_mode, provider_account_id=runtime.provider_account_id,
+                                        recipient_version=recipient_version,
                                         driver_consent_at=terms.driver_consent_at)
         session.add(checkout)
         session.flush()

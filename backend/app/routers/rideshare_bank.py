@@ -24,6 +24,7 @@ from ..rideshare_bank_models import (
     RideshareBankCheckout, RideshareBankOperation, RideshareBankPosting, RideshareBankRecipient,
 )
 from ..rideshare_bank_provider import BankResource
+from ..rideshare_bank_runtime import configure_rideshare_bank
 from ..security import bearer, current_user
 
 
@@ -85,8 +86,8 @@ class CardCheckoutLink(BaseModel):
 
 
 def receipt_bank_runtime() -> BankRuntime | None:
-    """Provide the trusted runtime when the application composes the bank integration."""
-    return None
+    configuration = configure_rideshare_bank(settings)
+    return configuration.runtime if configuration is not None else None
 
 
 def _load_card_booking(session: Session, booking_id: int, user_id: int, *,
@@ -170,7 +171,8 @@ def card_checkout_link(booking_id: int, response: Response, user: User = Depends
                        expected_payment_id: Annotated[str | None, Query(pattern=r"^[a-f0-9]{32}$")] = None) -> CardCheckoutLink:
     _, ride = _load_card_booking(session, booking_id, user.id, passenger_only=True)
     response.headers["Cache-Control"] = "no-store"
-    if runtime is None or (runtime.test_mode and settings.is_prod):
+    if (runtime is None or (runtime.test_mode and settings.is_prod)
+            or (not runtime.test_mode and runtime.provider_account_id is None)):
         return CardCheckoutLink()
     selection = (
         select(RideshareBankCheckout.id.label("checkout_id"), RideshareBankOperation.id.label("operation_id"),
@@ -183,6 +185,7 @@ def card_checkout_link(booking_id: int, response: Response, user: User = Depends
                Booking.paid.is_(False),
                Ride.driver_id == ride.driver_id, Ride.category == ride.category,
                RideshareBankCheckout.closed_at.is_(None), RideshareBankCheckout.test_mode == runtime.test_mode,
+               RideshareBankCheckout.provider_account_id == runtime.provider_account_id,
                RideshareBankOperation.resource == BankResource.payment.value, RideshareBankOperation.state == "pending",
                RideshareBankOperation.dispatched_at.is_not(None), RideshareBankOperation.provider_id.is_not(None),
                RideshareBankOperation.confirmation_ciphertext.is_not(None))
@@ -194,6 +197,7 @@ def card_checkout_link(booking_id: int, response: Response, user: User = Depends
         return CardCheckoutLink()
     return CardCheckoutLink(checkout_url=open_bank_confirmation(
         runtime.cipher, row.checkout_id, row.operation_id, runtime.test_mode, row.confirmation_ciphertext,
+        account_id=runtime.provider_account_id,
     ))
 
 
@@ -206,7 +210,7 @@ def card_payment_terms(booking_id: int, response: Response, user: User = Depends
     if runtime is None:
         return CardPaymentTerms(blocked_reason="bank_project_unaccepted")
     try:
-        runtime.check_environment()
+        runtime.require_writes()
         revisions = bank_switches(session)
         driver = session.get(User, ride.driver_id)
         recipient = session.get(RideshareBankRecipient, ride.driver_id)
@@ -219,7 +223,7 @@ def card_payment_terms(booking_id: int, response: Response, user: User = Depends
     checkout = session.exec(select(RideshareBankCheckout).where(
         RideshareBankCheckout.booking_id == booking_id, RideshareBankCheckout.closed_at.is_(None),
     )).one_or_none()
-    if checkout is not None and checkout.test_mode != runtime.test_mode:
+    if checkout is not None and not runtime.owns_checkout(checkout):
         return CardPaymentTerms(blocked_reason="bank_checkout_changed")
     offer = CardPaymentConfirmation(
         amount_kop=terms.amount_kop, paid_revision=revisions.paid, card_revision=revisions.card,
