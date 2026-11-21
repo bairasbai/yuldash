@@ -86,7 +86,6 @@ import androidx.compose.material.icons.filled.AdminPanelSettings
 import androidx.compose.material.icons.filled.ArrowBackIosNew
 import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.Block
-import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.ChatBubble
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.CheckCircle
@@ -129,7 +128,6 @@ import androidx.compose.material.icons.filled.RadioButtonUnchecked
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material.icons.filled.Report
 import androidx.compose.material.icons.filled.Route
-import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Shield
@@ -213,8 +211,6 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import android.graphics.Bitmap
@@ -575,11 +571,6 @@ internal fun CreateRideFormContent(
 ) {
     val isCargo = typeKey == "parcel" || typeKey == "cargo"
     val isHospital = typeKey == "hospital"
-    val dateLabel = if (recurrence == "series") appText("Даты и время", "Көндәр һәм ваҡыт")
-        else appText("Дата и время", "Дата һәм ваҡыт")
-    val datePlaceholder = if (recurrence == "series") appText("Выбери несколько дат", "Бер нисә көн һайла")
-        else appText("Выбери дату и время", "Дата һәм ваҡыт һайла")
-    val datePickerDescription = "$dateLabel: ${dateText.ifBlank { datePlaceholder }}"
     LazyColumn(
         modifier = modifier.padding(16.dp),
         verticalArrangement = Arrangement.spacedBy(12.dp)
@@ -663,23 +654,7 @@ internal fun CreateRideFormContent(
                 }
             }
         }
-        item {
-            Box {
-                OutlinedTextField(
-                    value = dateText,
-                    onValueChange = {},
-                    readOnly = true,
-                    label = { Text(dateLabel) },
-                    placeholder = { Text(datePlaceholder) },
-                    leadingIcon = { Icon(Icons.Default.Schedule, null) },
-                    trailingIcon = { Icon(Icons.Default.CalendarMonth, contentDescription = appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2) },
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp)
-                )
-                Box(Modifier.matchParentSize().clickable { onOpenDatePicker() }
-                    .semantics { contentDescription = datePickerDescription })
-            }
-        }
+        item { CreateRideDateField(dateText, recurrence == "series", onOpenDatePicker) }
         item {
             Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Text(appText("Повтор", "Ҡабатлау"), fontWeight = FontWeight.Bold, fontSize = 14.sp)

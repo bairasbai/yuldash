@@ -1056,8 +1056,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideScreen.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "b366d60dfb49619388b52ad4b704c2cb7ffb35786e45a22c7208b84e9d211ed0",
-      "lines": 1182
+      "sha256": "9d8e25c064a14f2646336d6159000f5f6aef3f24121b728984f73e846172c0cb",
+      "lines": 1157
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/CreateRideStops.kt",
@@ -1595,8 +1595,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideDatesPicker.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "6d65628ecd55a8830a005158db04d6e5d5edf507a8531862ddfb6ccabb2c0533",
-      "lines": 119
+      "sha256": "b8699242a078ecdf8baec55eb215b41b256364584b01da0d53c6904ae3797b38",
+      "lines": 151
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideDeparturePicker.kt",
@@ -1630,8 +1630,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideTemplate.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "ddd8a361aebe1a2db5418a22df686dbf12fb0628fd1b6175467314456eaaeae9",
-      "lines": 155
+      "sha256": "f929e6a30cf4ae283423626630a00d6f1ef5665f17adb1bc7ae97d3e42513f43",
+      "lines": 173
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideUiMapper.kt",
@@ -2071,8 +2071,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApp.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "e767723156a88af0b9bd163d0e32ec30c1da6a3244d7ebde7bdbf42d8b6af3eb",
-      "lines": 2721
+      "sha256": "51692c32d1cbb0d2662781288b18ecf2b4659917daea4a9658497a7a78ce2496",
+      "lines": 2717
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/YuldashApplication.kt",
@@ -5697,8 +5697,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/LegacyOfflineOwnerTest.kt",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "b30d7d6a6347cd7224a11a5252964d5b5af221f891620d942449631bd007c8b1",
-      "lines": 166
+      "sha256": "0239ed031bc58d3b1507ad9386bd65812e8ff1bec69f07063c5d69a5067f4b09",
+      "lines": 205
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/LocationSocketLifecycleTest.kt",

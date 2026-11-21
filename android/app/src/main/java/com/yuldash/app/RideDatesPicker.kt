@@ -1,12 +1,18 @@
 package com.yuldash.app
 
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.CalendarMonth
+import androidx.compose.material.icons.filled.Schedule
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
@@ -20,6 +26,32 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.YearMonth
 import java.util.Locale
+
+@Composable
+internal fun CreateRideDateField(dateText: String, multipleDates: Boolean, onOpenDatePicker: () -> Unit) {
+    val label = if (multipleDates) appText("Даты и время", "Көндәр һәм ваҡыт")
+    else appText("Дата и время", "Дата һәм ваҡыт")
+    val placeholder = if (multipleDates) appText("Выбери несколько дат", "Бер нисә көн һайла")
+    else appText("Выбери дату и время", "Дата һәм ваҡыт һайла")
+    val description = "$label: ${dateText.ifBlank { placeholder }}"
+    Box {
+        OutlinedTextField(
+            value = dateText,
+            onValueChange = {},
+            readOnly = true,
+            label = { Text(label) },
+            placeholder = { Text(placeholder) },
+            leadingIcon = { Icon(Icons.Default.Schedule, null) },
+            trailingIcon = {
+                Icon(Icons.Default.CalendarMonth, appText("Выбрать дату", "Дата һайлау"), tint = CanonGreen2)
+            },
+            modifier = Modifier.fillMaxWidth(),
+            shape = CanonFieldShape,
+        )
+        Box(Modifier.matchParentSize().clickable(onClick = onOpenDatePicker)
+            .semantics { contentDescription = description })
+    }
+}
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
