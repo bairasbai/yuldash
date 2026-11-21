@@ -21,6 +21,7 @@ from .rideshare_bank_booking import (
     checked_bank_booking,
     lock_booking_participants,
 )
+from .rideshare_bank_confirmation import seal_bank_confirmation
 from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankApproval, RideshareBankCheckout, RideshareBankOperation
 from .rideshare_bank_provider import (
     BankObservation,
@@ -231,10 +232,10 @@ def _apply_bank_result(session: Session, checkout_id: int, operation_id: str, ru
                 else:
                     booking.paid = True
                     booking.payment_method = CARD_RECEIPT_METHOD
-            if operation.state == "pending" and observation.checkout_url is not None:
-                operation.confirmation_ciphertext = runtime.cipher.encrypt(observation.checkout_url.encode("utf-8"))
-            elif operation.state in {"succeeded", "canceled", "rejected"}:
-                operation.confirmation_ciphertext = None
+            url = observation.checkout_url
+            operation.confirmation_ciphertext = seal_bank_confirmation(
+                runtime.cipher, checkout.id, operation.id, checkout.test_mode, url,
+            ) if operation.state == observation.status == "pending" and url is not None else None
     operation.lease_token = operation.lease_until = None
     return operation.state
 
