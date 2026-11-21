@@ -41,6 +41,7 @@ from .timeutil import utcnow
 # Keep a full send lease in reserve before the provider's idempotency deadline.
 _LEASE = timedelta(seconds=60)
 _PROVIDER_KEY_LIFETIME = timedelta(hours=24)
+_BANK_CLOCK_MARGIN = timedelta(minutes=5)
 
 
 @dataclass(frozen=True)
@@ -206,7 +207,7 @@ def _apply_bank_result(session: Session, checkout_id: int, operation_id: str, ru
     booking_id = snapshot.booking_id
     booking = lock_booking_payment(session, booking_id) if booking_id is not None else None
     checkout = _lock_checkout(session, checkout_id)
-    if checkout.booking_id != (booking.id if booking is not None else None):
+    if checkout.booking_id != (booking.id if booking is not None else None) or checkout.test_mode != runtime.test_mode:
         raise BankCheckoutUnavailable("bank_checkout_changed")
     operation = session.get(RideshareBankOperation, operation_id, with_for_update=True, populate_existing=True)
     if (operation is None or operation.checkout_id != checkout.id or
@@ -268,17 +269,37 @@ def dispatch_bank_operation(engine: Engine, checkout_id: int, *, runtime: BankRu
 
 
 def reconcile_bank_operation(engine: Engine, checkout_id: int, operation_id: str, *,
-                             runtime: BankRuntime, provider: YooKassaSafeDeal) -> str | None:
+                             runtime: BankRuntime, provider: YooKassaSafeDeal,
+                             search_unknown: bool = False) -> str | None:
     """Read an already admitted object, including while the switches are paused."""
     _check_provider(runtime, provider)
     with Session(engine) as session:
         checkout = session.get(RideshareBankCheckout, checkout_id)
         operation = session.get(RideshareBankOperation, operation_id)
         if (checkout is None or checkout.test_mode != runtime.test_mode or
-                operation is None or operation.checkout_id != checkout_id or operation.provider_id is None):
+                operation is None or operation.checkout_id != checkout_id or operation.dispatched_at is None):
             return None
         resource, provider_id = BankResource(operation.resource), operation.provider_id
+        if provider_id is None:
+            if (not search_unknown or operation.state not in BANK_ACTIVE_STATES or
+                    operation.request_ciphertext is None):
+                return None
+            first_dispatch = operation.dispatched_at
+            payment_id = None
+            if resource == BankResource.refund:
+                payment_id = _successful_provider_id(session, checkout_id, BankResource.payment)
+                if payment_id is None:
+                    raise BankCheckoutUnavailable("bank_payment_unavailable")
+    if provider_id is None:
+        provider_id = provider.find_operation(
+            resource, operation_id, since=first_dispatch - _BANK_CLOCK_MARGIN,
+            until=min(utcnow(), first_dispatch + _PROVIDER_KEY_LIFETIME) + _BANK_CLOCK_MARGIN, payment_id=payment_id,
+        )
+        if provider_id is None:
+            return None
     observation = provider.fetch(resource, provider_id)
+    if resource == BankResource.deal and observation.status == "closed":
+        raise BankOutcomeUnknown("Closed bank deal requires reconciliation")
     with Session(engine) as session:
         state = _apply_bank_result(session, checkout_id, operation_id, runtime, observation)
         session.commit()

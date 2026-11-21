@@ -3,6 +3,7 @@
 import json
 import re
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from enum import Enum
 from urllib.parse import urlsplit
 
@@ -17,6 +18,8 @@ _META_KEY = "rideshare_operation"
 _ID = re.compile(r"[A-Za-z0-9_-]{1,128}")
 _KEY = re.compile(r"[A-Za-z0-9_-]{1,64}")
 _RUB = re.compile(r"(-?)(0|[1-9][0-9]{0,13})(?:\.([0-9]{1,2}))?")
+_RECOVERY_PAGE_SIZE = 100
+_RECOVERY_MAX_PAGES = 5
 
 
 class BankResource(str, Enum):
@@ -243,6 +246,51 @@ class YooKassaSafeDeal:
 
     def fetch(self, resource: BankResource, provider_id: str) -> BankObservation:
         return self._request(resource, provider_id=_identifier(provider_id))
+
+    def find_operation(self, resource: BankResource, operation_id: str, *, since: datetime, until: datetime,
+                       payment_id: str | None = None) -> str | None:
+        """Read the complete bounded window before treating one exact match as a candidate."""
+        reference = _identifier(operation_id)
+        params = {
+            "created_at.gte": since.replace(tzinfo=timezone.utc).isoformat(),
+            "created_at.lte": until.replace(tzinfo=timezone.utc).isoformat(),
+            "limit": str(_RECOVERY_PAGE_SIZE),
+        }
+        if resource == BankResource.refund:
+            params["payment_id"] = _identifier(payment_id)
+        elif payment_id is not None:
+            raise ValueError("Only a refund lookup can specify a payment")
+        url = f"{_ORIGIN}/{resource.value}"
+        found = None
+        seen_cursors = set()
+        for _ in range(_RECOVERY_MAX_PAGES):
+            try:
+                response = self._client.get(url, auth=self._auth, params=params, follow_redirects=False)
+                if response.status_code != 200:
+                    raise BankOutcomeUnknown("Bank lookup did not complete")
+                page = _object(response.json())
+                items = page.get("items")
+                if (page.get("type") != "list" or not isinstance(items, list) or len(items) > _RECOVERY_PAGE_SIZE):
+                    raise ValueError("Invalid bank list")
+                for item in items:
+                    row = _object(item)
+                    metadata = row.get("metadata")
+                    if not isinstance(metadata, dict) or metadata.get(_META_KEY) != reference:
+                        continue
+                    candidate = _identifier(row.get("id"))
+                    if found is not None and candidate != found:
+                        raise BankOutcomeUnknown("Bank lookup found more than one object")
+                    found = candidate
+                if "next_cursor" not in page:
+                    return found
+                cursor = page["next_cursor"]
+                if not isinstance(cursor, str) or not 0 < len(cursor) <= 512 or cursor in seen_cursors:
+                    raise ValueError("Invalid bank cursor")
+                seen_cursors.add(cursor)
+                params["cursor"] = cursor
+            except (httpx.HTTPError, TypeError, ValueError):
+                raise BankOutcomeUnknown("Bank lookup could not verify the result") from None
+        raise BankOutcomeUnknown("Bank lookup exceeded the page budget")
 
     def _request(self, resource: BankResource, *, operation: BankRequest | None = None,
                  provider_id: str | None = None) -> BankObservation:

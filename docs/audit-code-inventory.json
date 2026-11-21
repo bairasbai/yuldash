@@ -83,11 +83,11 @@
     "infra_resource_config": 432,
     "public_site_promo": 91,
     "pwa_main": 356,
-    "test_support": 1341
+    "test_support": 1342
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 356,
+    "B02": 357,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -7615,8 +7615,8 @@
       "path": "backend/app/rideshare_bank_dispatch.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "32693f40961e5b44fd0ace91335985c089389ef0fe4e20dd867715941c738bae",
-      "lines": 285
+      "sha256": "bd910a0aa4f8d411285880db0631971dd84b336b1080f5218033ac483a87717c",
+      "lines": 306
     },
     {
       "path": "backend/app/rideshare_bank_models.py",
@@ -7629,8 +7629,8 @@
       "path": "backend/app/rideshare_bank_provider.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "9eb502d77122d5fe8d02a3fb560add7d9d2b2548d620b8a0b0456ac894c22f9e",
-      "lines": 272
+      "sha256": "1715238bacf8cacc730ac2ea2ee2490bddbab8948771bb5b99a23bcd4d44d7da",
+      "lines": 320
     },
     {
       "path": "backend/app/rideshare_bank_recipient.py",
@@ -11710,8 +11710,8 @@
       "path": "backend/tests/test_rideshare_bank_dispatch.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "e5e1e9539ae6c6024065817be8bc2616ab004e2a8a88a9da8e07d80ed15acde1",
-      "lines": 392
+      "sha256": "63990686a2426025249640eaf785cc616c3761821aed96bd571a1d1911068ea5",
+      "lines": 401
     },
     {
       "path": "backend/tests/test_rideshare_bank_provider.py",
@@ -11726,6 +11726,13 @@
       "block": "B02",
       "sha256": "22aa1302f80dace7eb149b1df3ce695bb965dea05b40747c64ec118ce646254e",
       "lines": 97
+    },
+    {
+      "path": "backend/tests/test_rideshare_bank_recovery.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "4c95984d0ce4292074c88634748f2bfa71901a2edccca94442464bfec0c5c1a7",
+      "lines": 157
     },
     {
       "path": "backend/tests/test_rideshare_bank_settlement.py",
