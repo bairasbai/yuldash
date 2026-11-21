@@ -163,7 +163,7 @@ internal object BookingCommandApi {
                     // Capture only keys present before DELETE. A later account may reuse the numeric ID.
                     val accountPrefix = CommandIntent.accountPrefix(base, id)
                     val storagePrefixes = listOf(CommandIntent.prefKey(""), RidePublicationIntent.prefKey(""),
-                        BookingDecisionStore.prefKey(""), RideshareCardCheckoutApi.prefKey(""))
+                        RideSeriesStore.prefKey(""), BookingDecisionStore.prefKey(""), RideshareCardCheckoutApi.prefKey(""))
                     runCatching {
                         prefs?.all?.keys.orEmpty().mapNotNull { key ->
                             storagePrefixes.firstOrNull { key.startsWith(it + accountPrefix) }?.let(key::removePrefix)

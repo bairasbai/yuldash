@@ -42,6 +42,24 @@ internal data class RideCreatePrefill(val date: String? = null, val template: Ri
 internal fun createRideStateKey(ownerId: Int?, savedPrefill: String?): String =
     if (savedPrefill == null) "$ownerId:CreateRide" else "$ownerId:CreateRide:$savedPrefill"
 
+@Composable
+internal fun CreateRideDestination(
+    savedPrefill: String?,
+    onBack: () -> Unit,
+    onPublicationResolved: () -> Unit,
+    onOpenReturnTemplate: (RideReturnTemplate) -> Unit,
+    onFinished: () -> Unit,
+) {
+    CreateRideScreen(
+        prefill = remember(savedPrefill) { RideCreatePrefill.restore(savedPrefill) },
+        onBack = onBack,
+        onPublicationResolved = onPublicationResolved,
+        onOpenReturnTemplate = onOpenReturnTemplate,
+        onSeriesPublished = onFinished,
+        onPublish = { onFinished() },
+    )
+}
+
 internal data class RideReturnActions(
     val busyRide: Int?,
     val failedRide: Int?,

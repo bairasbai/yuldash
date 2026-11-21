@@ -13,8 +13,9 @@ import { ApiError, getSessionGeneration } from "../api/client";
 import { fetchPriceHint, type RideCreateInput, type PriceHint } from "../api/driver";
 import { useAuth } from "../auth/AuthProvider";
 import { checkRidePublication, publicationDraftHash, PublicationProblem, publishRide } from "../api/ridePublication";
+import { checkRideSeries, closeRideSeriesDate, publishRejectedRideSeriesDates, publishRideSeries, sendRideSeries } from "../api/rideSeries";
 import {
-  bookingCommandOwner, isCurrentBookingOwner, releaseRidePublication, type BookingCommandOwner,
+  bookingCommandOwner, isCurrentBookingOwner, releaseRidePublication, releaseRideSeries, type BookingCommandOwner,
 } from "../utils/bookingCommandStore";
 import { useSavedPublication } from "../utils/useSavedPublication";
 import { track } from "../analytics";
@@ -36,6 +37,8 @@ import { SEATS_DEFAULT, clampSeats, seatCap } from "../utils/seatOptions";
 import { SeatOptionsFields } from "../components/SeatOptions";
 import { ReturnRideAction, useReturnRideAction } from "../components/ReturnRideAction";
 import { RIDE_DRAFT, type ReturnRideDraft } from "../utils/rideTemplate";
+import RideSeriesFields, { rideSeriesDepartures } from "../components/RideSeriesFields";
+import RideSeriesRecovery from "../components/RideSeriesRecovery";
 
 type Amenity =
   | "baggage"
@@ -100,6 +103,10 @@ export default function CreateRideScreen() {
     };
   }, [from, to]);
   const [when, setWhen] = useState(initialReturnDraft?.when ?? ""); // datetime-local
+  const [seriesMode, setSeriesMode] = useState(false);
+  const [seriesDays, setSeriesDays] = useState<string[]>([]);
+  const [seriesTime, setSeriesTime] = useState("");
+  const departures = seriesMode ? rideSeriesDepartures(seriesDays, seriesTime) : [];
   // Обычная легковая — 4 места: 1 спереди + 3 сзади (решение Александра, 2026-10-14).
   const [seats, setSeats] = useState(initialReturnDraft?.seats ?? SEATS_DEFAULT);
   // Опции мест: «сзади максимум двое» режет число мест до 3 (до 2, если спереди свой человек).
@@ -156,6 +163,7 @@ export default function CreateRideScreen() {
   // Форма длинная: маршрут, время, цена, удобства, комментарий. Отвлёкся на звонок,
   // айфон выгрузил вкладку — и всё заново. Черновик держит заполненное до публикации.
   const draft = { from, to, when, seats, price, category, amen, onlyTrusted, recurrence, comment, pickup, pickupPointId,
+    ...(seriesMode ? { seriesMode, seriesDays, seriesTime } : {}),
     receiverName, parcelSize, waypoints, partnerId, backMaxTwo, frontSeatAvailable, stopPricesOn, stopPriceValues,
     returnTemplate };
   const draftSnapshot = JSON.stringify(draft);
@@ -177,6 +185,12 @@ export default function CreateRideScreen() {
       if (d.amen) setAmen((prev) => ({ ...prev, ...d.amen }));
       if (d.onlyTrusted) setOnlyTrusted(d.onlyTrusted);
       if (d.recurrence) setRecurrence(d.recurrence);
+      if (d.seriesMode === true) {
+        setSeriesMode(true);
+        setRecurrence("none");
+        if (Array.isArray(d.seriesDays)) setSeriesDays(d.seriesDays);
+        if (typeof d.seriesTime === "string") setSeriesTime(d.seriesTime);
+      }
       if (d.comment) setComment(d.comment);
       if (d.pickup) setPickup(d.pickup);
       if (typeof d.pickupPointId === "number") setPickupPointId(d.pickupPointId);
@@ -235,9 +249,10 @@ export default function CreateRideScreen() {
   ];
 
   const canSubmit =
-    from.trim().length > 0 && to.trim().length > 0 && when.length > 0 && !busy &&
+    from.trim().length > 0 && to.trim().length > 0 && (seriesMode ? departures.length > 0 : when.length > 0) && !busy &&
     !!publication && !publication.storageUnavailable && !publicationStale;
   const command = publication?.command;
+  const series = publication?.series;
   const result = publication?.result;
   const knownState = result && result.state !== "unseen" ? result.state : command?.state;
   const terminal = knownState === "applied" || knownState === "rejected" || knownState === "closed_no_effect";
@@ -258,7 +273,8 @@ export default function CreateRideScreen() {
   }, [owner, confirmedDraftHash]);
 
   async function submit() {
-    if (!owner || !publication || (command && !canReplay) || submitting.current || !canSubmit ||
+    const submittingSeries = seriesMode && departures.length > 1;
+    if (!owner || !publication || series || (command && (!canReplay || submittingSeries)) || submitting.current || !canSubmit ||
         ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     const request = new AbortController();
     operation.current = request;
@@ -267,15 +283,16 @@ export default function CreateRideScreen() {
     setError(null);
     try {
     const stopLanguage = command?.stopLanguage ?? (lang === "ba" ? "ba" : "ru");
-    const wallTime = Date.parse(when + "Z");
-    const utcOffsetMinutes = command?.utcOffsetMinutes ?? (new Date(when).getTime() - wallTime) / 60_000;
+    const singleWhen = seriesMode && !submittingSeries ? seriesDays[0] + "T" + seriesTime : when;
+    const wallTime = submittingSeries ? 0 : Date.parse(singleWhen + "Z");
+    const utcOffsetMinutes = submittingSeries ? 0 : command?.utcOffsetMinutes ?? (new Date(singleWhen).getTime() - wallTime) / 60_000;
     const selectedStops = await resolveRideStops(waypoints, from.trim(), to.trim(), stopLanguage === "ba");
     if (request.signal.aborted || !isCurrentBookingOwner(owner) ||
         ((category === "parcel" || category === "cargo") && !getFeatures().parcels)) return;
     const body: RideCreateInput = {
       from_city: from.trim(),
       to_city: to.trim(),
-      depart_at: new Date(wallTime + utcOffsetMinutes * 60_000).toISOString(),
+      depart_at: submittingSeries ? departures[0] : new Date(wallTime + utcOffsetMinutes * 60_000).toISOString(),
       seats_total: clampSeats(seats, backMaxTwo, frontSeatAvailable),
       back_max_two: backMaxTwo,
       front_seat_available: frontSeatAvailable,
@@ -317,6 +334,14 @@ export default function CreateRideScreen() {
     }
       const draftHash = await publicationDraftHash(draft);
       if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
+      if (submittingSeries) {
+        const { depart_at: _ignored, ...common } = body;
+        const saved = await publishRideSeries(common, departures, owner, publication.revision, draftHash, request.signal);
+        if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+          setSavedPublication({ owner, revision: saved.key, series: saved });
+        }
+        return;
+      }
       const saved = await publishRide(body, owner, request.signal, {
         draftHash, revision: publication.revision, stopLanguage, utcOffsetMinutes, retry: command,
       });
@@ -332,6 +357,7 @@ export default function CreateRideScreen() {
       setDone({ owner, id: saved.result.ride.id, recurrence });
     } catch (e) {
       if (request.signal.aborted || !isCurrentBookingOwner(owner)) return;
+      if (seriesMode) reloadPublication();
       if (e instanceof PublicationProblem) {
         if (e.kind === "stale") { setPublicationStale(true); return; }
         if (e.command) setSavedPublication({ owner, revision: e.command.key, command: e.command });
@@ -350,6 +376,52 @@ export default function CreateRideScreen() {
           ? e.message
           : appText("Не получилось опубликовать. Попробуй снова.", "Баҫтырырға булманы. Ҡабат ҡара.") // DRAFT
       );
+    } finally {
+      if (operation.current === request) {
+        submitting.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  async function recoverSeries(
+    action: { type: "check" | "send" } | { type: "close"; date: string } |
+      { type: "new"; dates: string[]; replaced: string[] } | { type: "done"; published: number },
+  ) {
+    if (!owner || !series || submitting.current) return;
+    const request = new AbortController();
+    operation.current = request;
+    submitting.current = true;
+    setBusy(true);
+    setError(null);
+    try {
+      if (action.type === "done") {
+        const stored = readDraft(RIDE_DRAFT);
+        const serialized = JSON.stringify(stored);
+        const clear = action.published > 0 && series.draftHash && stored &&
+          await publicationDraftHash(stored) === series.draftHash;
+        const released = await releaseRideSeries(owner, series);
+        if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+          if (!released) { reloadPublication(); return; }
+          if (clear && JSON.stringify(readDraft(RIDE_DRAFT)) === serialized) clearDraft(RIDE_DRAFT);
+          if (action.published > 0) navigate("/driver");
+          else reloadPublication();
+        }
+        return;
+      }
+      const saved = action.type === "close" ? await closeRideSeriesDate(owner, series, action.date, request.signal)
+        : action.type === "new" ? await publishRejectedRideSeriesDates(owner, series, action.dates, action.replaced, request.signal)
+          : action.type === "send" ? await sendRideSeries(owner, series, request.signal)
+            : await checkRideSeries(owner, series, request.signal);
+      if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+        setSavedPublication({ owner, revision: saved.key, series: saved });
+      }
+    } catch {
+      if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
+        reloadPublication();
+        setError(appText("Не удалось уточнить результат. Повтори, когда появится сеть.",
+          "Һөҙөмтәне асыҡлап булманы. Бәйләнеш ҡайтҡас, ҡабатлап ҡара."));
+      }
     } finally {
       if (operation.current === request) {
         submitting.current = false;
@@ -495,6 +567,20 @@ export default function CreateRideScreen() {
     );
   }
 
+  if (series) return (
+    <>
+      <SubHeader title={appText("Публикация на несколько дат", "Бер нисә көнгә баҫтырыу")}
+        onBack={() => navigate("/driver")} />
+      {error && <p className="auth__error" role="alert">{error}</p>}
+      <RideSeriesRecovery key={series.key} intent={series} busy={busy}
+        onCheck={() => void recoverSeries({ type: "check" })}
+        onSend={() => void recoverSeries({ type: "send" })}
+        onClose={date => void recoverSeries({ type: "close", date })}
+        onRetry={(dates, replaced) => void recoverSeries({ type: "new", dates, replaced })}
+        onDone={published => void recoverSeries({ type: "done", published })} />
+    </>
+  );
+
   if ((category === "parcel" || category === "cargo") && !features.parcels && !busy) return <>
     {recoveryPanel}
     <ComingSoon kind="delivery" />
@@ -538,7 +624,7 @@ export default function CreateRideScreen() {
         {/* ❄️ Погода на маршруте — пусто, когда сказать нечего */}
         <WeatherWarningCard weather={weather} />
 
-        <label className="field">
+        {!seriesMode && <label className="field">
           <span className="field__label">{appText("Когда выезжаешь", "Ҡасан сығаһың")}</span>
           <input
             className="field__input"
@@ -547,7 +633,20 @@ export default function CreateRideScreen() {
             value={when}
             onChange={(e) => setWhen(e.target.value)}
           />
-        </label>
+        </label>}
+        <button type="button" className={"opt-chip" + (seriesMode ? " is-active" : "")}
+          aria-pressed={seriesMode} disabled={!!command || busy}
+          onClick={() => {
+            if (seriesMode) setSeriesMode(false);
+            else {
+              setSeriesMode(true);
+              setRecurrence("none");
+              if (when && !seriesDays.length) setSeriesDays([when.slice(0, 10)]);
+              if (when && !seriesTime) setSeriesTime(when.slice(11, 16));
+            }
+          }}>{appText("Несколько дат", "Бер нисә көн")}</button>
+        {seriesMode && <RideSeriesFields days={seriesDays} time={seriesTime} onDays={setSeriesDays} onTime={setSeriesTime}
+          disabled={busy} />}
 
         <div className="field-row">
           <div className="field" style={{ flex: 1 }}>
@@ -894,10 +993,10 @@ export default function CreateRideScreen() {
                 <button
                   key={r.key}
                   type="button"
-                  className={"opt-chip" + (recurrence === r.key ? " is-active" : "")}
-                  onClick={() => setRecurrence(r.key)}
+                  className={"opt-chip" + (!seriesMode && recurrence === r.key ? " is-active" : "")}
+                  onClick={() => { setSeriesMode(false); setRecurrence(r.key); }}
                 >
-                  {recurrence === r.key && <IconCheck size={16} />}
+                  {!seriesMode && recurrence === r.key && <IconCheck size={16} />}
                   {r.label}
                 </button>
               ))}

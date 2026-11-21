@@ -43,6 +43,43 @@ class RidePublicationApiTest {
     private fun generation() = ApiClient.queueSessionGeneration()
     private suspend fun saved() = checkNotNull(RidePublicationApi.saved(generation()).getOrThrow())
 
+    @Test fun lostSeriesReplyCanRecoverOneReceiptAndRepeatOnlyTheOtherDate() = runBlocking {
+        val series = RideSeriesIntent.create(JSONObject(body.toString()).put("recurrence", "none"),
+            listOf(depart, "2030-01-03T10:00:00+05:00"))
+        val slot = RidePublicationApi.reserveSeries(generation(), series).getOrThrow()
+        assertEquals("/me", request().path)
+        server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
+        assertTrue(RidePublicationApi.sendSeries(generation(), slot.key).isFailure)
+        val sent = request()
+        assertEquals("/rides/series", sent.path)
+        assertEquals(slot.key, sent.getHeader("Idempotency-Key"))
+        assertEquals(2, JSONObject(sent.body.readUtf8()).getJSONArray("departures").length())
+        assertTrue(RidePublicationApi.publish(generation(), body, draft, null, false).isFailure)
+        assertEquals(2, server.requestCount)
+        startBookingCommandSession(server)
+        assertEquals(slot, RidePublicationApi.savedSeries(generation()).getOrThrow())
+        assertEquals("/me", request().path)
+        val (first, second) = series.dates
+        server.enqueue(MockResponse().setBody("""{"scope":"ride.create","state":"applied","ref_kind":"ride","ref_id":42,"result_code":"idempotency_result_gone","current":null}"""))
+        server.enqueue(MockResponse().setBody("""{"scope":null,"state":"unseen","ref_id":null,"current":null}"""))
+        val found = RidePublicationApi.checkSeries(generation(), slot.key).getOrThrow()
+        assertEquals(listOf(second), found.pending.map { it.date })
+        assertEquals(42, found.rows.first().result.rideId)
+        assertEquals("/command-intents/" + first.commandKey, request().path)
+        assertEquals("/command-intents/" + second.commandKey, request().path)
+        server.enqueue(MockResponse().setBody("""{"published":1,"failed":0,"unresolved":0,"items":[{"depart_at":"${second.departureUtc}","outcome":"applied","ride_id":43,"already":false}]}"""))
+        val applied = RidePublicationApi.sendSeries(generation(), slot.key).getOrThrow()
+        val retry = request()
+        assertEquals(slot.key, retry.getHeader("Idempotency-Key"))
+        assertEquals("/rides/series", retry.path)
+        val dates = JSONObject(retry.body.readUtf8()).getJSONArray("departures")
+        assertEquals(1, dates.length())
+        assertEquals(second.departureUtc, dates.getString(0))
+        assertEquals(listOf(42, 43), applied.rows.map { it.result.rideId })
+        RidePublicationApi.releaseSeries(generation(), slot.key).getOrThrow()
+        assertNull(RidePublicationApi.savedSeries(generation()).getOrThrow())
+    }
+
     @Test fun lostResponseAndReopenedSessionRepeatExactKeyAndWireBody() = runBlocking {
         server.enqueue(MockResponse().setSocketPolicy(SocketPolicy.DISCONNECT_AFTER_REQUEST))
         assertTrue(RidePublicationApi.publish(generation(), body, draft, null, retry = false).isFailure)
@@ -86,6 +123,21 @@ class RidePublicationApiTest {
         assertEquals("ride.create", sent.getString("scope"))
         assertTrue(sent.has("target_id") && sent.isNull("target_id"))
         assertEquals(slot.hash, sent.getString("payload_hash"))
+    }
+
+    @Test fun restoredSeriesRefusalRetainsBothLanguages() = runBlocking {
+        val intent = RideSeriesIntent.create(JSONObject(body.toString()).put("recurrence", "none"), listOf(depart))
+        val slot = RidePublicationApi.reserveSeries(generation(), intent).getOrThrow()
+        assertEquals("/me", request().path)
+        server.enqueue(MockResponse().setBody("""{"scope":"ride.create","state":"rejected","current":null,
+            "result_code":"time_passed","ru":"Время выезда уже прошло","ba":"Сығыу ваҡыты үтеп киткән"}"""))
+        val verified = RidePublicationApi.checkSeries(generation(), slot.key).getOrThrow()
+        assertEquals("/command-intents/" + intent.dates.single().commandKey, request().path)
+        val refusal = verified.rows.single().result
+        assertEquals(CommandIntent.State.Rejected, refusal.state)
+        assertEquals("Время выезда уже прошло", refusal.ru)
+        assertEquals("Сығыу ваҡыты үтеп киткән", refusal.ba)
+        assertEquals(verified, RidePublicationApi.savedSeries(generation()).getOrThrow())
     }
 
     @Test fun latePublishResponseCannotOverwriteCloseOutcome() = runBlocking {
