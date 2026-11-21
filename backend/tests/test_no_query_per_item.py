@@ -160,6 +160,7 @@ def test_рассылка_подписок_не_проверяет_довери�
     from datetime import timedelta
 
     from app.models import Ride, RideStatus, RouteWatch, UserRole
+    from app.route_watch_dispatch import enqueue_route_watch
     from app.services import notify_route_watchers
     from app.timeutil import utcnow
 
@@ -183,10 +184,10 @@ def test_рассылка_подписок_не_проверяет_довери�
                 status=RideStatus.active, only_trusted=True,
             )
             s.add(ride)
+            event_id, = enqueue_route_watch(s, ride, source_key="fixture:query-budget")
             s.commit()
-            s.refresh(ride)
             with _Counter(table="user") as c:
-                notify_route_watchers(s, ride)
+                notify_route_watchers(s, event_id)
         return c.n
 
     _чужих_подписок(3)

@@ -38,6 +38,7 @@ from sqlmodel import Session, select
 from .config import settings
 from .errors import herr
 from .timeutil import utcnow
+from .route_watch_models import RouteWatchEvent, RouteWatchNotice
 from .models import (
     Ad, AdEvent, AppReview, AppSetting, AppSettingChange, Block, Booking, BookingStatus,
     CommandReceipt, CommissionDebt, Consent, Coupon,
@@ -654,6 +655,9 @@ def delete_user_account(session: Session, user: User) -> None:
                 ride_seats.recompute(session, ride)
     # 3.10 Заявки + поездки.
     session.execute(delete(RideRequest).where(RideRequest.passenger_id == uid))
+    if ride_ids:
+        session.execute(delete(RouteWatchEvent).where(RouteWatchEvent.ride_id.in_(ride_ids)))
+        session.execute(delete(RouteWatchNotice).where(RouteWatchNotice.ride_id.in_(ride_ids)))
     session.execute(delete(Ride).where(Ride.driver_id == uid))
     # 3.11 Такси-заказы: отвязать себя как «висящий оффер» на ЧУЖИХ заказах, затем удалить свои.
     session.execute(update(InstantOrder).where(InstantOrder.current_offer_driver_id == uid)
@@ -749,6 +753,9 @@ def delete_user_account(session: Session, user: User) -> None:
     if ticket_ids:
         session.execute(delete(SupportMessage).where(SupportMessage.ticket_id.in_(ticket_ids)))
     session.execute(delete(SupportTicket).where(SupportTicket.user_id == uid))
+    session.execute(delete(RouteWatchNotice).where(RouteWatchNotice.watch_id.in_(
+        select(RouteWatch.id).where(RouteWatch.user_id == uid)
+    )))
     session.execute(delete(RouteWatch).where(RouteWatch.user_id == uid))
     session.execute(delete(SavedPlace).where(SavedPlace.user_id == uid))
     session.execute(delete(RecentPlace).where(RecentPlace.user_id == uid))

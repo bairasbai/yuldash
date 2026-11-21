@@ -22,7 +22,7 @@ from .db import engine
 from .otp_budget import DAY_SECONDS, HOUR_SECONDS
 from .rideshare_bank_recipient import BANK_RECIPIENT_RECEIPT_WINDOW
 from .storage import StorageError, get_storage
-from .timeutil import utcnow
+from .timeutil import RIDE_PAST_GRACE_HOURS, utcnow
 from .security import REFRESH_RECOVERY_SECONDS
 
 DRY = "--dry-run" in sys.argv
@@ -155,6 +155,7 @@ _ALLOWED_TABLES = frozenset({
     "analyticsevent", "waitlistentry", "pricecomplaint",
     "pretripcheck", "carphotocheck", "taxiworkday", "dailydigestlog", "textflag", "recentplace",
     "familysmslog", "authsession", "webpushsubscription", "ridesharebankrecipientsetup",
+    "routewatchevent", "routewatchnotice",
 })
 
 
@@ -207,6 +208,11 @@ def _rules(now):
         ("жалобы на цену >180д", "pricecomplaint", "created_at < :c",
          {"c": cut(PRICE_COMPLAINT_DAYS)}),
         ("аналитика веб (события) >90д", "analyticsevent", "created_at < :c", {"c": cut(ANALYTICS_DAYS)}),
+        ("обработанные события подписок >30д", "routewatchevent", "finished_at < :c", {"c": cut(30)}),
+        ("старые объявления уехавших рейсов", "routewatchnotice",
+         "created_at < :c AND EXISTS (SELECT 1 FROM ride WHERE "
+         "ride.id = routewatchnotice.ride_id AND ride.depart_at < :departed)",
+         {"c": cut(180), "departed": now - timedelta(hours=RIDE_PAST_GRACE_HOURS)}),
         ("уведомления >90д", "notification", "created_at < :c", {"c": cut(NOTIF_DAYS)}),
         # Лист ожидания: позванным цель достигнута, непозванным за год — обещание не сбылось.
         ("лист ожидания: позваны >90д", "waitlistentry",
@@ -249,6 +255,8 @@ def _rules(now):
          "status IN ('cancelled', 'done') AND created_at < :c "
          "AND NOT EXISTS (SELECT 1 FROM booking b WHERE b.ride_id = ride.id) "
          "AND NOT EXISTS (SELECT 1 FROM requestresponse rr WHERE rr.ride_id = ride.id) "
+         "AND NOT EXISTS (SELECT 1 FROM routewatchevent e WHERE e.ride_id = ride.id) "
+         "AND NOT EXISTS (SELECT 1 FROM routewatchnotice n WHERE n.ride_id = ride.id) "
          "AND NOT EXISTS (SELECT 1 FROM payment p WHERE p.ride_id = ride.id)",
          {"c": cut(TRIP_DAYS)}),
         # Такси-заказы: старые терминальные БЕЗ финансов/оценок/споров/связей (в основном cancelled/expired;
