@@ -18,7 +18,7 @@ from .models import AppSettingChange, Booking, BookingStatus, DriverPaySettings,
 from .owner_switches import PAID_SWITCH, login_settings, stored_on
 from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankCheckout, RideshareBankOperation
 from .rideshare_bank_provider import BankResource
-from .rideshare_bank_recipient import BankRecipientUnavailable, bank_recipient_token
+from .rideshare_bank_recipient import BankRecipientScope, BankRecipientUnavailable, bank_recipient_token
 from .security import current_user, lock_authenticated_user, lock_refresh_user
 
 
@@ -41,6 +41,10 @@ class BankRuntime:
     cipher: Fernet
     return_url: Callable[[int], str]
     provider_account_id: str | None = None
+
+    @property
+    def recipient_scope(self) -> BankRecipientScope:
+        return BankRecipientScope(self.test_mode, self.provider_account_id)
 
     def check_environment(self) -> None:
         if self.test_mode and settings.is_prod:
@@ -123,7 +127,7 @@ def check_bank_charge(session: Session, booking: Booking, driver: User, recipien
             not consent.accepts_card or consent.accepts_card_at is None):
         raise BankCheckoutUnavailable("bank_driver_not_ready")
     try:
-        bank_recipient_token(session, driver.id, recipient_version, cipher=runtime.cipher)
+        bank_recipient_token(session, driver.id, recipient_version, cipher=runtime.cipher, scope=runtime.recipient_scope)
     except BankRecipientUnavailable:
         raise BankCheckoutUnavailable("bank_recipient_changed") from None
     legacy = session.exec(select(Payment.id).where(

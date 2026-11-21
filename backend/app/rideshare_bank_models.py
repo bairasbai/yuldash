@@ -22,6 +22,21 @@ class RideshareBankRecipient(SQLModel, table=True):
     updated_at: datetime = Field(default_factory=utcnow)
 
 
+class RideshareBankRecipientSetup(SQLModel, table=True):
+    id: str = Field(default_factory=lambda: uuid4().hex, primary_key=True, max_length=32)
+    user_id: int = Field(foreign_key="user.id", ondelete="CASCADE", index=True)
+    session_fingerprint: str = Field(max_length=64)
+    test_mode: bool
+    provider_account_id: str | None = Field(default=None, max_length=64)
+    expected_version: str | None = Field(default=None, max_length=32)
+    paid_revision: int = Field(sa_column=Column(BigInteger, nullable=False))
+    card_revision: int = Field(sa_column=Column(BigInteger, nullable=False))
+    expires_at: datetime
+    confirmed_at: datetime | None = None
+    command_digest: str | None = Field(default=None, max_length=64)
+    result_version: str | None = Field(default=None, max_length=32)
+
+
 class RideshareBankCheckout(SQLModel, table=True):
     __table_args__ = (
         CheckConstraint("amount_kop > 0 AND payout_kop > 0 AND payout_kop <= amount_kop",

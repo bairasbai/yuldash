@@ -1,4 +1,6 @@
 import json
+from dataclasses import replace
+from uuid import uuid4
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from threading import Barrier
@@ -37,7 +39,8 @@ def bank_checkout(client, user_factory):
     assert created.status_code == 200, created.text
     booking_id = created.json()["id"]
     cipher = Fernet(Fernet.generate_key())
-    runtime = BankRuntime(True, cipher, lambda number: f"https://booking.example/trips/{number}/receipt")
+    runtime = BankRuntime(True, cipher, lambda number: f'https://booking.example/trips/{number}/receipt',
+                          provider_account_id=uuid4().hex)
     inserted_changes = []
 
     def toggle(key, value):
@@ -56,7 +59,7 @@ def bank_checkout(client, user_factory):
         booking.status = BookingStatus.done
         booking.pay_amount = 450
         db.add(DriverPaySettings(user_id=driver["id"], accepts_card=True, accepts_card_at=utcnow()))
-        version = save_bank_recipient(db, driver["id"], "synthetic-payout-token", expected_version=None, cipher=cipher).version
+        version = save_bank_recipient(db, driver["id"], "synthetic-payout-token", expected_version=None, cipher=cipher, scope=runtime.recipient_scope).version
         db.commit()
     toggle(PAID_SWITCH, True)
     toggle(CARD_PAYMENTS_SWITCH, True)
@@ -157,7 +160,7 @@ def test_lost_response_reuses_payload_and_paid_receipt_survives_pause(client, ba
         submitted_at, operation_id = operation.dispatched_at, operation.id
         encrypted = operation.request_ciphertext
         assert operation.provider_id is None
-    checkout.runtime = BankRuntime(True, checkout.runtime.cipher, lambda _: "https://booking.example/new-path")
+    checkout.runtime = replace(checkout.runtime, return_url=lambda _: "https://booking.example/new-path")
     assert send(checkout, checkout_id) == "pending"
     assert checkout.fake.requests[-1] == checkout.fake.requests[-2]
     assert len(checkout.fake.objects) == 2
@@ -257,7 +260,7 @@ def test_closed_gates_and_wrong_actor_do_not_create_or_send_payment(client, bank
     assert send(checkout, checkout_id) == "succeeded"
     with Session(engine) as db:
         save_bank_recipient(db, checkout.driver["id"], "synthetic-new-token",
-                            expected_version=checkout.version, cipher=checkout.runtime.cipher)
+                            expected_version=checkout.version, cipher=checkout.runtime.cipher, scope=checkout.runtime.recipient_scope)
         db.commit()
     with pytest.raises(BankCheckoutUnavailable, match="bank_recipient_changed"):
         send(checkout, checkout_id)
@@ -274,7 +277,7 @@ def test_changed_terms_keep_unknown_deal_and_require_current_confirmed_amount(ba
     assert send(checkout, first) == "needs_reconciliation"
     with Session(engine) as db:
         version = save_bank_recipient(db, checkout.driver["id"], "synthetic-new-token",
-                                      expected_version=checkout.version, cipher=checkout.runtime.cipher).version
+                                      expected_version=checkout.version, cipher=checkout.runtime.cipher, scope=checkout.runtime.recipient_scope).version
         db.get(Booking, checkout.booking_id).pay_amount = 500
         db.commit()
     with pytest.raises(BankCheckoutUnavailable, match="bank_amount_changed"):

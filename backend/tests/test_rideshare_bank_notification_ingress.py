@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 from threading import Event
+from uuid import uuid4
 
 import httpx
 import anyio
@@ -69,7 +70,7 @@ def pending_notice(bank_checkout, monkeypatch):
     assert send(service, checkout_id) == "pending"
     operation_id = service.fake.requests[-1][2]
     provider_id = service.fake.by_key[operation_id]
-    configuration = _config()
+    configuration = _config(shop_id=str(uuid4().int))
     for name in ("rideshare_bank_read_enabled", "rideshare_bank_shop_id",
                  "rideshare_bank_secret", "rideshare_bank_fernet_key"):
         monkeypatch.setattr(settings, name, getattr(configuration, name))

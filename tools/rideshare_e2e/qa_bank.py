@@ -95,7 +95,7 @@ def mount_synthetic_bank(app, engine, control_key: str) -> None:
             consent.accepts_card_at = utcnow()
             previous = session.get(RideshareBankRecipient, driver_id)
             save_bank_recipient(session, driver_id, f"synthetic-{uuid4().hex}",
-                                expected_version=previous.version if previous else None, cipher=runtime.cipher)
+                                expected_version=previous.version if previous else None, cipher=runtime.cipher, scope=runtime.recipient_scope)
             session.commit()
         return {"registered": True}
 

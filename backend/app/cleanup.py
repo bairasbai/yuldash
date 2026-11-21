@@ -20,6 +20,7 @@ from sqlalchemy import bindparam, text
 from .config import settings
 from .db import engine
 from .otp_budget import DAY_SECONDS, HOUR_SECONDS
+from .rideshare_bank_recipient import BANK_RECIPIENT_RECEIPT_WINDOW
 from .storage import StorageError, get_storage
 from .timeutil import utcnow
 from .security import REFRESH_RECOVERY_SECONDS
@@ -153,7 +154,7 @@ _ALLOWED_TABLES = frozenset({
     "booking", "ride", "notification", "instantorder", "parceldelivery",
     "analyticsevent", "waitlistentry", "pricecomplaint",
     "pretripcheck", "carphotocheck", "taxiworkday", "dailydigestlog", "textflag", "recentplace",
-    "familysmslog", "authsession", "webpushsubscription",
+    "familysmslog", "authsession", "webpushsubscription", "ridesharebankrecipientsetup",
 })
 
 
@@ -191,6 +192,13 @@ def _rules(now):
         ("истёкшие входы", "authsession",
          expired_login + " AND NOT EXISTS (SELECT 1 FROM webpushsubscription WHERE auth_session_id = authsession.id)",
          {"c": cut(TOKEN_DAYS)}),
+        ("истёкшие или не привязанные попытки подключения реквизита", "ridesharebankrecipientsetup",
+         "(confirmed_at IS NULL AND expires_at < :c) OR (confirmed_at < :c "
+         "AND NOT EXISTS (SELECT 1 FROM ridesharebankrecipient r WHERE "
+         "r.user_id = ridesharebankrecipientsetup.user_id AND r.version = ridesharebankrecipientsetup.result_version) "
+         "AND NOT EXISTS (SELECT 1 FROM ridesharebankcheckout b WHERE b.recipient_version = "
+         "ridesharebankrecipientsetup.result_version))",
+         {"c": now - BANK_RECIPIENT_RECEIPT_WINDOW}),
         ("показы/клики рекламы >90д", "adevent", "created_at < :c", {"c": cut(ADEVENT_DAYS)}),
         ("причины отказа от офферов >90д", "offerdecline", "created_at < :c", {"c": cut(DECLINE_DAYS)}),
         ("брошенные водителем заказы >90д", "drivercancel", "at < :c", {"c": cut(DRIVER_CANCEL_DAYS)}),
@@ -326,8 +334,8 @@ def _delete_batched(table, where, params):
     кросс-диалектно (Postgres/sqlite); коррелированные NOT EXISTS во WHERE продолжают работать."""
     # PostgreSQL may wait for a concurrent rebind. Recheck the subscription's new
     # owner in the DELETE itself after the wait, even if its numeric id is unchanged.
-    # An expired cooldown may likewise be refreshed concurrently on the same key.
-    recheck = f" AND ({where})" if table in {"webpushsubscription", "otpbudgetbucket"} else ""
+    # Expired cooldowns and recipient attempts can also change before the delete.
+    recheck = f" AND ({where})" if table in {"webpushsubscription", "otpbudgetbucket", "ridesharebankrecipientsetup"} else ""
     keys = {"otpbudgetbucket": "scope, subject, window_start", "otpbudgetalert": "service_day, kind"}
     columns = keys.get(table, "id")
     locator = f"({columns})" if table in keys else columns

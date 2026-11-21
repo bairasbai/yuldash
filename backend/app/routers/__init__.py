@@ -5,7 +5,7 @@
 внутри файла сохранён, поэтому динамический путь не перехватывает их.
 """
 from . import admin_switches, ads, antifraud, auth, bookings, meeting, carphoto, chat, command_intents, coupons, courier, debt, discovery, driver_schedule, drivers, events, family, health, incidents, instant, location, medical, notifications, parcels, payments, pickup, places, promo, referral, requests, reviews, rides, route_watch, safety, seasonal, settlements, share, stats, support, sybil, taxi, trust, waitlist, wallet, weather
-from . import rideshare_bank
+from . import rideshare_bank, rideshare_bank_recipient
 
 all_routers = [
     health.router,
@@ -15,6 +15,7 @@ all_routers = [
     requests.router,
     bookings.router,
     rideshare_bank.router,
+    rideshare_bank_recipient.router,
     command_intents.router,
     meeting.router,   # RS-03 Б: смена места встречи
     drivers.router,

@@ -21,8 +21,10 @@ from app import models as M
 from app.account import delete_user_account
 from app.db import engine
 from app.models import SQLModel, User, UserRole
-from app.rideshare_bank_models import RideshareBankApproval, RideshareBankCheckout, RideshareBankOperation
-from app.rideshare_bank_recipient import save_bank_recipient
+from app.rideshare_bank_models import (
+    RideshareBankApproval, RideshareBankCheckout, RideshareBankOperation, RideshareBankRecipientSetup,
+)
+from app.rideshare_bank_recipient import BankRecipientScope, save_bank_recipient
 from app.timeutil import utcnow
 
 
@@ -79,7 +81,12 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         user = s.get(User, uid)
         phone = user.phone
         s.add(M.DriverPaySettings(user_id=uid, methods="cash"))
-        save_bank_recipient(s, uid, "synthetic-payout-token", expected_version=None, cipher=Fernet(Fernet.generate_key()))
+        save_bank_recipient(s, uid, "synthetic-payout-token", expected_version=None,
+                            cipher=Fernet(Fernet.generate_key()), scope=BankRecipientScope(True, None))
+        s.add(RideshareBankRecipientSetup(
+            user_id=uid, session_fingerprint="a" * 64, test_mode=True, paid_revision=1, card_revision=1,
+            expires_at=utcnow(),
+        ))
         s.add(M.AppSetting(key="qa.account_deletion", value=False, updated_by=uid, updated_at=utcnow()))
         s.flush()
         s.add(M.AppSettingChange(key="qa.account_deletion", old_value=None, new_value=False, admin_id=uid))
