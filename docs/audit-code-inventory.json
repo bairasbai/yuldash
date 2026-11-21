@@ -11864,8 +11864,8 @@
       "path": "backend/tests/test_rideshare_bank_runtime.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "83ab1c59d4aa0746e9b7fa7926a29c6e4f4e8ce676dbd22683b2f6f3c4f446af",
-      "lines": 202
+      "sha256": "814a3903e82466ed5b1db0793ef9546ba4db6ab034a72be26ac94e36f17de083",
+      "lines": 236
     },
     {
       "path": "backend/tests/test_rideshare_bank_settlement.py",

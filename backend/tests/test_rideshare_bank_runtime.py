@@ -24,6 +24,8 @@ from test_rideshare_bank_command import card_path, confirm_path, queued, terms
 from test_rideshare_bank_dispatch import bank_checkout as bank_checkout
 from test_rideshare_bank_dispatch import send
 from test_rideshare_bank_receipt import include_synthetic_receipt as include_synthetic_receipt
+from test_rideshare_bank_settlement import authorize
+from test_rideshare_bank_settlement import paid_checkout as paid_checkout
 
 
 def _config(*, enabled=True, shop_id="12345", secret="synthetic-rotated", key=None):
@@ -89,6 +91,30 @@ def test_configured_runtime_cannot_resend_a_durably_prepared_request(bank_checko
     assert len(service.fake.requests) == 1
 
 
+@pytest.mark.parametrize(("resource", "amount"), [(BankResource.refund, 10_000), (BankResource.payout, 45_000)])
+def test_read_only_account_cannot_reserve_or_dispatch_a_settlement(paid_checkout, resource, amount):
+    service, checkout_id, _ = paid_checkout
+    operation_id = authorize(paid_checkout, resource, amount)
+    configuration = configure_rideshare_bank(_config())
+    assert configuration is not None
+    service.runtime = configuration.runtime
+    with Session(engine) as db:
+        checkout = db.get(RideshareBankCheckout, checkout_id)
+        checkout.test_mode = False
+        checkout.provider_account_id = service.runtime.provider_account_id
+        db.commit()
+    before = list(service.fake.requests)
+    with pytest.raises(BankCheckoutUnavailable, match="bank_project_unaccepted"):
+        authorize(paid_checkout, resource, amount)
+    with httpx.Client(transport=httpx.MockTransport(service.fake.handle), trust_env=False) as transport:
+        with pytest.raises(BankCheckoutUnavailable, match="bank_project_unaccepted"):
+            dispatch_bank_operation(engine, checkout_id, runtime=service.runtime,
+                                    provider=configuration.provider(transport), settlement_operation_id=operation_id)
+    assert service.fake.requests == before
+    with Session(engine) as db:
+        assert db.get(RideshareBankOperation, operation_id).state == "queued"
+
+
 def test_configured_account_can_read_its_admitted_payment_while_writes_are_closed(client, bank_checkout, monkeypatch):
     service = bank_checkout
     checkout_id = service.begin()
@@ -136,6 +162,14 @@ def test_configured_account_can_read_its_admitted_payment_while_writes_are_close
     select_config(other_settings)
     assert client.get(receipt + "/checkout-link", headers=headers).json() == {"checkout_url": None}
     assert client.get(receipt, headers=headers).json()["payment_status"] == "waiting_bank"
+    with Session(engine) as db:
+        db.get(RideshareBankCheckout, checkout_id).provider_account_id = other.runtime.provider_account_id
+        db.commit()
+    # Even if the row matches the other account, its original ciphertext will not open.
+    assert client.get(receipt + "/checkout-link", headers=headers).json() == {"checkout_url": None}
+    with Session(engine) as db:
+        db.get(RideshareBankCheckout, checkout_id).provider_account_id = runtime.provider_account_id
+        db.commit()
     with httpx.Client(transport=httpx.MockTransport(fetch), trust_env=False) as transport:
         current_provider = configuration.provider(transport)
         wrong_provider = other.provider(transport)
