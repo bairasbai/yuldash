@@ -42,6 +42,7 @@ internal data class CardPaymentRead(
 internal fun rememberRideshareCardPayment(
     receipt: TripReceiptDto?,
     generation: Long,
+    readPayment: suspend (Int, Long) -> Result<RideshareCardPayment> = ApiClient::rideshareCardPayment,
     canRead: () -> Boolean,
 ): CardPaymentRead {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -60,7 +61,7 @@ internal fun rememberRideshareCardPayment(
         val epoch = ++requestEpoch.intValue
         loading = true
         error = false
-        val read = ApiClient.rideshareCardPayment(receipt.bookingId, generation)
+        val read = readPayment(receipt.bookingId, generation)
         if (!currentCoroutineContext().isActive || !allowed() || requestRevision != revision || epoch != requestEpoch.intValue) {
             return@LaunchedEffect
         }

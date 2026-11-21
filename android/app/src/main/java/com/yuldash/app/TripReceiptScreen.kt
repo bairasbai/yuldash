@@ -148,7 +148,7 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
     var ratedStars by remember(r.bookingId, expectedGeneration) { mutableIntStateOf(0) }
     var rateBusy by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
     val rateErr = appText("Оценка не ушла. Проверь сеть и попробуй ещё раз.", "Баһа ебәрелмәне. Селтәрҙе тикшереп, тағы бер тапҡыр ҡара.")
-    val bankPayment = rememberRideshareCardPayment(r, expectedGeneration, ::current)
+    val bankPayment = rememberRideshareCardPayment(r, expectedGeneration, canRead = ::current)
     val cardCheckout = rememberRideshareCardCheckout(r, expectedGeneration, bankPayment) { current() }
     val bankObligated = bankPayment.replacesDirectPayment(r.cardPaymentObligation)
     val bankReplacesDirect = bankObligated || cardCheckout.holdsDirect
