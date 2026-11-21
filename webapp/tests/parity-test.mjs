@@ -272,7 +272,7 @@ check(
   "создание поездки: 4 места по умолчанию и тумблеры «сзади двое» / «переднее свободно» в обоих клиентах"
 );
 check(
-  ak("BookingActiveTripScreen.kt").includes("frontSeatItem(") &&
+  ak("BookingActiveTripScreen.kt").includes("bookingSeatAndTermsItems(") &&
     ak("SeatOptions.kt").includes("FrontSeatRequestBlock(") &&
     web("components/RideSheet.tsx").includes("<FrontSeatChoice") &&
     web("components/RideSheet.tsx").includes("front_seat: true"),
