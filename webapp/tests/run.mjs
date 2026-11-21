@@ -97,6 +97,7 @@ const ALL_SUITES = [
   { test: "driver-stage-retry-test", src: null, out: null, bundle: false },
   { test: "ride-publication-retry-test", src: null, out: null, bundle: false },
   { test: "ride-series-retry-test", src: null, out: null, bundle: false },
+  { test: "ride-series-recovery-content-test", src: null, out: null, bundle: false },
   { test: "ride-template-test", src: null, out: null, bundle: false },
   { test: "booking-pending-refresh-test", src: null, out: null, bundle: false },
   { test: "pickup-stop-test", src: null, out: null, bundle: false },

@@ -384,7 +384,7 @@ export default function CreateRideScreen() {
 
   async function recoverSeries(
     action: { type: "check" | "send" } | { type: "close"; date: string } |
-      { type: "new"; dates: string[] } | { type: "done"; published: number },
+      { type: "new"; dates: string[]; replaced: string[] } | { type: "done"; published: number },
   ) {
     if (!owner || !series || submitting.current) return;
     const request = new AbortController();
@@ -408,7 +408,7 @@ export default function CreateRideScreen() {
         return;
       }
       const saved = action.type === "close" ? await closeRideSeriesDate(owner, series, action.date, request.signal)
-        : action.type === "new" ? await publishRejectedRideSeriesDates(owner, series, action.dates, request.signal)
+        : action.type === "new" ? await publishRejectedRideSeriesDates(owner, series, action.dates, action.replaced, request.signal)
           : action.type === "send" ? await sendRideSeries(owner, series, request.signal)
             : await checkRideSeries(owner, series, request.signal);
       if (!request.signal.aborted && isCurrentBookingOwner(owner)) {
@@ -574,7 +574,7 @@ export default function CreateRideScreen() {
         onCheck={() => void recoverSeries({ type: "check" })}
         onSend={() => void recoverSeries({ type: "send" })}
         onClose={date => void recoverSeries({ type: "close", date })}
-        onRetry={dates => void recoverSeries({ type: "new", dates })}
+        onRetry={(dates, replaced) => void recoverSeries({ type: "new", dates, replaced })}
         onDone={published => void recoverSeries({ type: "done", published })} />
     </>
   );
