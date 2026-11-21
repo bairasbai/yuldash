@@ -43,6 +43,14 @@ def _notified(user_id: int) -> int:
             Notification.user_id == user_id, Notification.type == "route_watch")).all())
 
 
+def _dispatch(session: Session, ride: Ride) -> int:
+    from app.route_watch_dispatch import enqueue_route_watch
+
+    event_id, = enqueue_route_watch(session, ride, source_key=f"fixture:{ride.id}")
+    session.commit()
+    return notify_route_watchers(session, event_id)
+
+
 def test_blocked_user_is_not_notified(user_factory):
     drv = user_factory("Водитель", role=UserRole.driver)
     stalker = user_factory("Заблокированный")
@@ -53,7 +61,7 @@ def test_blocked_user_is_not_notified(user_factory):
 
     ride = _ride(drv["id"])
     with Session(engine) as s:
-        notify_route_watchers(s, ride)
+        _dispatch(s, ride)
 
     assert _notified(stalker["id"]) == 0, (
         "заблокированный получил уведомление о поездке того, кто его заблокировал"
@@ -67,7 +75,7 @@ def test_trusted_only_ride_is_not_announced_to_outsiders(user_factory):
 
     ride = _ride(drv["id"], only_trusted=True)
     with Session(engine) as s:
-        notify_route_watchers(s, ride)
+        _dispatch(s, ride)
 
     assert _notified(outsider["id"]) == 0, (
         "о закрытой поездке «только для своих» узнал посторонний"
@@ -85,6 +93,6 @@ def test_ordinary_watcher_still_gets_the_push(user_factory):
         # Проверяем именно СВОЕГО подписчика, а не общее число: подписки соседних тестов
         # караулят тот же маршрут и на эту поездку тоже сработают — это верно, они не
         # заблокированы этим водителем и поездка открытая.
-        assert notify_route_watchers(s, ride) >= 1
+        assert _dispatch(s, ride) >= 1
 
     assert _notified(neighbour["id"]) == 1

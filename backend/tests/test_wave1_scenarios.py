@@ -41,7 +41,6 @@ import pytest
 from sqlmodel import Session
 
 import app.routers.safety as safety
-import app.services as services
 from app import instant_service as isv
 from app.config import settings
 from app.db import engine
@@ -147,14 +146,6 @@ def _рейс_из_базы(ride_id: int) -> Ride:
         r = s.get(Ride, ride_id)
         s.expunge(r)
         return r
-
-
-@pytest.fixture
-def пуши(monkeypatch):
-    """Кому реально ушёл бы FCM-пуш (настоящий пуш наружу в тестах не уходит)."""
-    ушли: list[int] = []
-    monkeypatch.setattr(services, "send_push", lambda s, uid, t, b, data=None: ушли.append(uid))
-    return ушли
 
 
 @pytest.fixture
@@ -360,7 +351,7 @@ def test_поиск_заранее_на_дату_через_пять_дней_н
 # ---------------------------------------------------------------------------
 
 def test_нет_поездки_пассажир_оставляет_заявку_и_подписку_водитель_публикует_пассажира_зовут(
-        client, user_factory, пуши):
+        client, user_factory, route_watch_pushes):
     пассажир = user_factory("УчалыПассажирка")
     водитель = user_factory("БакалыВодитель", role=UserRole.driver)
     маршрут = {"from_cities": "Учалы", "to_cities": "Бакалы"}
@@ -386,13 +377,13 @@ def test_нет_поездки_пассажир_оставляет_заявку_
     assert "phone" not in json.dumps(наша), "в заявке для водителей телефон пассажира"
 
     # 4. Водитель публикует нужную поездку — и в этот момент пассажира зовут.
-    assert пассажир["id"] not in пуши
+    assert пассажир["id"] not in route_watch_pushes
     рейс = _опубликовать(client, водитель, "Учалы", "Бакалы", _день(5, 8, 30), price=900)["id"]
     звонок = _есть_уведомление(client, пассажир, "Появилась поездка", ref_id=рейс)
     assert звонок is not None, "подписчику маршрута не пришла запись «Появилась поездка» в Центре уведомлений"
     assert звонок["ref_kind"] == "ride" and "Учалы" in звонок["body_ru"] and "Бакалы" in звонок["body_ru"]
-    assert пассажир["id"] in пуши, "запись в Центре есть, а FCM-пуш подписчику не ушёл"
-    assert водитель["id"] not in пуши, "водителю не нужно оповещение о его же поездке"
+    assert пассажир["id"] in route_watch_pushes, "запись в Центре есть, а FCM-пуш подписчику не ушёл"
+    assert водитель["id"] not in route_watch_pushes, "водителю не нужно оповещение о его же поездке"
 
     # 5. Теперь та же лента находит поездку, и пассажир её бронирует.
     после = client.get("/rides/near", params=маршрут).json()

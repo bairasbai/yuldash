@@ -9,6 +9,9 @@ from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 
+RIDE_PAST_GRACE_HOURS = 2  # Окно показа рейса в ленте после выезда.
+
+
 def utcnow() -> datetime:
     """Наивный (без tzinfo) текущий момент в UTC — прямая замена `datetime.utcnow()`."""
     return datetime.now(timezone.utc).replace(tzinfo=None)

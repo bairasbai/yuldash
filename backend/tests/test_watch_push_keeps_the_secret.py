@@ -21,19 +21,8 @@
 """
 from __future__ import annotations
 
-import pytest
 
 from app.models import UserRole
-
-
-@pytest.fixture
-def caught_pushes(monkeypatch):
-    """Ловим адресатов пушей: проверяем, кто узнал, а не как выглядит текст."""
-    import app.services as svc
-    sent: list[int] = []
-    monkeypatch.setattr(svc, "send_push",
-                        lambda s, uid, title, body, data=None: sent.append(uid))
-    return sent
 
 
 def _watch(client, who, kind: str):
@@ -66,7 +55,7 @@ def _ride(client, who, **extra):
     return r.json()
 
 
-def test_заблокированный_не_узнает_о_заявке(client, user_factory, caught_pushes):
+def test_заблокированный_не_узнает_о_заявке(client, user_factory, route_watch_pushes):
     hidden_from = user_factory("КараулРустам", role=UserRole.driver)
     ordinary = user_factory("КараулИльдар", role=UserRole.driver)
     gulnara = user_factory("КараулГульнара")
@@ -77,22 +66,22 @@ def test_заблокированный_не_узнает_о_заявке(client
 
     _request(client, gulnara)
 
-    assert hidden_from["id"] not in caught_pushes, \
+    assert hidden_from["id"] not in route_watch_pushes, \
         "человек, от которого прячутся, узнал из пуша, что она собралась ехать"
-    assert ordinary["id"] in caught_pushes, "обычный водитель не получил оповещение — подписка бесполезна"
+    assert ordinary["id"] in route_watch_pushes, "обычный водитель не получил оповещение — подписка бесполезна"
 
 
-def test_заявка_только_для_своих_не_уходит_чужим(client, user_factory, caught_pushes):
+def test_заявка_только_для_своих_не_уходит_чужим(client, user_factory, route_watch_pushes):
     stranger = user_factory("ЧужойВодитель", role=UserRole.driver)
     _watch(client, stranger, "requests")
 
     _request(client, user_factory("СвоиПассажир"), only_trusted=True)
 
-    assert stranger["id"] not in caught_pushes, \
+    assert stranger["id"] not in route_watch_pushes, \
         "заявку «только для своих» пуш раскрыл тому, кто не в круге доверия"
 
 
-def test_поездка_живёт_по_тем_же_правилам(client, user_factory, caught_pushes):
+def test_поездка_живёт_по_тем_же_правилам(client, user_factory, route_watch_pushes):
     """Сторож на расхождение: у поездок эти правила были с самого начала, и потерять
     их при переезде на общую функцию нельзя."""
     hidden_from = user_factory("КараулПассажирка")
@@ -105,5 +94,5 @@ def test_поездка_живёт_по_тем_же_правилам(client, use
 
     _ride(client, driver)
 
-    assert hidden_from["id"] not in caught_pushes, "пуш о поездке пришёл тому, кто заблокировал водителя"
-    assert ordinary["id"] in caught_pushes, "обычный подписчик не узнал о поездке"
+    assert hidden_from["id"] not in route_watch_pushes, "пуш о поездке пришёл тому, кто заблокировал водителя"
+    assert ordinary["id"] in route_watch_pushes, "обычный подписчик не узнал о поездке"

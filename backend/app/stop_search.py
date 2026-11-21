@@ -100,6 +100,25 @@ class Fit:
 NO_FIT = Fit(False)
 
 
+def matched_span(fit: Fit) -> Optional[tuple[int, int, int]]:
+    """Границы однозначного участка и число участков по результату поиска."""
+    stops = fit.stops
+    count = len(stops) + 1
+    if fit.matched_from_start:
+        a = 0
+    elif fit.matched_stop in stops:
+        a = stops.index(fit.matched_stop) + 1
+    else:
+        return None
+    if fit.matched_to_end:
+        b = count
+    elif fit.matched_dropoff_stop in stops:
+        b = stops.index(fit.matched_dropoff_stop) + 1
+    else:
+        return None
+    return a, max(a, b), count
+
+
 def exact_place(value: Optional[str], names: Optional[list[str]], entry: dict) -> bool:
     """Полное название/RU/BA и район. Тёзку без района не выбираем даже если она одна в рейсе."""
     if not value or (not _district(value) and len(_lookup_place(entry, value)) > 1):
