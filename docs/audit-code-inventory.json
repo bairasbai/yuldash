@@ -78,7 +78,7 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 241,
+    "android_main": 242,
     "backend_main": 131,
     "infra_resource_config": 434,
     "public_site_promo": 91,
@@ -92,7 +92,7 @@
     "B04": 82,
     "B05": 62,
     "B06": 104,
-    "B07": 147,
+    "B07": 148,
     "B08": 222,
     "B09": 790,
     "B10": 434,
@@ -2050,8 +2050,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "9c36caa3209c799766ce7e28c011e0f174ab7c16c5618916b0cb3fd82f2d8456",
-      "lines": 7570
+      "sha256": "b1021a25d6f7637eb6a23b03ac7907f56acd851c314288301b4634646b173269",
+      "lines": 7559
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2346,6 +2346,13 @@
       "block": "B02",
       "sha256": "e658c649a26978e62a8095131db78eb737880e212ef8e9b05d4ee08ef3cc51c2",
       "lines": 60
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/TripPaymentDto.kt",
+      "kind": "android_main",
+      "block": "B07",
+      "sha256": "b62c8b43f8543bf6eda8c7dbd4a2f3c1bad05d8a588c58147a7718884dd455b4",
+      "lines": 13
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripReceipt.kt",

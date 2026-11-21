@@ -7107,17 +7107,6 @@ data class PayoutStatusDto(
 )
 /** Результат вывода (POST /wallet/payout). status: ok | already (идемпотентный повтор той же попытки). */
 data class PayoutResultDto(val status: String, val entryId: Int, val amountKop: Int, val balanceKop: Int)
-/** Результат оплаты поездки (POST /bookings/{id}/pay, POST /instant/orders/{id}/pay).
- *  status: paid (наличные) | already_paid | succeeded (mock/dev) | pending (ждём подтверждения ЮKassa).
- *  pending + confirmationUrl → открыть браузер, потом поллить getPaymentStatus(paymentId). */
-data class PayTripResultDto(
-    val status: String,
-    val method: String,
-    val paymentId: Int?,
-    val confirmationUrl: String?,
-) {
-    val isPaid: Boolean get() = status == "paid" || status == "already_paid" || status == "succeeded"
-}
 /** День в разбивке заработка (GET /driver/earnings). sum — в ₽ (не копейки). */
 data class DriverEarningsDayDto(val date: String, val sum: Int, val trips: Int)
 /** Заработок водителя за период (GET /driver/earnings?period=week|month|all).

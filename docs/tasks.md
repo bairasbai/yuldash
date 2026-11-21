@@ -13,6 +13,8 @@
 
 На Android 15 пассажир вошёл через синтетическое SMS и открыл квитанцию из истории. После проверки того же платежа в Chromium обновление показало банковское подтверждение на Android. Сборка для локального стенда прошла, в отдельном штатном прогоне прошли 212 Android-тестов. Дополнительный экран завершения, сочетания языка и темы на Android и экранные варианты расчёта ещё проверяются. [Сквозной прогон](../test-results/rideshare-release-20261120/rs08-client-cross-platform-verified.json) · [Тесты Android](../test-results/rideshare-release-20261120/rs08-client-android-unit-verified.json)
 
+Полный CI на `7f68333a` показал 7570 строк в `ApiClient.kt` при потолке 7566. Вынесли `PayTripResultDto` в платёжный файл с тем же пакетом и полями. В `ApiClient.kt` теперь 7559 строк. [Исходный прогон Android](https://github.com/bairasbai/yuldash/actions/runs/44854505599/job/136693409438)
+
 ### Переводы на проверку
 
 Башкирские статусы ожидания, результата банка, возврата, выплаты и повторного чтения банковской квитанции открыты на проверку Александру. [Android](../android/app/src/main/java/com/yuldash/app/RideshareCardPaymentSummary.kt) · [PWA](../webapp/src/components/RideshareCardPaymentSummary.tsx)
