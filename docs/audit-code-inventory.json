@@ -7335,8 +7335,8 @@
       "path": "backend/app/cleanup.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "0b08062f1e7deda03108b6a4e6d3ee20fd509d1cb551a54f304906779465959e",
-      "lines": 1066
+      "sha256": "050d0fe35bd0e8d2fa6f20b851607052780c704c97881ed9540d3266cbe2c136",
+      "lines": 1074
     },
     {
       "path": "backend/app/collusion.py",
@@ -7713,8 +7713,8 @@
       "path": "backend/app/rideshare_bank_recipient.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "d3ef9f925ce6063d87c35c7c1560e0e73d1b50469e2ea61d4a940183834df8c5",
-      "lines": 107
+      "sha256": "85ce54a27811cd154d12b66098cfd3a96fb7e38e2ccae67c3c0b0683669b0023",
+      "lines": 110
     },
     {
       "path": "backend/app/rideshare_bank_runtime.py",
@@ -7979,8 +7979,8 @@
       "path": "backend/app/routers/rideshare_bank_recipient.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "15c7b8197152f989b368a473fb98879d235997a0b091ee48b08840d781a49333",
-      "lines": 237
+      "sha256": "03692f0a481962b593885dc1fb7bbae7aa2c1690661793518e1d8dbb14602c07",
+      "lines": 238
     },
     {
       "path": "backend/app/routers/route_watch.py",
@@ -11892,8 +11892,8 @@
       "path": "backend/tests/test_rideshare_bank_queue.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "6cc02087a277b2eb9e1c505607e9f5a55b6f3eedcefab7c840548f6455e00b89",
-      "lines": 207
+      "sha256": "632de0698a2074b5127b53a9b2d8b1793e92746955bb9618a3aecdff2693c83e",
+      "lines": 208
     },
     {
       "path": "backend/tests/test_rideshare_bank_receipt.py",
@@ -11913,8 +11913,8 @@
       "path": "backend/tests/test_rideshare_bank_recipient_setup.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "80635e0bca82240ced306f529eb2cfdf166842e423d9d664b7e6dd5363115e04",
-      "lines": 219
+      "sha256": "ca5ac4b9e39db050f3c2b08dc8eeffcf73393321f7f35fbcd4ee20066e283470",
+      "lines": 250
     },
     {
       "path": "backend/tests/test_rideshare_bank_recovery.py",

@@ -18,7 +18,9 @@ from ..errors import herr
 from ..models import User, UserRole
 from ..rideshare_bank_booking import BankCheckoutUnavailable, BankRuntime, BankSwitchRevision, bank_switches
 from ..rideshare_bank_models import RideshareBankRecipient, RideshareBankRecipientSetup
-from ..rideshare_bank_recipient import BankRecipientUnavailable, recipient_matches_scope, save_bank_recipient
+from ..rideshare_bank_recipient import (
+    BANK_RECIPIENT_RECEIPT_WINDOW, BankRecipientUnavailable, recipient_matches_scope, save_bank_recipient,
+)
 from ..security import bearer, current_user, lock_authenticated_user
 from ..timeutil import utcnow
 from .rideshare_bank import receipt_bank_runtime
@@ -26,7 +28,6 @@ from .rideshare_bank import receipt_bank_runtime
 router = APIRouter(prefix="/driver/bank-recipient", tags=["rideshare-bank"])
 
 _SETUP_DURATION = timedelta(minutes=10)
-_RECEIPT_DURATION = timedelta(hours=24)
 _VERSION_PATTERN = r"^[a-f0-9]{32}$"
 SetupId = Annotated[str, Path(pattern=_VERSION_PATTERN)]
 Runtime = Annotated[BankRuntime | None, Depends(receipt_bank_runtime)]
@@ -171,7 +172,7 @@ def _owned_attempt(session: Session, driver: User, fingerprint: str, setup_id: s
 
 
 def _receipt(attempt: RideshareBankRecipientSetup, now: datetime) -> RecipientConfirmation | None:
-    if not attempt.confirmed_at or not attempt.result_version or now >= attempt.confirmed_at + _RECEIPT_DURATION:
+    if not attempt.confirmed_at or not attempt.result_version or now >= attempt.confirmed_at + BANK_RECIPIENT_RECEIPT_WINDOW:
         return None
     return RecipientConfirmation(version=attempt.result_version,
                                  confirmed_at=attempt.confirmed_at.replace(tzinfo=timezone.utc))
