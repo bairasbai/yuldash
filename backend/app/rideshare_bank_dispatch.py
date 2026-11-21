@@ -24,6 +24,7 @@ from .rideshare_bank_booking import (
 from .rideshare_bank_confirmation import seal_bank_confirmation
 from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankApproval, RideshareBankCheckout, RideshareBankOperation
 from .rideshare_bank_provider import (
+    BankNotification,
     BankObservation,
     BankOutcomeUnknown,
     BankRequest,
@@ -338,6 +339,16 @@ def reconcile_bank_notification(engine: Engine, payload: object, *, runtime: Ban
     hint = bank_notification(payload)
     if hint is None:
         return None
+    target = _bank_notification_target(engine, hint, runtime)
+    if target is None:
+        return None
+    checkout_id, operation_id = target
+    return _fetch_bank_result(engine, checkout_id, operation_id, hint.resource, hint.provider_id,
+                              runtime=runtime, provider=provider)
+
+
+def _bank_notification_target(engine: Engine, hint: BankNotification, runtime: BankRuntime, *,
+                              active_only: bool = False) -> tuple[int, str] | None:
     with Session(engine) as session:
         candidate = RideshareBankOperation.provider_id == hint.provider_id
         if hint.operation_id is not None:
@@ -347,7 +358,7 @@ def reconcile_bank_notification(engine: Engine, payload: object, *, runtime: Ban
                 RideshareBankOperation.state.in_(BANK_ACTIVE_STATES),
                 RideshareBankOperation.request_ciphertext.is_not(None),
             ))
-        matches = session.exec(
+        selection = (
             select(RideshareBankOperation.id, RideshareBankOperation.checkout_id)
             .join(RideshareBankCheckout, RideshareBankCheckout.id == RideshareBankOperation.checkout_id)
             .where(RideshareBankCheckout.test_mode == runtime.test_mode,
@@ -355,15 +366,16 @@ def reconcile_bank_notification(engine: Engine, payload: object, *, runtime: Ban
                    RideshareBankOperation.resource == hint.resource.value,
                    RideshareBankOperation.dispatched_at.is_not(None),
                    RideshareBankOperation.state != "queued", candidate)
-            .limit(2),
-        ).all()
+        )
+        if active_only:
+            selection = selection.where(RideshareBankOperation.state.in_(BANK_ACTIVE_STATES))
+        matches = session.exec(selection.limit(2)).all()
         if len(matches) != 1:
             return None
         operation_id, checkout_id = matches[0]
         if hint.operation_id is not None and operation_id != hint.operation_id:
             return None
-    return _fetch_bank_result(engine, checkout_id, operation_id, hint.resource, hint.provider_id,
-                              runtime=runtime, provider=provider)
+    return checkout_id, operation_id
 
 
 def _fetch_bank_result(engine: Engine, checkout_id: int, operation_id: str,

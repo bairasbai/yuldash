@@ -1,0 +1,30 @@
+# Include only inside the HTTPS server that proxies to the trusted local API.
+# Confirm the current source networks and the direct proxy topology before use.
+# https://yookassa.ru/developers/using-api/webhooks
+location = /payments/rideshare-bank/webhook {
+    allow 185.71.76.0/27;
+    allow 185.71.77.0/27;
+    allow 77.75.153.0/25;
+    allow 77.75.156.11;
+    allow 77.75.156.35;
+    allow 77.75.154.128/25;
+    allow 2a02:5180::/32;
+    deny all;
+
+    client_max_body_size 64k;
+    client_body_timeout 5s;
+    proxy_connect_timeout 3s;
+    proxy_read_timeout 12s;
+
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $remote_addr;
+    proxy_set_header X-Forwarded-Proto $scheme;
+    # Private include must set X-Yuldash-Bank-Proxy-Token, replacing any inbound value.
+    include /etc/yuldash/rideshare-bank-webhook-token.conf;
+    proxy_pass http://yuldash_api;
+}
+
+location = /api/v1/payments/rideshare-bank/webhook {
+    return 404;
+}

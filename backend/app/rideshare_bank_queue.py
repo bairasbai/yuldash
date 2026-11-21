@@ -12,12 +12,14 @@ from .rideshare_bank_accounting import BankSettlementUnavailable
 from .rideshare_bank_booking import BankCheckoutUnavailable, BankRuntime
 from .rideshare_bank_dispatch import (
     PROVIDER_KEY_LIFETIME,
+    _bank_notification_target,
     _check_provider,
+    _fetch_bank_result,
     dispatch_bank_operation,
     inspect_bank_operation,
 )
 from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankCheckout, RideshareBankOperation
-from .rideshare_bank_provider import BankOutcomeUnknown, BankResource, YooKassaSafeDeal
+from .rideshare_bank_provider import BankNotification, BankOutcomeUnknown, BankResource, YooKassaSafeDeal
 from .timeutil import utcnow
 
 
@@ -113,7 +115,8 @@ def _process_checkout(engine: Engine, checkout_id: int, *, runtime: BankRuntime,
     )
 
 
-def _claim_bank_read(engine: Engine, runtime: BankRuntime, ready_before: datetime) -> _BankReadClaim | None:
+def _claim_bank_read(engine: Engine, runtime: BankRuntime, ready_before: datetime, *,
+                     expected: tuple[int, str] | None = None) -> _BankReadClaim | None:
     checkout, operation = RideshareBankCheckout, RideshareBankOperation
     scope = and_(checkout.test_mode == runtime.test_mode, checkout.provider_account_id == runtime.provider_account_id)
     due = or_(checkout.next_bank_check_at.is_(None), checkout.next_bank_check_at <= ready_before)
@@ -125,6 +128,8 @@ def _claim_bank_read(engine: Engine, runtime: BankRuntime, ready_before: datetim
         .order_by(checkout.next_bank_check_at.asc().nulls_first(), checkout.id)
         .limit(1)
     )
+    if expected is not None:
+        selection = selection.where(checkout.id == expected[0], operation.id == expected[1])
     if engine.dialect.name == "postgresql":
         selection = selection.with_for_update(skip_locked=True, of=checkout)
     with Session(engine) as session:
@@ -200,6 +205,32 @@ def run_bank_reconciliation(engine: Engine, *, runtime: BankRuntime, provider: Y
             _finish_bank_read(engine, claim)
         results.append(BankQueueResult(claim.checkout_id, state))
     return results
+
+
+def reconcile_bank_notification_once(engine: Engine, hint: BankNotification, *, runtime: BankRuntime,
+                                     provider: YooKassaSafeDeal) -> bool:
+    """Acknowledge a verified hint or ask the bank to retry when the read has not completed."""
+    _check_provider(runtime, provider)
+    target = _bank_notification_target(engine, hint, runtime, active_only=True)
+    if target is None:
+        return True
+    claim = _claim_bank_read(engine, runtime, utcnow(), expected=target)
+    if claim is None:
+        return _bank_notification_target(engine, hint, runtime, active_only=True) is None
+    try:
+        if _bank_notification_target(engine, hint, runtime, active_only=True) != target:
+            return True
+        if not _owns_bank_read(engine, claim, runtime):
+            return False
+        _fetch_bank_result(engine, claim.checkout_id, claim.operation_id, hint.resource, hint.provider_id,
+                           runtime=runtime, provider=provider)
+        return True
+    except BankOutcomeUnknown:
+        return False
+    except (BankCheckoutUnavailable, BankSettlementUnavailable):
+        return True
+    finally:
+        _finish_bank_read(engine, claim)
 
 
 def run_bank_queue(engine: Engine, *, runtime: BankRuntime, provider: YooKassaSafeDeal,
