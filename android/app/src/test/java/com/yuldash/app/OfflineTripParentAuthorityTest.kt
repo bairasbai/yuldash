@@ -315,7 +315,15 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         awaitUi { posts(w).count { it.path == "/bookings/${w.id}/rate" } == 1 &&
             compose.onAllNodes(text(w, "qa-parent-retry-${w.id}")).fetchSemanticsNodes().isNotEmpty() }
         scroll(w, hasText("Сказать «Рәхмәт»"))
-        node(w, "Сказать «Рәхмәт»").performClick()
+        // HISTORY/hero readiness does not imply the independent initial GET /tip has
+        // published its result. Wait for this window's ready action before one click.
+        awaitUi {
+            compose.onAllNodes(tag(w, "rideshareThanksLoading")).fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodes(tag(w, "rideshareThanksError")).fetchSemanticsNodes().isEmpty() &&
+                compose.onAllNodes(text(w, "Тёплое спасибо водителю")).fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodes(text(w, "Сказать «Рәхмәт»") and isEnabled()).fetchSemanticsNodes().size == 1
+        }
+        node(w, "Сказать «Рәхмәт»").assertIsEnabled().performClick()
         awaitUi { posts(w).count { it.path == "/bookings/${w.id}/thanks" } == 1 &&
             compose.onAllNodes(tag(w, "rideshareThanksRetry")).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(tag(w, "rideshareThanksRetry")).performClick()
