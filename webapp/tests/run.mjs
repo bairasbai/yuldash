@@ -54,6 +54,7 @@ const ALL_SUITES = [
   { test: "parcel-rating-recovery-test", src: null, out: null, bundle: false },
   { test: "courier-completion-test", src: null, out: null, bundle: false },
   { test: "taxi-bootstrap-test", src: null, out: null, bundle: false },
+  { test: "taxi-consent-test", src: null, out: null, bundle: false },
   { test: "courier-goods-error-test", src: null, out: null, bundle: false },
   { test: "tab-personal-storage-test", src: null, out: null, bundle: false },
   { test: "outbox-session-boundary-test", src: null, out: null, bundle: false },

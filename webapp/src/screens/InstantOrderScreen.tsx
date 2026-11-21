@@ -15,6 +15,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
+import TaxiConsentAction, { TaxiConsentFields, TaxiConsentSummary } from "../components/TaxiConsentAction";
+import { localTaxiConsentContext, localTaxiConsentGeneration, type TaxiConsentQuote } from "../api/taxiConsent";
 import { useFeatures } from "../features";
 import {
   fetchTaxiAvailability,
@@ -35,6 +37,7 @@ import {
   type NearbyDriver,
   type FallbackOption,
   type PaymentMethod,
+  type OrderInput,
 } from "../api/instant";
 import {
   fetchSavedPlaces,
@@ -323,6 +326,7 @@ export default function InstantOrderScreen() {
     return (
       <TrackingView
         order={order}
+        localConsentMode={!!localTaxiConsentContext()?.environment}
         from={from}
         onCancelled={backToCompose}
         onNewOrder={backToCompose}
@@ -406,6 +410,11 @@ function ComposeView({
    * и спрашивать заново каждый заказ — лишний шаг там, где и так спешат.
    */
   const [payMethod, setPayMethod] = useState<PaymentMethod>(() => rememberedPayMethod());
+  const [consentLocked, setConsentLocked] = useState(false);
+  const [consentQuote, setConsentQuote] = useState<TaxiConsentQuote | null>(null);
+  const consentContext = localTaxiConsentContext();
+  const protectedNow = consentContext?.requested === true && when === "now";
+  const consentEnvironment = consentContext?.environment ?? null;
   const [error, setError] = useState<string | null>(null);
   const [nearby, setNearby] = useState<NearbyDriver[]>([]);
 
@@ -428,6 +437,8 @@ function ComposeView({
       return;
     }
     let alive = true;
+    const generation = localTaxiConsentGeneration();
+    const current = () => alive && (!protectedNow || generation === localTaxiConsentGeneration());
     setEstimating(true);
     setError(null);
     instantEstimate({
@@ -450,9 +461,9 @@ function ComposeView({
         ? { scheduled_at: new Date(schedAt).toISOString() }
         : {}),
     })
-      .then((e) => alive && setEstimate(e))
+      .then((e) => current() && setEstimate(e))
       .catch((e) => {
-        if (!alive) return;
+        if (!current()) return;
         setEstimate(null);
         setError(
           e instanceof ApiError && e.status === 404
@@ -462,7 +473,7 @@ function ComposeView({
               : appText("Не получилось оценить поездку.", "Сәфәрҙе баһаларға булманы.")
         );
       })
-      .finally(() => alive && setEstimating(false));
+      .finally(() => current() && setEstimating(false));
     return () => {
       alive = false;
     };
@@ -478,17 +489,14 @@ function ComposeView({
   });
 
   function priceFor(cat: TaxiCategory): number | null {
+    if (protectedNow) return null;
     const opt = estimate?.options?.find((o) => o.category === cat);
     return opt ? opt.price : cat === category ? estimate?.price ?? null : null;
   }
 
-  async function order() {
-    if (!from || !to || busy) return;
-    setBusy(true);
-    setError(null);
-    // Начало заказа такси — без координат/адресов, только безопасный контекст.
-    track("taxi_order_start", { category, when });
-    const body = {
+  function makeOrderBody(): OrderInput | null {
+    if (!from || !to) return null;
+    return {
       from_lat: from.lat,
       from_lng: from.lng,
       to_lat: to.lat,
@@ -512,6 +520,22 @@ function ComposeView({
       return_wait_min: roundTrip ? returnWaitMin : undefined,
       payment_method: payMethod,
     };
+  }
+
+  function resetConsentSession() {
+    setFrom(null); setTo(null); setStops([]); setOptions([]); setRoundTrip(false);
+    setComment(""); setEntrance(""); setForName(""); setForPhone(""); setForOther(false);
+    setWomenOnly(false); setDetailsOpen(false); setGeoNote(""); setPayMethod(rememberedPayMethod()); setError(null);
+  }
+
+  async function order() {
+    if (protectedNow) return; // no hidden legacy/Enter fallback for the protected path
+    if (!from || !to || busy) return;
+    setBusy(true);
+    setError(null);
+    // Начало заказа такси — без координат/адресов, только безопасный контекст.
+    track("taxi_order_start", { category, when });
+    const body = makeOrderBody()!;
     try {
       if (when === "later") {
         if (!schedAt) {
@@ -567,6 +591,7 @@ function ComposeView({
           </TaxiSheetOverlayButton>
         }
         header={
+          <TaxiConsentFields enabled={protectedNow} locked={consentLocked}>
       <div className="taxi-route">
         <PlacePicker
           origin
@@ -603,8 +628,10 @@ function ComposeView({
         />
         <PlacePicker value={to} onPick={setTo} />
       </div>
+          </TaxiConsentFields>
         }
         body={
+          <TaxiConsentFields enabled={protectedNow} locked={consentLocked}>
           <>
       {geoNote && (
         <div className="notice" role="status">
@@ -668,7 +695,7 @@ function ComposeView({
 
       {/* Дорога водителя к пассажиру — отдельные деньги в цене (2026-08-23).
           Без этой строки человек видит только выросшее число и не понимает, за что платит. */}
-      {to && estimate && ((estimate.pickup_fee ?? 0) > 0 || (estimate.options_fee ?? 0) > 0
+      {!protectedNow && to && estimate && ((estimate.pickup_fee ?? 0) > 0 || (estimate.options_fee ?? 0) > 0
         || (estimate.weather_fee ?? 0) > 0) && (
         <div className={`taxi-pickup${estimate.pickup_enroute ? " taxi-pickup--win" : ""}`}>
           {appText(
@@ -697,10 +724,12 @@ function ComposeView({
           одно число без объяснения читается как «сколько захотели». */}
       {to && estimate && <PriceFactors factors={estimate.price_factors} />}
 
+      {protectedNow && consentQuote && <TaxiConsentSummary quote={consentQuote} />}
+
       {/* «Цена кажется несправедливой» — тихая ссылка под счётом. Человек, которому
           не с чем спорить, просто уходит: мы не узнаём ни что дорого, ни какая строка
           непонятна. Тариф надо менять по фактам, а факты приходят только отсюда. */}
-      {to && estimate && (
+      {!protectedNow && to && estimate && (
         <PriceComplaint
           price={estimate.price}
           breakdown={{
@@ -715,7 +744,7 @@ function ComposeView({
 
       {/* Рядом никого: точной суммы не существует. Говорим потолок и про бесплатную отмену —
           обещать цифру, которой у нас нет, значит соврать в первом же заказе. */}
-      {to && estimate?.pickup_pending && estimate.pickup_note && (
+      {!protectedNow && to && estimate?.pickup_pending && estimate.pickup_note && (
         <div className="taxi-pickup">
           {ru ? estimate.pickup_note.ru : estimate.pickup_note.ba}
         </div>
@@ -723,7 +752,7 @@ function ComposeView({
 
       {/* «Сюда уже едет машина — подождёшь, и подача выйдет дешевле».
           Честная замена идее «поделить подачу между соседями»: второй ничего не теряет. */}
-      {to && estimate?.pickup_wait_hint && (
+      {!protectedNow && to && estimate?.pickup_wait_hint && (
         <div className="taxi-pickup taxi-pickup--win">
           🚗 {ru ? estimate.pickup_wait_hint.ru : estimate.pickup_wait_hint.ba}
         </div>
@@ -731,7 +760,7 @@ function ComposeView({
 
       {/* Пока человек думает, цена не вырастет. Молчаливая заморозка никого не успокаивает —
           успокаивает только названная. 0 секунд = выключена, тогда молчим и не обещаем. */}
-      {to && when === "now" && (estimate?.price_locked_sec ?? 0) > 0 && (
+      {to && when === "now" && !protectedNow && (estimate?.price_locked_sec ?? 0) > 0 && (
         <div className="taxi-pickup taxi-pickup--win">
           {appText(
             `Цена закреплена на ${Math.ceil((estimate!.price_locked_sec ?? 0) / 60)} мин — пока думаешь, не вырастет`,
@@ -743,7 +772,7 @@ function ComposeView({
       {/* Промокод сработал. Вводить ничего не надо — сервер применил сам.
           Отдельно говорим, кто платит скидку: иначе водитель думает, что
           недоплатили ему, и спорит с пассажиром на ровном месте. */}
-      {to && estimate && (estimate.promo_discount_kop ?? 0) > 0 && (
+      {!protectedNow && to && estimate && (estimate.promo_discount_kop ?? 0) > 0 && (
         <div className="promo-hit">
           <div className="promo-hit__head">
             <span className="promo-hit__title">{appText("Промокод сработал", "Промокод эшләне")}</span>
@@ -771,7 +800,7 @@ function ComposeView({
 
       {/* Из чего сложилась цена. Показываем ДО вызова машины: «Юлдаш накрутил» — самое
           частое подозрение к такси, и отвечать на него надо заранее, а не после поездки. */}
-      {to && estimate && (
+      {!protectedNow && to && estimate && (
         <details className="price-why">
           <summary>{appText("Цена рассчитана программой", "Хаҡты программа иҫәпләй")}</summary>
           <div className="info-list">
@@ -826,8 +855,10 @@ function ComposeView({
       )}
 
           </>
+          </TaxiConsentFields>
         }
         extra={
+          <TaxiConsentFields enabled={protectedNow} locked={consentLocked}>
           <>
       {/* Сейчас / На время */}
       {to && (
@@ -892,7 +923,7 @@ function ComposeView({
       {to && (
         <TaxiRoundTrip
           available={!!estimate?.round_trip_available}
-          price={estimate?.round_trip_price}
+          price={protectedNow ? undefined : estimate?.round_trip_price}
           discountPercent={estimate?.round_trip_discount_percent}
           maxWaitHours={estimate?.round_trip_max_wait_hours}
           checked={roundTrip}
@@ -1032,20 +1063,24 @@ function ComposeView({
         </div>
       )}
           </>
+          </TaxiConsentFields>
         }
         footer={
           to ? (
-            <div className="taxi-order-footer">
+            <div className={`taxi-order-footer${protectedNow ? " taxi-order-footer--consent" : ""}`}>
               {/* Чип способа оплаты 54dp (InstantControlShape) + «Заказать» CanonGreen2/CanonOnFilled, как в Android. */}
               <button
                 type="button"
                 className="taxi-order-footer__pay"
+                disabled={protectedNow && consentLocked}
                 onClick={() => navigate("/payment-methods")}
                 aria-label={appText("Способ оплаты", "Түләү ысулы")}
               >
                 <IconWallet size={20} />
                 <span>{PAY_METHODS_OPEN.find((m) => m.code === payMethod)?.[ru ? "shortRu" : "shortBa"] ?? ""}</span>
               </button>
+              {protectedNow ? <TaxiConsentAction body={makeOrderBody()} environment={consentEnvironment}
+                onOrdered={onOrdered} onLockChange={setConsentLocked} onSessionReset={resetConsentSession} onQuote={setConsentQuote} /> : (
               <button
                 type="button"
                 className="btn-primary submit-btn taxi-order-footer__cta"
@@ -1060,6 +1095,7 @@ function ComposeView({
                       ? appText(`Заказать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — заказ итеү`)
                       : appText("Заказать", "Заказ итеү")}
               </button>
+              )}
             </div>
           ) : (
             <button type="button" className="btn-soft" onClick={() => navigate("/scheduled")}>
@@ -1231,6 +1267,7 @@ function PlacePicker({
 // ================================================================
 function TrackingView({
   order,
+  localConsentMode = false,
   from,
   onCancelled,
   onNewOrder,
@@ -1238,6 +1275,7 @@ function TrackingView({
   onOpenChat,
 }: {
   order: InstantOrder;
+  localConsentMode?: boolean;
   from: Point | null;
   onCancelled: () => void;
   onNewOrder: () => void;
@@ -1385,7 +1423,7 @@ function TrackingView({
               )}
               <div className="taxi-fare-line">
                 <span>{appText("Примерная цена", "Яҡынса хаҡ")}</span>
-                <b>{priceLabel(order.price_estimate, ru)}</b>
+                <b>{localConsentMode && Number.isSafeInteger(order.passenger_price_kop) ? kopExactLabel(order.passenger_price_kop) : priceLabel(order.price_estimate, ru)}</b>
               </div>
               {cancelNote && (
                 <div className="notice" role="status">
@@ -1480,6 +1518,10 @@ function TrackingView({
                   "Яҡында буш машина табылманы. Бер-ике минуттан ҡабат ҡара."
                 )}
           </p>
+          {localConsentMode && Number.isSafeInteger(order.passenger_price_kop) && <div className="taxi-fare-line">
+            <span>{appText("Сумма в заказе", "Заказдағы сумма")}</span>
+            <b>{kopExactLabel(order.passenger_price_kop)}</b>
+          </div>}
           {/* Ждать — это ТРЕТИЙ ответ, между «попробовать снова» и «уехать попуткой».
               Ночью в райцентре машины освобождаются через десять минут, и человек
               обычно готов их дождаться, если ему не надо для этого сидеть в экране. */}
@@ -1646,7 +1688,7 @@ function TrackingView({
         </div>
         <div className="info-row">
           <span className="info-row__k">{appText("Цена", "Хаҡ")}</span>
-          <span className="info-row__v">{priceLabel(order.price_estimate, ru)}</span>
+          <span className="info-row__v">{localConsentMode && Number.isSafeInteger(order.passenger_price_kop) ? kopExactLabel(order.passenger_price_kop) : priceLabel(order.price_estimate, ru)}</span>
         </div>
         {order.category === "comfort" && (
           <div className="info-row">

@@ -19,6 +19,8 @@ const useRef=initial=>{const b=h.bucket,i=b.ri++;return b.refs[i]??={current:ini
 const useEffect=fn=>h.bucket.effects.push(fn);
 const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru}), useNavigate=()=>()=>{};
 const rememberedPayMethod=()=>'cash',useRouteWeather=()=>null,track=()=>{};
+// This existing legacy-form control runs with the local experiment OFF.
+const localTaxiConsentContext=()=>({requested:false,environment:null}),localTaxiConsentGeneration=()=>'';
 const PAY_METHODS_OPEN=[{code:'cash',shortRu:'Наличные',shortBa:'Наличный'}];
 class ApiError extends Error{};
 const priceLabel=p=>p+' ₽',categoryLabel=cat=>cat,minDateTimeNow=()=>'',maxDateTimeInDays=()=>'',SCHEDULE_MAX_DAYS=7;
