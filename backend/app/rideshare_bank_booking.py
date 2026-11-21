@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from cryptography.fernet import Fernet
+from fastapi import HTTPException
 from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import func
 from sqlmodel import Session, select
@@ -120,7 +121,11 @@ def check_bank_charge(session: Session, booking: Booking, driver: User, recipien
     ).limit(1)).first()
     if legacy is not None:
         raise BankCheckoutUnavailable("bank_legacy_payment_exists")
-    return BankChargeTerms(booking_amount_kop(booking), consent.accepts_card_at)
+    try:
+        amount_kop = booking_amount_kop(booking)
+    except HTTPException:
+        raise BankCheckoutUnavailable("bank_amount_unavailable") from None
+    return BankChargeTerms(amount_kop, consent.accepts_card_at)
 
 
 def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
