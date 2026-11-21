@@ -82,15 +82,15 @@
     "backend_main": 142,
     "infra_resource_config": 443,
     "public_site_promo": 91,
-    "pwa_main": 372,
-    "test_support": 1372
+    "pwa_main": 375,
+    "test_support": 1373
   },
   "counts_by_block": {
     "B01": 178,
     "B02": 423,
     "B03": 123,
     "B04": 82,
-    "B05": 67,
+    "B05": 71,
     "B06": 106,
     "B07": 150,
     "B08": 222,
@@ -15175,8 +15175,8 @@
       "path": "webapp/src/api/chat.ts",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "7b670f5d56cfd098ef343ca7982711fa069e3541cd01d92cda152c0228d1d93c",
-      "lines": 389
+      "sha256": "0055252896e36bf2fa0ab765736f61cc1e00a780e0c551bb989aabb7e0b34f38",
+      "lines": 458
     },
     {
       "path": "webapp/src/api/client.ts",
@@ -15455,8 +15455,8 @@
       "path": "webapp/src/auth/AuthProvider.tsx",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "74406544c2d351de7b373a1d2dde7ec1474a441cffb0306b4f09be5f59e13939",
-      "lines": 247
+      "sha256": "de5032debf2be64cf12be0eb66ecc9373d0d670288e6bda706c718570e9914c5",
+      "lines": 249
     },
     {
       "path": "webapp/src/benefitOwner.ts",
@@ -15686,8 +15686,8 @@
       "path": "webapp/src/components/Icons.tsx",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "cd1d1d4445f0401127567ed6ab83e742dccc96d4209baf507095c30b8a09f731",
-      "lines": 504
+      "sha256": "ab7f60b78950f86f38e15dd8f3f9556a3d9ccae7abb1a6d652dd3348257efa6a",
+      "lines": 510
     },
     {
       "path": "webapp/src/components/InstallPrompt.tsx",
@@ -16148,8 +16148,8 @@
       "path": "webapp/src/components/TripChatCard.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "2d5d41587546c083ac953daa8823299913e7225079170748e077e5acaf7177ac",
-      "lines": 114
+      "sha256": "406832aa08f80fa8038bc02ca1a7aa5ff4d2bbffee04ab61120763496837c7f3",
+      "lines": 126
     },
     {
       "path": "webapp/src/components/UpdateBanner.tsx",
@@ -16624,8 +16624,8 @@
       "path": "webapp/src/screens/ChatInboxScreen.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "48d3ded36de2504e528918387c0cad37c560060c2257067321850ee5c5e5acac",
-      "lines": 288
+      "sha256": "bc39bc80a22ea312f960b73ee0de5d2f98da3bc5f1ac1868b4c33fa3c8c60154",
+      "lines": 298
     },
     {
       "path": "webapp/src/screens/ClinicRidesScreen.tsx",
@@ -17156,8 +17156,8 @@
       "path": "webapp/src/screens/TripChatScreen.tsx",
       "kind": "pwa_main",
       "block": "B05",
-      "sha256": "5d96eb38cf96aa36f8efefc67dd3ed9c3554848246d9d05173edb8b10c175a42",
-      "lines": 951
+      "sha256": "012f53c4f4908b3823f8b90bf1d1bf81ec7bcf3144199b951e3b2ed210c2d8a2",
+      "lines": 1020
     },
     {
       "path": "webapp/src/screens/TripReceiptScreen.tsx",
@@ -17212,8 +17212,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "74b8e93e98d0bddf4f797141d638e13cf85da0f734097b30b4b6a77a2783a4cd",
-      "lines": 21225
+      "sha256": "e49e104fdac955d6433e0c6412562c8427c8a1f023388b3fc88b986e5eef48d1",
+      "lines": 21243
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -17242,6 +17242,20 @@
       "block": "B02",
       "sha256": "a73b609d06f4b21090bf21e937a30d19c7310107492967dd49f4035ef5abd37b",
       "lines": 37
+    },
+    {
+      "path": "webapp/src/utils/chatReceiptStore.ts",
+      "kind": "pwa_main",
+      "block": "B05",
+      "sha256": "60414ed4cb9c2031a863e4131e18e602ed43ab75eb92bb674438398d74b9c3c7",
+      "lines": 143
+    },
+    {
+      "path": "webapp/src/utils/chatReceipts.ts",
+      "kind": "pwa_main",
+      "block": "B05",
+      "sha256": "c69c06e760ecf9c5ee0b72b7a2499336dc1ac76f86654d333abb7bef569e43c1",
+      "lines": 41
     },
     {
       "path": "webapp/src/utils/commissionLabel.ts",
@@ -17643,6 +17657,13 @@
       "lines": 25
     },
     {
+      "path": "webapp/src/utils/useChatReceipts.ts",
+      "kind": "pwa_main",
+      "block": "B05",
+      "sha256": "bdc056a52ee007e563d55b0d43b160361e4a2646b05d8e927efbb8c84abcb1c5",
+      "lines": 247
+    },
+    {
       "path": "webapp/src/utils/useDriverStages.ts",
       "kind": "pwa_main",
       "block": "B02",
@@ -17856,22 +17877,29 @@
       "path": "webapp/tests/chat-history-live-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "3b9933e0e46cf40960b9d17146c5be92bc5ad3602090e71aabe20c6f9cae8926",
-      "lines": 319
+      "sha256": "897ccb876b10aef05e2c4ead9d2e746768dc4768b23135a39a9b03c899ee55da",
+      "lines": 320
     },
     {
       "path": "webapp/tests/chat-intent-ui-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "06ffecab2385c83a05e03ad1bb9ff374e560a6f4e357031db812c787c71d9d69",
-      "lines": 103
+      "sha256": "099088f5a29498c974b6d9282c3e2fe10d96c6b24b62fedd3a7a7f672c904831",
+      "lines": 104
     },
     {
       "path": "webapp/tests/chat-mutation-unknown-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "ddfb09900b6115120661f7c84bbe35e2e2c44a5194560c1adfb393640d3dad4f",
-      "lines": 80
+      "sha256": "a01fa9fab98478ddf134db5daa7f8e8beff6f1f34b1a02df79609b301f9a7ba0",
+      "lines": 81
+    },
+    {
+      "path": "webapp/tests/chat-receipts-test.mjs",
+      "kind": "test_support",
+      "block": "B05",
+      "sha256": "9aa4f15a2a3607fdda1bc4f7418e506c5297189539db51225af5f0b50d159e9d",
+      "lines": 169
     },
     {
       "path": "webapp/tests/chat-ws-ack-test.mjs",
@@ -18374,8 +18402,8 @@
       "path": "webapp/tests/outbox-save-ui-test.mjs",
       "kind": "test_support",
       "block": "B01",
-      "sha256": "bb3d927fa7c6f9367d9c543859661d5bb64c9135e3dd1fc8c9a1da0cc78a2024",
-      "lines": 77
+      "sha256": "00daaffc0fe2c176ddc1e57cf32aba10e75c63489263f3646980ed355c2471b3",
+      "lines": 78
     },
     {
       "path": "webapp/tests/outbox-session-boundary-test.mjs",
@@ -18591,8 +18619,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "2f0599d3cda34a6c3af82bbb2a543a2d613fdf242d54cc74a201828bebfd702f",
-      "lines": 351
+      "sha256": "24da33a874a13afae86a7ff49a38ce9ec6c093ba009c7d01cb40d8f1e230a4c5",
+      "lines": 352
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",
@@ -18815,8 +18843,8 @@
       "path": "webapp/tests/voice-network-boundary-test.mjs",
       "kind": "test_support",
       "block": "B05",
-      "sha256": "f346b8088c702099d7fbf05d1f795dfa12d58dc97a4b72a9b0f1b94c0c71981d",
-      "lines": 281
+      "sha256": "428efa23452e00a8bf8cf271d32e687a6dfd63dba0747488558818f1657a0a6d",
+      "lines": 284
     },
     {
       "path": "webapp/tests/web-push-session-test.mjs",
