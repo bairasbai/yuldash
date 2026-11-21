@@ -78,16 +78,16 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 251,
+    "android_main": 252,
     "backend_main": 136,
     "infra_resource_config": 439,
     "public_site_promo": 91,
     "pwa_main": 372,
-    "test_support": 1361
+    "test_support": 1362
   },
   "counts_by_block": {
     "B01": 178,
-    "B02": 405,
+    "B02": 407,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -2339,6 +2339,13 @@
       "block": "B02",
       "sha256": "0c7e9874c98621c92e7b3dc113666738ef58408866c21478a01910b702946e86",
       "lines": 45
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/RideSeriesIntent.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "f16a6bddc61163ddf59f37c8182781fe23bd07eb8bfb7eca044beb21388bf45a",
+      "lines": 49
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/RideshareCardCheckoutApi.kt",
@@ -5804,6 +5811,13 @@
       "block": "B06",
       "sha256": "549c0cd9811bd59d244d6f3aa3f2d207d3f78a31910ed79a6755efaa72c34a9e",
       "lines": 212
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/data/RideSeriesIntentTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "a87aa57bd9b008027d7108c0d4efecc4a6816cb9f7e931abc39f09de61f13e7c",
+      "lines": 57
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/RideshareCardCheckoutApiTest.kt",
