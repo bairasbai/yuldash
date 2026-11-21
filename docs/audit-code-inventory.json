@@ -8749,8 +8749,8 @@
       "path": "backend/tests/conftest.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "51a463455adf58e43895e29ebc8731d754526f7265f132cf0d679abad7901ccc",
-      "lines": 288
+      "sha256": "bda46afca19ee42ffeeca968b8c680e211275331b6935ba747a369783e0456c3",
+      "lines": 309
     },
     {
       "path": "backend/tests/journeys/__init__.py",
@@ -10002,8 +10002,8 @@
       "path": "backend/tests/test_early_morning_ride_belongs_to_its_day.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "3f8bdb2d72b1b4096144b0d58fc9a8626186276b56e60263eacabe5ed0ce923f",
-      "lines": 104
+      "sha256": "c452120733ed880216b7a36c0e25b914f91dfcf4f1afff4f684792b0bf612958",
+      "lines": 94
     },
     {
       "path": "backend/tests/test_earnings_are_money_received.py",
@@ -13145,22 +13145,22 @@
       "path": "backend/tests/test_watch_hears_both_spellings.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "db1a5bba337677354a026c822e0eb1b92d231936790eb94b4ff7853e0c45c378",
-      "lines": 95
+      "sha256": "ac4e434b4867567e427f48a27850f3867f89caff1e5e6ffd9cf23c6f6ff31bfd",
+      "lines": 86
     },
     {
       "path": "backend/tests/test_watch_push_keeps_the_secret.py",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "1e09c72d4b98fbe88ec246589de4d87f431c5ed6adbef7e975841a48d9c1057b",
-      "lines": 109
+      "sha256": "c6dfd4a36947af95e97c537313218ce4f2a783bc92e3a7183e5d1cf939378b69",
+      "lines": 98
     },
     {
       "path": "backend/tests/test_wave1_scenarios.py",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5ee3e8d3cb8f667fd289490a6bdde4640ce5a89e9530b0f7223a9a63ac02e952",
-      "lines": 1180
+      "sha256": "5ca67edf9973795e1cbbde52d24ccaabe9dd7b52636747854ea531a818df1e05",
+      "lines": 1171
     },
     {
       "path": "backend/tests/test_wave_delivery_ride_gate.py",

@@ -99,6 +99,27 @@ def client():
         yield c
 
 
+@pytest.fixture
+def route_watch_pushes(monkeypatch):
+    """Перехватывает транспорт подписок и делает фоновую задачу синхронной для проверок."""
+    from app import services
+
+    recipients = []
+
+    def capture(session, user_id, title, body, data=None, *, before_send=None):
+        if before_send is None or before_send():
+            recipients.append(user_id)
+
+    def deliver(items):
+        with Session(engine) as session:
+            for item in items:
+                services.send_push_item(session, item)
+
+    monkeypatch.setattr(services, "send_push", capture)
+    monkeypatch.setattr(services, "_push_async", deliver)
+    return recipients
+
+
 @pytest.fixture(autouse=True)
 def isolate_sms_test_peer(request):
     """The shared ASGI TestClient is a separate synthetic peer for each test."""
