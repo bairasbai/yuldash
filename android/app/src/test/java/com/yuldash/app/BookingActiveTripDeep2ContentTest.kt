@@ -137,12 +137,13 @@ class BookingActiveTripDeep2ContentTest {
                 MessageBubble(
                     text = "не ушло", voiceUrl = null, mine = true, failed = true,
                     onRetry = { retried = true },
+                    rideshare = true,
                 )
             }
         }
         assertFalse(retried)
-        composeRule.onNodeWithText("Не доставлено · Повторить").assertIsDisplayed()
-        composeRule.onNodeWithText("Не доставлено · Повторить").performClick()
+        composeRule.onNodeWithText("Не отправилось · Повторить").assertIsDisplayed()
+        composeRule.onNodeWithText("Не отправилось · Повторить").performClick()
         assertTrue(retried)
     }
 

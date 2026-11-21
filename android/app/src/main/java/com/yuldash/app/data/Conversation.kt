@@ -12,6 +12,7 @@ data class ConversationDto(
     val departAt: String? = null,   // ISO времени выезда — различать треды одного маршрута
     val peerVerified: Boolean = false,   // реальный статус проверки собеседника (с сервера)
     val hasMessages: Boolean? = null,   // null: старый/неизвестный ответ, текст не угадываем
+    val unread: Int? = null,
 )
 
 internal fun parseConversationDto(o: JSONObject): ConversationDto {
@@ -21,5 +22,6 @@ internal fun parseConversationDto(o: JSONObject): ConversationDto {
         peerAvatar = o.optString("peer_avatar"), departAt = o.optString("depart_at").ifBlank { null },
         peerVerified = o.optBoolean("peer_verified"),
         hasMessages = o.opt("has_messages") as? Boolean,
+        unread = o.optInt("unread", -1).takeIf { it >= 0 },
     )
 }

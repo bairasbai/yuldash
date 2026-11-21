@@ -11,7 +11,7 @@ internal fun ConversationCard(c: ConversationDto, onOpenChat: (Int, String, Stri
         subtitle = c.route,
         message = if (c.hasMessages == false) appText("Чат открыт", "Чат асылды") else c.lastMessage,
         time = c.departAt?.takeIf { it.isNotBlank() }?.let(::formatDepart) ?: "",   // время выезда — различать треды
-        unread = 0,
+        unread = c.unread ?: 0,
         verified = c.peerVerified,   // реальный статус проверки собеседника (не фейк «проверен» у всех)
         onClick = { onOpenChat(c.bookingId, c.peerName, c.route) },
         avatarUrl = c.peerAvatar

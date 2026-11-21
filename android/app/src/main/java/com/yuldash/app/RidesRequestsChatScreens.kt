@@ -2915,16 +2915,7 @@ internal fun ChatCard(initial: String, name: String, subtitle: String, message: 
             }
             Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text(time, color = CanonMuted, fontSize = 14.sp)
-                if (unread > 0) {
-                    Box(
-                        modifier = Modifier
-                            .size(30.dp)
-                            .background(MaterialTheme.colorScheme.primary, CircleShape),
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(unread.toString(), color = Color.White, fontWeight = FontWeight.Bold)
-                    }
-                }
+                if (unread > 0) UnreadBadge(unread)
             }
         }
     }

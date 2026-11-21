@@ -6,6 +6,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MessageDto
+import com.yuldash.app.data.BookingChatMessagePage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.currentCoroutineContext
@@ -24,10 +25,15 @@ internal class TripChatHistoryPump(
     private val currentEpoch: () -> Long,
     private val currentIds: () -> Set<Int>,
     private val accept: (List<MessageDto>, Set<Int>) -> Unit,
+    private val page: (suspend (Int, Int?) -> Result<BookingChatMessagePage>)? = null,
 ) {
     var loading: Boolean by mutableStateOf(bookingId != null)
     var error: Boolean by mutableStateOf(false)
     var tick: Int by mutableIntStateOf(0)
+    var hasOlder: Boolean by mutableStateOf(false)
+        private set
+    private var floor: Int? = null
+    private var extend = false
     private val mutex = Mutex()
     private var version = 0L
     private var pending = false
@@ -35,6 +41,13 @@ internal class TripChatHistoryPump(
     private var lastStartedTick: Int? = null
 
     fun invalidate() { version++ }
+
+    fun loadOlder() {
+        if (!hasOlder || loading) return
+        extend = true
+        invalidate()
+        requestRefresh()
+    }
 
     fun requestRefresh() {
         if (!isActive() || bookingId == null) return
@@ -73,15 +86,20 @@ internal class TripChatHistoryPump(
                 if (!isActive()) return@withLock false
                 lastStartedTick = tick
                 startedUnapplied = true
-                val result = ApiClient.getMessages(id)
+                val result = readHistory(id) { requestedVersion == version && epoch == currentEpoch() && isActive() }
                 currentCoroutineContext().ensureActive()
                 if (!isActive()) return@withLock false
                 if (requestedVersion != version || epoch != currentEpoch()) {
                     pending = true
                     continue
                 }
-                result.onSuccess { server -> accept(server, previousIds) }
+                result.onSuccess { server ->
+                    floor = server.messages.firstOrNull()?.id
+                    hasOlder = server.hasMore
+                    accept(server.messages, previousIds)
+                }
                     .onFailure { error = true }
+                extend = false
                 startedUnapplied = false
             }
             isActive()
@@ -91,5 +109,23 @@ internal class TripChatHistoryPump(
                 if (startedUnapplied) error = true
             }
         }
+    }
+
+    private suspend fun readHistory(id: Int, current: () -> Boolean): Result<BookingChatMessagePage> {
+        val fetch = page ?: return ApiClient.getMessages(id).map { BookingChatMessagePage(it, null, false) }
+        var page = fetch(id, null).getOrElse { return Result.failure(it) }
+        val batches = ArrayDeque<List<MessageDto>>()
+        batches.add(page.messages)
+        var addPage = extend
+        while (page.hasMore && current()) {
+            val before = page.nextBeforeId ?: return Result.failure(IllegalStateException("Missing history cursor"))
+            val withinLoadedWindow = floor?.let { before > it } == true
+            if (!withinLoadedWindow && !addPage) break
+            if (!withinLoadedWindow) addPage = false
+            page = fetch(id, before).getOrElse { return Result.failure(it) }
+            if (page.nextBeforeId?.let { it >= before } == true) return Result.failure(IllegalStateException("Invalid history cursor"))
+            batches.addFirst(page.messages)
+        }
+        return Result.success(page.copy(messages = batches.flatten()))
     }
 }

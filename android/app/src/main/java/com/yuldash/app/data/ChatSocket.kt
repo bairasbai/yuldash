@@ -35,6 +35,7 @@ class ChatSocket(
     private val onRejectedDetailed: (Int, String, Int, String) -> Unit = { _, _, _, _ -> },
     private val onHistoryChanged: () -> Unit = {},
     private val onContinuityLost: () -> Unit = {},
+    private val onReceiptsChanged: () -> Unit = {},
 ) {
     data class Incoming(
         val id: Int, val senderId: Int, val text: String, val timestamp: String,
@@ -159,6 +160,8 @@ class ChatSocket(
                                     ))
                                 } else if (o.optString("type") == "history_changed") {
                                     onHistoryChanged()
+                                } else if (o.optString("type") == "receipt" && path == null) {
+                                    if ((o.optJSONArray("items")?.length() ?: 0) > 0) onReceiptsChanged()
                                 } else if (o.optString("type") == "rejected") {
                                     // Rejection belongs only to this connection and login.
                                     onRejected(o.optInt("temp_id"), o.optString("reason"))
