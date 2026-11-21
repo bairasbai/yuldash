@@ -119,6 +119,7 @@ const ALL_SUITES = [
   { test: "map-lifecycle-test", src: null, out: null, bundle: false },
   { test: "logout-without-worker-test", src: null, out: null, bundle: false },
   { test: "st-test", src: "src/utils/serverTime.ts", out: "st-bundle.mjs", bundle: true },
+  { test: "scheduled-activation-test", src: "src/utils/scheduledActivation.ts", out: "scheduled-activation-bundle.mjs", bundle: true },
   { test: "outbox-test", src: null, out: null, bundle: false },
   { test: "draft-test", src: "src/utils/formDraft.ts", out: "draft-bundle.mjs", bundle: true },
   { test: "privacy-test", src: "src/utils/privacy.ts", out: "privacy-bundle.mjs", bundle: true },
