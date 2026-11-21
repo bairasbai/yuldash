@@ -116,6 +116,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.referentialEqualityPolicy
+import androidx.compose.runtime.saveable.autoSaver
 import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
@@ -161,6 +162,9 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.InstantAlternativeDto
+import com.yuldash.app.data.TaxiQuoteConsentApi
+import com.yuldash.app.data.TaxiConsentRoute
+import com.yuldash.app.data.TaxiConsentDetails
 import com.yuldash.app.data.InstantEstimateDto
 import com.yuldash.app.data.InstantOrderDto
 import kotlinx.coroutines.async
@@ -2216,17 +2220,22 @@ private fun InstantDestinationPicker(
 
     // Подача: сейчас (null) или «на время» (epoch ms выбранного времени). ≤7 суток, не в прошлом.
     var scheduledAtMs by rememberSaveable { mutableStateOf<Long?>(null) }
+    val consentRequested = TaxiQuoteConsentApi.requested
+    val protectedNow = consentRequested && scheduledAtMs == null
+    val consentNoSave = { consentRequested && scheduledAtMs == null }
+    var consentLocked by remember { mutableStateOf(false) }
 
-    var fromPoint by rememberSaveable(saver = InstantPointStateSaver) { mutableStateOf<Point?>(null) }
-    var fromText by rememberSaveable { mutableStateOf("") }
+
+    var fromPoint by rememberSaveable(saver = rememberTaxiConsentSaver(consentNoSave, InstantPointStateSaver)) { mutableStateOf<Point?>(null) }
+    var fromText by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
     // A по умолчанию = моя позиция (пока пользователь не выбрал вручную).
-    var fromManual by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(myPoint) { if (!fromManual && myPoint != null) fromPoint = myPoint }
+    var fromManual by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
+    LaunchedEffect(myPoint, consentLocked) { if (!fromManual && myPoint != null && !consentLocked) fromPoint = myPoint }
     val effFrom = fromPoint ?: myPoint
 
-    var toPoint by rememberSaveable(saver = InstantPointStateSaver) { mutableStateOf<Point?>(null) }
-    var toText by rememberSaveable { mutableStateOf("") }
-    var query by rememberSaveable { mutableStateOf("") }
+    var toPoint by rememberSaveable(saver = rememberTaxiConsentSaver(consentNoSave, InstantPointStateSaver)) { mutableStateOf<Point?>(null) }
+    var toText by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
+    var query by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
     var suggestions by remember { mutableStateOf<List<com.yuldash.app.data.GeoHit>>(emptyList()) }
     // Идёт ли сейчас поиск адреса. Без этого флага «ничего не нашли» мигало бы во время
     // дебаунса на каждой букве — а «пусто» обязано отличаться от «ещё ищем».
@@ -2242,39 +2251,39 @@ private fun InstantDestinationPicker(
     var estimateTick by remember { mutableIntStateOf(0) }
     var creating by remember { mutableStateOf(false) }
     var errorText by remember { mutableStateOf<String?>(null) }
-    var category by rememberSaveable { mutableStateOf("standard") }   // standard | comfort | business | minivan
+    var category by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("standard") }   // standard | comfort | business | minivan
     // Класс, который человек хотел, но в его городе ещё не набралось водителей. Держим, чтобы
     // показать тёплое «записали» — и чтобы посчитать спрос до того, как искать машины.
-    var classWanted by rememberSaveable { mutableStateOf<String?>(null) }
+    var classWanted by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String?>())) { mutableStateOf<String?>(null) }
     // Что нужно в салоне: кресло по возрасту, бустер, коляска, собака-проводник, животное, багаж.
     // Храним CSV-строкой: Set в Bundle не кладётся, а строка переживает поворот экрана
     // и возврат с карты без единой строчки лишнего кода.
-    var orderOptionsCsv by rememberSaveable { mutableStateOf("") }
+    var orderOptionsCsv by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
     val orderOptions = remember(orderOptionsCsv) {
         orderOptionsCsv.split(",").filter { it.isNotBlank() }.toSet()
     }
-    var pickOnMap by rememberSaveable { mutableStateOf(false) }   // оверлей выбора точки Б на карте
-    var pickFromOnMap by rememberSaveable { mutableStateOf(false) }
+    var pickOnMap by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }   // оверлей выбора точки Б на карте
+    var pickFromOnMap by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
 
     // Детали заказа (аудит 2026-07-26). Свёрнуты по умолчанию: 9 заказов из 10 — обычные,
     // лишние поля на главном пути только мешают.
-    var detailsOpen by rememberSaveable { mutableStateOf(false) }
-    var comment by rememberSaveable { mutableStateOf("") }     // «за магазином, синие ворота»
-    var entrance by rememberSaveable { mutableStateOf("") }    // подъезд / квартира / этаж
+    var detailsOpen by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
+    var comment by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }     // «за магазином, синие ворота»
+    var entrance by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }    // подъезд / квартира / этаж
     // «Только женщина за рулём». В попутках выбор был всегда, в такси его не было — хотя
     // ночью в машину к незнакомому человеку садятся именно здесь (аудит 2026-08-06).
-    var womenOnly by rememberSaveable { mutableStateOf(false) }
+    var womenOnly by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
     // Остановки по пути: «заедем за мамой», «в аптеку». Смысл в том, что за них платят —
     // иначе водитель везёт лишние километры даром, а пассажир не понимает, почему цена та же.
     var stops by remember { mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList()) }
     var addingStop by remember { mutableStateOf(false) }
     // Круговой рейс: «отвези и привези обратно». Доступен только на межгороде — решает сервер.
-    var roundTrip by rememberSaveable { mutableStateOf(false) }
+    var roundTrip by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
     // Сколько водитель ждёт на месте. Час по умолчанию: типичное «сходить и вернуться».
-    var returnWaitMin by rememberSaveable { mutableIntStateOf(60) }
-    var forOther by rememberSaveable { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
-    var forName by rememberSaveable { mutableStateOf("") }
-    var forPhone by rememberSaveable { mutableStateOf("") }
+    var returnWaitMin by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Int>())) { mutableIntStateOf(60) }
+    var forOther by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
+    var forName by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
+    var forPhone by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
 
     // Сохранённые (Дом/Работа) + недавние: быстрый выбор адреса Б без повторного геокодинга.
     var savedPlaces by remember { mutableStateOf<List<com.yuldash.app.data.SavedPlaceDto>>(emptyList()) }
@@ -2332,6 +2341,13 @@ private fun InstantDestinationPicker(
             .onFailure { suggestions = emptyList(); searchFailed = true }
         searchingAddr = false
     }
+
+    val consentRoute = if (protectedNow && effFrom != null && toPoint != null) runCatching {
+        TaxiConsentRoute.normalized(effFrom.latitude, effFrom.longitude, toPoint!!.latitude, toPoint!!.longitude,
+            fromText.ifBlank { myPosText }, toText.ifBlank { mapPointText }, category, orderOptions, stops, roundTrip, returnWaitMin)
+    }.getOrNull() else null
+    val consentDetails = TaxiConsentDetails(comment, entrance, if (forOther) forName else "",
+        if (forOther) forPhone else "", womenOnly, payMethod)
 
     // Ответ разрешает заказ только для тех параметров, для которых он рассчитан.
     // Сравнение в композиции закрывает и окно до старта LaunchedEffect/дебаунса.
@@ -2666,7 +2682,7 @@ private fun InstantDestinationPicker(
                                 title = appText(cls.titleRu, cls.titleBa),
                                 subtitle = if (isOpen) appText(cls.subtitleRu, cls.subtitleBa)
                                 else appText("скоро", "тиҙҙән"),
-                                price = opt?.price,
+                                price = if (protectedNow) null else opt?.price,
                                 selected = isOpen && category == cls.category,
                                 enabled = isOpen,
                                 iconRes = cls.iconRes,
@@ -2729,7 +2745,7 @@ private fun InstantDestinationPicker(
                 // уже видна на плитке выбранного тарифа; повторять подробный расчёт там не нужно,
                 // иначе от карты остаётся лишь узкая полоска.
                 if (toPoint != null && sheetStop == TaxiSheetStop.Full) {
-                    Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
+                    if (!protectedNow) Card(colors = CardDefaults.cardColors(containerColor = CanonSurface), shape = CanonCardShape) {
                         // Три состояния цены сменяются кросс-фейдом и в ОДНОЙ высоте: раньше карточка
                         // на каждом пересчёте схлопывалась и раздувалась, и кнопка «Вызвать» прыгала
                         // под пальцем. Скелетон вместо спиннера держит форму будущего числа.
@@ -2834,10 +2850,10 @@ private fun InstantDestinationPicker(
                     }
                     // Выгода по промокоду — сразу под ценой. Это единственное место, где человек видит,
                     // что промокод не бумажка, и решает ДО нажатия «Вызвать».
-                    TaxiPromoSavingsCard(estimate)
+                    if (!protectedNow) TaxiPromoSavingsCard(estimate)
                     // Pricing v2 приходит только с сервера: клиент показывает
                     // базу, факторы и общий потолок, но не пересчитывает сумму сам.
-                    TaxiPricingBreakdown(estimate)
+                    if (!protectedNow) TaxiPricingBreakdown(estimate)
                     estimate?.let { оценка ->
                         // Соскользнувший по карте палец — самая дорогая ошибка пассажира: заказ
                         // Баймак → Владивосток формально корректен, просто человек ткнул не туда.
@@ -2856,7 +2872,7 @@ private fun InstantDestinationPicker(
                         // 0 секунд = заморозка выключена или Redis недоступен, тогда молчим.
                         // На предзаказе не обещаем: там цена считается на ВРЕМЯ ПОДАЧИ и честно
                         // уточняется при подаче — обещать «не вырастет» значит соврать.
-                        if (оценка.priceLockedSec > 0 && scheduledAtMs == null) {
+                        if (оценка.priceLockedSec > 0 && scheduledAtMs == null && !protectedNow) {
                             val минут = (оценка.priceLockedSec + 59) / 60
                             Text(
                                 appText(
@@ -2885,7 +2901,7 @@ private fun InstantDestinationPicker(
                         // 0 секунд = заморозка выключена или Redis недоступен, тогда молчим.
                         // На предзаказе не обещаем: там цена считается на ВРЕМЯ ПОДАЧИ и честно
                         // уточняется при подаче — обещать «не вырастет» значит соврать.
-                        if (оценка.priceLockedSec > 0 && scheduledAtMs == null) {
+                        if (оценка.priceLockedSec > 0 && scheduledAtMs == null && !protectedNow) {
                             val минут = (оценка.priceLockedSec + 59) / 60
                             Text(
                                 appText(
@@ -3046,14 +3062,14 @@ private fun InstantDestinationPicker(
         },
         // Подвал живёт только когда есть куда ехать: до выбора адреса кнопки «Вызвать» нет,
         // и его отступы оставляли под списком адресов пустую полосу.
-        hasFooter = toPoint != null,
+        hasFooter = toPoint != null || protectedNow,
         footer = {
             // Главное действие экрана — вне прокрутки и видно в любом положении
             // шторки. Раньше кнопка жила в «полном» положении: в среднем её просто
             // не было, а это единственное, ради чего сюда пришли.
-            if (toPoint != null) {
+            if (toPoint != null || protectedNow) {
                 // The detailed estimate card is hidden in Half/Peek; keep failures visible beside the action.
-                if (sheetStop != TaxiSheetStop.Full && errorText != null) {
+                if (!protectedNow && sheetStop != TaxiSheetStop.Full && errorText != null) {
                     Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
                         Text(
                             errorText.orEmpty(),
@@ -3073,7 +3089,7 @@ private fun InstantDestinationPicker(
                     // действия держим одной высоты; подписи даём собственную ширину и поля,
                     // чтобы «Наличные» не касались канта даже на узком экране.
                     Surface(
-                        onClick = onOpenPayments,
+                        onClick = { if (!consentLocked) onOpenPayments() },
                         shape = InstantControlShape,
                         color = CanonSurface,
                         border = BorderStroke(1.dp, CanonBorder),
@@ -3101,7 +3117,10 @@ private fun InstantDestinationPicker(
                             )
                         }
                     }
-                    Button(
+                    if (protectedNow) TaxiConsentControls(
+                        generation = generation, route = consentRoute, details = consentDetails,
+                        onCreated = onOrderCreated, onLockChange = { consentLocked = it }, modifier = Modifier.weight(1f),
+                    ) else Button(
                         onClick = {
                             if (!isCurrentAction() || !estimateCurrent || creating) return@Button
                             val f = effFrom ?: return@Button

@@ -2815,6 +2815,16 @@ object ApiClient {
             .map { it.optString("payment_method").ifBlank { "negotiate" } }
             .onSuccess { Analytics.log("instant_payment_$method") }
 
+    /** Local opt-in only: exact JSON bytes, no implicit network/auth/redirect replay. */
+    internal suspend fun taxiConsentRequest(path: String, body: String, owner: TaxiConsentOwner,
+        admit: () -> Boolean): Result<JSONObject> {
+        if (!TaxiQuoteConsentApi.current(owner) || path !in setOf("/instant/quotes/v1", "/instant/orders/confirmed/v1")) return staleSession()
+        return call("POST", path, null, auth = true, expectedGeneration = owner.generation,
+            retryOnNetwork = false, singleAttemptMutation = true, wireBody = body, expectedBase = owner.binding.origin,
+            withoutAuthReplay = true, admitWire = { TaxiQuoteConsentApi.current(owner) && admit() })
+    }
+    internal fun parseTaxiConsentOrder(value: JSONObject): InstantOrderDto = value.toInstantOrderDto()
+
     suspend fun createInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",

@@ -59,6 +59,7 @@ internal object SessionKeys {
         // Фильтры поиска: среди них «только женщины» — он рассказывает о прошлом владельце.
         "yuldash_filters" to listOf("default_filters", "default_seats"),
         "yuldash_search" to listOf("recent_searches_v1"),
+        TAXI_CONSENT_PREFS to listOf(TAXI_CONSENT_PENDING), // opaque consent barriers, no request content
     )
 
     /**
