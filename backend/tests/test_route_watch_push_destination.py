@@ -20,7 +20,7 @@ def test_route_subscription_push_keeps_destination(client, user_factory, monkeyp
     delivered = Event()
     calls = []
 
-    def capture(session, user_id, title, body, data=None):
+    def capture(session, user_id, title, body, data=None, **kwargs):
         if user_id == watcher["id"]:
             calls.append(data)
             delivered.set()

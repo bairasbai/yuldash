@@ -9,7 +9,7 @@ from .db import engine
 from .logs import log
 from .route_watch_dispatch import dispatch_event, push_items
 from .route_watch_models import RouteWatchEvent
-from .services import send_push
+from .services import send_push_item
 from .timeutil import utcnow
 
 
@@ -30,10 +30,10 @@ def run_due(bind=engine, *, now: datetime | None = None) -> int:
     for event_id in ids:
         try:
             notices = dispatch_event(bind, event_id, now=now)
-            for user_id, title, body, data in push_items(bind, notices, now=push_time):
+            for item in push_items(bind, notices, now=push_time):
                 # A oneshot process must wait for its own network calls to finish.
                 with Session(bind) as session:
-                    send_push(session, user_id, title, body, data=data)
+                    send_push_item(session, item)
             sent += len(notices)
         except SQLAlchemyError as exc:
             log.warning("[ROUTE_WATCH] dispatch deferred: %s", type(exc).__name__)

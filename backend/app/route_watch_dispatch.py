@@ -262,10 +262,32 @@ def dispatch_event(bind, event_id: int, *, now: datetime | None = None) -> list[
     return notices
 
 
-def push_items(bind, notices: Sequence[DispatchNotice], *, now: datetime | None = None) -> Iterator[tuple]:
-    """Перечитывает видимость каждого рейса после отправки предыдущего уведомления."""
-    from .geo import settlements_snapshot
+def _push_payload(bind, notice: DispatchNotice, entry: dict, now: datetime) -> tuple | None:
     from .services import _is_quiet_hour, blocked_user_ids
+
+    if _is_quiet_hour(now):
+        return None
+    with Session(bind) as session:
+        watch = session.exec(_watches(now).where(RouteWatch.id == notice.watch_id)).first()
+        rides = _rides(session, notice.ride_ids, now)
+        if watch is None or len(rides) != len(notice.ride_ids):
+            return None
+        blocked = blocked_user_ids(session, rides[0].driver_id)
+        matched = _matching_rides(session, watch, rides, entry, blocked, {})
+        if len(matched) != len(notice.ride_ids):
+            return None
+        title_ru, title_ba, body_ru, body_ba = _notice_content(matched)
+        recipient = session.get(User, watch.user_id)
+        if recipient is None:
+            return None
+        title, body = (title_ba, body_ba) if recipient.language == "ba" else (title_ru, body_ru)
+        return watch.user_id, title, body, {"type": "ride", "id": str(matched[0][0].id)}
+
+
+def push_items(bind, notices: Sequence[DispatchNotice], *, now: datetime | None = None) -> Iterator[tuple]:
+    """Перечитывает видимость перед каждым получателем и каждым вызовом транспорта."""
+    from .geo import settlements_snapshot
+    from .services import _is_quiet_hour
     from .stop_search import request_snapshot
 
     if not notices or _is_quiet_hour(now or utcnow()):
@@ -273,22 +295,11 @@ def push_items(bind, notices: Sequence[DispatchNotice], *, now: datetime | None 
     with Session(bind) as session:
         entry = request_snapshot(settlements_snapshot(session))
     for notice in notices:
-        checked_at = now or utcnow()
-        if _is_quiet_hour(checked_at):
-            return
-        with Session(bind) as session:
-            watch = session.exec(_watches(checked_at).where(RouteWatch.id == notice.watch_id)).first()
-            rides = _rides(session, notice.ride_ids, checked_at)
-            if watch is None or len(rides) != len(notice.ride_ids):
-                continue
-            blocked = blocked_user_ids(session, rides[0].driver_id)
-            matched = _matching_rides(session, watch, rides, entry, blocked, {})
-            if len(matched) != len(notice.ride_ids):
-                continue
-            title_ru, title_ba, body_ru, body_ba = _notice_content(matched)
-            recipient = session.get(User, watch.user_id)
-            if recipient is None:
-                continue
-            title, body = (title_ba, body_ba) if recipient.language == "ba" else (title_ru, body_ru)
-            item = watch.user_id, title, body, {"type": "ride", "id": str(matched[0][0].id)}
-        yield item
+        payload = _push_payload(bind, notice, entry, now or utcnow())
+        if payload is None:
+            continue
+
+        def still_current(notice=notice, payload=payload):
+            return _push_payload(bind, notice, entry, now or utcnow()) == payload
+
+        yield (*payload, still_current)

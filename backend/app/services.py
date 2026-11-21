@@ -469,7 +469,8 @@ _fcm_app = None
 
 
 def send_push(session: Session, user_id: int, title: str, body: str,
-              data: dict | None = None, data_only: bool = False) -> None:
+              data: dict | None = None, data_only: bool = False, *,
+              before_send: Callable[[], bool] | None = None) -> None:
     """Push на все устройства пользователя — и в приложение (FCM), и в браузер (Web Push).
 
     Два канала намеренно: Firebase доставляет только в приложение из магазина, а человек,
@@ -483,10 +484,14 @@ def send_push(session: Session, user_id: int, title: str, body: str,
     обходит эту проверку в фоне и может показать сообщение прошлого аккаунта после выхода.
     title/body кладём в data; высокий приоритет сохраняет доставку оффера такси через сервис.
     Параметр data_only оставлен для совместимости вызовов, безопасный формат общий для всех.
-    В браузере такого различия нет: там уведомление рисует service worker в любом случае."""
+    В браузере такого различия нет: там уведомление рисует service worker в любом случае.
+    before_send обновляет допуск непосредственно перед вызовом транспорта."""
     # Браузер — ПЕРВЫМ и отдельно: раньше функция выходила на первой же строке, когда
     # Firebase не настроен, и веб-подписки не получали вообще ничего.
-    _send_web_push(session, user_id, title, body, data)
+    if before_send is None:
+        _send_web_push(session, user_id, title, body, data)
+    else:
+        _send_web_push(session, user_id, title, body, data, before_send=before_send)
     if not settings.firebase_credentials:
         return
     try:
@@ -509,6 +514,8 @@ def send_push(session: Session, user_id: int, title: str, body: str,
                                               android=messaging.AndroidConfig(priority="high")))
         # Устойчивость к нагрузке: один batch-вызов вместо N последовательных сетевых round-trip
         # (массовые каскадные уведомления перестают тормозить обработчик).
+        if before_send is not None and not before_send():
+            return
         resp = messaging.send_each(messages)
         # Чистим МЁРТВЫЕ токены (приложение удалено/токен протух) — иначе DeviceToken растёт вечно.
         # В ОТДЕЛЬНОЙ сессии: commit в переданной session сбросил бы ORM-объекты вызывающего.
@@ -584,7 +591,7 @@ def _rating_web_push(session: Session, recipient_id: int, data: dict | None) -> 
 
 
 def _send_web_push(session: Session, user_id: int, title: str, body: str,
-                   data: dict | None = None) -> None:
+                   data: dict | None = None, *, before_send: Callable[[], bool] | None = None) -> None:
     """Web Push во все браузеры человека. Тихо ничего, если VAPID-ключи не настроены.
 
     Сообщение шифруется ключами САМОЙ подписки (`p256dh` + `auth`) — этим занимается
@@ -634,6 +641,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         else:
             content = {"title": "Юлдаш", "tag": "yuldash", "url": "/"}
         payload = json.dumps(content, ensure_ascii=False)
+        if before_send is not None and not before_send():
+            break
         try:
             webpush(
                 subscription_info={
@@ -894,9 +903,16 @@ def _city_keys(name: str) -> set[str]:
         return {_norm_city(v) for v in name_variants(s, name)} - {""}
 
 
+def send_push_item(session: Session, item: tuple) -> None:
+    user_id, title, body, data, *checks = item
+    options = {"before_send": checks[0]} if checks else {}
+    send_push(session, user_id, title, body, data=data, **options)
+
+
 def _push_async(items: Iterable[tuple]) -> None:
     """FCM-рассылка в фоновом daemon-потоке (своя сессия) — сеть не держит обработчик запроса.
-    items выдаёт (user_id, title, body, data) перед отправкой. Запись в ленте уже есть.
+    items выдаёт (user_id, title, body, data) с необязательной проверкой доступности.
+    Запись в ленте уже есть.
 
     Ночью молчим: сюда приходят только новости про маршруты («появилась поездка», «пассажир
     на твоём маршруте»), а они прекрасно ждут до утра. Запись в Центре уведомлений уже сделана
@@ -909,8 +925,8 @@ def _push_async(items: Iterable[tuple]) -> None:
     def run():
         try:
             with Session(engine) as s:
-                for uid, title, body, data in items:
-                    send_push(s, uid, title, body, data=data)
+                for item in items:
+                    send_push_item(s, item)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[ROUTE_WATCH] async push error: {e}")
     threading.Thread(target=run, daemon=True).start()

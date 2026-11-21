@@ -1,17 +1,21 @@
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, time, timedelta
+import json
 from threading import Barrier
 from types import SimpleNamespace
 from uuid import uuid4
 
+from firebase_admin import messaging
+import pywebpush
 import pytest
 from sqlmodel import Session, select
 
 from app import route_watch_dispatch as dispatch, route_watch_worker, services
 from app.db import engine
-from app.models import Block, Notification, Ride, RideStatus, RouteWatch, SafetyProfile, User, UserRole
+from app.models import Block, DeviceToken, Notification, Ride, RideStatus, RouteWatch, SafetyProfile, User, UserRole
 from app.routers import rides
 from app.route_watch_models import RouteWatchEvent, RouteWatchNotice
+from app.security import issue_tokens
 from app.timeutil import local_date, utcnow
 
 
@@ -87,8 +91,8 @@ def test_regular_publication_keeps_five_events_in_the_same_group(client, user_fa
     assert client.post("/rides/commands/v1", headers=headers, json=body).json()["id"] == primary_id
     # Find the committed group after publication, with an independent worker session.
     pushed = []
-    monkeypatch.setattr(route_watch_worker, "send_push",
-                        lambda session, user_id, title, body, data: pushed.append((user_id, data)))
+    monkeypatch.setattr(services, "send_push",
+                        lambda session, user_id, title, body, data, **kwargs: pushed.append((user_id, data)))
     checked_at = utcnow() + timedelta(seconds=1)
     route_watch_worker.run_due(engine, now=checked_at)
     ride_ids = [row.ride_id for row in events]
@@ -282,7 +286,7 @@ def test_late_block_between_pushes_is_respected(client, user_factory, monkeypatc
     events, ride_ids = _group(driver["id"], now)
     pushed = []
 
-    def send(session, user_id, title, body, data):
+    def send(session, user_id, title, body, data, **kwargs):
         if data["id"] != str(ride_ids[0]):
             return
         pushed.append(user_id)
@@ -291,6 +295,7 @@ def test_late_block_between_pushes_is_respected(client, user_factory, monkeypatc
                 change.add(Block(user_id=driver["id"], blocked_user_id=second["id"]))
                 change.commit()
 
+    monkeypatch.setattr(services, "send_push", send)
     if immediate:
         class InlineThread:
             def __init__(self, *, target, daemon):
@@ -300,11 +305,58 @@ def test_late_block_between_pushes_is_respected(client, user_factory, monkeypatc
                 self.target()
 
         monkeypatch.setattr(services, "threading", SimpleNamespace(Thread=InlineThread))
-        monkeypatch.setattr(services, "send_push", send)
         with Session(engine) as session:
             assert services.notify_route_watchers(session, events[0]) == 2
     else:
-        monkeypatch.setattr(route_watch_worker, "send_push", send)
         route_watch_worker.run_due(engine, now=now + timedelta(seconds=1))
     assert pushed == [first["id"]]
     assert len(_notices(second_watch, ride_ids)) == 1
+
+
+@pytest.mark.parametrize("block_during_web", [True, False])
+def test_each_browser_and_fcm_send_rechecks_route_visibility(client, user_factory, monkeypatch, block_during_web):
+    driver = user_factory(role=UserRole.driver)
+    watcher = user_factory()
+    now = utcnow()
+    watch_id = _watch(watcher["id"], driver["id"], now)
+    for browser in range(2):
+        with Session(engine) as session:
+            pair = issue_tokens(session, watcher["id"])
+            session.commit()
+        response = client.post(
+            "/push/web/subscribe", headers={"Authorization": "Bearer " + pair["access_token"]},
+            json={"endpoint": f"https://push.example/route-{watch_id}-{browser}", "session_bound": True,
+                  "keys": {"p256dh": "synthetic", "auth": "synthetic"}},
+        )
+        assert response.status_code == 200, response.text
+    own_token = f"synthetic-route-watch-{watch_id}"
+    with Session(engine) as session:
+        session.add(DeviceToken(user_id=watcher["id"], token=own_token))
+        session.commit()
+    _, ride_ids = _group(driver["id"], now)
+    monkeypatch.setattr(services.settings, "vapid_public_key", "local-test")
+    monkeypatch.setattr(services.settings, "vapid_private_key", "local-test")
+    monkeypatch.setattr(services.settings, "firebase_credentials", "local-test")
+    monkeypatch.setattr(services, "_fcm_app", object())
+    web, fcm = [], []
+
+    def send_web(**kwargs):
+        payload = json.loads(kwargs["data"])
+        if payload["url"] != f"/rides/{ride_ids[0]}":
+            return
+        web.append(payload)
+        if block_during_web and len(web) == 1:
+            with Session(engine) as session:
+                session.add(Block(user_id=driver["id"], blocked_user_id=watcher["id"]))
+                session.commit()
+
+    def send_fcm(messages):
+        fcm.extend(message.data for message in messages if message.token == own_token)
+        return SimpleNamespace(responses=[SimpleNamespace(success=True, exception=None) for _ in messages])
+
+    monkeypatch.setattr(pywebpush, "webpush", send_web)
+    monkeypatch.setattr(messaging, "send_each", send_fcm)
+    route_watch_worker.run_due(engine, now=utcnow() + timedelta(seconds=1))
+    assert len(web) == (1 if block_during_web else 2)
+    assert len(fcm) == (0 if block_during_web else 1)
+    assert len(_notices(watch_id, ride_ids)) == 1

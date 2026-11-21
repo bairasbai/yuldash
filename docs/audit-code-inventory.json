@@ -7776,8 +7776,8 @@
       "path": "backend/app/route_watch_dispatch.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "fbc387d37ef2ac0d4f8fa50874e054ece9348e2aa2e61d3cad595853e66bf6c2",
-      "lines": 294
+      "sha256": "af9e3a2c316261116a28b29d7a1829a5cfd29d0fe200d48112bb3a9db662d33a",
+      "lines": 305
     },
     {
       "path": "backend/app/route_watch_models.py",
@@ -7790,7 +7790,7 @@
       "path": "backend/app/route_watch_worker.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "3444ef529f638f78ce621dfa24b1cc98be20653f029cef329dc7726a6877c11d",
+      "sha256": "4d6b8d7882dc2c226243ac9e2837e6d030d333b912104d423c7db8dd95c5e973",
       "lines": 44
     },
     {
@@ -8154,8 +8154,8 @@
       "path": "backend/app/services.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "27d855557601d00f4022bc743425caceddead04705762131bdd0c0ef85f4ee8c",
-      "lines": 2212
+      "sha256": "3937cfb01e1bbde64fd0af3e74211c249b1ea77b971f7032709b025a1f9ef3c7",
+      "lines": 2228
     },
     {
       "path": "backend/app/sms_reconcile.py",
@@ -12095,8 +12095,8 @@
       "path": "backend/tests/test_route_watch_dispatch.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ddb211da8f18e61444ff703490ce194b696128343c08a9518737987f7a2abc8d",
-      "lines": 310
+      "sha256": "9c30e5e4ff98d7df1c7b30d87d6094576ce5280d0b16f6d01f540caf1fe400eb",
+      "lines": 362
     },
     {
       "path": "backend/tests/test_route_watch_migration.py",
@@ -12109,7 +12109,7 @@
       "path": "backend/tests/test_route_watch_push_destination.py",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "272ca94203d0e8f26f16790713baaff678be234a0c497405ca6ba23161e80965",
+      "sha256": "8fc285eb2f59a9d9ae68b8b08140cb55556c0c59f18dfa478db4179f5f830f21",
       "lines": 34
     },
     {
