@@ -210,7 +210,7 @@ internal fun RideshareCompletedSession(
         ?: ride?.price?.takeIf { it > 0 }
     val payMethod = receipt?.payMethod?.takeIf(String::isNotBlank) ?: fallbackPayMethod
     val paid = receipt?.paid == true
-    val bankPayment = rememberRideshareCardPayment(receipt, completedSession, ::canAct)
+    val bankPayment = rememberRideshareCardPayment(receipt, completedSession) { canAct() }
     val reportTo = afterTripReportTo(receipt, isDriver)   // «Сообщить о проблеме»: окно держит сервер (6 ч, PR174)
 
     TripAuthorityContent({ isCurrent() && (receipt == null || com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(receipt)) }) { RideshareCompletedContent(

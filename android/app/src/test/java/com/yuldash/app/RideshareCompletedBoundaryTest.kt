@@ -57,6 +57,7 @@ class RideshareCompletedBoundaryTest {
     private val fixtureFailures = CopyOnWriteArrayList<String>()
     private val ownedJobs = CopyOnWriteArrayList<Job>()
     @Volatile private var httpReceipt: TripReceiptDto? = null
+    @Volatile private var bankStatusEnabled = false
     private var contentMounted = false
 
     private fun awaitBackgroundCompletion() = runBlocking {
@@ -113,8 +114,9 @@ class RideshareCompletedBoundaryTest {
                     val bearer = request.getHeader("Authorization")
                     requests += key to bearer
                     if (request.method == "GET" && request.path in setOf("/bookings/42/card-payment", "/bookings/43/card-payment") && bearer == "Bearer $tokenA") {
+                        val status = if (bankStatusEnabled) "waiting_bank" else "unavailable"
                         return MockResponse().setHeader("Content-Type", "application/json")
-                            .setBody("""{"currency":"RUB","payment_status":"unavailable","paid_kop":0,"refund_status":"not_started","refunded_kop":0,"refund_coverage":"none"}""")
+                            .setBody("""{"currency":"RUB","payment_status":"$status","amount_kop":45000,"paid_kop":0,"refund_status":"not_started","refunded_kop":0,"refund_coverage":"none"}""")
                     }
                     val traveler = Regex("^/bookings/(42|43)/completed-traveler$").matchEntire(request.path.orEmpty())
                     if (request.method == "GET" && traveler != null && bearer == "Bearer $tokenA") {
@@ -242,6 +244,20 @@ class RideshareCompletedBoundaryTest {
             compose.waitUntil(5000) { calls.contains(kind to 43) }
         }
     }
+    @Test fun bankStatusLoadsAfterReceiptAndRefreshReadsTheSameBooking() {
+        bankStatusEnabled = true
+        mount()
+        fun bankReads() = requests.count { it.first == "GET /bookings/42/card-payment" && it.second == "Bearer $tokenA" }
+        compose.waitUntil(5_000) { bankReads() == 1 }
+        val waiting = hasText("Ждём подтверждения банка")
+        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(waiting)
+        compose.onNode(waiting).assertIsDisplayed()
+        val refresh = hasText("Обновить статус")
+        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(refresh)
+        compose.onNode(refresh).performClick()
+        compose.waitUntil(5_000) { bankReads() == 2 }
+    }
+
     @Test fun ordinaryCompletedActionsRemainAvailable() {
         mount()
         node("receipt").performScrollTo().performClick(); assertEquals(1, receipts)
