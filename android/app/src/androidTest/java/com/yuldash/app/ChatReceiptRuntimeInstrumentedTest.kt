@@ -35,13 +35,14 @@ class ChatReceiptRuntimeInstrumentedTest {
         val context = InstrumentationRegistry.getInstrumentation().targetContext.applicationContext
         val phone = if (profile == "receiver") "+79990006312" else "+79990006321"
         val otp = localJson("/auth/request-code", JSONObject().put("phone", phone).put("channel", "sms"))
-        runBlocking {
+        val peer = runBlocking {
             ApiClient.verifyCode(phone, otp.getString("dev_code"), "RS06 Runtime").getOrThrow()
             assertTrue(OfflineTripSnapshots.ensureResetCommitted())
             val details = ApiClient.getBookingDetails(bookingId).getOrThrow()
             assertTrue(details.contactUnlocked)
             if (details.role == "passenger") assertTrue(ApiClient.getBoardingCode(bookingId).getOrThrow().isNotBlank())
             assertTrue("The authenticated booking is ready for chat", OfflineTripSnapshots.allowsLive(bookingId))
+            ApiClient.getConversations().getOrThrow().single { it.bookingId == bookingId }.peerName
         }
         val language = if (arguments.getString("chatLang") == "ba") AppLanguage.Ba else AppLanguage.Ru
         val dark = arguments.getString("chatTheme") == "dark"
@@ -68,7 +69,13 @@ class ChatReceiptRuntimeInstrumentedTest {
                         compose.onNodeWithTag("tripChatCard").performClick()
                     }
                 }
-                awaitNode(hasTestTag("tripChatScreen"))
+                val conversation = hasText(peer) and hasClickAction()
+                val screen = hasTestTag("tripChatScreen")
+                awaitNode(screen or conversation)
+                if (compose.onAllNodes(screen).fetchSemanticsNodes().isEmpty()) {
+                    compose.onNode(conversation).performClick()
+                    awaitNode(screen)
+                }
                 if (profile == "receiver") {
                     awaitNode(hasText(fixture.getString("message")))
                     val generation = ApiClient.queueSessionGeneration()
