@@ -13,6 +13,7 @@
 import sys
 from contextlib import asynccontextmanager
 
+from anyio import Semaphore
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.exceptions import RequestValidationError
@@ -32,6 +33,7 @@ from .observability import init_sentry
 
 from .routers import all_routers
 from .routers.health import API_VERSION
+from .routers.rideshare_bank_notification import router as bank_notification_router
 from .services import MEDIA_DIR, init_chat_redis, seed_demo, seed_pickup_points
 from .storage import StorageError, _is_private, get_storage
 
@@ -171,6 +173,9 @@ def create_app() -> FastAPI:
     for r in all_routers:
         app.include_router(r)
         app.include_router(r, prefix=API_V1_PREFIX)
+    # One provider callback URL, served only behind the dedicated ingress policy.
+    app.state.rideshare_bank_notification_slots = Semaphore(4)
+    app.include_router(bank_notification_router)
     return app
 
 

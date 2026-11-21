@@ -154,6 +154,7 @@ class Settings(BaseSettings):
     rideshare_bank_shop_id: str = ""
     rideshare_bank_secret: SecretStr = SecretStr("")
     rideshare_bank_fernet_key: SecretStr = SecretStr("")
+    rideshare_bank_webhook_proxy_token: SecretStr = SecretStr("")
     yookassa_secret_key: str = ""       # секретный ключ ЮKassa (Basic-auth). НЕ в git — в .env.
     payment_return_url: str = "https://yulbash.ru/pay/done"  # куда ЮKassa вернёт пользователя после оплаты
     # --- СБП-перевод по номеру (интерим, payments_provider=sbp_manual). Перс.данные — НЕ в git, в .env. ---
