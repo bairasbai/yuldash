@@ -28,6 +28,7 @@ const request = () => new AbortController().signal;
 const dateA = "2030-11-01T05:00:00Z";
 const dateB = "2030-11-03T05:00:00Z";
 const dateC = "2030-11-04T05:00:00Z";
+const dateD = "2030-11-05T05:00:00Z";
 const draft = { from_city: "Уфа", to_city: "Сибай", price: 0 };
 const expectedHash = createHash("sha256").update(
   '{"body":{"depart_at":"2030-11-01T05:00:00Z","ride":{"from_city":"Уфа","price":0,"to_city":"Сибай"}},"scope":"ride.create","target_id":null}',
@@ -60,7 +61,7 @@ globalThis.fetch = async (url, options) => {
     listPosts.push({ key: saved.key, dates: body.departures });
     if (phase === "first") return response({ items: [applied(dateA, 51), unknown(dateB)] });
     if (phase === "lost") throw new TypeError("Synthetic loss after commit");
-    if (phase === "rejected") return response({ items: [applied(dateA, 61), rejected(dateB)] });
+    if (phase === "rejected") return response({ items: [applied(dateA, 61), rejected(dateB), rejected(dateD)] });
     if (phase === "retry") return response({ items: [applied(dateC, 62)] });
     if (phase === "unknown") return response({ items: [unknown(dateB)] });
     throw new Error("unexpected fixture mode");
@@ -103,14 +104,16 @@ assert.equal(await first.releaseRideSeries(owner, checked), true);
 console.log("PASS repeat only one unresolved date with the same key and recover a lost response");
 
 phase = "rejected";
-const withFailure = await submit(first, checked.key);
+const withFailure = await submit(first, checked.key, [dateA, dateB, dateD]);
 phase = "retry";
-const republished = await second.publishRejectedRideSeriesDates(owner, withFailure, [dateC], request());
+const republished = await second.publishRejectedRideSeriesDates(owner, withFailure, [dateC], [dateB], request());
 assert.notEqual(republished.key, withFailure.key);
 assert.deepEqual(listPosts.at(-1), { key: republished.key, dates: [dateC] });
-assert.deepEqual(republished.items.map(item => item.ride_id), [61, 62]);
+assert.deepEqual(republished.items.map(item => [item.depart_at, item.outcome, item.ride_id]), [
+  [dateA, "applied", 61], [dateC, "applied", 62], [dateD, "rejected", undefined],
+]);
 assert.equal(await second.releaseRideSeries(owner, republished), true);
-console.log("PASS explicit new attempt keeps applied ride IDs and sends only newly chosen dates");
+console.log("PASS explicit new attempt keeps applied rides and unselected refusals");
 
 phase = "unknown";
 const unresolved = await submit(second, republished.key, [dateB]);

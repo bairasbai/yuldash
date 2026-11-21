@@ -61,12 +61,12 @@ export async function publishRideSeries(
 }
 
 export async function publishRejectedRideSeriesDates(
-  owner: BookingCommandOwner, intent: RideSeriesIntent, departures: string[], signal: AbortSignal,
+  owner: BookingCommandOwner, intent: RideSeriesIntent, departures: string[], replacedDates: string[], signal: AbortSignal,
 ) {
   const retry = { ...await newRideSeriesIntent(JSON.parse(intent.rideBody), departures), draftHash: intent.draftHash };
   await reconcileSession();
   if (signal.aborted) throw new Error("Ride series request stopped");
-  const saved = await replaceRejectedSeriesDates(owner, intent, retry);
+  const saved = await replaceRejectedSeriesDates(owner, intent, retry, replacedDates);
   if (!saved) throw new Error("Ride series changed");
   return sendRideSeries(owner, saved, signal);
 }

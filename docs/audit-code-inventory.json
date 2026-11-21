@@ -83,11 +83,11 @@
     "infra_resource_config": 439,
     "public_site_promo": 91,
     "pwa_main": 372,
-    "test_support": 1362
+    "test_support": 1363
   },
   "counts_by_block": {
     "B01": 178,
-    "B02": 407,
+    "B02": 408,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -15182,7 +15182,7 @@
       "path": "webapp/src/api/rideSeries.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "9fa937f88c97ef5618f0d2affb5f5677e3594531710bb17352011f6e15413ad7",
+      "sha256": "f00115984f0818bff72b8c31246278879d5fc3c9999bd2a245b7e1bfb56fd119",
       "lines": 122
     },
     {
@@ -15840,8 +15840,8 @@
       "path": "webapp/src/components/RideSeriesRecovery.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "a75d3e1c299823182869fcbd25744b6ba96157da04a4dde8d1cc365f88be082e",
-      "lines": 119
+      "sha256": "0811ba44d9ae0fccdc3f6d6f78598dfe20a0f28c747ef1c7b70e82c8dcd1e572",
+      "lines": 143
     },
     {
       "path": "webapp/src/components/RideSheet.tsx",
@@ -16519,7 +16519,7 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "a0aa95a72b1d4c06d0f83f55f8c4c97f7d4e0f4265a906c168aaaf634b32309d",
+      "sha256": "fa5b55692758bf19987054d29c32eb69ab9e24670394fe475a2baa9360eea852",
       "lines": 1053
     },
     {
@@ -17044,8 +17044,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "93174aea6d24afdc0d4a60a23047ce42bde0ce879d63c2de05c689eef938fdd0",
-      "lines": 21219
+      "sha256": "74b8e93e98d0bddf4f797141d638e13cf85da0f734097b30b4b6a77a2783a4cd",
+      "lines": 21225
     },
     {
       "path": "webapp/src/uiPrefs.ts",
@@ -17065,8 +17065,8 @@
       "path": "webapp/src/utils/bookingCommandStore.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "98931e11cb5ecffb55eb6c627f2a357e749cc41132646102e3a66736e7341b1a",
-      "lines": 377
+      "sha256": "df8649ab577df042c106a8ce74753fc67b98404fd09239ae50b526b83c87f935",
+      "lines": 383
     },
     {
       "path": "webapp/src/utils/bookingLink.ts",
@@ -18364,11 +18364,18 @@
       "lines": 279
     },
     {
+      "path": "webapp/tests/ride-series-recovery-content-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "45c14e41dc1f47ae53915615897f1fab3ace12796413f31de4a1df14e8599b6d",
+      "lines": 50
+    },
+    {
       "path": "webapp/tests/ride-series-retry-test.mjs",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "97dd2a0a4d3439ee8b54a01618b777021add2cc2f10b590edabde21012375ef1",
-      "lines": 137
+      "sha256": "0a0f2fdaaad4b0739863cdfd8aa2c285fef93481df465f3fc114c7e6659d4b5a",
+      "lines": 140
     },
     {
       "path": "webapp/tests/ride-template-test.mjs",
@@ -18416,8 +18423,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5216b8e6e83ad52ab3ffc0154e529fa5df7cf8c5658a1fe8c0e2fcb3f2807ee1",
-      "lines": 350
+      "sha256": "2f0599d3cda34a6c3af82bbb2a543a2d613fdf242d54cc74a201828bebfd702f",
+      "lines": 351
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",

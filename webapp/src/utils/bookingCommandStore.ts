@@ -209,18 +209,24 @@ export function updateRideSeries(owner: BookingCommandOwner, series: RideSeriesI
   });
 }
 
-export function replaceRejectedSeriesDates(owner: BookingCommandOwner, series: RideSeriesIntent, retry: RideSeriesIntent) {
+export function replaceRejectedSeriesDates(
+  owner: BookingCommandOwner, series: RideSeriesIntent, retry: RideSeriesIntent, replacedDates: string[],
+) {
   return publicationTransaction<RideSeriesIntent | undefined>(owner, ([current]) => {
     if (current?.key !== series.key || !("mode" in current) || current.items.some(item => item.outcome === "unknown")) {
       return { result: undefined };
     }
-    const applied = current.items.filter(item => item.outcome === "applied");
-    const rejectedCount = current.items.length - applied.length;
-    if (!rejectedCount || retry.items.length > rejectedCount ||
-        retry.items.some(item => applied.some(ride => ride.depart_at === item.depart_at))) {
+    const rejected = current.items.filter(item => item.outcome === "rejected");
+    const replaced = new Set(replacedDates);
+    if (!replaced.size || replaced.size !== replacedDates.length || replaced.size !== retry.items.length ||
+        replacedDates.some(date => !rejected.some(item => item.depart_at === date))) {
       return { result: undefined };
     }
-    const updated = { ...retry, items: [...applied, ...retry.items].sort((a, b) => a.depart_at.localeCompare(b.depart_at)) };
+    const retained = current.items.filter(item => !replaced.has(item.depart_at));
+    if (retry.items.some(item => retained.some(ride => ride.depart_at === item.depart_at))) {
+      return { result: undefined };
+    }
+    const updated = { ...retry, items: [...retained, ...retry.items].sort((a, b) => a.depart_at.localeCompare(b.depart_at)) };
     return { result: updated, updated: [updated] };
   });
 }

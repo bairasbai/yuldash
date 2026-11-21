@@ -11,18 +11,21 @@ export default function RideSeriesRecovery({
 }: {
   intent: RideSeriesIntent; busy: boolean;
   onCheck: () => void; onSend: () => void; onClose: (departAt: string) => void;
-  onRetry: (departures: string[]) => void; onDone: (published: number) => void;
+  onRetry: (departures: string[], replacedDates: string[]) => void; onDone: (published: number) => void;
 }) {
   const { appText, lang } = useLang();
   const ba = lang === "ba";
   const [closing, setClosing] = useState<string>();
   const [editing, setEditing] = useState(false);
+  const [selectedRejected, setSelectedRejected] = useState<string[]>([]);
   const [days, setDays] = useState<string[]>([]);
   const [time, setTime] = useState("");
   const published = intent.items.filter(item => item.outcome === "applied").length;
   const rejected = intent.items.filter(item => item.outcome === "rejected");
   const unknown = intent.items.some(item => item.outcome === "unknown");
   const nextDates = rideSeriesDepartures(days, time);
+  const occupied = nextDates.find(date => intent.items.some(item => item.depart_at === date &&
+    !selectedRejected.includes(item.depart_at)));
 
   function editRejected() {
     const now = minDateTimeNow();
@@ -32,7 +35,15 @@ export default function RideSeriesRecovery({
     }).filter(value => value >= now);
     setDays([...new Set(dates.map(value => value.slice(0, 10)))]);
     setTime(dates[0]?.slice(11) ?? "");
+    setSelectedRejected(rejected.map(item => item.depart_at));
     setEditing(true);
+  }
+
+  function selectRejected(departAt: string) {
+    const next = selectedRejected.includes(departAt) ? selectedRejected.filter(value => value !== departAt)
+      : [...selectedRejected, departAt];
+    setSelectedRejected(next);
+    setDays(value => value.slice(0, next.length));
   }
 
   return (
@@ -61,6 +72,14 @@ export default function RideSeriesRecovery({
             <li key={item.commandKey}>
               <strong>{label}</strong>
               <div>{detail}</div>
+              {editing && item.outcome === "rejected" && (
+                <label>
+                  <input type="checkbox" className="checkbox" checked={selectedRejected.includes(item.depart_at)} disabled={busy}
+                    aria-label={appText(`Заменить дату ${label}`, `${label} көнөн алмаштырырға`)}
+                    onChange={() => selectRejected(item.depart_at)} />
+                  {appText("Заменить дату", "Көндө алмаштырырға")}
+                </label>
+              )}
               {item.outcome === "unknown" && (closing === item.depart_at ? (
                 <>
                   <p>{appText("Закрыть запрос на эту дату?", "Был көнгә һорауҙы ябырғамы?")}</p>
@@ -98,12 +117,17 @@ export default function RideSeriesRecovery({
               {appText("Выбрать даты для новой попытки", "Яңы ынтылыш өсөн көндәрҙе һайларға")}
             </button>
           )}
-          {editing && rejected.length > 0 && (
+          {editing && selectedRejected.length > 0 && (
             <>
               <RideSeriesFields days={days} time={time} onDays={setDays} onTime={setTime}
-                disabled={busy} limit={rejected.length} />
-              <button type="button" className="btn-primary" disabled={busy || !nextDates.length}
-                onClick={() => onRetry(nextDates)}>
+                disabled={busy} limit={selectedRejected.length} />
+              {occupied && <p role="status">{appText(
+                "Для этого времени уже есть результат. Выбери другую дату или время.",
+                "Был ваҡытҡа һөҙөмтә бар инде. Башҡа көндө йәки ваҡытты һайла.",
+              )}</p>}
+              <button type="button" className="btn-primary"
+                disabled={busy || !!occupied || nextDates.length !== selectedRejected.length}
+                onClick={() => onRetry(nextDates, selectedRejected)}>
                 {appText("Опубликовать выбранные даты заново", "Һайланған көндәрҙе яңынан баҫтырырға")}
               </button>
             </>

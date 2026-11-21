@@ -2602,6 +2602,12 @@ button.list-row:active {
   gap: 10px;
   text-align: left;
 }
+.ride-series-results label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 48px;
+}
 .opt-chip:active {
   transform: scale(0.97);
 }
