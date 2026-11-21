@@ -5,6 +5,7 @@ import android.content.Context
 import android.os.Looper
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
@@ -28,10 +29,8 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import java.util.Collections
 import java.util.IdentityHashMap
-import java.util.concurrent.CountDownLatch
 import java.util.concurrent.CopyOnWriteArrayList
-import java.util.concurrent.TimeUnit
-import java.util.concurrent.atomic.AtomicBoolean
+import java.util.concurrent.atomic.AtomicReference
 import kotlin.coroutines.Continuation
 import kotlin.coroutines.resume
 import kotlin.coroutines.suspendCoroutine
@@ -64,8 +63,6 @@ class RideshareCompletedBoundaryTest {
     @Volatile private var bankCheckoutEnabled = false
     @Volatile private var bankCommandAccepted = false
     @Volatile private var bankCommandKey: String? = null
-    private val staleBankRead = AtomicBoolean(false)
-    @Volatile private var oldBankReadArrived: CountDownLatch? = null
     private var contentMounted = false
 
     private fun awaitBackgroundCompletion() = runBlocking {
@@ -139,18 +136,13 @@ class RideshareCompletedBoundaryTest {
                             return MockResponse().setResponseCode(503).setBody("{}")
                         }
                         if (bankCommandKey != null && key == "GET /command-intents/$bankCommandKey") {
-                            if (bankCommandAccepted && oldBankReadArrived?.await(10, TimeUnit.SECONDS) == false) {
-                                fixtureFailures += "Display's prior status GET was not observed"
-                            }
                             return MockResponse().setBody(if (bankCommandAccepted)
                                 """{"state":"applied","scope":"booking.card_confirm","ref_id":42,"current":{"accepted":true}}"""
                             else """{"state":"unseen","scope":null}""")
                         }
                     }
                     if (request.method == "GET" && request.path in setOf("/bookings/42/card-payment", "/bookings/43/card-payment") && bearer == "Bearer $tokenA") {
-                        val stale = bankCommandAccepted && staleBankRead.compareAndSet(true, false)
-                        if (stale) oldBankReadArrived?.countDown()
-                        val status = if (bankStatusEnabled || (bankCommandAccepted && !stale)) "waiting_bank" else "unavailable"
+                        val status = if (bankStatusEnabled || bankCommandAccepted) "waiting_bank" else "unavailable"
                         return MockResponse().setHeader("Content-Type", "application/json")
                             .setBody("""{"currency":"RUB","payment_status":"$status","amount_kop":45000,"paid_kop":0,"refund_status":"not_started","refunded_kop":0,"refund_coverage":"none"}""")
                     }
@@ -305,8 +297,9 @@ class RideshareCompletedBoundaryTest {
         bankCheckoutEnabled = true
         mount()
         val list = compose.onNodeWithTag("rideshareCompletedList")
-        fun findWhenReady(label: String): SemanticsNodeInteraction {
-            val target = hasText(label, substring = true)
+        fun findWhenReady(label: String, actionable: Boolean = false): SemanticsNodeInteraction {
+            val text = hasText(label, substring = true)
+            val target = if (actionable) text and isEnabled() else text
             compose.waitUntil(12_000) {
                 compose.mainClock.advanceTimeBy(100)
                 Shadows.shadowOf(Looper.getMainLooper()).idle()
@@ -320,9 +313,9 @@ class RideshareCompletedBoundaryTest {
             return compose.onNode(target).assertIsDisplayed()
         }
         fun posts() = requests.count { it.first == "POST /bookings/42/commands/v1/card-confirm" }
-        findWhenReady("Оплатить картой").performClick()
+        findWhenReady("Оплатить картой", actionable = true).performClick()
         findWhenReady("Сумма к оплате")
-        findWhenReady("Подтвердить оплату").performClick()
+        findWhenReady("Подтвердить оплату", actionable = true).performClick()
         findWhenReady("Проверяем, принято ли подтверждение.")
         assertEquals(1, posts())
         compose.runOnIdle { mounted.value = false }
@@ -330,10 +323,9 @@ class RideshareCompletedBoundaryTest {
         compose.runOnIdle { mounted.value = true }
         findWhenReady("Проверяем, принято ли подтверждение.")
         assertEquals(1, posts())
-        oldBankReadArrived = CountDownLatch(1)
-        staleBankRead.set(true)
+        val verify = findWhenReady("Проверить оплату", actionable = true)
         bankCommandAccepted = true
-        findWhenReady("Проверить оплату").performClick()
+        verify.performClick()
         findWhenReady("Ждём подтверждения банка")
         compose.waitUntil(12_000) {
             compose.mainClock.advanceTimeBy(100)
@@ -344,6 +336,48 @@ class RideshareCompletedBoundaryTest {
             }
         }
         assertEquals(1, posts())
+    }
+
+    @Test fun verifiedPaymentFencesAnOlderDisplayRead() {
+        val receipt = runBlocking { ApiClient.getTripReceipt(42).getOrThrow() }
+        val generation = ApiClient.queueSessionGeneration()
+        val older = RideshareCardPayment(RideshareBankStatus.Unavailable, null, 0,
+            RideshareBankStatus.NotStarted, 0, "none", null, null, null)
+        val verified = older.copy(payment = RideshareBankStatus.WaitingBank, amountKop = 45_000)
+        val oldRead = AtomicReference<Continuation<Result<RideshareCardPayment>>>()
+        val activeRead = AtomicReference<Job>()
+        val visible = AtomicReference<CardPaymentRead>()
+        contentMounted = true
+        compose.setContent {
+            if (mounted.value) {
+                val bank = rememberRideshareCardPayment(receipt, generation, readPayment = { id, expected ->
+                    assertEquals(42, id)
+                    assertEquals(generation, expected)
+                    val job = requireNotNull(currentCoroutineContext()[Job])
+                    ownedJobs.add(job)
+                    activeRead.set(job)
+                    suspendCoroutine { oldRead.set(it) }
+                }) { true }
+                SideEffect { visible.set(bank) }
+            }
+        }
+        try {
+            compose.waitUntil(5_000) { oldRead.get() != null }
+            compose.runOnIdle { assertTrue(requireNotNull(visible.get()).acceptObserved(verified)) }
+            requireNotNull(oldRead.getAndSet(null)).resume(Result.success(older))
+            compose.waitUntil(5_000) {
+                compose.mainClock.advanceTimeBy(100)
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                activeRead.get()?.isCompleted == true
+            }
+            compose.runOnIdle {
+                val current = requireNotNull(visible.get())
+                assertEquals(verified, current.payment)
+                assertTrue(current.replacesDirectPayment(false))
+            }
+        } finally {
+            oldRead.getAndSet(null)?.resume(Result.success(older))
+        }
     }
 
     @Test fun ordinaryCompletedActionsRemainAvailable() {
