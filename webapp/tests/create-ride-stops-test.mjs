@@ -16,7 +16,7 @@ const towns = [
 const stop = "Берёзовка (Иглинский р-н)";
 const fixture = globalThis.__createRideStops = { queries: [], published: [], owner: "A", hydrated: false, cleared: 0 };
 function fresh() {
-  Object.assign(fixture, { queries: [], published: [], owner: "A", hydrated: false, cleared: 0, reject: false,
+  Object.assign(fixture, { queries: [], published: [], seriesPublished: [], owner: "A", hydrated: false, cleared: 0, reject: false,
     draft: { from: "Уфа", to: "Сибай", when: "2030-01-02T10:00", waypoints: [stop] } });
   fixture.search = async (q) => {
     fixture.queries.push(q);
@@ -137,20 +137,48 @@ for (const lang of ["ru", "ba"]) {
   });
 
   const Form = await bundleComponent("src/screens/CreateRideScreen.tsx", {
-    real: ["/StopSuggestField", "/seatOptions"], mocks: {
+    real: ["/StopSuggestField", "/seatOptions", "/components/RideSeriesFields"], mocks: {
       "/api/geo": geoMock, "/api/client": clientMock, "/i18n/lang": langMock(lang),
       "/features": "export const useFeatures=()=>({parcels:true});export const getFeatures=useFeatures;",
       "/WeatherWarningCard": "export default 'Weather';export const useRouteWeather=()=>null;",
       "/api/driver": "export const fetchPriceHint=async()=>({});",
       "/auth/AuthProvider": "export const useAuth=()=>({status:'authed',user:{id:7,created_at:'fixture'}});",
-      "/utils/bookingCommandStore": "export const bookingCommandOwner=(user,generation)=>({generation});export const isCurrentBookingOwner=owner=>owner.generation===globalThis.__createRideStops.owner;export const releaseRidePublication=async()=>true;",
+      "/utils/bookingCommandStore": "export const bookingCommandOwner=(user,generation)=>({generation});export const isCurrentBookingOwner=owner=>owner.generation===globalThis.__createRideStops.owner;export const releaseRidePublication=async()=>true;export const releaseRideSeries=async()=>{throw Error('unexpected series release')};",
       "/utils/useSavedPublication": "export const useSavedPublication=owner=>({publication:{owner},setSavedPublication(){},reloadPublication(){}});",
       "/api/ridePublication": `export class PublicationProblem extends Error{};export const publicationDraftHash=async()=>'draft';export const checkRidePublication=async()=>({state:'unseen'});export const publishRide=async body=>{const f=globalThis.__createRideStops;f.published.push(body);if(f.reject)throw new globalThis.__stopApiError('Остановка временно недоступна');return{command:{key:'fixture',draftHash:'draft'},result:{state:'applied',ride:{id:42,status:'active'}}};};`,
+      "/api/rideSeries": "export const canRepeatRideSeries=()=>false;const unexpected=()=>{throw Error('unexpected series API')};export const checkRideSeries=unexpected,closeRideSeriesDate=unexpected,publishRejectedRideSeriesDates=unexpected,sendRideSeries=unexpected;export const publishRideSeries=async(draft,departures)=>{globalThis.__createRideStops.seriesPublished.push({draft,departures});return{key:'series',items:[]};};",
       "/utils/formDraft": `export const useDraftSync=(key,value,apply)=>{const f=globalThis.__createRideStops;if(!f.hydrated){f.hydrated=true;apply(f.draft);}};export const readDraft=()=>null;export const clearDraft=()=>globalThis.__createRideStops.cleared++;`,
     },
   });
   const stops = (tree) => all(tree).filter((node) => typeof node.type === "function" && node.type.name === "StopSuggestField");
   const publish = (tree) => button(tree, L("Опубликовать", "Баҫтырырға"));
+  await t.test(`${lang}: несколько дат из черновика используют одну публикацию серии`, async () => {
+    for (const days of [["2030-01-02"], ["2030-01-02", "2030-01-04"]]) {
+      fresh();
+      Object.assign(fixture.draft, { seriesMode: true, seriesDays: days, seriesTime: "10:30", price: "0" });
+      const h = mount(Form);
+      try {
+        h.render(); await h.settle();
+        const submit = publish(h.tree);
+        assert.equal(submit.props.disabled, false);
+        await submit.props.onClick(); await h.settle();
+        if (days.length === 1) {
+          assert.deepEqual(fixture.seriesPublished, []);
+          assert.equal(fixture.published.length, 1);
+          assert.equal(fixture.published[0].depart_at, new Date(days[0] + "T10:30").toISOString());
+          assert.equal(fixture.published[0].recurrence, "none");
+        } else {
+          assert.deepEqual(fixture.published, []);
+          const [batch] = fixture.seriesPublished;
+          assert.equal(fixture.seriesPublished.length, 1);
+          assert.deepEqual(batch.departures, days.map(day => new Date(day + "T10:30").toISOString()));
+          assert.equal(batch.draft.recurrence, "none");
+          assert.equal(batch.draft.price, 0);
+          assert.equal("depart_at" in batch.draft, false);
+        }
+      } finally { h.unmount(); }
+    }
+  });
   await t.test(`${lang}: отказ сервера показан дословно; остановка и черновик остаются, повтор успешен`, async () => {
     fresh(); fixture.reject = true;
     const h = mount(Form);

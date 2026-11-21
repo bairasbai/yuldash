@@ -29,7 +29,7 @@ from .errors import herr
 from .timeutil import utcnow
 
 
-def guard_open_items(session: Session, id_col, *conds, limit: int, ru: str, ba: str) -> None:
+def guard_open_items(session: Session, id_col, *conds, limit: int, ru: str, ba: str, code: str | None = None) -> None:
     """Потолок на число ОДНОВРЕМЕННО открытых объектов (активные поездки, заявки, посылки).
 
     Считаем не «сколько создал за всё время», а «сколько висит сейчас»: закрыл/отменил —
@@ -37,7 +37,7 @@ def guard_open_items(session: Session, id_col, *conds, limit: int, ru: str, ba: 
     Запрос читает не больше `limit + 1` строк — на горячем пути это дёшево."""
     n = len(list(session.exec(select(id_col).where(*conds).limit(limit + 1)).all()))
     if n >= limit:
-        raise herr(429, ru, ba)
+        raise herr(429, ru, ba, code=code)
 
 
 def guard_burst(session: Session, id_col, created_col, *conds,

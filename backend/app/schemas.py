@@ -7,7 +7,7 @@
 from datetime import date, datetime
 from typing import Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .models import RideCategory, RideStatus
 
@@ -55,6 +55,37 @@ class RideIn(BaseModel):
     receiver_name: Optional[str] = Field(None, max_length=120)   # посылка: кому отдать
     parcel_size: Optional[str] = Field(None, max_length=80)      # посылка: габарит/вес
     partner_id: Optional[int] = None  # F22: клиника-назначение (для category=hospital), опционально
+
+
+class RideSeriesDraft(RideIn):
+    depart_at: datetime | None = Field(None, exclude=True)
+
+    @field_validator("depart_at", mode="before")
+    @classmethod
+    def ignore_depart_at(cls, _value):
+        return None
+
+
+class RideSeriesIn(BaseModel):
+    ride: RideSeriesDraft
+    departures: list[datetime] = Field(min_length=1)
+
+
+class RideSeriesItem(BaseModel):
+    depart_at: datetime
+    outcome: Literal["applied", "rejected", "unknown"]
+    ride_id: int | None = None
+    already: bool = False
+    code: str | None = None
+    ru: str | None = None
+    ba: str | None = None
+
+
+class RideSeriesOut(BaseModel):
+    published: int
+    failed: int
+    unresolved: int
+    items: list[RideSeriesItem]
 
 
 class RideTemplateOut(BaseModel):

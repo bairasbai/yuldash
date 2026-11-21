@@ -181,6 +181,7 @@ class LegacyOfflineOwnerTest {
         assertTrue(context.queue.contains("queue"))
         context.passes.failRemovalOf = "pass_7"
         context.queue.failRemovalOf = "queue"
+        awaitOfflineWriteSnapshotReset02()
         ApiClient.verifyCode("+70000000000", "000000", "Fallback").getOrThrow()
         ApiClient.init(context)
         assertEquals(TripPassAuthorityFixture.jwt(8), ApiClient.currentToken())

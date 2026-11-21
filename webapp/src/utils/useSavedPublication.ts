@@ -1,5 +1,7 @@
 import { useEffect, useState, type RefObject } from "react";
 import { checkRidePublication, type PublicationResult } from "../api/ridePublication";
+import { checkRideSeries } from "../api/rideSeries";
+import type { RideSeriesIntent } from "./rideSeriesIntent";
 import {
   isCurrentBookingOwner, readPublicationSlot, type BookingCommandOwner, type RidePublication,
 } from "./bookingCommandStore";
@@ -8,6 +10,7 @@ type SavedPublication = {
   owner: BookingCommandOwner;
   revision: string | null;
   command?: RidePublication;
+  series?: RideSeriesIntent;
   result?: PublicationResult;
   storageUnavailable?: boolean;
 };
@@ -19,10 +22,15 @@ export function useSavedPublication(owner: BookingCommandOwner | null, operation
     if (!owner) return;
     const load = new AbortController();
     const current = () => !load.signal.aborted && isCurrentBookingOwner(owner);
-    void readPublicationSlot(owner).then(async ({ command, revision }) => {
+    void readPublicationSlot(owner).then(async ({ command, series, revision }) => {
       if (!current()) return;
-      const initial = { owner, revision, command };
+      const initial = { owner, revision, command, series };
       setSaved(initial);
+      if (series) {
+        const checked = await checkRideSeries(owner, series, load.signal).catch(() => undefined);
+        if (checked && current()) setSaved(existing => existing === initial ? { ...initial, series: checked } : existing);
+        return;
+      }
       if (!command) return;
       const result = await checkRidePublication(owner, command, false, load.signal).catch(() => undefined);
       if (result && current()) setSaved(existing => existing === initial ? { ...initial, result } : existing);

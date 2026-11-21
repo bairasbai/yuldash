@@ -1374,16 +1374,16 @@ private fun YuldashAppContent() {
                 onAdClick = { trackAdClick(it) },
                 onOpenReceipt = { bid -> receiptBookingId = bid; screen = Screen.TripReceipt },
             )
-            Screen.CreateRide -> CreateRideScreen(
-                prefill = remember(createRidePrefill) { RideCreatePrefill.restore(createRidePrefill) },
+            Screen.CreateRide -> CreateRideDestination(
+                savedPrefill = createRidePrefill,
                 onBack = { goBack() },
                 onPublicationResolved = { ridesReload++ },
                 onOpenReturnTemplate = { openCreateRide(createRideReturnScreen, createRideReturnHomeTab, template = it) },
-                onPublish = {
+                onFinished = {
                     screenStates.removeState(createRideStateKey(screenStateOwner, createRidePrefill))
                     createRidePrefill = null
                     if (createRideReturnScreen == Screen.DriverCabinet) screen = Screen.DriverCabinet else openHome(HomeTab.Rides)
-                }
+                },
             )
             Screen.CreateRequest -> CreatePassengerRequestScreen(
                 onBack = { goBack() },

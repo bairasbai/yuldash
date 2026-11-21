@@ -21,9 +21,10 @@ mocks["../auth/AuthProvider"]="export const useAuth=()=>({isAuthed:true,status:'
 mocks["../features"]="export const getFeatures=()=>({parcels:globalThis.__parcelRide.parcels,ready:true});export const useFeatures=getFeatures;";
 mocks["../utils/formDraft"]="export const clearDraft=()=>{};export const readDraft=()=>null;export const useDraftSync=(key,state,apply)=>{const h=globalThis.__parcelRide;if(!h.hydrated){h.hydrated=true;apply(h.draft);}};";
 mocks["../api/driver"]="export const fetchPriceHint=async()=>({});";
-mocks["../utils/bookingCommandStore"]="export const bookingCommandOwner=()=>({});export const isCurrentBookingOwner=()=>true;export const releaseRidePublication=async()=>true;";
+mocks["../utils/bookingCommandStore"]="export const bookingCommandOwner=()=>({});export const isCurrentBookingOwner=()=>true;export const releaseRidePublication=async()=>true;export const releaseRideSeries=async()=>{throw Error('unexpected series release')};";
 mocks["../utils/useSavedPublication"]="export const useSavedPublication=owner=>({publication:{owner},setSavedPublication(){},reloadPublication(){}});";
 mocks["../api/ridePublication"]="export class PublicationProblem extends Error{};export const publicationDraftHash=async()=>'draft';export const checkRidePublication=async()=>({state:'unseen'});export const publishRide=async body=>{globalThis.__parcelRide.published.push(body);return{command:{key:'fixture',draftHash:'draft'},result:{state:'applied',ride:{id:42,status:'active'}}};};";
+mocks["../api/rideSeries"]="export const canRepeatRideSeries=()=>false;const unexpected=()=>{throw Error('unexpected series API')};export const checkRideSeries=unexpected,closeRideSeriesDate=unexpected,publishRejectedRideSeriesDates=unexpected,publishRideSeries=unexpected,sendRideSeries=unexpected;";
 mocks["../api/bookingCommands"]=bookingCommandStub("export const createBooking=async body=>{globalThis.__parcelRide.booked.push(body);return{id:73};};");
 mocks["../api/client"]="export class ApiError extends Error{}export const getSessionGeneration=()=> 'same-owner';";
 mocks["../booking/OwnBookingsProvider"]="export const useOwnBooking=()=>globalThis.__parcelRide.ownBooking??null;export const useRefreshOwnBookings=()=>()=>{};";
