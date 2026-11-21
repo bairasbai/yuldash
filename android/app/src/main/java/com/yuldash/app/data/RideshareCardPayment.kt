@@ -26,6 +26,7 @@ internal data class RideshareCardPayment(
     val payout: RideshareBankStatus?,
     val paidOutKop: Int?,
     val payoutRemainingKop: Int?,
+    val paymentAttemptId: String? = null,
 ) {
     val hasOperation get() = payment != RideshareBankStatus.Unavailable && payment != RideshareBankStatus.NotStarted
     fun replacesDirectPayment(receiptHasObligation: Boolean) =
@@ -55,5 +56,7 @@ internal fun parseRideshareCardPayment(value: JSONObject): RideshareCardPayment 
         payout = if (value.isNull("payout_status")) null else status("payout_status"),
         paidOutKop = optionalAmount("paid_out_kop"),
         payoutRemainingKop = optionalAmount("payout_remaining_kop"),
+        paymentAttemptId = if (value.isNull("payment_attempt_id")) null else
+            (value.get("payment_attempt_id") as String).also { require(cardCheckoutOperationId.matches(it)) },
     )
 }

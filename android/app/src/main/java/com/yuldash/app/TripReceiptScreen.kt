@@ -148,9 +148,11 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
     var ratedStars by remember(r.bookingId, expectedGeneration) { mutableIntStateOf(0) }
     var rateBusy by remember(r.bookingId, expectedGeneration) { mutableStateOf(false) }
     val rateErr = appText("Оценка не ушла. Проверь сеть и попробуй ещё раз.", "Баһа ебәрелмәне. Селтәрҙе тикшереп, тағы бер тапҡыр ҡара.")
-    val bankPayment = rememberRideshareCardPayment(r, expectedGeneration, ::current)
-    val bankReplacesDirect = bankPayment.replacesDirectPayment(r.cardPaymentObligation)
-    val showBank = bankReplacesDirect || bankPayment.payment?.hasOperation == true
+    val bankPayment = rememberRideshareCardPayment(r, expectedGeneration, canRead = ::current)
+    val cardCheckout = rememberRideshareCardCheckout(r, expectedGeneration, bankPayment) { current() }
+    val bankObligated = bankPayment.replacesDirectPayment(r.cardPaymentObligation)
+    val bankReplacesDirect = bankObligated || cardCheckout.holdsDirect
+    val showBank = bankObligated || bankPayment.payment?.hasOperation == true
     val payLabel = if (bankReplacesDirect) appText("Оплата картой", "Карта менән түләү") else payMethodLabel(r.payMethod)
     val shareChooser = appText("Поделиться квитанцией", "Квитанция менән бүлешеү")
     // Строки для шеринга считаем ЗАРАНЕЕ (appText — @Composable, внутри buildString его звать нельзя).
@@ -180,7 +182,9 @@ private fun ReceiptCard(r: TripReceiptDto, expectedGeneration: Long, canAct: () 
             }
         }
 
-        if (showBank) RideshareCardPaymentSummary(bankPayment, isDriver)
+        if (showBank) RideshareCardPaymentSummary(bankPayment.copy(refresh = cardCheckout.refresh), isDriver) {
+            RideshareCardCheckoutActions(cardCheckout, insideSummary = true)
+        } else RideshareCardCheckoutActions(cardCheckout, insideSummary = false)
 
         // Сумма + способ расчёта напрямую
         if (!bankReplacesDirect) AppCard {

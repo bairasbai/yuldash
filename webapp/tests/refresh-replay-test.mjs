@@ -19,6 +19,28 @@ async function check(name, run) {
   const api = await instance(); await api.setSession('A', 'R');
   try { await run(api); passed++; console.log('PASS ' + name); } catch (e) { failed++; console.log('FAIL ' + name + ': ' + e.message); }
 }
+await check('one-shot card confirmation is not sent again after a 401 or lost response', async api => {
+  const token = 'header.' + Buffer.from(JSON.stringify({ sub: '11' })).toString('base64url') + '.signature';
+  await api.setSession(token, 'R');
+  const owner = { generation: api.getSessionGeneration(), userId: 11 };
+  const path = '/bookings/42/commands/v1/card-confirm';
+  const body = '{"amount_kop":45000}';
+  for (const failedReply of [401, 'network']) {
+    const requests = [];
+    globalThis.fetch = async (url, init) => {
+      requests.push(new URL(url).pathname);
+      assert.equal(init.method, 'POST');
+      assert.equal(init.redirect, 'error');
+      assert.equal(init.body, body);
+      if (failedReply === 'network') throw new TypeError('offline');
+      return response(failedReply);
+    };
+    await assert.rejects(api.apiCommand(path, owner, { method: 'POST', body, oneShot: true }));
+    assert.deepEqual(requests, [path]);
+    assert.equal(api.getSessionGeneration(), owner.generation);
+    assert.equal(api.getRefreshToken(), 'R');
+  }
+});
 for (const failure of ['network', '503', 'malformed']) await check('reload retains committed nonce after ' + failure, async api => {
   let first;
   globalThis.fetch = async (_, init) => { first = JSON.parse(init.body); if (failure === 'network') throw new TypeError('offline'); return failure === '503' ? response(503) : response(200, {}); };

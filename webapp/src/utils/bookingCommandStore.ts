@@ -276,6 +276,41 @@ export function resolveDriverStageCommand(owner: BookingCommandOwner, command: D
   });
 }
 
+export interface SavedCardConfirmation {
+  bookingId: number;
+  key: string;
+  hash: string;
+  wireBody: string;
+  createdAt: number;
+}
+
+function cardConfirmationTransaction<T>(
+  owner: BookingCommandOwner, edit: (rows: SavedCardConfirmation[]) => Edit<T, SavedCardConfirmation>,
+  requireCurrent = true,
+) {
+  return transaction(owner, edit, requireCurrent, JSON.stringify(["booking.card_confirm", owner.namespace]));
+}
+
+export function readCardConfirmation(owner: BookingCommandOwner, bookingId: number) {
+  return cardConfirmationTransaction(owner, rows => ({ result: rows.find(row => row.bookingId === bookingId) }));
+}
+
+export function reserveCardConfirmation(owner: BookingCommandOwner, bookingId: number, hash: string, wireBody: string) {
+  return cardConfirmationTransaction<SavedCardConfirmation | undefined>(owner, rows => {
+    if (rows.length >= MAX_SLOTS || rows.some(row => row.bookingId === bookingId)) return { result: undefined };
+    const command = { bookingId, key: COMMAND_KEY_PREFIX + crypto.randomUUID(), hash, wireBody, createdAt: Date.now() };
+    return { result: command, updated: [...rows, command] };
+  });
+}
+
+export function releaseCardConfirmation(owner: BookingCommandOwner, command: SavedCardConfirmation) {
+  return cardConfirmationTransaction(owner, rows => {
+    const current = rows.find(row => row.bookingId === command.bookingId);
+    if (current?.key !== command.key) return { result: false };
+    return { result: true, updated: rows.filter(row => row !== current) };
+  });
+}
+
 /** Call only after deleting the account and publishing the logged-out generation. */
 export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<void> {
   await Promise.all([
@@ -283,5 +318,6 @@ export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<
     publicationTransaction(owner, () => ({ result: undefined, updated: null }), false),
     driverDecisionTransaction(owner, () => ({ result: undefined, updated: null }), false),
     driverStageTransaction(owner, () => ({ result: undefined, updated: null }), false),
+    cardConfirmationTransaction(owner, () => ({ result: undefined, updated: null }), false),
   ]);
 }

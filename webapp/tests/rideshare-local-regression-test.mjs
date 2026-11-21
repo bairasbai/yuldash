@@ -159,6 +159,7 @@ const definitions = {
   enqueue: `async(...v)=>h.queued.push(v)`,
   fetchReceipt: `async()=>({...h.receipt})`, fetchBookingTip: `async()=>{h.requests.push('tip');return {already_thanked:false,money:{sbp:'+79990000000',name:'Test'}}}`,
   useRideshareCardPayment: `()=>({payment:null,phase:'idle',refresh(){}})`,
+  useRideshareCardCheckout: `(_id,_owner,_check,bank)=>({holdsDirect:false,refresh:bank.refresh})`,
   thankBooking: `async id=>h.thanks.push(id)`,
   readOfflineTrip: `id=>h.passStorage.readOfflineTrip(id)`,
   useStoredTripData: `(...args)=>h.useStoredTripData(...args)`,

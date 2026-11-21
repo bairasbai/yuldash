@@ -211,6 +211,7 @@ internal fun RideshareCompletedSession(
     val payMethod = receipt?.payMethod?.takeIf(String::isNotBlank) ?: fallbackPayMethod
     val paid = receipt?.paid == true
     val bankPayment = rememberRideshareCardPayment(receipt, completedSession) { canAct() }
+    val cardCheckout = rememberRideshareCardCheckout(receipt, completedSession, bankPayment) { canAct() }
     val reportTo = afterTripReportTo(receipt, isDriver)   // «Сообщить о проблеме»: окно держит сервер (6 ч, PR174)
 
     TripAuthorityContent({ isCurrent() && (receipt == null || com.yuldash.app.data.OfflineTripSnapshots.allowsHistory(receipt)) }) { RideshareCompletedContent(
@@ -226,6 +227,7 @@ internal fun RideshareCompletedSession(
         payMethod = payMethod,
         paid = paid,
         bankPayment = bankPayment,
+        cardCheckout = cardCheckout,
         bankObligation = receipt?.cardPaymentObligation == true,
         receiptLoading = receiptLoading,
         receiptError = receiptError,
@@ -395,6 +397,7 @@ internal fun RideshareCompletedContent(
     travelerContact: (@Composable () -> Unit)? = null,
     bankPayment: CardPaymentRead? = null,
     bankObligation: Boolean = false,
+    cardCheckout: CardCheckoutControls? = null,
 ) {
     Scaffold(
         containerColor = CanonBg,
@@ -475,9 +478,14 @@ internal fun RideshareCompletedContent(
                 }
             }
             if (problemReport != null) item { problemReport() }
-            val bankReplacesDirect = bankPayment?.replacesDirectPayment(bankObligation) ?: bankObligation
-            if (bankPayment != null && (bankReplacesDirect || bankPayment.payment?.hasOperation == true)) {
-                item { RideshareCardPaymentSummary(bankPayment, isDriver) }
+            val bankObligated = bankPayment?.replacesDirectPayment(bankObligation) ?: bankObligation
+            val bankReplacesDirect = bankObligated || cardCheckout?.holdsDirect == true
+            if (bankPayment != null && (bankObligated || bankPayment.payment?.hasOperation == true)) {
+                item { RideshareCardPaymentSummary(bankPayment.copy(refresh = cardCheckout?.refresh ?: bankPayment.refresh), isDriver) {
+                    cardCheckout?.let { RideshareCardCheckoutActions(it, insideSummary = true) }
+                } }
+            } else if (cardCheckout?.visible == true) {
+                item { RideshareCardCheckoutActions(cardCheckout, insideSummary = false) }
             }
             if (!bankReplacesDirect) item { RideshareCompletedPayment(amount = amount, method = payMethod, paid = paid) }
             if (showOnlinePay && !bankReplacesDirect) item { onlinePay() }

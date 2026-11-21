@@ -14,6 +14,7 @@ export interface RideshareCardPayment {
   payout_status: BankStatus | null;
   paid_out_kop: number | null;
   payout_remaining_kop: number | null;
+  payment_attempt_id?: string | null;
 }
 
 export function hasBankPayment(payment: RideshareCardPayment | null): boolean {
@@ -38,6 +39,8 @@ export async function fetchRideshareCardPayment(
       !statusCodes.includes(payment.refund_status) ||
       (payment.payout_status !== null && !statusCodes.includes(payment.payout_status)) ||
       !["none", "partial", "full"].includes(payment.refund_coverage) ||
+      (payment.payment_attempt_id != null &&
+        (typeof payment.payment_attempt_id !== "string" || !/^[a-f0-9]{32}$/.test(payment.payment_attempt_id))) ||
       ![payment.paid_kop, payment.refunded_kop].every(isKop) ||
       ![payment.amount_kop, payment.paid_out_kop, payment.payout_remaining_kop].every((value) => value === null || isKop(value))) {
     throw new Error("Invalid rideshare card receipt");
