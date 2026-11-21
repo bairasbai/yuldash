@@ -143,7 +143,8 @@ def claim_bank_dispatch(session: Session, checkout_id: int, *, runtime: BankRunt
 
     token = None
     if operation.resource in (BankResource.deal.value, BankResource.payment.value):
-        if check_bank_charge(session, booking, driver, checkout.recipient_version, runtime) != checkout.amount_kop:
+        terms = check_bank_charge(session, booking, driver, checkout.recipient_version, runtime)
+        if terms.amount_kop != checkout.amount_kop or terms.driver_consent_at != checkout.driver_consent_at:
             raise BankCheckoutUnavailable("bank_checkout_changed")
     elif operation.resource == BankResource.payout.value:
         if checkout.receipt_conflict or booking.payment_method != CARD_RECEIPT_METHOD or not booking.paid:

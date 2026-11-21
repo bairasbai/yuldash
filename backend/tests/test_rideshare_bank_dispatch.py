@@ -32,6 +32,7 @@ class SyntheticBank:
         self.requests = []
         self.objects = {}
         self.by_key = {}
+        self.lose_deal_response = False
         self.lose_payment_response = False
         self.on_first_deal = None
 
@@ -63,6 +64,9 @@ class SyntheticBank:
         self.objects[provider_id] = result
         if resource == "deals" and self.on_first_deal is not None:
             self.on_first_deal()
+        if resource == "deals" and self.lose_deal_response:
+            self.lose_deal_response = False
+            raise httpx.ReadTimeout("Synthetic deal response lost")
         if resource == "payments" and self.lose_payment_response:
             self.lose_payment_response = False
             raise httpx.ReadTimeout("Synthetic response lost")
@@ -107,13 +111,13 @@ def bank_checkout(client, user_factory):
     toggle(PAID_SWITCH, True)
     toggle(CARD_PAYMENTS_SWITCH, True)
 
-    def begin(expected=None, *, selected_version=version, actor=None, selected_runtime=runtime):
+    def begin(expected=None, *, expected_amount=45_000, selected_version=version, actor=None, selected_runtime=runtime):
         with Session(engine) as db:
             if expected is None:
                 expected = bank_switches(db)
             checkout = start_bank_checkout(db, booking_id, passenger["id"] if actor is None else actor,
                                            expected_switches=expected, recipient_version=selected_version,
-                                           runtime=selected_runtime)
+                                           expected_amount_kop=expected_amount, runtime=selected_runtime)
             value = checkout.id
             db.commit()
             return value
@@ -309,27 +313,51 @@ def test_closed_gates_and_wrong_actor_do_not_create_or_send_payment(client, bank
     assert response.status_code == 200
 
 
-def test_explicit_confirmation_can_replace_a_changed_recipient_before_the_debit(bank_checkout):
+def test_changed_terms_keep_unknown_deal_and_require_current_confirmed_amount(bank_checkout):
     checkout = bank_checkout
     first = checkout.begin()
-    assert send(checkout, first) == "succeeded"
+    checkout.fake.lose_deal_response = True
+    assert send(checkout, first) == "needs_reconciliation"
     with Session(engine) as db:
         version = save_bank_recipient(db, checkout.driver["id"], "synthetic-new-token",
                                       expected_version=checkout.version, cipher=checkout.runtime.cipher).version
+        db.get(Booking, checkout.booking_id).pay_amount = 500
         db.commit()
-    second = checkout.begin(selected_version=version)
-    assert first != second
+    with pytest.raises(BankCheckoutUnavailable, match="bank_amount_changed"):
+        checkout.begin(selected_version=version)
+    assert checkout.begin(selected_version=version, expected_amount=50_000) == first
     with Session(engine) as db:
-        assert db.get(RideshareBankCheckout, first).closed_at is not None
-        assert db.get(RideshareBankCheckout, second).recipient_version == version
-    assert len(checkout.fake.requests) == 1
+        row = db.get(RideshareBankCheckout, first)
+        assert row.closed_at is None and row.recipient_version == version
+    assert send(checkout, first) == "succeeded"
+    assert send(checkout, first) == "pending"
+    deal, replay, debit = checkout.fake.requests
+    assert deal == replay
+    assert debit[:2] == ("POST", "payments")
+    assert json.loads(debit[3])["amount"] == {"value": "500.00", "currency": "RUB"}
+    assert sum(entry["status"] == "opened" for entry in checkout.fake.objects.values()) == 1
+
+
+def test_renewed_driver_consent_requires_passenger_confirmation(bank_checkout):
+    checkout = bank_checkout
+    checkout_id = checkout.begin()
+    assert send(checkout, checkout_id) == "succeeded"
+    with Session(engine) as db:
+        consent = db.exec(select(DriverPaySettings).where(DriverPaySettings.user_id == checkout.driver["id"])).one()
+        consent.accepts_card_at += timedelta(seconds=1)
+        db.commit()
+    with pytest.raises(BankCheckoutUnavailable, match="bank_checkout_changed"):
+        send(checkout, checkout_id)
+    assert checkout.begin() == checkout_id
+    assert send(checkout, checkout_id) == "pending"
+    assert [request[1] for request in checkout.fake.requests] == ["deals", "payments"]
 
 
 def test_dispatch_schema_upgrade_from_old_columns(tmp_path, monkeypatch):
     db, config = _isolated_database(tmp_path, monkeypatch, "YULDASH_BANK_DISPATCH_MIGRATION_DB", "bank-dispatch.sqlite3")
     previous, target = "cu_rideshare_bank_recipient", "cv_rideshare_bank_dispatch"
     columns = {
-        "ridesharebankcheckout": {"paid_revision", "card_revision", "recipient_version", "receipt_conflict"},
+        "ridesharebankcheckout": {"paid_revision", "card_revision", "recipient_version", "driver_consent_at", "receipt_conflict"},
         "ridesharebankoperation": {"request_ciphertext", "confirmation_ciphertext", "lease_token", "lease_until"},
     }
     try:

@@ -2,6 +2,7 @@
 
 from collections.abc import Callable
 from dataclasses import dataclass
+from datetime import datetime
 
 from cryptography.fernet import Fernet
 from sqlalchemy import func
@@ -17,7 +18,6 @@ from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankCheckout, Ri
 from .rideshare_bank_provider import BankResource
 from .rideshare_bank_recipient import BankRecipientUnavailable, bank_recipient_token
 from .security import lock_refresh_user
-from .timeutil import utcnow
 
 
 CARD_RECEIPT_METHOD = "rideshare_card"
@@ -48,6 +48,12 @@ class BankRuntime:
 class BankSwitchRevision:
     paid: int
     card: int
+
+
+@dataclass(frozen=True)
+class BankChargeTerms:
+    amount_kop: int
+    driver_consent_at: datetime
 
 
 def bank_switches(session: Session, *, lock: bool = False) -> BankSwitchRevision:
@@ -86,14 +92,15 @@ def checked_bank_booking(session: Session, booking_id: int, passenger: User, dri
 
 
 def check_bank_charge(session: Session, booking: Booking, driver: User, recipient_version: str,
-                      runtime: BankRuntime) -> int:
+                      runtime: BankRuntime) -> BankChargeTerms:
     if booking.status != BookingStatus.done or booking.paid:
         raise BankCheckoutUnavailable("bank_booking_unavailable")
     consent = session.exec(
         select(DriverPaySettings).where(DriverPaySettings.user_id == driver.id)
         .execution_options(populate_existing=True),
     ).one_or_none()
-    if driver.role != UserRole.driver or not driver.verified or consent is None or not consent.accepts_card:
+    if (driver.role != UserRole.driver or not driver.verified or consent is None or
+            not consent.accepts_card or consent.accepts_card_at is None):
         raise BankCheckoutUnavailable("bank_driver_not_ready")
     try:
         bank_recipient_token(session, driver.id, recipient_version, cipher=runtime.cipher)
@@ -105,12 +112,13 @@ def check_bank_charge(session: Session, booking: Booking, driver: User, recipien
     ).limit(1)).first()
     if legacy is not None:
         raise BankCheckoutUnavailable("bank_legacy_payment_exists")
-    return booking_amount_kop(booking)
+    return BankChargeTerms(booking_amount_kop(booking), consent.accepts_card_at)
 
 
 def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
                         expected_switches: BankSwitchRevision, recipient_version: str,
-                        runtime: BankRuntime, retry_after_payment_id: str | None = None) -> RideshareBankCheckout:
+                        expected_amount_kop: int, runtime: BankRuntime,
+                        retry_after_payment_id: str | None = None) -> RideshareBankCheckout:
     """Confirm new work or resume that same attempt using a fresh read of the switches."""
     runtime.check_environment()
     passenger, driver = lock_booking_participants(session, booking_id, passenger_id=passenger_id)
@@ -131,14 +139,27 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
         raise BankCheckoutUnavailable("bank_paused")
     if revisions != expected_switches:
         raise BankCheckoutUnavailable("bank_switch_revision_conflict")
-    amount = check_bank_charge(session, booking, driver, recipient_version, runtime)
-    if checkout is not None and (checkout.amount_kop != amount or checkout.recipient_version != recipient_version):
-        if retry_after_payment_id is not None or booking_has_bank_obligation(session, booking_id):
+    terms = check_bank_charge(session, booking, driver, recipient_version, runtime)
+    amount = terms.amount_kop
+    if type(expected_amount_kop) is not int or expected_amount_kop != amount:
+        raise BankCheckoutUnavailable("bank_amount_changed")
+    if checkout is not None and (checkout.amount_kop != amount or checkout.recipient_version != recipient_version or
+                                 checkout.driver_consent_at != terms.driver_consent_at):
+        if booking_has_bank_obligation(session, booking_id):
             raise BankCheckoutUnavailable("bank_checkout_changed")
-        # Keep the old evidence. With no debit to reconcile, a new confirmation can start a fresh attempt.
-        checkout.closed_at = utcnow()
-        session.flush()
-        checkout = None
+        # A deal can already exist even when no debit has begun. Keep that operation and its key.
+        queued_charge = session.exec(select(RideshareBankOperation).where(
+            RideshareBankOperation.checkout_id == checkout.id,
+            RideshareBankOperation.resource == BankResource.payment.value,
+            RideshareBankOperation.state == "queued",
+        )).one_or_none()
+        if queued_charge is not None:
+            if queued_charge.request_ciphertext is not None or queued_charge.dispatched_at is not None:
+                raise BankCheckoutUnavailable("bank_checkout_changed")
+            queued_charge.amount_kop = queued_charge.settlement_kop = amount
+        checkout.amount_kop = checkout.payout_kop = amount
+        checkout.recipient_version = recipient_version
+        checkout.driver_consent_at = terms.driver_consent_at
     if checkout is not None:
         if retry_after_payment_id is not None:
             ended = session.get(RideshareBankOperation, retry_after_payment_id)
@@ -164,7 +185,8 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
         if booking_has_bank_obligation(session, booking_id):
             raise BankCheckoutUnavailable("bank_booking_unavailable")
         checkout = RideshareBankCheckout(booking_id=booking_id, amount_kop=amount, payout_kop=amount,
-                                        test_mode=runtime.test_mode, recipient_version=recipient_version)
+                                        test_mode=runtime.test_mode, recipient_version=recipient_version,
+                                        driver_consent_at=terms.driver_consent_at)
         session.add(checkout)
         session.flush()
         session.add(RideshareBankOperation(checkout_id=checkout.id, resource=BankResource.deal.value))

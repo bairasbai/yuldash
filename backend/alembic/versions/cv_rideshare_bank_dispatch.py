@@ -14,6 +14,7 @@ _CHECKOUT_COLUMNS = (
     ("paid_revision", sa.BigInteger),
     ("card_revision", sa.BigInteger),
     ("recipient_version", sa.String(32)),
+    ("driver_consent_at", sa.DateTime),
     ("receipt_conflict", sa.Boolean),
 )
 _OPERATION_COLUMNS = (
