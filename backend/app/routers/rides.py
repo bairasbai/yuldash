@@ -30,10 +30,10 @@ from ..models import (Booking, BookingStatus, DriverProfile, MedicalPartner, Rid
 from .. import workday as workday_mod
 from .. import meeting_points
 from .. import ride_seats               # RS-02 А: места по участкам — единая дверь записи
-from ..ride_stops import parse_stops, split_raw
+from ..ride_stops import MAX_STOPS, parse_stops, split_raw
 from ..route_watch_dispatch import GroupKey, enqueue_route_watch
 from ..safety_logic import ensure_active, guard_women_only_publish, has_verified_female_driver_profile
-from ..schemas import RideIn, RideOut, RideSeriesIn, RideSeriesOut
+from ..schemas import RideIn, RideOut, RideSeriesIn, RideSeriesOut, RideTemplateOut
 from .. import stop_search
 from ..security import current_user, current_user_optional
 from ..timeutil import RIDE_PAST_GRACE_HOURS, client_dt_to_utc, utcnow
@@ -142,7 +142,7 @@ def _clean_publish_stops(waypoints: str) -> str:
     весь район и выбирает пассажир. Списка «запретных слов» нет нарочно: «Улу-Теляк», «Кваркено»,
     «Домашкино» — честные сёла. Остановок не больше четырёх, как в приложении и на сайте.
     Возвращает нормализованную строку «А | Б» (пустые части выброшены)."""
-    from ..ride_stops import MAX_STOP_LEN, MAX_STOPS, split_raw, stop_text_ok
+    from ..ride_stops import MAX_STOP_LEN, stop_text_ok
     parts = split_raw(waypoints)
     if len(parts) > MAX_STOPS:
         raise HTTPException(400, {
@@ -1742,6 +1742,63 @@ def ride_cities(user: Optional[User] = Depends(current_user_optional),   # ес�
 
     return {"from": _top([r.from_city for r in rows] + stop_names),
             "to": _top([r.to_city for r in rows] + stop_names)}
+
+
+@router.get("/rides/{ride_id}/return-template", response_model=RideTemplateOut)
+def get_return_template(ride_id: int, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)):
+    ride = session.get(Ride, ride_id)
+    if ride is None:
+        raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
+    if ride.driver_id != user.id:
+        if not may_see_ride_by_id(ride, user, session) or not visible_rides([ride], user, session):
+            raise herr(404, "Поездка не найдена", "Сәфәр табылманы")
+        raise herr(403, "Это не твоя поездка", "Был һинең сәфәрең түгел", code="not_owner")
+
+    stops = parse_stops(ride)[::-1][:MAX_STOPS]
+    waypoints = " | ".join(stops)
+    dropped = ["depart_at"]
+    if ride.pickup or ride.pickup_lat is not None or ride.pickup_lng is not None:
+        dropped.append("pickup")
+    if ride.comment:
+        dropped.append("comment")
+    if ride.recurrence != "none":
+        dropped.append("recurrence")
+    if ride.partner_id is not None:
+        dropped.append("partner_id")
+    if ride.receiver_name or ride.parcel_size:
+        dropped.append("parcel_details")
+    if len(stops) != len(split_raw(ride.waypoints)):
+        dropped.append("waypoints")
+
+    category = ride.category
+    if category in (RideCategory.hospital, RideCategory.parcel, RideCategory.cargo):
+        category = RideCategory.regular
+        dropped.append("category")
+    prices = ride_seats.decode_stop_prices(ride.stop_prices_json)
+    stop_prices = []
+    if prices is None or (prices and "waypoints" in dropped):
+        dropped.append("stop_prices")
+    elif prices:
+        reversed_route = SimpleNamespace(
+            from_city=ride.to_city, to_city=ride.from_city, waypoints=waypoints, price=ride.price,
+        )
+        try:
+            ride_seats.validate_stop_prices(ride, prices)
+            stop_prices = ride_seats.validate_stop_prices(reversed_route, [ride.price - p for p in reversed(prices)])
+        except HTTPException as exc:
+            if exc.status_code != 400:
+                raise
+            dropped.append("stop_prices")
+
+    return RideTemplateOut(
+        from_city=ride.to_city, to_city=ride.from_city, waypoints=waypoints, seats_total=ride.seats_total,
+        price=ride.price, stop_prices=stop_prices, category=category, pets_allowed=ride.pets_allowed,
+        child_seat=ride.child_seat, women_only=ride.women_only, smoking=ride.smoking, baggage=ride.baggage,
+        air_conditioner=ride.air_conditioner, only_trusted=ride.only_trusted, quiet=ride.quiet,
+        no_minors=ride.no_minors, back_max_two=ride.back_max_two, front_seat_available=ride.front_seat_available,
+        dropped=dropped,
+    )
 
 
 @router.get("/rides/{ride_id}", response_model=RideOut)
