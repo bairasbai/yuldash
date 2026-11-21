@@ -151,15 +151,16 @@ internal class TripChatReceiptSync(
             withContext(Dispatchers.IO) { storage.clear() }
             return
         }
-        val before = view.takeIf { it.since == since }?.items.orEmpty()
         val items = mutableMapOf<Int, BookingChatReceipt>()
         var page = first
         var cursor = 0
         while (current()) {
-            page.items.forEach { items[it.messageId] = before[it.messageId]?.including(it) ?: it }
+            page.items.forEach { items[it.messageId] = items[it.messageId]?.including(it) ?: it }
             val next = page.nextAfterId
             if (next == null) {
-                view = TripChatReceiptView(since, items, page.unread, view.revision + 1)
+                val known = view.takeIf { it.since == since }?.items.orEmpty()
+                val restored = items.mapValues { (id, item) -> known[id]?.including(item) ?: item }
+                view = TripChatReceiptView(since, restored, page.unread, view.revision + 1)
                 stage(incoming(), read = false)
                 return
             }

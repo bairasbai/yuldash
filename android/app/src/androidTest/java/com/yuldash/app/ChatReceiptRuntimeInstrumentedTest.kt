@@ -38,6 +38,10 @@ class ChatReceiptRuntimeInstrumentedTest {
         runBlocking {
             ApiClient.verifyCode(phone, otp.getString("dev_code"), "RS06 Runtime").getOrThrow()
             assertTrue(OfflineTripSnapshots.ensureResetCommitted())
+            val details = ApiClient.getBookingDetails(bookingId).getOrThrow()
+            assertTrue(details.contactUnlocked)
+            if (details.role == "passenger") assertTrue(ApiClient.getBoardingCode(bookingId).getOrThrow().isNotBlank())
+            assertTrue("The authenticated booking is ready for chat", OfflineTripSnapshots.allowsLive(bookingId))
         }
         val language = if (arguments.getString("chatLang") == "ba") AppLanguage.Ba else AppLanguage.Ru
         val dark = arguments.getString("chatTheme") == "dark"
@@ -53,12 +57,16 @@ class ChatReceiptRuntimeInstrumentedTest {
             .putExtra("recipient_user_id", fixture.getInt("recipient").toString())
         try {
             ActivityScenario.launch<MainActivity>(launch).use {
-                awaitNode(hasTestTag("tripChatCard") or hasTestTag("tripChatScreen"))
+                val write = hasText(appTextFor(language, "Написать", "Яҙырға")) and hasClickAction() and isEnabled()
+                awaitNode(hasTestTag("tripChatCard") or hasTestTag("tripChatScreen") or write)
                 if (compose.onAllNodes(hasTestTag("tripChatScreen")).fetchSemanticsNodes().isEmpty()) {
-                    if (compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size == 1) {
-                        compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("tripChatCard"))
+                    if (compose.onAllNodes(write).fetchSemanticsNodes().size == 1) compose.onNode(write).performClick()
+                    else {
+                        if (compose.onAllNodes(hasScrollAction()).fetchSemanticsNodes().size == 1) {
+                            compose.onNode(hasScrollAction()).performScrollToNode(hasTestTag("tripChatCard"))
+                        }
+                        compose.onNodeWithTag("tripChatCard").performClick()
                     }
-                    compose.onNodeWithTag("tripChatCard").performClick()
                 }
                 awaitNode(hasTestTag("tripChatScreen"))
                 if (profile == "receiver") {
@@ -92,7 +100,6 @@ class ChatReceiptRuntimeInstrumentedTest {
 
     private fun awaitNode(matcher: SemanticsMatcher) {
         compose.waitUntil(35_000) { compose.onAllNodes(matcher).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(matcher).assertExists()
     }
 
     private fun localJson(path: String, body: JSONObject? = null): JSONObject {

@@ -3,6 +3,7 @@ package com.yuldash.app.data
 import android.app.Application
 import com.yuldash.app.ChatDeliveryMark
 import com.yuldash.app.TripChatReceiptView
+import com.yuldash.app.TripChatReceiptSync
 import com.yuldash.app.deliveryMark
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
@@ -17,6 +18,8 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.time.Instant
 import java.util.Base64
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -122,5 +125,32 @@ internal class BookingChatReceiptsTest : SnapshotWiringFixture() {
         val body = JSONObject(chat.last().body.clone().readUtf8())
         assertEquals("[120]", body.getJSONArray("delivered_ids").toString())
         assertEquals("[]", body.getJSONArray("read_ids").toString())
+    }
+
+    @Test fun realtimeReadSurvivesOlderReceiptPageFinishingAfterItsFrame() = runBlocking {
+        val owner = session(7, 'a')
+        val sync = TripChatReceiptSync(42, owner, this, { true }, { emptyList() }, { null })
+        val secondPage = CountDownLatch(1)
+        val releasePage = CountDownLatch(1)
+        handler = { MockResponse().setBody(page(JSONArray().put(flags(110, false))).toString()) }
+        sync.refresh()
+        withTimeout(5_000) { while (110 !in sync.view.items) delay(10) }
+        handler = { request ->
+            if (request.requestUrl?.queryParameter("after_message_id") == "110") {
+                secondPage.countDown()
+                check(releasePage.await(10, TimeUnit.SECONDS))
+                MockResponse().setBody(page(JSONArray().put(flags(120, false))).toString())
+            } else MockResponse().setBody(page(JSONArray().put(flags(110, false)))
+                .put("next_after_message_id", 110).toString())
+        }
+        sync.refresh()
+        try {
+            withTimeout(5_000) { while (secondPage.count != 0L) delay(10) }
+            sync.receive(listOf(ChatSocket.ReceiptEvent(110, 8, delivered = true, read = true)))
+            assertTrue(sync.view.items.getValue(110).peerRead)
+        } finally { releasePage.countDown() }
+        withTimeout(5_000) { while (120 !in sync.view.items) delay(10) }
+        assertTrue(sync.view.items.getValue(110).peerRead)
+        assertFalse(sync.view.items.getValue(120).peerRead)
     }
 }
