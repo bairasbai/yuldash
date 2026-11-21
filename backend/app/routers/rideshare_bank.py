@@ -1,10 +1,12 @@
 """Read the same confirmed bank receipt for Android and PWA."""
 
+from datetime import timezone
 from enum import Enum
-from typing import Literal
+from typing import Annotated, Literal
 
 from fastapi import APIRouter, Depends, Response
-from pydantic import BaseModel
+from fastapi.security import HTTPAuthorizationCredentials
+from pydantic import AwareDatetime, BaseModel, Field
 from sqlmodel import Session, select
 
 from ..config import settings
@@ -12,10 +14,14 @@ from ..db import get_session
 from ..driver_pay_settings import passenger_ride
 from ..errors import herr
 from ..models import Booking, Ride, User
-from ..rideshare_bank_booking import BankRuntime
-from ..rideshare_bank_models import RideshareBankCheckout, RideshareBankOperation, RideshareBankPosting
+from ..rideshare_bank_booking import (
+    BankCheckoutUnavailable, BankRuntime, BankSwitchRevision, bank_switches, check_bank_charge, start_bank_checkout,
+)
+from ..rideshare_bank_models import (
+    RideshareBankCheckout, RideshareBankOperation, RideshareBankPosting, RideshareBankRecipient,
+)
 from ..rideshare_bank_provider import BankResource
-from ..security import current_user
+from ..security import bearer, current_user
 
 
 router = APIRouter(tags=["rideshare-bank"])
@@ -55,19 +61,41 @@ class CardPaymentReceipt(BaseModel):
     payout_remaining_kop: int | None = None
 
 
+class CardPaymentConfirmation(BaseModel):
+    amount_kop: Annotated[int, Field(strict=True, gt=0)]
+    paid_revision: Annotated[int, Field(strict=True, ge=0)]
+    card_revision: Annotated[int, Field(strict=True, ge=0)]
+    recipient_version: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")]
+    driver_consent_at: AwareDatetime
+    retry_after_payment_id: Annotated[str, Field(pattern=r"^[a-f0-9]{32}$")] | None = None
+
+
+class CardPaymentTerms(BaseModel):
+    confirmation: CardPaymentConfirmation | None = None
+    blocked_reason: str | None = None
+
+
 def receipt_bank_runtime() -> BankRuntime | None:
     """Provide the trusted runtime when the application composes the bank integration."""
     return None
+
+
+def _load_card_booking(session: Session, booking_id: int, user_id: int, *,
+                       passenger_only: bool = False) -> tuple[Booking, Ride]:
+    booking = session.get(Booking, booking_id)
+    ride = session.get(Ride, booking.ride_id) if booking is not None else None
+    if (booking is None or ride is None or not passenger_ride(ride)
+            or user_id not in {booking.passenger_id, ride.driver_id}
+            or (passenger_only and user_id != booking.passenger_id)):
+        raise herr(404, "Бронь не найдена.", "Бронь табылманы.", code="booking_not_found")
+    return booking, ride
 
 
 @router.get("/bookings/{booking_id}/card-payment", response_model=CardPaymentReceipt)
 def card_payment_receipt(booking_id: int, response: Response, user: User = Depends(current_user),
                          session: Session = Depends(get_session),
                          runtime: BankRuntime | None = Depends(receipt_bank_runtime)) -> CardPaymentReceipt:
-    booking = session.get(Booking, booking_id)
-    ride = session.get(Ride, booking.ride_id) if booking is not None else None
-    if ride is None or not passenger_ride(ride) or user.id not in {booking.passenger_id, ride.driver_id}:
-        raise herr(404, "Бронь не найдена.", "Бронь табылманы.", code="booking_not_found")
+    booking, ride = _load_card_booking(session, booking_id, user.id)
     response.headers["Cache-Control"] = "no-store"
     test_mode = runtime is not None and runtime.test_mode and not settings.is_prod
 
@@ -119,3 +147,60 @@ def card_payment_receipt(booking_id: int, response: Response, user: User = Depen
         paid_out_kop=payout if is_driver else None,
         payout_remaining_kop=driver_share - refund_share - payout_share if is_driver else None,
     )
+
+
+@router.get("/bookings/{booking_id}/card-payment/terms", response_model=CardPaymentTerms)
+def card_payment_terms(booking_id: int, response: Response, user: User = Depends(current_user),
+                       session: Session = Depends(get_session),
+                       runtime: BankRuntime | None = Depends(receipt_bank_runtime)) -> CardPaymentTerms:
+    booking, ride = _load_card_booking(session, booking_id, user.id, passenger_only=True)
+    response.headers["Cache-Control"] = "no-store"
+    if runtime is None:
+        return CardPaymentTerms(blocked_reason="bank_project_unaccepted")
+    try:
+        runtime.check_environment()
+        revisions = bank_switches(session)
+        driver = session.get(User, ride.driver_id)
+        recipient = session.get(RideshareBankRecipient, ride.driver_id)
+        if driver is None or recipient is None:
+            raise BankCheckoutUnavailable("bank_driver_not_ready")
+        terms = check_bank_charge(session, booking, driver, recipient.version, runtime)
+    except BankCheckoutUnavailable as unavailable:
+        return CardPaymentTerms(blocked_reason=unavailable.code)
+
+    latest = session.exec(
+        select(RideshareBankOperation.id, RideshareBankOperation.state, RideshareBankOperation.provider_id)
+        .join(RideshareBankCheckout, RideshareBankCheckout.id == RideshareBankOperation.checkout_id)
+        .where(RideshareBankCheckout.booking_id == booking_id, RideshareBankCheckout.test_mode == runtime.test_mode,
+               RideshareBankCheckout.closed_at.is_(None), RideshareBankOperation.resource == BankResource.payment.value)
+        .order_by(RideshareBankOperation.created_at.desc(), RideshareBankOperation.id.desc())
+        .limit(1),
+    ).first()
+    retry = latest.id if latest is not None and latest.state in {"canceled", "rejected"} and latest.provider_id else None
+    return CardPaymentTerms(confirmation=CardPaymentConfirmation(
+        amount_kop=terms.amount_kop, paid_revision=revisions.paid, card_revision=revisions.card,
+        recipient_version=recipient.version, driver_consent_at=terms.driver_consent_at.replace(tzinfo=timezone.utc),
+        retry_after_payment_id=retry,
+    ))
+
+
+@router.post("/bookings/{booking_id}/card-payment/confirm")
+def confirm_card_payment(booking_id: int, body: CardPaymentConfirmation, user: User = Depends(current_user),
+                         credentials: HTTPAuthorizationCredentials = Depends(bearer),
+                         session: Session = Depends(get_session),
+                         runtime: BankRuntime | None = Depends(receipt_bank_runtime)) -> dict[str, bool]:
+    _load_card_booking(session, booking_id, user.id, passenger_only=True)
+    try:
+        if runtime is None:
+            raise BankCheckoutUnavailable("bank_project_unaccepted")
+        start_bank_checkout(
+            session, booking_id, user.id, runtime=runtime, credentials=credentials, recipient_version=body.recipient_version,
+            expected_switches=BankSwitchRevision(body.paid_revision, body.card_revision), expected_amount_kop=body.amount_kop,
+            expected_driver_consent_at=body.driver_consent_at.astimezone(timezone.utc).replace(tzinfo=None),
+            retry_after_payment_id=body.retry_after_payment_id,
+        )
+        session.commit()
+    except BankCheckoutUnavailable as unavailable:
+        raise herr(409, "Оплата картой пока недоступна. Обнови условия.",
+                   "Карта менән түләү әлегә мөмкин түгел. Шарттарҙы яңырт.", code=unavailable.code) from None
+    return {"accepted": True}

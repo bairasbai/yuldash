@@ -83,11 +83,11 @@
     "infra_resource_config": 432,
     "public_site_promo": 91,
     "pwa_main": 356,
-    "test_support": 1344
+    "test_support": 1345
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 360,
+    "B02": 361,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -7608,8 +7608,8 @@
       "path": "backend/app/rideshare_bank_booking.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "16655eee298305cbf952cda2781f047b33ba78699d9231e1bf86d67c7874b0a4",
-      "lines": 202
+      "sha256": "b47d23133841f7e61d4d4f5ad576672eadb52f34788135a07db357f3448eca09",
+      "lines": 212
     },
     {
       "path": "backend/app/rideshare_bank_dispatch.py",
@@ -7874,8 +7874,8 @@
       "path": "backend/app/routers/rideshare_bank.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "baa49e091b1d16847224f6bd63b578e49ca8bb36e6609ee91be20051e9b889f0",
-      "lines": 121
+      "sha256": "df7f059671b9ce636e227568b0602a097f626a20def5d6ae2a2b12b911d26a17",
+      "lines": 206
     },
     {
       "path": "backend/app/routers/route_watch.py",
@@ -11714,11 +11714,18 @@
       "lines": 216
     },
     {
+      "path": "backend/tests/test_rideshare_bank_command.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "593631c40946889ac354e383c6fd69e6cfa4db504c483291722b4ccb0af43c28",
+      "lines": 164
+    },
+    {
       "path": "backend/tests/test_rideshare_bank_dispatch.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "3afa0cfd6cd6cd80c205d73849fdaa7ec8292f293ffedb578b3d538b526045e5",
-      "lines": 404
+      "sha256": "7e696fbe64332ade8c1002e0b92b76eb2247d5a79acebe7454619613bfe95b9a",
+      "lines": 408
     },
     {
       "path": "backend/tests/test_rideshare_bank_notification.py",

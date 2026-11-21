@@ -138,9 +138,13 @@ def bank_checkout(client, user_factory):
         with Session(engine) as db:
             if expected is None:
                 expected = bank_switches(db)
+            driver_consent_at = db.exec(select(DriverPaySettings.accepts_card_at).where(
+                DriverPaySettings.user_id == driver["id"],
+            )).one()
             checkout = start_bank_checkout(db, booking_id, passenger["id"] if actor is None else actor,
                                            expected_switches=expected, recipient_version=selected_version,
-                                           expected_amount_kop=expected_amount, runtime=selected_runtime)
+                                           expected_amount_kop=expected_amount, expected_driver_consent_at=driver_consent_at,
+                                           runtime=selected_runtime)
             value = checkout.id
             db.commit()
             return value

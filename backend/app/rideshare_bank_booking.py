@@ -5,6 +5,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from cryptography.fernet import Fernet
+from fastapi.security import HTTPAuthorizationCredentials
 from sqlalchemy import func
 from sqlmodel import Session, select
 
@@ -17,7 +18,7 @@ from .owner_switches import PAID_SWITCH, login_settings, stored_on
 from .rideshare_bank_models import BANK_ACTIVE_STATES, RideshareBankCheckout, RideshareBankOperation
 from .rideshare_bank_provider import BankResource
 from .rideshare_bank_recipient import BankRecipientUnavailable, bank_recipient_token
-from .security import lock_refresh_user
+from .security import current_user, lock_authenticated_user, lock_refresh_user
 
 
 CARD_RECEIPT_METHOD = "rideshare_card"
@@ -124,11 +125,18 @@ def check_bank_charge(session: Session, booking: Booking, driver: User, recipien
 
 def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
                         expected_switches: BankSwitchRevision, recipient_version: str,
-                        expected_amount_kop: int, runtime: BankRuntime,
+                        expected_amount_kop: int, expected_driver_consent_at: datetime, runtime: BankRuntime,
+                        credentials: HTTPAuthorizationCredentials | None = None,
                         retry_after_payment_id: str | None = None) -> RideshareBankCheckout:
     """Confirm new work or resume that same attempt using a fresh read of the switches."""
     runtime.check_environment()
+    if credentials is not None and current_user(credentials, session).id != passenger_id:
+        raise BankCheckoutUnavailable("bank_booking_unavailable")
     passenger, driver = lock_booking_participants(session, booking_id, passenger_id=passenger_id)
+    if credentials is not None:
+        current_passenger, _ = lock_authenticated_user(credentials, session)
+        if current_passenger.id != passenger.id:
+            raise BankCheckoutUnavailable("bank_booking_unavailable")
     try:
         revisions = bank_switches(session, lock=True)
     except BankCheckoutUnavailable:
@@ -150,6 +158,8 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
     amount = terms.amount_kop
     if type(expected_amount_kop) is not int or expected_amount_kop != amount:
         raise BankCheckoutUnavailable("bank_amount_changed")
+    if expected_driver_consent_at != terms.driver_consent_at:
+        raise BankCheckoutUnavailable("bank_driver_consent_changed")
     if checkout is not None and (checkout.amount_kop != amount or checkout.recipient_version != recipient_version or
                                  checkout.driver_consent_at != terms.driver_consent_at):
         if booking_has_bank_obligation(session, booking_id):
@@ -171,7 +181,7 @@ def start_bank_checkout(session: Session, booking_id: int, passenger_id: int, *,
         if retry_after_payment_id is not None:
             ended = session.get(RideshareBankOperation, retry_after_payment_id)
             if (ended is None or ended.checkout_id != checkout.id or ended.resource != BankResource.payment.value
-                    or ended.state not in {"canceled", "rejected"}):
+                    or ended.state not in {"canceled", "rejected"} or ended.provider_id is None):
                 raise BankCheckoutUnavailable("bank_retry_unavailable")
             # An old retry command is valid only against the last terminal charge.
             newer = session.exec(select(RideshareBankOperation.id).where(
