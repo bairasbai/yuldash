@@ -82,12 +82,12 @@
     "backend_main": 136,
     "infra_resource_config": 439,
     "public_site_promo": 91,
-    "pwa_main": 365,
-    "test_support": 1358
+    "pwa_main": 367,
+    "test_support": 1359
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 394,
+    "B02": 397,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -15000,8 +15000,8 @@
       "path": "webapp/src/api/driver.ts",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "c64e378d4c00fd2e41492a8c2dfee586160d0a8a9f3f284ff22df335d5fa7176",
-      "lines": 435
+      "sha256": "0ce63f4da39942cb2c0b55ab987560fdf0f64307ba7996d53519da73c371c206",
+      "lines": 496
     },
     {
       "path": "webapp/src/api/driverBankRecipient.ts",
@@ -15760,6 +15760,13 @@
       "lines": 17
     },
     {
+      "path": "webapp/src/components/ReturnRideAction.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "e5123d7d08cba40185379fb9791a3cde3def5527792dd7ca9c3d6b9b64757b69",
+      "lines": 106
+    },
+    {
       "path": "webapp/src/components/RideCard.tsx",
       "kind": "pwa_main",
       "block": "B02",
@@ -16449,15 +16456,15 @@
       "path": "webapp/src/screens/CreateRideScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "6804013958dbb3cffe2d11cdac72f36adb33e01b15f735f8a109e76268f30203",
-      "lines": 656
+      "sha256": "745da26c1eb3958ae8abe8fd7b30348f08321cd1e73956d61c65aa6ca8a50714",
+      "lines": 956
     },
     {
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "096ac2a89e88cac8ebce019598fea819ebe7d00e759cbde298958b069e1c912a",
-      "lines": 1049
+      "sha256": "e0ecda6036a85197f98360fb430b32241e18539bfcfe294204c3c71531d86d5e",
+      "lines": 1056
     },
     {
       "path": "webapp/src/screens/DriverEarningsScreen.tsx",
@@ -17249,6 +17256,13 @@
       "block": "B02",
       "sha256": "00ed084829105b5dd226e9d235b5e0b30dd86e1ecf866a3207daac966c9758dd",
       "lines": 26
+    },
+    {
+      "path": "webapp/src/utils/rideTemplate.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "4011a0d3580d1505e27ff5853eb9ac22c94195d759488c87912b7dfab974816a",
+      "lines": 40
     },
     {
       "path": "webapp/src/utils/searchHistory.ts",
@@ -18171,7 +18185,7 @@
       "path": "webapp/tests/parity-test.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "5e0ea6cbb4ac87195b4d043ed72bb85236b6771d02fdda453813769a78a6a888",
+      "sha256": "93872252eefefd893412d3d54b4d2752fbef41a740e0a74f5cd411ac755f6d34",
       "lines": 294
     },
     {
@@ -18273,6 +18287,13 @@
       "lines": 279
     },
     {
+      "path": "webapp/tests/ride-template-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "51371b220a92d07d31665f6b50190f5f45d1859115a50ac180759d90d8b57f37",
+      "lines": 112
+    },
+    {
       "path": "webapp/tests/rideshare-local-regression-test.mjs",
       "kind": "test_support",
       "block": "B02",
@@ -18311,8 +18332,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "7a7bfcefc864b9e987b3c6b8173af45f506d47937f4da9af4a9200c3f349ea16",
-      "lines": 348
+      "sha256": "fc63af907545d6cc37148d201d035a88007048138367ca42d3e1ffbd8a2c8d7d",
+      "lines": 349
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",
