@@ -9,7 +9,11 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.RateNotificationAction
+import java.net.HttpURLConnection
+import java.net.URI
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
@@ -31,10 +35,11 @@ class RateNotificationRuntimeInstrumentedTest {
         val keyguard = requireNotNull(context.getSystemService(KeyguardManager::class.java))
         assertTrue(manager.areNotificationsEnabled())
         assertTrue("Unlock the disposable emulator for the confirmation probe", !keyguard.isDeviceLocked)
-        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.synthetic")
+        val fixture = localFixture()
+        ApiClient.saveToken(fixture.getString("token"))
         val owner = requireNotNull(OfflineTripSnapshots.currentOwner())
         val until = System.currentTimeMillis() / 1_000 + 600
-        val booking = 27
+        val booking = fixture.getInt("unrated")
         val id = "booking_done|$booking".hashCode()
         val oldLanguage = AppPrefs.language(context)
         val oldTheme = ThemePrefs.darkOverride
@@ -74,24 +79,74 @@ class RateNotificationRuntimeInstrumentedTest {
     }
 
     @Test
-    fun confirmedFiveKeepsExistingThreeFromLocalServer() {
+    fun confirmedFiveKeepsExistingThreeFromLocalServer() = confirmOnLocalServer(
+        "rated", "Оценка уже стоит: 3 ★", "Баһа ҡуйылған: 3 ★",
+    )
+
+    @Test
+    fun confirmedFiveCreatesOneNewRatingOnLocalServer() = confirmOnLocalServer(
+        "unrated", "Оценка 5 ★ принята", "5 ★ баһа ҡабул ителде",
+    )
+
+    private fun confirmOnLocalServer(bookingField: String, ru: String, ba: String) {
         val instrumentation = InstrumentationRegistry.getInstrumentation()
         assumeTrue(InstrumentationRegistry.getArguments().getString("rateNotificationAudit") == "local")
         assertEquals("http://127.0.0.1:8000", BuildConfig.YULDASH_API_BASE_URL)
         val context = instrumentation.targetContext.applicationContext
         val manager = requireNotNull(context.getSystemService(NotificationManager::class.java))
         assertTrue(manager.areNotificationsEnabled())
-        ApiClient.saveToken("header.eyJzdWIiOiIxMSJ9.synthetic")
+        val fixture = localFixture()
+        ApiClient.saveToken(fixture.getString("token"))
         val owner = requireNotNull(OfflineTripSnapshots.currentOwner())
-        val booking = 37
+        val booking = fixture.getInt(bookingField)
         val id = "booking_done|$booking".hashCode()
         try {
             requireNotNull(RateNotificationAction.askAction(context, owner, booking, System.currentTimeMillis() / 1_000 + 600).actionIntent).send()
-            waitForNotification(manager, id) { it.actions?.size == 2 }.actions.first().actionIntent.send()
-            val expected = appTextFor(AppPrefs.language(context), "Оценка уже стоит: 3 ★", "Баһа ҡуйылған: 3 ★")
+            val confirm = waitForNotification(manager, id) { it.actions?.size == 2 }.actions.first().actionIntent
+            confirm.send()
+            confirm.send()
+            val expected = appTextFor(AppPrefs.language(context), ru, ba)
             waitForNotification(manager, id) { it.extras.getCharSequence(Notification.EXTRA_TEXT).toString() == expected }
         } finally {
             manager.cancel(id)
+        }
+    }
+
+    @Test
+    fun lockedDeviceRejectsTheNotificationAction() {
+        val instrumentation = InstrumentationRegistry.getInstrumentation()
+        assumeTrue(InstrumentationRegistry.getArguments().getString("rateNotificationAudit") == "locked")
+        assertEquals("http://127.0.0.1:8000", BuildConfig.YULDASH_API_BASE_URL)
+        val context = instrumentation.targetContext.applicationContext
+        val manager = requireNotNull(context.getSystemService(NotificationManager::class.java))
+        val keyguard = requireNotNull(context.getSystemService(KeyguardManager::class.java))
+        assertTrue(manager.areNotificationsEnabled())
+        assertTrue("Lock the disposable emulator before this probe", keyguard.isDeviceLocked)
+        val fixture = localFixture()
+        ApiClient.saveToken(fixture.getString("token"))
+        val owner = requireNotNull(OfflineTripSnapshots.currentOwner())
+        val booking = fixture.getInt("unrated")
+        val id = "booking_done|$booking".hashCode()
+        try {
+            requireNotNull(RateNotificationAction.askAction(context, owner, booking, System.currentTimeMillis() / 1_000 + 600).actionIntent).send()
+            val label = appTextFor(AppPrefs.language(context), "Разблокируй телефон, чтобы оценить", "Баһалау өсөн телефонды ас")
+            waitForNotification(manager, id) { it.extras.getCharSequence(Notification.EXTRA_TEXT).toString() == label }
+            assertTrue(!Outbox.hasPending(context))
+        } finally {
+            manager.cancel(id)
+        }
+    }
+
+    private fun localFixture(): JSONObject {
+        val connection = URI("http://127.0.0.1:8000/__qa/rating/session").toURL().openConnection() as HttpURLConnection
+        try {
+            connection.instanceFollowRedirects = false
+            connection.connectTimeout = 3_000
+            connection.readTimeout = 3_000
+            assertEquals(200, connection.responseCode)
+            return JSONObject(connection.inputStream.bufferedReader().use { it.readText() })
+        } finally {
+            connection.disconnect()
         }
     }
 

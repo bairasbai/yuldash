@@ -181,14 +181,20 @@ class RateNotificationAction : BroadcastReceiver() {
 
         private fun postPending(context: Context, owner: SnapshotOwner, action: OutboxAction, sending: Boolean) {
             ApiClient.runIfCurrentSession(owner.generation) {
-                if (!OfflineTripSnapshots.current(owner) || Outbox.queuedRating(context, action.id, action.bookingId) == null) {
-                    return@runIfCurrentSession
-                }
-                val notification = if (sending) text(context, "Отправляем…", "Ебәрәбеҙ…")
-                    else text(context, "Сохранили. Отправим, когда откроешь приложение со связью",
+                if (!OfflineTripSnapshots.current(owner)) return@runIfCurrentSession
+                val saved = Outbox.queuedRating(context, action.id, action.bookingId) ?: return@runIfCurrentSession
+                val attempted = Outbox.ratingAttempted(saved)
+                val notification = when {
+                    sending -> text(context, "Отправляем…", "Ебәрәбеҙ…")
+                    attempted -> text(context, "Ответ не получен. Повторим отправку, когда откроешь приложение со связью",
+                        "Яуап килмәне. Ҡушымтаны бәйләнеш булғанда асһаң, яңынан ебәрербеҙ")
+                    else -> text(context, "Сохранили. Отправим, когда откроешь приложение со связью",
                         "Һаҡланыҡ. Ҡушымтаны бәйләнеш булғанда асһаң, ебәрербеҙ")
+                }
+                val cancelLabel = if (attempted) text(context, "Не повторять", "Ҡабатламаҫҡа")
+                    else text(context, "Отменить", "Кире алыу")
                 val actions = if (sending || !Outbox.canCancelRating(context, action.id)) emptyList() else listOf(
-                    button(context, owner, action.bookingId, CANCEL, text(context, "Отменить", "Кире алыу"), actionId = action.id))
+                    button(context, owner, action.bookingId, CANCEL, cancelLabel, actionId = action.id))
                 post(context, owner, action.bookingId, notification, actions)
             }
         }

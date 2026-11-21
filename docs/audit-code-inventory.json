@@ -391,8 +391,8 @@
       "path": "android/app/src/androidTest/java/com/yuldash/app/RateNotificationRuntimeInstrumentedTest.kt",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "23062497de8db764c45b6214ff0dceeff44a3d5160c8489e1d8d59290c0c9754",
-      "lines": 106
+      "sha256": "1fd6d340c653d6bfa80626479cc3f018e4bc1c6b0134fb7badbf615a4d2746b1",
+      "lines": 161
     },
     {
       "path": "android/app/src/androidTest/java/com/yuldash/app/ReceiptParityInstrumentedTest.kt",
@@ -2316,8 +2316,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/RateNotificationAction.kt",
       "kind": "android_main",
       "block": "B06",
-      "sha256": "4276211c6a804505660fb737123e66fb642a4edcb5d70a8ca70614723a1b0ccc",
-      "lines": 235
+      "sha256": "7781cec09124e0f1bd5f5a0ba628d69129292da4eecde755f8916cbb27fc7a78",
+      "lines": 241
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/RequestRouteDtos.kt",
@@ -2414,8 +2414,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPass.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "828ef17d6820b809f65acc7b313b6d65d8278a0b64086dd251d19c3e7f1d54f9",
-      "lines": 622
+      "sha256": "cdebea42bd9141bfcc6d5d86c3f164bb513ab3a42fa2d6674491f6b3f85530fb",
+      "lines": 624
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/TripPassDeletion.kt",
@@ -5830,8 +5830,8 @@
       "path": "android/app/src/test/java/com/yuldash/app/data/RateNotificationActionTest.kt",
       "kind": "test_support",
       "block": "B06",
-      "sha256": "e361a8d70ea336ca100a0e28d0568d8d94988195f7a3b25798043eced829340e",
-      "lines": 157
+      "sha256": "cda85b1bce74b06d048af04d8dab509561a1a62025d62aff5ae5c2a37509ec43",
+      "lines": 172
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/data/RideshareCardCheckoutApiTest.kt",

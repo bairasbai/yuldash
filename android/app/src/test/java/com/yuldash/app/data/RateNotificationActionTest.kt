@@ -115,7 +115,7 @@ class RateNotificationActionTest {
         assertEquals("/bookings/27/rate", server.takeRequest(1, TimeUnit.SECONDS)?.path)
         assertEquals("/bookings/29/messages", server.takeRequest(1, TimeUnit.SECONDS)?.path)
         assertTrue(Outbox.contains(context, action))
-        assertFalse(Outbox.cancelRating(context, 27, owner.namespace, action.id, owner.generation))
+        assertTrue(Outbox.canCancelRating(context, action.id))
         assertTrue(Outbox.acknowledge(context, message, owner.generation))
         server.enqueue(MockResponse().setBody("""{"kept":true,"my_stars":3}"""))
         Outbox.flush(context, owner.generation)
@@ -129,6 +129,21 @@ class RateNotificationActionTest {
         assertFalse(Outbox.contains(context, action))
         assertTrue(requireNotNull(notification()).extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("3 ★"))
         assertNull(Outbox.saveRating(context, 27, QueuedRating(owner.namespace, 1), owner.generation))
+    }
+
+    @Test
+    fun failedAttemptCanStopFurtherSendsWithoutClaimingServerRollback() = runBlocking {
+        val action = requireNotNull(Outbox.saveRating(context, 27, QueuedRating(owner.namespace, until), owner.generation))
+        server.enqueue(MockResponse().setResponseCode(503))
+        Outbox.flush(context, owner.generation)
+        assertEquals("/bookings/27/rate", server.takeRequest(1, TimeUnit.SECONDS)?.path)
+        val pending = requireNotNull(notification())
+        assertTrue(pending.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("Ответ не получен"))
+        assertEquals("Не повторять", pending.actions.single().title.toString())
+        assertTrue(Outbox.cancelRating(context, 27, owner.namespace, action.id, owner.generation))
+        Outbox.flush(context, owner.generation)
+        assertFalse(Outbox.contains(context, action))
+        assertNull(server.takeRequest(100, TimeUnit.MILLISECONDS))
     }
 
     @Test

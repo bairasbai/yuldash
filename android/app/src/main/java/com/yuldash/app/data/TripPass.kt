@@ -433,12 +433,14 @@ object Outbox {
         if (generation != ApiClient.queueSessionGeneration() || claimedRating == id) return false
         val rows = readAll(context) ?: return false
         val action = rows.firstOrNull { it.id == id && it.bookingId == bookingId &&
-            it.kind == "rate" && it.requestKey != RATING_ATTEMPTED && QueuedRating.read(it)?.owner == owner } ?: return false
+            it.kind == "rate" && QueuedRating.read(it)?.owner == owner } ?: return false
         return writeAll(context, rows.filterNot { it == action })
     }
 
     @Synchronized internal fun canCancelRating(context: Context, id: Long): Boolean =
-        claimedRating != id && readAll(context)?.any { it.id == id && it.requestKey != RATING_ATTEMPTED } == true
+        claimedRating != id && readAll(context)?.any { it.id == id && it.kind == "rate" } == true
+
+    internal fun ratingAttempted(action: OutboxAction): Boolean = action.requestKey == RATING_ATTEMPTED
 
     @Synchronized internal fun queuedRating(context: Context, id: Long, bookingId: Int): OutboxAction? =
         readAll(context)?.firstOrNull { it.id == id && it.bookingId == bookingId && it.kind == "rate" }
