@@ -78,16 +78,16 @@
     ]
   },
   "counts_by_kind": {
-    "android_main": 244,
+    "android_main": 247,
     "backend_main": 135,
     "infra_resource_config": 439,
     "public_site_promo": 91,
-    "pwa_main": 362,
-    "test_support": 1354
+    "pwa_main": 365,
+    "test_support": 1356
   },
   "counts_by_block": {
     "B01": 177,
-    "B02": 382,
+    "B02": 390,
     "B03": 123,
     "B04": 82,
     "B05": 62,
@@ -1081,6 +1081,13 @@
       "lines": 118
     },
     {
+      "path": "android/app/src/main/java/com/yuldash/app/DriverBankRecipientCard.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "077325a1b44565f0d95305c059c2816e8c5ba467be459363c498f750dd6132fe",
+      "lines": 225
+    },
+    {
       "path": "android/app/src/main/java/com/yuldash/app/DriverEarningsScreen.kt",
       "kind": "android_main",
       "block": "B07",
@@ -1518,8 +1525,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ProfileScreen.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "7e36c2ceed0c5b1e16b8398a14c471df52b50ef3986ce3a5af831cfcda98ee62",
-      "lines": 4724
+      "sha256": "6530f26531bd9aef023cead4499a23f5725439665a9f6fa6ed0357ae52c7eb00",
+      "lines": 4729
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/PromoCodeScreen.kt",
@@ -2057,8 +2064,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/ApiClient.kt",
       "kind": "android_main",
       "block": "B09",
-      "sha256": "3dee6c360e869b6d30310ce4547aa528c436e5342443172dbef80740002df148",
-      "lines": 7564
+      "sha256": "4ee15d8f0b4eb89607ac3a354ac2b329568230f01f26b087284510ea78258073",
+      "lines": 7569
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/AuthStorePolicy.kt",
@@ -2136,6 +2143,20 @@
       "block": "B04",
       "sha256": "7c8a72e34ebafe5250a32886e1d1701e57332cb0ebf5840209b2250b55c0eaed",
       "lines": 115
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/DriverBankRecipientApi.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "e3c6f7ecf8b9d753e8856d82b14b765b198e302012cf2def98a21ee7b1dc5081",
+      "lines": 89
+    },
+    {
+      "path": "android/app/src/main/java/com/yuldash/app/data/DriverBankRecipientSetupStore.kt",
+      "kind": "android_main",
+      "block": "B02",
+      "sha256": "dd1e48ff9c40de8e94dafc1fb822936091464f8d3375d6bb470225200933e260",
+      "lines": 55
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/DriverBookings.kt",
@@ -2330,8 +2351,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/data/SessionKeys.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "539071646167518304d6d047b1df63fc9a87a172b06bf378c74e979a84e33a63",
-      "lines": 107
+      "sha256": "c681644efedeb6d9b1207b98f50bcff9562d0f15f0a0d355e77a2e652ad2346f",
+      "lines": 108
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/data/SosRetryIntent.kt",
@@ -5547,6 +5568,13 @@
       "lines": 164
     },
     {
+      "path": "android/app/src/test/java/com/yuldash/app/data/DriverBankRecipientApiTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "7b444d31d4e889611b1a81dd37ddb614c3f6708d54a7e3df9ee4888cdb676116",
+      "lines": 48
+    },
+    {
       "path": "android/app/src/test/java/com/yuldash/app/data/DriverCabinetBoardingTest.kt",
       "kind": "test_support",
       "block": "B02",
@@ -7979,8 +8007,8 @@
       "path": "backend/app/routers/rideshare_bank_recipient.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "03692f0a481962b593885dc1fb7bbae7aa2c1690661793518e1d8dbb14602c07",
-      "lines": 238
+      "sha256": "3b5cf9a2a38f89680732a49889ca80ee77e87e1c286126459d73a370a576adf8",
+      "lines": 251
     },
     {
       "path": "backend/app/routers/route_watch.py",
@@ -11913,8 +11941,8 @@
       "path": "backend/tests/test_rideshare_bank_recipient_setup.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "ca5ac4b9e39db050f3c2b08dc8eeffcf73393321f7f35fbcd4ee20066e283470",
-      "lines": 250
+      "sha256": "f78caf80113527113081115f33568033c1c3bab5b8c1de6a798705c0b60ee0ed",
+      "lines": 254
     },
     {
       "path": "backend/tests/test_rideshare_bank_recovery.py",
@@ -14948,6 +14976,13 @@
       "lines": 435
     },
     {
+      "path": "webapp/src/api/driverBankRecipient.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "732de082b95de6e8c3df50d63ed3a9875653bb98170dd90c532acff5a5c795b6",
+      "lines": 56
+    },
+    {
       "path": "webapp/src/api/driverPaySettings.ts",
       "kind": "pwa_main",
       "block": "B02",
@@ -15331,6 +15366,13 @@
       "block": "B02",
       "sha256": "08866925ddc84ef584cde419ddf2ef28005e8598ef1778f6a758225b39aa3c0c",
       "lines": 51
+    },
+    {
+      "path": "webapp/src/components/DriverBankRecipientCard.tsx",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "eb8fd58113de8472d4070ed92527ad5edae547b88180df17eaef18d4136f3b91",
+      "lines": 191
     },
     {
       "path": "webapp/src/components/DriverBoardedDispute.tsx",
@@ -16386,8 +16428,8 @@
       "path": "webapp/src/screens/DriverCabinetScreen.tsx",
       "kind": "pwa_main",
       "block": "B02",
-      "sha256": "14ad7e2ccc2e85670425b490131922a553d715207e7cc1dd93abf63fe9902035",
-      "lines": 1047
+      "sha256": "096ac2a89e88cac8ebce019598fea819ebe7d00e759cbde298958b069e1c912a",
+      "lines": 1049
     },
     {
       "path": "webapp/src/screens/DriverEarningsScreen.tsx",
@@ -16992,6 +17034,13 @@
       "lines": 23
     },
     {
+      "path": "webapp/src/utils/driverBankRecipientSetup.ts",
+      "kind": "pwa_main",
+      "block": "B02",
+      "sha256": "7607adc2d2d875aab8a16a2bf98afb0cac8f8d1e7b281aaf1dd84483d2a151e4",
+      "lines": 51
+    },
+    {
       "path": "webapp/src/utils/driverOfferExpiry.d.ts",
       "kind": "pwa_main",
       "block": "B03",
@@ -17156,8 +17205,8 @@
       "path": "webapp/src/utils/privacy.ts",
       "kind": "pwa_main",
       "block": "B01",
-      "sha256": "5efe7b70767813ddf84afc650048bdb5ef3e2b6cd66b71ca3ebff6035c722b88",
-      "lines": 99
+      "sha256": "782a8ab75c42b47647e6220a70cf623cf4353cce6c93ce4b4f02fce4341b06cb",
+      "lines": 100
     },
     {
       "path": "webapp/src/utils/profileRole.ts",
@@ -17662,6 +17711,13 @@
       "block": "B09",
       "sha256": "69e238c3cca6362a6b2622ed11bb2b90e9f013ad18c15a54ae50aec36f7ae826",
       "lines": 83
+    },
+    {
+      "path": "webapp/tests/driver-bank-recipient-test.mjs",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "61da7d9ddb8dbe8f3993168c6abfa3ab52b06fe0d2c2cb8f22d5d963bb06ed4b",
+      "lines": 175
     },
     {
       "path": "webapp/tests/driver-calls-passenger-test.mjs",
@@ -18227,8 +18283,8 @@
       "path": "webapp/tests/run.mjs",
       "kind": "test_support",
       "block": "B09",
-      "sha256": "a015c920d82ae0e0a114509a0c791e254a965269b0c3c002f9aa1bf26dab4e53",
-      "lines": 347
+      "sha256": "7a7bfcefc864b9e987b3c6b8173af45f506d47937f4da9af4a9200c3f349ea16",
+      "lines": 348
     },
     {
       "path": "webapp/tests/scoped-logout-test.mjs",
