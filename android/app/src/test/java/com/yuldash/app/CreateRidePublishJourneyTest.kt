@@ -212,6 +212,13 @@ class CreateRidePublishJourneyTest {
         publishButton().performClick()
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.onAllNodesWithText("Опубликовать обратно").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Поездка опубликована").assertIsDisplayed()
+        compose.onNodeWithText("Опубликовать обратно").assertIsDisplayed()
+        compose.onNodeWithText("Готово").performClick()
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
             created != null && vm.screen.value == Screen.DriverCabinet && vm.rides.any { it.id == "42" } &&
                 requests.count { it == "GET /driver/rides" } >= 2
         }
