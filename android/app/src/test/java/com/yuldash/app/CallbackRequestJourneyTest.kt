@@ -14,6 +14,7 @@ import androidx.lifecycle.*
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.awaitOfflineWriteSnapshotReset02
 import com.yuldash.app.ui.theme.YuldashTheme
 import okhttp3.mockwebserver.*
 import org.json.JSONArray
@@ -116,6 +117,7 @@ class CallbackRequestJourneyTest {
         ApiClient.init(context)
         ApiClient.logout()
         ApiClient.init(context)
+        awaitOfflineWriteSnapshotReset02()
         ApiClient.saveToken(accessToken)
         ApiClient.saveName("QA_SYNTH_CALLBACK")
         ApiClient.saveRole("passenger")
