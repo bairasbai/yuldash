@@ -68,15 +68,22 @@ def bank_switches(session: Session, *, lock: bool = False) -> BankSwitchRevision
     return BankSwitchRevision(revisions.get(PAID_SWITCH, 0), revisions.get(CARD_PAYMENTS_SWITCH, 0))
 
 
-def lock_booking_participants(session: Session, booking_id: int, *, passenger_id: int | None = None) -> tuple[User, User]:
+def booking_participant_ids(session: Session, booking_id: int) -> tuple[int, int]:
     row = session.exec(
         select(Booking.passenger_id, Ride.driver_id)
         .join(Ride, Ride.id == Booking.ride_id).where(Booking.id == booking_id),
     ).one_or_none()
-    if row is None or (passenger_id is not None and row[0] != passenger_id):
+    if row is None:
         raise BankCheckoutUnavailable("bank_booking_unavailable")
-    users = {user_id: lock_refresh_user(session, user_id) for user_id in sorted(set(row))}
-    passenger, driver = users[row[0]], users[row[1]]
+    return row[0], row[1]
+
+
+def lock_booking_participants(session: Session, booking_id: int, *, passenger_id: int | None = None) -> tuple[User, User]:
+    ids = booking_participant_ids(session, booking_id)
+    if passenger_id is not None and ids[0] != passenger_id:
+        raise BankCheckoutUnavailable("bank_booking_unavailable")
+    users = {user_id: lock_refresh_user(session, user_id) for user_id in sorted(set(ids))}
+    passenger, driver = users[ids[0]], users[ids[1]]
     if passenger is None or driver is None:
         raise BankCheckoutUnavailable("bank_booking_unavailable")
     return passenger, driver

@@ -21,6 +21,7 @@ from app import models as M
 from app.account import delete_user_account
 from app.db import engine
 from app.models import SQLModel, User, UserRole
+from app.rideshare_bank_models import RideshareBankApproval, RideshareBankCheckout, RideshareBankOperation
 from app.rideshare_bank_recipient import save_bank_recipient
 from app.timeutil import utcnow
 
@@ -99,6 +100,16 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # --- финансы (без заказа) ---
         s.add(M.LedgerEntry(driver_id=uid, kind="earn", amount_kop=100))
         s.add(M.CommissionDebt(driver_id=uid, amount_kop=100))
+        bank_checkout = RideshareBankCheckout(amount_kop=100, payout_kop=100, test_mode=True)
+        s.add(bank_checkout)
+        s.flush()
+        bank_operation = RideshareBankOperation(
+            checkout_id=bank_checkout.id, resource="refunds", amount_kop=100, settlement_kop=100,
+        )
+        s.add(bank_operation)
+        s.flush()
+        bank_operation_id = bank_operation.id
+        s.add(RideshareBankApproval(operation_id=bank_operation_id, command_id=bank_operation_id, approved_by=uid))
         # --- такси-заказ + дети по order_id ---
         order = M.InstantOrder(passenger_id=uid, from_lat=54.0, from_lng=55.0, to_lat=54.1, to_lng=55.1)
         contact = M.TrustedContact(user_id=uid, name="Мама", phone="+79990001177")
@@ -282,6 +293,8 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         change = s.exec(select(M.AppSettingChange).where(M.AppSettingChange.key == "qa.account_deletion")).one()
         assert (setting.value, setting.updated_by) == (False, None)
         assert (change.old_value, change.new_value, change.admin_id) == (None, False, None)
+        bank_approval = s.get(RideshareBankApproval, bank_operation_id)
+        assert bank_approval is not None and bank_approval.approved_by is None
         # лист ожидания по телефону тоже вычищен (у него нет FK на user — проверяем отдельно)
         wl = s.exec(select(M.WaitlistEntry).where(M.WaitlistEntry.phone == phone)).first()
         assert wl is None
