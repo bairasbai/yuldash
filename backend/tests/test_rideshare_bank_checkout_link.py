@@ -10,7 +10,7 @@ from app.rideshare_bank_confirmation import seal_bank_confirmation
 from app.rideshare_bank_dispatch import reconcile_bank_operation
 from app.rideshare_bank_models import RideshareBankCheckout, RideshareBankOperation
 from app.timeutil import utcnow
-from test_rideshare_bank_command import card_path, new_session
+from test_rideshare_bank_command import card_path, new_session, terms
 from test_rideshare_bank_dispatch import bank_checkout as bank_checkout
 from test_rideshare_bank_dispatch import send
 from test_rideshare_bank_receipt import include_synthetic_receipt as include_synthetic_receipt
@@ -45,6 +45,13 @@ def test_only_passenger_can_read_admitted_link_even_on_pause(client, bank_checko
     response = _link(client, service, fresh_session)
     assert response.headers["Cache-Control"] == "no-store"
     assert response.json() == {"checkout_url": _LINK}
+    receipt_path = card_path(service)
+    assert client.get(receipt_path, headers=fresh_session).json()["payment_attempt_id"] == operation
+    assert client.get(receipt_path, headers=service.driver["auth"]).json()["payment_attempt_id"] is None
+    assert client.get(receipt_path + "/checkout-link", headers=fresh_session,
+                      params={"expected_payment_id": operation}).json() == {"checkout_url": _LINK}
+    assert client.get(receipt_path + "/checkout-link", headers=fresh_session,
+                      params={"expected_payment_id": "0" * 32}).json() == {"checkout_url": None}
     for actor in (service.driver, stranger):
         assert _link(client, service, actor["auth"]).status_code == 404
     with monkeypatch.context() as prod:
@@ -60,6 +67,17 @@ def test_only_passenger_can_read_admitted_link_even_on_pause(client, bank_checko
     assert _link(client, service).json() == {"checkout_url": None}
     with Session(engine) as session:
         assert session.get(RideshareBankOperation, operation).confirmation_ciphertext is None
+    if terminal == "canceled":
+        service.toggle(PAID_SWITCH, True)
+        response = client.post(receipt_path + "/confirm", headers=fresh_session, json=terms(client, service))
+        assert response.status_code == 200
+        assert send(service, checkout) == "pending"
+        next_attempt = client.get(receipt_path, headers=fresh_session).json()["payment_attempt_id"]
+        assert next_attempt is not None and next_attempt != operation
+        assert client.get(receipt_path + "/checkout-link", headers=fresh_session,
+                          params={"expected_payment_id": operation}).json() == {"checkout_url": None}
+        assert client.get(receipt_path + "/checkout-link", headers=fresh_session,
+                          params={"expected_payment_id": next_attempt}).json() == {"checkout_url": _LINK}
 
 
 def test_link_ciphertext_is_bound_and_legacy_recovery_uses_verified_get(client, bank_checkout,

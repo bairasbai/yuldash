@@ -7440,8 +7440,8 @@
       "path": "backend/app/idempotency.py",
       "kind": "backend_main",
       "block": "B09",
-      "sha256": "e14660b1b253a8c77a07df0c2cd1c721a5ada3a86e576460214c3dd11b2fd2da",
-      "lines": 457
+      "sha256": "57d5020f56c492f96b88c16feab324f232f9541658ecfcfdeb085dc5ffc757a8",
+      "lines": 462
     },
     {
       "path": "backend/app/imagemeta.py",
@@ -7916,8 +7916,8 @@
       "path": "backend/app/routers/rideshare_bank.py",
       "kind": "backend_main",
       "block": "B02",
-      "sha256": "eac5ed5104cc3f447ef740c45c647da7f83babdd600bc20e34560608e23d531e",
-      "lines": 241
+      "sha256": "462aacfd5b23f17c78ce0d3bee0743b6b14daa6ca37ee66aa6f62d12e966406f",
+      "lines": 291
     },
     {
       "path": "backend/app/routers/route_watch.py",
@@ -11766,15 +11766,15 @@
       "path": "backend/tests/test_rideshare_bank_checkout_link.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "2a2288b6a3da19cd5430d9ec0401e6f552a3854a3dca491fada551ec6159f223",
-      "lines": 101
+      "sha256": "46ca2350afedafca8bd054f0fd85fcbb6ceb93cf66ed27902fb3cc943d5c7993",
+      "lines": 119
     },
     {
       "path": "backend/tests/test_rideshare_bank_command.py",
       "kind": "test_support",
       "block": "B02",
-      "sha256": "593631c40946889ac354e383c6fd69e6cfa4db504c483291722b4ccb0af43c28",
-      "lines": 164
+      "sha256": "2831a493870eaa09e48aa5a92ac11847b90cb51ca784924849a440c674cfea8c",
+      "lines": 317
     },
     {
       "path": "backend/tests/test_rideshare_bank_dispatch.py",
@@ -12867,6 +12867,13 @@
       "block": "B08",
       "sha256": "beceb1806725fc2dc70c5a7af153913f507efbb859c8236fc04fb92ca944834b",
       "lines": 109
+    },
+    {
+      "path": "backend/tests/test_versioned_rideshare_commands.py",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "9a61180454ec6657aeee694e8e124d83d8e09dbfcf01946a8743fbad18d3760b",
+      "lines": 160
     },
     {
       "path": "backend/tests/test_villages.py",
