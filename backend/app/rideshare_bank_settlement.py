@@ -42,11 +42,11 @@ class BankSettlement:
 
 def lock_bank_settlement(session: Session, checkout_id: int, resource: BankResource, owner_id: int, *,
                          runtime: BankRuntime, credentials: HTTPAuthorizationCredentials | None = None) -> BankSettlement:
-    runtime.check_environment()
+    runtime.require_writes()
     if credentials is not None and current_user(credentials, session).id != owner_id:
         raise BankCheckoutUnavailable("bank_owner_required")
     before = session.get(RideshareBankCheckout, checkout_id, populate_existing=True)
-    if before is None or before.test_mode != runtime.test_mode:
+    if before is None or not runtime.owns_checkout(before):
         raise BankCheckoutUnavailable("bank_checkout_changed")
     booking_id = before.booking_id
     participants = booking_participant_ids(session, booking_id) if booking_id is not None else ()
@@ -72,7 +72,7 @@ def lock_bank_settlement(session: Session, checkout_id: int, resource: BankResou
             raise BankCheckoutUnavailable("bank_booking_unavailable")
         booking = checked_bank_booking(session, booking_id, passenger, driver)
     checkout = _lock_checkout(session, checkout_id)
-    if checkout.booking_id != booking_id or checkout.closed_at is not None or checkout.test_mode != runtime.test_mode:
+    if checkout.booking_id != booking_id or checkout.closed_at is not None or not runtime.owns_checkout(checkout):
         raise BankCheckoutUnavailable("bank_checkout_changed")
     return BankSettlement(checkout, booking, driver, revisions)
 

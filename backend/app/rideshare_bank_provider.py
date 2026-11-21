@@ -266,18 +266,25 @@ def _check_creation(operation: BankRequest, observation: BankObservation) -> Non
 
 
 class YooKassaSafeDeal:
-    def __init__(self, client: httpx.Client, *, shop_id: str, secret_key: str, test_mode: bool):
+    def __init__(self, client: httpx.Client, *, shop_id: str, secret_key: str, test_mode: bool, read_only: bool = False):
         if not shop_id or not secret_key or type(test_mode) is not bool:
             raise ValueError("Safe Deal requires separate configured credentials and environment")
         self._client = client
         self._auth = (shop_id, secret_key)
         self._test_mode = test_mode
+        self._read_only = read_only
 
     @property
     def test_mode(self) -> bool:
         return self._test_mode
 
+    @property
+    def account_id(self) -> str:
+        return self._auth[0]
+
     def submit(self, operation: BankRequest) -> BankObservation:
+        if self._read_only:
+            raise PermissionError("Bank transport is read-only")
         return self._request(operation.resource, operation=operation)
 
     def fetch(self, resource: BankResource, provider_id: str) -> BankObservation:

@@ -33,9 +33,12 @@ class BankQueueResult:
 
 
 def claim_due_bank_checkout(engine: Engine, *, test_mode: bool, ready_before: datetime,
-                            checkout_id: int | None = None) -> int | None:
+                            checkout_id: int | None = None, provider_account_id: str | None = None) -> int | None:
     """Commit the next poll time before any authorization locks or provider calls."""
+    if not test_mode and provider_account_id is None:
+        return None
     checkout, operation = RideshareBankCheckout, RideshareBankOperation
+    scope = and_(checkout.test_mode == test_mode, checkout.provider_account_id == provider_account_id)
     may_charge = select(Booking.id).where(
         Booking.id == checkout.booking_id, Booking.status == BookingStatus.done, Booking.paid.is_(False),
     ).correlate(checkout).exists()
@@ -57,7 +60,7 @@ def claim_due_bank_checkout(engine: Engine, *, test_mode: bool, ready_before: da
     ).correlate(checkout).exists()
     due = or_(checkout.next_bank_check_at.is_(None), checkout.next_bank_check_at <= ready_before)
     candidates = select(checkout.id).where(
-        checkout.test_mode == test_mode, due,
+        scope, due,
         or_(active, and_(checkout.closed_at.is_(None), may_charge, opened_deal, ~prior_payment)),
     ).order_by(checkout.next_bank_check_at.asc().nulls_first(), checkout.id).limit(1)
     if checkout_id is not None:
@@ -70,7 +73,7 @@ def claim_due_bank_checkout(engine: Engine, *, test_mode: bool, ready_before: da
         operation.provider_id.is_(None), operation.dispatched_at <= now - PROVIDER_KEY_LIFETIME,
     ).correlate(checkout).exists()
     claim = update(checkout).where(
-        checkout.id == candidates.correlate(None).scalar_subquery(), checkout.test_mode == test_mode, due,
+        checkout.id == candidates.correlate(None).scalar_subquery(), scope, due,
     ).values(next_bank_check_at=case(
         (expired_unknown, now + _EXPIRED_CHECK_INTERVAL), else_=now + _CHECK_INTERVAL,
     )).returning(checkout.id)
@@ -107,12 +110,14 @@ def run_bank_queue(engine: Engine, *, runtime: BankRuntime, provider: YooKassaSa
     """Give each due checkout one step. A paused or uncertain item does not block the batch."""
     if type(limit) is not int or not 1 <= limit <= _MAX_BATCH:
         raise ValueError("Invalid bank queue batch size")
+    runtime.require_writes()
     _check_provider(runtime, provider)
     ready_before = utcnow()
     results = []
     for _ in range(limit):
         claimed = claim_due_bank_checkout(engine, test_mode=runtime.test_mode,
-                                          ready_before=ready_before, checkout_id=checkout_id)
+                                          ready_before=ready_before, checkout_id=checkout_id,
+                                          provider_account_id=runtime.provider_account_id)
         if claimed is None:
             break
         try:

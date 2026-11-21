@@ -35,6 +35,7 @@ class RideshareBankCheckout(SQLModel, table=True):
     amount_kop: int = Field(sa_column=Column(BigInteger, nullable=False))
     payout_kop: int = Field(sa_column=Column(BigInteger, nullable=False))
     test_mode: bool
+    provider_account_id: str | None = Field(default=None, max_length=64)
     created_at: datetime = Field(default_factory=utcnow)
     closed_at: datetime | None = None
     paid_revision: int | None = Field(default=None, sa_column=Column(BigInteger, nullable=True))

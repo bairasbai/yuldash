@@ -1,4 +1,4 @@
-from pydantic import Field, field_validator
+from pydantic import Field, SecretStr, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 DEFAULT_JWT_SECRET = "dev-secret-change-me"
@@ -150,6 +150,10 @@ class Settings(BaseSettings):
     # Ровно эти три (PAYMENTS_PROVIDERS); пусто или опечатка → сервер не стартует.
     payments_provider: str = "mock"
     yookassa_shop_id: str = ""          # shopId из кабинета ЮKassa (для самозанятых). НЕ в git — в .env.
+    rideshare_bank_read_enabled: bool = False
+    rideshare_bank_shop_id: str = ""
+    rideshare_bank_secret: SecretStr = SecretStr("")
+    rideshare_bank_fernet_key: SecretStr = SecretStr("")
     yookassa_secret_key: str = ""       # секретный ключ ЮKassa (Basic-auth). НЕ в git — в .env.
     payment_return_url: str = "https://yulbash.ru/pay/done"  # куда ЮKassa вернёт пользователя после оплаты
     # --- СБП-перевод по номеру (интерим, payments_provider=sbp_manual). Перс.данные — НЕ в git, в .env. ---
