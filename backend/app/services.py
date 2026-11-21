@@ -7,7 +7,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 `main.py` разрезан без дублирования логики (поведение 1:1).
 """
 from collections import deque
-from collections.abc import Callable, Iterable
+from collections.abc import Awaitable, Callable, Iterable
 from datetime import timedelta, timezone
 import base64
 import json
@@ -2033,12 +2033,17 @@ class ConnectionManager:
     """WebSocket-соединения чата: локальные коннекты процесса + раздача между воркерами через Redis."""
     def __init__(self):
         self.active_connections: dict = {}
+        self._receipt_senders: dict = {}
 
-    def register(self, booking_id: int, websocket):
+    def register(self, booking_id: int, websocket, *,
+                 send_receipts: Callable[[list[dict]], Awaitable[None]] | None = None):
         """Зарегистрировать УЖЕ принятое (accept) и авторизованное соединение."""
         self.active_connections.setdefault(booking_id, []).append(websocket)
+        if send_receipts is not None:
+            self._receipt_senders[(booking_id, websocket)] = send_receipts
 
     def disconnect(self, booking_id: int, websocket):
+        self._receipt_senders.pop((booking_id, websocket), None)
         if booking_id in self.active_connections:
             try:
                 self.active_connections[booking_id].remove(websocket)
@@ -2051,7 +2056,12 @@ class ConnectionManager:
         """Доставить только соединениям ЭТОГО процесса."""
         for connection in list(self.active_connections.get(booking_id, [])):
             try:
-                await connection.send_json(data)
+                if data.get("type") == "receipt":
+                    send_receipts = self._receipt_senders.get((booking_id, connection))
+                    if send_receipts is not None:
+                        await send_receipts(data.get("items", []))
+                else:
+                    await connection.send_json(data)
             except Exception:  # noqa: BLE001
                 pass
 

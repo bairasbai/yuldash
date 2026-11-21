@@ -5,6 +5,7 @@ from typing import Optional
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, false, text
 from sqlmodel import SQLModel, Field
 
+from . import chat_receipt_models  # noqa: F401 — registers per-message chat receipts
 from . import rideshare_bank_models  # noqa: F401 — registers the separate banking tables in SQLModel metadata
 from . import route_watch_models  # noqa: F401 — registers the route-watch queue and notice tables
 from .timeutil import utcnow
