@@ -123,7 +123,8 @@ for case_name in committed closed roundtrip; do
     if [[ $case_name == roundtrip ]]; then
         start_phase roundTripRetainsWaitAndCreatesOrder ru false 0
         finish_phase
-        check_state final '.quote == 2 and .confirm == 1 and .result == 0 and .close == 0 and .orders == 1 and .attempts == ["committed","issued"] and .legacy == 0 and .quoted_round_trips == [[false,0],[true,120]] and .confirmed_round_trip == true and .confirmed_return_wait_min == 120'
+        check_state final '.quote == 2 and .confirm == 1 and .result == 0 and .close == 0 and .orders == 1 and .order_status == "offered" and .attempts == ["committed","issued"] and .legacy == 0 and .quoted_round_trips == [[false,0],[true,120]] and .confirmed_round_trip == true and .confirmed_return_wait_min == 120'
+        [[ $(adb shell run-as "$pkg" cat "$device_dir/roundtrip-resolved-order-id" | tr -d '\r') == "$(jq -r .order_id "$state")" ]]
         collect_frame roundtrip-resolved
         stop_fixture
         echo 'Passed the round trip with a 120-minute return wait.'
@@ -156,9 +157,9 @@ for case_name in committed closed roundtrip; do
     fi
     finish_phase
     if [[ $case_name == committed ]]; then
-        check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 0 and .card >= 1 and .orders == 1 and .attempts == ["committed"] and .legacy == 0'
+        check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 0 and .card >= 1 and .orders == 1 and .order_status == "expired" and .last_card_status == "expired" and .attempts == ["committed"] and .legacy == 0'
     else
-        check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 1 and .card == 0 and .orders == 0 and .attempts == ["closed"] and .late_status == 409 and .legacy == 0'
+        check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 1 and .card == 0 and .orders == 0 and .order_status == null and .last_card_status == null and .attempts == ["closed"] and .late_status == 409 and .legacy == 0'
     fi
     for frame in quote-review interrupted cold-entry resolved; do
         collect_frame "$frame"

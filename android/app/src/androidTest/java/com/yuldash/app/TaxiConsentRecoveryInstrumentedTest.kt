@@ -120,7 +120,7 @@ class TaxiConsentRecoveryInstrumentedTest {
         compose.onNodeWithText("1020 ₽ − скидка 150 ₽. Итого к подтверждению: 870 ₽.").assertIsDisplayed()
         click("taxiConsentConfirm")
 
-        captureSearchCard("roundtrip-resolved")
+        captureOrderCard("roundtrip-resolved", "Ищем машину")
     }
 
     @Test fun confirmThenWaitForForceStop() {
@@ -167,7 +167,8 @@ class TaxiConsentRecoveryInstrumentedTest {
         capture("cold-entry", checkLabel)
         click("taxiConsentCheckResult")
         if (args.getString("case") == "committed") {
-            captureSearchCard("resolved", requireNotNull(args.getString("orderId")).toInt())
+            val expiredTitle = if (language == AppLanguage.Ba) "Яҡында әлегә бер кем дә юҡ" else "Рядом пока никого"
+            captureOrderCard("resolved", expiredTitle, requireNotNull(args.getString("orderId")).toInt())
         } else {
             val message = if (language == AppLanguage.Ba)
                 "Сервер заказды әлегә раҫламаны. Тағы тикшерергә йәки ынтылышты тамамларға мөмкин."
@@ -189,13 +190,12 @@ class TaxiConsentRecoveryInstrumentedTest {
         assertFalse(TaxiQuoteConsentApi.markers(context).pending(requireNotNull(TaxiQuoteConsentApi.owner()).binding))
     }
 
-    private fun captureSearchCard(name: String, id: Int? = null) {
+    private fun captureOrderCard(name: String, title: String, id: Int? = null) {
         val container = if (id != null) hasTestTag("taxiOrderCard-$id") else
             SemanticsMatcher("published passenger order card") {
                 SemanticsProperties.TestTag in it.config &&
                     it.config[SemanticsProperties.TestTag].matches(Regex("taxiOrderCard-[1-9][0-9]*"))
             }
-        val title = if (language == AppLanguage.Ba) "Машина эҙләйбеҙ" else "Ищем машину"
         val headingOnCard = hasText(title) and hasAnyAncestor(container)
         compose.waitUntil(30_000) {
             compose.onAllNodes(headingOnCard).fetchSemanticsNodes().isNotEmpty() &&
@@ -203,6 +203,8 @@ class TaxiConsentRecoveryInstrumentedTest {
         }
         compose.onNode(headingOnCard).assertIsDisplayed()
         capture(name, title)
+        val tag = compose.onNode(container).fetchSemanticsNode().config[SemanticsProperties.TestTag]
+        File(qaDir, "$name-order-id").writeText(tag.removePrefix("taxiOrderCard-").toInt().toString())
     }
 
     private fun waitForTag(tag: String) {

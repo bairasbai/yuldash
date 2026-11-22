@@ -9,6 +9,7 @@ import signal
 import socket
 import sys
 import tempfile
+from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
@@ -44,7 +45,8 @@ def serve(args, tempdir):
     import test_taxi_quote_consent as market
     from test_promo_taxi import DEST, ORIG
     from app import pricing
-    from app.models import InstantOrder, TaxiConsentAttempt
+    from app.config import settings
+    from app.models import InstantOrder, InstantOrderStatus, TaxiConsentAttempt
     from app.security import issue_tokens
     from app.timeutil import utcnow
     from sqlmodel import Session, select
@@ -54,6 +56,7 @@ def serve(args, tempdir):
     quoted_round_trips = []
     delayed = None
     late_status = None
+    last_card_status = None
 
     def snapshot():
         with Session(conftest.engine) as db:
@@ -61,6 +64,7 @@ def serve(args, tempdir):
             only = orders[0] if len(orders) == 1 else None
             order_fields = {
                 "order_id": only.id if only else None,
+                "order_status": only.status.value if only else None, "last_card_status": last_card_status,
                 "confirmed_round_trip": only.round_trip if only else None,
                 "confirmed_return_wait_min": only.return_wait_min if only else None,
             }
@@ -75,7 +79,7 @@ def serve(args, tempdir):
             pass  # Routes, session details and request bodies are never logged.
 
         def forward(self):
-            nonlocal delayed, late_status
+            nonlocal delayed, late_status, last_card_status
             parsed = urlsplit(self.path)
             if parsed.scheme or parsed.netloc or not self.path.startswith("/") or self.path.startswith("//"):
                 return self.send_error(400)
@@ -99,6 +103,17 @@ def serve(args, tempdir):
                 self.close_connection = True
                 return
             response = client.request(self.command, self.path, content=body, headers=headers)
+            if key == "card" and response.status_code == 200:
+                last_card_status = response.json()["status"]
+            if disconnect and args.case == "committed" and response.status_code == 200:
+                # The normal authenticated card read will reconcile the expired driver offer.
+                # This makes the recovered status observably different from the lost receipt.
+                with Session(conftest.engine) as db:
+                    order = db.get(InstantOrder, response.json()["order"]["id"])
+                    assert order.passenger_id == uid and order.status == InstantOrderStatus.offered
+                    order.offer_expires_at = utcnow() - timedelta(seconds=1)
+                    db.add(order)
+                    db.commit()
             if key == "close" and delayed is not None and response.status_code == 200:
                 saved_body, saved_headers = delayed
                 delayed = None
@@ -124,6 +139,9 @@ def serve(args, tempdir):
         client = stack.enter_context(contextlib.contextmanager(conftest.client.__wrapped__)())
         monkeypatch = stack.enter_context(pytest.MonkeyPatch.context())
         stack.enter_context(contextlib.contextmanager(market.consent_market.__wrapped__)(client, monkeypatch))
+        # Keep the sole synthetic driver present during UI assertions on slower emulators.
+        monkeypatch.setattr(settings, "presence_ttl_sec", 900)
+        monkeypatch.setattr(settings, "instant_offer_ttl_sec", 900)
         if args.case == "roundtrip":
             monkeypatch.setattr(pricing, "route_metrics", lambda *_: pricing.RouteMetrics(180.0, 140.0))
         make_user = conftest.user_factory.__wrapped__(client)
