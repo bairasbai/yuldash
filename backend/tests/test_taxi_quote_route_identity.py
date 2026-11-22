@@ -39,6 +39,8 @@ def test_changed_route_does_not_inherit_an_incompatible_quote(
     pax = user_factory("QuoteRouteIdentity")
     shown_body = _order_body(waypoints=shown_stops)
     ordered_body = _order_body(waypoints=ordered_stops)
+    # Заявки из соседних тестов в общей базе не должны задавать исходный спрос.
+    monkeypatch.setattr(isv, "surge_k_for", lambda *a, **k: 1.0)
     shown = client.post("/instant/estimate", headers=pax["auth"], json=shown_body)
     assert shown.status_code == 200
     assert shown.json()["price_locked_sec"] > 0
@@ -97,9 +99,13 @@ def test_same_waypoint_route_keeps_shown_price_when_demand_rises(
 ):
     pax = user_factory("QuoteSameRoute")
     body = _order_body(waypoints=[{"lat": 52.80, "lng": 58.20, "text": "Before"}])
+    monkeypatch.setattr(isv, "surge_k_for", lambda *a, **k: 1.0)
     shown = client.post("/instant/estimate", headers=pax["auth"], json=body)
     assert shown.status_code == 200
     monkeypatch.setattr(isv, "surge_k_for", lambda *a, **k: settings.surge_max_k)
+    with Session(engine) as session:
+        fresh = isv.estimate(session, ORIG, DEST, waypoints=body["waypoints"])
+    assert fresh["price"] > shown.json()["price"]
     body["waypoints"][0]["text"] = "After"
     created = client.post("/instant/orders", headers=pax["auth"], json=body)
     assert created.status_code == 200
