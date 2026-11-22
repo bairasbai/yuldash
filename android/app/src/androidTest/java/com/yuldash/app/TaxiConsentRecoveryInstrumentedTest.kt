@@ -5,16 +5,19 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.graphics.Color
+import android.graphics.Rect
 import android.os.Process
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
@@ -48,6 +51,8 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import kotlin.math.ceil
+import kotlin.math.floor
 
 /** run.sh owns the isolated API, SQL assertions and force-stop between these two device phases. */
 @RunWith(AndroidJUnit4::class)
@@ -220,38 +225,77 @@ class TaxiConsentRecoveryInstrumentedTest {
     }
 
     private fun capture(name: String, visibleLabel: String? = null) {
-        compose.waitForIdle()
         val automation = instrumentation.uiAutomation
+        val label = visibleLabel?.let { compose.onNodeWithText(it, useUnmergedTree = true) }
         val deadline = SystemClock.elapsedRealtime() + 15_000
-        while (SystemClock.elapsedRealtime() < deadline) {
-            val root = automation.rootInActiveWindow
-            if (root?.packageName?.toString() == context.packageName && (visibleLabel == null ||
-                    root.findAccessibilityNodeInfosByText(visibleLabel).any { it.isVisibleToUser })) {
-                instrumentation.waitForIdleSync()
+        var evidence = "No screenshot returned"
+        var last: Bitmap? = null
+        try {
+            while (SystemClock.elapsedRealtime() < deadline) {
+                compose.mainClock.advanceTimeByFrame()
+                compose.waitForIdle()
+                val foreground = automation.rootInActiveWindow?.packageName?.toString()
+                var labelDrawn = label == null
+                var labelRect: Rect? = null
+                if (foreground == context.packageName && label != null) {
+                    // PixelCopy commits an actual frame. Compose virtual text nodes are not searchable
+                    // via AccessibilityNodeInfo.findAccessibilityNodeInfosByText on all API levels.
+                    val copy = label.captureToImage().asAndroidBitmap()
+                    try { labelDrawn = variedSamples(copy, Rect(0, 0, copy.width, copy.height)) >= 8 }
+                    finally { copy.recycle() }
+                    val bounds = label.fetchSemanticsNode().boundsInWindow
+                    val offset = IntArray(2)
+                    instrumentation.runOnMainSync {
+                        val inWindow = IntArray(2)
+                        compose.activity.window.decorView.apply {
+                            getLocationOnScreen(offset)
+                            getLocationInWindow(inWindow)
+                        }
+                        offset[0] -= inWindow[0]
+                        offset[1] -= inWindow[1]
+                    }
+                    labelRect = Rect(floor(bounds.left).toInt() + offset[0], floor(bounds.top).toInt() + offset[1],
+                        ceil(bounds.right).toInt() + offset[0], ceil(bounds.bottom).toInt() + offset[1])
+                }
+                last?.recycle()
                 val screenshot = automation.takeScreenshot()
-                val bitmap = if (screenshot?.config == Bitmap.Config.HARDWARE) {
+                last = if (screenshot?.config == Bitmap.Config.HARDWARE) {
                     try { screenshot.copy(Bitmap.Config.ARGB_8888, false) } finally { screenshot.recycle() }
                 } else screenshot
-                if (bitmap != null) try {
-                    if (hasAppContent(bitmap)) {
-                        File(qaDir, "$name.png").outputStream().use {
-                            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
-                        }
+                val bitmap = last
+                if (bitmap != null) {
+                    val viewport = Rect(bitmap.width / 25, bitmap.height * 12 / 100,
+                        bitmap.width * 96 / 100, bitmap.height * 88 / 100)
+                    val visible = variedSamples(bitmap, viewport)
+                    val labelPixels = labelRect?.let { variedSamples(bitmap, it) }
+                    evidence = "foreground=$foreground viewport=$visible labelDrawn=$labelDrawn labelPixels=$labelPixels bounds=$labelRect"
+                    if (foreground == context.packageName && labelDrawn && visible >= 8 &&
+                        (label == null || (labelPixels ?: 0) >= 8)) {
+                        saveBitmap(bitmap, name)
                         return
                     }
-                } finally { bitmap.recycle() }
+                }
+                SystemClock.sleep(100)
             }
-            SystemClock.sleep(100)
-        }
-        fail("No drawn application frame for $name with the expected foreground content")
+            last?.let { saveBitmap(it, "$name-failed") }
+            fail("No drawn application frame for $name: $evidence")
+        } finally { last?.recycle() }
     }
 
-    /** System bars alone must never turn a solid transition frame into an accepted screenshot. */
-    private fun hasAppContent(bitmap: Bitmap): Boolean {
+    private fun saveBitmap(bitmap: Bitmap, name: String) {
+        File(qaDir, "$name.png").outputStream().use {
+            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+        }
+    }
+
+    /** Counts samples whose color differs visibly from the dominant color of this rectangle. */
+    private fun variedSamples(bitmap: Bitmap, requested: Rect): Int {
+        val region = Rect(requested)
+        if (!region.intersect(0, 0, bitmap.width, bitmap.height)) return 0
         val samples = ArrayList<Int>(64 * 64)
         for (row in 0 until 64) for (col in 0 until 64) {
-            val x = bitmap.width * (4 + col * 92 / 64) / 100
-            val y = bitmap.height * (12 + row * 76 / 64) / 100
+            val x = region.left + col * region.width() / 64
+            val y = region.top + row * region.height() / 64
             samples += bitmap.getPixel(x, y)
         }
         val background = samples.groupingBy { it }.eachCount().maxBy { it.value }.key
@@ -259,6 +303,6 @@ class TaxiConsentRecoveryInstrumentedTest {
             kotlin.math.abs(Color.red(pixel) - Color.red(background)) > 12 ||
                 kotlin.math.abs(Color.green(pixel) - Color.green(background)) > 12 ||
                 kotlin.math.abs(Color.blue(pixel) - Color.blue(background)) > 12
-        } >= 8
+        }
     }
 }

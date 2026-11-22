@@ -11,6 +11,15 @@ device_dir=files/taxi-consent-qa
 mkdir -p "$results"
 fixture_pid= phase_pid=
 cleanup() {
+    local status=$?
+    if [[ $status != 0 && -n ${case_name:-} ]]; then
+        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved; do
+            if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
+                adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
+            fi
+        done
+        adb shell dumpsys window | grep -m2 -E 'mCurrentFocus=|mFocusedApp=' > "$results/$case_name-foreground.txt" || true
+    fi
     if [[ -n "$phase_pid" ]]; then kill "$phase_pid" 2>/dev/null || true; fi
     if [[ -n "$fixture_pid" ]]; then kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; fi
     adb reverse --remove tcp:8000 >/dev/null 2>&1 || true
@@ -134,6 +143,8 @@ for case_name in committed closed roundtrip; do
     wait "$phase_pid" || true
     phase_pid=
     [[ -z $(adb shell pidof "$pkg" | tr -d '\r') ]]
+    adb shell input keyevent KEYCODE_WAKEUP
+    adb shell wm dismiss-keyguard
     start_phase coldEntryChecksOrClosesOriginalAttempt "$cold_lang" true "$order_id"
     wait_device_file cold.ready
     check_state cold "$before_read"
