@@ -38,7 +38,7 @@ function buildScreen(flag, lang = "ru") {
       "../i18n/lang": langMock(lang),
       "../features": "export const useFeatures=()=>({taxi:true,ready:true});",
       "react-dom": "export const createPortal=child=>child;",
-      "react-router-dom": 'export const Link="Link"; export const useNavigate=()=>()=>{};',
+      "react-router-dom": 'export const Link="Link"; export const useNavigate=()=>()=>{}; export const useLocation=()=>({state:null});',
       "./AlertDialog": 'export default "AlertDialog";',
       "../utils/sessionCredentials": `export const subscribeSessionChanges=listener=>{
         const events=globalThis.__taxiReload.sessions;

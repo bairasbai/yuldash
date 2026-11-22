@@ -12,9 +12,10 @@
 //  release-2026-07 → до этого 404/405 → «Такси скоро».
 // ================================================================
 import { useCallback, useEffect, useRef, useState } from "react";
-import { useNavigate, type NavigateFunction } from "react-router-dom";
+import { useLocation, useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError, getAccountSession } from "../api/client";
+import { ApiError, getAccountSession, isAccountSession } from "../api/client";
+import { requestedScheduledTaxiId, requestedTaxiOrderMatches } from "../utils/scheduledTaxiContext";
 import { subscribeSessionChanges } from "../utils/sessionCredentials";
 import { consentGeneration, pendingTaxiMarkers } from "../utils/taxiConsent";
 import TaxiConsentAction, { TaxiConsentFields, TaxiConsentSummary } from "../components/TaxiConsentAction";
@@ -151,7 +152,11 @@ function passengerOrderIsActive(order: InstantOrder): boolean {
     || (order.status === "expired" && serverMs(order.wait_until) > Date.now());
 }
 
+
 export default function InstantOrderScreen() {
+  const location = useLocation();
+  const scheduledState = location?.state;
+  const sessionOwner = getAccountSession();
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const navigate = useNavigate();
@@ -188,13 +193,20 @@ export default function InstantOrderScreen() {
   }, [order]);
 
   const bootEpoch = useRef(0);
+  const detailsEpoch = useRef(0);
+  const lifetime = useRef<AbortController | null>(null);
   const originLabel = useRef("");
   originLabel.current = appText("Моё место", "Урыным");
 
   // В пилоте результат отправленного заказа проверяется до поиска новых поездок.
   const boot = useCallback(() => {
+    lifetime.current?.abort();
+    const ac = new AbortController();
+    lifetime.current = ac;
+    const signal = ac.signal;
     const epoch = ++bootEpoch.current;
-    const current = () => epoch === bootEpoch.current;
+    const owner = getAccountSession();
+    const current = () => !signal.aborted && epoch === bootEpoch.current && (!owner || isAccountSession(owner));
     const pilot = localTaxiConsentContext();
     if (pilot?.requested && !pilot.environment) {
       setView("localConfig");
@@ -214,6 +226,16 @@ export default function InstantOrderScreen() {
       }
     }
     setView("boot");
+    const requestedId = owner && requestedScheduledTaxiId(scheduledState, owner);
+    if (requestedId) {
+      fetchInstantOrder(requestedId, signal).then((fresh) => {
+        if (!current()) return;
+        if (!requestedTaxiOrderMatches(fresh, requestedId)) { setView("error"); return; }
+        setOrder(fresh);
+        setView("tracking");
+      }).catch(() => { if (current()) setView("error"); });
+      return;
+    }
     const proceed = (pt: GeoPoint | null) => {
       if (!current()) return;
       if (pt) {
@@ -275,12 +297,12 @@ export default function InstantOrderScreen() {
     } else {
       proceed(null);
     }
-  }, []);
+  }, [scheduledState, sessionOwner?.userId, sessionOwner?.generation]);
 
   useEffect(() => {
     boot();
     let unsubscribe: (() => void) | undefined;
-    if (localTaxiConsentContext()?.environment) {
+    if (localTaxiConsentContext()?.environment || scheduledState) {
       let owner = getAccountSession();
       unsubscribe = subscribeSessionChanges(() => {
         const next = getAccountSession();
@@ -293,30 +315,39 @@ export default function InstantOrderScreen() {
         boot();
       });
     }
-    return () => { ++bootEpoch.current; unsubscribe?.(); };
+    return () => { ++bootEpoch.current; lifetime.current?.abort(); unsubscribe?.(); };
   }, [boot]);
 
-  // ---------------- Поллинг активного заказа ----------------
+  // Ignore older same-order responses and responses from a departed account/view.
   useEffect(() => {
     if (view !== "tracking" || !order) return;
     let alive = true;
+    const epoch = bootEpoch.current;
+    const owner = getAccountSession();
+    const signal = lifetime.current?.signal;
     const tick = () => {
-      fetchInstantOrder(order.id)
-        .then((o) => alive && setOrder(o))
-        .catch(() => {});
+      if (!alive || signal?.aborted || epoch !== bootEpoch.current || (owner && !isAccountSession(owner))) return;
+      const read = ++detailsEpoch.current;
+      fetchInstantOrder(order.id, signal).then((fresh) => {
+        if (alive && !signal?.aborted && epoch === bootEpoch.current && read === detailsEpoch.current
+            && (!owner || isAccountSession(owner)) && requestedTaxiOrderMatches(fresh, order.id)) setOrder(fresh);
+      }).catch(() => {});
     };
     const iv = window.setInterval(tick, POLL_MS);
-    return () => {
-      alive = false;
-      window.clearInterval(iv);
-    };
+    return () => { alive = false; window.clearInterval(iv); };
   }, [view, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function backToCompose() {
+    if (lifetime.current?.signal.aborted || (sessionOwner && !isAccountSession(sessionOwner))) return;
+    ++bootEpoch.current;
+    ++detailsEpoch.current;
     setActiveTaxiOrder(null);
     setOrder(null);
     setTo(null);
-    if (localTaxiConsentContext()?.environment) boot();
+    const owner = getAccountSession();
+    if (owner && requestedScheduledTaxiId(scheduledState, owner)) {
+      navigate("/taxi", { replace: true, state: null });
+    } else if (localTaxiConsentContext()?.environment) boot();
     else setView("compose");
   }
 
@@ -328,12 +359,15 @@ export default function InstantOrderScreen() {
    * круг поллинга подтянет его сам.
    */
   const refreshOrder = useCallback(() => {
-    if (!order) return;
+    if (!order || lifetime.current?.signal.aborted || (sessionOwner && !isAccountSession(sessionOwner))) return;
     const epoch = bootEpoch.current;
-    fetchInstantOrder(order.id)
-      .then((fresh) => { if (epoch === bootEpoch.current) setOrder(fresh); })
-      .catch(() => {});
-  }, [order]);
+    const read = ++detailsEpoch.current;
+    const signal = lifetime.current?.signal;
+    fetchInstantOrder(order.id, signal).then((fresh) => {
+      if (!signal?.aborted && epoch === bootEpoch.current && read === detailsEpoch.current
+          && (!sessionOwner || isAccountSession(sessionOwner)) && requestedTaxiOrderMatches(fresh, order.id)) setOrder(fresh);
+    }).catch(() => {});
+  }, [order, sessionOwner?.userId, sessionOwner?.generation]);
 
   // Живой заказ сохраняется; отсутствие флага закрывает только новую форму.
   if (view === "compose" && !features.taxi) {
