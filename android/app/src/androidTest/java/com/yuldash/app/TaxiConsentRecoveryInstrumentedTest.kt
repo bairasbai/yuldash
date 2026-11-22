@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.Context
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.os.Process
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
@@ -114,12 +115,7 @@ class TaxiConsentRecoveryInstrumentedTest {
         compose.onNodeWithText("1020 ₽ − скидка 150 ₽. Итого к подтверждению: 870 ₽.").assertIsDisplayed()
         click("taxiConsentConfirm")
 
-        val orderCard = SemanticsMatcher("published passenger order card") {
-            SemanticsProperties.TestTag in it.config && it.config[SemanticsProperties.TestTag].matches(Regex("taxiOrderCard-[1-9][0-9]*"))
-        }
-        compose.waitUntil(30_000) { compose.onAllNodes(orderCard).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(orderCard).assertIsDisplayed()
-        capture("roundtrip-resolved")
+        captureSearchCard("roundtrip-resolved")
     }
 
     @Test fun confirmThenWaitForForceStop() {
@@ -161,11 +157,12 @@ class TaxiConsentRecoveryInstrumentedTest {
         }
         waitForTag("taxiConsentCheckResult")
         compose.onNodeWithTag("taxiConsentConfirm").assertDoesNotExist()
-        capture("cold-entry")
         rendezvous("cold")
+        val checkLabel = if (language == AppLanguage.Ba) "Заказ һөҙөмтәһен тикшереү" else "Проверить результат заказа"
+        capture("cold-entry", checkLabel)
         click("taxiConsentCheckResult")
         if (args.getString("case") == "committed") {
-            waitForTag("taxiOrderCard-${requireNotNull(args.getString("orderId")).toInt()}")
+            captureSearchCard("resolved", requireNotNull(args.getString("orderId")).toInt())
         } else {
             val message = if (language == AppLanguage.Ba)
                 "Сервер заказды әлегә раҫламаны. Тағы тикшерергә йәки ынтылышты тамамларға мөмкин."
@@ -182,9 +179,25 @@ class TaxiConsentRecoveryInstrumentedTest {
                          else "Попытка завершена. Заказ не был создан."
             compose.waitUntil(30_000) { compose.onAllNodesWithText(closed).fetchSemanticsNodes().isNotEmpty() }
             compose.onNodeWithText(closed).assertIsDisplayed()
+            capture("resolved", closed)
         }
-        capture("resolved")
         assertFalse(TaxiQuoteConsentApi.markers(context).pending(requireNotNull(TaxiQuoteConsentApi.owner()).binding))
+    }
+
+    private fun captureSearchCard(name: String, id: Int? = null) {
+        val container = if (id != null) hasTestTag("taxiOrderCard-$id") else
+            SemanticsMatcher("published passenger order card") {
+                SemanticsProperties.TestTag in it.config &&
+                    it.config[SemanticsProperties.TestTag].matches(Regex("taxiOrderCard-[1-9][0-9]*"))
+            }
+        val title = if (language == AppLanguage.Ba) "Машина эҙләйбеҙ" else "Ищем машину"
+        val headingOnCard = hasText(title) and hasAnyAncestor(container)
+        compose.waitUntil(30_000) {
+            compose.onAllNodes(headingOnCard).fetchSemanticsNodes().isNotEmpty() &&
+                compose.onAllNodesWithTag("taxiConsentCheckResult").fetchSemanticsNodes().isEmpty()
+        }
+        compose.onNode(headingOnCard).assertIsDisplayed()
+        capture(name, title)
     }
 
     private fun waitForTag(tag: String) {
@@ -206,13 +219,43 @@ class TaxiConsentRecoveryInstrumentedTest {
         check(File(qaDir, "$step.continue").exists()) { "Host did not verify $step" }
     }
 
-    private fun capture(name: String) {
+    private fun capture(name: String, visibleLabel: String? = null) {
         compose.waitForIdle()
-        val bitmap = checkNotNull(instrumentation.uiAutomation.takeScreenshot())
-        try {
-            File(qaDir, "$name.png").outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
-        } finally {
-            bitmap.recycle()
+        val automation = instrumentation.uiAutomation
+        val deadline = SystemClock.elapsedRealtime() + 15_000
+        while (SystemClock.elapsedRealtime() < deadline) {
+            val root = automation.rootInActiveWindow
+            if (root?.packageName == context.packageName && (visibleLabel == null ||
+                    root.findAccessibilityNodeInfosByText(visibleLabel).any { it.isVisibleToUser })) {
+                instrumentation.waitForIdleSync()
+                val bitmap = automation.takeScreenshot()
+                if (bitmap != null) try {
+                    if (hasAppContent(bitmap)) {
+                        File(qaDir, "$name.png").outputStream().use {
+                            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+                        }
+                        return
+                    }
+                } finally { bitmap.recycle() }
+            }
+            SystemClock.sleep(100)
         }
+        fail("No drawn application frame for $name with the expected foreground content")
+    }
+
+    /** System bars alone must never turn a solid transition frame into an accepted screenshot. */
+    private fun hasAppContent(bitmap: Bitmap): Boolean {
+        val samples = ArrayList<Int>(64 * 64)
+        for (row in 0 until 64) for (col in 0 until 64) {
+            val x = bitmap.width * (4 + col * 92 / 64) / 100
+            val y = bitmap.height * (12 + row * 76 / 64) / 100
+            samples += bitmap.getPixel(x, y)
+        }
+        val background = samples.groupingBy { it }.eachCount().maxBy { it.value }.key
+        return samples.count { pixel ->
+            kotlin.math.abs(Color.red(pixel) - Color.red(background)) > 12 ||
+                kotlin.math.abs(Color.green(pixel) - Color.green(background)) > 12 ||
+                kotlin.math.abs(Color.blue(pixel) - Color.blue(background)) > 12
+        } >= 8
     }
 }
