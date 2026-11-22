@@ -21,7 +21,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
@@ -2825,20 +2824,11 @@ object ApiClient {
             .map { it.optString("payment_method").ifBlank { "negotiate" } }
             .onSuccess { Analytics.log("instant_payment_$method") }
 
-    /** Local opt-in only: exact JSON bytes, no implicit network/auth/redirect replay. */
-    internal suspend fun taxiConsentRequest(path: String, body: String, owner: TaxiConsentOwner,
-        admit: () -> Boolean): Result<JSONObject> {
-        if (!TaxiQuoteConsentApi.current(owner) || path !in setOf("/instant/quotes/v1", "/instant/orders/confirmed/v1",
-                "/instant/orders/result/v1", "/instant/orders/close-attempt/v1")) return staleSession()
-        return call("POST", path, null, auth = true, expectedGeneration = owner.generation,
-            retryOnNetwork = false, singleAttemptMutation = true, wireBody = body, expectedBase = owner.binding.origin,
-            withoutAuthReplay = true, admitWire = { TaxiQuoteConsentApi.current(owner) && admit() })
-    }
-    internal suspend fun taxiConsentCard(orderId: Int, owner: TaxiConsentOwner, admit: () -> Boolean): Result<JSONObject> {
-        if (orderId <= 0 || !TaxiQuoteConsentApi.current(owner)) return staleSession()
-        return call("GET", "/instant/orders/$orderId", null, auth = true, expectedGeneration = owner.generation,
-            retryOnNetwork = false, singleAttemptMutation = true, expectedBase = owner.binding.origin,
-            freshRead = true, withoutAuthReplay = true, admitWire = { TaxiQuoteConsentApi.current(owner) && admit() })
+    internal suspend fun taxiConsentRequest(request: TaxiConsentRequest, owner: TaxiConsentOwner, admit: () -> Boolean): Result<JSONObject> {
+        if (!TaxiQuoteConsentApi.current(owner)) return staleSession()
+        return call(request.method, request.path, null, auth = true, expectedGeneration = owner.generation,
+            retryOnNetwork = false, singleAttemptMutation = true, wireBody = request.body, expectedBase = owner.binding.origin,
+            freshRead = request.body == null, withoutAuthReplay = true, admitWire = { TaxiQuoteConsentApi.current(owner) && admit() })
     }
     internal fun parseTaxiConsentOrder(value: JSONObject): InstantOrderDto = value.toInstantOrderDto()
 
@@ -3653,31 +3643,12 @@ object ApiClient {
                 if (singleAttemptMutation || rideshareMutation(method, path)) {
                     val requestBody = if (idempotent) null else
                         oneShotBody(wireBody ?: body?.toString(), admitWire, claimBody)
-                    val headers = Headers.Builder().add("Accept", "application/json").apply {
-                        if (freshRead) add("Cache-Control", "no-cache, no-store")
-                        idempotencyKey?.let { add("Idempotency-Key", it) }
-                        deviceId?.let { add("X-Device-Id", it) }
-                        if (auth) usedToken?.let {
-                            val bearer = "Bearer $it"
-                            // Match the old transport's non-ASCII compatibility without allowing header injection.
-                            require(bearer.all { ch -> ch == '\t' || (ch.code >= 32 && ch.code != 127) })
-                            addUnsafeNonAscii("Authorization", bearer)
-                        }
-                    }.build()
+                    val headers = oneShotHeaders(freshRead, idempotencyKey, deviceId, usedToken)
                     val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     if (admitWire?.invoke() == false) return@withContext staleSession()
                     val transport = oneShotTransport(connectMs, readMs, mutationTimeoutMs)
-                    // A bodyless GET cannot use RequestBody.isOneShot(). Reject an OkHttp
-                    // status-based follow-up (e.g. 503 Retry-After: 0) before a second wire exchange.
-                    val client = if (idempotent && withoutAuthReplay) {
-                        var sent = false
-                        transport.newBuilder().addNetworkInterceptor { chain ->
-                            if (sent || admitWire?.invoke() == false) throw IOException("Consent read ended")
-                            sent = true
-                            chain.proceed(chain.request())
-                        }.build()
-                    } else transport
+                    val client = if (idempotent && withoutAuthReplay) transport.singleRead(admitWire) else transport
                     mutationResponse = client.newCall(request).execute()
                     code = mutationResponse.code
                     snapshotRead?.status(code)

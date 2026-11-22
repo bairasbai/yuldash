@@ -110,6 +110,21 @@ internal interface TaxiConsentPort {
     suspend fun card(orderId: Int, owner: TaxiConsentOwner, admit: () -> Boolean): Result<InstantOrderDto>
 }
 
+/** Only these four POSTs and a current order card may use the consent transport. */
+internal class TaxiConsentRequest private constructor(val path: String, val body: String?) {
+    val method: String get() = if (body == null) "GET" else "POST"
+
+    companion object {
+        fun quote(route: TaxiConsentRoute) = TaxiConsentRequest("/instant/quotes/v1", route.quoteBody().toString())
+        fun confirm(body: String) = TaxiConsentRequest("/instant/orders/confirmed/v1", body)
+        fun result(key: String, close: Boolean): TaxiConsentRequest {
+            val path = if (close) "/instant/orders/close-attempt/v1" else "/instant/orders/result/v1"
+            return TaxiConsentRequest(path, JSONObject().put("request_key", key).toString())
+        }
+        fun card(orderId: Int) = if (orderId > 0) TaxiConsentRequest("/instant/orders/$orderId", null) else null
+    }
+}
+
 internal object TaxiQuoteConsentApi : TaxiConsentPort {
     val requested: Boolean get() = BuildConfig.DEBUG && BuildConfig.YULDASH_TAXI_QUOTE_CONSENT_LOCAL
     fun owner(generation: Long = ApiClient.queueSessionGeneration()): TaxiConsentOwner? {
@@ -126,25 +141,26 @@ internal object TaxiQuoteConsentApi : TaxiConsentPort {
     }
     override suspend fun quote(route: TaxiConsentRoute, owner: TaxiConsentOwner, admit: () -> Boolean): Result<TaxiConsentQuote> {
         if (!current(owner)) return ApiClient.staleSession()
-        return ApiClient.taxiConsentRequest("/instant/quotes/v1", route.quoteBody().toString(), owner, admit).mapCatching(::readTaxiConsentQuote)
+        return ApiClient.taxiConsentRequest(TaxiConsentRequest.quote(route), owner, admit).mapCatching(::readTaxiConsentQuote)
     }
     override suspend fun confirm(body: String, original: TaxiConsentQuote, owner: TaxiConsentOwner, admit: () -> Boolean): Result<TaxiConsentReceipt> {
         if (!current(owner)) return ApiClient.staleSession()
-        return ApiClient.taxiConsentRequest("/instant/orders/confirmed/v1", body, owner, admit).mapCatching {
+        return ApiClient.taxiConsentRequest(TaxiConsentRequest.confirm(body), owner, admit).mapCatching {
             check(current(owner)); readTaxiConsentReceipt(it, original, owner.userId, ApiClient::parseTaxiConsentOrder)
         }
     }
     override suspend fun result(key: String, close: Boolean, owner: TaxiConsentOwner, admit: () -> Boolean): Result<TaxiAttemptResult> {
         if (!current(owner) || !taxiConsentUuid(key)) return ApiClient.staleSession()
-        val path = if (close) "/instant/orders/close-attempt/v1" else "/instant/orders/result/v1"
-        return ApiClient.taxiConsentRequest(path, JSONObject().put("request_key", key).toString(), owner, admit)
+        return ApiClient.taxiConsentRequest(TaxiConsentRequest.result(key, close), owner, admit)
             .mapCatching { check(current(owner)); readTaxiAttemptResult(it, close) }
     }
-    override suspend fun card(orderId: Int, owner: TaxiConsentOwner, admit: () -> Boolean): Result<InstantOrderDto> =
-        ApiClient.taxiConsentCard(orderId, owner, admit).mapCatching {
+    override suspend fun card(orderId: Int, owner: TaxiConsentOwner, admit: () -> Boolean): Result<InstantOrderDto> {
+        val request = TaxiConsentRequest.card(orderId) ?: return ApiClient.staleSession()
+        return ApiClient.taxiConsentRequest(request, owner, admit).mapCatching {
             check(current(owner))
             readTaxiConsentCard(it, orderId, owner.userId, ApiClient::parseTaxiConsentOrder)
         }
+    }
 
     @Volatile private var journal: TaxiConsentMarkerJournal? = null
     @Synchronized fun markers(context: Context): TaxiConsentMarkerJournal {
