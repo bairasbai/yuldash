@@ -31,6 +31,9 @@ adb shell svc wifi disable
 adb shell svc data disable
 adb shell settings put global airplane_mode_on 1
 adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/dev/null
+adb shell svc power stayon true
+adb shell input keyevent KEYCODE_WAKEUP
+adb shell wm dismiss-keyguard
 adb install -t android/app/build/outputs/apk/debug/app-debug.apk
 adb install -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 app_uid=$(adb shell pm list packages -U "$pkg" | tr -d '\r' | awk -v p="package:$pkg" '$1==p {sub(/^uid:/,"",$2); print $2}')
@@ -78,8 +81,22 @@ check_state() {
     }
     cp "$state" "$results/$case_name-$point.json"
 }
+finish_phase() {
+    wait "$phase_pid"
+    phase_pid=
+    if ! grep -Eq '^OK \(1 test\)' "$phase_log"; then cat "$phase_log" >&2; exit 1; fi
+}
+collect_frame() {
+    adb exec-out run-as "$pkg" cat "$device_dir/$1.png" > "$results/$case_name-$1.png"
+    [[ -s "$results/$case_name-$1.png" ]]
+}
+stop_fixture() {
+    kill "$fixture_pid"
+    wait "$fixture_pid" 2>/dev/null || true
+    fixture_pid=
+}
 
-for case_name in committed closed; do
+for case_name in committed closed roundtrip; do
     adb shell pm clear "$pkg" | grep -q Success
     adb shell run-as "$pkg" mkdir -p "$device_dir"
     session="$private/$case_name-session.json"
@@ -94,6 +111,15 @@ for case_name in committed closed; do
     done
     [[ -s "$session" ]]
     adb shell -T "run-as $pkg sh -c 'umask 077; cat > $device_dir/session.json'" < "$session"
+    if [[ $case_name == roundtrip ]]; then
+        start_phase roundTripRetainsWaitAndCreatesOrder ru false 0
+        finish_phase
+        check_state final '.quote == 2 and .confirm == 1 and .result == 0 and .close == 0 and .orders == 1 and .attempts == ["committed","issued"] and .legacy == 0 and .quoted_round_trips == [[false,0],[true,120]] and .confirmed_round_trip == true and .confirmed_return_wait_min == 120'
+        collect_frame roundtrip-resolved
+        stop_fixture
+        echo 'Passed the round trip with a 120-minute return wait.'
+        continue
+    fi
     if [[ $case_name == committed ]]; then seed_lang=ru; cold_lang=ba; else seed_lang=ba; cold_lang=ru; fi
     start_phase confirmThenWaitForForceStop "$seed_lang" false 0
     wait_device_file review.ready
@@ -117,20 +143,15 @@ for case_name in committed closed; do
         check_state dismissed '.result == 1 and .close == 0 and .confirm == 1 and .orders == 0 and .legacy == 0'
         continue_after_check cancel-close
     fi
-    wait "$phase_pid"
-    phase_pid=
-    if ! grep -Eq '^OK \(1 test\)' "$phase_log"; then cat "$phase_log" >&2; exit 1; fi
+    finish_phase
     if [[ $case_name == committed ]]; then
         check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 0 and .card >= 1 and .orders == 1 and .attempts == ["committed"] and .legacy == 0'
     else
         check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 1 and .card == 0 and .orders == 0 and .attempts == ["closed"] and .late_status == 409 and .legacy == 0'
     fi
     for frame in quote-review interrupted cold-entry resolved; do
-        adb exec-out run-as "$pkg" cat "$device_dir/$frame.png" > "$results/$case_name-$frame.png"
-        [[ -s "$results/$case_name-$frame.png" ]]
+        collect_frame "$frame"
     done
-    kill "$fixture_pid"
-    wait "$fixture_pid" 2>/dev/null || true
-    fixture_pid=
+    stop_fixture
     echo "Passed $case_name on fresh Android processes."
 done

@@ -2315,9 +2315,12 @@ private fun InstantDestinationPicker(
     var stops by remember { mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList()) }
     var addingStop by remember { mutableStateOf(false) }
     // Круговой рейс: «отвези и привези обратно». Доступен только на межгороде — решает сервер.
-    var roundTrip by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
+    val roundTripRoute = listOf(effFrom?.latitude, effFrom?.longitude, toPoint?.latitude, toPoint?.longitude,
+        stops.map { it.lat to it.lng })
+    var roundTripTerms by remember(roundTripRoute) { mutableStateOf<InstantRoundTripTerms?>(null) }
+    var roundTrip by rememberSaveable(roundTripRoute, stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
     // Сколько водитель ждёт на месте. Час по умолчанию: типичное «сходить и вернуться».
-    var returnWaitMin by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Int>())) { mutableIntStateOf(60) }
+    var returnWaitMin by rememberSaveable(roundTripRoute, stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Int>())) { mutableIntStateOf(60) }
     var forOther by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) } // заказ ДЛЯ ДРУГОГО человека
     var forName by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
     var forPhone by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<String>())) { mutableStateOf("") }
@@ -2412,7 +2415,15 @@ private fun InstantDestinationPicker(
         ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category,
             roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops,
             scheduledAtIso = scheduledAtMs?.let(::isoFromMillis))
-            .onSuccess { estimate = it; acceptedEstimateInputs = estimateInputs }
+            .onSuccess { fresh ->
+                estimate = fresh
+                acceptedEstimateInputs = estimateInputs
+                // Round-trip terms belong to the road route, not the quote's selected options or wait.
+                roundTripTerms = if (fresh.roundTripAvailable)
+                    InstantRoundTripTerms(fresh.roundTripDiscountPercent, fresh.roundTripMaxWaitHours)
+                else null
+                if (!fresh.roundTripAvailable) roundTrip = false
+            }
             .onFailure {
                 estimate = null   // сбрасываем устаревшую цену → кнопка «Вызвать» гаснет, не заказываем по старой оценке
                 errorText = (it as? ApiException)?.message ?: estimateFailMsg
@@ -3073,11 +3084,9 @@ private fun InstantDestinationPicker(
                 // Круговой рейс — только межгород. Доступность решает сервер: он знает, где проходит
                 // граница зоны. Переехал человек точку Б в черту города — предложение исчезает, и
                 // включённый флаг надо погасить, иначе он молча уедет в заказ и цена не сойдётся.
-                val rtAvailable = estimate?.roundTripAvailable == true
-                LaunchedEffect(rtAvailable) { if (!rtAvailable) roundTrip = false }
-                if (toPoint != null && rtAvailable) {
+                roundTripTerms?.let { terms ->
                     InstantRoundTripCard(
-                        estimate = estimate,
+                        terms = terms,
                         checked = roundTrip,
                         onChecked = { roundTrip = it },
                         waitMin = returnWaitMin,
@@ -3276,7 +3285,7 @@ private fun InstantDestinationPicker(
                         color = CanonSurface,
                         border = BorderStroke(1.dp, CanonBorder),
                         shadowElevation = CanonDepth.card,
-                        modifier = Modifier.minimumInteractiveComponentSize().size(54.dp),
+                        modifier = Modifier.testTag("taxiOrderDetails").minimumInteractiveComponentSize().size(54.dp),
                     ) {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             Icon(
@@ -7410,17 +7419,19 @@ private fun openNavigator(ctx: Context, lat: Double, lng: Double) {
 /** Сколько водитель ждёт на месте. Часы, а не минуты: человек мыслит «на часок» / «до вечера». */
 private val ROUND_TRIP_WAIT_HOURS = listOf(1, 2, 3, 4)
 
+private data class InstantRoundTripTerms(val discountPercent: Int, val maxWaitHours: Int)
+
 @Composable
 private fun InstantRoundTripCard(
-    estimate: com.yuldash.app.data.InstantEstimateDto?,
+    terms: InstantRoundTripTerms,
     checked: Boolean,
     onChecked: (Boolean) -> Unit,
     waitMin: Int,
     onWaitMin: (Int) -> Unit,
 ) {
-    val discount = estimate?.roundTripDiscountPercent ?: 0
-    val maxHours = (estimate?.roundTripMaxWaitHours ?: 4).coerceAtLeast(1)
-    Surface(color = CanonSurface, shape = CanonItemShape) {
+    val discount = terms.discountPercent
+    val maxHours = terms.maxWaitHours.coerceAtLeast(1)
+    Surface(modifier = Modifier.testTag("taxiRoundTripOptions"), color = CanonSurface, shape = CanonItemShape) {
         Column {
             SettingSwitchRow(
                 icon = Icons.Default.SwapHoriz,
@@ -7454,7 +7465,7 @@ private fun InstantRoundTripCard(
                                 hours = h,
                                 selected = waitMin == h * 60,
                                 onClick = { onWaitMin(h * 60) },
-                                modifier = Modifier.weight(1f),
+                                modifier = Modifier.weight(1f).testTag("taxiRoundTripWait${h * 60}"),
                             )
                         }
                     }
@@ -7489,7 +7500,7 @@ private fun RoundTripWaitChip(
     Surface(
         color = bg,
         shape = CanonTinyShape,
-        modifier = modifier.heightIn(min = 48.dp).clickable(onClick = onClick),   // тач-цель ≥48dp
+        modifier = modifier.heightIn(min = 48.dp).semantics { this.selected = selected }.clickable(onClick = onClick),   // тач-цель ≥48dp
     ) {
         Box(contentAlignment = Alignment.Center) {
             Text(

@@ -42,6 +42,8 @@ def serve(args, tempdir):
     import conftest
     import pytest
     import test_taxi_quote_consent as market
+    from test_promo_taxi import DEST, ORIG
+    from app import pricing
     from app.models import InstantOrder, TaxiConsentAttempt
     from app.security import issue_tokens
     from app.timeutil import utcnow
@@ -49,15 +51,22 @@ def serve(args, tempdir):
 
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
     counters = dict.fromkeys((*ENDPOINTS.values(), "card"), 0)
+    quoted_round_trips = []
     delayed = None
     late_status = None
 
     def snapshot():
         with Session(conftest.engine) as db:
-            orders = db.exec(select(InstantOrder.id).where(InstantOrder.passenger_id == uid)).all()
+            orders = db.exec(select(InstantOrder).where(InstantOrder.passenger_id == uid)).all()
+            only = orders[0] if len(orders) == 1 else None
+            order_fields = {
+                "order_id": only.id if only else None,
+                "confirmed_round_trip": only.round_trip if only else None,
+                "confirmed_return_wait_min": only.return_wait_min if only else None,
+            }
             attempts = db.exec(select(TaxiConsentAttempt.state).where(TaxiConsentAttempt.owner_id == uid)).all()
         write_private_json(args.state_file, {
-            **counters, "orders": len(orders), "order_id": orders[0] if len(orders) == 1 else None,
+            **counters, **order_fields, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
             "attempts": sorted(attempts), "late_status": late_status,
         })
 
@@ -80,7 +89,10 @@ def serve(args, tempdir):
                 key = "card"
             if key:
                 counters[key] += 1
-            disconnect = key == "confirm" and counters[key] == 1
+            if key == "quote":
+                route = json.loads(body)
+                quoted_round_trips.append([route.get("round_trip", False), route.get("return_wait_min", 0)])
+            disconnect = args.case != "roundtrip" and key == "confirm" and counters[key] == 1
             if disconnect and args.case == "closed":
                 delayed = (body, headers)
                 snapshot()
@@ -112,10 +124,18 @@ def serve(args, tempdir):
         client = stack.enter_context(contextlib.contextmanager(conftest.client.__wrapped__)())
         monkeypatch = stack.enter_context(pytest.MonkeyPatch.context())
         stack.enter_context(contextlib.contextmanager(market.consent_market.__wrapped__)(client, monkeypatch))
+        if args.case == "roundtrip":
+            monkeypatch.setattr(pricing, "route_metrics", lambda *_: pricing.RouteMetrics(180.0, 140.0))
         make_user = conftest.user_factory.__wrapped__(client)
         market.set_base(600)
         market.live_driver(client, make_user)
-        uid = market.promo_user(client, make_user)["id"]
+        passenger = market.promo_user(client, make_user)
+        uid = passenger["id"]
+        for label, (lat, lng) in (("QA Origin", ORIG), ("QA Destination", DEST)):
+            saved = client.post("/places/saved", headers=passenger["auth"], json={
+                "label": label, "kind": "custom", "address": label, "lat": lat, "lng": lng,
+            })
+            assert saved.status_code == 200, "Cannot provision synthetic saved places"
         with Session(conftest.engine) as db:
             session = issue_tokens(db, uid, auth_method="telegram", auth_time=utcnow())
         snapshot()
@@ -135,7 +155,7 @@ def local_connect_only(original):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", required=True, choices=("committed", "closed"))
+    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip"))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)
     args = parser.parse_args()

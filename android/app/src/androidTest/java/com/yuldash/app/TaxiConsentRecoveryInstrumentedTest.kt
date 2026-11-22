@@ -1,27 +1,37 @@
 package com.yuldash.app
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.graphics.Bitmap
 import android.os.Process
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
+import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.TAXI_CONSENT_LOCAL_API
 import com.yuldash.app.data.TAXI_CONSENT_PENDING
 import com.yuldash.app.data.TAXI_CONSENT_PREFS
-import com.yuldash.app.data.TaxiConsentDetails
-import com.yuldash.app.data.TaxiConsentRoute
 import com.yuldash.app.data.TaxiQuoteConsentApi
 import com.yuldash.app.ui.theme.YuldashTheme
 import org.json.JSONArray
@@ -57,23 +67,63 @@ class TaxiConsentRecoveryInstrumentedTest {
         check(ApiClient.apiBase() == TAXI_CONSENT_LOCAL_API)
     }
 
-    @Test fun confirmThenWaitForForceStop() {
+    private fun openPassengerRoute() {
         val file = File(qaDir, "session.json")
         val session = JSONObject(file.readText())
         check(file.delete())
         ApiClient.saveToken(session.getString("access"))
         val owner = requireNotNull(TaxiQuoteConsentApi.owner())
         assertEquals(session.getInt("uid"), owner.userId)
-        val route = TaxiConsentRoute.normalized(52.591, 58.317, 52.716, 58.664,
-            "QA Origin", "QA Destination", "standard", emptyList(), emptyList(), false, 0)
+        // Supply the last known pickup exactly as the passenger picker reads it. Neither a live
+        // location provider nor an external map/geocoder should participate in the fixture.
+        for (permission in listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) {
+            check(context.checkSelfPermission(permission) == PackageManager.PERMISSION_DENIED)
+        }
+        compose.runOnUiThread {
+            LocationPrefs.lastLat = 52.591
+            LocationPrefs.lastLng = 58.317
+        }
         compose.setContent {
             YuldashTheme(darkTheme = dark) {
                 CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark) {
-                    TaxiConsentControls(rememberTaxiConsentController(owner), route,
-                        TaxiConsentDetails(paymentMethod = "cash"), onCreated = { error("Confirmation response must be lost") })
+                    InstantOrderScreen(onBack = {}, onLoginRequired = { error("Session lost") }, renderNativeMap = false)
                 }
             }
         }
+        val destination = hasText("QA Destination") and hasClickAction()
+        compose.waitUntil(30_000) { compose.onAllNodes(destination).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(destination).performScrollTo().performClick()
+    }
+
+    @Test fun roundTripRetainsWaitAndCreatesOrder() {
+        openPassengerRoute()
+        click("taxiConsentPrimary")
+        waitForTag("taxiConsentConfirm")
+        compose.onNodeWithText("600 ₽ − скидка 150 ₽. Итого к подтверждению: 450 ₽.").assertIsDisplayed()
+        click("taxiConsentReviewCancel")
+        click("taxiOrderDetails")
+        val roundTrip = isToggleable() and hasAnyAncestor(hasTestTag("taxiRoundTripOptions"))
+        compose.waitUntil(30_000) { compose.onAllNodes(roundTrip).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(roundTrip).performScrollTo().performClick()
+        compose.onNode(roundTrip).assertIsOn()
+        compose.onNodeWithTag("taxiRoundTripWait120").performScrollTo().performClick()
+        compose.onNodeWithTag("taxiRoundTripWait120").assertIsSelected()
+        compose.onNode(roundTrip).assertIsOn()
+        click("taxiConsentPrimary")
+        waitForTag("taxiConsentConfirm")
+        compose.onNodeWithText("1020 ₽ − скидка 150 ₽. Итого к подтверждению: 870 ₽.").assertIsDisplayed()
+        click("taxiConsentConfirm")
+
+        val orderCard = SemanticsMatcher("published passenger order card") {
+            SemanticsProperties.TestTag in it.config && it.config[SemanticsProperties.TestTag].matches(Regex("taxiOrderCard-[1-9][0-9]*"))
+        }
+        compose.waitUntil(30_000) { compose.onAllNodes(orderCard).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(orderCard).assertIsDisplayed()
+        capture("roundtrip-resolved")
+    }
+
+    @Test fun confirmThenWaitForForceStop() {
+        openPassengerRoute()
         click("taxiConsentPrimary")
         waitForTag("taxiConsentConfirm")
         val summary = if (language == AppLanguage.Ba) "600 ₽ − ташлама 150 ₽. Раҫларға бөтәһе: 450 ₽."
