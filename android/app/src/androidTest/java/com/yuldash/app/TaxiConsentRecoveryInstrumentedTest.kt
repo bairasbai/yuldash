@@ -9,6 +9,10 @@ import android.graphics.Rect
 import android.os.Process
 import android.os.SystemClock
 import androidx.activity.ComponentActivity
+import androidx.compose.material3.Text
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -19,6 +23,10 @@ import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.hasContentDescription
+import androidx.compose.ui.test.hasSetTextAction
+import androidx.compose.ui.test.isEnabled
+import androidx.compose.ui.test.performTextReplacement
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isToggleable
@@ -30,6 +38,10 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.test.espresso.Espresso.onView
+import androidx.test.espresso.action.ViewActions.click as nativeClick
+import androidx.test.espresso.matcher.RootMatchers.isDialog
+import androidx.test.espresso.matcher.ViewMatchers.withId
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
@@ -51,6 +63,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.math.ceil
 import kotlin.math.floor
 
@@ -93,7 +108,7 @@ class TaxiConsentRecoveryInstrumentedTest {
         }
     }
 
-    private fun openPassengerRoute() {
+    private fun openPassengerRoute(showScreen: () -> Unit = ::showPassengerScreen) {
         installFixtureSession()
         // Supply the last known pickup exactly as the passenger picker reads it. Neither a live
         // location provider nor an external map/geocoder should participate in the fixture.
@@ -104,10 +119,96 @@ class TaxiConsentRecoveryInstrumentedTest {
             LocationPrefs.lastLat = 52.591
             LocationPrefs.lastLng = 58.317
         }
-        showPassengerScreen()
+        showScreen()
         val destination = hasText("QA Destination") and hasClickAction()
         compose.waitUntil(30_000) { compose.onAllNodes(destination).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(destination).performScrollTo().performClick()
+    }
+
+    @Test fun createsAndActivatesScheduledRoundTrip() {
+        val scenario = args.getString("case").orEmpty().substringBefore('-')
+        val late = scenario == "late"
+        fun localized(ru: String, ba: String) = if (language == AppLanguage.Ba) ba else ru
+        val returningResponse = AtomicBoolean(false)
+        val recheckedParent = CountDownLatch(1)
+        var page by mutableStateOf("create")
+        var selectedId by mutableStateOf(0)
+        openPassengerRoute {
+            compose.setContent {
+                YuldashTheme(darkTheme = dark) {
+                    CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark) {
+                        when (page) {
+                            "create", "active" -> InstantOrderScreen(
+                                onBack = {}, onLoginRequired = { error("Session lost") }, renderNativeMap = false,
+                                onOpenScheduled = { page = "scheduled" }, requestedScheduledOrderId = selectedId,
+                                onScheduledContextConsumed = { selectedId = 0 },
+                            )
+                            // Keep the outgoing list mounted after back, just as an animated transition can.
+                            // A late success must respect the parent even before the composition disappears.
+                            else -> {
+                                ScheduledOrdersScreen(
+                                    onBack = { page = "left" },
+                                    onActivated = { selectedId = it; page = "active" },
+                                    isCurrentParent = {
+                                        if (returningResponse.get() && page == "left") recheckedParent.countDown()
+                                        page == "scheduled"
+                                    },
+                                )
+                                if (page == "left") Text("QA previous screen")
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        for ((query, address) in listOf("QA alpha" to "QA Stop A", "QA bravo" to "QA Stop B")) {
+            val add = hasContentDescription(localized("Заехать по пути", "Юлда инеп сығыу")) and hasClickAction()
+            compose.onNode(add).performClick()
+            val editor = hasSetTextAction()
+            compose.onNode(editor).performTextReplacement(query)
+            val suggestion = hasText(address) and hasClickAction()
+            compose.waitUntil(10_000) { compose.onAllNodes(suggestion).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNode(suggestion).performClick()
+        }
+        click("taxiOrderDetails")
+        compose.onNodeWithText(localized("На время", "Ваҡытҡа")).performScrollTo().performClick()
+        // Accept the actual Android date and time dialogs (the form defaults to 30 min in the future).
+        repeat(2) { onView(withId(android.R.id.button1)).inRoot(isDialog()).perform(nativeClick()) }
+        val roundTrip = isToggleable() and hasAnyAncestor(hasTestTag("taxiRoundTripOptions"))
+        compose.waitUntil(30_000) { compose.onAllNodes(roundTrip).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(roundTrip).performScrollTo().performClick()
+        compose.onNodeWithTag("taxiRoundTripWait120").performScrollTo().performClick()
+        val submit = hasText(localized("Заказать на ", "-ға заказ итеү"), substring = true) and hasClickAction() and isEnabled()
+        compose.waitUntil(30_000) { compose.onAllNodes(submit).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(submit).performClick()
+        val listButton = hasText(localized("Мои предзаказы", "Минең алдан заказдар")) and hasClickAction()
+        compose.waitUntil(30_000) { compose.onAllNodes(listButton).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(listButton).performClick()
+        val activate = hasText(localized("Начать поиск сейчас", "Хәҙер эҙләргә")) and hasClickAction()
+        compose.waitUntil(30_000) { compose.onAllNodes(activate).fetchSemanticsNodes().isNotEmpty() }
+        compose.onNode(activate).performScrollTo().assertIsDisplayed()
+        capture("scheduled-list")
+        rendezvous("scheduled")
+        compose.onNode(activate).performClick()
+        if (late) {
+            rendezvous("response-pending")
+            val back = hasContentDescription(localized("Назад", "Артҡа")) and hasClickAction()
+            compose.onNode(back).performClick()
+            compose.onNodeWithText("QA previous screen").assertIsDisplayed()
+            returningResponse.set(true)
+            rendezvous("left")
+            // Wait for the resumed action to check its ownership on the real Compose screen.
+            // No sleep or successful HTTP write can prove that the client consumed that response.
+            assertTrue("Activation did not recheck the outgoing screen", recheckedParent.await(10, TimeUnit.SECONDS))
+            compose.onNodeWithText("QA previous screen").assertIsDisplayed()
+            compose.runOnIdle { assertEquals(0, selectedId) }
+        } else {
+            val title = if (scenario == "unavailable") localized("Рядом пока никого", "Яҡында әлегә бер кем дә юҡ")
+                        else localized("Ищем машину", "Машина эҙләйбеҙ")
+            captureOrderCard("scheduled-active", title)
+            val displayedId = File(qaDir, "scheduled-active-order-id").readText().toInt()
+            compose.runOnIdle { assertEquals(displayedId, selectedId) }
+        }
     }
 
     @Test fun roundTripRetainsWaitAndCreatesOrder() {

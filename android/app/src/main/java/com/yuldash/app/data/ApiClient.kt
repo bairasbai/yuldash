@@ -3125,8 +3125,8 @@ object ApiClient {
     }
 
     /** Мои предзаказы: ещё ждут (scheduled) + только что активированные ко времени (activated). */
-    suspend fun getScheduledOrders(): Result<ScheduledOrdersDto> =
-        call("GET", "/instant/scheduled", null, auth = true).map { obj ->
+    suspend fun getScheduledOrders(expectedGeneration: Long? = null): Result<ScheduledOrdersDto> =
+        call("GET", "/instant/scheduled", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             fun arr(key: String) = (obj.optJSONArray(key) ?: JSONArray()).let { a ->
                 (0 until a.length()).map { a.getJSONObject(it).toInstantOrderDto() }
             }
@@ -3134,13 +3134,13 @@ object ApiClient {
         }
 
     /** Активировать предзаказ вручную → перевод в поиск (цена пересчитывается на сервере). */
-    suspend fun activateScheduledOrder(id: Int): Result<InstantOrderDto> =
-        call("POST", "/instant/scheduled/$id/activate", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+    suspend fun activateScheduledOrder(id: Int, expectedGeneration: Long = queueSessionGeneration()): Result<InstantOrderDto> =
+        authorized("POST", "/instant/scheduled/$id/activate", JSONObject(), expectedGeneration, oneShot = true).map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_schedule_activate") }
 
     /** Отменить предзаказ. */
-    suspend fun cancelScheduledOrder(id: Int): Result<InstantOrderDto> =
-        call("POST", "/instant/scheduled/$id/cancel", JSONObject(), auth = true).map { it.toInstantOrderDto() }
+    suspend fun cancelScheduledOrder(id: Int, expectedGeneration: Long = queueSessionGeneration()): Result<InstantOrderDto> =
+        authorized("POST", "/instant/scheduled/$id/cancel", JSONObject(), expectedGeneration, oneShot = true).map { it.toInstantOrderDto() }
 
     // ---------- Такси-гейт + онбординг таксиста (580-ФЗ) ----------
     // Пассажирский гейт: доступно ли такси в его точке. Водительский гейт: заявка «Стать таксистом»
