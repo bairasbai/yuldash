@@ -1,6 +1,6 @@
 // Exercise /taxi from its actual entry point with a fresh React mount and retained browser storage.
 import assert from "node:assert/strict";
-import { all, bundleComponent, button, checker, mount, ofType, text } from "./shallow-harness.mjs";
+import { all, bundleComponent, button, checker, langMock, mount, ofType, text } from "./shallow-harness.mjs";
 
 const origin = "http://127.0.0.1:5173", api = "http://127.0.0.1:8000";
 const environment = origin + "|" + api;
@@ -29,13 +29,13 @@ const client = `
     if(!isAccountSession(owner) || !await options.allowAttempt()) throw Error("attempt not authorized");
     return state().request(path,options.body && JSON.parse(options.body));
   };`;
-function buildScreen(flag) {
+function buildScreen(flag, lang = "ru") {
   return bundleComponent("src/screens/InstantOrderScreen.tsx", {
     define: { "import.meta.env.VITE_TAXI_QUOTE_CONSENT_LOCAL": JSON.stringify(flag) },
     real: ["../api/instant", "../api/taxiConsent", "../utils/taxiConsent", "../components/TaxiConsentAction"],
     mocks: {
       "../api/client": client, "./client": client,
-      "../i18n/lang": 'const appText=ru=>ru; export const useLang=()=>({lang:"ru",appText});',
+      "../i18n/lang": langMock(lang),
       "../features": "export const useFeatures=()=>({taxi:true,ready:true});",
       "react-dom": "export const createPortal=child=>child;",
       "react-router-dom": 'export const Link="Link"; export const useNavigate=()=>()=>{};',
@@ -124,8 +124,8 @@ await t.test("reloaded /taxi resolves the saved key before another active trip o
   screen.unmount();
 });
 
-async function confirmClose(action) {
-  click(action, "Завершить попытку");
+async function confirmClose(action, label = "Завершить попытку") {
+  click(action, label);
   await settle(action);
   const dialog = ofType(action.tree, "AlertDialog")[0];
   assert.ok(dialog, "closing needs a second explicit passenger action");
@@ -170,6 +170,29 @@ await t.test("a recoverable attempt remains available when its lookup is inconcl
   assert.ok(button(action.tree, "Проверить результат заказа"));
   assert.equal(button(action.tree, "Продолжить"), undefined);
   assert.deepEqual(s.calls, [lookup]);
+  action.unmount(); screen.unmount();
+});
+
+await t.test("a Bashkir passenger can check and close the third saved attempt by its displayed number", async () => {
+  const s = setup();
+  const third = "20000000-0000-4000-8000-000000000003";
+  s.responses[lookup] = { schema: "taxi-consent-result-v1", state: "unknown" };
+  for (const key of [third, first, second]) marker(key);
+  const screen = mount(await buildScreen("1", "ba"));
+  await settle(screen);
+  const action = await actionFor(screen);
+  const options = ofType(action.tree, "option");
+  assert.deepEqual(options.map(text), ["Ынтылыш № 1", "Ынтылыш № 2", "Ынтылыш № 3"]);
+  ofType(action.tree, "select")[0].props.onChange({ target: { value: options[2].props.value } });
+  await settle(action);
+  click(action, "Заказ һөҙөмтәһен тикшереү");
+  await settle(action);
+  await confirmClose(action, "Ынтылышты тамамлау");
+  assert.deepEqual(s.calls, [lookup, close]);
+  assert.deepEqual(s.bodies, [{ request_key: third }, { request_key: third }]);
+  assert.equal(localStorage.getItem(prefix + third), null);
+  assert.ok(localStorage.getItem(prefix + first));
+  assert.ok(localStorage.getItem(prefix + second));
   action.unmount(); screen.unmount();
 });
 
