@@ -2,11 +2,16 @@ package com.yuldash.app
 
 import android.os.SystemClock
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -28,10 +33,12 @@ import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.heading
 import androidx.compose.ui.semantics.liveRegion
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.window.DialogProperties
 import com.yuldash.app.data.InstantOrderDto
 import com.yuldash.app.data.TaxiConsentController
 import com.yuldash.app.data.TaxiConsentDetails
+import com.yuldash.app.data.TaxiConsentMarker
 import com.yuldash.app.data.TaxiConsentOwner
 import com.yuldash.app.data.TaxiConsentProblem
 import com.yuldash.app.data.TaxiConsentQuote
@@ -102,6 +109,43 @@ private fun consentNotice(state: TaxiConsentState): String = when (state.recover
 }
 
 @Composable
+private fun attemptLabel(number: Int) = appText("Попытка $number", "Ынтылыш № $number")
+
+@Composable
+private fun TaxiConsentAttemptPicker(
+    markers: List<TaxiConsentMarker>, current: TaxiConsentMarker?, enabled: Boolean,
+    select: (TaxiConsentMarker) -> Unit,
+) {
+    val index = markers.indexOf(current)
+    if (markers.size < 2 || index < 0) return
+    var expanded by remember(markers, enabled) { mutableStateOf(false) }
+    Text(appText("Попытка заказа", "Заказ биреү ынтылышы"), style = CanonCaption, color = CanonMuted)
+    Box {
+        AppButton(text = attemptLabel(index + 1), onClick = { expanded = true }, enabled = enabled,
+            style = AppButtonStyle.Secondary, modifier = Modifier.testTag("taxiConsentAttemptPicker"))
+        DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }, containerColor = CanonSurface) {
+            markers.forEachIndexed { option, marker ->
+                DropdownMenuItem(text = { Text(attemptLabel(option + 1), style = CanonBody, color = CanonText) },
+                    modifier = Modifier.testTag("taxiConsentAttemptOption${option + 1}").semantics { selected = option == index },
+                    onClick = { expanded = false; select(marker) })
+            }
+        }
+    }
+}
+
+@Composable
+internal fun TaxiConsentRecoveryEntry(
+    owner: TaxiConsentOwner?, current: () -> Boolean, onCreated: (InstantOrderDto) -> Unit, onContinue: () -> Unit,
+) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(CanonSpace.lg),
+        verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+        Text(appText("Такси Юлдаш", "Юлдаш такси"), style = CanonHeading, color = CanonText)
+        TaxiConsentControls(rememberTaxiConsentController(owner), route = null, details = TaxiConsentDetails(),
+            onCreated = onCreated, isCurrentScreen = current, onClosedContinue = onContinue)
+    }
+}
+
+@Composable
 internal fun TaxiConsentControls(
     controller: TaxiConsentController?,
     route: TaxiConsentRoute?,
@@ -121,7 +165,8 @@ internal fun TaxiConsentControls(
     val scope = rememberCoroutineScope()
     val publish by rememberUpdatedState(onCreated)
     val currentScreen by rememberUpdatedState(isCurrentScreen)
-    var closeReview by remember(controller) { mutableStateOf(false) }
+    val selected = state.selectedMarker
+    var closeReview by remember(controller, selected) { mutableStateOf<TaxiConsentMarker?>(null) }
     LaunchedEffect(controller, route) { controller.routeChanged(route) }
     val order = state.recoveredOrder ?: state.receipt?.order
     LaunchedEffect(controller, order) {
@@ -154,12 +199,15 @@ internal fun TaxiConsentControls(
             modifier = Modifier.testTag("taxiConsentNotice").semantics { liveRegion = LiveRegionMode.Polite })
         if (problem.isNotEmpty()) Text(problem, style = CanonCaption, color = CanonRed,
             modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
-        if (state.recoverable) {
+        TaxiConsentAttemptPicker(state.savedMarkers, selected, enabled = !busy) { marker ->
+            if (isCurrentScreen()) controller.selectMarker(marker)
+        }
+        if (state.recoverable && selected != null) {
             AppButton(text = appText("Проверить результат заказа", "Заказ һөҙөмтәһен тикшереү"),
-                onClick = { if (isCurrentScreen()) scope.launch { controller.checkResult() } }, enabled = !busy,
+                onClick = { if (isCurrentScreen()) scope.launch { controller.checkResult(selected) } }, enabled = !busy,
                 modifier = Modifier.testTag("taxiConsentCheckResult"))
             AppButton(text = appText("Завершить попытку", "Ынтылышты тамамлау"), style = AppButtonStyle.Secondary,
-                onClick = { if (isCurrentScreen()) closeReview = true }, enabled = !busy, modifier = Modifier.testTag("taxiConsentClose"))
+                onClick = { if (isCurrentScreen()) closeReview = selected }, enabled = !busy, modifier = Modifier.testTag("taxiConsentClose"))
             if (state.recovering) Text(appText("Ждём ответ сервера…", "Серверҙың яуабын көтәбеҙ…"), style = CanonCaption,
                 color = CanonMuted, modifier = Modifier.semantics { liveRegion = LiveRegionMode.Polite })
         }
@@ -172,28 +220,29 @@ internal fun TaxiConsentControls(
                 state.sending -> appText("Подтверждаем…", "Раҫлайбыҙ…")
                 state.loading -> appText("Получаем сумму…", "Сумманы алабыҙ…")
                 state.canReplay -> appText("Повторить подтверждение", "Раҫлауҙы ҡабатлау")
-                state.recovery == TaxiConsentRecovery.CLOSED && onClosedContinue != null ->
-                    appText("Выбрать маршрут", "Маршрут һайлау")
+                !locked && onClosedContinue != null ->
+                    appText("Продолжить", "Дауам итергә")
                 state.recovery == TaxiConsentRecovery.CLOSED || copy == null -> appText("Рассчитать цену", "Хаҡты иҫәпләү")
                 state.expired -> appText("Обновить сумму", "Сумманы яңыртыу")
                 else -> appText("Заказать за ${copy.total}", "${copy.total} — заказ итеү")
             }, onClick = action@{
                 if (!isCurrentScreen()) return@action
-                if (state.recovery == TaxiConsentRecovery.CLOSED && onClosedContinue != null) onClosedContinue()
+                if (!locked && onClosedContinue != null) onClosedContinue()
                 else {
                     if (!locked && route != null && (copy == null || state.expired)) onCalculate()
                     scope.launch { controller.primary(route) }
                 }
             }, loading = state.sending || state.loading, enabled = !busy &&
-                (route != null || state.canReplay || (state.recovery == TaxiConsentRecovery.CLOSED && onClosedContinue != null)),
+                (route != null || state.canReplay || (!locked && onClosedContinue != null)),
                 modifier = Modifier.testTag("taxiConsentPrimary"))
         }
     }
 
-    if (closeReview && state.recoverable && !state.review) {
+    val closing = closeReview
+    if (closing != null && closing == selected && state.recoverable && !state.review) {
         val cancelFocus = remember { FocusRequester() }
         AlertDialog(
-            onDismissRequest = { closeReview = false },
+            onDismissRequest = { closeReview = null },
             containerColor = CanonSurface,
             title = { Text(appText("Завершить попытку заказа?", "Заказ биреү ынтылышын тамамларғамы?"),
                 style = CanonHeading, color = CanonText, modifier = Modifier.semantics { heading() }) },
@@ -202,7 +251,7 @@ internal fun TaxiConsentControls(
                 "Заказ булдырылған булһа, уның карточкаһы асыласаҡ. Заказ әлегә булдырылмаған булһа, был ынтылыш буйынса машина саҡырылмаясаҡ."),
                 style = CanonBody, color = CanonText, modifier = Modifier.verticalScroll(rememberScrollState())) },
             dismissButton = {
-                TextButton(onClick = { closeReview = false },
+                TextButton(onClick = { closeReview = null },
                     modifier = Modifier.testTag("taxiConsentCloseCancel").focusRequester(cancelFocus)) {
                     Text(appText("Назад", "Артҡа"), style = CanonButton, color = CanonGreen2)
                 }
@@ -212,8 +261,8 @@ internal fun TaxiConsentControls(
                 AppButton(text = appText("Завершить попытку", "Ынтылышты тамамлау"), fillWidth = false,
                     style = AppButtonStyle.Danger, enabled = !busy, modifier = Modifier.testTag("taxiConsentCloseConfirm"),
                     onClick = {
-                        closeReview = false
-                        if (isCurrentScreen()) scope.launch { controller.closeAttempt() }
+                        closeReview = null
+                        if (isCurrentScreen()) scope.launch { controller.closeAttempt(closing) }
                     })
             },
         )

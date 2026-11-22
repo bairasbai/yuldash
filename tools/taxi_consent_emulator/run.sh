@@ -13,7 +13,7 @@ fixture_pid= phase_pid=
 cleanup() {
     local status=$?
     if [[ $status != 0 && -n ${case_name:-} ]]; then
-        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved; do
+        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected; do
             if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
                 adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
             fi
@@ -43,7 +43,14 @@ adb shell am broadcast -a android.intent.action.AIRPLANE_MODE --ez state true >/
 adb shell svc power stayon true
 adb shell input keyevent KEYCODE_WAKEUP
 adb shell wm dismiss-keyguard
-adb install -t android/app/build/outputs/apk/debug/app-debug.apk
+candidate_apk=android/app/build/outputs/apk/debug/app-debug.apk
+baseline_apk=${TAXI_CONSENT_BASELINE_APK:-}
+if [[ -n $baseline_apk ]]; then
+    baseline_hash=$(sha256sum "$baseline_apk" | cut -d' ' -f1)
+    candidate_hash=$(sha256sum "$candidate_apk" | cut -d' ' -f1)
+    [[ $baseline_hash != "$candidate_hash" ]]
+fi
+adb install -t "${baseline_apk:-$candidate_apk}"
 adb install -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 app_uid=$(adb shell pm list packages -U "$pkg" | tr -d '\r' | awk -v p="package:$pkg" '$1==p {sub(/^uid:/,"",$2); print $2}')
 [[ $app_uid =~ ^[0-9]+$ && $app_uid -ge 10000 ]]
@@ -105,12 +112,29 @@ stop_fixture() {
     fixture_pid=
 }
 
-for case_name in committed closed roundtrip; do
+force_stop_phase() {
+    adb shell am force-stop "$pkg"
+    wait "$phase_pid" || true
+    phase_pid=
+    [[ -z $(adb shell pidof "$pkg" | tr -d '\r') ]]
+    adb shell input keyevent KEYCODE_WAKEUP
+    adb shell wm dismiss-keyguard
+}
+
+installed_apk_hash() {
+    local installed
+    installed=$(adb shell pm path "$pkg" | tr -d '\r' | sed -n 's/^package:\(.*\/base\.apk\)$/\1/p')
+    [[ -n $installed ]] || return 1
+    adb shell sha256sum "$installed" | cut -d' ' -f1
+}
+
+# Run the upgrade first so the previous APK is the only app that has touched this fresh installation.
+for case_name in selection-ba-dark committed closed roundtrip selection-ru-light selection-ru-dark selection-ba-light; do
     adb shell pm clear "$pkg" | grep -q Success
     adb shell run-as "$pkg" mkdir -p "$device_dir"
     session="$private/$case_name-session.json"
     state="$private/$case_name-state.json"
-    python tools/taxi_consent_emulator/fixture.py --case "$case_name" --session-file "$session" --state-file "$state" \
+    python tools/taxi_consent_emulator/fixture.py --case "${case_name%%-*}" --session-file "$session" --state-file "$state" \
         >"$private/$case_name-server.log" 2>&1 &
     fixture_pid=$!
     for ((i=0; i<90; i++)); do
@@ -120,6 +144,42 @@ for case_name in committed closed roundtrip; do
     done
     [[ -s "$session" ]]
     adb shell -T "run-as $pkg sh -c 'umask 077; cat > $device_dir/session.json'" < "$session"
+    if [[ $case_name == selection-* ]]; then
+        IFS=- read -r _ language theme <<< "$case_name"
+        dark=false
+        if [[ $theme == dark ]]; then dark=true; fi
+        start_phase seedThreeIssuedAttemptsAndWaitForRestart "$language" "$dark" 0
+        wait_device_file force-stop.ready
+        restart=force-stop
+        if [[ $case_name == selection-ba-dark && -n $baseline_apk ]]; then
+            restart=apk-update
+            [[ $(installed_apk_hash) == "$baseline_hash" ]]
+            adb install -r -t "$candidate_apk"
+            wait "$phase_pid" || true
+            phase_pid=
+            [[ $(installed_apk_hash) == "$candidate_hash" ]]
+            adb shell pm list packages -U "$pkg" | tr -d '\r' | grep -Fx "package:$pkg uid:$app_uid" >/dev/null
+            jq -n --arg old "$baseline_hash" --arg new "$candidate_hash" \
+                '{before_apk_sha256:$old, after_apk_sha256:$new, retained_uid:true}' > "$results/$case_name-upgrade.json"
+        else
+            force_stop_phase
+        fi
+        start_phase coldEntryChecksAndClosesOnlyThirdAttempt "$language" "$dark" 0
+        untouched='.orders == 0 and .quote == 0 and .confirm == 0 and .card == 0 and .legacy == 0'
+        issued='.states_by_slot == ["issued","issued","issued"]'
+        wait_device_file selected.ready
+        check_state selected "$untouched and $issued and .result == 0 and .close == 0"
+        continue_after_check selected
+        wait_device_file cancel-close.ready
+        check_state dismissed "$untouched and $issued and .result == 1 and .addressed_slots.result == [3] and .close == 0"
+        continue_after_check cancel-close
+        finish_phase
+        check_state final "$untouched and .states_by_slot == [\"issued\",\"issued\",\"closed\"] and .result == 1 and .close == 1 and .addressed_slots == {result:[3],close:[3]}"
+        collect_frame third-selected
+        stop_fixture
+        echo "Passed third-attempt selection ($language/$theme, $restart)."
+        continue
+    fi
     if [[ $case_name == roundtrip ]]; then
         start_phase roundTripRetainsWaitAndCreatesOrder ru false 0
         finish_phase
@@ -140,12 +200,7 @@ for case_name in committed closed roundtrip; do
     before_read=".quote == 1 and .confirm == 1 and .result == 0 and .close == 0 and .card == 0 and .legacy == 0 and .orders == $expected_orders"
     check_state interrupted "$before_read"
     order_id=$(jq -r '.order_id // 0' "$state")
-    adb shell am force-stop "$pkg"
-    wait "$phase_pid" || true
-    phase_pid=
-    [[ -z $(adb shell pidof "$pkg" | tr -d '\r') ]]
-    adb shell input keyevent KEYCODE_WAKEUP
-    adb shell wm dismiss-keyguard
+    force_stop_phase
     start_phase coldEntryChecksOrClosesOriginalAttempt "$cold_lang" true "$order_id"
     wait_device_file cold.ready
     check_state cold "$before_read"
