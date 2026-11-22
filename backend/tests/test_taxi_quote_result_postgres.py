@@ -28,15 +28,15 @@ def test_lookup_during_uncommitted_confirmation_then_commit_expiry_terminal_repl
     assert q["payable_kop"] == 45000
     reached, release = threading.Event(), threading.Event()
     paused, creator_pids, reader_pids, claims, dispatches = [], set(), set(), [], []
-    original_claim, original_dispatch = consent.claim_promo, isv.start_matching
+    original_claim, original_dispatch = consent.claim_promo, isv.dispatch_confirmed_order
     def claim(*args, **kwargs):
         claims.append(True)
         return original_claim(*args, **kwargs)
-    def dispatch(session, order, *args, **kwargs):
-        dispatches.append(order.id)
-        return original_dispatch(session, order, *args, **kwargs)
+    def dispatch(session, order_id, *args, **kwargs):
+        dispatches.append(order_id)
+        return original_dispatch(session, order_id, *args, **kwargs)
     monkeypatch.setattr(consent, "claim_promo", claim)
-    monkeypatch.setattr(isv, "start_matching", dispatch)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", dispatch)
     def before_commit(session):
         if not paused and any(isinstance(o, InstantOrder) and o.consent_request_key == q["request_key"] for o in session.identity_map.values()):
             paused.append(True)

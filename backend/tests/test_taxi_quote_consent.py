@@ -14,7 +14,7 @@ from sqlmodel import Session, select
 from app import instant_service as isv, pricing, taxi_quote_consent as consent, taxi_worker
 from app.config import settings
 from app.db import engine
-from app.models import InstantOrder, InstantOrderStatus as S, LedgerEntry, PromoCode, Tariff, UserRole
+from app.models import InstantOrder, InstantOrderStatus as S, LedgerEntry, OfferDecline, PromoCode, Tariff, UserRole
 from app.timeutil import utcnow
 from test_money_rules import _driver_online, _heartbeat, _order_body
 from test_promo_taxi import _pax_with_discount
@@ -237,16 +237,16 @@ def test_lost_response_replay_after_done_expiry_and_disabled_feature(client, use
     driver = live_driver(client, user_factory)
     user = user_factory("SyntheticConsentReplay")
     data = quote(client, user)
-    original = isv.start_matching
+    original = isv.dispatch_confirmed_order
     dispatches = []
 
-    def observed(session, order, *args, **kwargs):
+    def observed(session, order_id, *args, **kwargs):
         with Session(engine) as observer:
-            committed = observer.get(InstantOrder, order.id)
+            committed = observer.get(InstantOrder, order_id)
             assert committed and committed.consent_snapshot_json
-        dispatches.append(order.id)
-        return original(session, order, *args, **kwargs)
-    monkeypatch.setattr(isv, "start_matching", observed)
+        dispatches.append(order_id)
+        return original(session, order_id, *args, **kwargs)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", observed)
     first = confirm(client, user, data)
     assert first.status_code == 200, first.text
     oid = first.json()["order"]["id"]
@@ -463,13 +463,13 @@ def test_concurrent_admission_serializes_on_each_supported_database(
     a = quote(client, user)
     b = a if same_key else quote(client, user)
     barrier = threading.Barrier(2)
-    original = isv.start_matching
+    original = isv.dispatch_confirmed_order
     dispatches = []
 
     def observed(*args, **kwargs):
-        dispatches.append(args[1].id)
+        dispatches.append(args[1])
         return original(*args, **kwargs)
-    monkeypatch.setattr(isv, "start_matching", observed)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", observed)
 
     def send(data):
         barrier.wait(10)
@@ -508,3 +508,73 @@ def test_stale_wait_worker_cannot_dispatch_replaced_order(client,user_factory,co
   assert len(active)==1,'STALE_WAIT_DISPATCHED_AFTER_REPLACEMENT: '+str(len(active))
   assert observer.get(InstantOrder,old_id).status==S.cancelled
   assert observer.get(InstantOrder,old_id).wait_until is None
+
+
+@pytest.mark.parametrize("next_offer", ["decline", "timeout", "decline_reason_race"])
+def test_missing_first_offer_cache_cannot_repeat_driver_or_advance_new_offer(
+    client, user_factory, consent_market, monkeypatch, next_offer,
+):
+    drivers = {driver["id"]: driver for driver in
+               (live_driver(client, user_factory), live_driver(client, user_factory))}
+    passenger = user_factory("SyntheticFirstOfferCacheGap")
+    price = quote(client, passenger)
+    pushed = []
+
+    def capture_push(session, driver_id, title, body, *, data, **kwargs):
+        if data["type"] == "instant_offer":
+            pushed.append((driver_id, int(data["order_id"])))
+
+    def stop_before_cache(*args):
+        raise RuntimeError("synthetic stop before saving the driver in Redis")
+
+    monkeypatch.setattr(isv, "send_push", capture_push)
+    with monkeypatch.context() as patch:
+        patch.setattr(isv, "_remember_offered_driver", stop_before_cache)
+        with pytest.raises(RuntimeError, match="synthetic stop before saving"):
+            confirm(client, passenger, price)
+
+    first, = orders(passenger["id"])
+    assert first.status == S.offered and first.search_round == 1
+    first_driver = first.current_offer_driver_id
+    second_driver, = drivers.keys() - {first_driver}
+    assert not isv._tried_set(consent_market.redis, first.id)
+    with Session(engine) as restarted_worker:
+        assert first.id not in taxi_worker.recover_confirmed_dispatches(restarted_worker)
+    first_card = client.get("/instant/driver/offer", headers=drivers[first_driver]["auth"])
+    assert first_card.status_code == 200 and first_card.json()["offer"]["id"] == first.id
+    assert pushed == []
+
+    # A timeout worker selected the first generation before another process advanced it.
+    after_first_expiry = first.offer_expires_at + timedelta(microseconds=1)
+    monkeypatch.setattr(isv, "utcnow", lambda: after_first_expiry)
+    if next_offer == "timeout":
+        with Session(engine) as session:
+            isv.reconcile_offer(session, first)
+    else:
+        committed_reasons = []
+        original_commit = Session.commit
+
+        def timeout_after_decline_reason(session):
+            logging_reason = any(isinstance(row, OfferDecline) for row in session.new)
+            original_commit(session)
+            if logging_reason:
+                with Session(engine) as timeout_worker:
+                    advanced = isv.reconcile_offer(timeout_worker, first)
+                    committed_reasons.append(advanced.current_offer_driver_id)
+
+        reason = {}
+        if next_offer == "decline_reason_race":
+            monkeypatch.setattr(Session, "commit", timeout_after_decline_reason)
+            reason = {"reason": "busy"}
+        response = client.post(f"/instant/orders/{first.id}/decline", headers=drivers[first_driver]["auth"], json=reason)
+        assert response.status_code == 200, response.text
+        if reason:
+            assert committed_reasons == [second_driver]
+
+    with Session(engine) as late_worker:
+        result = isv.reconcile_offer(late_worker, first)
+        assert (result.status, result.current_offer_driver_id, result.search_round) == (S.offered, second_driver, 2)
+    second_card = client.get("/instant/driver/offer", headers=drivers[second_driver]["auth"])
+    assert second_card.status_code == 200 and second_card.json()["offer"]["id"] == first.id
+    assert isv._tried_set(consent_market.redis, first.id) == set(drivers)
+    assert pushed == [(second_driver, first.id)]

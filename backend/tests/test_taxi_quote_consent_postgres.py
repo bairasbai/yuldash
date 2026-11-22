@@ -22,15 +22,15 @@ pytestmark = pytest.mark.skipif(engine.dialect.name != "postgresql", reason="req
 
 def observe_dispatch(monkeypatch):
     calls = []
-    original = isv.start_matching
+    original = isv.dispatch_confirmed_order
 
-    def dispatch(session, order, *args, **kwargs):
+    def dispatch(session, order_id, *args, **kwargs):
         with Session(engine) as observer:
-            saved = observer.get(InstantOrder, order.id)
+            saved = observer.get(InstantOrder, order_id)
             assert saved is not None and saved.consent_snapshot_json
-        calls.append(order.id)
-        return original(session, order, *args, **kwargs)
-    monkeypatch.setattr(isv, "start_matching", dispatch)
+        calls.append(order_id)
+        return original(session, order_id, *args, **kwargs)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", dispatch)
     return calls
 
 

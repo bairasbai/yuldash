@@ -49,14 +49,14 @@ def test_two_lock_orders_have_one_outcome_and_no_losing_side_effects(
     before = saved_state(user["id"])
     reached, release, waiting = threading.Event(), threading.Event(), threading.Event()
     winner_pids, waiter_pids, dispatches, claims = set(), set(), [], []
-    original_dispatch, original_claim = isv.start_matching, consent.claim_promo
-    def dispatch(session, order):
-        dispatches.append(order.id)
-        return original_dispatch(session, order)
+    original_dispatch, original_claim = isv.dispatch_confirmed_order, consent.claim_promo
+    def dispatch(session, order_id):
+        dispatches.append(order_id)
+        return original_dispatch(session, order_id)
     def claim(*args):
         claims.append(True)
         return original_claim(*args)
-    monkeypatch.setattr(isv, "start_matching", dispatch)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", dispatch)
     monkeypatch.setattr(consent, "claim_promo", claim)
     def hold(session):
         if not reached.is_set() and any(isinstance(o, TaxiConsentAttempt) and o.owner_id == user["id"]

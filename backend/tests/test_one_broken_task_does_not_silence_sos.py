@@ -33,6 +33,7 @@ from test_api import _ride
 ЗАДАЧИ = [
     ("activate_due_scheduled", "scheduled_activated"),
     ("close_stuck_orders", "stuck_closed"),
+    ("recover_confirmed_dispatches", "consent_dispatches"),
     ("retry_waiting_orders", "waits_retried"),
     ("finish_expired_waits", "waits_finished"),
     ("advance_stale_offers", "offers_advanced"),
