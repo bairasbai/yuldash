@@ -8,12 +8,15 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertHeightIsAtLeast
+import androidx.compose.ui.test.click
 import androidx.compose.ui.test.assertIsOn
 import androidx.compose.ui.test.assertIsNotEnabled
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.isToggleable
+import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -22,6 +25,8 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.semantics.SemanticsActions
 import com.yuldash.app.data.ApiClient
 import kotlinx.coroutines.runBlocking
@@ -31,6 +36,7 @@ import okhttp3.mockwebserver.MockWebServer
 import okhttp3.mockwebserver.RecordedRequest
 import org.json.JSONObject
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Rule
@@ -80,6 +86,10 @@ class AuditDelta08ScheduledPayloadTest {
                     )
                     request.method == "GET" && path == "/places/recent" -> json("""{"items":[]}""")
                     request.method == "GET" && path.startsWith("/instant/nearby-drivers?") -> json("""{"drivers":[]}""")
+                    request.method == "GET" && request.requestUrl?.encodedPath == "/geocode" &&
+                        request.requestUrl?.queryParameter("q") == "Вторая" -> json(
+                        """{"items":[{"title":"Вторая остановка","lat":54.762,"lon":56.014}]}"""
+                    )
                     request.method == "GET" && path.startsWith("/geocode?q=") -> json(
                         """{"items":[{"title":"Уфа, проспект Октября, 25","lat":54.751,"lon":56.001}]}"""
                     )
@@ -132,8 +142,7 @@ class AuditDelta08ScheduledPayloadTest {
         server.shutdown()
     }
 
-    @Test
-    fun scheduledOrderKeepsUiDetailsAndReestimatesForChosenTime() {
+    private fun mountOrderScreen(embedded: Boolean) {
         val screenMounted = mutableStateOf(true)
         mounted = screenMounted
         composeRule.setContent {
@@ -142,14 +151,48 @@ class AuditDelta08ScheduledPayloadTest {
                     InstantOrderScreen(
                         onBack = {},
                         onLoginRequired = {},
-                        embedded = true,
+                        embedded = embedded,
                         payMethod = PayMethods.SBP,
                         renderNativeMap = false,
                     )
                 }
             }
         }
+    }
 
+    @Test
+    @Config(qualifiers = "w320dp-h640dp")
+    fun twoStopsLeaveRoomToTapScheduledOrderOnShortScreen() {
+        mountOrderScreen(embedded = false)
+        waitForText("Дом")
+        composeRule.onNode(hasText("Дом") and hasClickAction()).performClick()
+        for ((query, address) in listOf("Октября" to "Уфа, проспект Октября, 25", "Вторая" to "Вторая остановка")) {
+            composeRule.onNodeWithContentDescription("Заехать по пути").performClick()
+            waitForText("Куда заехать?")
+            composeRule.onNodeWithText("Адрес остановки").performTextInput(query)
+            waitForText(address)
+            composeRule.onNode(hasText(address) and hasClickAction()).performClick()
+        }
+        composeRule.onNodeWithContentDescription("Детали заказа").performClick()
+        composeRule.onNodeWithText("На время").performScrollTo().performClick()
+        chooseTomorrowAt(hour = 14, minute = 35)
+        val submit = hasText("Заказать на", substring = true) and hasClickAction() and isEnabled()
+        composeRule.waitUntil(20_000) {
+            Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
+            composeRule.onAllNodes(submit).fetchSemanticsNodes().isNotEmpty()
+        }
+        composeRule.onNode(submit).assertIsDisplayed().assertHeightIsAtLeast(54.dp)
+            .performTouchInput { click() }
+        waitForText("Мои предзаказы")
+        val stops = JSONObject(synchronized(scheduleBodies) { scheduleBodies.single() }).getJSONArray("waypoints")
+        assertEquals(2, stops.length())
+        assertEquals("Уфа, проспект Октября, 25", stops.getJSONObject(0).getString("text"))
+        assertEquals("Вторая остановка", stops.getJSONObject(1).getString("text"))
+    }
+
+    @Test
+    fun scheduledOrderKeepsUiDetailsAndReestimatesForChosenTime() {
+        mountOrderScreen(embedded = true)
         waitForText("Дом")
         composeRule.onNode(hasText("Дом").and(hasClickAction())).performClick()
         waitForText("Заказать")

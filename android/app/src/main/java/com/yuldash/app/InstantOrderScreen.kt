@@ -2502,6 +2502,7 @@ private fun InstantDestinationPicker(
         // A+B: карта остаётся визуальным героем, тарифы прокручиваются в более компактной
         // средней шторке. Полное положение и все остальные состояния такси не меняются.
         halfBodyFraction = 0.32f,
+        reserveFooterSpace = sheetStop == TaxiSheetStop.Full && scheduledAtMs != null && stops.isNotEmpty(),
         map = { m ->
             // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что
             // помощь близко. Машинки — из presence, ≈ETA до подачи.
