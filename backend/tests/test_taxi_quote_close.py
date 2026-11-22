@@ -87,7 +87,7 @@ def test_close_keeps_promo_old_wait_and_dispatch_untouched_without_redis(
     def forbidden(*args, **kwargs):
         raise AssertionError("closed attempt reached pricing/promo/dispatch")
     monkeypatch.setattr(consent, "claim_promo", forbidden)
-    monkeypatch.setattr(isv, "start_matching", forbidden)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", forbidden)
     monkeypatch.setattr(isv, "estimate", forbidden)
     consent_market.unavailable = True
     assert close(client, user, q["request_key"]).json()["state"] == "closed"
@@ -120,11 +120,11 @@ def test_committed_replay_precedes_closed_and_gc_even_after_terminal(
     user = user_factory("SyntheticCommitted")
     q = quote(client, user)
     dispatches = []
-    original = isv.start_matching
-    def dispatch(session, order):
-        dispatches.append(order.id)
-        return original(session, order)
-    monkeypatch.setattr(isv, "start_matching", dispatch)
+    original = isv.dispatch_confirmed_order
+    def dispatch(session, order_id):
+        dispatches.append(order_id)
+        return original(session, order_id)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", dispatch)
     created = confirm(client, user, q)
     assert created.status_code == 200
     oid = created.json()["order"]["id"]

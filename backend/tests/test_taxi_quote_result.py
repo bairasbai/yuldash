@@ -66,7 +66,7 @@ def test_expiry_terminal_redis_loss_read_never_dispatches_or_mutates(client, use
     consent_market.unavailable = True
     def forbidden(*a, **k):
         raise AssertionError("result lookup invoked a mutation/serializer")
-    monkeypatch.setattr(isv, "start_matching", forbidden)
+    monkeypatch.setattr(isv, "dispatch_confirmed_order", forbidden)
     monkeypatch.setattr(isv, "order_payload", forbidden)
     monkeypatch.setattr(consent, "claim_promo", forbidden)
     monkeypatch.setattr(consent, "issue", forbidden)

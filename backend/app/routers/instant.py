@@ -684,7 +684,8 @@ def create_confirmed_order(body: ConfirmedOrderIn, response: Response, user: Use
     moderate_open_text("\n".join(p for p in (body.comment, body.from_text, body.to_text) if p),
                        user.id, place="order_comment", session=session)
     funnel.note_order(isv._redis(), user.id)
-    order = isv.start_matching(session, order)
+    isv.dispatch_confirmed_order(session, order.id)
+    session.refresh(order)
     return _consent_payload(session, order, user)
 
 
