@@ -55,7 +55,7 @@ def serve(args, tempdir):
 
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
     counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
-    scheduled_case = args.case in ("scheduled", "late", "unavailable")
+    scheduled_case = args.case in ("scheduled", "late", "unavailable", "draft")
     scheduled_route = None
     schedule_http = {"status": None, "field": None}
     activation_released = False
@@ -78,10 +78,13 @@ def serve(args, tempdir):
                 "confirmed_return_wait_min": only.return_wait_min if only else None,
             }
             if scheduled_case and only:
+                points = instant_service.parse_waypoints(only.waypoints_json)
                 order_fields["route"] = {
-                    "stops": [point["text"] for point in instant_service.parse_waypoints(only.waypoints_json)],
+                    "stops": [point["text"] for point in points],
                     "km": only.distance_km, "minutes": only.eta_min, "fare": only.price_estimate,
                 }
+                if args.case == "draft":
+                    order_fields["route"]["points"] = [[p["lat"], p["lng"], p["text"]] for p in points]
             attempts = db.exec(select(TaxiConsentAttempt).where(
                 TaxiConsentAttempt.owner_id == uid,
             ).order_by(TaxiConsentAttempt.request_key)).all()
@@ -130,6 +133,13 @@ def serve(args, tempdir):
             if key == "schedule":
                 snapshot()  # Preserve receipt even if the backend or response adapter raises.
             response = client.request(self.command, self.path, content=body, headers=headers)
+            if (args.case == "draft" and self.command == "POST" and parsed.path == "/auth/logout"
+                    and response.status_code == 200):
+                # A new synthetic login must be issued after the server's all-session revocation.
+                with Session(conftest.engine) as db:
+                    fresh = issue_tokens(db, uid, auth_method="telegram", auth_time=utcnow())
+                fixture_session["relogin"] = {"uid": uid, "access": fresh["access_token"]}
+                write_private_json(args.session_file, fixture_session)
             if key == "schedule":
                 schedule_http["status"] = response.status_code
                 if response.status_code == 422:
@@ -213,21 +223,31 @@ def serve(args, tempdir):
             market.live_driver(client, make_user)
         passenger = make_user("ScheduledPassenger") if scheduled_case else market.promo_user(client, make_user)
         uid = passenger["id"]
-        for label, (lat, lng) in (("QA Origin", ORIG), ("QA Destination", DEST)):
-            saved = client.post("/places/saved", headers=passenger["auth"], json={
+        def save_place(user, label, coordinates):
+            lat, lng = coordinates
+            saved = client.post("/places/saved", headers=user["auth"], json={
                 "label": label, "kind": "custom", "address": label, "lat": lat, "lng": lng,
             })
             assert saved.status_code == 200, "Cannot provision synthetic saved places"
+
+        for label, coordinates in (("QA Origin", ORIG), ("QA Destination", DEST)):
+            save_place(passenger, label, coordinates)
+        alternate = {}
+        if args.case == "draft":
+            other = make_user("DraftAlternatePassenger")
+            save_place(other, "QA Alternate Place", (52.70, 58.60))
+            alternate = {"alternate": {"uid": other["id"], "access": other["token"]}}
         with Session(conftest.engine) as db:
             session = issue_tokens(db, uid, auth_method="telegram", auth_time=utcnow())
         if args.case == "selection":
             selection_keys = sorted(market.quote(client, passenger)["request_key"] for _ in range(3))
             assert len(set(selection_keys)) == 3
         snapshot()
-        write_private_json(args.session_file, {
+        fixture_session = {
             "uid": uid, "access": session["access_token"], "refresh": session["refresh_token"],
-            **({"request_keys": selection_keys} if selection_keys else {}),
-        })
+            **({"request_keys": selection_keys} if selection_keys else {}), **alternate,
+        }
+        write_private_json(args.session_file, fixture_session)
         server.serve_forever()
 
 
@@ -241,7 +261,9 @@ def local_connect_only(original):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable"))
+    parser.add_argument("--case", required=True, choices=(
+        "committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable", "draft",
+    ))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)
     args = parser.parse_args()
