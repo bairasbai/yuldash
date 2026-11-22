@@ -14,7 +14,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getAccountSession } from "../api/client";
+import { subscribeSessionChanges } from "../utils/sessionCredentials";
+import { consentGeneration, pendingTaxiMarkers } from "../utils/taxiConsent";
 import TaxiConsentAction, { TaxiConsentFields, TaxiConsentSummary } from "../components/TaxiConsentAction";
 import { localTaxiConsentContext, localTaxiConsentGeneration, type TaxiConsentQuote } from "../api/taxiConsent";
 import { useFeatures } from "../features";
@@ -86,7 +88,7 @@ function categoryLabel(cat: string, appText: (ru: string, ba: string) => string)
 }
 
 type Point = { lat: number; lng: number; text: string };
-type View = "boot" | "error" | "gate" | "compose" | "tracking" | "localConfig";
+type View = "boot" | "error" | "gate" | "compose" | "tracking" | "localConfig" | "recovery";
 
 /**
  * «Такси скоро в твоём городе» — карточка закрытого такси. Обычная функция, а не компонент:
@@ -185,17 +187,37 @@ export default function InstantOrderScreen() {
     }
   }, [order]);
 
-  // ---------------- boot: гео → доступность → восстановление активного ----------------
+  const bootEpoch = useRef(0);
+  const originLabel = useRef("");
+  originLabel.current = appText("Моё место", "Урыным");
+
+  // В пилоте результат отправленного заказа проверяется до поиска новых поездок.
   const boot = useCallback(() => {
+    const epoch = ++bootEpoch.current;
+    const current = () => epoch === bootEpoch.current;
     const pilot = localTaxiConsentContext();
     if (pilot?.requested && !pilot.environment) {
       setView("localConfig");
       return;
     }
+    if (pilot?.environment) {
+      const owner = getAccountSession();
+      try {
+        if (!owner || !consentGeneration(owner.generation)
+            || pendingTaxiMarkers(localStorage, owner.generation, pilot.environment).length > 0) {
+          setView("recovery");
+          return;
+        }
+      } catch {
+        setView("recovery");
+        return;
+      }
+    }
     setView("boot");
     const proceed = (pt: GeoPoint | null) => {
+      if (!current()) return;
       if (pt) {
-        const origin = { lat: pt.lat, lng: pt.lng, text: appText("Моё место", "Урыным") };
+        const origin = { lat: pt.lat, lng: pt.lng, text: originLabel.current };
         setFrom(origin);
         // «Моё место» — это подпись для человека, а не адрес. Без обратного геокодера
         // ровно эта строка уходила в заказ, и водитель в списке видел безымянную точку;
@@ -204,13 +226,14 @@ export default function InstantOrderScreen() {
         reverseGeocode(pt.lat, pt.lng)
           .then((r) => {
             // Ручной выбор мог произойти, пока геокодер отвечал.
-            if (r.title) setFrom((current) => current === origin ? { ...origin, text: r.title } : current);
+            if (current() && r.title) setFrom((point) => point === origin ? { ...origin, text: r.title } : point);
           })
           .catch(() => {});
       }
       // Сначала — есть ли уже живой заказ (восстановление экрана).
       fetchMyOrders(5)
         .then((list) => {
+          if (!current()) return;
           const live = list.find(passengerOrderIsActive);
           if (live) {
             setOrder(live);
@@ -220,11 +243,12 @@ export default function InstantOrderScreen() {
           checkAvailability(pt);
         })
         // Пока свои заказы не прочитаны, отсутствие активной поездки неизвестно.
-        .catch(() => setView("error"));
+        .catch(() => { if (current()) setView("error"); });
     };
     const checkAvailability = (pt: GeoPoint | null) => {
       fetchTaxiAvailability(pt?.lat, pt?.lng)
         .then((av) => {
+          if (!current()) return;
           if (av.enabled) setView("compose");
           else {
             setGateMsg(av.message);
@@ -233,6 +257,7 @@ export default function InstantOrderScreen() {
           }
         })
         .catch((e) => {
+          if (!current()) return;
           // Старый сервер без функции — гейт; временный отказ — повтор загрузки.
           if (e instanceof ApiError && (e.status === 404 || e.status === 405)) {
             setGateMsg(null);
@@ -250,10 +275,25 @@ export default function InstantOrderScreen() {
     } else {
       proceed(null);
     }
-  }, [appText]);
+  }, []);
 
   useEffect(() => {
     boot();
+    let unsubscribe: (() => void) | undefined;
+    if (localTaxiConsentContext()?.environment) {
+      let owner = getAccountSession();
+      unsubscribe = subscribeSessionChanges(() => {
+        const next = getAccountSession();
+        if (next?.generation === owner?.generation && next?.userId === owner?.userId) return;
+        owner = next;
+        setFrom(null);
+        setTo(null);
+        setOrder(null);
+        setActiveTaxiOrder(null);
+        boot();
+      });
+    }
+    return () => { ++bootEpoch.current; unsubscribe?.(); };
   }, [boot]);
 
   // ---------------- Поллинг активного заказа ----------------
@@ -276,7 +316,8 @@ export default function InstantOrderScreen() {
     setActiveTaxiOrder(null);
     setOrder(null);
     setTo(null);
-    setView("compose");
+    if (localTaxiConsentContext()?.environment) boot();
+    else setView("compose");
   }
 
   /**
@@ -288,8 +329,9 @@ export default function InstantOrderScreen() {
    */
   const refreshOrder = useCallback(() => {
     if (!order) return;
+    const epoch = bootEpoch.current;
     fetchInstantOrder(order.id)
-      .then(setOrder)
+      .then((fresh) => { if (epoch === bootEpoch.current) setOrder(fresh); })
       .catch(() => {});
   }, [order]);
 
@@ -305,6 +347,18 @@ export default function InstantOrderScreen() {
       <>
         <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
         <LoadingList count={2} />
+      </>
+    );
+  }
+
+  if (view === "recovery") {
+    return (
+      <>
+        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
+        <div className="info-card">
+          <TaxiConsentAction body={null} environment={localTaxiConsentContext().environment}
+            onOrdered={(found) => { setOrder(found); setView("tracking"); }} onContinue={boot} />
+        </div>
       </>
     );
   }

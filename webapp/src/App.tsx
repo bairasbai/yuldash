@@ -181,7 +181,8 @@ function Shell() {
       {/* Отметка из очереди («Выехал» без сети), которую сервер потом отклонил, — не молчим. */}
       <OutboxRefusalBanner />
       <main className="app-main">
-        {(!pilot.requested || pilot.environment) && (
+        {/* На локальном экране такси историю читает сам экран после проверки сохранённой попытки. */}
+        {(!pilot.requested || (pilot.environment && !matchPath("/taxi", pathname))) && (
           <ActiveTaxiBar visible={onMainTab && !taxiOrderOnScreen} />
         )}
         {/* Экран из отдельного куска ещё летит — показываем скелетон,

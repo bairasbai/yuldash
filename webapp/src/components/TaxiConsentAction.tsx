@@ -25,9 +25,10 @@ type RecoveryReport = { marker: string; state: "lookupUnknown" | "retired" | "un
 type Review = { kind: "first" | "updated"; quote: Quoted } | { kind: "retry"; attempt: Attempt };
 
 /** Deliberately RAM-only request state. A marker without this body blocks a new POST. */
-export default function TaxiConsentAction({ body, environment, onOrdered, onLockChange, onSessionReset, onQuote }: {
+export default function TaxiConsentAction({ body, environment, onOrdered, onLockChange, onSessionReset, onQuote, onContinue }: {
   body: OrderInput | null; environment: string | null; onOrdered: (order: InstantOrder) => void;
-  onLockChange: (locked: boolean) => void; onSessionReset: () => void; onQuote: (quote: TaxiConsentQuote | null) => void;
+  onLockChange?: (locked: boolean) => void; onSessionReset?: () => void; onQuote?: (quote: TaxiConsentQuote | null) => void;
+  onContinue?: () => void;
 }) {
   const { appText } = useLang();
   const [, render] = useState(0);
@@ -92,7 +93,7 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
       alive.current = false; ++quoteEpoch.current; ++recoveryEpoch.current;
       unsubscribe(); window.removeEventListener("storage", changed); window.removeEventListener("focus", focus);
       document.removeEventListener("visibilitychange", focus); window.clearInterval(timer);
-      callbacks.current.onLockChange(false);
+      callbacks.current.onLockChange?.(false);
     };
   }, []); // refs always point to the current scope
 
@@ -103,13 +104,13 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
       setReading(null); setCloseReview(null); setReport(null); setSelectedMarker(""); setError("");
       pending.current = null; ++quoteEpoch.current; quoteFlight.current = "";
       setQuoted(null); setReview(null); setUnknown(false); setBusy(false); sending.current = false;
-      callbacks.current.onSessionReset();
+      callbacks.current.onSessionReset?.();
     }
     previousGeneration.current = identity;
     syncMarkers();
   }, [generation, owner?.userId, environment]);
 
-  useEffect(() => { callbacks.current.onLockChange(busy || unknown || (blocked && !!environment && !!owner) || !!reading); }, [busy, unknown, blocked, reading, environment, generation]);
+  useEffect(() => { callbacks.current.onLockChange?.(busy || unknown || (blocked && !!environment && !!owner) || !!reading); }, [busy, unknown, blocked, reading, environment, generation]);
 
   async function loadQuote(showReview: boolean) {
     const now = current.current;
@@ -124,13 +125,13 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
     const start = { wall: Date.now(), monotonic: performance.now() };
     const valid = () => alive.current && epoch === quoteEpoch.current && current.current.scope === now.scope
       && isAccountSession(now.owner!) && !pending.current && !recovering.current && !resolved.current;
-    setLoading(true); setQuoted(null); callbacks.current.onQuote(null); setError("");
+    setLoading(true); setQuoted(null); callbacks.current.onQuote?.(null); setError("");
     try {
       const data = await fetchTaxiConsent(frozenBody, now.owner, async () => valid() && markers(false).length === 0);
       if (!valid() || markers(false).length) return;
       const next = { data, owner: now.owner, input: now.scope,
         stamp: { ...start, validForMs: Math.max(0, serverMs(data.expires_at) - start.wall) } };
-      setQuoted(next); callbacks.current.onQuote(data);
+      setQuoted(next); callbacks.current.onQuote?.(data);
       if (showReview) setReview({ kind: "updated", quote: next });
     } catch (reason) {
       if (valid()) setError(reason instanceof ApiError && reason.status === 409 && reason.code === "taxi_quote_price_pending"
@@ -146,7 +147,7 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
   }
 
   useEffect(() => {
-    ++quoteEpoch.current; quoteFlight.current = ""; setQuoted(null); callbacks.current.onQuote(null); setReview(null); setLoading(false);
+    ++quoteEpoch.current; quoteFlight.current = ""; setQuoted(null); callbacks.current.onQuote?.(null); setReview(null); setLoading(false);
     if (!current.current.body) sessionBarrier.current = false;
     if (!blocked && !pending.current && !recovering.current && !resolved.current) void loadQuote(false);
   }, [scope, blocked]);
@@ -157,7 +158,7 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
   async function send(attempt: Attempt) {
     if (recovering.current || resolved.current || sending.current || !isAccountSession(attempt.owner) || current.current.environment !== attempt.environment) return;
     // Freeze controls in the same event as closing the dialog, before a second tap.
-    sending.current = true; callbacks.current.onLockChange(true);
+    sending.current = true; callbacks.current.onLockChange?.(true);
     setBusy(true); setError(""); setReview(null);
     try {
       const order = await confirmTaxiConsent(attempt.body, attempt.quote, attempt.owner, async () =>
@@ -182,7 +183,7 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
       if (knownFirstRejection) {
         try { clearOwnedTaxiPending(localStorage, { key: attempt.marker, version: 2, requestKey: attempt.quote.request_key }, attempt.owner.generation, attempt.environment); }
         catch { attempt.unknown = true; setUnknown(true); return; }
-        pending.current = null; setQuoted(null); callbacks.current.onQuote(null); setUnknown(false);
+        pending.current = null; setQuoted(null); callbacks.current.onQuote?.(null); setUnknown(false);
         setError(appText("Подтверждение не принято. Обнови сумму и проверь поездки.", "Раҫлау ҡабул ителмәне. Сумманы яңырт һәм сәфәрҙәрҙе тикшер."));
       } else {
         // AFTER unknown, even an explicit denial cannot establish that no order existed.
@@ -276,8 +277,8 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
       return;
     }
     recovering.current = true; setReading(action); setCloseReview(null); setReview(null);
-    callbacks.current.onLockChange(true); setError("");
-    ++quoteEpoch.current; quoteFlight.current = ""; setQuoted(null); callbacks.current.onQuote(null);
+    callbacks.current.onLockChange?.(true); setError("");
+    ++quoteEpoch.current; quoteFlight.current = ""; setQuoted(null); callbacks.current.onQuote?.(null);
     let committed = false;
     try {
       // Record the stop intent before transmission. Its receipt may be lost, and another
@@ -416,7 +417,10 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
       </>}
       {(lookupMarker || legacyMarker || unknown || blocked) && !unavailable &&
         <Link className="taxi-consent-history" to="/my-taxi">{appText("Мои поездки на такси", "Таксиҙағы сәфәрҙәрем")}</Link>}
-      {(busy || canRetry || (!attempt && !blocked)) && <button type="button" className="btn-primary submit-btn taxi-order-footer__cta" onClick={primary}
+      {onContinue && !blocked && !unavailable && !reading && <button type="button" className="btn-primary submit-btn" onClick={onContinue}>
+        {appText("Продолжить", "Дауам итергә")}
+      </button>}
+      {!onContinue && (busy || canRetry || (!attempt && !blocked)) && <button type="button" className="btn-primary submit-btn taxi-order-footer__cta" onClick={primary}
         disabled={unavailable || busy || !!reading || (!attempt && (loading || !body))}>
         {busy ? appText("Подтверждаем…", "Раҫлайбыҙ…")
           : attempt ? appText("Повторить подтверждение", "Раҫлауҙы ҡабатлау")
