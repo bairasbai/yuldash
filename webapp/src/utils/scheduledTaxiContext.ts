@@ -2,10 +2,11 @@ import type { InstantOrder } from "../api/instant";
 import type { TripPassOwner } from "./tripPass";
 
 /** A navigation hint, never an order snapshot or permission to restore history. */
-export function expiredScheduledContext(order: InstantOrder, requestedId: number, owner: TripPassOwner) {
+export function scheduledActivationContext(order: InstantOrder, requestedId: number, owner: TripPassOwner) {
   if (!owner.generation || !Number.isSafeInteger(owner.userId) || owner.userId <= 0
       || !Number.isSafeInteger(requestedId) || requestedId <= 0 || order.id !== requestedId
-      || order.role !== "passenger" || order.status !== "expired") return null;
+      || order.role !== "passenger"
+      || !["created", "searching", "offered", "accepted", "arriving", "onboard", "expired"].includes(order.status)) return null;
   return { scheduledTaxi: { id: requestedId, userId: owner.userId, generation: owner.generation } };
 }
 

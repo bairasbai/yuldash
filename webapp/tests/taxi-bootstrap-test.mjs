@@ -28,7 +28,7 @@ mocks['../api/client']=`export class ApiError extends Error{constructor(status,m
 export const getAccountSession=()=>globalThis.__taxiBoot.owner;export const isAccountSession=o=>{const x=globalThis.__taxiBoot.owner;return !!x&&o.userId===x.userId&&o.generation===x.generation;};`;
 mocks['../api/instant']+=`
 export const fetchInstantOrder=(id,signal)=>{const h=globalThis.__taxiBoot;h.detailCalls.push({id,signal});return h.details(id);};
-export const fetchScheduled=()=>Promise.resolve({scheduled:[{id:17,role:'passenger',status:'scheduled',scheduled_at:null,from_text:'A',to_text:'B',price_estimate:0}],activated:[]});
+export const fetchScheduled=()=>Promise.resolve({scheduled:[{id:17,role:'passenger',status:'scheduled',scheduled_at:null,from_text:'A',to_text:'B',price_estimate:0}],activated:globalThis.__taxiBoot.activated??[]});
 export const activateScheduled=(id)=>globalThis.__taxiBoot.activate(id);
 export const fetchMyOrders=(...args)=>{const h=globalThis.__taxiBoot;h.orderCalls++;return h.orders();};
 export const fetchTaxiAvailability=()=>{const h=globalThis.__taxiBoot;h.availabilityCalls++;return h.availability();};`;
@@ -83,4 +83,21 @@ for(const result of [{id:18,role:'passenger',status:'expired'},{id:17,role:'driv
 for(const status of ['expired','searching','scheduled','done'])for(const action of ['unmount','account'])await check('late origin '+status+' activation cannot navigate after '+action,async h=>{const d=deferred();h.activate=()=>d.promise;await activateButton(h);if(action==='unmount')unmount(h);else h.owner={userId:22,generation:'B'};d.resolve({id:17,role:'passenger',status});await Promise.resolve();await Promise.resolve();assert.equal(h.navigations.length,0);});
 await check('ordinary same-path navigation preserves the current pickup draft',async h=>{await start(h);const chosen={lat:56,lng:57,text:'Chosen pickup'};screen(h,'ComposeView').props.setFrom(chosen);await settle(h);h.location={key:'same-path-again',state:null};h.dirty=true;await settle(h);if(!screen(h,'ComposeView')){h.gps.no();await settle(h);}assert.deepEqual(screen(h,'ComposeView')?.props.from,chosen);});
 for(const kind of ['poll-poll','poll-refresh','refresh-poll'])await check('newer same-ID details win over delayed '+kind,async h=>{h.location.state=hint();await settle(h);const first=deferred(),second=deferred();let call=0;h.details=()=>++call===1?first.promise:second.promise;const [a,b]=kind.split('-');const refresh=track(h).props.onRefresh;(a==='poll'?h.tick:refresh)();(b==='poll'?h.tick:refresh)();second.resolve({id:17,role:'passenger',status:'cancelled'});await settle(h);assert.equal(track(h)?.props.order.status,'cancelled');first.resolve({id:17,role:'passenger',status:'expired'});await settle(h);assert.equal(track(h)?.props.order.status,'cancelled');});
+for(const status of ['created','searching','offered','accepted','arriving','onboard','expired'])for(const origin of ['activate','live-card'])await check('exact older '+status+' survives five newer scheduled orders via '+origin,async h=>{
+ const current={id:17,role:'passenger',status,from_text:'Old pickup',to_text:'Old destination'};
+ h.orders=async()=>Array.from({length:5},(_,i)=>({id:100+i,role:'passenger',status:'scheduled'}));
+ h.activate=async()=>current;h.details=async id=>({...current,id});
+ if(origin==='activate')await activateButton(h);
+ else {h.activated=[current];h.scheduled=true;await settle(h);const b=nodes(h.tree).find(n=>n.type==='button'&&n.props.className==='sched-live');assert.ok(b);b.props.onClick();await settle(h);}
+ assert.deepEqual(h.navigations.at(-1),['/taxi',{state:hint()}]);
+ unmount(h);h.scheduled=false;h.slots=[];h.cursor=0;h.dirty=true;h.orderCalls=0;await settle(h);
+ assert.equal(track(h)?.props.order.id,17);assert.deepEqual(h.detailCalls.map(x=>x.id),[17]);assert.equal(h.orderCalls,0);assert.equal(screen(h,'ComposeView'),undefined);
+});
+for(const rerender of [false,true])await check('stale activated card cannot target a new account rerender='+rerender,async h=>{
+ h.activated=[{id:17,role:'passenger',status:'accepted',from_text:'Old pickup',to_text:'Old destination'}];h.scheduled=true;await settle(h);
+ const old=nodes(h.tree).find(n=>n.type==='button'&&n.props.className==='sched-live').props.onClick;
+ h.owner={userId:22,generation:'B'};if(rerender){h.dirty=true;await settle(h);}
+ old();await settle(h);assert.equal(h.navigations.length,0);assert.equal(h.detailCalls.length,0);
+ if(rerender){nodes(h.tree).find(n=>n.type==='button'&&n.props.className==='sched-live').props.onClick();await settle(h);assert.equal(h.navigations.length,0);}
+});
 console.log(`Taxi bootstrap: ${total-failed}/${total} passed`);if(failed)process.exitCode=1;
