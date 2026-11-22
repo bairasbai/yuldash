@@ -99,12 +99,20 @@ def apply_courier(r, user_id: int, frm: tuple, to: tuple, подпись: str, p
 
 
 def _key(user_id: int, frm: tuple, to: tuple, category: str,
-         options_csv: str, round_trip: bool) -> str:
+         options_csv: str, round_trip: bool, *, waypoints: list[dict] | None = None) -> str:
     """Ключ заморозки. Всё, что меняет цену, входит в подпись: иначе человек переключил класс
-    с Эконома на Бизнес и получил бы цену Эконома — приятно ему, но неправда."""
+    с Эконома на Бизнес и получил бы цену Эконома — приятно ему, но неправда.
+    Порядок координат остановок значим, их подписи — нет. v2 не читает старый
+    неполный ключ: иначе другой маршрут наследовал бы прежнюю цену и дистанцию.
+    """
+    # У JSON разные записи для -0.0 и 0.0. У маршрута это одна точка.
+    stops = json.dumps(
+        [[float(w["lat"]) or 0.0, float(w["lng"]) or 0.0] for w in (waypoints or [])],
+        separators=(",", ":"), allow_nan=False,
+    )
     raw = (f"{frm[0]:.3f},{frm[1]:.3f}->{to[0]:.3f},{to[1]:.3f}"
-           f"|{category}|{options_csv}|{int(bool(round_trip))}")
-    return f"pricefreeze:{user_id}:{hashlib.sha1(raw.encode()).hexdigest()[:12]}"
+           f"|{category}|{options_csv}|{int(bool(round_trip))}|{stops}")
+    return f"pricefreeze:v2:{user_id}:{hashlib.sha1(raw.encode()).hexdigest()[:12]}"
 
 
 def lock_seconds() -> int:
@@ -113,14 +121,15 @@ def lock_seconds() -> int:
 
 
 def remember(r, user_id: int, frm: tuple, to: tuple, category: str,
-             options_csv: str, round_trip: bool, est: dict) -> int:
+             options_csv: str, round_trip: bool, est: dict, *,
+             waypoints: list[dict] | None = None) -> int:
     """Запомнить показанную цену. Возвращает, на сколько секунд она закреплена (0 = не вышло)."""
     sec = lock_seconds()
     if r is None or sec <= 0 or not est:
         return 0
     try:
         snapshot = {k: est[k] for k in FROZEN_KEYS if k in est}
-        r.set(_key(user_id, frm, to, category, options_csv, round_trip),
+        r.set(_key(user_id, frm, to, category, options_csv, round_trip, waypoints=waypoints),
               json.dumps(snapshot, ensure_ascii=False), ex=sec)
         return sec
     except Exception:  # noqa: BLE001 — заморозка не имеет права уронить расчёт цены
@@ -129,7 +138,8 @@ def remember(r, user_id: int, frm: tuple, to: tuple, category: str,
 
 
 def apply(r, user_id: int, frm: tuple, to: tuple, category: str,
-          options_csv: str, round_trip: bool, est: dict) -> dict:
+          options_csv: str, round_trip: bool, est: dict, *,
+          waypoints: list[dict] | None = None) -> dict:
     """Вернуть цену, по которой оформляем заказ: замороженную или новую — что дешевле.
 
     Заказ собирается из ОДНОГО расчёта целиком: смешать замороженную сумму с новой
@@ -138,7 +148,7 @@ def apply(r, user_id: int, frm: tuple, to: tuple, category: str,
     if r is None or lock_seconds() <= 0 or not est:
         return est
     try:
-        raw = r.get(_key(user_id, frm, to, category, options_csv, round_trip))
+        raw = r.get(_key(user_id, frm, to, category, options_csv, round_trip, waypoints=waypoints))
         if not raw:
             return est
         frozen = json.loads(raw)
