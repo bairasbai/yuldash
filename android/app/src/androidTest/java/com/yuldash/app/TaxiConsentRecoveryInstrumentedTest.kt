@@ -225,10 +225,13 @@ class TaxiConsentRecoveryInstrumentedTest {
         val deadline = SystemClock.elapsedRealtime() + 15_000
         while (SystemClock.elapsedRealtime() < deadline) {
             val root = automation.rootInActiveWindow
-            if (root?.packageName == context.packageName && (visibleLabel == null ||
+            if (root?.packageName?.toString() == context.packageName && (visibleLabel == null ||
                     root.findAccessibilityNodeInfosByText(visibleLabel).any { it.isVisibleToUser })) {
                 instrumentation.waitForIdleSync()
-                val bitmap = automation.takeScreenshot()
+                val screenshot = automation.takeScreenshot()
+                val bitmap = if (screenshot?.config == Bitmap.Config.HARDWARE) {
+                    try { screenshot.copy(Bitmap.Config.ARGB_8888, false) } finally { screenshot.recycle() }
+                } else screenshot
                 if (bitmap != null) try {
                     if (hasAppContent(bitmap)) {
                         File(qaDir, "$name.png").outputStream().use {
