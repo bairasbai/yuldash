@@ -27,6 +27,9 @@ import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.isEnabled
 import androidx.compose.ui.test.performTextReplacement
+import androidx.compose.ui.test.click as tapCenter
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.hasScrollAction
 import androidx.compose.ui.test.hasClickAction
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isToggleable
@@ -196,10 +199,21 @@ class TaxiConsentRecoveryInstrumentedTest {
         compose.onNodeWithTag("taxiRoundTripWait120").performScrollTo().performClick()
         val submit = hasText(localized("Заказать на ", "-ға заказ итеү"), substring = true) and hasClickAction() and isEnabled()
         compose.waitUntil(30_000) { compose.onAllNodes(submit).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(submit).performClick()
         val listButton = hasText(localized("Мои предзаказы", "Минең алдан заказдар")) and hasClickAction()
-        compose.waitUntil(30_000) { compose.onAllNodes(listButton).fetchSemanticsNodes().isNotEmpty() }
-        compose.onNode(listButton).performClick()
+        try {
+            val cta = compose.onNode(submit)
+            // On compact layouts the footer may be sticky and have no scrollable ancestor.
+            if (compose.onAllNodes(submit and hasAnyAncestor(hasScrollAction())).fetchSemanticsNodes().isNotEmpty()) {
+                cta.performScrollTo()
+            }
+            cta.assertIsDisplayed().assertIsEnabled().performTouchInput { tapCenter() }
+            compose.waitUntil(30_000) { compose.onAllNodes(listButton).fetchSemanticsNodes().isNotEmpty() }
+            compose.onNode(listButton).assertIsDisplayed().performClick()
+        } catch (failure: Throwable) {
+            // Capture while instrumentation still owns the foreground, before the launcher returns.
+            runCatching { capture("scheduled-form-failed") }
+            throw failure
+        }
         val activate = hasText(localized("Начать поиск сейчас", "Хәҙер эҙләргә")) and hasClickAction()
         compose.waitUntil(30_000) { compose.onAllNodes(activate).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(activate).performScrollTo().assertIsDisplayed()

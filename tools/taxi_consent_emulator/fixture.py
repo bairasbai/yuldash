@@ -57,6 +57,7 @@ def serve(args, tempdir):
     counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
     scheduled_case = args.case in ("scheduled", "late", "unavailable")
     scheduled_route = None
+    schedule_http = {"status": None, "field": None}
     activation_released = False
     quoted_round_trips = []
     delayed = None
@@ -87,7 +88,8 @@ def serve(args, tempdir):
             states = [attempt.state for attempt in attempts]
             selection = {"states_by_slot": states, "addressed_slots": addressed_slots} if selection_keys else {}
         write_private_json(args.state_file, {
-            **counters, **order_fields, "scheduled_route": scheduled_route, "released": activation_released, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
+            **counters, **order_fields, "scheduled_route": scheduled_route, "released": activation_released,
+            "schedule_http": schedule_http, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
             "attempts": sorted(states), "late_status": late_status, **selection,
         })
 
@@ -125,7 +127,18 @@ def serve(args, tempdir):
                 snapshot()
                 self.close_connection = True
                 return
+            if key == "schedule":
+                snapshot()  # Preserve receipt even if the backend or response adapter raises.
             response = client.request(self.command, self.path, content=body, headers=headers)
+            if key == "schedule":
+                schedule_http["status"] = response.status_code
+                if response.status_code == 422:
+                    # Only fixed schema field names. Validation values, tokens and raw bodies stay private.
+                    detail = response.json().get("detail")
+                    locations = [e.get("loc", []) for e in detail if isinstance(e, dict)] if isinstance(detail, list) else []
+                    fields = {"scheduled_at", "waypoints", "return_wait_min", "payment_method", "category", "round_trip"}
+                    schedule_http["field"] = next((k for loc in locations for k in loc if k in fields), None)
+                snapshot()
             if key == "schedule" and response.status_code == 200:
                 order = response.json()
                 scheduled_route = {"stops": [s["text"] for s in order["stops"]],

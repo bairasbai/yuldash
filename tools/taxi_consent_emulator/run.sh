@@ -13,7 +13,10 @@ fixture_pid= phase_pid=
 cleanup() {
     local status=$?
     if [[ $status != 0 && -n ${case_name:-} ]]; then
-        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active; do
+        if [[ -s ${state:-} ]]; then
+            jq '{schedule, schedule_http, orders, order_status, activate}' "$state" > "$results/$case_name-failure-state.json" || true
+        fi
+        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active scheduled-form; do
             if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
                 adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
             fi
