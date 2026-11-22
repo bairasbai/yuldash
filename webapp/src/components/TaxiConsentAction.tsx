@@ -399,7 +399,7 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
           setSelectedMarker(event.target.value); setCloseReview(null); setError("");
         }}>
           {readable.map((marker, index) => <option key={marker.key} value={marker.key}>
-            {appText(`Попытка ${index + 1}`, `${index + 1}-се ынтылыш`)}
+            {appText(`Попытка ${index + 1}`, `Ынтылыш № ${index + 1}`)}
           </option>)}
         </select>
       </label>}
