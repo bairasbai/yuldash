@@ -19,7 +19,7 @@ mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(t
 mocks['../i18n/lang']=`export const useLang=()=>({lang:'ru',appText:globalThis.__taxiBoot.appText});`;
 mocks['../features']=`export const useFeatures=()=>({taxi:globalThis.__taxiBoot.taxi!==false,ready:true});`;
 mocks['react-router-dom']=`export const useNavigate=()=>()=>{};`;
-mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`;
+mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} export const getAccountSession=()=>null;`;
 mocks['../api/taxiConsent']=`export const localTaxiConsentContext=()=>globalThis.__taxiBoot.consentContext;
 export const localTaxiConsentGeneration=()=>'';`;
 mocks['../api/instant']+=`

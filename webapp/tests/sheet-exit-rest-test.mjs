@@ -216,7 +216,7 @@ const Driver = await load(
 
 const Taxi = await load(
   "src/screens/InstantOrderScreen.tsx",
-  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {}`]], SHEET_EXIT)
+  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {} export const getAccountSession=()=>null;`]], SHEET_EXIT)
 );
 
 // ---------------------------------------------------------------- 5. код вручения (посылки)
