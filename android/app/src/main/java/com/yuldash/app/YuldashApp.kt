@@ -360,6 +360,7 @@ private fun YuldashAppContent() {
     // VM переживает поворот → selectedRide/activeTrip больше НЕ сбрасываются на повороте брони/поездки.
     // screen/language/startHomeTab переживают и смерть процесса (persistNav в SavedStateHandle, ниже).
     var screen by vm.screen
+    val scheduledTaxiTarget = rememberScheduledTaxiTarget(screen, navigationSession)
     var language by vm.language
     // Сохраняем только запрошенный экран, без данных прежнего аккаунта или автодействия.
     var destinationAfterLogin by rememberSaveable(saver = rootNavigationStateSaver<Screen?>("destinationAfterLogin")) { mutableStateOf<Screen?>(null) }
@@ -1267,6 +1268,7 @@ private fun YuldashAppContent() {
             Screen.Courier -> OrdersNav(
                 screen = scr,
                 instantTripOrderId = instantTripOrderId,
+                scheduledTaxiTarget = scheduledTaxiTarget,
                 instantChatOrderId = instantChatOrderId,
                 taxiReceiptOrderId = taxiReceiptOrderId,
                 isCurrentReceipt = { id -> screen == Screen.TaxiReceipt && taxiReceiptOrderId == id },
@@ -1728,11 +1730,7 @@ private fun YuldashAppContent() {
                     vm.applyBookingLink(bid, "driver", "done", true)
                 },
             ) }
-            Screen.ScheduledOrders -> ScheduledOrdersScreen(
-                onBack = { goBack() },
-                // Активировал предзаказ → в обычный экран заказа: он восстановит заказ в поиске.
-                onActivated = { screen = Screen.InstantOrder }
-            )
+            Screen.ScheduledOrders -> ScheduledTaxiDestination(vm, scheduledTaxiTarget) { goBack() }
             Screen.SupportTickets -> SupportTicketsScreen(
                 onBack = { goBack() },
                 onOpenTicket = { tid -> supportTicketId = tid; screen = Screen.SupportTicket }

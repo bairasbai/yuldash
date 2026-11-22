@@ -13,7 +13,10 @@ fixture_pid= phase_pid=
 cleanup() {
     local status=$?
     if [[ $status != 0 && -n ${case_name:-} ]]; then
-        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected; do
+        if [[ -s ${state:-} ]]; then
+            jq '{schedule, schedule_http, orders, order_status, activate}' "$state" > "$results/$case_name-failure-state.json" || true
+        fi
+        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active scheduled-form; do
             if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
                 adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
             fi
@@ -129,7 +132,7 @@ installed_apk_hash() {
 }
 
 # Run the upgrade first so the previous APK is the only app that has touched this fresh installation.
-for case_name in selection-ba-dark committed closed roundtrip selection-ru-light selection-ru-dark selection-ba-light; do
+for case_name in selection-ba-dark committed closed roundtrip selection-ru-light selection-ru-dark selection-ba-light scheduled-ru-light late-ru-dark late-ba-light unavailable-ba-dark; do
     adb shell pm clear "$pkg" | grep -q Success
     adb shell run-as "$pkg" mkdir -p "$device_dir"
     session="$private/$case_name-session.json"
@@ -144,6 +147,45 @@ for case_name in selection-ba-dark committed closed roundtrip selection-ru-light
     done
     [[ -s "$session" ]]
     adb shell -T "run-as $pkg sh -c 'umask 077; cat > $device_dir/session.json'" < "$session"
+    if [[ $case_name == scheduled-* || $case_name == late-* || $case_name == unavailable-* ]]; then
+        IFS=- read -r _ language theme <<< "$case_name"
+        dark=false
+        if [[ $theme == dark ]]; then dark=true; fi
+        start_phase createsAndActivatesScheduledRoundTrip "$language" "$dark" 0
+        wait_device_file scheduled.ready
+        trip='.schedule == 1 and .legacy == 0 and .confirm == 0 and .orders == 1 and .confirmed_round_trip == true and .confirmed_return_wait_min == 120'
+        route='.route == .scheduled_route and .route.stops == ["QA Stop A","QA Stop B"] and .route.km == 180 and .route.minutes == 90 and .route.fare > 0'
+        check_state created "$trip and $route and .activate == 0 and .order_status == \"scheduled\""
+        continue_after_check scheduled
+        if [[ $case_name == late-* ]]; then
+            wait_device_file response-pending.ready
+            # Let the device leave only once the live FastAPI activation committed behind the bridge.
+            for ((i=0; i<100; i++)); do
+                if jq -e '.activate == 1 and .order_status == "offered"' "$state" >/dev/null; then break; fi
+                sleep 0.1
+            done
+            check_state pending "$trip and $route and .activate == 1 and .order_status == \"offered\" and .released == false"
+            continue_after_check response-pending
+            wait_device_file left.ready
+            touch "${state%.json}.release"
+            continue_after_check left
+        fi
+        finish_phase
+        expected_status=offered
+        if [[ $case_name == unavailable-* ]]; then expected_status=expired; fi
+        check_state final "$trip and $route and .activate == 1 and .order_status == \"$expected_status\""
+        collect_frame scheduled-list
+        if [[ $case_name != late-* ]]; then
+            check_state opened ".card >= 1 and .last_card_status == \"$expected_status\""
+            [[ $(adb shell run-as "$pkg" cat "$device_dir/scheduled-active-order-id" | tr -d '\r') == "$(jq -r .order_id "$state")" ]]
+            collect_frame scheduled-active
+        else
+            check_state returned '.released == true'
+        fi
+        stop_fixture
+        echo "Passed scheduled round trip ($case_name)."
+        continue
+    fi
     if [[ $case_name == selection-* ]]; then
         IFS=- read -r _ language theme <<< "$case_name"
         dark=false

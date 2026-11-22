@@ -38,9 +38,12 @@ internal fun OrdersNav(
     isCurrentReceipt: (Int) -> Boolean = { true },
     /** «Найти попутку» с заглушки «Скоро в Юлдаше»: на главную, в режим попутки. */
     onFindRide: () -> Unit = onBack,
+    scheduledTaxiTarget: androidx.compose.runtime.MutableIntState? = null,
 ) {
     when (screen) {
         Screen.InstantOrder -> InstantOrderScreen(
+            requestedScheduledOrderId = scheduledTaxiTarget?.intValue ?: 0,
+            onScheduledContextConsumed = { scheduledTaxiTarget?.intValue = 0 },
             onBack = { onBack() },
             onLoginRequired = { onOpen(Screen.Login) },
             onTaxiOnboarding = { onOpen(Screen.TaxiOnboarding) },

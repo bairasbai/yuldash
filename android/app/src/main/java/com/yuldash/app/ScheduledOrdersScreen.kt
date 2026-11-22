@@ -38,6 +38,8 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.key
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -64,12 +66,23 @@ import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 
 @Composable
-internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) {
+internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: (Int) -> Unit, isCurrentParent: () -> Boolean = { true }) {
+    val generation by ApiClient.sessionChanges.collectAsState()
+    key(generation) { ScheduledOrdersContent(generation, onBack, onActivated, isCurrentParent) }
+}
+
+@Composable
+private fun ScheduledOrdersContent(generation: Long, onBack: () -> Unit, onActivated: (Int) -> Unit,
+    isCurrentParent: () -> Boolean) {
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
     var data by remember { mutableStateOf(ScheduledOrdersDto(emptyList(), emptyList())) }
     var loading by remember { mutableStateOf(true) }
     var error by remember { mutableStateOf(false) }
+    var deferredId by remember { mutableStateOf(0) }
+    var activationEnded by remember { mutableStateOf(false) }
+    var listRevision by remember { mutableStateOf(0) }
+    fun current() = scope.isActive && isCurrentParent() && ApiClient.isCurrentSession(generation)
     // Данные на экране есть, но последнее обновление не дошло: показываем честную плашку
     // вместо молчаливого вранья тикающим отсчётом.
     var stale by remember { mutableStateOf(false) }
@@ -82,21 +95,26 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     )
 
     LaunchedEffect(reload) {
+        if (!current()) return@LaunchedEffect
         loading = true
-        val scheduledResult = ApiClient.getScheduledOrders()
+        val revision = listRevision
+        val scheduledResult = ApiClient.getScheduledOrders(generation)
+        if (!current() || revision != listRevision) return@LaunchedEffect
         val loaded = scheduledResult.getOrNull()
         if (loaded != null) {
             stale = false
             // Воркер мог активировать заказ до открытия этого экрана. GET /scheduled уже не вернёт
             // его как scheduled, поэтому дочитываем последние заказы и не оставляем человека без входа
             // в живой статус поездки.
-            val alreadyActive = ApiClient.getMyInstantOrders(limit = 5).getOrNull().orEmpty()
-                .filter { shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
+            val alreadyActive = ApiClient.getMyInstantOrders(limit = 5, expectedGeneration = generation).getOrNull().orEmpty()
+                .filter { it.role == "passenger" && shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
+            if (!current() || revision != listRevision) return@LaunchedEffect
             data = loaded.copy(activated = (loaded.activated + alreadyActive).distinctBy { it.id })
             error = false
         } else {
             val e = scheduledResult.exceptionOrNull()
-            error = (e as? ApiException)?.status != 401
+            if (data.scheduled.isEmpty() && data.activated.isEmpty()) error = (e as? ApiException)?.status != 401
+            else if ((e as? ApiException)?.status != 401) stale = true
         }
         loading = false
     }
@@ -109,20 +127,10 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     val lifecycleOwner = LocalLifecycleOwner.current
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
-        while (isActive) {
-            delay(30_000)
-            ApiClient.getScheduledOrders()
-                .onSuccess { loaded ->
-                    val alreadyActive = ApiClient.getMyInstantOrders(limit = 5).getOrNull().orEmpty()
-                        .filter { shouldShowActivatedScheduled(it.status, it.scheduledAt, it.waitUntil) }
-                    data = loaded.copy(activated = (loaded.activated + alreadyActive).distinctBy { it.id })
-                    stale = false
-                }
-                .onFailure { e ->
-                    // 401 — это «вышел из аккаунта», а не сбой связи: там свой путь, не пугаем.
-                    if ((e as? ApiException)?.status != 401) stale = true
-                }
-        }
+            while (isActive) {
+                delay(30_000)
+                if (current() && busyId == 0) reload++
+            }
         }
     }
 
@@ -137,24 +145,45 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
     }
 
     fun activate(id: Int) {
-        if (busyId != 0) return
+        if (busyId != 0 || !current() || data.scheduled.none { it.id == id }) return
         busyId = id
+        deferredId = 0
+        activationEnded = false
         scope.launch {
-            ApiClient.activateScheduledOrder(id)
-                .onSuccess { onActivated() }
-                .onFailure {
-                    Toast.makeText(ctx, serverSaid(it, actionError), Toast.LENGTH_LONG).show()
-                    reload++   // гонка (уже активирован/отменён) → обновим список
-                }
+            val result = ApiClient.activateScheduledOrder(id, generation)
+            if (!current()) return@launch
+            listRevision++
+            loading = false
             busyId = 0
+            val order = result.getOrNull()
+            if (order == null) {
+                Toast.makeText(ctx, serverSaid(requireNotNull(result.exceptionOrNull()), actionError), Toast.LENGTH_LONG).show()
+                reload++
+                return@launch
+            }
+            when (scheduledActivation(order, id, ApiClient.myUserId())) {
+                ScheduledActivation.WAITING -> {
+                    data = data.copy(scheduled = data.scheduled.map { if (it.id == id) order else it })
+                    deferredId = id
+                }
+                ScheduledActivation.OPEN -> onActivated(id)
+                ScheduledActivation.ENDED -> { activationEnded = true; reload++ }
+                ScheduledActivation.INVALID -> {
+                    Toast.makeText(ctx, actionError, Toast.LENGTH_LONG).show()
+                    reload++
+                }
+            }
         }
     }
     fun cancel(id: Int) {
-        if (busyId != 0) return
+        if (busyId != 0 || !current() || data.scheduled.none { it.id == id }) return
         busyId = id
         scope.launch {
-            ApiClient.cancelScheduledOrder(id)
-                .onSuccess {
+            val result = ApiClient.cancelScheduledOrder(id, generation)
+            if (!current()) return@launch
+            listRevision++
+            loading = false
+            result.onSuccess {
                     data = data.copy(scheduled = data.scheduled.filterNot { it.id == id })
                 }
                 .onFailure {
@@ -179,6 +208,12 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
             verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(top = 8.dp, bottom = 24.dp),
         ) {
+            if (deferredId != 0 && data.scheduled.any { it.id == deferredId && it.status == "scheduled" }) {
+                item { AppNoticeCard(text = appText("Предзаказ пока ждёт. Поиск ещё не начался. Попробуй позже.",
+                    "Алдан заказ әлегә көтә. Эҙләү әле башланманы. Һуңыраҡ ҡабатла.")) }
+            }
+            if (activationEnded) item { AppNoticeCard(text = appText("Предзаказ уже завершён или отменён. Проверь список.",
+                "Алдан заказ тамамланған йәки кире алынған. Исемлекте тикшер.")) }
             // Связь пропала, а на экране тикает обратный отсчёт — предупреждаем прямо, а не молчим.
             if (stale) {
                 item {
@@ -230,7 +265,10 @@ internal fun ScheduledOrdersScreen(onBack: () -> Unit, onActivated: () -> Unit) 
                             Text(appText("Пора ехать", "Барыр ваҡыт"), color = CanonText, fontWeight = FontWeight.Bold, fontSize = 16.sp)
                         }
                         items(data.activated, key = { "act-${it.id}" }) { order ->
-                            ActivatedOrderCard(order = order, onOpen = onActivated)
+                            ActivatedOrderCard(order = order, onOpen = {
+                                if (current() && busyId == 0 && data.activated.any { it.id == order.id } &&
+                                    scheduledActivation(order, order.id, ApiClient.myUserId()) == ScheduledActivation.OPEN) onActivated(order.id)
+                            })
                         }
                     }
                     if (data.scheduled.isNotEmpty()) {

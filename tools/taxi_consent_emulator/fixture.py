@@ -9,6 +9,7 @@ import signal
 import socket
 import sys
 import tempfile
+import time
 from datetime import timedelta
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
@@ -25,6 +26,7 @@ ENDPOINTS = {
     ("POST", RESULT): "result",
     ("POST", CLOSE): "close",
     ("POST", "/instant/orders"): "legacy",
+    ("POST", "/instant/schedule"): "schedule",
 }
 
 
@@ -44,7 +46,7 @@ def serve(args, tempdir):
     import pytest
     import test_taxi_quote_consent as market
     from test_promo_taxi import DEST, ORIG
-    from app import pricing
+    from app import instant_service, pricing
     from app.config import settings
     from app.models import InstantOrder, InstantOrderStatus, TaxiConsentAttempt
     from app.security import issue_tokens
@@ -52,7 +54,11 @@ def serve(args, tempdir):
     from sqlmodel import Session, select
 
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
-    counters = dict.fromkeys((*ENDPOINTS.values(), "card"), 0)
+    counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
+    scheduled_case = args.case in ("scheduled", "late", "unavailable")
+    scheduled_route = None
+    schedule_http = {"status": None, "field": None}
+    activation_released = False
     quoted_round_trips = []
     delayed = None
     late_status = None
@@ -71,13 +77,19 @@ def serve(args, tempdir):
                 "confirmed_round_trip": only.round_trip if only else None,
                 "confirmed_return_wait_min": only.return_wait_min if only else None,
             }
+            if scheduled_case and only:
+                order_fields["route"] = {
+                    "stops": [point["text"] for point in instant_service.parse_waypoints(only.waypoints_json)],
+                    "km": only.distance_km, "minutes": only.eta_min, "fare": only.price_estimate,
+                }
             attempts = db.exec(select(TaxiConsentAttempt).where(
                 TaxiConsentAttempt.owner_id == uid,
             ).order_by(TaxiConsentAttempt.request_key)).all()
             states = [attempt.state for attempt in attempts]
             selection = {"states_by_slot": states, "addressed_slots": addressed_slots} if selection_keys else {}
         write_private_json(args.state_file, {
-            **counters, **order_fields, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
+            **counters, **order_fields, "scheduled_route": scheduled_route, "released": activation_released,
+            "schedule_http": schedule_http, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
             "attempts": sorted(states), "late_status": late_status, **selection,
         })
 
@@ -86,7 +98,7 @@ def serve(args, tempdir):
             pass  # Routes, session details and request bodies are never logged.
 
         def forward(self):
-            nonlocal delayed, late_status, last_card_status
+            nonlocal delayed, late_status, last_card_status, scheduled_route, activation_released
             parsed = urlsplit(self.path)
             if parsed.scheme or parsed.netloc or not self.path.startswith("/") or self.path.startswith("//"):
                 return self.send_error(400)
@@ -98,6 +110,8 @@ def serve(args, tempdir):
             key = ENDPOINTS.get((self.command, parsed.path))
             if self.command == "GET" and re.fullmatch(r"/instant/orders/[1-9][0-9]*", parsed.path):
                 key = "card"
+            if self.command == "POST" and re.fullmatch(r"/instant/scheduled/[1-9][0-9]*/activate", parsed.path):
+                key = "activate"
             if key:
                 counters[key] += 1
             if selection_keys and key in addressed_slots:
@@ -113,7 +127,31 @@ def serve(args, tempdir):
                 snapshot()
                 self.close_connection = True
                 return
+            if key == "schedule":
+                snapshot()  # Preserve receipt even if the backend or response adapter raises.
             response = client.request(self.command, self.path, content=body, headers=headers)
+            if key == "schedule":
+                schedule_http["status"] = response.status_code
+                if response.status_code == 422:
+                    # Only fixed schema field names. Validation values, tokens and raw bodies stay private.
+                    detail = response.json().get("detail")
+                    locations = [e.get("loc", []) for e in detail if isinstance(e, dict)] if isinstance(detail, list) else []
+                    fields = {"scheduled_at", "waypoints", "return_wait_min", "payment_method", "category", "round_trip"}
+                    schedule_http["field"] = next((k for loc in locations for k in loc if k in fields), None)
+                snapshot()
+            if key == "schedule" and response.status_code == 200:
+                order = response.json()
+                scheduled_route = {"stops": [s["text"] for s in order["stops"]],
+                                   "km": order["distance_km"], "minutes": order["eta_min"], "fare": order["price_estimate"]}
+            if key == "activate" and args.case == "late" and response.status_code == 200:
+                snapshot()  # The server has committed; the UI still awaits this exact response.
+                release = args.state_file.with_suffix(".release")
+                deadline = time.monotonic() + 45
+                while not release.exists():
+                    if time.monotonic() > deadline:
+                        raise TimeoutError("Passenger did not leave before the activation response")
+                    time.sleep(0.05)
+                activation_released = True
             if key == "card" and response.status_code == 200:
                 last_card_status = response.json()["status"]
             if disconnect and args.case == "committed" and response.status_code == 200:
@@ -155,10 +193,25 @@ def serve(args, tempdir):
         monkeypatch.setattr(settings, "instant_offer_ttl_sec", 900)
         if args.case == "roundtrip":
             monkeypatch.setattr(pricing, "route_metrics", lambda *_: pricing.RouteMetrics(180.0, 140.0))
+        if scheduled_case:
+            # Distinct directed legs make dropping OR reversing stops change distance and ETA.
+            a, b = (52.64, 58.41), (52.68, 58.54)
+            metrics = {(ORIG, a): (52.0, 23.0), (a, b): (61.0, 31.0), (b, DEST): (67.0, 36.0)}
+            monkeypatch.setattr(pricing, "route_metrics", lambda frm, to: pricing.RouteMetrics(
+                *metrics.get((tuple(frm), tuple(to)), (66.0, 33.0))))
+            monkeypatch.setattr(instant_service, "zone_for_km", lambda _: "intercity")
+            from app.routers import discovery
+            geocoded = {"geocode:v1:qa alpha": {"title": "QA Stop A", "lat": 52.64, "lon": 58.41},
+                        "geocode:v1:qa bravo": {"title": "QA Stop B", "lat": 52.68, "lon": 58.54}}
+            monkeypatch.setattr(settings, "yandex_geocoder_key", "fixture")
+            monkeypatch.setattr(discovery, "cache_get_json",
+                                lambda key: {"items": [geocoded[key]] if key in geocoded else []}
+                                if key.startswith("geocode:") else None)
         make_user = conftest.user_factory.__wrapped__(client)
-        market.set_base(600)
-        market.live_driver(client, make_user)
-        passenger = market.promo_user(client, make_user)
+        market.set_base(600, per_km=2 if scheduled_case else 0)
+        if args.case != "unavailable":
+            market.live_driver(client, make_user)
+        passenger = make_user("ScheduledPassenger") if scheduled_case else market.promo_user(client, make_user)
         uid = passenger["id"]
         for label, (lat, lng) in (("QA Origin", ORIG), ("QA Destination", DEST)):
             saved = client.post("/places/saved", headers=passenger["auth"], json={
@@ -188,7 +241,7 @@ def local_connect_only(original):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip", "selection"))
+    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable"))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)
     args = parser.parse_args()

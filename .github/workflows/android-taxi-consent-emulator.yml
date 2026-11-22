@@ -8,6 +8,9 @@ on:
       - 'tools/taxi_consent_emulator/**'
       - 'android/app/src/**/java/**/Taxi*Consent*.kt'
       - 'android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt'
+      - 'android/app/src/main/java/com/yuldash/app/*Scheduled*.kt'
+      - 'android/app/src/main/java/com/yuldash/app/AppNav*.kt'
+      - 'backend/app/instant_service.py'
       - 'backend/app/taxi_quote_consent.py'
       - 'backend/app/routers/instant.py'
 
@@ -59,7 +62,7 @@ jobs:
         run: pip install -r backend/requirements-dev.txt
       - name: Allow runner access to KVM
         run: sudo chmod a+rw /dev/kvm
-      - name: Check interrupted orders and the round trip on a fresh emulator
+      - name: Check interrupted orders, scheduled activation and round trips on a fresh emulator
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
           api-level: 30

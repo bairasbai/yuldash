@@ -1495,12 +1495,15 @@ internal fun InstantOrderScreen(
         ApiClient.getInstantShares(id, expectedGeneration = generation)
     },
     shareOperations: InstantShareOperations = DefaultInstantShareOperations,
+    requestedScheduledOrderId: Int = 0,
+    onScheduledContextConsumed: () -> Unit = {},
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
-    key(generation) {
+    key(generation, requestedScheduledOrderId) {
         InstantOrderContent(
             generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
             onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs, readShares, shareOperations,
+            requestedScheduledOrderId, onScheduledContextConsumed,
         )
     }
 }
@@ -1520,6 +1523,8 @@ private fun InstantOrderContent(
     winterArmAfterMs: Long,
     readShares: suspend (Int, Long) -> Result<List<com.yuldash.app.data.TripShareDto>>,
     shareOperations: InstantShareOperations,
+    requestedScheduledOrderId: Int,
+    onScheduledContextConsumed: () -> Unit,
 ) {
     val publisher = remember { Any() }
     DisposableEffect(generation, publisher) {
@@ -1596,6 +1601,7 @@ private fun InstantOrderContent(
     fun startAnotherOrder() {
         if (!TaxiNavigationState.isScreenOwner(generation, publisher)) return
         order = null
+        if (requestedScheduledOrderId > 0) onScheduledContextConsumed()
         if (consentOwner != null) {
             recoverAtEntry = hasPendingConsent()
             if (!recoverAtEntry) { checking = true; restoreTick++ }
@@ -1647,6 +1653,19 @@ private fun InstantOrderContent(
         if (!loggedIn || !TaxiNavigationState.isScreenOwner(generation, publisher)) { checking = false; return@LaunchedEffect }
         checking = true
         restoreError = false
+        if (requestedScheduledOrderId > 0) {
+            val selected = withTimeoutOrNull(BOOT_BUDGET_MS) {
+                ApiClient.getInstantOrder(requestedScheduledOrderId, generation).getOrNull()
+            }
+            ApiClient.runIfCurrentSession(generation) {
+                if (TaxiNavigationState.isScreenOwner(generation, publisher)) {
+                    order = selected?.takeIf { matchesScheduledTaxiCard(it, requestedScheduledOrderId, ApiClient.myUserId()) }
+                    restoreError = order == null
+                    checking = false
+                }
+            }
+            return@LaunchedEffect
+        }
         val lat = LocationPrefs.lastLat ?: InstantDefaultPoint.latitude
         val lng = LocationPrefs.lastLng ?: InstantDefaultPoint.longitude
         // Два независимых запроса — параллельно, а не друг за другом. Последовательно они складывали
@@ -1705,7 +1724,8 @@ private fun InstantOrderContent(
                 ApiClient.getInstantOrder(id, expectedGeneration = generation)
                     .onSuccess { fresh ->
                         ApiClient.runIfCurrentSession(generation) {
-                            if (TaxiNavigationState.isScreenOwner(generation, publisher) && order?.id == id && fresh.id == id) {
+                            if (TaxiNavigationState.isScreenOwner(generation, publisher) && order?.id == id && fresh.id == id &&
+                                (requestedScheduledOrderId <= 0 || matchesScheduledTaxiCard(fresh, id, ApiClient.myUserId()))) {
                                 order = fresh
                                 pollOffline = false
                             }
@@ -1822,7 +1842,8 @@ private fun InstantOrderContent(
                         onBack = onBack,
                     )
                     // Вход не загрузился по сети → не роняем в пикер молча (мог быть живой заказ), даём «Повторить».
-                    "restoreError" -> TaxiRestoreFailure(
+                    "restoreError" -> if (requestedScheduledOrderId > 0) InstantRetryCard(onRetry = { restoreTick++ }, onBack = onBack)
+                    else TaxiRestoreFailure(
                         onRetry = { restoreTick++ },
                         onBack = onBack,
                     ) { InstantRetryCard(onRetry = { restoreTick++ }, onBack = onBack) }
@@ -2481,6 +2502,7 @@ private fun InstantDestinationPicker(
         // A+B: карта остаётся визуальным героем, тарифы прокручиваются в более компактной
         // средней шторке. Полное положение и все остальные состояния такси не меняются.
         halfBodyFraction = 0.32f,
+        reserveFooterSpace = sheetStop == TaxiSheetStop.Full && scheduledAtMs != null && stops.isNotEmpty(),
         map = { m ->
             // Карта с РЕАЛЬНЫМИ машинами рядом (честно, без выдуманной цены): видно, что
             // помощь близко. Машинки — из presence, ≈ETA до подачи.

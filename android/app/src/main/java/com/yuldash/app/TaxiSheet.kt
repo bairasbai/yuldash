@@ -85,6 +85,7 @@ internal fun TaxiSheetScaffold(
     // На мастер-экране заказа карта важнее длинной формы. Остальные состояния такси сохраняют
     // прежнюю высоту; параметр меняет только явно выбранный экран.
     halfBodyFraction: Float = 0.38f,
+    reserveFooterSpace: Boolean = false,
     overlay: @Composable BoxScope.() -> Unit = {},
 ) {
     BoxWithConstraints(Modifier.fillMaxSize().background(CanonBg)) {
@@ -151,6 +152,9 @@ internal fun TaxiSheetScaffold(
                         // Полное положение — 0.56, а не 0.70: при 0.70 шапка, содержимое и закреплённый
                         // низ вместе перерастали экран, и кнопка «Вызвать» уезжала за нижний край.
                         // Считать надо не «сколько занять», а «сколько остаётся низу».
+                        // Маршрут с остановками удлиняет шапку. Сначала измеряем закреплённую
+                        // кнопку, потом отдаём прокрутке оставшуюся высоту вплоть до потолка.
+                        .then(if (reserveFooterSpace) Modifier.weight(1f, fill = false) else Modifier)
                         .heightIn(max = screenH * (if (stop == TaxiSheetStop.Full) 0.56f else halfBodyFraction))
                         .verticalScroll(rememberScrollState())
                         .padding(horizontal = CanonSpace.lg)
