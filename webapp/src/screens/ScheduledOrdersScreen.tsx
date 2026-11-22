@@ -13,7 +13,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getAccountSession, isAccountSession } from "../api/client";
-import { expiredScheduledContext } from "../utils/scheduledTaxiContext";
+import { scheduledActivationContext } from "../utils/scheduledTaxiContext";
 import {
   fetchScheduled,
   fetchMyOrders,
@@ -87,6 +87,7 @@ export default function ScheduledOrdersScreen() {
   const [cancelTarget, setCancelTarget] = useState<InstantOrder | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
   const activationEpoch = useRef(0);
+  const screenOwner = useRef(getAccountSession()).current;
   useEffect(() => () => { ++activationEpoch.current; }, []);
 
   const mergeActivated = async (loadedActivated: InstantOrder[], signal?: AbortSignal) => {
@@ -147,7 +148,7 @@ export default function ScheduledOrdersScreen() {
   async function activate(id: number) {
     if (busyId) return;
     const owner = getAccountSession();
-    if (!owner) return;
+    if (!owner || !screenOwner || !isAccountSession(screenOwner)) return;
     const epoch = ++activationEpoch.current;
     const current = () => epoch === activationEpoch.current && isAccountSession(owner);
     setBusyId(id);
@@ -162,8 +163,9 @@ export default function ScheduledOrdersScreen() {
         setRows((previous) => previous.map((row) => row.id === id ? order : row));
         setDeferredId(id);
       } else if (canOpenScheduledActivation(id, order.id, order.status)) {
-        const context = expiredScheduledContext(order, id, owner);
-        navigate("/taxi", context ? { state: context } : undefined);
+        const context = scheduledActivationContext(order, id, owner);
+        if (!context) throw new Error(actionFail);
+        navigate("/taxi", { state: context });
       } else if (order.status === "done" || order.status === "cancelled") {
         setActivationEnded(true);
         load();
@@ -177,6 +179,12 @@ export default function ScheduledOrdersScreen() {
     } finally {
       if (current()) setBusyId(0);
     }
+  }
+
+  function openActivated(order: InstantOrder) {
+    if (!screenOwner || !isAccountSession(screenOwner)) return;
+    const context = scheduledActivationContext(order, order.id, screenOwner);
+    if (context) navigate("/taxi", { state: context });
   }
 
   async function cancel(id: number) {
@@ -257,7 +265,7 @@ export default function ScheduledOrdersScreen() {
               <>
                 <h2 className="sched__title">{appText("Пора ехать", "Барыр ваҡыт")}</h2>
                 {activated.map((o) => (
-                  <button key={`act-${o.id}`} type="button" className="sched-live" onClick={() => navigate("/taxi")}>
+                  <button key={`act-${o.id}`} type="button" className="sched-live" onClick={() => openActivated(o)}>
                     <span className="sched-live__dot" aria-hidden />
                     <span className="sched-live__text">
                       <strong>
