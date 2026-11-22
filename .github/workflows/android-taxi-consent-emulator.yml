@@ -26,6 +26,13 @@ jobs:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+      - name: Check out the previous Android app for the upgrade case (PR 285)
+        uses: actions/checkout@v4
+        with:
+          ref: 851c770a986a497dd667711ee8b174bd49cc7a38
+          path: .qa-taxi-baseline
+          sparse-checkout: android
+          persist-credentials: false
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -39,6 +46,9 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
+      - name: Build the previous loopback-only debug APK with the same debug signer
+        working-directory: .qa-taxi-baseline/android
+        run: bash gradlew :app:assembleDebug --stacktrace
       - name: Build loopback-only debug and instrumentation APKs
         working-directory: android
         run: bash gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --stacktrace
@@ -57,7 +67,7 @@ jobs:
           arch: x86_64
           force-avd-creation: true
           emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
-          script: bash tools/taxi_consent_emulator/run.sh
+          script: TAXI_CONSENT_BASELINE_APK=.qa-taxi-baseline/android/app/build/outputs/apk/debug/app-debug.apk bash tools/taxi_consent_emulator/run.sh
       - name: Save instrumented results and UI captures
         if: always()
         uses: actions/upload-artifact@v4

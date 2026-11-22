@@ -13,6 +13,7 @@ internal data class TaxiConsentState(
     val review: Boolean = false, val updated: Boolean = false, val unknown: Boolean = false,
     val blocked: Boolean = false, val problem: TaxiConsentProblem? = null, val receipt: TaxiConsentReceipt? = null,
     val closeRequested: Boolean = false, val recoverable: Boolean = false, val recovering: Boolean = false, val canReplay: Boolean = false,
+    val savedMarkers: List<TaxiConsentMarker> = emptyList(), val selectedMarker: TaxiConsentMarker? = null,
     val recovery: TaxiConsentRecovery? = null, val recoveredOrder: InstantOrderDto? = null,
 )
 
@@ -32,6 +33,7 @@ internal class TaxiConsentController(
     private var attempt: Attempt? = null
     // Keep the observed key even if local storage is unexpectedly cleared. Absence is not evidence.
     private var observed: TaxiConsentMarker? = null
+    private var submittedHere = false
     private val mutable = MutableStateFlow(TaxiConsentState())
     val state = mutable.asStateFlow()
     private val view get() = mutable.value
@@ -47,7 +49,7 @@ internal class TaxiConsentController(
         var shown = false
         if (alive && !delivered) port.publish(owner) {
             if (isCurrentScreen()) {
-                val changed = runCatching { markers.marker(owner.binding) != expected }.getOrDefault(false)
+                val changed = runCatching { markers.marker(owner.binding, expected.slot) != expected }.getOrDefault(false)
                 if (changed) {
                     mutable.value = TaxiConsentState()
                     syncMarker()
@@ -76,30 +78,45 @@ internal class TaxiConsentController(
             return true
         }
         return try {
-            val actual = markers.marker(owner.binding)
-            if (observed == null) observed = actual
-            val known = observed
+            val rows = markers.all(owner.binding)
+            val readable = rows.filter { it.requestKey != null }
+            val previous = observed
+            val stored = rows.find { previous != null && it.slot == previous.slot && it.requestKey == previous.requestKey }
+            // A live submission owns its exact key, even when its row has disappeared.
+            // A cold selector can move to the remaining rows after another view resolves one.
+            val known = stored ?: if (submittedHere) previous
+                else readable.firstOrNull() ?: rows.firstOrNull()
+            observed = known
             if (known == null) {
-                if (view.blocked) mutable.value = TaxiConsentState()
+                if (view.blocked || view.unknown) mutable.value = TaxiConsentState()
                 false
             } else {
-                val same = actual != null && actual.slot == known.slot && actual.requestKey == known.requestKey
-                if (same) observed = actual
-                val replay = same && attempt?.unknown == true && attempt?.marker == actual && !actual!!.closeRequested
+                val present = known in rows
+                val replay = present && attempt?.unknown == true && attempt?.marker == known && !known.closeRequested
                 if (!replay) {
                     attempt = null
                     stamp = null
                 }
+                val sameKey = previous != null && previous.slot == known.slot && previous.requestKey == known.requestKey
                 mutable.value = view.copy(quote = view.quote.takeIf { replay }, quotedFor = view.quotedFor.takeIf { replay },
                     review = view.review && replay, loading = false, unknown = true, blocked = !replay, canReplay = replay,
-                    closeRequested = observed?.closeRequested == true, recoverable = known.requestKey != null && (same || actual == null), problem = null)
+                    selectedMarker = known, savedMarkers = if (submittedHere) emptyList() else readable,
+                    recovery = view.recovery.takeIf { sameKey }, closeRequested = known.closeRequested,
+                    recoverable = known.requestKey != null && (present || rows.isEmpty()), problem = null)
                 true
             }
         } catch (_: Exception) {
             mutable.value = view.copy(quote = null, quotedFor = null, review = false, loading = false, blocked = true,
-                canReplay = false, recoverable = false, problem = TaxiConsentProblem.STORAGE)
+                canReplay = false, recoverable = false, savedMarkers = emptyList(), selectedMarker = null, problem = TaxiConsentProblem.STORAGE)
             true
         }
+    }
+    fun selectMarker(marker: TaxiConsentMarker) = synchronized(lock) {
+        if (!live() || done() || submittedHere || view.sending || view.recovering || !syncMarker()) return
+        if (marker !in view.savedMarkers || marker == observed) return
+        observed = marker
+        mutable.value = view.copy(selectedMarker = marker, recovery = null, closeRequested = marker.closeRequested,
+            recoverable = true, problem = null)
     }
     fun checkTime() = synchronized(lock) {
         if (!live() || (!done() && !view.sending && !view.recovering)) {
@@ -205,6 +222,7 @@ internal class TaxiConsentController(
                     check(port.publish(owner) { marked = markers.mark(owner.binding, quote.requestKey, expectedVersion = quoteVersion) })
                     val marker = requireNotNull(marked)
                     observed = marker
+                    submittedHere = true
                     pending = Attempt(quote, body, marker)
                     attempt = pending
                 } catch (_: Exception) {
@@ -216,7 +234,7 @@ internal class TaxiConsentController(
         }
         if (pending == null) { refresh(inputNow, showReview = true); return }
         fun admitted(): Boolean = synchronized(lock) {
-            live() && attempt === pending && runCatching { markers.marker(owner.binding) == pending.marker }.getOrDefault(false)
+            live() && attempt === pending && runCatching { markers.marker(owner.binding, pending.marker.slot) == pending.marker }.getOrDefault(false)
         }
         val result = try {
             port.confirm(pending.body, pending.quote, owner, ::admitted)
@@ -230,7 +248,7 @@ internal class TaxiConsentController(
             val receipt = result.getOrNull()
             if (receipt != null) {
                 port.publish(owner) {
-                    if (runCatching { markers.marker(owner.binding) == pending.marker }.getOrDefault(false)) {
+                    if (runCatching { markers.marker(owner.binding, pending.marker.slot) == pending.marker }.getOrDefault(false)) {
                         attempt = null
                         mutable.value = TaxiConsentState(receipt = receipt)
                     } else unknown(pending)
@@ -244,8 +262,10 @@ internal class TaxiConsentController(
             if (firstDenial && runCatching { port.publish(owner) { markers.clear(pending.marker) } }.getOrDefault(false)) {
                 attempt = null
                 observed = null
+                submittedHere = false
                 stamp = null
                 mutable.value = TaxiConsentState(problem = TaxiConsentProblem.REFRESH)
+                syncMarker()
             } else unknown(pending)
         }
     }
@@ -256,36 +276,40 @@ internal class TaxiConsentController(
         syncMarker()
     }
 
-    suspend fun checkResult() = recover(closeRequested = false)
-    suspend fun closeAttempt() = recover(closeRequested = true)
+    suspend fun checkResult(expected: TaxiConsentMarker? = view.selectedMarker) = recover(expected, closeRequested = false)
+    suspend fun closeAttempt(expected: TaxiConsentMarker? = view.selectedMarker) = recover(expected, closeRequested = true)
 
-    private suspend fun recover(closeRequested: Boolean) {
+    private suspend fun recover(selected: TaxiConsentMarker?, closeRequested: Boolean) {
         var expected: TaxiConsentMarker
         val ticket: Long
         synchronized(lock) {
             if (!live() || done() || view.sending || view.recovering || !syncMarker() || !view.recoverable) return
-            val initial = observed ?: return
+            val initial = selected ?: return
+            if (observed != initial) return
             val key = initial.requestKey ?: return
-            var bound = initial
             try {
+                var bound: TaxiConsentMarker? = null
                 if (!port.publish(owner) {
-                    val actual = markers.marker(owner.binding)
-                    bound = actual ?: markers.mark(owner.binding, key, closeRequested = true)
-                    check(bound.slot == initial.slot && bound.requestKey == key)
-                    if (closeRequested) bound = markers.fence(bound)
+                    val actual = markers.marker(owner.binding, initial.slot)
+                    val current = when {
+                        actual == initial -> initial
+                        actual == null && submittedHere -> markers.mark(owner.binding, key, closeRequested = true)
+                        else -> return@publish
+                    }
+                    bound = if (closeRequested) markers.fence(current) else current
                 }) return
+                expected = bound ?: run { syncMarker(); return }
             } catch (_: Exception) {
                 mutable.value = view.copy(blocked = true, canReplay = false, review = false, problem = TaxiConsentProblem.STORAGE)
                 return
             }
-            observed = bound
-            expected = bound
+            observed = expected
             ticket = ++epoch
             if (expected.closeRequested) attempt = null
             mutable.value = view.copy(closeRequested = expected.closeRequested, recovering = true, review = false, canReplay = false, blocked = true, problem = null)
         }
         fun valid() = synchronized(lock) {
-            live() && epoch == ticket && runCatching { markers.marker(owner.binding) == expected }.getOrDefault(false)
+            live() && epoch == ticket && runCatching { markers.marker(owner.binding, expected.slot) == expected }.getOrDefault(false)
         }
         val previousProof = synchronized(lock) { view.recovery?.takeIf { it in setOf(
             TaxiConsentRecovery.CARD_UNAVAILABLE, TaxiConsentRecovery.RETIRED, TaxiConsentRecovery.UNVERIFIED) } }
@@ -305,16 +329,18 @@ internal class TaxiConsentController(
             synchronized(lock) {
                 if (!valid()) return
                 port.publish(owner) {
-                    if (markers.marker(owner.binding) != expected) return@publish
+                    if (markers.marker(owner.binding, expected.slot) != expected) return@publish
                     if (order != null) {
                         attempt = null
-                        mutable.value = TaxiConsentState(recoveredOrder = order)
+                        mutable.value = TaxiConsentState(recoveredOrder = order, selectedMarker = expected)
                     } else if (result == TaxiAttemptResult.Closed && closeRequested) {
                         markers.clear(expected)
                         attempt = null
                         observed = null
+                        submittedHere = false
                         stamp = null
                         mutable.value = TaxiConsentState(recovery = TaxiConsentRecovery.CLOSED)
+                        syncMarker()
                     } else {
                         val report = when (result) {
                             TaxiAttemptResult.Retired -> TaxiConsentRecovery.RETIRED

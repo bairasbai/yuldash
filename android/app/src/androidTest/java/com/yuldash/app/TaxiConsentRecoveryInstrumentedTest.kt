@@ -73,13 +73,28 @@ class TaxiConsentRecoveryInstrumentedTest {
         check(ApiClient.apiBase() == TAXI_CONSENT_LOCAL_API)
     }
 
-    private fun openPassengerRoute() {
+    private fun installFixtureSession(): JSONObject {
         val file = File(qaDir, "session.json")
         val session = JSONObject(file.readText())
         check(file.delete())
         ApiClient.saveToken(session.getString("access"))
         val owner = requireNotNull(TaxiQuoteConsentApi.owner())
         assertEquals(session.getInt("uid"), owner.userId)
+        return session
+    }
+
+    private fun showPassengerScreen() {
+        compose.setContent {
+            YuldashTheme(darkTheme = dark) {
+                CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark) {
+                    InstantOrderScreen(onBack = {}, onLoginRequired = { error("Session lost") }, renderNativeMap = false)
+                }
+            }
+        }
+    }
+
+    private fun openPassengerRoute() {
+        installFixtureSession()
         // Supply the last known pickup exactly as the passenger picker reads it. Neither a live
         // location provider nor an external map/geocoder should participate in the fixture.
         for (permission in listOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)) {
@@ -89,13 +104,7 @@ class TaxiConsentRecoveryInstrumentedTest {
             LocationPrefs.lastLat = 52.591
             LocationPrefs.lastLng = 58.317
         }
-        compose.setContent {
-            YuldashTheme(darkTheme = dark) {
-                CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark) {
-                    InstantOrderScreen(onBack = {}, onLoginRequired = { error("Session lost") }, renderNativeMap = false)
-                }
-            }
-        }
+        showPassengerScreen()
         val destination = hasText("QA Destination") and hasClickAction()
         compose.waitUntil(30_000) { compose.onAllNodes(destination).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(destination).performScrollTo().performClick()
@@ -142,24 +151,22 @@ class TaxiConsentRecoveryInstrumentedTest {
         assertEquals(setOf("v", "request_key", "scope", "origin", "close_requested"), marker.keys().asSequence().toSet())
         assertEquals(2, marker.getInt("v"))
         assertFalse(marker.getBoolean("close_requested"))
-        File(qaDir, "seed-pid").writeText(Process.myPid().toString())
         capture("interrupted")
+        awaitProcessReplacement()
+    }
+
+    private fun awaitProcessReplacement() {
+        File(qaDir, "seed-pid").writeText(Process.myPid().toString())
         File(qaDir, "force-stop.ready").createNewFile()
-        // The host deliberately kills this active instrumentation process after checking SQL.
+        // The host stops this active instrumentation process via force-stop or an in-place APK update.
         SystemClock.sleep(120_000)
-        fail("Host did not force-stop the waiting process")
+        fail("Host did not replace the waiting process")
     }
 
     @Test fun coldEntryChecksOrClosesOriginalAttempt() {
         assertNotEquals(File(qaDir, "seed-pid").readText(), Process.myPid().toString())
         checkNotNull(TaxiQuoteConsentApi.owner())
-        compose.setContent {
-            YuldashTheme(darkTheme = dark) {
-                CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark) {
-                    InstantOrderScreen(onBack = {}, onLoginRequired = { error("Session lost") }, renderNativeMap = false)
-                }
-            }
-        }
+        showPassengerScreen()
         waitForTag("taxiConsentCheckResult")
         compose.onNodeWithTag("taxiConsentConfirm").assertDoesNotExist()
         rendezvous("cold")
@@ -188,6 +195,57 @@ class TaxiConsentRecoveryInstrumentedTest {
             capture("resolved", closed)
         }
         assertFalse(TaxiQuoteConsentApi.markers(context).pending(requireNotNull(TaxiQuoteConsentApi.owner()).binding))
+    }
+
+    @Test fun seedThreeIssuedAttemptsAndWaitForRestart() {
+        val keys = installFixtureSession().getJSONArray("request_keys")
+        assertEquals(3, keys.length())
+        val binding = requireNotNull(TaxiQuoteConsentApi.owner()).binding
+        val rows = JSONArray()
+        repeat(keys.length()) { index ->
+            rows.put(JSONObject().put("scope", binding.scope).put("origin", binding.origin)
+                .put("v", 2).put("request_key", keys.getString(index)).put("close_requested", false))
+        }
+        val prefs = context.getSharedPreferences(TAXI_CONSENT_PREFS, Context.MODE_PRIVATE)
+        check(prefs.edit().putString(TAXI_CONSENT_PENDING, rows.toString()).commit())
+        awaitProcessReplacement()
+    }
+
+    @Test fun coldEntryChecksAndClosesOnlyThirdAttempt() {
+        assertNotEquals(File(qaDir, "seed-pid").readText(), Process.myPid().toString())
+        val prefs = context.getSharedPreferences(TAXI_CONSENT_PREFS, Context.MODE_PRIVATE)
+        fun rows(): List<String> {
+            val stored = JSONArray(requireNotNull(prefs.getString(TAXI_CONSENT_PENDING, null)))
+            return (0 until stored.length()).map { stored.getJSONObject(it).toString() }
+        }
+        val original = rows()
+        assertEquals(3, original.size)
+        showPassengerScreen()
+        click("taxiConsentAttemptPicker")
+        fun label(number: Int) = if (language == AppLanguage.Ba) "Ынтылыш № $number" else "Попытка $number"
+        for (number in 1..3) {
+            val option = hasTestTag("taxiConsentAttemptOption$number") and hasText(label(number))
+            compose.onNode(option).assertIsDisplayed()
+        }
+        click("taxiConsentAttemptOption3")
+        capture("third-selected", label(3))
+        rendezvous("selected")
+        click("taxiConsentCheckResult")
+        val unknown = if (language == AppLanguage.Ba)
+            "Сервер заказды әлегә раҫламаны. Тағы тикшерергә йәки ынтылышты тамамларға мөмкин."
+        else "Сервер пока не подтвердил заказ. Можно проверить ещё раз или завершить попытку."
+        compose.waitUntil(30_000) { compose.onAllNodesWithText(unknown).fetchSemanticsNodes().isNotEmpty() }
+        click("taxiConsentClose")
+        click("taxiConsentCloseCancel")
+        assertTrue("Lookup and dismissal must preserve every record", original == rows())
+        rendezvous("cancel-close")
+        click("taxiConsentClose")
+        click("taxiConsentCloseConfirm")
+        compose.waitUntil(30_000) { rows().size == 2 }
+        assertTrue("Only the selected record may be removed", original.take(2) == rows())
+        click("taxiConsentAttemptPicker")
+        compose.onNode(hasTestTag("taxiConsentAttemptOption2") and hasText(label(2))).assertIsDisplayed()
+        compose.onNodeWithTag("taxiConsentAttemptOption3").assertDoesNotExist()
     }
 
     private fun captureOrderCard(name: String, title: String, id: Int? = null) {

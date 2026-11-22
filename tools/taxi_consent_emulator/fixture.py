@@ -58,6 +58,9 @@ def serve(args, tempdir):
     late_status = None
     last_card_status = None
 
+    selection_keys = []
+    addressed_slots = {"result": [], "close": []}
+
     def snapshot():
         with Session(conftest.engine) as db:
             orders = db.exec(select(InstantOrder).where(InstantOrder.passenger_id == uid)).all()
@@ -68,10 +71,14 @@ def serve(args, tempdir):
                 "confirmed_round_trip": only.round_trip if only else None,
                 "confirmed_return_wait_min": only.return_wait_min if only else None,
             }
-            attempts = db.exec(select(TaxiConsentAttempt.state).where(TaxiConsentAttempt.owner_id == uid)).all()
+            attempts = db.exec(select(TaxiConsentAttempt).where(
+                TaxiConsentAttempt.owner_id == uid,
+            ).order_by(TaxiConsentAttempt.request_key)).all()
+            states = [attempt.state for attempt in attempts]
+            selection = {"states_by_slot": states, "addressed_slots": addressed_slots} if selection_keys else {}
         write_private_json(args.state_file, {
             **counters, **order_fields, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
-            "attempts": sorted(attempts), "late_status": late_status,
+            "attempts": sorted(states), "late_status": late_status, **selection,
         })
 
     class Bridge(BaseHTTPRequestHandler):
@@ -93,6 +100,10 @@ def serve(args, tempdir):
                 key = "card"
             if key:
                 counters[key] += 1
+            if selection_keys and key in addressed_slots:
+                request_key = json.loads(body).get("request_key")
+                slot = selection_keys.index(request_key) + 1 if request_key in selection_keys else 0
+                addressed_slots[key].append(slot)
             if key == "quote":
                 route = json.loads(body)
                 quoted_round_trips.append([route.get("round_trip", False), route.get("return_wait_min", 0)])
@@ -156,9 +167,13 @@ def serve(args, tempdir):
             assert saved.status_code == 200, "Cannot provision synthetic saved places"
         with Session(conftest.engine) as db:
             session = issue_tokens(db, uid, auth_method="telegram", auth_time=utcnow())
+        if args.case == "selection":
+            selection_keys = sorted(market.quote(client, passenger)["request_key"] for _ in range(3))
+            assert len(set(selection_keys)) == 3
         snapshot()
         write_private_json(args.session_file, {
             "uid": uid, "access": session["access_token"], "refresh": session["refresh_token"],
+            **({"request_keys": selection_keys} if selection_keys else {}),
         })
         server.serve_forever()
 
@@ -173,7 +188,7 @@ def local_connect_only(original):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip"))
+    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip", "selection"))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)
     args = parser.parse_args()

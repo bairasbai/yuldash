@@ -50,15 +50,17 @@ internal class TaxiConsentMarkerJournal(private val read: () -> String?, private
                 else -> error("Invalid consent marker version")
             }
         }.also { rowsRead ->
-            require(rowsRead.distinctBy { it.binding }.size == rowsRead.size)
+            require(rowsRead.distinctBy { it.binding to it.slot }.size == rowsRead.size)
         }
     }
 
-    @Synchronized fun marker(binding: TaxiConsentBinding): TaxiConsentMarker? {
+    @Synchronized fun all(binding: TaxiConsentBinding): List<TaxiConsentMarker> {
         check(binding !in uncertain) { "Consent storage unavailable" }
-        return records().singleOrNull { it.binding == binding }
+        return records().filter { it.binding == binding }.sortedBy { it.slot }
     }
-    @Synchronized fun pending(binding: TaxiConsentBinding): Boolean = marker(binding) != null
+    @Synchronized fun marker(binding: TaxiConsentBinding, slot: String): TaxiConsentMarker? =
+        all(binding).singleOrNull { it.slot == slot }
+    @Synchronized fun pending(binding: TaxiConsentBinding): Boolean = all(binding).isNotEmpty()
 
     private fun save(binding: TaxiConsentBinding, values: List<TaxiConsentMarker>) {
         val previous = read()
@@ -83,20 +85,20 @@ internal class TaxiConsentMarkerJournal(private val read: () -> String?, private
     @Synchronized fun mark(binding: TaxiConsentBinding, key: String, closeRequested: Boolean = false, expectedVersion: Long? = null): TaxiConsentMarker {
         require(taxiConsentUuid(binding.scope) && snapshotOrigin(binding.origin) == binding.origin && taxiConsentUuid(key))
         check(expectedVersion == null || version(binding) == expectedVersion)
-        check(marker(binding) == null) { "Unresolved consent" }
+        check(!pending(binding)) { "Unresolved consent" }
         val next = TaxiConsentMarker(binding, key, key, closeRequested)
         save(binding, records() + next)
         return next
     }
     @Synchronized fun fence(previous: TaxiConsentMarker): TaxiConsentMarker {
-        check(previous.requestKey != null && marker(previous.binding) == previous)
+        check(previous.requestKey != null && marker(previous.binding, previous.slot) == previous)
         if (previous.closeRequested) return previous
         val next = previous.copy(closeRequested = true)
         save(previous.binding, records().map { if (it == previous) next else it })
         return next
     }
     @Synchronized fun clear(expected: TaxiConsentMarker) {
-        check(marker(expected.binding) == expected)
+        check(marker(expected.binding, expected.slot) == expected)
         save(expected.binding, records().filterNot { it == expected })
     }
 }

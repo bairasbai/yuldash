@@ -301,4 +301,152 @@ class TaxiConsentControllerTest {
         assertTrue(h.recoveryCalls.isEmpty())
         assertEquals(bytes, h.disk)
     }
+    private val savedKeys = (1..3).map { "20000000-0000-4000-8000-00000000000$it" }
+    // Seed existing persisted rows, rather than provide any path to create concurrent orders.
+    private fun savedRows(h: H, keys: List<String> = savedKeys): String = JSONArray().apply {
+        keys.forEach { key -> put(org.json.JSONObject().put("v", 2).put("request_key", key)
+            .put("scope", h.owner.binding.scope).put("origin", h.owner.binding.origin).put("close_requested", false)) }
+    }.toString()
+
+    @Test fun journalReadsAllSortedButStillBlocksNewOrdersAndMutatesOnlyExactRow() {
+        val h = H()
+        h.disk = savedRows(h, savedKeys.reversed())
+        val original = h.journal.all(h.owner.binding)
+        assertEquals(savedKeys, original.map { it.slot })
+        assertTrue(h.journal.pending(h.owner.binding))
+        assertNull(h.journal.marker(h.owner.binding, UUID.randomUUID().toString()))
+        assertTrue(runCatching { h.journal.mark(h.owner.binding, UUID.randomUUID().toString()) }.isFailure)
+        val third = original[2]
+        val fenced = h.journal.fence(third)
+        assertEquals(original.take(2), h.journal.all(h.owner.binding).take(2))
+        assertEquals(fenced, h.journal.marker(h.owner.binding, third.slot))
+        assertTrue(runCatching { h.journal.clear(third) }.isFailure)
+        h.journal.clear(fenced)
+        assertEquals(original.take(2), h.journal.all(h.owner.binding))
+        assertTrue(h.journal.pending(h.owner.binding))
+        assertTrue(runCatching { h.journal.mark(h.owner.binding, UUID.randomUUID().toString()) }.isFailure)
+    }
+
+    @Test fun journalRejectsDuplicateSlotsIncludingLegacyCollisionAndPreservesForeignRows() {
+        val h = H()
+        val keyed = JSONArray(savedRows(h, listOf(savedKeys[0]))).getJSONObject(0)
+        val legacy = org.json.JSONObject().put("v", 1).put("slot", savedKeys[0])
+            .put("scope", h.owner.binding.scope).put("origin", h.owner.binding.origin)
+        for (other in listOf(keyed, legacy)) {
+            h.disk = JSONArray().put(keyed).put(other).toString()
+            val bytes = h.disk
+            assertTrue(runCatching { h.journal.all(h.owner.binding) }.isFailure)
+            assertTrue(runCatching { h.journal.pending(h.owner.binding) }.isFailure)
+            assertTrue(runCatching { h.journal.clear(TaxiConsentMarker(h.owner.binding, savedKeys[0], savedKeys[0])) }.isFailure)
+            assertEquals(bytes, h.disk)
+        }
+        val foreign = TaxiConsentBinding(UUID.randomUUID().toString(), TAXI_CONSENT_LOCAL_API)
+        val foreignRow = org.json.JSONObject(keyed.toString()).put("scope", foreign.scope)
+        h.disk = JSONArray().put(foreignRow).put(keyed).put(org.json.JSONObject(legacy.toString()).put("slot", savedKeys[1])).toString()
+        assertEquals(2, h.journal.all(h.owner.binding).size)
+        assertNull(h.journal.marker(h.owner.binding, savedKeys[1])!!.requestKey)
+        h.journal.clear(h.journal.marker(h.owner.binding, savedKeys[0])!!)
+        assertEquals(savedKeys[0], h.journal.all(foreign).single().slot)
+        assertTrue(h.journal.pending(h.owner.binding))
+        assertTrue(runCatching { h.journal.mark(h.owner.binding, UUID.randomUUID().toString()) }.isFailure)
+    }
+
+    @Test fun selectedThirdAttemptChecksAndClosesOnlyItsKeyAndRemainingTwoBlockNewOrder() = runBlocking {
+        val h = H()
+        h.disk = savedRows(h, savedKeys.reversed())
+        val c = h.controller()
+        assertEquals(savedKeys, c.state.value.savedMarkers.map { it.slot })
+        val third = c.state.value.savedMarkers[2]
+        c.selectMarker(third)
+        assertEquals(third, c.state.value.selectedMarker)
+        c.checkResult(third)
+        h.lookup = { Result.success(TaxiAttemptResult.Closed) }
+        c.closeAttempt(third)
+        assertEquals(listOf(savedKeys[2] to false, savedKeys[2] to true), h.recoveryCalls)
+        assertEquals(savedKeys.take(2), h.journal.all(h.owner.binding).map { it.slot })
+        assertTrue(c.state.value.blocked)
+        c.primary(ConsentFixture.route())
+        c.confirm(TaxiConsentDetails())
+        assertEquals(0, h.quotes)
+        assertTrue(h.bodies.isEmpty())
+    }
+
+    @Test fun staleThirdAttemptDialogCannotCloseNewSelectionOrReplacement() = runBlocking {
+        val h = H()
+        h.disk = savedRows(h)
+        val c = h.controller()
+        val third = c.state.value.savedMarkers[2]
+        c.selectMarker(third)
+        c.selectMarker(c.state.value.savedMarkers[0])
+        c.closeAttempt(third)
+        c.checkResult(third)
+        assertTrue(h.recoveryCalls.isEmpty())
+        c.selectMarker(third)
+        h.journal.fence(third)
+        c.closeAttempt(third)
+        assertTrue(h.recoveryCalls.isEmpty())
+        assertEquals(savedKeys, h.journal.all(h.owner.binding).map { it.slot })
+        h.journal.clear(h.journal.marker(h.owner.binding, third.slot)!!)
+        c.closeAttempt(third)
+        c.checkResult(third)
+        assertTrue(h.recoveryCalls.isEmpty())
+        assertEquals(savedKeys.take(2), h.journal.all(h.owner.binding).map { it.slot })
+    }
+
+    @Test fun removedLastColdAttemptCannotBeRecreatedByAnOpenDialog() = runBlocking {
+        val h = H()
+        h.disk = savedRows(h, savedKeys.take(1))
+        val c = h.controller()
+        val selected = requireNotNull(c.state.value.selectedMarker)
+        h.journal.clear(selected)
+        c.closeAttempt(selected)
+        c.checkResult(selected)
+        assertTrue(h.recoveryCalls.isEmpty())
+        assertNull(h.disk)
+        assertFalse(c.state.value.blocked)
+        assertNull(c.state.value.selectedMarker)
+    }
+
+    @Test fun committedThirdAttemptLoadsCardAndDeliveryClearsOnlySelectedMarker() = runBlocking {
+        val h = H()
+        h.disk = savedRows(h)
+        val c = h.controller()
+        val third = c.state.value.savedMarkers[2]
+        c.selectMarker(third)
+        h.lookup = { Result.success(TaxiAttemptResult.Committed(77, 45000)) }
+        c.checkResult(third)
+        assertEquals(listOf(savedKeys[2] to false), h.recoveryCalls)
+        assertEquals(listOf(77), h.cardReads)
+        assertEquals(77, c.state.value.recoveredOrder!!.id)
+        assertEquals(3, h.journal.all(h.owner.binding).size)
+        assertTrue(c.deliverOrder({ true }) { assertEquals(77, it.id) })
+        assertEquals(savedKeys.take(2), h.journal.all(h.owner.binding).map { it.slot })
+        assertTrue(h.journal.pending(h.owner.binding))
+    }
+
+    @Test fun selectionCannotRetargetInFlightThirdAttemptLookupOrCard() = runBlocking {
+        for (waitForCard in listOf(false, true)) {
+            val h = H()
+            h.disk = savedRows(h)
+            val c = h.controller()
+            val third = c.state.value.savedMarkers[2]
+            val first = c.state.value.savedMarkers[0]
+            c.selectMarker(third)
+            val result = CompletableDeferred<Result<TaxiAttemptResult>>()
+            val card = CompletableDeferred<Result<InstantOrderDto>>()
+            h.lookup = { if (waitForCard) Result.success(TaxiAttemptResult.Committed(77, 45000)) else result.await() }
+            h.fetch = { card.await() }
+            val job = launch(start = CoroutineStart.UNDISPATCHED) { c.checkResult(third) }
+            c.selectMarker(first)
+            if (waitForCard) card.complete(Result.success(ConsentFixture.receipt("done").order))
+            else result.complete(Result.success(TaxiAttemptResult.LookupUnknown))
+            job.join()
+            assertEquals(listOf(savedKeys[2] to false), h.recoveryCalls)
+            assertEquals(3, h.journal.all(h.owner.binding).size)
+            // The controller may keep the busy selection or invalidate its response; it must never
+            // publish a third-attempt card while claiming the first attempt is selected.
+            if (c.state.value.recoveredOrder != null) assertEquals(savedKeys[2], c.state.value.selectedMarker!!.slot)
+        }
+    }
+
 }

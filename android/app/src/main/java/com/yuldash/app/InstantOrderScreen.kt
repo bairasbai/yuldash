@@ -1585,15 +1585,22 @@ private fun InstantOrderContent(
     // A history row (even an active one) cannot identify the request whose response was lost.
     val consentOwner = if (loggedIn && TaxiQuoteConsentApi.requested) TaxiQuoteConsentApi.owner(generation) else null
     val consentContext = LocalContext.current
-    var recoverAtEntry by remember(consentOwner) {
-        mutableStateOf(consentOwner != null && runCatching {
-            TaxiQuoteConsentApi.markers(consentContext).pending(consentOwner.binding)
-        }.getOrDefault(true))
-    }
+    fun hasPendingConsent() = consentOwner != null && runCatching {
+        TaxiQuoteConsentApi.markers(consentContext).pending(consentOwner.binding)
+    }.getOrDefault(true)
+    var recoverAtEntry by remember(consentOwner) { mutableStateOf(hasPendingConsent()) }
 
     // Связь с сервером при поллинге активного заказа потеряна → мягкий баннер «пробуем ещё», не молчим.
     var pollOffline by remember { mutableStateOf(false) }
     var restoreTick by remember { mutableIntStateOf(0) }
+    fun startAnotherOrder() {
+        if (!TaxiNavigationState.isScreenOwner(generation, publisher)) return
+        order = null
+        if (consentOwner != null) {
+            recoverAtEntry = hasPendingConsent()
+            if (!recoverAtEntry) { checking = true; restoreTick++ }
+        }
+    }
     // Заказ, по которому человек уже нажал «Отменить» и мы спрашиваем причину. Держим id, а не
     // копию заказа: сумму подачи диалог возьмёт из живого заказа — пока человек читает, поллинг
     // успевает её обновить, а платить он будет по свежей.
@@ -1786,25 +1793,12 @@ private fun InstantOrderContent(
                 when (p) {
                     "login" -> InstantLoginNeeded(onLoginRequired)
                     "consentRecovery" -> {
-                        val controller = rememberTaxiConsentController(consentOwner)
-                        Column(
-                            Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(CanonSpace.lg),
-                            verticalArrangement = Arrangement.spacedBy(CanonSpace.md),
-                        ) {
-                            Text(appText("Последняя попытка заказа", "Һуңғы заказ биреү ынтылышы"),
-                                style = CanonHeading, color = CanonText)
-                            TaxiConsentControls(controller, route = null, details = TaxiConsentDetails(), onCreated = { recovered ->
-                                if (recoverAtEntry && TaxiNavigationState.isScreenOwner(generation, publisher)) {
-                                    order = recovered
-                                    recoverAtEntry = false
-                                }
-                            }, isCurrentScreen = { recoverAtEntry && TaxiNavigationState.isScreenOwner(generation, publisher) }, onClosedContinue = {
-                                if (recoverAtEntry && TaxiNavigationState.isScreenOwner(generation, publisher)) {
-                                    checking = true
-                                    recoverAtEntry = false
-                                }
-                            })
-                        }
+                        val currentEntry = { recoverAtEntry && TaxiNavigationState.isScreenOwner(generation, publisher) }
+                        TaxiConsentRecoveryEntry(consentOwner, currentEntry, onCreated = { recovered ->
+                            if (currentEntry()) { order = recovered; recoverAtEntry = false }
+                        }, onContinue = {
+                            if (currentEntry()) { recoverAtEntry = hasPendingConsent(); checking = !recoverAtEntry }
+                        })
                     }
                     "checking" -> InstantCheckingSkeleton()
                     // Предзаказ «на время» создан → спокойное подтверждение + путь в «Мои предзаказы».
@@ -1912,7 +1906,7 @@ private fun InstantOrderContent(
                     "expired" -> current?.let { o ->
                         InstantNoDriversCard(
                             order = o,
-                            onRetry = { order = null },
+                            onRetry = ::startAnotherOrder,
                             onDone = onBack,
                             onOrderUpdated = { order = it },
                         )
@@ -1937,7 +1931,7 @@ private fun InstantOrderContent(
                                 else -> appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.")
                             },
                             action = appText("Новый заказ", "Яңы заказ"),
-                            onAction = { order = null },
+                            onAction = ::startAnotherOrder,
                             onSecondary = onBack,
                             tone = InstantTone.Bad,   // отмена — красный кружок, не зелёный
                             // B8-8: телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении.
@@ -1948,7 +1942,7 @@ private fun InstantOrderContent(
                         TaxiPassengerCompletedScreen(
                             order = o,
                             onClose = onBack,
-                            onNewOrder = { order = null },
+                            onNewOrder = ::startAnotherOrder,
                             onOpenReceipt = { NavSignals.openTaxiReceipt.value = o.id },
                             onOpenChat = { NavSignals.openInstantChat.value = o.id },
                         )
