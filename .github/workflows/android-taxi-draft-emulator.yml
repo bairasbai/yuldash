@@ -1,0 +1,67 @@
+name: Android taxi draft on emulator
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - '.github/workflows/android-taxi-draft-emulator.yml'
+      - 'tools/taxi_consent_emulator/**'
+      - 'android/app/build.gradle.kts'
+      - 'android/app/src/taxiDraftQa/**'
+      - 'android/app/src/main/java/com/yuldash/app/*Taxi*Draft*.kt'
+      - 'android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt'
+      - 'android/app/src/main/java/com/yuldash/app/data/ApiClient.kt'
+
+permissions:
+  contents: read
+
+jobs:
+  taxi-draft-emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:8000
+      YULDASH_NATIVE_QA_PINNED_API: 'true'
+      YULDASH_TAXI_QUOTE_CONSENT_LOCAL: 'true'
+      YULDASH_TAXI_DRAFT_DEVICE_QA: 'true'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+          cache-dependency-path: backend/requirements-dev.txt
+      - name: Build the candidate against the isolated emulator API
+        working-directory: android
+        run: bash gradlew :app:assembleDebug --stacktrace
+      - name: Install the local backend test dependencies
+        run: pip install -r backend/requirements-dev.txt
+      - name: Allow runner access to KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Restore the same Android task after a background process kill
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: TAXI_DRAFT_ONLY=true bash tools/taxi_consent_emulator/run.sh
+      - name: Save lifecycle evidence and synthetic UI frames
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: taxi-draft-emulator
+          path: android/build/taxi-consent-emulator
+          if-no-files-found: ignore
+          retention-days: 7
