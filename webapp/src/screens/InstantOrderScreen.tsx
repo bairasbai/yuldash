@@ -338,7 +338,7 @@ export default function InstantOrderScreen() {
   }, [view, order?.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   function backToCompose() {
-    if (sessionOwner && !isAccountSession(sessionOwner)) return;
+    if (lifetime.current?.signal.aborted || (sessionOwner && !isAccountSession(sessionOwner))) return;
     ++bootEpoch.current;
     ++detailsEpoch.current;
     setActiveTaxiOrder(null);
