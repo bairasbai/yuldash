@@ -9,7 +9,7 @@
 //  Эндпоинты instant/* и taxi/* появятся на проде после мержа
 //  release-2026-07 → до этого 404/405 ловим мягкой деградацией.
 // ================================================================
-import { apiGet, apiPost } from "./client";
+import { apiCommand, apiGet, apiPost } from "./client";
 
 // ------------------------------- Статусы -------------------------------
 /** InstantOrderStatus (models.py). scheduled — предзаказ «на время». */
@@ -398,7 +398,11 @@ export function fetchMyOrders(limit = 20, signal?: AbortSignal): Promise<Instant
 }
 
 /** GET /instant/orders/{id} — детали заказа (обе стороны + кандидат-оффер). */
-export function fetchInstantOrder(id: number, signal?: AbortSignal): Promise<InstantOrder> {
+export function fetchInstantOrder(id: number, signal?: AbortSignal, read?: {
+  owner: { generation: string; userId: number }; allowAttempt: () => Promise<boolean>;
+}): Promise<InstantOrder> {
+  if (read) return apiCommand<InstantOrder>(`/instant/orders/${id}`, read.owner,
+    { method: "GET", signal, oneShot: true, allowAttempt: read.allowAttempt });
   return apiGet<InstantOrder>(`/instant/orders/${id}`, { signal });
 }
 

@@ -37,6 +37,7 @@ const PERSONAL_KEYS = [
  * другим» занимает минуту. Поэтому чистим и его.
  */
 const PERSONAL_PREFIXES = [
+  "yuldash.taxiConsent.pending.", // opaque unresolved local consent, never request content
   "yuldash.winterAsk.", // «доехал?» по конкретным броням
   "yuldash.winterAskOrder.", // то же по такси-заказам: чей это был заказ — личное
   "yuldash.tracked.", // события и временная проба yuldash.tracked.storageProbe. — чистятся вместе
