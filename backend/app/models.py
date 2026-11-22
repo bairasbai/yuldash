@@ -1078,12 +1078,35 @@ class Tariff(SQLModel, table=True):
     created_at: datetime = Field(default_factory=utcnow)
 
 
+class TaxiConsentAttempt(SQLModel, table=True):
+    """Ephemeral admission fence, never a copy of an order or its request."""
+    __table_args__ = (
+        UniqueConstraint("quote_id", name="uq_taxi_attempt_quote"),
+        CheckConstraint("state IN ('issued', 'closed', 'committed')", name="ck_taxi_attempt_state"),
+    )
+    owner_id: int = Field(sa_column=Column(Integer, ForeignKey("user.id", ondelete="CASCADE"),
+                                          primary_key=True, nullable=False))
+    request_key: str = Field(primary_key=True, max_length=36)
+    quote_id: str = Field(max_length=36)
+    expires_at: datetime = Field(index=True)
+    state: str = Field(default="issued", max_length=12)
+
+
 class InstantOrder(SQLModel, table=True):
     """Быстрый заказ (такси-режим). Отдельный поток от плановых поездок (Ride/Booking).
     Все переходы статусов — под row-lock, идемпотентные. Координаты в БД нужны для трека
     и приватности (телефоны раскрываются только после accept)."""
+    __table_args__ = (
+        Index("uq_taxi_consent_owner_key", "passenger_id", "consent_request_key", unique=True),
+        Index("uq_taxi_consent_quote", "consent_quote_id", unique=True),
+    )
     id: Optional[int] = Field(default=None, primary_key=True)
     passenger_id: int = Field(index=True, foreign_key="user.id")
+    # Opt-in initial-price consent only. No extra route/recipient copy; same retention as order.
+    consent_request_key: Optional[str] = Field(default=None, max_length=36, exclude=True)
+    consent_request_digest: Optional[str] = Field(default=None, max_length=64, exclude=True)
+    consent_quote_id: Optional[str] = Field(default=None, max_length=36, exclude=True)
+    consent_snapshot_json: Optional[str] = Field(default=None, exclude=True)
     # Точки А (откуда) и Б (куда)
     from_lat: float = 0.0
     from_lng: float = 0.0

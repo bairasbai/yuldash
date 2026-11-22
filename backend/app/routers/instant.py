@@ -6,9 +6,10 @@
 import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
+from uuid import UUID
 
-from fastapi import APIRouter, Depends
-from pydantic import BaseModel, Field
+from fastapi import APIRouter, Depends, Response
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import update
 from sqlmodel import Session, select
 
@@ -20,7 +21,7 @@ from ..middleware import user_over_limit
 from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
                       Rating, Settlement, User)
 from ..safety_logic import account_paused, ensure_active
-from ..security import current_user, require_telegram_admin
+from ..security import current_user, lock_refresh_user, require_telegram_admin
 from ..timeutil import utcnow
 from .referral import reward_driver_referral
 from .. import car_class
@@ -33,6 +34,7 @@ from .. import price_freeze
 from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import promo_ride
+from .. import taxi_quote_consent as consent
 from .. import quality as quality_mod
 from .. import taxi as taxi_mod
 from .. import workday as workday_mod
@@ -167,6 +169,52 @@ class OrderIn(EstimateIn):
     # Чем рассчитаются: cash | sbp | negotiate. Пусто → «договоримся на месте».
     # Карты и корпоративный счёт заведены, но выключены — их сервер не примет.
     payment_method: str = Field("", max_length=16)
+
+
+class ConsentQuoteIn(EstimateIn):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    @field_validator("options")
+    @classmethod
+    def normalize_options(cls, value):
+        return sorted(set(v.strip().lower() for v in value))
+
+
+class ConsentResultIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    request_key: UUID
+
+
+@router.post("/instant/orders/result/v1")
+def get_consent_result(body: ConsentResultIn, response: Response,
+                       user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Read a committed owner-scoped result; unknown never authorizes another create."""
+    response.headers["Cache-Control"] = "no-store"
+    return consent.read_result(session, user.id, str(body.request_key))
+
+
+@router.post("/instant/orders/close-attempt/v1")
+def close_consent_attempt(body: ConsentResultIn, response: Response,
+                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Explicitly fence a pending attempt; this endpoint never creates/cancels a trip."""
+    response.headers["Cache-Control"] = "no-store"
+    return consent.close_attempt(session, user.id, str(body.request_key))
+
+
+class ConfirmedOrderIn(OrderIn):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+    quote_id: UUID
+    request_key: UUID
+
+    @field_validator("options")
+    @classmethod
+    def normalize_options(cls, value):
+        return sorted(set(v.strip().lower() for v in value))
+
+    @field_validator("payment_method")
+    @classmethod
+    def normalize_payment(cls, value):
+        return value.strip().lower()
 
 
 class WaypointsIn(BaseModel):
@@ -421,6 +469,35 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
     return est
 
 
+def _new_instant_order(body: OrderIn, est: dict, owner: int, waypoints: list[dict]) -> InstantOrder:
+    """Pure shared constructor; legacy persistence/promo semantics stay with their caller."""
+    return InstantOrder(
+        passenger_id=owner,
+        from_lat=body.from_lat, from_lng=body.from_lng,
+        to_lat=body.to_lat, to_lng=body.to_lng,
+        from_text=body.from_text, to_text=body.to_text,
+        category=body.category,
+        options=car_class.dump_options(body.options),
+        # Цена целиком: сама поездка + дорога водителя к пассажиру (см. isv.price_fields).
+        **isv.price_fields(est),
+        # Круговой рейс фиксируем на заказе: по нему водитель поймёт, что его ждёт обратная
+        # дорога, а не просто высадка. Сервер сам решает, доступен ли он (город — нет).
+        round_trip=bool(est.get("round_trip")),
+        waypoints_json=isv.dump_waypoints(waypoints),
+        return_wait_min=(body.return_wait_min if est.get("round_trip") else 0), distance_km=est["distance_km"],
+        eta_min=est["eta_min"], tariff_id=est["tariff_id"],
+        surge_k=est["surge_k"],
+        pricing_k=est.get("pricing_k", est["surge_k"]),
+        # Как найти пассажира + «еду не сам» — водителю в оффер (см. OrderIn).
+        comment=(body.comment or "").strip()[:300],
+        entrance=(body.entrance or "").strip()[:60],
+        for_name=(body.for_name or "").strip()[:120],
+        for_phone=(body.for_phone or "").strip()[:32],
+        payment_method=_pay_method_or_default(body.payment_method),
+        women_only=bool(body.women_only),
+    )
+
+
 # ------------------------------ заказ ------------------------------
 @router.post("/instant/orders")
 def create_order(body: OrderIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
@@ -473,31 +550,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         # Сохраняем очистку очереди, удержав lock до проверки активного заказа.
         session.commit()
         return isv.order_payload(session, existing, user)
-    order = InstantOrder(
-        passenger_id=user.id,
-        from_lat=body.from_lat, from_lng=body.from_lng,
-        to_lat=body.to_lat, to_lng=body.to_lng,
-        from_text=body.from_text, to_text=body.to_text,
-        category=body.category,
-        options=car_class.dump_options(body.options),
-        # Цена целиком: сама поездка + дорога водителя к пассажиру (см. isv.price_fields).
-        **isv.price_fields(est),
-        # Круговой рейс фиксируем на заказе: по нему водитель поймёт, что его ждёт обратная
-        # дорога, а не просто высадка. Сервер сам решает, доступен ли он (город — нет).
-        round_trip=bool(est.get("round_trip")),
-        waypoints_json=isv.dump_waypoints(waypoints),
-        return_wait_min=(body.return_wait_min if est.get("round_trip") else 0), distance_km=est["distance_km"],
-        eta_min=est["eta_min"], tariff_id=est["tariff_id"],
-        surge_k=est["surge_k"],
-        pricing_k=est.get("pricing_k", est["surge_k"]),
-        # Как найти пассажира + «еду не сам» — водителю в оффер (см. OrderIn).
-        comment=(body.comment or "").strip()[:300],
-        entrance=(body.entrance or "").strip()[:60],
-        for_name=(body.for_name or "").strip()[:120],
-        for_phone=(body.for_phone or "").strip()[:32],
-        payment_method=_pay_method_or_default(body.payment_method),
-        women_only=bool(body.women_only),
-    )
+    order = _new_instant_order(body, est, user.id, waypoints)
     session.add(order)
     session.commit()
     session.refresh(order)
@@ -513,6 +566,126 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     funnel.note_order(isv._redis(), user.id)     # вторая половина воронки (см. app/funnel.py)
     order = isv.start_matching(session, order)   # created → searching → offered|expired
     return isv.order_payload(session, order, user)
+
+
+def _guard_consent_input(body) -> None:
+    if body.scheduled_at is not None or any(v not in car_class.OPTIONS for v in body.options):
+        raise herr(422, "Этот расчёт доступен только для заказа сейчас с известными опциями.",
+                   "Был иҫәп билдәле өҫтәмәләр менән хәҙерге заказ өсөн генә.",
+                   code="taxi_quote_request_invalid")
+    method = getattr(body, "payment_method", "")
+    if method and not isv.pay_method_open(method):
+        raise herr(422, "Этот способ расчёта сейчас недоступен. Выбери другой.",
+                   "Был түләү ысулы хәҙер мөмкин түгел. Башҡаһын һайла.",
+                   code="taxi_quote_payment_unavailable")
+
+
+def _consent_estimate(session: Session, body) -> dict:
+    return isv.estimate(
+        session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng), body.category,
+        round_trip=body.round_trip, waypoints=[w.model_dump() for w in body.waypoints],
+        options=body.options,
+    )
+
+
+def _consent_payload(session: Session, order: InstantOrder, user: User) -> dict:
+    return {"order": isv.order_payload(session, order, user),
+            "consent": json.loads(order.consent_snapshot_json)}
+
+
+@router.post("/instant/quotes/v1")
+def quote_now(body: ConsentQuoteIn, response: Response, user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Opt-in initial fare only. Legacy /estimate does not acquire this guarantee."""
+    _guard_consent_input(body)
+    guard_estimate_budget(user.id)
+    _guard_taxi_available(session, body.from_lat, body.from_lng)
+    response.headers["Cache-Control"] = "no-store"
+    return consent.issue(session, isv._redis(), user.id, body, _consent_estimate(session, body))
+
+
+@router.post("/instant/orders/confirmed/v1")
+def create_confirmed_order(body: ConfirmedOrderIn, response: Response, user: User = Depends(current_user),
+                           session: Session = Depends(get_session)):
+    """Durable replay precedes quote TTL. All admission DB writes commit together."""
+    response.headers["Cache-Control"] = "no-store"
+    request_hash = consent.request_digest(body)
+    try:
+        # Existing primitive: PostgreSQL row lock, SQLite no-op writer lock.
+        lock_refresh_user(session, user.id)
+        replay = session.exec(select(InstantOrder).where(
+            InstantOrder.passenger_id == user.id,
+            InstantOrder.consent_request_key == str(body.request_key),
+        )).first()
+        if replay is not None:
+            if replay.consent_request_digest != request_hash:
+                raise consent.conflict("taxi_consent_key_conflict")
+            return _consent_payload(session, replay, user)
+        attempt = consent.admit_attempt(session, user.id, str(body.request_key), str(body.quote_id))
+        _guard_consent_input(body)
+        ensure_active(session, user.id, refresh=False)  # read-only gate: retain passenger lock
+        _guard_taxi_available(session, body.from_lat, body.from_lng)
+        if quality_mod.passenger_pause_until(session, user.id) is not None:
+            raise herr(403, *isv.strike_pause_message())
+        existing = session.exec(select(InstantOrder).where(
+            InstantOrder.passenger_id == user.id,
+            InstantOrder.status.in_(isv.LIVE_ORDER_STATUSES),
+        )).first()
+        if existing is not None:
+            raise consent.conflict("taxi_consent_active_order")
+        with consent.admission(isv._redis(), user.id, body) as quote:
+            fresh = _consent_estimate(session, body)
+            use_fresh = not fresh.get("pickup_pending") and fresh["price"] < quote["estimate"]["price"]
+            est = consent.snapshot(fresh) if use_fresh else dict(quote["estimate"])
+            promo = consent.promo_state(session, user.id, est)
+            if promo != quote["promo"]:
+                raise consent.conflict()
+            accepted = dict(quote, estimate=est, promo=promo)
+            if use_fresh:
+                accepted["pricing_inputs_digest"] = consent.pricing_inputs(session, fresh, body)
+            accepted["snapshot_digest"] = consent.digest({
+                "initial_quote_digest": quote["snapshot_digest"], "estimate": est, "promo": promo,
+                "pricing_inputs_digest": accepted["pricing_inputs_digest"],
+            })
+            initial = consent.public_snapshot(quote)
+            final = consent.public_snapshot(accepted)
+            if final["payable_kop"] > initial["payable_kop"]:
+                raise consent.conflict()
+        # The watched exact pair is now irreversibly consumed. A failed DB transaction
+        # requires another explicit quote, never another admission with the old pair.
+        order = _new_instant_order(body, est, user.id, [w.model_dump() for w in body.waypoints])
+        order.consent_quote_id = str(body.quote_id)
+        order.consent_request_key = str(body.request_key)
+        order.consent_request_digest = request_hash
+        order.consent_snapshot_json = consent.canonical({"quote": initial, "accepted": final})
+        session.add(order)
+        session.flush()
+        consent.claim_promo(session, user.id, order, promo)
+        session.execute(update(InstantOrder).where(
+            InstantOrder.passenger_id == user.id, InstantOrder.status == S.expired,
+            InstantOrder.wait_until != None,  # noqa: E711
+        ).values(wait_until=None, status=S.cancelled))
+        # A queued worker may have selected the old expired wait before this transaction.
+        # cancelled is excluded by its matching CAS. If it already won the row lock and
+        # activated the old order, reject this admission instead of dispatching two cars.
+        other_live = session.exec(select(InstantOrder.id).where(
+            InstantOrder.passenger_id == user.id, InstantOrder.id != order.id,
+            InstantOrder.status.in_(isv.LIVE_ORDER_STATUSES),
+        )).first()
+        if other_live is not None:
+            raise consent.conflict("taxi_consent_active_order")
+        attempt.state = "committed"
+        session.add(attempt)
+        session.commit()
+        session.refresh(order)
+    except Exception:
+        session.rollback()
+        raise
+    # All outward effects after the atomic admission commit; the replay path skips them.
+    moderate_open_text("\n".join(p for p in (body.comment, body.from_text, body.to_text) if p),
+                       user.id, place="order_comment", session=session)
+    funnel.note_order(isv._redis(), user.id)
+    order = isv.start_matching(session, order)
+    return _consent_payload(session, order, user)
 
 
 # ------------------------------ предзаказ «на время» (MVP) ------------------------------
