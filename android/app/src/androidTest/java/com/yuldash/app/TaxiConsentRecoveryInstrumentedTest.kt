@@ -11,8 +11,8 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.material3.Text
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.setValue
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -38,6 +38,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.lifecycle.ViewModelProvider
 import androidx.test.espresso.Espresso.onView
 import androidx.test.espresso.action.ViewActions.click as nativeClick
 import androidx.test.espresso.matcher.RootMatchers.isDialog
@@ -131,31 +132,46 @@ class TaxiConsentRecoveryInstrumentedTest {
         fun localized(ru: String, ba: String) = if (language == AppLanguage.Ba) ba else ru
         val returningResponse = AtomicBoolean(false)
         val recheckedParent = CountDownLatch(1)
-        var page by mutableStateOf("create")
-        var selectedId by mutableStateOf(0)
+        lateinit var vm: YuldashViewModel
+        lateinit var readTarget: () -> Int
         openPassengerRoute {
+            compose.runOnUiThread {
+                vm = ViewModelProvider(compose.activity)[YuldashViewModel::class.java]
+                vm.screen.value = Screen.InstantOrder
+            }
             compose.setContent {
+                val screen by vm.screen
+                val generation by ApiClient.sessionChanges.collectAsState()
+                val target = rememberScheduledTaxiTarget(screen, generation)
+                SideEffect { readTarget = { target.intValue } }
                 YuldashTheme(darkTheme = dark) {
-                    CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark) {
-                        when (page) {
-                            "create", "active" -> InstantOrderScreen(
-                                onBack = {}, onLoginRequired = { error("Session lost") }, renderNativeMap = false,
-                                onOpenScheduled = { page = "scheduled" }, requestedScheduledOrderId = selectedId,
-                                onScheduledContextConsumed = { selectedId = 0 },
+                    CompositionLocalProvider(LocalAppLanguage provides language, LocalNightRide provides dark,
+                        LocalPoolingNativeMapEnabled provides false) {
+                        when (screen) {
+                            Screen.InstantOrder -> OrdersNav(
+                                screen, instantTripOrderId = 0, instantChatOrderId = 0, taxiReceiptOrderId = 0,
+                                carPhotoMode = "", parcelChatId = 0, parcelChatPeerIsCourier = false,
+                                parcelChatStatus = "", onBack = {}, onOpen = { vm.screen.value = it },
+                                onOpenTaxiChat = {}, onOpenReceipt = {}, onOpenCarPhoto = {},
+                                scheduledTaxiTarget = target,
                             )
-                            // Keep the outgoing list mounted after back, just as an animated transition can.
-                            // A late success must respect the parent even before the composition disappears.
-                            else -> {
+                            Screen.ScheduledOrders, Screen.Home -> if (late) {
+                                // Retain the outgoing list after back and observe its continuation.
+                                // A late success here would be a wrong navigation, so fail immediately.
                                 ScheduledOrdersScreen(
-                                    onBack = { page = "left" },
-                                    onActivated = { selectedId = it; page = "active" },
+                                    onBack = { vm.navigateLocally { vm.screen.value = Screen.Home } },
+                                    onActivated = { error("Late activation stole the current screen") },
                                     isCurrentParent = {
-                                        if (returningResponse.get() && page == "left") recheckedParent.countDown()
-                                        page == "scheduled"
+                                        val current = vm.screen.value == Screen.ScheduledOrders
+                                        if (returningResponse.get() && !current) recheckedParent.countDown()
+                                        current
                                     },
                                 )
-                                if (page == "left") Text("QA previous screen")
+                                if (screen == Screen.Home) Text("QA previous screen")
+                            } else {
+                                ScheduledTaxiDestination(vm, target, onBack = { vm.screen.value = Screen.Home })
                             }
+                            else -> error("Unexpected taxi destination: $screen")
                         }
                     }
                 }
@@ -187,6 +203,11 @@ class TaxiConsentRecoveryInstrumentedTest {
         val activate = hasText(localized("Начать поиск сейчас", "Хәҙер эҙләргә")) and hasClickAction()
         compose.waitUntil(30_000) { compose.onAllNodes(activate).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(activate).performScrollTo().assertIsDisplayed()
+        val listRevision = compose.runOnIdle {
+            assertEquals(Screen.ScheduledOrders, vm.screen.value)
+            assertEquals(0, readTarget())
+            vm.privateNavigationRevision
+        }
         capture("scheduled-list")
         rendezvous("scheduled")
         compose.onNode(activate).performClick()
@@ -201,13 +222,20 @@ class TaxiConsentRecoveryInstrumentedTest {
             // No sleep or successful HTTP write can prove that the client consumed that response.
             assertTrue("Activation did not recheck the outgoing screen", recheckedParent.await(10, TimeUnit.SECONDS))
             compose.onNodeWithText("QA previous screen").assertIsDisplayed()
-            compose.runOnIdle { assertEquals(0, selectedId) }
+            compose.runOnIdle {
+                assertEquals(Screen.Home, vm.screen.value)
+                assertEquals(0, readTarget())
+            }
         } else {
             val title = if (scenario == "unavailable") localized("Рядом пока никого", "Яҡында әлегә бер кем дә юҡ")
                         else localized("Ищем машину", "Машина эҙләйбеҙ")
             captureOrderCard("scheduled-active", title)
             val displayedId = File(qaDir, "scheduled-active-order-id").readText().toInt()
-            compose.runOnIdle { assertEquals(displayedId, selectedId) }
+            compose.runOnIdle {
+                assertEquals(Screen.InstantOrder, vm.screen.value)
+                assertEquals(listRevision + 1, vm.privateNavigationRevision)
+                assertEquals(displayedId, readTarget())
+            }
         }
     }
 
