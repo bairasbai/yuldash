@@ -9,10 +9,11 @@
 //    в том числе подхваченные из истории заказов;
 //  • опрос раз в 30 с; сбой обновления виден плашкой, а не молчит.
 // ================================================================
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, getAccountSession, isAccountSession } from "../api/client";
+import { expiredScheduledContext } from "../utils/scheduledTaxiContext";
 import {
   fetchScheduled,
   fetchMyOrders,
@@ -27,6 +28,7 @@ import RouteTimeline from "../components/RouteTimeline";
 import AlertDialog from "../components/AlertDialog";
 import { IconClock, IconCloudOff, IconInfo } from "../components/Icons";
 import { serverDate, serverMs } from "../utils/serverTime";
+import { canOpenScheduledActivation } from "../utils/scheduledActivation";
 
 type Status = "loading" | "error" | "ready";
 
@@ -80,8 +82,12 @@ export default function ScheduledOrdersScreen() {
   const [stale, setStale] = useState(false);
   const [busyId, setBusyId] = useState(0);
   const [actionNote, setActionNote] = useState("");
+  const [deferredId, setDeferredId] = useState(0);
+  const [activationEnded, setActivationEnded] = useState(false);
   const [cancelTarget, setCancelTarget] = useState<InstantOrder | null>(null);
   const [nowMs, setNowMs] = useState(() => Date.now());
+  const activationEpoch = useRef(0);
+  useEffect(() => () => { ++activationEpoch.current; }, []);
 
   const mergeActivated = async (loadedActivated: InstantOrder[], signal?: AbortSignal) => {
     const recent = await fetchMyOrders(5, signal).catch(() => [] as InstantOrder[]);
@@ -140,16 +146,36 @@ export default function ScheduledOrdersScreen() {
 
   async function activate(id: number) {
     if (busyId) return;
+    const owner = getAccountSession();
+    if (!owner) return;
+    const epoch = ++activationEpoch.current;
+    const current = () => epoch === activationEpoch.current && isAccountSession(owner);
     setBusyId(id);
     setActionNote("");
+    setDeferredId(0);
+    setActivationEnded(false);
     try {
-      await activateScheduled(id);
-      navigate("/taxi"); // заказ ушёл в поиск → экран заказа восстановит его
+      const order = await activateScheduled(id);
+      if (!current()) return;
+      if (order.id !== id || order.role !== "passenger") throw new Error(actionFail);
+      if (order.status === "scheduled") {
+        setRows((previous) => previous.map((row) => row.id === id ? order : row));
+        setDeferredId(id);
+      } else if (canOpenScheduledActivation(id, order.id, order.status)) {
+        const context = expiredScheduledContext(order, id, owner);
+        navigate("/taxi", context ? { state: context } : undefined);
+      } else if (order.status === "done" || order.status === "cancelled") {
+        setActivationEnded(true);
+        load();
+      } else {
+        throw new Error(actionFail);
+      }
     } catch (e) {
+      if (!current()) return;
       setActionNote(serverSaid(e));
       load(); // гонка (уже активирован/отменён) → обновим список
     } finally {
-      setBusyId(0);
+      if (current()) setBusyId(0);
     }
   }
 
@@ -188,6 +214,18 @@ export default function ScheduledOrdersScreen() {
           badge={appText("Предзаказ", "Алдан заказ")}
         />
 
+        {deferredId !== 0 && rows.some((order) => order.id === deferredId && order.status === "scheduled") && (
+          <p className="app-notice" role="status">
+            {appText("Предзаказ пока ждёт. Поиск ещё не начался. Попробуй позже.", "Алдан заказ әлегә көтә. Эҙләү әле башланманы. Һуңыраҡ ҡабатла.")}
+          </p>
+        )}
+        {activationEnded && (
+          <p className="app-notice" role="status">
+            {appText("Предзаказ уже завершён или отменён. Проверь список.", "Алдан заказ тамамланған йәки кире алынған. Исемлекте тикшер.")}
+          </p>
+        )}
+        {actionNote && <p className="rcpt-msg rcpt-msg--err" role="alert">{actionNote}</p>}
+
         {status === "loading" && (
           <>
             <RideCardSkeleton />
@@ -214,8 +252,6 @@ export default function ScheduledOrdersScreen() {
 
         {status === "ready" && !empty && (
           <>
-            {actionNote && <p className="rcpt-msg rcpt-msg--err">{actionNote}</p>}
-
             {/* «Пора ехать» — активированные ко времени (сервер уже перевёл в поиск). */}
             {activated.length > 0 && (
               <>
