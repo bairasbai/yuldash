@@ -9,6 +9,7 @@ import android.os.Bundle;
 import android.os.SystemClock;
 import android.util.Base64;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.view.accessibility.AccessibilityWindowInfo;
 
 import org.json.JSONArray;
 import org.json.JSONException;
@@ -76,17 +77,37 @@ public final class WindowObserver extends Instrumentation {
         }
     }
 
+    private static AccessibilityNodeInfo focusedRoot(UiAutomation automation) {
+        AccessibilityNodeInfo active = automation.getRootInActiveWindow();
+        if (active != null && "com.yuldash.app".contentEquals(
+                active.getPackageName() == null ? "" : active.getPackageName())) return active;
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            if (window.getType() != AccessibilityWindowInfo.TYPE_APPLICATION
+                    || !(window.isFocused() || window.isActive())) continue;
+            AccessibilityNodeInfo root = window.getRoot();
+            if (root == null) continue;
+            String owner = String.valueOf(root.getPackageName());
+            if (owner.equals("com.yuldash.app") || owner.equals("android")) {
+                if (active != null) active.recycle();
+                return root;
+            }
+            root.recycle();
+        }
+        return active;
+    }
+
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
             UiAutomation automation = getUiAutomation();
             AccessibilityServiceInfo options = automation.getServiceInfo();
             options.flags |= AccessibilityServiceInfo.FLAG_REPORT_VIEW_IDS
-                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS;
+                    | AccessibilityServiceInfo.FLAG_INCLUDE_NOT_IMPORTANT_VIEWS
+                    | AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
             automation.setServiceInfo(options);
             AccessibilityNodeInfo root = null;
             for (int i = 0; i < 30 && root == null; i++) {
-                root = automation.getRootInActiveWindow();
+                root = focusedRoot(automation);
                 if (root == null) SystemClock.sleep(70);
             }
             JSONArray rows = new JSONArray();

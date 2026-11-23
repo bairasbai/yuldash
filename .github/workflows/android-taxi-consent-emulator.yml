@@ -59,7 +59,11 @@ jobs:
         working-directory: android
         env:
           JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://maven-central.storage-download.googleapis.com/maven2
-        run: bash gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.Taxi*Consent*Test' -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --stacktrace
+        run: >-
+          bash gradlew :app:testDebugUnitTest
+          --tests 'com.yuldash.app.Taxi*Consent*Test'
+          --tests 'com.yuldash.app.TaxiOrderDraftTest'
+          -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --stacktrace
       - name: Install backend test dependencies
         run: pip install -r backend/requirements-dev.txt
       - name: Allow runner access to KVM

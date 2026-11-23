@@ -13,6 +13,11 @@ class TaxiDraftFixtureReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         check(BuildConfig.DEBUG && BuildConfig.YULDASH_NATIVE_QA_PINNED_API)
         check(ApiClient.apiBase() == TAXI_CONSENT_LOCAL_API)
+        if (intent.getStringExtra("fixture") == "read-controls") {
+            TaxiDraftControls.write(context)
+            resultCode = 107
+            return
+        }
         val session = JSONObject(File(context.filesDir, "taxi-consent-qa/session.json").readText())
         when (val action = intent.getStringExtra("fixture")) {
             "logout" -> ApiClient.logout()

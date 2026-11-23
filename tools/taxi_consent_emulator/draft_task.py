@@ -53,13 +53,38 @@ def until(probe, description, timeout=40):
     raise AssertionError("Not observed: " + description)
 
 
-def tree():
-    global last_observation
+def external_window():
     raw = shell("am", "instrument", "-w", "-r", "-e", "labels", OBSERVER_LABELS, OBSERVER)
     status = re.search(r"^INSTRUMENTATION_RESULT: observation=([a-zA-Z0-9_-]+)", raw, re.M)
-    last_observation = status[1] if status else "instrumentation-did-not-report"
+    observation = status[1] if status else "instrumentation-did-not-report"
     data = re.search(r"^INSTRUMENTATION_RESULT: window_nodes=([A-Za-z0-9+/=]+)", raw, re.M)
-    return json.loads(base64.b64decode(data[1])) if data else []
+    return observation, json.loads(base64.b64decode(data[1])) if data else []
+
+
+def tree(native=False):
+    # Never let a window read itself launch or foreground the app under test. While the task
+    # is stopped/dead the host queries only ActivityManager/PID and the isolated server.
+    global last_observation
+    live = pid()
+    focus = adb("shell", "dumpsys window | grep -m 1 mCurrentFocus=", check=False).decode()
+    last_observation = "app-not-foreground"
+    if live and PKG in focus:
+        reply = shell("am", "broadcast", "-n", PKG + "/.TaxiDraftFixtureReceiver",
+                      "--es", "fixture", "read-controls", "--es", "labels", OBSERVER_LABELS)
+        assert pid() == live, "Window probe replaced the live app process"
+        if "result=107" in reply:
+            data = adb("exec-out", "run-as", PKG, "cat", DIR + "/controls.json")
+            frame = json.loads(data)
+            last_observation = frame["observation"]
+            nodes = frame["nodes"]
+            if nodes and (not native or any(n.get("resource-id") == "android:id/button1" for n in nodes)):
+                return nodes
+        else:
+            last_observation = "probe-did-not-report"
+    # Date/time dialogs can own their own native accessibility window.
+    status, nodes = external_window()
+    last_observation += "/" + status
+    return nodes
 
 
 def bounds(node):
@@ -76,12 +101,12 @@ def label(value):
     return lambda n: local_label(value) in (n.get("text"), n.get("content-desc"))
 
 
-def find(predicate, description, scroll=False):
+def find(predicate, description, scroll=False, native=False):
     earlier = scroll == "earlier"
     previous_view = None
     def probe():
         nonlocal earlier, previous_view
-        nodes = tree()
+        nodes = tree(native=native)
         for node in nodes:
             if predicate(node) and len(bounds(node)) == 4:
                 return [node]  # a leaf Element by itself is falsey
@@ -217,7 +242,7 @@ def choose_route(scheduled=True):
         open_order_details()
         click("На время", scroll=True)
         for _ in range(2):
-            button = find(lambda n: n.get("resource-id") == "android:id/button1", "native picker OK")
+            button = find(lambda n: n.get("resource-id") == "android:id/button1", "native picker OK", native=True)
             touch(button)
             time.sleep(0.4)
         # The limited NOW pilot requires explicit consent before fetching a fare. Scheduling
