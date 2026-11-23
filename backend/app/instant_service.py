@@ -3406,10 +3406,12 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     пассажир УЖЕ нажал «подождать», он в курсе; повторять ему «рядом никого» каждые
     две минуты — спам, из-за которого выключают уведомления."""
     order_id = order.id
+    if search_owner is None:
+        # First confirmed dispatch can exhaust its budget before entering GEO.
+        search_owner = _LegacyOfferSearch(_search_owner(order))
     at = utcnow()
     committed = _write_search_outcome(
-        session, search_owner if search_owner is not None else _search_owner(order),
-        status=S.expired, expired_at=at, current_offer_driver_id=None, offer_expires_at=None,
+        session, search_owner, status=S.expired, expired_at=at, current_offer_driver_id=None, offer_expires_at=None,
     )
     fresh = session.get(InstantOrder, order_id, populate_existing=True)
     queued = isinstance(search_owner, _QueuedSearch)
@@ -3503,14 +3505,14 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     first_confirmed = first_deadline is not None
     order_id = order.id
-    guarded_owner = _queued or _legacy_advance
-    search_owner = guarded_owner if guarded_owner is not None else _search_owner(order)
+    search_owner = _queued or _legacy_advance
+    if search_owner is None:
+        if any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS):
+            return order
+        search_owner = _LegacyOfferSearch(_search_owner(order))
     search_round = order.search_round
-    if _queued is not None and (order.status != S.searching or not _same_search_owner(order, _queued)):
-        return None
-    if (order.status != S.searching
-            or _legacy_advance is not None and not _same_search_owner(order, _legacy_advance)):
-        return session.get(InstantOrder, order_id, populate_existing=True)
+    if order.status != S.searching or not _same_search_owner(order, search_owner):
+        return None if _queued is not None else session.get(InstantOrder, order_id, populate_existing=True)
     stopped = cancel_for_suspended_passenger(
         session, order, refresh_standing=not first_confirmed, search_owner=search_owner,
     )
@@ -3547,8 +3549,8 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
     if (not committed or fresh is None or fresh.status != S.offered
             or fresh.current_offer_driver_id != did or fresh.offered_at != now
             or fresh.offer_expires_at != expires_at or expires_at <= utcnow()
-            or guarded_owner is not None and not _same_search_owner(
-                fresh, guarded_owner, search_round=search_round + 1, current_offer_driver_id=did,
+            or not _same_search_owner(
+                fresh, search_owner, search_round=search_round + 1, current_offer_driver_id=did,
                 offered_at=now, offer_expires_at=expires_at,
             )):
         return None if _queued is not None else fresh
@@ -3678,6 +3680,7 @@ def pending_confirmed_dispatch():
         InstantOrder.offered_at.is_(None), InstantOrder.offer_expires_at.is_(None),
         InstantOrder.expired_at.is_(None), InstantOrder.cancelled_at.is_(None),
         InstantOrder.search_round == 0, InstantOrder.retry_count == 0, InstantOrder.reassigns == 0,
+        *_legacy_no_resume(),
     )
 
 
