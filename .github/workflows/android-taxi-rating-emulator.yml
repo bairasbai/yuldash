@@ -18,12 +18,12 @@ jobs:
   tf11-compose:
     # One intentionally pinned target. Changing the subject requires a reviewed QA edit.
     if: >-
-      github.event.pull_request.base.sha == 'a202489672356e5789e111d1a8c786c4929b0009' &&
+      github.event.pull_request.base.sha == '46b3c6dba454f99ffd738befedea7b05b9ab3dc9' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
     timeout-minutes: 30
     env:
-      TF11_SUBJECT: a202489672356e5789e111d1a8c786c4929b0009
+      TF11_SUBJECT: 46b3c6dba454f99ffd738befedea7b05b9ab3dc9
       YULDASH_NATIVE_QA_PINNED_API: 'true'
       YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:8000
     steps:
@@ -35,7 +35,7 @@ jobs:
           path: qa
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          ref: a202489672356e5789e111d1a8c786c4929b0009
+          ref: 46b3c6dba454f99ffd738befedea7b05b9ab3dc9
           persist-credentials: false
           path: subject
       - name: Assert subject SHA and run result-parser controls

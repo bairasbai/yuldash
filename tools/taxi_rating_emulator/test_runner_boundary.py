@@ -11,7 +11,7 @@ from test_instrumentation_summary import complete, event
 
 SCRIPTS = Path(__file__).resolve().parent
 CANDIDATE = SCRIPTS.parents[1]
-SHA = "a202489672356e5789e111d1a8c786c4929b0009"
+SHA = "46b3c6dba454f99ffd738befedea7b05b9ab3dc9"
 
 FAKE_ADB = """#!/usr/bin/env python3
 import json, os, sys
