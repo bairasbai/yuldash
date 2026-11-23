@@ -60,12 +60,7 @@ def test_rule_guards_every_foreign_key(table: str):
     for ref_table, ref_col in sorted(_referencing_columns(table)):
         # Exact inactive child: this FK deletes the child, so making the
         # parent query wait on it would incorrectly change order retention.
-        if (ref_table, ref_col, table) == ("taxirouteeditoutcome", "order_id", "instantorder"):
-            assert INACTIVE_CASCADE_OWNED == {"taxirouteeditoutcome": ("order_id", "instantorder", "id")}
-            fks = SQLModel.metadata.tables[ref_table].c[ref_col].foreign_keys
-            assert {(fk.column.table.name, fk.column.name, fk.ondelete) for fk in fks} == {
-                ("instantorder", "id", "CASCADE"),
-            }
+        if (ref_col, table, "id") in INACTIVE_CASCADE_OWNED.get(ref_table, ()):
             continue
         # Ищем упоминание пары «таблица.колонка» в любом NOT EXISTS этого правила:
         # алиас произвольный, поэтому цепляемся за FROM <таблица> и за <алиас>.<колонка>.
@@ -79,6 +74,19 @@ def test_rule_guards_every_foreign_key(table: str):
         f"каждую ночь заново, потому что пакет собирается тем же условием. Чистка встаёт\n"
         f"навсегда и молча. Добавь в правило NOT EXISTS на каждую ссылку."
     )
+
+
+def test_inactive_receipt_classification_requires_exact_cascades_without_scheduling():
+    assert INACTIVE_CASCADE_OWNED == {
+        "taxirouteeditoutcome": (("order_id", "instantorder", "id"),),
+        "taxidriveracceptoutcome": (("driver_id", "user", "id"), ("order_id", "instantorder", "id")),
+    }
+    scheduled = {rule[1] for rule in _rules(utcnow())}
+    assert scheduled.isdisjoint(INACTIVE_CASCADE_OWNED)
+    for child, parents in INACTIVE_CASCADE_OWNED.items():
+        actual = {(fk.parent.name, fk.column.table.name, fk.column.name, fk.ondelete)
+                  for fk in SQLModel.metadata.tables[child].foreign_keys}
+        assert actual == {(*fk, "CASCADE") for fk in parents}
 
 
 def test_every_cleaned_table_is_whitelisted():

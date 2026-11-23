@@ -147,7 +147,8 @@ KEEP_FOREVER = {
 # ON DELETE CASCADE; its own expiry helper is not a scheduled process.
 # A writer must not be connected before reviewing active receipt retention.
 INACTIVE_CASCADE_OWNED = {
-    "taxirouteeditoutcome": ("order_id", "instantorder", "id"),
+    "taxirouteeditoutcome": (("order_id", "instantorder", "id"),),
+    "taxidriveracceptoutcome": (("driver_id", "user", "id"), ("order_id", "instantorder", "id")),
 }
 
 
