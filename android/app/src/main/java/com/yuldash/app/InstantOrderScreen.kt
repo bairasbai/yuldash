@@ -3227,7 +3227,7 @@ private fun InstantDestinationPicker(
                                         expectedGeneration = generation,
                                     )
                                         .onSuccess {
-                                            draft.acknowledge(submittedRevision)
+                                            draft.acknowledge(submittedRevision, generation)
                                             ApiClient.runIfCurrentSession(generation) {
                                                 if (isCurrentAction()) {
                                                     ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
@@ -3252,7 +3252,7 @@ private fun InstantDestinationPicker(
                                         expectedGeneration = generation,
                                     )
                                         .onSuccess {
-                                            draft.acknowledge(submittedRevision)
+                                            draft.acknowledge(submittedRevision, generation)
                                             // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
                                             ApiClient.runIfCurrentSession(generation) {
                                                 if (isCurrentAction()) {

@@ -1,6 +1,7 @@
 """Drive the actual launcher task from outside its process. Run through run.sh on a fresh AVD."""
 import json
 import re
+import shlex
 import subprocess
 import sys
 import time
@@ -242,14 +243,14 @@ def no_writes(state_path, expected):
 
 
 def submitted_revision_persisted():
-    # The candidate commits just one opaque revision. Observe completion without printing the
-    # revision or reading the session/authentication preferences. Every scenario starts with pm clear.
-    raw = adb("exec-out", "run-as", PKG, "cat", "shared_prefs/taxi_draft_revision.xml", check=False)
-    try:
-        revision = ET.fromstring(raw).findtext("string[@name='completed_revision']")
-        return revision is not None and re.fullmatch(r"[0-9a-f-]{36}", revision)
-    except ET.ParseError:
-        return False
+    # Inspect only the acknowledgement key on-device. No preference values leave the AVD.
+    key = "taxi_draft_completed_revision"
+    uuid = r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"
+    pattern = f'<string name="{key}">{uuid}</string>'
+    result = subprocess.run([*ADB, "shell", "run-as", PKG, "grep", "-Eq", shlex.quote(pattern),
+                             "shared_prefs/yuldash_prefs.xml"], capture_output=True, timeout=10)
+    assert result.returncode in (0, 1), "Could not check the draft completion revision"
+    return result.returncode == 0
 
 
 def run(scenario, session, state, results):

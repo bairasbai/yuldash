@@ -20,6 +20,7 @@ internal object SessionKeys {
     /** Основной ящик настроек: там живёт сама сессия. */
     const val MAIN_PREFS = "yuldash"
     const val BOOKING_SCAM_TIP_OWNER = "booking_scam_tip_owner"
+    const val TAXI_DRAFT_REVISION = "taxi_draft_completed_revision"
 
     /** Ключи ОСНОВНОГО ящика, которые выход стирает. Это чужое — оно не должно пережить владельца. */
     val CLEARED_ON_LOGOUT = listOf(
@@ -50,7 +51,7 @@ internal object SessionKeys {
         // «Я вожу» / «я езжу» и последний режим (попутка / такси / посылка) — это про аккаунт.
         // Способ расчёта — привычка конкретного человека («я всегда наличными»), а не
         // настройка телефона: следующему владельцу она достаться не должна.
-        "yuldash_prefs" to listOf("preferred_role", "mode_last", "pay_method"),
+        "yuldash_prefs" to listOf("preferred_role", "mode_last", "pay_method", TAXI_DRAFT_REVISION),
         // Номер брони: по нему сервис поездки воскресает и продолжает трансляцию. Роль в ней
         // («я водитель» — шлём пульс стоянки) — тоже про аккаунт и ту же поездку.
         // Д2: чей это рейс, его потолок жизни и брони рейса — всё про ту же поездку и тот же аккаунт.

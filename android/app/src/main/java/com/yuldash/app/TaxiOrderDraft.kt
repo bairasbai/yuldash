@@ -17,6 +17,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.yandex.mapkit.geometry.Point
+import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.OfflineTripSnapshots
 import com.yuldash.app.data.TaxiQuoteConsentApi
 import com.yuldash.app.data.TaxiStop
@@ -95,8 +96,8 @@ internal class TaxiPickerDraft(
     val submittedRevision get() = bornAt
     fun wasCompleted(): Boolean = bornAt != null && bornAt != revisions.read()
 
-    suspend fun acknowledge(submitted: String?) = withContext(NonCancellable + Dispatchers.IO) {
-        revisions.complete(submitted)
+    suspend fun acknowledge(submitted: String?, generation: Long) = withContext(NonCancellable + Dispatchers.IO) {
+        ApiClient.runIfCurrentSession(generation) { revisions.complete(submitted) }
     }
 
     @Composable
@@ -150,7 +151,7 @@ internal val TaxiStopDraftSaver = listSaver<List<TaxiStop>, Any>(
         stops.flatMap { listOf(it.lat, it.lng, it.text, it.done) }
     },
     restore = { saved ->
-        if (saved.size > 12 || saved.size % 4 != 0) return@listSaver null
+        if (saved.size > InstantStopsMax * 4 || saved.size % 4 != 0) return@listSaver null
         saved.chunked(4).map { row ->
             val lat = row[0] as? Double ?: return@listSaver null
             val lng = row[1] as? Double ?: return@listSaver null
