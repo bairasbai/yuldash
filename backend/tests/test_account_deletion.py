@@ -78,6 +78,7 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
     uid = u["id"]
     other = user_factory("Other")
     oid = other["id"]
+    other_driver = user_factory("OtherTaxiReceiptDriver", role=UserRole.driver)["id"]
 
     with Session(engine) as s:
         user = s.get(User, uid)
@@ -125,6 +126,21 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         order = M.InstantOrder(passenger_id=uid, from_lat=54.0, from_lng=55.0, to_lat=54.1, to_lng=55.1)
         contact = M.TrustedContact(user_id=uid, name="Мама", phone="+79990001177")
         s.add(order); s.add(contact); s.commit(); s.refresh(order); s.refresh(contact)
+        # The former driver's receipt for a surviving order uses the user FK;
+        # another driver's receipt for the removed passenger order uses the order FK.
+        foreign_order = M.InstantOrder(passenger_id=oid, driver_id=other_driver, status=M.InstantOrderStatus.done)
+        s.add(foreign_order)
+        s.flush()
+        removed_order_id, surviving_order_id = order.id, foreign_order.id
+        by_driver = (uid, surviving_order_id, str(uuid4()))
+        by_order = (other_driver, removed_order_id, str(uuid4()))
+        unrelated = (other_driver, surviving_order_id, str(uuid4()))
+        expires = utcnow() + timedelta(minutes=3)
+        for index, (driver_id, order_id, attempt_id) in enumerate((by_driver, by_order, unrelated), start=1):
+            s.add(M.TaxiDriverAcceptOutcome(
+                driver_id=driver_id, order_id=order_id, attempt_id=attempt_id,
+                binding=bytes([index]) * 32, expires_at=expires,
+            ))
         s.add(M.CommissionDebt(driver_id=uid, order_id=order.id, amount_kop=200))
         s.add(M.LedgerEntry(driver_id=uid, order_id=order.id, kind="earn", amount_kop=200))
         s.add(M.TripShare(order_id=order.id, contact_id=contact.id, token="del-order-share-token-123456"))
@@ -276,6 +292,7 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         s.commit()
 
         user = s.get(User, uid)
+        assert all(s.get(M.TaxiDriverAcceptOutcome, k) is not None for k in (by_driver, by_order, unrelated))
 
     # ⬇️ САМОПРОВЕРКА ПРИБОРА (аудит 2026-08-08). Главная проверка ниже ищет ОСТАТКИ строк.
     # Если таблицу забыли заселить, остатков в ней не будет никогда — и «зелено» будет значить
@@ -309,6 +326,13 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
     with Session(engine) as s:
         assert s.get(User, uid) is None                 # аккаунт удалён
         assert s.get(User, oid) is not None             # чужой пользователь цел
+        assert s.get(M.InstantOrder, removed_order_id) is None
+        surviving = s.get(M.InstantOrder, surviving_order_id)
+        assert surviving is not None and surviving.driver_id == other_driver
+        assert s.get(M.TaxiDriverAcceptOutcome, by_driver) is None
+        assert s.get(M.TaxiDriverAcceptOutcome, by_order) is None
+        control = s.get(M.TaxiDriverAcceptOutcome, unrelated)
+        assert control is not None and control.binding == b"\x03" * 32 and control.expires_at == expires
         setting = s.get(M.AppSetting, "qa.account_deletion")
         change = s.exec(select(M.AppSettingChange).where(M.AppSettingChange.key == "qa.account_deletion")).one()
         assert (setting.value, setting.updated_by) == (False, None)

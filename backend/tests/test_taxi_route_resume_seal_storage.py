@@ -18,7 +18,8 @@ from test_migrations_match_the_models import _config
 from test_taxi_offered_waypoint_preview import _mutate, _row, _STOP, _unexpected, testdb  # noqa: F401
 
 _PARENT = "de_taxi_route_edit_outcome"
-_HEAD = "df_taxi_route_resume_seal"
+_SEAL_REV = "df_taxi_route_resume_seal"
+_DRIVER_OUTCOME_REV = "dg_taxi_driver_accept_outcome"
 _NAME = resume._SEAL
 _VALUE = b"\x91" * 32
 _DROP = f"ALTER TABLE instantorder DROP COLUMN {_NAME}"
@@ -56,9 +57,14 @@ def _version(db):
 
 def test_fresh_bootstrap_head_metadata_and_existing_exact_upgrade(database):
     db, cfg = database
-    assert ScriptDirectory.from_config(cfg).get_heads() == [_HEAD]
+    script = ScriptDirectory.from_config(cfg)
+    head, = script.get_heads()  # refuse multiple heads, allow later descendants
+    revisions = {revision.revision for revision in script.iterate_revisions(head, _PARENT)}
+    assert {_SEAL_REV, _DRIVER_OUTCOME_REV} <= revisions
+    assert script.get_revision(_DRIVER_OUTCOME_REV).down_revision == _SEAL_REV
     command.upgrade(cfg, "head")
-    assert _NAME in _names(db) and _version(db) == _HEAD
+    assert _NAME in _names(db) and _version(db) == head
+    assert inspect(db).has_table("taxidriveracceptoutcome")
     assert len([c for c in inspect(db).get_check_constraints("instantorder")
                 if c["name"] == "ck_instantorder_route_resume_seal_len"]) == 1
 
@@ -82,7 +88,7 @@ def test_upgrade_downgrade_historical_parent_and_private_storage(database):
     with Session(db) as s:
         s.add(Message(sender_id=owner, order_id=oid, text="synthetic referenced order"))
         s.commit()
-    command.upgrade(cfg, _HEAD)
+    command.upgrade(cfg, _SEAL_REV)
     with Session(db) as s:
         order = s.get(InstantOrder, oid)
         assert order.route_resume_agreement_seal is None
@@ -94,7 +100,7 @@ def test_upgrade_downgrade_historical_parent_and_private_storage(database):
         assert _NAME not in order.model_dump_json()
     with pytest.raises(RuntimeError, match="Drain taxi retirement agreement seals"):
         command.downgrade(cfg, _PARENT)
-    assert _version(db) == _HEAD
+    assert _version(db) == _SEAL_REV
     with db.begin() as conn:
         assert conn.execute(select(_TABLE.c[_NAME])).scalar_one() == _VALUE
         conn.execute(_TABLE.update().where(_TABLE.c.id == oid).values({_NAME: None}))
@@ -110,7 +116,7 @@ def test_actual_sqlite_ddl_rollback_and_stamp_restart(database, direction):
     db, cfg = database
     _history(db, cfg)
     if direction == "downgrade":
-        command.upgrade(cfg, _HEAD)
+        command.upgrade(cfg, _SEAL_REV)
     previous = _version(db)
     present = _NAME in _names(db)
     seen = []
@@ -126,7 +132,7 @@ def test_actual_sqlite_ddl_rollback_and_stamp_restart(database, direction):
             seen.append(fragment)
             raise Interrupted
 
-    target = _HEAD if direction == "upgrade" else _PARENT
+    target = _SEAL_REV if direction == "upgrade" else _PARENT
     op = getattr(command, direction)
     event.listen(Engine, "after_cursor_execute", inject)
     try:
@@ -171,13 +177,13 @@ def test_foreign_or_partial_prestamp_shape_is_not_adopted_or_removed(database, m
 
     actual = schema_snapshot()
     with pytest.raises(RuntimeError, match="Unexpected taxi retirement seal schema"):
-        command.upgrade(cfg, _HEAD)
+        command.upgrade(cfg, _SEAL_REV)
     assert _version(db) == _PARENT and _NAME in _names(db)
     with db.begin() as conn:
-        conn.exec_driver_sql("UPDATE alembic_version SET version_num=?", (_HEAD,))
+        conn.exec_driver_sql("UPDATE alembic_version SET version_num=?", (_SEAL_REV,))
     with pytest.raises(RuntimeError, match="Unexpected taxi retirement seal schema"):
         command.downgrade(cfg, _PARENT)
-    assert _version(db) == _HEAD and _NAME in _names(db) and schema_snapshot() == actual
+    assert _version(db) == _SEAL_REV and _NAME in _names(db) and schema_snapshot() == actual
 
 
 def test_seal_only_is_neither_ordinary_available_nor_complete_capped(request, monkeypatch):
@@ -265,9 +271,9 @@ def test_real_dev_boot_on_historical_parent_produces_exact_alembic_shape(databas
     check, = [c for c in inspect(db).get_check_constraints("instantorder")
               if c["name"] == "ck_instantorder_route_resume_seal_len"]
     assert check["sqltext"] == f"length({_NAME}) = 32"
-    command.upgrade(cfg, _HEAD)
+    command.upgrade(cfg, _SEAL_REV)
     appdb.init_db()
-    assert _version(db) == _HEAD
+    assert _version(db) == _SEAL_REV
     with Session(db) as s:
         order = s.get(InstantOrder, oid)
         assert order.to_text == "Synthetic old route" and order.route_resume_agreement_seal is None
