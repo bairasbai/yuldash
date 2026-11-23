@@ -1,11 +1,15 @@
 """Real PostgreSQL outcome-aware sealed acceptance in isolated CI schemas."""
 import os
+from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
+from threading import Event
 from uuid import uuid4
 
 import psycopg2
 import pytest
 from sqlalchemy import create_engine, event, select, text, update
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.schema import CreateSchema, DropSchema
 from sqlmodel import Session, SQLModel
 from test_taxi_offered_waypoint_preview import _unexpected
@@ -22,6 +26,8 @@ from test_taxi_route_resume_deadline_postgres import _clock, _until
 
 from app import instant_service as isv
 from app import taxi_driver_accept_outcome as evidence
+from app import taxi_retirement_agreement_seal as seal
+from app import taxi_route_edit_outcome as passenger_evidence
 from app import taxi_route_resume as resume
 from app import taxi_sealed_offer_accept as assignment
 from app import taxi_sealed_offer_card as cards
@@ -37,6 +43,8 @@ from app.models import (
     User,
 )
 from app.models import InstantOrderStatus as S
+from app.taxi_offered_waypoint_agreement import bind_offered_waypoints
+from app.taxi_offered_waypoint_preview import _FIELDS as _OFFERED_SOURCE_FIELDS
 from app.taxi_offered_waypoint_retire import OfferedRetirement, retire_offered_waypoints
 
 pytestmark = pytest.mark.skipif(
@@ -322,3 +330,168 @@ def test_pg_cutoff_after_actual_receipt_insert_is_not_a_success(retired_pg):
     finally:
         event.remove(writer, "after_cursor_execute", cross)
     assert seen == [True] and _order(reader, oid) == before and _receipt(reader, oid) == []
+
+
+def _historical_retirement_for_commit_window(data):
+    """Valid 120s original seal, with a short real remaining DB-clock window."""
+    writer, reader, args, current, driver = data
+    owner, oid = args["owner_id"], args["order_id"]
+    preview = args["preview"]
+    fields = _OFFERED_SOURCE_FIELDS
+    source = dict(zip(fields, preview._source[:len(fields)], strict=True))
+    marker = resume._state(current)["route_resume_id"]
+    with reader.begin() as conn:
+        # Same historic-synthetic construction as #348; the actual original
+        # horizon remains 120s. No clock patches or reselling the successor.
+        retired = _clock(conn) - timedelta(seconds=108)
+        deadline = retired + timedelta(seconds=120)
+        prior = {"created_at": retired - timedelta(seconds=3), "searching_at": retired - timedelta(seconds=2),
+                 "offered_at": retired - timedelta(seconds=1)}
+        source |= prior | {"offer_expires_at": retired + timedelta(seconds=60)}
+        old = tuple(source[name] for name in fields) + preview._source[len(fields):]
+        historical = replace(preview, _source=old, observed_at=retired - timedelta(milliseconds=10),
+                             valid_until=retired + timedelta(seconds=50))
+        agreement = bind_offered_waypoints(args["key"], owner_id=owner, order_id=oid, preview=historical)
+        fingerprint = seal.bind_retirement_agreement(
+            args["key"], owner_id=owner, order_id=oid, old_source=old, preview=historical, agreement=agreement,
+            marker_id=marker, retired_at=retired, deadline_at=deadline,
+        )
+        assert fingerprint is not None
+        assert conn.execute(update(_O).where(_O.c.id == oid).values(
+            **prior, destination_changed_at=retired, route_resume_retired_at=retired,
+            route_resume_ready_at=retired, route_resume_deadline_at=deadline,
+            **{resume._SEAL: fingerprint._digest},
+        )).rowcount == 1
+        receipt_expiry = retired + timedelta(minutes=3)
+        assert conn.execute(update(_CHILD).where(
+            _CHILD.c.owner_id == owner, _CHILD.c.order_id == oid, _CHILD.c.attempt_id == args["attempt_id"],
+        ).values(binding=agreement.binding, expires_at=receipt_expiry)).rowcount == 1
+    saved = resume.observe(reader, oid)
+    assert saved is not None
+    assert passenger_evidence.committed_evidence(
+        reader, owner_id=owner, order_id=oid, attempt_id=args["attempt_id"], binding=agreement.binding, now=retired,
+    ) is passenger_evidence.CommittedEvidence.COMMITTED
+    return writer, reader, args, saved, driver
+
+
+@pytest.mark.parametrize("finish", ("commit", "rollback"))
+def test_pg_final_admission_before_deadline_does_not_bound_commit_visibility(retired_pg, monkeypatch, finish):
+    # Characterization, NOT proof of durable commit before the absolute cutoff.
+    data = _historical_retirement_for_commit_window(retired_pg)
+    writer, reader, args, _, driver = data
+    identity, proof, offered = _successor(data, offer_seconds=120)
+    attempt = _attempt(reader, identity)
+    oid = args["order_id"]
+    before = _order(reader, oid)
+    deadline = before["route_resume_deadline_at"]
+    assert deadline - before["route_resume_retired_at"] == timedelta(seconds=120)
+    assert before["status"] is S.offered and before["offer_expires_at"] == deadline
+    passenger_receipt = _children(reader, oid)
+    assert len(passenger_receipt) == 1 and _receipt(reader, oid) == []
+
+    with reader.connect() as conn:
+        schema = conn.exec_driver_sql("SELECT current_schema()").scalar_one()
+    assert schema.startswith("pgacceptreceipt_") and len(schema) == len("pgacceptreceipt_") + 32
+    assert all(ch in "0123456789abcdef" for ch in schema.removeprefix("pgacceptreceipt_"))
+    timeout_engine = create_engine(
+        reader.url, hide_parameters=True,
+        connect_args={"options": f"-csearch_path={schema} -clock_timeout=12000 -cstatement_timeout=16000"},
+    )
+    checked, waiting, commit_steps = [], [], []
+    at_commit, timeout_started, allow_completion = Event(), Event(), Event()
+    original = writer.dialect.do_commit
+
+    def saw_final_check(conn, cursor, statement, parameters, context, many):
+        sql = " ".join(statement.lower().split())
+        pid = conn.connection.driver_connection.get_backend_pid()
+        if sql.startswith("insert into taxidriveracceptoutcome"):
+            checked.append(("staged", pid))
+        if (checked and sql.startswith("select instantorder.id from instantorder")
+                and "instantorder.route_resume_agreement_seal" in sql and "statement_timestamp()" in sql):
+            assert cursor.rowcount == 1
+            checked.append(("final-check", pid))
+
+    def gate(raw):
+        dbapi = getattr(raw, "driver_connection", raw)
+        pid = dbapi.get_backend_pid()
+        if checked == [("staged", pid), ("final-check", pid)] and not at_commit.is_set():
+            at_commit.set()
+            assert allow_completion.wait(24), "controller did not release the commit gate"
+            if finish == "rollback":
+                dbapi.rollback()  # real rollback, then return through production UNKNOWN handling
+                commit_steps.append("rolled_back")
+                raise SQLAlchemyError("synthetic pre-commit abort")
+            original(raw)  # real PostgreSQL COMMIT, called only after external cutoff evidence
+            commit_steps.append("committed")
+            return
+        original(raw)
+
+    def saw_timeout_lock(conn, cursor, statement, parameters, context, many):
+        sql = " ".join(statement.lower().split())
+        if sql.startswith("select instantorder.id from instantorder") and sql.endswith("for update"):
+            waiting.append(conn.connection.driver_connection.get_backend_pid())
+            timeout_started.set()
+
+    try:
+        with timeout_engine.connect() as conn:
+            assert conn.exec_driver_sql("SELECT current_schema()").scalar_one() == schema
+            assert conn.exec_driver_sql("SHOW transaction_isolation").scalar_one() == "read committed"
+        event.listen(writer, "after_cursor_execute", saw_final_check)
+        event.listen(timeout_engine, "before_cursor_execute", saw_timeout_lock)
+        with monkeypatch.context() as scoped, ThreadPoolExecutor(max_workers=2) as pool:
+            scoped.setattr(writer.dialect, "do_commit", gate)
+            accepting = pool.submit(assignment.accept_sealed_offer_with_outcome, writer, **attempt, proof=proof)
+            try:
+                assert at_commit.wait(8), "acceptance did not reach physical COMMIT after final check"
+                accept_pid = checked[-1][1]
+                with reader.connect() as observer:
+                    observer_pid = observer.exec_driver_sql("SELECT pg_backend_pid()").scalar_one()
+                    assert observer.exec_driver_sql("SHOW transaction_isolation").scalar_one() == "read committed"
+                    assert accept_pid != observer_pid
+                    verified_before_deadline = _clock(observer)
+                    assert verified_before_deadline < deadline
+                    assert _order(reader, oid) == before and _receipt(reader, oid) == []
+                    assert _known(reader, proof, attempt) is evidence.DriverAcceptEvidence.UNKNOWN
+                    _until(lambda: _clock(observer) >= deadline, "outside DB clock did not reach the cutoff")
+                    timing_out = pool.submit(resume.store_timeout, timeout_engine, offered)
+                    assert timeout_started.wait(5), "real timeout never attempted Order row lock"
+                    assert len(waiting) == 1 and waiting[0] not in (accept_pid, observer_pid)
+
+                    def blocked():
+                        return observer.execute(
+                            text("SELECT :holder = ANY(pg_blocking_pids(:waiter))"),
+                            {"holder": accept_pid, "waiter": waiting[0]},
+                        ).scalar_one()
+
+                    _until(blocked, "timeout was not physically blocked by this accept transaction", max_seconds=5)
+                    assert not accepting.done() and not timing_out.done()
+                    assert _order(reader, oid) == before and _receipt(reader, oid) == []
+                    held_after_deadline = _clock(observer)
+                    assert held_after_deadline >= deadline and commit_steps == []
+            finally:
+                allow_completion.set()
+            accepted, timed_out = accepting.result(timeout=8), timing_out.result(timeout=8)
+    finally:
+        if event.contains(writer, "after_cursor_execute", saw_final_check):
+            event.remove(writer, "after_cursor_execute", saw_final_check)
+        if event.contains(timeout_engine, "before_cursor_execute", saw_timeout_lock):
+            event.remove(timeout_engine, "before_cursor_execute", saw_timeout_lock)
+        timeout_engine.dispose()
+
+    after = _order(reader, oid)
+    assert _children(reader, oid) == passenger_receipt
+    if finish == "commit":
+        assert commit_steps == ["committed"] and accepted is assignment.SealedAcceptance.ACCEPTED
+        assert timed_out is None
+        assert after["status"] is S.accepted and after["driver_id"] == driver
+        assert after["accepted_at"] <= verified_before_deadline < deadline <= held_after_deadline
+        assert all(after[name] is None for name in resume._MARKERS)
+        assert len(_receipt(reader, oid)) == 1 and _known(reader, proof, attempt) is evidence.DriverAcceptEvidence.COMMITTED
+    else:
+        assert commit_steps == ["rolled_back"] and accepted is assignment.SealedAcceptance.UNKNOWN
+        assert timed_out is not None and resume._state(timed_out)["status"] is S.cancelled
+        assert after["status"] is S.cancelled and after["driver_id"] is None
+        assert after["cancel_reason"] == "route_resume_timeout" and after["cancelled_at"] >= deadline
+        assert all(after[name] is None for name in resume._MARKERS)
+        assert _receipt(reader, oid) == [] and _known(reader, proof, attempt) is evidence.DriverAcceptEvidence.UNKNOWN
+    assert resume.store_timeout(reader, offered) is None  # same old marker cannot close twice
