@@ -29,6 +29,7 @@ KNOWN_UI = set(BASHKIR) | set(BASHKIR.values()) | {
 }
 OBSERVER_LABELS = base64.b64encode(json.dumps(sorted(KNOWN_UI), ensure_ascii=False).encode()).decode()
 last_observation = "unread"
+scroll_evidence = []
 
 
 def local_label(text):
@@ -106,26 +107,34 @@ def label(value):
 
 def find(predicate, description, scroll=False, native=False):
     earlier = scroll == "earlier"
-    previous_view = None
+    swipe_count = 0
     def probe():
-        nonlocal earlier, previous_view
+        nonlocal earlier, swipe_count
         nodes = tree(native=native)
         for node in nodes:
             if predicate(node) and len(bounds(node)) == 4:
-                return [node]  # a leaf Element by itself is falsey
+                return [node]
         if scroll:
-            candidates = [bounds(n) for n in nodes if n.get("scrollable") == "true"]
-            candidates = [b for b in candidates if len(b) == 4 and b[3] - b[1] > 120]
+            candidates = [n for n in nodes if n.get("scrollable") == "true" and len(bounds(n)) == 4
+                          and bounds(n)[3] - bounds(n)[1] > 120]
             if candidates:
-                left, top, right, bottom = max(candidates, key=lambda b: b[3] - b[1])
-                x = (left + right) // 2
-                pad = (bottom - top) // 6
-                visible = tuple((n.get("text"), n.get("bounds")) for n in nodes if n.get("text"))
-                if previous_view == visible:
-                    earlier = not earlier
-                previous_view = visible
+                container = max(candidates, key=lambda n: bounds(n)[3] - bounds(n)[1])
+                left, top, right, bottom = bounds(container)
+                offset, maximum = container.get("scroll-offset"), container.get("scroll-maximum")
+                # The route header is fixed and stays identical as the interior cards scroll.
+                # Only reverse at an observed boundary of the actual vertical scroll container.
+                if offset is not None and maximum is not None and maximum > 0:
+                    if earlier and offset <= 0:
+                        earlier = False
+                    elif not earlier and offset >= maximum:
+                        earlier = True
+                x = left + (right - left) * (3 if swipe_count % 2 else 2) // 5
+                pad = (bottom - top) // 7
                 start, end = (top + pad, bottom - pad) if earlier else (bottom - pad, top + pad)
+                scroll_evidence.append({"offset": offset, "maximum": maximum, "from_y": start, "to_y": end})
+                del scroll_evidence[:-25]
                 shell("input", "swipe", x, start, x, end, 350)
+                swipe_count += 1
         return None
     return until(probe, description)[0]
 
@@ -495,7 +504,7 @@ def save_visible_controls(folder, scenario):
                          "clickable": node.get("clickable"), "scrollable": node.get("scrollable")})
     (folder / f"draft-{scenario}-controls.json").write_text(json.dumps({
         "display": shell("wm", "size"), "density": shell("wm", "density"), "observer": last_observation,
-        "visible": rows[:160],
+        "visible": rows[:160], "recent_scroll_actions": scroll_evidence,
     }, ensure_ascii=False, indent=2))
 
 

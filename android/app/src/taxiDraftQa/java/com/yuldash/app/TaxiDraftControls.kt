@@ -121,7 +121,8 @@ internal object TaxiDraftControls {
         val editable = SemanticsActions.SetText in config
         val role = config.getOrNull(SemanticsProperties.Role)
         val clickable = SemanticsActions.OnClick in config
-        val scrollable = SemanticsProperties.VerticalScrollAxisRange in config
+        val verticalRange = config.getOrNull(SemanticsProperties.VerticalScrollAxisRange)
+        val scrollable = verticalRange != null
         val checkable = SemanticsProperties.ToggleableState in config || role == Role.RadioButton
         val enabled = SemanticsProperties.Disabled !in config
         val text = config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text }.filter(::allowed)
@@ -139,6 +140,13 @@ internal object TaxiDraftControls {
         if (clickable || scrollable || checkable || editable || text.isNotEmpty() || descriptions.isNotEmpty()) {
             val row = node(screen, className, text.singleOrNull().orEmpty(), descriptions.singleOrNull().orEmpty(),
                 clickable = clickable, scrollable = scrollable, checkable = checkable, enabled = enabled)
+            verticalRange?.let { range ->
+                val value = range.value()
+                val maximum = range.maxValue()
+                if (value.isFinite() && maximum.isFinite()) {
+                    row.put("scroll-offset", value.roundToInt()).put("scroll-maximum", maximum.roundToInt())
+                }
+            }
             if (seen.add(row.toString())) nodes.put(row)
         }
         for (child in semantics.children) collect(child, origin, clip, nodes, seen)
