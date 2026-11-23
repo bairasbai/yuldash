@@ -2,13 +2,17 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {fileURLToPath} from 'node:url';
 import {build} from 'esbuild';
+import {matchPath} from 'react-router-dom';
+import {ofType} from './shallow-harness.mjs';
 
 // Execute the unchanged production gate body; replace only hook/view boundaries.
 const source=readFileSync(new URL('../src/App.tsx',import.meta.url),'utf8').replace(/\r\n/g,'\n');
 const gate=source.match(/function TaxiGuestGate[\s\S]*?\n}\n/)?.[0];
 assert.ok(gate,'production TaxiGuestGate must be located');
+const shell=source.match(/function Shell\(\)[\s\S]*?\n}\n/)?.[0];
+assert.ok(shell,'production Shell must be located');
 const FEATURES_OFF={rides:true,taxi:false,courier:false,parcels:false,ads:false,business:false};
-const h=globalThis.__taxiUnavailable={status:'unavailable',features:{...FEATURES_OFF,ready:true},ba:false};
+const h=globalThis.__taxiUnavailable={status:'unavailable',features:{...FEATURES_OFF,ready:true},ba:false,matchPath};
 const boundary=`
 import {isTaxiOpen} from './src/featureRules.ts';
 const useFeatures=()=>globalThis.__taxiUnavailable.features;
@@ -17,10 +21,18 @@ const useLang=()=>({lang:globalThis.__taxiUnavailable.ba?'ba':'ru',appText:(ru,b
 const useNavigate=()=>()=>{};
 const LoadingList='loading';
 const taxiGateView=({ru})=>({type:'public-soon',props:{ru}});
+const useLocation=()=>({pathname:globalThis.__taxiUnavailable.path});
+const matchPath=globalThis.__taxiUnavailable.matchPath;
+const localTaxiConsentContext=()=>globalThis.__taxiUnavailable.pilot;
+const useTaxiOrderOnScreen=()=>false, useEffect=()=>{}, useState=initial=>[initial,()=>{}];
+const OfflineBanner="OfflineBanner", UpdateBanner="UpdateBanner", OutboxRefusalBanner="OutboxRefusalBanner",
+  ActiveTaxiBar="ActiveTaxiBar", Outlet="Outlet", Suspense="Suspense", InstallPrompt="InstallPrompt", BottomNav="BottomNav";
+${shell}
 ${gate}
+export {Shell};
 export default TaxiGuestGate;`;
 const result=await build({stdin:{contents:boundary,resolveDir:fileURLToPath(new URL('../',import.meta.url)),loader:'tsx'},bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',plugins:[{name:'jsx-boundary',setup(b){b.onResolve({filter:/^react\/jsx-runtime$/},()=>({path:'jsx',namespace:'mock'}));b.onLoad({filter:/.*/,namespace:'mock'},()=>({contents:`export const Fragment='fragment';export const jsx=(type,props)=>({type,props}),jsxs=jsx;`}));}}]});
-const {default:Gate}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
+const {default:Gate,Shell}=await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'));
 let count=0,failures=0;
 function check(label,fn){count++;try{fn();}catch(e){failures++;console.error(label+': '+e.message);}}
 for(const ba of [false,true]){
@@ -37,5 +49,15 @@ for(const ba of [false,true]){
   }
   h.status='authed';h.features={...FEATURES_OFF,ready:true};
   check(`${ba}: verified owner with OFF can restore old order`,()=>assert.equal(Gate({children:'AUTH-GUARDED-ORDER'}).props.children,'AUTH-GUARDED-ORDER'));
+}
+// An invisible mounted live-trip bar still fetches the generic trip list.
+for(const [path,requested,environment,expectBar] of [
+  ['/taxi',true,'local',false], ['/taxi/',true,'local',false],
+  ['/taxi',false,null,true], ['/map',true,'local',true], ['/map',true,null,false],
+]){
+  h.path=path; h.pilot={requested,environment};
+  check(`shell bar at ${path}, requested=${requested}, environment=${environment}`,()=>{
+    assert.equal(ofType(Shell(),'ActiveTaxiBar').length,expectBar?1:0);
+  });
 }
 console.log(`${count} cases, ${failures} failures`);process.exitCode=failures?1:0;

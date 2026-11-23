@@ -21223,3 +21223,17 @@ button.settings-row:active {
   background: var(--surface);
   color: var(--text);
 }
+
+/* Local-only initial-fare consent: existing Canon tokens and 54px CTA. */
+.taxi-consent-fields { display: contents; border: 0; padding: 0; margin: 0; min-width: 0; }
+.taxi-consent-action { flex: 1; min-width: 0; display: grid; gap: var(--space-xs); }
+.taxi-consent-action .taxi-order-footer__cta { width: 100%; }
+.taxi-consent-note { margin: 0 0 var(--space-xs); color: var(--text); font-size: var(--font-caption); line-height: var(--line-caption); }
+
+.taxi-order-footer--consent { align-items: flex-end; }
+
+.taxi-consent-summary { font-size: var(--font-caption); line-height: var(--line-caption); color: var(--text); }
+
+.taxi-consent-select { display: grid; gap: var(--space-xs); color: var(--text); }
+.taxi-consent-select select { font: inherit; color: var(--text); background: var(--surface); }
+.taxi-consent-history { display: inline-flex; align-items: center; min-height: 44px; color: var(--text); }
