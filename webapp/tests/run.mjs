@@ -57,6 +57,7 @@ const ALL_SUITES = [
   { test: "taxi-consent-test", src: null, out: null, bundle: false },
   { test: "taxi-consent-recovery-ui-test", src: null, out: null, bundle: false },
   { test: "taxi-consent-reload-test", src: null, out: null, bundle: false },
+  { test: "taxi-driver-recovery-journal-test", src: null, out: null, bundle: false },
   { test: "courier-goods-error-test", src: null, out: null, bundle: false },
   { test: "tab-personal-storage-test", src: null, out: null, bundle: false },
   { test: "outbox-session-boundary-test", src: null, out: null, bundle: false },
