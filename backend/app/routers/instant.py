@@ -10,7 +10,7 @@ from uuid import UUID
 
 from fastapi import APIRouter, Body, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
-from sqlalchemy import update
+from sqlalchemy import and_, update
 from sqlmodel import Session, select
 
 from ..antifraud import moderate_open_text
@@ -22,6 +22,7 @@ from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, Pric
                       Rating, Settlement, User)
 from ..safety_logic import account_paused, ensure_active
 from ..security import current_user, lock_refresh_user, require_telegram_admin
+from ..taxi_route_resume import _MARKERS as _ROUTE_RESUME_MARKERS
 from ..timeutil import utcnow
 from .referral import reward_driver_referral
 from .. import car_class
@@ -1160,18 +1161,47 @@ def wait_for_driver(order_id: int, user: User = Depends(current_user),
     не исключение, а норма: человек получал отказ за 2 секунды и уходил к конкуренту.
     Теперь пассажир ставит заказ в очередь, а фоновый воркер (app/taxi_worker.py) спокойно
     перезапускает поиск до order_wait_max_min минут и пушит, как только машина найдётся."""
-    order = session.get(InstantOrder, order_id)
-    if not order:
+    table = InstantOrder.__table__
+    c = table.c
+    owner_id = user.id
+    columns = (c.id, c.passenger_id, c.status, c.wait_until, c.searching_at, c.expired_at,
+               c.search_round, c.retry_count, c.driver_id, c.offered_at,
+               c.current_offer_driver_id, c.offer_expires_at)
+    unmarked = and_(*(c[name].is_(None) for name in _ROUTE_RESUME_MARKERS))
+    # Scalar SQL, not an ORM identity-map read or a getter that reconciles a
+    # live offer. Check presence rather than decoding potentially partial
+    # or malformed resume values. Do not disclose markers to another actor.
+    snapshot = session.execute(select(*columns, unmarked).where(c.id == order_id)).one_or_none()
+    if snapshot is None:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
-    if order.passenger_id != user.id:                     # анти-IDOR: ждать можно только свой заказ
+    if snapshot.passenger_id != owner_id:
         raise herr(403, "Это не твой заказ", "Был һинең заказың түгел")
-    if order.status not in (isv.S.expired, isv.S.searching):
+    if snapshot.status not in (S.expired, S.searching):
         raise herr(409, "Ожидание доступно, пока машина не найдена",
                    "Машина табылғанға тиклем генә көтөп була")
-    order.wait_until = utcnow() + timedelta(minutes=isv.settings.order_wait_max_min)
-    session.add(order)
+    if not snapshot[-1]:
+        raise herr(409, "Для этого заказа обычное ожидание недоступно.",
+                   "Был заказ өсөн ғәҙәти көтөү мөмкин түгел.", code="taxi_route_resume_wait_unavailable")
+
+    def conflict():
+        return herr(409, "Заказ изменился. Проверь его ещё раз.", "Заказ үҙгәрҙе. Уны яңынан тикшер.",
+                    code="wait_snapshot_conflict")
+
+    wait_until = utcnow() + timedelta(minutes=isv.settings.order_wait_max_min)
+    saved = session.execute(update(table).where(
+        *(column == value for column, value in zip(columns, snapshot[:-1], strict=True)),
+        unmarked,
+    ).values(wait_until=wait_until).returning(c.id)).scalar_one_or_none()
+    if saved is None:
+        raise conflict()
     session.commit()
-    session.refresh(order)
+    # A concurrent owner change after this commit must not expose someone
+    # else's order. Avoid refreshing by id without the owner predicate.
+    order = session.exec(select(InstantOrder).where(
+        c.id == saved, c.passenger_id == owner_id, unmarked,
+    ).execution_options(populate_existing=True)).one_or_none()
+    if order is None:
+        raise conflict()
     return {"ok": True, "wait_until": order.wait_until,
             "wait_minutes": isv.settings.order_wait_max_min,
             "order": isv.order_payload(session, order, user)}
