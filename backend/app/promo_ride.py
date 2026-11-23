@@ -282,8 +282,8 @@ def _closed_wait_predicates(snapshot: tuple) -> tuple:
     )
 
 
-# Only close_stuck_orders supplies this evidence. Include both the old
-# movement clocks and the written closure identity; no address/route fields.
+# Private terminal-ownership evidence. Include movement clocks, schedule,
+# owner, authorized terminal event and promo state; no address/route fields.
 _STUCK_CLOSE_FIELDS = (
     "id", "passenger_id", "driver_id", "status", "created_at", "searching_at",
     "offered_at", "accepted_at", "arriving_at", "onboard_at", "waiting_started_at",
@@ -309,8 +309,16 @@ def _closed_stuck_predicates(snapshot: tuple) -> tuple:
     )
 
 
+def _closed_scheduled_suspension_predicates(snapshot: tuple) -> tuple:
+    return (
+        InstantOrder.status == InstantOrderStatus.cancelled, InstantOrder.wait_until.is_(None),
+        InstantOrder.cancel_by == "passenger", InstantOrder.cancel_reason == "passenger_suspended",
+        InstantOrder.cancelled_at.is_not(None), *_stuck_close_identity(snapshot),
+    )
+
+
 def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None = None,
-            _closed_stuck: tuple | None = None) -> bool:
+            _closed_stuck: tuple | None = None, _closed_scheduled_suspension: tuple | None = None) -> bool:
     """Поездка не состоялась → скидка возвращается пассажиру (не сгорает). Идемпотентно.
 
     Возврат True — скидка действительно снята с этого заказа. Одного переданного id
@@ -326,6 +334,11 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
     closure_guard = _closed_wait_predicates(_closed_wait) if _closed_wait is not None else ()
     if _closed_stuck is not None:
         closure_guard += _closed_stuck_predicates(_closed_stuck)
+    if _closed_scheduled_suspension is not None:
+        closure_guard += _closed_scheduled_suspension_predicates(_closed_scheduled_suspension)
+        if red is not None and red.user_id != order.passenger_id:
+            session.rollback()
+            return False
     cleared = session.execute(
         update(InstantOrder).where(
             InstantOrder.id == order.id,
@@ -338,10 +351,15 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
         session.rollback()
         return False
     if red is not None:
-        session.execute(
-            update(PromoRedemption).where(PromoRedemption.id == red.id)
-            .values(used_order_id=None, used_at=None)
-        )
+        release_redemption = update(PromoRedemption).where(PromoRedemption.id == red.id)
+        if _closed_scheduled_suspension is not None:
+            release_redemption = release_redemption.where(
+                PromoRedemption.used_order_id == order.id, PromoRedemption.user_id == order.passenger_id,
+            )
+        result = session.execute(release_redemption.values(used_order_id=None, used_at=None))
+        if _closed_scheduled_suspension is not None and result.rowcount != 1:
+            session.rollback()
+            return False
     session.commit()
     return True
 
