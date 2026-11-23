@@ -61,12 +61,32 @@ class TaxiPostTripInstrumentedTest {
             }
         }
 
-        composeRule.onNodeWithText("Детали поездки").assertIsDisplayed()
-        composeRule.onAllNodesWithText("350 ₽").onFirst().assertIsDisplayed()
-        composeRule.onNodeWithText("ул. Ленина, 12").performScrollTo().assertIsDisplayed()
-        composeRule.onNodeWithText("Сказать «рәхмәт»").performScrollTo().assertIsDisplayed()
+        receiptAssertion(ReceiptStage.HEADER) {
+            composeRule.onNodeWithText("Детали поездки").assertIsDisplayed()
+        }
+        receiptAssertion(ReceiptStage.AMOUNT) {
+            composeRule.onAllNodesWithText("350 ₽").onFirst().assertIsDisplayed()
+        }
+        receiptAssertion(ReceiptStage.ADDRESS) {
+            composeRule.onNodeWithText("ул. Ленина, 12").performScrollTo().assertIsDisplayed()
+        }
+        receiptAssertion(ReceiptStage.THANKS) {
+            composeRule.onNodeWithText("Сказать «рәхмәт»").performScrollTo().assertIsDisplayed()
+        }
         composeRule.waitForIdle()
         holdIfRequested()
+    }
+
+    private enum class ReceiptStage { HEADER, AMOUNT, ADDRESS, THANKS }
+
+    private fun receiptAssertion(stage: ReceiptStage, assertion: () -> Unit) {
+        try {
+            assertion()
+        } catch (failure: AssertionError) {
+            // Emit one fixed marker only when the assertion group fails. The isolated
+            // harness may report the marker, never its private cause or semantics tree.
+            throw AssertionError("TF11_RECEIPT_ASSERTION_${stage.name}", failure)
+        }
     }
 
     private fun holdIfRequested() {
