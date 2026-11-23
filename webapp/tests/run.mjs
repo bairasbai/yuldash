@@ -166,6 +166,7 @@ const ALL_SUITES = [
   { test: "driver-cancelled-order-test", src: null, out: null, bundle: false },
   // Медленный accept не сопровождается противоречивым decline от таймера.
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
+  { test: "driver-offer-v2-test", src: null, out: null, bundle: false },
   // Чат поездки — отдельная страница: непрочитанные, «лента внизу», клавиатура (логика)…
   { test: "trip-chat-test", src: null, out: null, bundle: false },
   // …и структура: строка ввода прибита к низу экрана, входы из поездки и списка чатов.
