@@ -282,7 +282,35 @@ def _closed_wait_predicates(snapshot: tuple) -> tuple:
     )
 
 
-def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None = None) -> bool:
+# Only close_stuck_orders supplies this evidence. Include both the old
+# movement clocks and the written closure identity; no address/route fields.
+_STUCK_CLOSE_FIELDS = (
+    "id", "passenger_id", "driver_id", "status", "created_at", "searching_at",
+    "offered_at", "accepted_at", "arriving_at", "onboard_at", "waiting_started_at",
+    "stop_started_at", "done_at", "expired_at", "cancelled_at", "cancel_by", "cancel_reason",
+    "current_offer_driver_id", "offer_expires_at", "search_round", "reassigns",
+    "scheduled_at", "wait_until", "retry_count", "promo_discount_kop",
+)
+_STUCK_CLOSE_COLUMNS = tuple(getattr(InstantOrder, name) for name in _STUCK_CLOSE_FIELDS)
+
+
+def _stuck_close_identity(snapshot: tuple) -> tuple:
+    return (
+        *(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS),
+        *(col == value for col, value in zip(_STUCK_CLOSE_COLUMNS, snapshot, strict=True)),
+    )
+
+
+def _closed_stuck_predicates(snapshot: tuple) -> tuple:
+    return (
+        InstantOrder.status.in_(_DEAD), InstantOrder.wait_until.is_(None),
+        InstantOrder.cancel_by == "system", InstantOrder.cancel_reason == "stuck_timeout",
+        InstantOrder.cancelled_at.is_not(None), *_stuck_close_identity(snapshot),
+    )
+
+
+def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None = None,
+            _closed_stuck: tuple | None = None) -> bool:
     """Поездка не состоялась → скидка возвращается пассажиру (не сгорает). Идемпотентно.
 
     Возврат True — скидка действительно снята с этого заказа. Одного переданного id
@@ -296,6 +324,8 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
         select(PromoRedemption).where(PromoRedemption.used_order_id == order.id).with_for_update()
     ).first()
     closure_guard = _closed_wait_predicates(_closed_wait) if _closed_wait is not None else ()
+    if _closed_stuck is not None:
+        closure_guard += _closed_stuck_predicates(_closed_stuck)
     cleared = session.execute(
         update(InstantOrder).where(
             InstantOrder.id == order.id,
@@ -316,7 +346,8 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
     return True
 
 
-def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None) -> int:
+def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None,
+                _closed_stucks: dict[int, tuple] | None = None) -> int:
     """Вернуть скидку по списку заказов, закончившихся без поездки. Своя сессия.
 
     Возврат обещан в шапке модуля — «поездка не состоялась → скидка возвращается», — но
@@ -334,18 +365,24 @@ def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None) -> 
     freed = 0
     with Session(engine) as session:
         for oid in ids:
-            if _closed_waits is None:
+            if _closed_waits is None and _closed_stucks is None:
                 order = session.get(InstantOrder, oid)
                 if order is not None and release(session, order):
                     freed += 1
                 continue
-            evidence = _closed_waits.get(oid)
-            if evidence is None:
-                continue
-            order = session.exec(select(InstantOrder).where(
-                InstantOrder.id == oid, *_closed_wait_predicates(evidence),
-            )).one_or_none()
-            if order is not None and release(session, order, _closed_wait=evidence):
+            guards = []
+            waited = None if _closed_waits is None else _closed_waits.get(oid)
+            stuck = None if _closed_stucks is None else _closed_stucks.get(oid)
+            if _closed_waits is not None:
+                if waited is None:
+                    continue
+                guards.extend(_closed_wait_predicates(waited))
+            if _closed_stucks is not None:
+                if stuck is None:
+                    continue
+                guards.extend(_closed_stuck_predicates(stuck))
+            order = session.exec(select(InstantOrder).where(InstantOrder.id == oid, *guards)).one_or_none()
+            if order is not None and release(session, order, _closed_wait=waited, _closed_stuck=stuck):
                 freed += 1
     return freed
 

@@ -45,8 +45,6 @@ from .services import push_notification
 from .taxi_route_resume import _MARKERS as _ROUTE_RESUME_MARKERS
 from .timeutil import utcnow
 
-# Статусы, из которых заказ уже никуда не уедет сам (терминальные).
-_TERMINAL = (S.done, S.cancelled, S.expired)
 # Живые статусы, где заказ ждёт действий человека — именно они могут «зависнуть».
 # `created` тут не случайно: этот статус живёт доли секунды (между записью заказа и запуском
 # поиска), но если ровно там оборвалось — заказ висел в нём ВЕЧНО, а анти-дубль на создании
@@ -55,7 +53,7 @@ _TERMINAL = (S.done, S.cancelled, S.expired)
 _ALIVE = isv.LIVE_ORDER_STATUSES   # общий список «человек сейчас занят» (волна 76)
 
 
-def _last_move_at(o: InstantOrder):
+def _last_move_at(o):
     """Момент последнего осмысленного перехода заказа — от него считаем «завис»."""
     return (o.onboard_at or o.arriving_at or o.accepted_at or o.offered_at
             or o.searching_at or o.created_at)
@@ -93,67 +91,67 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
     (Модель А — платформа их не касается), штрафов не ставим: виноватых тут нет, связь пропала."""
     cutoff = utcnow() - timedelta(hours=settings.order_stuck_hours)
     rows = session.exec(
-        select(InstantOrder).where(
+        select(*promo_ride._STUCK_CLOSE_COLUMNS).where(
             InstantOrder.status.in_(_ALIVE),
             InstantOrder.created_at <= cutoff,          # грубый предфильтр по индексу
+            *isv._legacy_no_resume(),
         ).limit(500)
     ).all()
-    closed = []
-    for o in rows:
-        if _last_move_at(o) > cutoff:
-            continue                                    # двигался недавно — не трогаем
-        if dry_run:
-            closed.append(o.id)
+    if dry_run:
+        return [row.id for row in rows if _last_move_at(row) <= cutoff]
+    closed = {}
+    for old in rows:
+        if _last_move_at(old) > cutoff:
             continue
         try:
-            fresh = session.exec(
-                select(InstantOrder).where(InstantOrder.id == o.id).with_for_update()
-            ).first()
-            if not fresh or fresh.status in _TERMINAL or _last_move_at(fresh) > cutoff:
-                continue                                # успели закрыть/сдвинуть параллельно
-            # onboard/accepted → «отменён системой»; ещё не найден водитель → «истёк».
-            fresh.status = S.cancelled if fresh.driver_id else S.expired
-            fresh.cancel_by = "system"
-            fresh.cancel_reason = "stuck_timeout"
-            fresh.cancelled_at = utcnow()
-            fresh.current_offer_driver_id = None
-            fresh.offer_expires_at = None
-            fresh.wait_until = None
-            session.add(fresh)
+            # Keep the old age priority and status/fee behavior. UPDATE owns
+            # the exact observed closure, including on SQLite without row locks.
+            values = dict(status=S.cancelled if old.driver_id else S.expired,
+                          cancel_by="system", cancel_reason="stuck_timeout", cancelled_at=utcnow(),
+                          current_offer_driver_id=None, offer_expires_at=None, wait_until=None)
+            result = session.execute(update(InstantOrder).where(
+                *promo_ride._stuck_close_identity(tuple(old)),
+            ).values(**values).execution_options(synchronize_session=False, autoflush=False))
+            if result.rowcount != 1:
+                session.rollback()
+                continue
+            evidence = tuple((dict(old._mapping) | values)[name] for name in promo_ride._STUCK_CLOSE_FIELDS)
             session.commit()
-            closed.append(fresh.id)
-            # Близкие, с которыми пассажир поделился поездкой, должны узнать о финале —
-            # особенно об ЭТОМ финале (волна 128). Зухра едет ночью Сибай — Уфа, мама получила
-            # SMS «села в такси». У водителя сел телефон, «Завершена» никто не нажал, и через
-            # шесть часов робот закрывает заказ. Пассажиру и водителю мы пишем, а маме — нет:
-            # для неё последняя новость так и остаётся «села в такси», семь часов назад.
-            # Функция «поделиться поездкой» существует ровно ради случая «что-то пошло не так».
-            try:
-                isv._notify_order_shares(session, fresh, "cancelled")
-            except Exception:  # noqa: BLE001 — SMS вторичны, закрытие заказа важнее
-                pass
-            for uid in {fresh.passenger_id, fresh.driver_id} - {None}:
-                try:
-                    push_notification(
-                        session, uid, "taxi",
-                        "Заказ закрыт", "Заказ ябылды",
-                        "Долго не было связи — заказ закрыли автоматически. "
-                        "Если поездка состоялась, договоритесь напрямую.",
-                        "Оҙаҡ бәйләнеш булманы — заказ автоматик ябылды. Сәфәр булған икән, "
-                        "тура килешегеҙ.",
-                        ref_kind="instant", ref_id=fresh.id,
-                    )
-                except Exception:  # noqa: BLE001 — пуш вторичен
-                    pass
+            closed[old.id] = evidence
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] закрытие зависшего #{o.id}: {type(e).__name__}: {e}")
-    # Поездки не было → промокод возвращаем. Он даётся раз в жизни аккаунта, и сжигать его
-    # за заказ, который закрыла сама система, нечестно (то же правило, что при отмене).
-    # dry-run только показывает кандидатов: отдельная сессия release_ids иначе всё равно
-    # коммитила возврат скидки, хотя статус заказа здесь намеренно не менялся.
-    if not dry_run:
-        promo_ride.release_ids(closed)
-    return closed
+            session.rollback()
+            log.warning(f"[TAXI-WORKER] закрытие зависшего #{old.id}: {type(e).__name__}: {e}")
+            continue
+        guard = promo_ride._closed_stuck_predicates(evidence)
+        try:
+            # Fresh best-effort check before effects; no network under a
+            # writer lock. No claim of atomically delivering SMS/push.
+            fresh = session.exec(select(InstantOrder).where(
+                *guard,
+            ).execution_options(populate_existing=True)).one_or_none()
+            if fresh is None:
+                continue
+            isv._notify_order_shares(session, fresh, "cancelled")
+        except Exception:  # noqa: BLE001 — SMS secondary
+            session.rollback()
+        for uid in {old.passenger_id, old.driver_id} - {None}:
+            try:
+                if session.exec(select(InstantOrder.id).where(*guard)).one_or_none() is None:
+                    break
+                push_notification(
+                    session, uid, "taxi",
+                    "Заказ закрыт", "Заказ ябылды",
+                    "Долго не было связи — заказ закрыли автоматически. "
+                    "Если поездка состоялась, договоритесь напрямую.",
+                    "Оҙаҡ бәйләнеш булманы — заказ автоматик ябылды. Сәфәр булған икән, "
+                    "тура килешегеҙ.",
+                    ref_kind="instant", ref_id=old.id,
+                )
+            except Exception:  # noqa: BLE001 — push secondary
+                session.rollback()
+    # Release using the existing PromoRedemption -> Order lock order.
+    promo_ride.release_ids(closed, _closed_stucks=closed)
+    return list(closed)
 
 
 # ----------------------------- 3. Очередь «рядом никого» -----------------------------
