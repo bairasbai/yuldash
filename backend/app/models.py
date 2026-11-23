@@ -1099,6 +1099,12 @@ class InstantOrder(SQLModel, table=True):
     __table_args__ = (
         Index("uq_taxi_consent_owner_key", "passenger_id", "consent_request_key", unique=True),
         Index("uq_taxi_consent_quote", "consent_quote_id", unique=True),
+        Index("ix_instantorder_route_resume_ready", "route_resume_ready_at", "id",
+              sqlite_where=text("route_resume_id IS NOT NULL AND status = 'searching'"),
+              postgresql_where=text("route_resume_id IS NOT NULL AND status = 'searching'")),
+        Index("ix_instantorder_route_resume_deadline", "route_resume_deadline_at", "id",
+              sqlite_where=text("route_resume_id IS NOT NULL AND status IN ('searching', 'offered')"),
+              postgresql_where=text("route_resume_id IS NOT NULL AND status IN ('searching', 'offered')")),
     )
     id: Optional[int] = Field(default=None, primary_key=True)
     passenger_id: int = Field(index=True, foreign_key="user.id")
@@ -1107,6 +1113,13 @@ class InstantOrder(SQLModel, table=True):
     consent_request_digest: Optional[str] = Field(default=None, max_length=64, exclude=True)
     consent_quote_id: Optional[str] = Field(default=None, max_length=36, exclude=True)
     consent_snapshot_json: Optional[str] = Field(default=None, exclude=True)
+    # Inactive internal route-retirement handoff. No public model projection.
+    route_resume_id: Optional[str] = Field(default=None, max_length=32, exclude=True, repr=False)
+    route_resume_previous_driver_id: Optional[int] = Field(default=None, exclude=True, repr=False)
+    route_resume_retired_at: Optional[datetime] = Field(default=None, exclude=True, repr=False)
+    route_resume_deadline_at: Optional[datetime] = Field(default=None, exclude=True, repr=False)
+    route_resume_ready_at: Optional[datetime] = Field(default=None, exclude=True, repr=False)
+    route_resume_claim_id: Optional[str] = Field(default=None, max_length=32, exclude=True, repr=False)
     # Точки А (откуда) и Б (куда)
     from_lat: float = 0.0
     from_lng: float = 0.0
