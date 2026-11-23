@@ -1,15 +1,20 @@
 """Uncalled sealed acceptance storage after trusted driver admission; not an API."""
-from contextlib import contextmanager
-from enum import Enum
 import hmac
+from contextlib import contextmanager
+from datetime import datetime
+from enum import Enum
 
 from sqlalchemy import DateTime, literal, select, type_coerce, update
 from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 
-from . import taxi_marked_offer_card as card, taxi_route_resume as resume, taxi_sealed_offer_card as sealed
-from .models import InstantOrderStatus as S, User
+from . import taxi_driver_accept_outcome as outcome
+from . import taxi_marked_offer_card as card
+from . import taxi_route_resume as resume
+from . import taxi_sealed_offer_card as sealed
+from .models import InstantOrderStatus as S
+from .models import User
 from .taxi_sealed_resume_claim import _upper_clock
 
 _ORDER = resume._ORDER
@@ -67,7 +72,7 @@ def _other_active(order_id, driver_id):
     ).exists()
 
 
-def _accept_locked(conn, key, proof, *, owner_id, order_id, driver_id):
+def _accept_locked(conn, key, proof, *, owner_id, order_id, driver_id, receipt):
     observation = sealed._read_sealed_offer(conn, key, owner_id=owner_id, order_id=order_id, driver_id=driver_id)
     if observation is None or not hmac.compare_digest(proof._digest, observation._proof._digest):
         raise _Unresolved
@@ -103,18 +108,24 @@ def _accept_locked(conn, key, proof, *, owner_id, order_id, driver_id):
         # SQLite RETURNING doesn't include AFTER triggers. Recheck exact
         # permitted fields, both original clocks and financially empty row.
         raise _Unresolved
+    if receipt is not None:
+        attempt_id, expires_at = receipt
+        staged = outcome.stage_committed_acceptance(
+            conn, key, driver_id=driver_id, order_id=order_id, attempt_id=attempt_id,
+            proof=proof, accepted_at=actual_at, expires_at=expires_at,
+        )
+        # Receipt insertion is also a write. Reapply the same route/fare,
+        # role, payment and deadline fences after its possible triggers.
+        if staged is not outcome.StageResult.STAGED or conn.scalar(select(_C.id).where(
+            *_same(values), *stable_fences,
+        )) != order_id:
+            raise _Unresolved
 
 
-def accept_sealed_offer(
+def _accept(
     engine: Engine, key: bytes, proof: sealed.SealedOfferCardProof | None, *,
-    owner_id: int, order_id: int, driver_id: int,
+    owner_id: int, order_id: int, driver_id: int, receipt: tuple[str, datetime] | None,
 ) -> SealedAcceptance:
-    """Only trusted authenticated and already admitted driver context may call.
-
-    No caller exists. Standing, eligibility and transport authentication must
-    be owned by a future caller; mere presence of a User or valid proof is
-    not admission. UNKNOWN never authorizes a new attempt or proves absence.
-    """
     if (type(proof) is not sealed.SealedOfferCardProof
             or type(proof._digest) is not bytes or len(proof._digest) != 32
             or type(key) is not bytes or len(key) < 16
@@ -127,7 +138,32 @@ def accept_sealed_offer(
         return SealedAcceptance.UNKNOWN
     try:
         with _owned_assignment(engine, driver_id=driver_id, order_id=order_id) as conn:
-            _accept_locked(conn, key, proof, owner_id=owner_id, order_id=order_id, driver_id=driver_id)
+            _accept_locked(conn, key, proof, owner_id=owner_id, order_id=order_id, driver_id=driver_id, receipt=receipt)
     except (_Unresolved, SQLAlchemyError, ValueError, TypeError, OverflowError):
         return SealedAcceptance.UNKNOWN
     return SealedAcceptance.ACCEPTED
+
+
+def accept_sealed_offer(
+    engine: Engine, key: bytes, proof: sealed.SealedOfferCardProof | None, *,
+    owner_id: int, order_id: int, driver_id: int,
+) -> SealedAcceptance:
+    """Inactive assignment-only witness for pre-receipt tests; not a workflow."""
+    return _accept(engine, key, proof, owner_id=owner_id, order_id=order_id, driver_id=driver_id, receipt=None)
+
+
+def accept_sealed_offer_with_outcome(
+    engine: Engine, key: bytes, proof: sealed.SealedOfferCardProof | None, *,
+    owner_id: int, order_id: int, driver_id: int, attempt_id: str, expires_at: datetime,
+) -> SealedAcceptance:
+    """Inactive assignment plus exact driver evidence in one transaction.
+
+    A future trusted caller owns authentication, eligibility, admission and
+    expiry policy. UNKNOWN is not permission to retry or evidence of absence.
+    A positive result is returned only after an acknowledged database commit.
+    """
+    if (not resume._utc(expires_at)
+            or outcome._binding(key, driver_id, order_id, attempt_id, proof) is None):
+        return SealedAcceptance.UNKNOWN
+    return _accept(engine, key, proof, owner_id=owner_id, order_id=order_id,
+                   driver_id=driver_id, receipt=(attempt_id, expires_at))

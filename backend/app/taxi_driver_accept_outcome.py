@@ -115,7 +115,17 @@ def stage_committed_acceptance(
         )
         statement = (insert(_ROW).from_select(_FIELDS, source)
                      .on_conflict_do_nothing(index_elements=_KEY).returning(_C.order_id))
-        if conn.execute(statement).scalar_one_or_none() == order_id:
+        if conn.execute(statement).scalar_one_or_none() != order_id:
+            return StageResult.UNKNOWN
+        # RETURNING can precede an AFTER trigger. Don't acknowledge missing,
+        # changed or prematurely expired evidence inside the owning transaction.
+        staged = conn.execute(select(_C.binding, _C.expires_at).where(
+            _C.driver_id == driver_id, _C.order_id == order_id, _C.attempt_id == attempt_id,
+            _C.expires_at == expires_at, _C.expires_at > _expiry_clock(conn),
+        )).one_or_none()
+        if (staged is not None and staged.expires_at == expires_at
+                and isinstance(staged.binding, (bytes, memoryview))
+                and hmac.compare_digest(staged.binding, binding)):
             return StageResult.STAGED
     except (SQLAlchemyError, ValueError, TypeError):
         pass
