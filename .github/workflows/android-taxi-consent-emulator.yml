@@ -57,6 +57,8 @@ jobs:
         run: bash gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --stacktrace
       - name: Run consent state, Compose and HTTP tests with the local feature enabled
         working-directory: android
+        env:
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://maven-central.storage-download.googleapis.com/maven2
         run: bash gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.Taxi*Consent*Test' -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --stacktrace
       - name: Install backend test dependencies
         run: pip install -r backend/requirements-dev.txt

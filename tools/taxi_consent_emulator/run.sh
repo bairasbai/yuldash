@@ -54,7 +54,13 @@ if [[ -n $baseline_apk ]]; then
     [[ $baseline_hash != "$candidate_hash" ]]
 fi
 adb install -t "${baseline_apk:-$candidate_apk}"
-if [[ ${TAXI_DRAFT_ONLY:-false} != true ]]; then
+if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
+    observer=com.yuldash.qa.taxidraft
+    observer_apks=(android/taxiDraftObserver/build/outputs/apk/debug/*.apk)
+    [[ ${#observer_apks[@]} == 1 ]]
+    adb install -t "${observer_apks[0]}"
+    adb shell pm list instrumentation | tr -d '\r' | grep -F " (target=$observer)" >/dev/null
+else
     adb install -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
 fi
 app_uid=$(adb shell pm list packages -U "$pkg" | tr -d '\r' | awk -v p="package:$pkg" '$1==p {sub(/^uid:/,"",$2); print $2}')

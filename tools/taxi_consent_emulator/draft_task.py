@@ -1,11 +1,11 @@
 """Drive the actual launcher task from outside its process. Run through run.sh on a fresh AVD."""
+import base64
 import json
 import re
 import shlex
 import subprocess
 import sys
 import time
-import xml.etree.ElementTree as ET
 from pathlib import Path
 
 PKG = "com.yuldash.app"
@@ -18,6 +18,17 @@ BASHKIR = {
     "На время": "Ваҡытҡа", "Обратно тоже": "Кире лә", "2 ч": "2 сәғ",
     "Моя позиция": "Минең урын", "Новый заказ": "Яңы заказ", "Убрать остановку": "Туҡталышты алыу",
 }
+
+
+OBSERVER = "com.yuldash.qa.taxidraft/.WindowObserver"
+KNOWN_UI = set(BASHKIR) | set(BASHKIR.values()) | {
+    A, B, "QA Destination", "QA Origin", "QA Alternate Place", "Изменить", "Үҙгәртеү",
+    "Куда едем?", "Ҡайҙа барабыҙ?", "Куда заехать?", "Ҡайҙа инеп сығырға?",
+    "Включи геолокацию", "Геолокацияны ҡабыҙ", "Профиль", "Быстрый заказ", "Тиҙ заказ",
+    "Рассчитать цену", "Хаҡты иҫәпләү", "Сейчас", "Хәҙер",
+}
+OBSERVER_LABELS = base64.b64encode(json.dumps(sorted(KNOWN_UI), ensure_ascii=False).encode()).decode()
+last_observation = "unread"
 
 
 def local_label(text):
@@ -43,16 +54,12 @@ def until(probe, description, timeout=40):
 
 
 def tree():
-    # Only read a file from a successful dump. Never reuse an older screen.
-    path = "/data/local/tmp/taxi-draft-window.xml"
-    shell("rm", "-f", path)
-    result = adb("shell", "uiautomator", "dump", path, check=False)
-    if b"dump" not in result.lower():
-        return []
-    try:
-        return list(ET.fromstring(adb("exec-out", "cat", path, check=False)).iter("node"))
-    except ET.ParseError:
-        return []
+    global last_observation
+    raw = shell("am", "instrument", "-w", "-r", "-e", "labels", OBSERVER_LABELS, OBSERVER)
+    status = re.search(r"^INSTRUMENTATION_RESULT: observation=([a-zA-Z0-9_-]+)", raw, re.M)
+    last_observation = status[1] if status else "instrumentation-did-not-report"
+    data = re.search(r"^INSTRUMENTATION_RESULT: window_nodes=([A-Za-z0-9+/=]+)", raw, re.M)
+    return json.loads(base64.b64decode(data[1])) if data else []
 
 
 def bounds(node):
@@ -306,7 +313,7 @@ def run(scenario, session, state, results):
     assert shell("getprop", "ro.kernel.qemu") == "1"
     # Keep input/accessibility coordinates aligned with the actual AVD framebuffer.
     shell("wm", "size", "reset")
-    shell("wm", "density", "200")
+    shell("wm", "density", "reset")
     shell("settings", "put", "system", "accelerometer_rotation", 0)
     shell("settings", "put", "system", "user_rotation", 0)
     user = json.loads(session.read_text())
@@ -437,18 +444,15 @@ def run(scenario, session, state, results):
 
 def save_visible_controls(folder, scenario):
     # Retain geometry and known fixture labels only; arbitrary editable text stays on-device.
-    known = set(BASHKIR) | set(BASHKIR.values()) | {
-        A, B, "QA Destination", "QA Origin", "QA Alternate Place", "Изменить", "Үҙгәртеү",
-        "Куда едем?", "Ҡайҙа барабыҙ?", "Куда заехать?", "Ҡайҙа инеп сығырға?",
-    }
     rows = []
     for node in tree():
-        labels = [node.get(k) for k in ("text", "content-desc") if node.get(k) in known]
+        labels = [node.get(k) for k in ("text", "content-desc") if node.get(k) in KNOWN_UI]
         if labels or any(node.get(k) == "true" for k in ("clickable", "scrollable", "checkable")):
             rows.append({"labels": labels, "class": node.get("class"), "bounds": bounds(node),
                          "clickable": node.get("clickable"), "scrollable": node.get("scrollable")})
     (folder / f"draft-{scenario}-controls.json").write_text(json.dumps({
-        "display": shell("wm", "size"), "density": shell("wm", "density"), "visible": rows[:160],
+        "display": shell("wm", "size"), "density": shell("wm", "density"), "observer": last_observation,
+        "visible": rows[:160],
     }, ensure_ascii=False, indent=2))
 
 

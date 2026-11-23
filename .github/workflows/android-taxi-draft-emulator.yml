@@ -7,6 +7,8 @@ on:
       - '.github/workflows/android-taxi-draft-emulator.yml'
       - 'tools/taxi_consent_emulator/**'
       - 'android/app/build.gradle.kts'
+      - 'android/settings.gradle.kts'
+      - 'android/taxiDraftObserver/**'
       - 'android/app/src/taxiDraftQa/**'
       - 'android/app/src/main/java/com/yuldash/app/*Taxi*Draft*.kt'
       - 'android/app/src/main/java/com/yuldash/app/InstantOrderScreen.kt'
@@ -57,7 +59,7 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Build the selected production source against the isolated emulator API
         working-directory: android
-        run: bash gradlew :app:assembleDebug --stacktrace
+        run: bash gradlew :app:assembleDebug :taxiDraftObserver:assembleDebug --stacktrace
       - name: Install the local backend test dependencies
         run: pip install -r backend/requirements-dev.txt
       - name: Allow runner access to KVM
@@ -65,6 +67,7 @@ jobs:
       - name: Restore the same Android task after a background process kill
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
+          profile: pixel_2
           api-level: 30
           target: default
           arch: x86_64
