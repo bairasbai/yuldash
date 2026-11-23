@@ -564,9 +564,10 @@ def stack_snapshot(folder, scenario, package):
             traces.append({"trace": name, "main_tid": main, "threads": {k: stack[k] for k in keep if k in stack}})
         if len(traces) >= 3:
             break
+    focus = shell("dumpsys window | grep -m 1 mCurrentFocus=")
     (Path(folder) / ("draft-" + scenario + "-main-thread.json")).write_text(json.dumps({
         "pid": int(identifier) if live else None, "traces": traces,
-        "anr_window": "Application Not Responding" in shell("dumpsys window | grep -m 1 mCurrentFocus="),
+        "anr_window": "Application Not Responding" in focus if focus else None,
         "probe_write_epoch": shell("run-as " + package + " stat -c %Y files/taxi-consent-qa/controls.json"),
     }, indent=2))
 
@@ -576,10 +577,15 @@ if __name__ == "__main__":
     try:
         run(scenario, Path(session), Path(state), Path(folder))
     except Exception:
-        stack_snapshot(folder, scenario, PKG)
-        screenshot(Path(folder), "draft-" + scenario + "-failure")
-        try:
-            save_visible_controls(Path(folder), scenario)
-        except (AssertionError, subprocess.SubprocessError):
-            pass  # Keep the original cause and the earlier thread state.
+        # An unresponsive emulator can also time out while collecting evidence.
+        # Keep the original failure even if only some diagnostics can be saved.
+        for capture in (
+            lambda: stack_snapshot(folder, scenario, PKG),
+            lambda: screenshot(Path(folder), "draft-" + scenario + "-failure"),
+            lambda: save_visible_controls(Path(folder), scenario),
+        ):
+            try:
+                capture()
+            except Exception as diagnostic_error:
+                print("Failed to collect draft diagnostic:", type(diagnostic_error).__name__, file=sys.stderr)
         raise

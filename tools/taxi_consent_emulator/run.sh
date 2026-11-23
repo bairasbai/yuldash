@@ -16,16 +16,26 @@ cleanup() {
         if [[ -s ${state:-} ]]; then
             jq '{schedule, schedule_http, orders, order_status, activate}' "$state" > "$results/$case_name-failure-state.json" || true
         fi
-        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active scheduled-form; do
-            if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
-                adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
-            fi
-        done
-        adb shell dumpsys window | grep -m2 -E 'mCurrentFocus=|mFocusedApp=' > "$results/$case_name-foreground.txt" || true
+        # Draft runs already capture their own screenshots. The frame files below
+        # belong only to the consent instrumentation suite.
+        if [[ ${TAXI_DRAFT_ONLY:-false} != true ]]; then
+            for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active scheduled-form; do
+                if timeout -k 1s 3s adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
+                    timeout -k 1s 5s adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
+                fi
+            done
+        fi
+        timeout -k 1s 5s adb shell dumpsys window | grep -m2 -E 'mCurrentFocus=|mFocusedApp=' > "$results/$case_name-foreground.txt" || true
     fi
     if [[ -n "$phase_pid" ]]; then kill "$phase_pid" 2>/dev/null || true; fi
-    if [[ -n "$fixture_pid" ]]; then kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; fi
-    adb reverse --remove tcp:8000 >/dev/null 2>&1 || true
+    if [[ -n "$fixture_pid" ]]; then
+        kill "$fixture_pid" 2>/dev/null || true
+        if ! timeout 5s tail --pid="$fixture_pid" -f /dev/null; then
+            kill -KILL "$fixture_pid" 2>/dev/null || true
+        fi
+        wait "$fixture_pid" 2>/dev/null || true
+    fi
+    timeout -k 1s 5s adb reverse --remove tcp:8000 >/dev/null 2>&1 || true
     rm -rf -- "$private"
 }
 trap cleanup EXIT
