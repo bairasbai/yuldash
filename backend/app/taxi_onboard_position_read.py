@@ -18,7 +18,7 @@ from .livepos import LIVEPOS_TTL_SEC
 from .models import AuthSession, Block, InstantOrder, InstantOrderStatus as S, User, UserRole
 from .taxi_onboard_position_intake import _PrivatePositionWitness, _SESSION_ID, _issued_at
 from .taxi_onboard_waypoint_preview import (
-    OnboardAssignment, OnboardPosition, ProposedStop, _RemainingRoute, _id, _utc_stamp, compare_remaining,
+    OnboardAssignment, OnboardPosition, ProposedStop, _RemainingRoutePair, _id, _utc_stamp, compare_remaining,
 )
 from .taxi_route_resume import _MARKERS
 from .taxi_waypoint_consent import _STATE_COLUMNS, _STATE_FIELDS
@@ -139,7 +139,7 @@ def _read_scope(engine, order_id, passenger, sample=None):
 
 def compare_private_position(
     engine: Engine, *, order_id: int, passenger_access_token: str,
-    read_private: _PrivateRead, requested: tuple[ProposedStop, ...], route: _RemainingRoute,
+    read_private: _PrivateRead, requested: tuple[ProposedStop, ...], route_pair: _RemainingRoutePair,
 ) -> OnboardEtaResult:
     """Compare without writing, and disclose no ETA after loss of scope."""
     passenger = _signed_passenger(passenger_access_token)
@@ -162,9 +162,9 @@ def compare_private_position(
         return _NO_SAMPLE
     state = dict(zip(_STATE_FIELDS, before.fields, strict=True))
 
-    def safe_route(*args):
+    def safe_route_pair(request):
         try:
-            return route(*args)
+            return route_pair(request)
         except Exception:  # provider errors may carry private location; do not reflect/log
             return None
 
@@ -172,7 +172,7 @@ def compare_private_position(
         delta = compare_remaining(
             assignment=before.assignment, position=sample.position, now=before.observed,
             to_lat=state["to_lat"], to_lng=state["to_lng"], stored_waypoints=state["waypoints_json"],
-            standing=state["stop_started_at"] is not None, requested=requested, route=safe_route,
+            standing=state["stop_started_at"] is not None, requested=requested, route_pair=safe_route_pair,
         ).delta_min
     except HTTPException:
         delta = None

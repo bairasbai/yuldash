@@ -8,7 +8,9 @@ from fastapi import HTTPException
 
 from app.livepos import LIVEPOS_TTL_SEC
 from app.pricing import RouteMetrics
-from app.taxi_onboard_waypoint_preview import OnboardAssignment, OnboardPosition, ProposedStop, compare_remaining
+from app.taxi_onboard_waypoint_preview import (
+    OnboardAssignment, OnboardPosition, ProposedStop, _RoutePair, _TrafficBasis, _TrafficRoute, compare_remaining,
+)
 
 _ONBOARD = datetime(2026, 11, 18, 12, 5)
 _NOW = _ONBOARD + timedelta(seconds=10)
@@ -27,23 +29,32 @@ def _inputs(**changes):
         pytest.fail("Ineligible snapshot must not contact routing")
 
     return dict(assignment=_ASSIGNMENT, position=_POSITION, now=_NOW, to_lat=0.03, to_lng=0,
-                stored_waypoints=_STORED, requested=_REQUEST, standing=False, route=must_not_route) | changes
+                stored_waypoints=_STORED, requested=_REQUEST, standing=False, route_pair=must_not_route) | changes
+
+
+def _pair(request, before=7, after=12, *, traffic="realtime"):
+    basis = _TrafficBasis("synthetic-snapshot", request.departure_at, "driving", True)
+    return _RoutePair(
+        _TrafficRoute(request.before, basis, RouteMetrics(4, before, source="yandex", traffic_type=traffic)),
+        _TrafficRoute(request.after, basis, RouteMetrics(4, after, source="yandex", traffic_type=traffic)),
+    )
 
 
 @pytest.mark.parametrize(("before", "after"), ((7, 11.5), (11.5, 7), (8, 8)))
 def test_same_live_sample_only_remaining_stops_and_real_signed_delta(before, after):
     calls = []
 
-    def route(start, stops, finish):
-        calls.append((start, stops, finish))
-        return RouteMetrics(4, before if len(calls) == 1 else after, source="yandex")
+    def route_pair(request):
+        calls.append(request)
+        return _pair(request, before, after)
 
-    evidence = compare_remaining(**_inputs(route=route, standing=True))
+    evidence = compare_remaining(**_inputs(route_pair=route_pair, standing=True))
     assert evidence.delta_min == after - before
-    assert calls == [
-        ((0, 0), ((0.012, 0), (0.016, 0)), (0.03, 0)),
-        ((0, 0), ((0.012, 0), (0.017, 0.006), (0.016, 0)), (0.03, 0)),
-    ]
+    assert len(calls) == 1
+    assert calls[0].before == ((0, 0), (0.012, 0), (0.016, 0), (0.03, 0))
+    assert calls[0].after == ((0, 0), (0.012, 0), (0.017, 0.006), (0.016, 0), (0.03, 0))
+    assert calls[0].departure_at == _NOW
+    assert "0.017" not in repr(calls[0]) and "synthetic-snapshot" not in repr(_pair(calls[0]))
     assert _POSITION.observed_at == _NOW - timedelta(seconds=3)
     assert _STORED == json.dumps([_COMPLETED, _CURRENT, _OTHER])
     assert "lat" not in repr(_POSITION) and str(_ASSIGNMENT.driver_id) not in repr(_ASSIGNMENT)
@@ -90,10 +101,62 @@ def test_ineligible_input_fails_without_routing(changes):
 ))
 @pytest.mark.parametrize("bad_first", (False, True))
 def test_unreliable_route_has_unknown_not_estimated_zero(bad, bad_first):
-    good = RouteMetrics(5, 10, source="yandex")
-    results = iter((bad, good) if bad_first else (good, bad))
-    evidence = compare_remaining(**_inputs(route=lambda *_: next(results)))
-    assert evidence.delta_min is None
+    def route_pair(request):
+        paired = _pair(request)
+        field = "before" if bad_first else "after"
+        return replace(paired, **{field: replace(getattr(paired, field), metrics=bad)})
+
+    assert compare_remaining(**_inputs(route_pair=route_pair)).delta_min is None
+
+
+@pytest.mark.parametrize("change", (
+    {"revision": "other-revision"}, {"revision": ""}, {"revision": " "},
+    {"revision": "x" * 129}, {"mode": "walking"}, {"avoid_tolls": False}, {"avoid_tolls": 1},
+    {"departure_at": _NOW-timedelta(microseconds=1)},
+    {"departure_at": _NOW.replace(tzinfo=timezone.utc)},
+))
+@pytest.mark.parametrize("on_both", (False, True))
+def test_mixed_or_invalid_route_basis_is_unknown(change, on_both):
+    def route_pair(request):
+        paired = _pair(request)
+        new = replace(paired.after, basis=replace(paired.after.basis, **change))
+        old = replace(paired.before, basis=new.basis) if on_both else paired.before
+        return _RoutePair(old, new)
+
+    # If both routes really share a different valid revision or toll policy,
+    # comparison can still use the single exact shared basis for this request.
+    good = on_both and change in ({"revision": "other-revision"}, {"avoid_tolls": False})
+    assert compare_remaining(**_inputs(route_pair=route_pair)).delta_min == (5 if good else None)
+
+
+@pytest.mark.parametrize("case", ("swapped", "reordered", "rounded", "wrong_start", "wrong_end",
+                                  "scalar_bool", "raw_source_pairs", "forecast_and_live", "disabled", "unknown"))
+def test_route_echo_and_traffic_type_required(case):
+    def route_pair(request):
+        pair = _pair(request)
+        old, new = pair.before, pair.after
+        if case == "swapped":
+            return _RoutePair(new, old)
+        if case == "raw_source_pairs":
+            return old.metrics, new.metrics
+        points = new.points
+        changed = {
+            "reordered": (points[0], points[2], points[1], *points[3:]),
+            "rounded": (points[0], points[1], (0.0171, 0.006), *points[3:]),
+            "wrong_start": ((0.0001, 0), *points[1:]),
+            "wrong_end": (*points[:-1], (0.04, 0)),
+            "scalar_bool": ((False, 0), *points[1:]),
+        }
+        if case in changed:
+            return _RoutePair(old, replace(new, points=changed[case]))
+        traffic = "forecast" if case == "forecast_and_live" else case
+        return _RoutePair(old, replace(new, metrics=replace(new.metrics, traffic_type=traffic)))
+
+    assert compare_remaining(**_inputs(route_pair=route_pair)).delta_min is None
+
+
+def test_forecast_comparable_only_at_same_departure_basis():
+    assert compare_remaining(**_inputs(route_pair=lambda request: _pair(request, traffic="forecast"))).delta_min == 5
 
 
 @pytest.mark.parametrize("fields", (
