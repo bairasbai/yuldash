@@ -165,8 +165,20 @@ if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
     [[ -z $baseline_apk ]]
     cases=(restore restore-ba delayed relogin alternate)
     if [[ ${TAXI_DRAFT_VARIANT:-candidate} == baseline ]]; then cases=(baseline); fi
+    if [[ -n ${TAXI_DRAFT_SCENARIO:-} ]]; then
+        selected=()
+        for scenario in "${cases[@]}"; do
+            if [[ $scenario == "$TAXI_DRAFT_SCENARIO" ]]; then selected+=("$scenario"); fi
+        done
+        if [[ ${#selected[@]} != 1 ]]; then
+            echo 'Unknown draft scenario for the selected build.' >&2
+            exit 2
+        fi
+        cases=("${selected[@]}")
+    fi
     for scenario in "${cases[@]}"; do
         case_name="draft-$scenario"
+        echo "Running $case_name"
         adb shell pm clear "$pkg" | grep -q Success
         adb shell run-as "$pkg" mkdir -p "$device_dir"
         session="$private/$case_name-session.json"
