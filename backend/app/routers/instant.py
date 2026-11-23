@@ -844,6 +844,42 @@ def _order_for_view(session: Session, order_id: int, user: User) -> InstantOrder
     return order
 
 
+def _ordinary_live_nominee(order, user_id: int, *, unmarked: bool) -> bool:
+    return (unmarked and order.status == S.offered and order.driver_id is None
+            and order.current_offer_driver_id == user_id and order.offer_expires_at is not None
+            and order.offer_expires_at > utcnow())
+
+
+def _legacy_detail_scope(order, user_id: int, *, unmarked: bool) -> tuple | None:
+    # Owner/assigned access comes from the actual participant ids, never from a
+    # stale nominee. Ignore rotations to other nominees for those two roles.
+    if user_id in (order.passenger_id, order.driver_id):
+        return ("participant", order.passenger_id, order.driver_id, order.status,
+                order.current_offer_driver_id == user_id, isv.phones_open(order))
+    if _ordinary_live_nominee(order, user_id, unmarked=unmarked):
+        return ("nominee", order.passenger_id, order.offered_at, order.offer_expires_at, order.search_round)
+    return None
+
+
+def _legacy_detail_db_scope(session: Session, order_id: int, user_id: int) -> tuple:
+    row = session.exec(select(
+        InstantOrder.passenger_id, InstantOrder.driver_id, InstantOrder.status,
+        InstantOrder.current_offer_driver_id, InstantOrder.offered_at, InstantOrder.offer_expires_at,
+        InstantOrder.search_round, InstantOrder.lost_item_until, InstantOrder.done_at,
+        InstantOrder.created_at, and_(*isv._legacy_no_resume()).label("unmarked"),
+    ).where(InstantOrder.id == order_id)).one_or_none()
+    if row is None:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    scope = _legacy_detail_scope(row, user_id, unmarked=row.unmarked)
+    if scope is None:
+        raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
+    return scope
+
+
+def _unmarked_resume(order: InstantOrder) -> bool:
+    return all(getattr(order, name) is None for name in _ROUTE_RESUME_MARKERS)
+
+
 @router.get("/instant/orders/mine")
 def my_orders(limit: int = 20, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Заказы пассажира (свежие сверху) — для экрана статуса/истории."""
@@ -881,17 +917,20 @@ def driver_offer(response: Response, user: User = Depends(current_user),
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,
             InstantOrder.status == S.offered,
+            InstantOrder.driver_id.is_(None),
+            *isv._legacy_no_resume(),
         ).order_by(InstantOrder.id.desc())
     ).first()
     if not order:
         return {"offer": None}
     order = isv.reconcile_offer(session, order)
-    if order.status != S.offered or order.current_offer_driver_id != user.id:
+    if not _ordinary_live_nominee(order, user.id, unmarked=_unmarked_resume(order)):
         return {"offer": None}
     # Гейт (a) по точке подачи: такси выключено глобально/в этом городе → оффер не показываем.
     if not taxi_mod.availability(session, order.from_lat, order.from_lng)["enabled"]:
         return {"offer": None}
     snapshot = isv.capture_offer_for_accept(order)
+    offered_at, expires_at, search_round = order.offered_at, order.offer_expires_at, order.search_round
     price_final = order.price_final
     payload = isv.order_payload(session, order, user)
     # Scope the proof to the stable persisted route/gross projection actually
@@ -900,16 +939,44 @@ def driver_offer(response: Response, user: User = Depends(current_user),
         tag = isv.offer_card_precondition(snapshot, price_final, user.id, utcnow())
         if tag is not None and payload["driver_gross_kop"] == order.price_estimate * 100:
             payload["offer_card_precondition"] = tag
+    # Rendering can issue its own reads. Do not return a legacy card if a
+    # concurrent edit marked it, or the current driver changed meanwhile.
+    if session.exec(select(InstantOrder.id).where(
+        InstantOrder.id == order.id, InstantOrder.current_offer_driver_id == user.id,
+        InstantOrder.status == S.offered, InstantOrder.driver_id.is_(None),
+        InstantOrder.offered_at == offered_at, InstantOrder.search_round == search_round,
+        InstantOrder.offer_expires_at == expires_at,
+        *isv._legacy_no_resume(),
+    )).one_or_none() is None or expires_at <= utcnow():
+        return {"offer": None}
     return {"offer": payload}
 
 
 @router.get("/instant/orders/{order_id}")
 def get_order(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Детали заказа. По пути разрешаем протухший оффер (ленивый таймаут без фонового воркера)."""
-    order = _order_for_view(session, order_id, user)
-    order = isv.reconcile_offer(session, order)
-    return isv.order_payload(session, order, user)
-
+    # Read marker presence without decoding possibly partial marker values.
+    # Give one fresh render to still-authorized viewers whose phase changed.
+    user_id = user.id
+    for _ in range(2):
+        before = _legacy_detail_db_scope(session, order_id, user_id)
+        order = session.get(InstantOrder, order_id, populate_existing=True)
+        if order is None:
+            raise herr(404, "Заказ не найден", "Заказ табылманы")
+        if _legacy_detail_scope(order, user_id, unmarked=_unmarked_resume(order)) != before:
+            continue
+        order = isv.reconcile_offer(session, order)
+        scope = _legacy_detail_scope(order, user_id, unmarked=_unmarked_resume(order))
+        # Reconciliation may commit a normal offer transition. Do not render
+        # if it removed access or switched the viewer's privacy projection.
+        if scope != _legacy_detail_db_scope(session, order_id, user_id):
+            continue
+        payload = isv.order_payload(session, order, user)
+        if scope == _legacy_detail_db_scope(session, order_id, user_id):
+            return payload
+    # A final fresh authorization distinguishes continued churn from revocation.
+    _legacy_detail_db_scope(session, order_id, user_id)
+    raise herr(409, "Заказ обновился. Повторите запрос", "Заказ яңырҙы. Һорауҙы ҡабатлағыҙ")
 
 class AlternativeIn(BaseModel):
     category: Literal["standard", "comfort", "business", "minivan"]
