@@ -151,9 +151,13 @@ private fun TaxiTripHistoryCard(order: InstantOrderDto, onClick: () -> Unit) {
                         color = CanonText, fontSize = 16.sp, fontWeight = FontWeight.Bold,
                     )
                     Text(
-                        when (order.status) {
-                            "done" -> appText("Поездка завершена", "Сәфәр тамамланды")
-                            "cancelled" -> appText("Отменена", "Кире алынған")
+                        when {
+                            isTaxiRouteResumeTimeout(order.status, order.cancelBy, order.cancelReason) -> appText(
+                                "Не нашли водителя после изменения маршрута",
+                                "Маршрут үҙгәргәндән һуң йөрөтөүсе табылманы",
+                            )
+                            order.status == "done" -> appText("Поездка завершена", "Сәфәр тамамланды")
+                            order.status == "cancelled" -> appText("Отменена", "Кире алынған")
                             else -> appText("Машину не нашли", "Машина табылманы")
                         },
                         color = if (done) CanonMuted else CanonWarn, fontSize = 12.sp,

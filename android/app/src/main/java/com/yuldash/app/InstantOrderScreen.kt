@@ -1933,12 +1933,13 @@ private fun InstantOrderContent(
                         )
                     }
                     "cancelled" -> current?.let { o ->
+                        val routeResumeTimedOut = isTaxiRouteResumeTimeout(o.status, o.cancelBy, o.cancelReason)
                         InstantFinalCard(
                             icon = Icons.Default.Close,
-                            title = if (o.noShow) appText("Поездка не состоялась", "Сәфәр булманы")
-                            else appText("Заказ отменён", "Заказ ҡабул ителмәне"),
+                            title = taxiPassengerCancelledTitle(routeResumeTimedOut, o.noShow),
                             // Честные тексты про штраф/страйки (Модель А: фиксируем, деньги не списываем).
                             subtitle = when {
+                                routeResumeTimedOut -> taxiRouteResumeTimeoutSubtitle()
                                 // Сумму называем с копейками (formatTaxiKop): её человек переводит
                                 // водителю из рук в руки, и «49 ₽» вместо 49,50 ₽ — это недоплата,
                                 // которую потом разбирают двое незнакомых людей у обочины.
@@ -1956,7 +1957,7 @@ private fun InstantOrderContent(
                             onSecondary = onBack,
                             tone = InstantTone.Bad,   // отмена — красный кружок, не зелёный
                             // B8-8: телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении.
-                            extra = if (o.contactThenCancel) ({ ContactCancelSoftBanner() }) else null,
+                            extra = if (!routeResumeTimedOut && o.contactThenCancel) ({ ContactCancelSoftBanner() }) else null,
                         )
                     }
                     else -> current?.let { o ->   // done
