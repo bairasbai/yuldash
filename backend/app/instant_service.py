@@ -20,7 +20,7 @@ import hmac
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
-from typing import Optional
+from typing import Callable, Optional
 
 from sqlalchemy import and_, update
 from sqlmodel import Session, select
@@ -1802,7 +1802,8 @@ _DESTINATION_QUOTE_TARIFF_FIELDS = (
 def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
                       now: Optional[datetime] = None,
                       waypoints_override: Optional[list] = None, *,
-                      expected_tariff: tuple | None = None) -> dict:
+                      expected_tariff: tuple | None = None,
+                      capture_tariff: Callable[[tuple], None] | None = None) -> dict:
     """Во что обойдётся смена адреса на `new_to`. НИЧЕГО не меняет — только считает.
 
     До посадки пассажира считаем как обычную поездку от точки А: водитель ещё едет за ним,
@@ -1838,6 +1839,9 @@ def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
     if (expected_tariff is not None
             and tuple(getattr(t, name) for name in _DESTINATION_QUOTE_TARIFF_FIELDS) != expected_tariff):
         return {"ok": False, "reason": "tariff_changed"}
+
+    if capture_tariff is not None:
+        capture_tariff(tuple(getattr(t, name) for name in _DESTINATION_QUOTE_TARIFF_FIELDS))
 
     k = order_pricing_k(order)
     price = _tariff_price(t, total_km, total_min, k)
@@ -3245,6 +3249,19 @@ _WAIT_RETRY_COLUMNS = (*_SEARCH_OWNER_COLUMNS, *_WAIT_COLUMNS, InstantOrder.stat
 @dataclass(frozen=True)
 class _LegacyOfferSearch:
     search: tuple
+    route: tuple = ()
+
+
+# Only a legacy destination edit that owns the complete route+fare commit
+# supplies these terms. Ordinary decline/expiry retain their existing fence.
+_DESTINATION_SEARCH_FIELDS = (
+    "destination_changed_at", "destination_changes", "destination_ack_at", "from_lat", "from_lng", "from_text",
+    "to_lat", "to_lng", "to_text", "waypoints_json", "category", "fallback_categories", "options",
+    "women_only", "price_estimate", "ride_price", "ride_base_price", "promo_discount_kop",
+    "distance_km", "eta_min", "tariff_id", "pricing_k", "surge_k",
+)
+_DESTINATION_SEARCH_COLUMNS = tuple(getattr(InstantOrder, name) for name in _DESTINATION_SEARCH_FIELDS)
+
 
 
 @dataclass(frozen=True)
@@ -3265,6 +3282,8 @@ def _same_search_owner(order, owner, **updated) -> bool:
     if (_search_owner(order) != tuple(expected.values())
             or any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS)):
         return False
+    if isinstance(owner, _LegacyOfferSearch) and owner.route:
+        return tuple(getattr(order, n) for n in _DESTINATION_SEARCH_FIELDS) == owner.route
     return (not isinstance(owner, _QueuedSearch)
             or (tuple(getattr(order, f) for f in _WAIT_FIELDS) == owner.wait
                 and order.wait_until is not None and order.wait_until > utcnow()))
@@ -3284,8 +3303,10 @@ def _search_owner_predicates(session: Session, owner: tuple | _QueuedSearch | _L
                 *(column == value for column, value in zip(_WAIT_COLUMNS, owner.wait, strict=True)),
                 *_ordinary_wait_predicates(session))
     if isinstance(owner, _LegacyOfferSearch):
+        route = (tuple(c == v for c, v in zip(_DESTINATION_SEARCH_COLUMNS, owner.route, strict=True))
+                 if owner.route else ())
         return (*(column == value for column, value in zip(_SEARCH_OWNER_COLUMNS, owner.search, strict=True)),
-                *_legacy_no_resume())
+                *route, *_legacy_no_resume())
     return tuple(column == observed for column, observed in zip(_SEARCH_OWNER_COLUMNS, owner, strict=True))
 
 

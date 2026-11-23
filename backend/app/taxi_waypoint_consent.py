@@ -12,7 +12,7 @@ from sqlmodel import Session, select
 from . import instant_service as isv, promo_ride
 from .compensation import COMPENSATION_FIELDS
 from .errors import herr
-from .models import InstantOrder, InstantOrderStatus as S
+from .models import InstantOrder, InstantOrderStatus as S, Tariff
 from .timeutil import utcnow
 
 _ALLOWED = (S.accepted, S.arriving, S.onboard)
@@ -32,6 +32,8 @@ _STATE_FIELDS = (
     "paid", "payment_method", "payment_changed_at", *COMPENSATION_FIELDS,
 )
 _STATE_COLUMNS = tuple(getattr(InstantOrder, field) for field in _STATE_FIELDS)
+_OFFERED_DESTINATION_FIELDS = (*_STATE_FIELDS, "options", "women_only", "destination_ack_at")
+_OFFERED_DESTINATION_COLUMNS = tuple(getattr(InstantOrder, name) for name in _OFFERED_DESTINATION_FIELDS)
 
 
 def _unavailable():
@@ -167,13 +169,15 @@ def _next_write_time(previous):
     return now
 
 
-def _write_route(session: Session, order: InstantOrder, captured: tuple, changes: dict):
+def _write_route(session: Session, order: InstantOrder, captured: tuple, changes: dict, *, unmarked=False):
     # SQL compares after route I/O. PostgreSQL READ COMMITTED rechecks the
     # predicate after a conflicting row lock; SQLite's writer does it atomically.
     # No intermediate committed fare/discount or ORM writes on the loser.
     statement = update(InstantOrder).where(*(
         column == old for column, old in zip(_STATE_COLUMNS, captured, strict=True)
     )).values(**changes).execution_options(synchronize_session=False)
+    if unmarked:
+        statement = statement.where(*isv._legacy_no_resume())
     changed = session.execute(statement)
     if changed.rowcount != 1:
         raise _legacy_conflict()
@@ -201,7 +205,7 @@ def _legacy_price_values(source, quote):
 
 def apply_guarded_route(session: Session, order: InstantOrder, captured: tuple, quote: dict, *,
                         points: list[dict] | None = None, destination: tuple | None = None,
-                        text: str = "", driver_ack: bool = False):
+                        text: str = "", driver_ack: bool = False, unmarked=False):
     """Commit price, changed route and applicable discount together.
 
     This is NOT the protected post-price confirmation. The existing public
@@ -216,19 +220,86 @@ def apply_guarded_route(session: Session, order: InstantOrder, captured: tuple, 
     if points is not None:
         changes["waypoints_json"] = isv.dump_waypoints(points)
     else:
-        changes.update(to_lat=float(destination[0]), to_lng=float(destination[1]),
-                       destination_changes=int(source.destination_changes or 0) + 1,
-                       pending_to_lat=None, pending_to_lng=None, pending_to_text="",
-                       pending_price=None, pending_asked_at=None, pending_reason="")
-        if text:
-            changes["to_text"] = text[:200]
-        if quote.get("tariff_id"):
-            changes["tariff_id"] = int(quote["tariff_id"])
-    return _write_route(session, order, captured, changes)
+        changes.update(_destination_values(source, destination, text, quote))
+    return _write_route(session, order, captured, changes, unmarked=unmarked)
+
+
+def _destination_values(source, destination, text, quote):
+    changes = dict(to_lat=float(destination[0]), to_lng=float(destination[1]),
+                   destination_changes=int(source.destination_changes or 0) + 1,
+                   pending_to_lat=None, pending_to_lng=None, pending_to_text="",
+                   pending_price=None, pending_asked_at=None, pending_reason="")
+    if text:
+        changes["to_text"] = text[:200]
+    if quote.get("tariff_id"):
+        changes["tariff_id"] = int(quote["tariff_id"])
+    return changes
+
+
+def capture_legacy_offered_destination(order):
+    return tuple(getattr(order, name) for name in _OFFERED_DESTINATION_FIELDS)
+
+
+def apply_legacy_offered_destination(session, captured, quote, tariff, *, destination, text):
+    """Own ordinary offered route+fare retirement, then do the legacy search."""
+    source = SimpleNamespace(**dict(zip(_OFFERED_DESTINATION_FIELDS, captured, strict=True)))
+    if (source.status != S.offered or source.driver_id is not None or source.price_final is not None
+            or source.paid or tariff is None or tariff[0] != quote.get("tariff_id")):
+        raise _legacy_conflict()
+    rates = select(Tariff.id).where(*(
+        getattr(Tariff, name) == value
+        for name, value in zip(isv._DESTINATION_QUOTE_TARIFF_FIELDS, tariff, strict=True)
+    ))
+    if session.get_bind().dialect.name == "postgresql":
+        # The same Order -> tariff ordering as retirement. No routing I/O
+        # while holding either row; the quote is already computed.
+        locked = session.scalar(select(InstantOrder.id).where(
+            InstantOrder.id == source.id, InstantOrder.passenger_id == source.passenger_id,
+            InstantOrder.status == S.offered, *isv._legacy_no_resume(),
+        ).with_for_update())
+        if locked != source.id or session.scalar(rates.with_for_update(read=True)) != tariff[0]:
+            raise _legacy_conflict()
+    changes = _legacy_price_values(source, quote) | _destination_values(source, destination, text, quote)
+    changes.update(destination_changed_at=_next_write_time(source.destination_changed_at), destination_ack_at=None,
+                   status=S.searching, current_offer_driver_id=None, offer_expires_at=None)
+    committed = session.execute(update(InstantOrder).where(
+        *(c == v for c, v in zip(_OFFERED_DESTINATION_COLUMNS, captured, strict=True)),
+        *isv._legacy_no_resume(), rates.exists(),
+    ).values(**changes).returning(*isv._SEARCH_OWNER_COLUMNS, *isv._DESTINATION_SEARCH_COLUMNS)
+        .execution_options(synchronize_session=False)).one_or_none()
+    if committed is None:
+        raise _legacy_conflict()
+    count = len(isv._SEARCH_OWNER_COLUMNS)
+    owner = isv._LegacyOfferSearch(tuple(committed[:count]), tuple(committed[count:]))
+    expected = vars(source) | changes
+    if (owner.search != tuple(expected[n] for n in isv._SEARCH_OWNER_FIELDS)
+            or owner.route != tuple(expected[n] for n in isv._DESTINATION_SEARCH_FIELDS)
+            or session.scalar(select(InstantOrder.id).where(
+                InstantOrder.status == S.searching, *isv._search_owner_predicates(session, owner), rates.exists(),
+            )) != source.id):
+        raise _legacy_conflict()
+    session.commit()
+
+    search = session.exec(select(InstantOrder).where(
+        InstantOrder.status == S.searching, *isv._search_owner_predicates(session, owner),
+    ).execution_options(populate_existing=True)).one_or_none()
+    if search is not None:
+        isv.try_offer_next(session, search, notify=False, previous_driver=source.current_offer_driver_id,
+                           _legacy_advance=owner)
+    # Positive means our acknowledged route change, never an unowned row
+    # observed before/after the matching continuation.
+    fresh = session.exec(select(InstantOrder).where(
+        InstantOrder.id == source.id, InstantOrder.passenger_id == source.passenger_id,
+        *(c == v for c, v in zip(isv._DESTINATION_SEARCH_COLUMNS, owner.route, strict=True)),
+        *isv._legacy_no_resume(),
+    ).execution_options(populate_existing=True)).one_or_none()
+    if fresh is None:
+        raise _legacy_conflict()
+    return fresh
 
 
 def propose_guarded_destination(session: Session, order: InstantOrder, captured: tuple,
-                                destination: tuple, text: str, quote: dict):
+                                destination: tuple, text: str, quote: dict, *, unmarked=False):
     """Do not make a driver consider an offer based on a superseded route."""
     source = dict(zip(_STATE_FIELDS, captured, strict=True))
     return _write_route(session, order, captured, {
@@ -236,7 +307,7 @@ def propose_guarded_destination(session: Session, order: InstantOrder, captured:
         "pending_to_text": (text or "")[:200], "pending_price": int(quote["price"]),
         "pending_asked_at": _next_write_time(source["pending_asked_at"]),
         "pending_reason": quote.get("ask_reason") or "price",
-    })
+    }, unmarked=unmarked)
 
 
 def preview(session: Session, owner_id: int, order_id: int, requested: list[dict],
