@@ -1,12 +1,13 @@
 """Real PostgreSQL proof for dormant sealed assignment and actual row locks."""
 import os
 from concurrent.futures import ThreadPoolExecutor
+from dataclasses import replace
 from datetime import timedelta
 from threading import Event
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine, event, select, text
+from sqlalchemy import create_engine, event, select, text, update
 from sqlalchemy.schema import CreateSchema, DropSchema
 from sqlmodel import Session, SQLModel
 from test_taxi_offered_waypoint_preview import _unexpected
@@ -22,6 +23,7 @@ from test_taxi_offered_waypoint_retire import (
 from test_taxi_route_resume_deadline_postgres import _clock, _until
 
 from app import instant_service as isv
+from app import taxi_retirement_agreement_seal as seal
 from app import taxi_route_edit_outcome as outcome
 from app import taxi_route_resume as resume
 from app import taxi_sealed_offer_accept as assignment
@@ -31,6 +33,8 @@ from app import taxi_sealed_resume_offer as offers
 from app.db import engine
 from app.models import InstantOrder, LedgerEntry, Payment, Tariff, User
 from app.models import InstantOrderStatus as S
+from app.taxi_offered_waypoint_agreement import bind_offered_waypoints
+from app.taxi_offered_waypoint_preview import _FIELDS
 from app.taxi_offered_waypoint_retire import OfferedRetirement, retire_offered_waypoints
 
 pytestmark = pytest.mark.skipif(
@@ -186,15 +190,59 @@ def test_pg_sealed_accept_commits_only_assignment_once(retired_pg, monkeypatch):
     assert _order(reader, oid) == after and _children(reader, oid) == receipts
 
 
-@pytest.mark.parametrize("lock", ("order", "driver"))
-def test_pg_sealed_accept_expires_while_waiting_on_real_row_lock(retired_pg, lock):
-    writer, reader, args, _, driver = retired_pg
-    identity, proof, observed = _successor(retired_pg, offer_seconds=7)
+def _aged_retirement(data):
+    writer, reader, args, current, driver = data
+    owner, oid = args["owner_id"], args["order_id"]
+    preview = args["preview"]
+    source = dict(zip(_FIELDS, preview._source[:len(_FIELDS)], strict=True))
+    marker = resume._state(current)["route_resume_id"]
+    with reader.begin() as conn:
+        # Like the SQLite near_deadline fixture, sign a genuinely aged
+        # synthetic original offer. Do not alter production clocks, shorten
+        # the 120-second horizon, or re-seal a successor's current card.
+        retired = _clock(conn) - timedelta(seconds=112)
+        deadline = retired + timedelta(seconds=120)
+        prior = {"created_at": retired - timedelta(seconds=3), "searching_at": retired - timedelta(seconds=2),
+                 "offered_at": retired - timedelta(seconds=1)}
+        source |= prior | {"offer_expires_at": retired + timedelta(seconds=60)}
+        old = tuple(source[name] for name in _FIELDS) + preview._source[len(_FIELDS):]
+        historical = replace(preview, _source=old, observed_at=retired - timedelta(milliseconds=10),
+                             valid_until=retired + timedelta(seconds=50))
+        agreement = bind_offered_waypoints(args["key"], owner_id=owner, order_id=oid, preview=historical)
+        fingerprint = seal.bind_retirement_agreement(
+            args["key"], owner_id=owner, order_id=oid, old_source=old, preview=historical, agreement=agreement,
+            marker_id=marker, retired_at=retired, deadline_at=deadline,
+        )
+        assert fingerprint is not None
+        assert conn.execute(update(_O).where(_O.c.id == oid).values(
+            **prior, destination_changed_at=retired, route_resume_retired_at=retired,
+            route_resume_ready_at=retired, route_resume_deadline_at=deadline,
+            **{resume._SEAL: fingerprint._digest},
+        )).rowcount == 1
+        receipt_expiry = retired + timedelta(minutes=3)
+        assert conn.execute(update(_CHILD).where(
+            _CHILD.c.owner_id == owner, _CHILD.c.order_id == oid, _CHILD.c.attempt_id == args["attempt_id"],
+        ).values(binding=agreement.binding, expires_at=receipt_expiry)).rowcount == 1
+    saved = resume.observe(reader, oid)
+    evidence = {"owner_id": owner, "order_id": oid, "attempt_id": args["attempt_id"], "binding": agreement.binding}
+    assert outcome.committed_evidence(reader, **evidence, now=retired) is outcome.CommittedEvidence.COMMITTED
+    return writer, reader, args | {"agreement": agreement, "preview": historical, "receipt_expires_at": receipt_expiry}, saved, driver
+
+
+@pytest.mark.parametrize(("lock", "absolute"), (("order", False), ("driver", False), ("order", True)),
+                         ids=("order", "driver", "order-original-120s-cap"))
+def test_pg_sealed_accept_expires_while_waiting_on_real_row_lock(retired_pg, lock, absolute):
+    data = _aged_retirement(retired_pg) if absolute else retired_pg
+    writer, reader, args, _, driver = data
+    identity, proof, observed = _successor(data, offer_seconds=120 if absolute else 7)
     oid = args["order_id"]
     before = _order(reader, oid)
     receipts = _children(reader, oid)
     lease, deadline = before["offer_expires_at"], before["route_resume_deadline_at"]
-    assert lease < deadline
+    if absolute:
+        assert lease == deadline == before["route_resume_retired_at"] + timedelta(seconds=120)
+    else:
+        assert lease < deadline
     target, target_id, table_name, clause = (
         (_O, oid, "instantorder", "FOR UPDATE") if lock == "order"
         else (_USERS, driver, '"user"', "FOR NO KEY UPDATE")
@@ -227,7 +275,11 @@ def test_pg_sealed_accept_expires_while_waiting_on_real_row_lock(retired_pg, loc
                     _until(blocked, "PostgreSQL did not report a real blocking edge")
                     assert _clock(observer) < lease
                     _until(lambda: _clock(observer) >= lease, "database clock did not reach the offer lease")
-                    assert blocked() and _clock(observer) < deadline
+                    assert blocked()
+                    if absolute:
+                        assert _clock(observer) >= deadline
+                    else:
+                        assert _clock(observer) < deadline
             finally:
                 blocker.rollback()  # unchanged row; the lease (not a stale mutation) rejects accept
             assert pending.result(timeout=8) is assignment.SealedAcceptance.UNKNOWN
