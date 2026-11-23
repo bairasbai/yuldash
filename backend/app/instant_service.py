@@ -2742,7 +2742,12 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     return fresh
 
 
-def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "") -> InstantOrder:
+class _SearchOwnerLost(Exception):
+    """A matcher cancellation no longer owns the search, not a user error."""
+
+
+def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "", *,
+                 search_owner: tuple | None = None) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
     Деньги (Модель А — только фиксируем, ничего не списываем):
@@ -2751,11 +2756,17 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     — водитель отменяет с reason="no_show" (пассажир не вышел, тайминг честно выдержан)
       → no_show=true + cancel_fee_kop = подача; это страйк пассажира;
     — обычная отмена водителем штрафа пассажиру НЕ даёт."""
-    order = session.exec(
-        select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
-    ).first()
+    statement = select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
+    if search_owner is not None:
+        if actor != Actor.passenger or reason != "passenger_suspended":
+            raise ValueError("Search owner is only for matcher suspension cancellation")
+        statement = statement.execution_options(populate_existing=True)
+    order = session.exec(statement).first()
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if search_owner is not None and (order.status != S.searching or _search_owner(order) != search_owner):
+        session.rollback()
+        raise _SearchOwnerLost()
     _guard_owns(order, actor, user_id)
     # Очередь «подожду машину» держит заказ в `expired` с проставленным `wait_until`: статус
     # терминальный только на словах — фоновый воркер каждые пару минут перезапускает по нему
@@ -2792,11 +2803,13 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         values["cancel_fee_kop"] = cancel_fee_with_pickup_kop(session, order, now)
     прежний_статус = order.status
     бросивший = order.driver_id
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order_id, InstantOrder.status == order.status)
-        .values(**values)
-    )
+    write = update(InstantOrder).where(InstantOrder.id == order_id, InstantOrder.status == order.status)
+    if search_owner is not None:
+        write = write.where(*_search_owner_predicates(search_owner)).execution_options(synchronize_session=False)
+    result = session.execute(write.values(**values))
+    if search_owner is not None and result.rowcount != 1:
+        session.rollback()
+        raise _SearchOwnerLost()
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
@@ -3126,12 +3139,14 @@ def _search_owner(order: InstantOrder) -> tuple:
     return tuple(getattr(order, name) for name in _SEARCH_OWNER_FIELDS)
 
 
+def _search_owner_predicates(owner: tuple) -> tuple:
+    return tuple(column == observed for column, observed in zip(_SEARCH_OWNER_COLUMNS, owner, strict=True))
+
+
 def _write_search_outcome(session: Session, owner: tuple, **values):
     result = session.execute(
         update(InstantOrder).where(
-            InstantOrder.status == S.searching,
-            *(column == observed for column, observed
-              in zip(_SEARCH_OWNER_COLUMNS, owner, strict=True)),
+            InstantOrder.status == S.searching, *_search_owner_predicates(owner),
         ).values(**values).execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:
@@ -3169,7 +3184,8 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     return fresh
 
 
-def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True) -> InstantOrder | None:
+def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True,
+                                   search_owner: tuple | None = None) -> InstantOrder | None:
     """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
     Не на паузе → None, вызывающий продолжает обычным путём.
 
@@ -3205,14 +3221,23 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, ref
               "юлдаш ғәҙәттәгесә эшләй 💚")
     else:
         return None
-    cancelled = cancel_order(session, order.id, Actor.passenger, order.passenger_id,
-                             "passenger_suspended")
+    order_id, passenger_id = order.id, order.passenger_id
+    try:
+        cancelled = cancel_order(session, order_id, Actor.passenger, passenger_id,
+                                 "passenger_suspended", search_owner=search_owner)
+    except _SearchOwnerLost:
+        fresh = session.get(InstantOrder, order_id, populate_existing=True)
+        if fresh is None:
+            raise herr(404, "Заказ не найден", "Заказ табылманы")
+        # Stop this matcher without claiming it cancelled a later search or
+        # issuing a suspension notice about the passenger's own cancellation.
+        return fresh
     from .services import push_notification
     push_notification(
-        session, order.passenger_id, "taxi",
+        session, passenger_id, "taxi",
         "Заказ отменён", "Заказ кире алынды",
         ru, ba,
-        ref_kind="instant", ref_id=order.id,
+        ref_kind="instant", ref_id=order_id,
     )
     return cancelled
 
@@ -3234,7 +3259,9 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
     search_round = order.search_round
     if order.status != S.searching:
         return session.get(InstantOrder, order_id, populate_existing=True)
-    stopped = cancel_for_suspended_passenger(session, order, refresh_standing=not first_confirmed)
+    stopped = cancel_for_suspended_passenger(
+        session, order, refresh_standing=not first_confirmed, search_owner=search_owner,
+    )
     if stopped is not None:
         return stopped
     r = _redis()
