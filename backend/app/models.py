@@ -1351,6 +1351,24 @@ class TaxiRouteEditOutcome(SQLModel, table=True):
     expires_at: datetime = Field(index=True, exclude=True, repr=False)
 
 
+class TaxiDriverAcceptOutcome(SQLModel, table=True):
+    """Inactive historical acknowledgement; never authority to view an order."""
+
+    __table_args__ = (
+        CheckConstraint("length(binding) = 32", name="ck_taxi_driver_accept_outcome_binding"),
+    )
+
+    driver_id: int = Field(sa_column=Column(Integer, ForeignKey("user.id", ondelete="CASCADE"),
+                                            primary_key=True, nullable=False),
+                           exclude=True, repr=False)
+    order_id: int = Field(sa_column=Column(Integer, ForeignKey("instantorder.id", ondelete="CASCADE"),
+                                           primary_key=True, nullable=False, index=True),
+                          exclude=True, repr=False)
+    attempt_id: str = Field(primary_key=True, max_length=36, exclude=True, repr=False)
+    binding: bytes = Field(sa_column=Column(LargeBinary(32), nullable=False), exclude=True, repr=False)
+    expires_at: datetime = Field(index=True, exclude=True, repr=False)
+
+
 class RouteWatch(SQLModel, table=True):
     """Подписка «карауль поездку»: пользователь ждёт попутку по маршруту.
     При публикации подходящей поездки (rides.create_ride) сторож получает push
