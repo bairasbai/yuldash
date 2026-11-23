@@ -817,10 +817,7 @@ def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
 def cancel_scheduled(order_id: int, user: User = Depends(current_user),
                      session: Session = Depends(get_session)):
     """Отменить предзаказ (пока он ещё `scheduled`). Только СВОЙ. Штрафов нет — до поиска."""
-    order = session.get(InstantOrder, order_id)
-    if not order or order.passenger_id != user.id:
-        raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
-    order = isv.cancel_order(session, order_id, isv.Actor.passenger, user.id, "scheduled_cancel")
+    order = isv.cancel_scheduled_order(session, order_id, user.id)
     return isv.order_payload(session, order, user)
 
 

@@ -2701,6 +2701,25 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     return fresh
 
 
+def cancel_scheduled_order(session: Session, order_id: int, passenger_id: int) -> InstantOrder:
+    """Подтверждение из списка предзаказов действительно только до начала поиска."""
+    order = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.id == order_id, InstantOrder.passenger_id == passenger_id,
+        ).with_for_update().execution_options(populate_existing=True)
+    ).first()
+    if order is None:
+        raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
+    reason = "scheduled_cancel"
+    if (order.status == S.cancelled and order.scheduled_at is not None
+            and order.searching_at is None and order.cancel_by == Actor.passenger.value
+            and order.cancel_reason == reason):
+        return order  # Повтор после потери ответа на уже выполненную отмену предзаказа.
+    if order.status != S.scheduled:
+        raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
+    return _cancel_locked_order(session, order, Actor.passenger, reason)
+
+
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "") -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
@@ -2716,6 +2735,11 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     _guard_owns(order, actor, user_id)
+    return _cancel_locked_order(session, order, actor, reason)
+
+
+def _cancel_locked_order(session: Session, order: InstantOrder, actor: Actor, reason: str) -> InstantOrder:
+    order_id = order.id
     # Очередь «подожду машину» держит заказ в `expired` с проставленным `wait_until`: статус
     # терминальный только на словах — фоновый воркер каждые пару минут перезапускает по нему
     # поиск (taxi_worker.retry_waiting_orders). Из-за раннего выхода ниже отмена такого заказа

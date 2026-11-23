@@ -5,6 +5,7 @@ from datetime import timedelta
 import json
 
 import pytest
+from fastapi import HTTPException
 from sqlmodel import Session
 
 from app import instant_service as isv
@@ -12,7 +13,7 @@ from app import pricing
 from app import taxi_worker as tw
 from app.config import settings
 from app.db import engine
-from app.models import InstantOrder, InstantOrderStatus as S
+from app.models import InstantOrder, InstantOrderStatus as S, UserRole
 from app.timeutil import utcnow
 
 ORIG = (52.591, 58.317)
@@ -65,14 +66,86 @@ def test_list_only_mine(client, user_factory):
     assert ra["id"] not in [o["id"] for o in b_view["scheduled"]]
 
 
-def test_cancel_scheduled(client, user_factory):
+@pytest.fixture
+def future_order(client, user_factory, tf08_market):
     pax = user_factory("SchedCancel")
-    o = _schedule(client, pax, utcnow() + timedelta(hours=2)).json()
-    r = client.post(f"/instant/scheduled/{o['id']}/cancel", headers=pax["auth"])
-    assert r.status_code == 200 and r.json()["status"] == "cancelled"
-    # больше не в списке будущих
+    response = _schedule(client, pax, tf08_market["now"] + timedelta(hours=2))
+    assert response.status_code == 200, response.text
+    order_id = response.json()["id"]
+    tf08_market["owned"].append((order_id, pax["id"]))
+    return pax, order_id
+
+
+def test_cancel_scheduled(client, user_factory, future_order, monkeypatch):
+    pax, order_id = future_order
+    path = f"/instant/scheduled/{order_id}/cancel"
+    other = user_factory("OtherPassenger")["auth"]
+    missing = client.post("/instant/scheduled/-1/cancel", headers=other)
+    assert missing.status_code == 404
+    for attempt in range(2):
+        hidden = client.post(path, headers=other)
+        assert hidden.status_code == 404 and hidden.json() == missing.json()
+        if attempt == 1:
+            monkeypatch.setattr(isv, "_notify_cancel", lambda *args: pytest.fail("duplicate cancellation"))
+        r = client.post(path, headers=pax["auth"])
+        assert r.status_code == 200, r.text
+        assert r.json()["status"] == "cancelled" and r.json()["cancel_fee_kop"] == 0
     mine = client.get("/instant/scheduled", headers=pax["auth"]).json()
-    assert o["id"] not in [x["id"] for x in mine["scheduled"]]
+    assert order_id not in [x["id"] for x in mine["scheduled"]]
+
+
+@pytest.mark.parametrize("status", [S.searching, S.offered, S.accepted, S.arriving, S.expired,
+                                    S.onboard, S.done, S.cancelled])
+def test_stale_scheduled_cancel_preserves_trip(client, user_factory, future_order, status):
+    pax, order_id = future_order
+    now = utcnow()
+    driver = user_factory("SchedDriver", role=UserRole.driver)
+    with Session(engine) as session:
+        order = session.get(InstantOrder, order_id)
+        order.status = status
+        order.searching_at = now - timedelta(hours=1)
+        if status == S.offered:
+            order.current_offer_driver_id = driver["id"]
+            order.offer_expires_at = now + timedelta(minutes=1)
+        if status in (S.accepted, S.arriving, S.onboard, S.done):
+            order.driver_id = driver["id"]
+            order.accepted_at = now - timedelta(minutes=settings.cancel_free_minutes + 5)
+        if status == S.arriving:
+            order.waiting_started_at = now - timedelta(minutes=1)
+            order.pickup_fee_kop = 1000
+            assert isv.passenger_cancel_fee_kop(session, order, now) > 0
+        if status == S.expired:
+            order.wait_until = now + timedelta(minutes=10)
+        if status == S.cancelled:
+            order.cancel_by = "passenger"
+            order.cancel_reason = "plans_changed"
+            order.cancelled_at = now
+        session.commit()
+        session.refresh(order)
+        before = order.model_dump()
+
+    r = client.post(f"/instant/scheduled/{order_id}/cancel", headers=pax["auth"])
+    assert r.status_code == 409, r.text
+    detail = r.json()["detail"]
+    assert detail["ru"] and detail["ba"] and detail["ru"] != detail["ba"]
+    with Session(engine) as session:
+        assert session.get(InstantOrder, order_id).model_dump() == before
+
+
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="два снимка заказа на PostgreSQL")
+def test_scheduled_cancel_refreshes_order_after_concurrent_activation(client, future_order):
+    pax, order_id = future_order
+    with Session(engine) as session:
+        cached = session.get(InstantOrder, order_id)
+        assert cached.status == S.scheduled
+        activated = client.post(f"/instant/scheduled/{order_id}/activate", headers=pax["auth"])
+        assert activated.status_code == 200, activated.text
+        active_status = activated.json()["status"]
+        assert active_status != "scheduled" and cached.status == S.scheduled
+        with pytest.raises(HTTPException) as conflict:
+            isv.cancel_scheduled_order(session, order_id, pax["id"])
+        assert conflict.value.status_code == 409
+        assert cached.status.value == active_status
 
 
 def test_manual_activate(client, user_factory):
@@ -84,6 +157,10 @@ def test_manual_activate(client, user_factory):
     assert r.json()["status"] != "scheduled"
     # повторная активация — уже не scheduled → 409
     assert client.post(f"/instant/scheduled/{o['id']}/activate", headers=pax["auth"]).status_code == 409
+    stale = client.post(f"/instant/scheduled/{o['id']}/cancel", headers=pax["auth"])
+    assert stale.status_code == 409, stale.text
+    with Session(engine) as session:
+        assert session.get(InstantOrder, o["id"]).status.value == r.json()["status"]
 
 
 def test_lazy_activation_when_due(client, user_factory):
