@@ -54,10 +54,12 @@ def test_same_live_sample_only_remaining_stops_and_real_signed_delta(before, aft
     assert calls[0].before == ((0, 0), (0.012, 0), (0.016, 0), (0.03, 0))
     assert calls[0].after == ((0, 0), (0.012, 0), (0.017, 0.006), (0.016, 0), (0.03, 0))
     assert calls[0].departure_at == _NOW
-    assert "0.017" not in repr(calls[0]) and "synthetic-snapshot" not in repr(_pair(calls[0]))
     assert _POSITION.observed_at == _NOW - timedelta(seconds=3)
     assert _STORED == json.dumps([_COMPLETED, _CURRENT, _OTHER])
-    assert "lat" not in repr(_POSITION) and str(_ASSIGNMENT.driver_id) not in repr(_ASSIGNMENT)
+    # The default object repr contains only type and identity; its hex
+    # address can happen to contain the decimal text of a private field.
+    for private in (_POSITION, _ASSIGNMENT, calls[0], _pair(calls[0])):
+        assert repr(private) == object.__repr__(private)
     with pytest.raises(FrozenInstanceError):
         _POSITION.lng = 15
 
