@@ -3307,8 +3307,8 @@ class _LegacyOfferSearch:
     route: tuple = ()
 
 
-# Only a legacy destination edit that owns the complete route+fare commit
-# supplies these terms. Ordinary decline/expiry retain their existing fence.
+# A route-bound legacy destination edit or generic start snapshots these.
+# Ordinary decline/expiry retain their existing search-only fence.
 _DESTINATION_SEARCH_FIELDS = (
     "destination_changed_at", "destination_changes", "destination_ack_at", "from_lat", "from_lng", "from_text",
     "to_lat", "to_lng", "to_text", "waypoints_json", "category", "fallback_categories", "options",
@@ -3755,16 +3755,39 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True, *
     никому не предлагает, даже если свободный водитель стоит в ста метрах."""
     if _wait_snapshot is not None:
         return _start_waiting_retry(session, _wait_snapshot)
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE))
-        .values(status=S.searching, searching_at=utcnow(), search_round=0)
-    )
+    order_id, phase = order.id, order.status
+    if (phase not in _MATCHABLE or any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS)
+            or session.is_modified(order, include_collections=False)):
+        return order
+    old = _LegacyOfferSearch(_search_owner(order), tuple(getattr(order, n) for n in _DESTINATION_SEARCH_FIELDS))
+    wait_state = tuple(getattr(order, name) for name in ("wait_until", "retry_count", "scheduled_at"))
+    stamp = utcnow()
+    if order.searching_at is not None and stamp <= order.searching_at:
+        # Do not reuse the prior episode or mint a future start timestamp
+        # that can put a subsequently published offer before its own search.
+        return order
+    won = session.execute(update(InstantOrder).where(
+        InstantOrder.status == phase, *_search_owner_predicates(session, old),
+        InstantOrder.wait_until == wait_state[0], InstantOrder.retry_count == wait_state[1],
+        InstantOrder.scheduled_at == wait_state[2],
+    ).values(status=S.searching, searching_at=stamp, search_round=0)
+        .execution_options(synchronize_session=False, autoflush=False).returning(*_SEARCH_OWNER_COLUMNS)
+    ).one_or_none()
+    next_search = dict(zip(_SEARCH_OWNER_FIELDS, old.search, strict=True)) | {"searching_at": stamp, "search_round": 0}
+    owner = _LegacyOfferSearch(tuple(next_search.values()), old.route)
+    still_ours = (InstantOrder.status == S.searching, *_search_owner_predicates(session, owner))
+    if (won is None or tuple(won) != owner.search or session.scalar(
+        select(InstantOrder.id).where(*still_ours).execution_options(autoflush=False),
+    ) != order_id):
+        session.rollback()
+        return session.get(InstantOrder, order_id, populate_existing=True)
     session.commit()
-    order = session.get(InstantOrder, order.id)
-    if result.rowcount == 0:
-        return order        # заказ успели закрыть/принять — поиск не начинаем
-    return try_offer_next(session, order, notify)
+    fresh = session.exec(select(InstantOrder).where(
+        *still_ours,
+    ).execution_options(populate_existing=True)).one_or_none()
+    if fresh is None:
+        return session.get(InstantOrder, order_id, populate_existing=True)
+    return try_offer_next(session, fresh, notify, _legacy_advance=owner)
 
 
 def _advance_legacy_offer(session: Session, old: tuple, notify: bool,
