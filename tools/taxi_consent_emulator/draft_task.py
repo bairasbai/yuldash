@@ -105,7 +105,7 @@ def label(value):
     return lambda n: local_label(value) in (n.get("text"), n.get("content-desc"))
 
 
-def find(predicate, description, scroll=False, native=False):
+def find(predicate, description, scroll=False, native=False, full_row=False):
     earlier = scroll == "earlier"
     swipe_count = 0
     def probe():
@@ -113,6 +113,15 @@ def find(predicate, description, scroll=False, native=False):
         nodes = tree(native=native)
         for node in nodes:
             if predicate(node) and len(bounds(node)) == 4:
+                if full_row:
+                    # Compose can expose a title clipped by the fixed action footer while
+                    # its switch is still outside the scroll viewport. Keep scrolling until
+                    # the entire settings row has room to become actionable.
+                    top, bottom = bounds(node)[1], bounds(node)[3]
+                    viewports = [bounds(v) for v in nodes if v.get("scrollable") == "true"
+                                 and len(bounds(v)) == 4 and bounds(v)[1] <= top < bounds(v)[3]]
+                    if not viewports or any(bottom + (v[3] - v[1]) // 5 >= v[3] for v in viewports):
+                        continue
                 return [node]
         if scroll:
             candidates = [n for n in nodes if n.get("scrollable") == "true" and len(bounds(n)) == 4
@@ -191,7 +200,10 @@ def open_stop_picker(next_title):
     # insert row is clickable and sits halfway from pickup to the next route row (see OrderInsertStopRow).
     def open_visible_control():
         nodes = tree()
-        button = next((n for n in nodes if label("Заехать по пути")(n)), None)
+        # Prefer the actual clickable Compose parent, not its non-clickable plus-icon
+        # semantics child. An icon tap did not open search on the PR 289 baseline.
+        button = next((n for n in nodes if label("Заехать по пути")(n)
+                       and n.get("clickable") == "true"), None)
         if button is not None:
             touch(button)
             return True
@@ -232,7 +244,7 @@ def add_stops():
 def choose_return_wait():
     # The visible title and switch are separate accessibility nodes in SettingSwitchRow.
     # Select the switch to the right of this title, in the same row, before scrolling on.
-    find(label("Обратно тоже"), "round trip settings", scroll="earlier")
+    find(label("Обратно тоже"), "round trip settings", scroll="earlier", full_row=True)
     nodes = tree()
     header = next(n for n in nodes if label("Обратно тоже")(n))
     left, top, right, bottom = bounds(header)
