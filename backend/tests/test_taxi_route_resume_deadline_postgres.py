@@ -6,7 +6,8 @@ from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 import pytest
-from sqlalchemy import delete, event, select, text, update
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE, TRANSACTION_STATUS_INTRANS
+from sqlalchemy import create_engine, delete, event, select, text, update
 
 from app import taxi_route_resume as resume
 from app.db import engine
@@ -141,3 +142,76 @@ def test_real_order_lock_uses_database_deadline_at_actual_write(guarded_postgres
         assert result is not None and result == resume.observe(engine, order_id)
         assert (saved.status, saved.current_offer_driver_id, saved.search_round) == (S.offered, candidate, 3)
         assert saved.offered_at < saved.offer_expires_at == deadline
+
+
+@pytest.mark.parametrize("source", ("driver", "engine"))
+def test_autocommit_configuration_refused_before_postgres_row_lock(guarded_postgres, source):
+    order_id, _ = guarded_postgres
+    expected = resume.observe(engine, order_id)
+    assert expected is not None
+    options = {"isolation_level": "AUTOCOMMIT"} if source == "engine" else {}
+    bad = create_engine(engine.url, hide_parameters=True, **options)
+    if source == "driver":
+        def set_driver_mode(raw, record):
+            raw.autocommit = True
+        event.listen(bad, "checkout", set_driver_mode)
+    seen = []
+
+    def watch(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(bad, "before_cursor_execute", watch)
+    try:
+        with pytest.raises(ValueError, match="Unsupported route resume transaction mode"):
+            resume.claim(bad, expected, lease_seconds=30)
+        assert seen == []  # notably no SELECT FOR UPDATE or UPDATE
+        assert resume.observe(engine, order_id) == expected
+        result = resume.claim(engine, expected, lease_seconds=30)
+        assert result is not None and resume.observe(engine, order_id) == result
+    finally:
+        bad.dispose()
+
+
+@pytest.mark.parametrize("hook", ("checkout", "begin"))
+def test_preopened_psycopg_transaction_is_not_borrowed_or_committed(guarded_postgres, hook):
+    order_id, _ = guarded_postgres
+    expected = resume.observe(engine, order_id)
+    assert expected is not None
+    before_ack = _row(order_id).destination_ack_at
+    bad = create_engine(engine.url, hide_parameters=True)
+    borrowed = []
+    seen = []
+
+    def start_raw(raw):
+        assert raw.autocommit is False
+        assert raw.get_transaction_status() == TRANSACTION_STATUS_IDLE
+        # Actual unrelated pending DML in that physical transaction. Because
+        # this field is not in the resume owner tuple, this cannot masquerade
+        # as ordinary stale-observation refusal.
+        with raw.cursor() as cursor:
+            cursor.execute("UPDATE instantorder SET destination_ack_at = "
+                           "timezone('UTC', clock_timestamp()) WHERE id = %s", (order_id,))
+            assert cursor.rowcount == 1
+        assert raw.get_transaction_status() == TRANSACTION_STATUS_INTRANS
+        borrowed.append(raw)
+
+    if hook == "checkout":
+        event.listen(bad, "checkout", lambda raw, *_: start_raw(raw))
+    else:
+        event.listen(bad, "begin", lambda conn: start_raw(conn.connection.driver_connection))
+
+    def witness(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(bad, "before_cursor_execute", witness)
+    try:
+        with pytest.raises(ValueError, match="Unsupported route resume transaction mode"):
+            resume.claim(bad, expected, lease_seconds=30)
+        assert len(borrowed) == 1 and borrowed[0].closed
+        assert seen == []  # no primitive SELECT FOR UPDATE or UPDATE
+        assert _row(order_id).destination_ack_at == before_ack
+        assert resume.observe(engine, order_id) == expected
+        called = resume.claim(engine, expected, lease_seconds=30)
+        assert called and resume.observe(engine, order_id) == called
+    finally:
+        bad.dispose()
