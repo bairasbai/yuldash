@@ -63,7 +63,8 @@ def test_driver_request_that_observed_old_offer_cannot_accept_replacement_for_ot
     monkeypatch.setattr(isv, "_notify_transition", record_transition)
     monkeypatch.setattr(isv, "_cleanup_tried", record_cleanup)
     monkeypatch.setattr(isv, target, pause_after_router_load)
-    monkeypatch.setattr(isv, "destination_quote", lambda s, o, d: _price(130, o))
+    # Keep real pricing and its captured tariff; only make route metrics local.
+    monkeypatch.setattr(isv.pricing, "route_metrics", isv.pricing.fallback_route)
     with ThreadPoolExecutor(max_workers=1) as pool:
         old_accept = pool.submit(client.post, _route(oid, "accept"), headers=old_driver["auth"])
         try:
