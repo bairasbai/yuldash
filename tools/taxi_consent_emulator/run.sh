@@ -135,7 +135,7 @@ installed_apk_hash() {
 
 if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
     [[ -z $baseline_apk ]]
-    for scenario in restore relogin alternate; do
+    for scenario in restore restore-ba relogin alternate; do
         case_name="draft-$scenario"
         adb shell pm clear "$pkg" | grep -q Success
         adb shell run-as "$pkg" mkdir -p "$device_dir"

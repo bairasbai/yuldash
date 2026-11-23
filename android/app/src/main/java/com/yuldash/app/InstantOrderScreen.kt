@@ -105,7 +105,6 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.key
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.MutableState
 import androidx.compose.runtime.State
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -117,7 +116,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.referentialEqualityPolicy
 import androidx.compose.runtime.saveable.autoSaver
-import androidx.compose.runtime.saveable.Saver
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -182,22 +180,6 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 // Города-опоры РБ для дефолтной камеры, если позиция ещё не определилась.
 private val InstantDefaultPoint = Point(52.5980, 58.4419) // Баймак
-
-/**
- * Yandex Point is not Bundle-saveable. Persist only latitude/longitude so an unfinished
- * taxi route survives Activity recreation without retaining any SDK object.
- */
-private val InstantPointStateSaver = Saver<MutableState<Point?>, DoubleArray>(
-    save = { state ->
-        state.value?.let { point -> doubleArrayOf(point.latitude, point.longitude) }
-            ?: doubleArrayOf()
-    },
-    restore = { saved ->
-        mutableStateOf(
-            saved.takeIf { it.size == 2 }?.let { Point(it[0], it[1]) },
-        )
-    },
-)
 
 // ───────────────────────── Типографика экрана: РОВНО четыре размера ─────────────────────────
 // До этого раунда в файле их было двенадцать (11·12·13·14·15·16·18·19·22·26·30·34) — от этого
@@ -1499,7 +1481,7 @@ internal fun InstantOrderScreen(
     onScheduledContextConsumed: () -> Unit = {},
 ) {
     val generation by ApiClient.sessionChanges.collectAsState()
-    key(generation, requestedScheduledOrderId) {
+    TaxiOrderSession(generation, requestedScheduledOrderId) {
         InstantOrderContent(
             generation, onBack, onLoginRequired, embedded, onTaxiOnboarding, onOpenScheduled,
             onSavedPlaces, payMethod, onOpenPayments, renderNativeMap, winterArmAfterMs, readShares, shareOperations,
@@ -1526,6 +1508,7 @@ private fun InstantOrderContent(
     requestedScheduledOrderId: Int,
     onScheduledContextConsumed: () -> Unit,
 ) {
+    val draft = rememberTaxiPickerDraft(generation)
     val publisher = remember { Any() }
     DisposableEffect(generation, publisher) {
         TaxiNavigationState.claimScreen(generation, publisher)
@@ -1600,6 +1583,7 @@ private fun InstantOrderContent(
     var restoreTick by remember { mutableIntStateOf(0) }
     fun startAnotherOrder() {
         if (!TaxiNavigationState.isScreenOwner(generation, publisher)) return
+        draft.clear()
         order = null
         if (requestedScheduledOrderId > 0) onScheduledContextConsumed()
         if (consentOwner != null) {
@@ -1856,11 +1840,12 @@ private fun InstantOrderContent(
                             onTaxiOnboarding = onTaxiOnboarding,
                         )
                     }
-                    "picker" -> InstantDestinationPicker(
+                    "picker" -> draft.Form { InstantDestinationPicker(
                         generation = generation,
+                        draft = draft,
                         isCurrentParent = ::isCurrentPicker,
                         onOrderCreated = { created ->
-                            ApiClient.runIfCurrentSession(generation) { if (isCurrentPicker()) order = created }
+                            ApiClient.runIfCurrentSession(generation) { if (isCurrentPicker()) { draft.clear(); order = created } }
                         },
                         onSavedPlaces = onSavedPlaces,
                         embedded = embedded,
@@ -1870,6 +1855,7 @@ private fun InstantOrderContent(
                         onScheduled = { scheduled ->
                             ApiClient.runIfCurrentSession(generation) {
                                 if (isCurrentPicker()) {
+                                    draft.clear()
                                     scheduledConfirmId = scheduled.id
                                     scheduledConfirmAt = scheduled.scheduledAt
                                     scheduledConfirmFrom = scheduled.fromText
@@ -1877,7 +1863,7 @@ private fun InstantOrderContent(
                                 }
                             }
                         },
-                    )
+                    ) }
                     // Отмену не гасим сразу: сперва короткий вопрос «почему», и только потом запрос.
                     // В «Водитель едет» перед этим отрабатывает своё предупреждение о платной
                     // подаче — порядок «деньги → причина → отмена» специально не меняем.
@@ -2251,6 +2237,7 @@ private fun InstantAddressResults(
 @Composable
 private fun InstantDestinationPicker(
     generation: Long,
+    draft: TaxiPickerDraft,
     isCurrentParent: () -> Boolean,
     onOrderCreated: (InstantOrderDto) -> Unit,
     onScheduled: (InstantOrderDto) -> Unit = {},
@@ -2269,7 +2256,7 @@ private fun InstantDestinationPicker(
     val myPoint = myLocationFix?.point
 
     // Подача: сейчас (null) или «на время» (epoch ms выбранного времени). ≤7 суток, не в прошлом.
-    var scheduledAtMs by rememberSaveable { mutableStateOf<Long?>(null) }
+    var scheduledAtMs by draft.scheduledTime
     val consentRequested = TaxiQuoteConsentApi.requested
     val protectedNow = consentRequested && scheduledAtMs == null
     val consentNoSave = { consentRequested && scheduledAtMs == null }
@@ -2327,7 +2314,7 @@ private fun InstantDestinationPicker(
     var womenOnly by rememberSaveable(stateSaver = rememberTaxiConsentSaver(consentNoSave, autoSaver<Boolean>())) { mutableStateOf(false) }
     // Остановки по пути: «заедем за мамой», «в аптеку». Смысл в том, что за них платят —
     // иначе водитель везёт лишние километры даром, а пассажир не понимает, почему цена та же.
-    var stops by remember { mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList()) }
+    var stops by rememberSaveable(stateSaver = TaxiStopDraftSaver) { mutableStateOf<List<com.yuldash.app.data.TaxiStop>>(emptyList()) }
     var addingStop by remember { mutableStateOf(false) }
     // Круговой рейс: «отвези и привези обратно». Доступен только на межгороде — решает сервер.
     val roundTripRoute = listOf(effFrom?.latitude, effFrom?.longitude, toPoint?.latitude, toPoint?.longitude,
@@ -2362,6 +2349,7 @@ private fun InstantDestinationPicker(
 
     // Строки для колбэков (вне composition appText звать нельзя) — считаем заранее.
     val estimateFailMsg = appText("Не удалось оценить цену", "Хаҡты баһалап булманы")
+    val chooseNewTime = appText("Выбери новое время подачи", "Килеү өсөн яңы ваҡыт һайла")
     val createFailMsg = appText("Не удалось создать заказ. Повтори.", "Заказ булманы. Ҡабатла.")
     val myPosText = appText("Моя позиция", "Минең урын")
     val mapPointText = appText("Точка на карте", "Картала нөктә")
@@ -2423,6 +2411,12 @@ private fun InstantDestinationPicker(
             return@LaunchedEffect
         }
         consumedEstimate = explicitEstimate
+        if (!taxiPickupTimeCurrent(scheduledAtMs)) {
+            estimate = null
+            estimating = false
+            errorText = chooseNewTime
+            return@LaunchedEffect
+        }
         val f = effFrom; val t = toPoint
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
         estimating = true; errorText = null
@@ -3156,7 +3150,8 @@ private fun InstantDestinationPicker(
                         )
                     }
                 }
-                val scheduled = scheduledAtMs != null
+                val selectedTime = scheduledAtMs
+                val scheduled = selectedTime != null
                 Row(
                     Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
@@ -3204,6 +3199,11 @@ private fun InstantDestinationPicker(
                     ) else Button(
                         onClick = {
                             if (!isCurrentAction() || !estimateCurrent || creating) return@Button
+                            if (draft.wasCompleted()) { draft.clear(); return@Button }
+                            val submittedRevision = draft.submittedRevision
+                            val pickupTime = scheduledAtMs
+                            if (pickupTime != estimateInputs.last()) return@Button
+                            if (!taxiPickupTimeCurrent(pickupTime)) { estimate = null; errorText = chooseNewTime; return@Button }
                             val f = effFrom ?: return@Button
                             val t = toPoint ?: return@Button
                             creating = true; errorText = null
@@ -3211,8 +3211,8 @@ private fun InstantDestinationPicker(
                             val tText = toText.ifBlank { mapPointText }
                             scope.launch {
                                 if (!isCurrentAction()) return@launch
-                                if (scheduled) {
-                                    val iso = isoFromMillis(scheduledAtMs!!)
+                                if (pickupTime != null) {
+                                    val iso = isoFromMillis(pickupTime)
                                     ApiClient.scheduleInstantOrder(
                                         f.latitude, f.longitude, t.latitude, t.longitude, iso, fText, tText, category,
                                         comment = comment, entrance = entrance,
@@ -3227,6 +3227,7 @@ private fun InstantDestinationPicker(
                                         expectedGeneration = generation,
                                     )
                                         .onSuccess {
+                                            draft.acknowledge(submittedRevision)
                                             ApiClient.runIfCurrentSession(generation) {
                                                 if (isCurrentAction()) {
                                                     ApiClient.fireAddRecentPlace(tText, t.latitude, t.longitude, generation)
@@ -3251,6 +3252,7 @@ private fun InstantDestinationPicker(
                                         expectedGeneration = generation,
                                     )
                                         .onSuccess {
+                                            draft.acknowledge(submittedRevision)
                                             // Наполняем «Недавние» точкой Б (best-effort, на долгоживущем scope — не блокирует заказ).
                                             ApiClient.runIfCurrentSession(generation) {
                                                 if (isCurrentAction()) {
@@ -3276,9 +3278,9 @@ private fun InstantDestinationPicker(
                         if (creating) {
                             CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp, color = CanonOnFilled)
                         } else {
-                            val label = if (scheduled) {
+                            val label = if (selectedTime != null) {
                                 // Предзаказ «на время»: показываем время подачи.
-                                appText("Заказать на ${clockHm(scheduledAtMs!!)}", "${clockHm(scheduledAtMs!!)}-ға заказ итеү")
+                                appText("Заказать на ${clockHm(selectedTime)}", "${clockHm(selectedTime)}-ға заказ итеү")
                             } else {
                                 // Цена уже есть в выбранном тарифе. Одна спокойная надпись без
                                 // иконки делает главное действие легче и визуально дороже.
@@ -3618,7 +3620,7 @@ private fun InstantScheduledCreatedCard(
 private fun showDateTimePicker(ctx: Context, initialMs: Long?, onPicked: (Long) -> Unit) {
     val now = java.util.Calendar.getInstance()
     val start = java.util.Calendar.getInstance().apply {
-        timeInMillis = initialMs ?: (now.timeInMillis + 30 * 60_000L)   // по умолчанию через ~30 мин
+        timeInMillis = initialMs?.takeIf { it > now.timeInMillis } ?: (now.timeInMillis + 30 * 60_000L)   // по умолчанию через ~30 мин
     }
     val maxMs = now.timeInMillis + 7L * 24 * 60 * 60 * 1000   // потолок 7 суток
     android.app.DatePickerDialog(

@@ -12,6 +12,15 @@ COMPONENT = PKG + "/.MainActivity"
 DIR = "files/taxi-consent-qa"
 ADB = ["adb"]
 A, B = "QA Stop A", "QA Stop B"
+BASHKIR = {
+    "Заехать по пути": "Юлда инеп сығыу", "Детали заказа": "Заказ деталдәре",
+    "На время": "Ваҡытҡа", "Обратно тоже": "Кире лә", "2 ч": "2 сәғ",
+    "Моя позиция": "Минең урын", "Новый заказ": "Яңы заказ", "Убрать остановку": "Туҡталышты алыу",
+}
+
+
+def local_label(text):
+    return BASHKIR.get(text, text) if sys.argv[1] == "restore-ba" else text
 
 
 def adb(*args, check=True):
@@ -56,7 +65,7 @@ def touch(node):
 
 
 def label(value):
-    return lambda n: value in (n.get("text"), n.get("content-desc"))
+    return lambda n: local_label(value) in (n.get("text"), n.get("content-desc"))
 
 
 def find(predicate, description, scroll=False):
@@ -101,7 +110,7 @@ def task_record(saved=False):
 
 
 def start(uid=None):
-    args = ["am", "start", "-W", "-f", "0x10200000", "-a", "android.intent.action.MAIN",
+    args = ["am", "start", "-W", "-f", "0x30200000" if uid is not None else "0x10200000", "-a", "android.intent.action.MAIN",
             "-c", "android.intent.category.LAUNCHER", "-n", COMPONENT]
     if uid is not None:
         args += ["--es", "type", "instant", "--es", "recipient_user_id", str(uid)]
@@ -116,7 +125,7 @@ def identity(action, session_path):
         subprocess.run([*ADB, "shell", "-T", f"run-as {PKG} sh -c 'umask 077; cat > {DIR}/session.json'"],
                        stdin=fp, check=True, timeout=15)
     result = shell("am", "broadcast", "--include-stopped-packages", "-n", PKG + "/.TaxiDraftFixtureReceiver",
-                   "--es", "fixture", action)
+                   "--es", "fixture", action, "--es", "language", "Ba" if sys.argv[1] == "restore-ba" else "Ru")
     assert "result=107" in result, "Fixture authentication operation did not complete"
 
 
@@ -128,11 +137,30 @@ def add_stops():
         click(title)
 
 
+def choose_return_wait():
+    # The visible title and switch are separate accessibility nodes in SettingSwitchRow.
+    # Select the switch to the right of this title, in the same row, before scrolling on.
+    find(label("Обратно тоже"), "round trip settings", scroll=True)
+    nodes = tree()
+    header = next(n for n in nodes if label("Обратно тоже")(n))
+    left, top, right, bottom = bounds(header)
+    switches = []
+    for node in nodes:
+        if node.get("checkable") == "true" and len(bounds(node)) == 4:
+            x1, y1, x2, y2 = bounds(node)
+            if x1 >= right and abs((y1 + y2 - top - bottom) / 2) <= 160:
+                switches.append((abs(y1 + y2 - top - bottom), node))
+    assert switches, "Return-trip switch not present beside its title"
+    touch(min(switches, key=lambda pair: pair[0])[1])
+    click("2 ч", scroll=True)
+
+
 def choose_route(scheduled=True):
     click("QA Destination", scroll=True)
     add_stops()
     if scheduled:
         click("Детали заказа")
+        choose_return_wait()
         click("На время", scroll=True)
         for _ in range(2):
             button = find(lambda n: n.get("resource-id") == "android:id/button1", "native picker OK")
@@ -152,13 +180,13 @@ def ordered_route():
 
 
 def submit_label():
-    return find(lambda n: n.get("text", "").startswith("Заказать на "), "scheduled order control").get("text")
+    return find(lambda n: (n.get("text", "").startswith("Заказать на ") or n.get("text", "").endswith("-ға заказ итеү")), "scheduled order control").get("text")
 
 
 def clean_form(place):
     find(label(place), "saved place belonging to current passenger", scroll=True)
     nodes = tree()
-    assert nodes and not any(n.get("text") in (A, B) or n.get("content-desc") == "Убрать остановку"
+    assert nodes and not any(n.get("text") in (A, B) or label("Убрать остановку")(n)
                              for n in nodes), "Previous stops on new form"
     assert any(n.get("class") == "android.widget.EditText" for n in nodes), "Destination is still selected"
 
@@ -212,6 +240,7 @@ def run(scenario, session, state, results):
     shell("wm", "density", "320")
     shell("settings", "put", "system", "accelerometer_rotation", 0)
     shell("settings", "put", "system", "user_rotation", 0)
+    shell("cmd", "location", "set-location-enabled", "true")
     for kind in ("COARSE", "FINE"):
         shell("pm", "grant", PKG, "android.permission.ACCESS_" + kind + "_LOCATION")
     user = json.loads(session.read_text())
@@ -219,19 +248,22 @@ def run(scenario, session, state, results):
     seeded_pid = pid()
     start(user["uid"])
     assert pid() == seeded_pid, "Initial UI must use the process that logged in"
-    adb("emu", "geo", "fix", "58.317", "52.591")
-    find(label("Моя позиция"), "synthetic GPS pickup")
+    def gps_pickup():
+        # Older AVDs can drop an injected fix if the GPS listener has not yet registered.
+        adb("emu", "geo", "fix", "58.317", "52.591")
+        return any(label("Моя позиция")(node) for node in tree())
+    until(gps_pickup, "synthetic GPS pickup")
     choose_route()
     ordered_route()
     expected_cta = submit_label()
     no_writes(state, 0)
-    if scenario == "restore":
-        screenshot(results, "draft-before")
+    if scenario.startswith("restore"):
+        screenshot(results, scenario + "-before")
         rotate()
         ordered_route()
         assert pid() == seeded_pid and submit_label() == expected_cta
         no_writes(state, 0)
-        screenshot(results, "draft-rotated")
+        screenshot(results, scenario + "-rotated")
     old_pid, record, task, bundle = kill_background()
     if scenario in ("alternate", "relogin"):
         identity("logout", session)
@@ -242,18 +274,24 @@ def run(scenario, session, state, results):
     assert restored_pid and restored_pid != old_pid
     restored_record = until(task_record, "resumed task")
     assert restored_record[:2] == (record, task)
-    if scenario == "restore":
+    if scenario.startswith("restore"):
         ordered_route()
         assert submit_label() == expected_cta
         no_writes(state, 0)
-        screenshot(results, "draft-restored")
+        screenshot(results, scenario + "-restored")
         click(expected_cta)
         find(label("Новый заказ"), "scheduled receipt")
         result = no_writes(state, 1)
         assert result["order_status"] == "scheduled" and result["route"]["stops"] == [A, B]
         assert result["route"] == result["scheduled_route"] and result["route"]["km"] == 180
+        assert result["route"]["points"] == [[52.64, 58.41, A], [52.68, 58.54, B]]
         assert result["route"]["minutes"] == 90 and result["route"]["fare"] > 0
-        screenshot(results, "draft-submitted")
+        assert result["confirmed_round_trip"] is True and result["confirmed_return_wait_min"] == 120
+        (results / (scenario + "-order.json")).write_text(json.dumps({
+            key: result[key] for key in ("orders", "schedule", "confirm", "activate", "legacy", "route",
+                                         "scheduled_route", "confirmed_round_trip", "confirmed_return_wait_min")
+        }, indent=2))
+        screenshot(results, scenario + "-submitted")
         click("Новый заказ")
         clean_form("QA Destination")
         # Protected NOW: the same selections may live on screen but must not return after death.
@@ -268,14 +306,22 @@ def run(scenario, session, state, results):
         place = "QA Alternate Place" if scenario == "alternate" else "QA Destination"
         # The navigation owner may safely return to Home on an account switch. Reopen taxi
         # through its normal authenticated entry only if the parked task left the taxi screen.
-        nodes = until(tree, "foreground accessibility tree")
-        if not any(n.get("text") == place for n in nodes):
+        def parked_destination():
+            nodes = tree()
+            assert not any(n.get("text") in (A, B) or label("Убрать остановку")(n)
+                           for n in nodes), "Parked task disclosed the former route"
+            if any(label(place)(n) for n in nodes):
+                return "taxi"
+            if any(label("Профиль")(n) for n in nodes) and not any(n.get("class") == "android.widget.EditText" for n in nodes):
+                return "home"
+            return None
+        if until(parked_destination, "restored account's taxi form or home") == "home":
             start(json.loads(session.read_text())[scenario]["uid"])
         clean_form(place)
         no_writes(state, 0)
     (results / f"draft-{scenario}-proof.json").write_text(json.dumps({
         "scenario": scenario, "before_pid": old_pid, "after_pid": restored_pid, "same_task": task,
-        "same_activity_record": True, "saved_bundle_bytes": bundle, "submitted": scenario == "restore",
+        "same_activity_record": True, "saved_bundle_bytes": bundle, "submitted": scenario.startswith("restore"),
     }, indent=2))
 
 

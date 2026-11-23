@@ -153,6 +153,8 @@ def serve(args, tempdir):
                 order = response.json()
                 scheduled_route = {"stops": [s["text"] for s in order["stops"]],
                                    "km": order["distance_km"], "minutes": order["eta_min"], "fare": order["price_estimate"]}
+                if args.case == "draft":
+                    scheduled_route["points"] = [[p["lat"], p["lng"], p["text"]] for p in order["stops"]]
             if key == "activate" and args.case == "late" and response.status_code == 200:
                 snapshot()  # The server has committed; the UI still awaits this exact response.
                 release = args.state_file.with_suffix(".release")
@@ -207,8 +209,13 @@ def serve(args, tempdir):
             # Distinct directed legs make dropping OR reversing stops change distance and ETA.
             a, b = (52.64, 58.41), (52.68, 58.54)
             metrics = {(ORIG, a): (52.0, 23.0), (a, b): (61.0, 31.0), (b, DEST): (67.0, 36.0)}
+
+            def metric_point(point):
+                # GPS in the launcher test traverses the emulator's NMEA provider.
+                return tuple(round(v, 5) for v in point) if args.case == "draft" else tuple(point)
+
             monkeypatch.setattr(pricing, "route_metrics", lambda frm, to: pricing.RouteMetrics(
-                *metrics.get((tuple(frm), tuple(to)), (66.0, 33.0))))
+                *metrics.get((metric_point(frm), metric_point(to)), (66.0, 33.0))))
             monkeypatch.setattr(instant_service, "zone_for_km", lambda _: "intercity")
             from app.routers import discovery
             geocoded = {"geocode:v1:qa alpha": {"title": "QA Stop A", "lat": 52.64, "lon": 58.41},

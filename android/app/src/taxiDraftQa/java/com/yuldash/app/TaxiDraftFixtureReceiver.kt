@@ -18,6 +18,12 @@ class TaxiDraftFixtureReceiver : BroadcastReceiver() {
             "logout" -> ApiClient.logout()
             "primary", "alternate", "relogin" -> {
                 val identity = if (action == "primary") session else session.getJSONObject(action)
+                val language = intent.getStringExtra("language")
+                require(language == "Ru" || language == "Ba")
+                check(context.getSharedPreferences("yuldash_settings", Context.MODE_PRIVATE)
+                    .edit().putString("app_language", language).commit())
+                check(context.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
+                    .edit().putBoolean("dark_override", language == "Ba").commit())
                 ApiClient.saveToken(identity.getString("access"))
                 check(ApiClient.myUserId() == identity.getInt("uid"))
                 check(context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE)
