@@ -1258,6 +1258,9 @@ def change_destination(order_id: int, body: DestinationIn,
     if not order or order.passenger_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
 
+    if any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS):
+        raise taxi_waypoint_consent._legacy_conflict()
+
     blocked = isv.can_change_destination(order)
     if blocked == "status":
         raise herr(409, "Сейчас адрес поменять нельзя",
@@ -1269,8 +1272,15 @@ def change_destination(order_id: int, body: DestinationIn,
         raise herr(409, "Уже почти на месте — закажи новую поездку",
                    "Инде барып еттек — яңы сәфәр заказ ит")
 
-    captured = taxi_waypoint_consent.capture_route_write(order)
-    quote = isv.destination_quote(session, order, (body.to_lat, body.to_lng))
+    destination = (body.to_lat, body.to_lng)
+    offered = order.status == S.offered
+    if offered and order.driver_id is not None:
+        raise taxi_waypoint_consent._legacy_conflict()
+    captured = (taxi_waypoint_consent.capture_legacy_offered_destination(order) if offered
+                else taxi_waypoint_consent.capture_route_write(order))
+    tariff = []
+    private = {"capture_tariff": tariff.append} if offered and not body.preview else {}
+    quote = isv.destination_quote(session, order, destination, **private)
     if not quote.get("ok"):
         raise herr(503, "Не удалось посчитать цену. Попробуй ещё раз",
                    "Хаҡты иҫәпләп булманы. Ҡабат ҡара")
@@ -1282,23 +1292,22 @@ def change_destination(order_id: int, body: DestinationIn,
     # Крупная смена — сначала слово водителю.
     if quote["needs_driver_ok"] and order.driver_id:
         taxi_waypoint_consent.propose_guarded_destination(session, order, captured,
-                                                         (body.to_lat, body.to_lng), body.to_text, quote)
+                                                         destination, body.to_text, quote, unmarked=True)
         isv.notify_driver_destination(session, order, quote, pending=True)
         return {**quote, "applied": False, "waiting_driver": True}
 
     # Предложение уже висит у водителя со старым адресом — отзываем, иначе он примет заказ,
     # которого не видел. Дальше обычный поиск подхватит заказ уже с новым адресом.
-    if order.status == S.offered:
-        # The existing dispatch invalidation owns a separate transaction.
-        # Keep this branch outside the first guarded-pricing slice.
-        isv.advance_after_no_accept(session, order, notify=False)
-        session.refresh(order)
-        isv.apply_destination(session, order, (body.to_lat, body.to_lng), body.to_text, quote)
+    if offered:
+        order = taxi_waypoint_consent.apply_legacy_offered_destination(
+            session, captured, quote, tariff[0] if len(tariff) == 1 else None,
+            destination=destination, text=body.to_text,
+        )
     else:
         taxi_waypoint_consent.apply_guarded_route(
-            session, order, captured, quote, destination=(body.to_lat, body.to_lng), text=body.to_text,
+            session, order, captured, quote, destination=destination, text=body.to_text, unmarked=True,
         )
-    if order.driver_id:
+    if not offered and order.driver_id:
         isv.notify_driver_destination(session, order, quote)
     return {**quote, "applied": True, "order": isv.order_payload(session, order, user)}
 
