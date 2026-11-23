@@ -2808,6 +2808,14 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         write = write.where(*(
             column == old for column, old in zip(_ACCEPT_OFFER_COLUMNS, expected_offer, strict=True)
         ), *_legacy_no_resume()).execution_options(synchronize_session=False)
+        # The router's busy read is serialized by its driver row lock on PG,
+        # but FOR UPDATE is a plain read on SQLite. Check the same active
+        # taxi slots in this actual accept write, also for internal callers.
+        other_active = InstantOrder.__table__.alias("other_active_taxi_accept")
+        write = write.where(~select(other_active.c.id).where(
+            other_active.c.id != order_id, other_active.c.driver_id == user_id,
+            other_active.c.status.in_((S.accepted, S.arriving, S.onboard)),
+        ).exists())
         if card_precondition is not None:
             write = write.where(
                 InstantOrder.price_final.is_(None),
