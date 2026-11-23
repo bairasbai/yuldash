@@ -5,10 +5,13 @@ import android.content.Context
 import android.content.Intent
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.TAXI_CONSENT_LOCAL_API
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 
-/** The root-owned emulator provisions authentication only. No route or Android state is injected. */
+/** QA provisions login and fetches real service flags. It never injects a route or a saved task. */
 class TaxiDraftFixtureReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         check(BuildConfig.DEBUG && BuildConfig.YULDASH_NATIVE_QA_PINNED_API)
@@ -16,6 +19,25 @@ class TaxiDraftFixtureReceiver : BroadcastReceiver() {
         if (intent.getStringExtra("fixture") == "read-controls") {
             TaxiDraftControls.write(context)
             resultCode = 107
+            return
+        }
+        if (intent.getStringExtra("fixture") == "confirm-taxi-service") {
+            val pending = goAsync()
+            val app = context.applicationContext
+            CoroutineScope(Dispatchers.IO).launch {
+                try {
+                    // The first route requires a live confirmation from the isolated server.
+                    FeatureFlags.refresh(app)
+                    val flags = FeatureFlags.current
+                    pending.resultCode = when {
+                        !flags.known -> 108
+                        flags.isOn(Feature.Taxi) -> 107
+                        else -> 109
+                    }
+                } finally {
+                    pending.finish()
+                }
+            }
             return
         }
         val session = JSONObject(File(context.filesDir, "taxi-consent-qa/session.json").readText())

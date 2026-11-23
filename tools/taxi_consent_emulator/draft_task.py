@@ -191,6 +191,23 @@ def identity(action, session_path):
     assert "result=107" in result, "Fixture authentication operation did not complete"
 
 
+def confirm_initial_service(state_path, results, scenario):
+    # Only the initial login is prepared. Rotation, cold restore and account changes
+    # must obtain their own data through the ordinary app lifecycle.
+    for attempt in range(1, 3):
+        reply = shell("am", "broadcast", "-n", PKG + "/.TaxiDraftFixtureReceiver",
+                      "--es", "fixture", "confirm-taxi-service")
+        if "result=107" in reply:
+            observed = json.loads(state_path.read_text())["draft_admission"].get("features")
+            assert observed == {"status": 200, "enabled": True}, "Test server did not confirm taxi availability"
+            (results / f"{scenario}-initial-service.json").write_text(json.dumps({
+                "attempts": attempt, "features": observed,
+            }, indent=2))
+            return
+        assert "result=108" in reply, "Taxi service disabled or fixture did not complete"
+    raise AssertionError("No live taxi feature confirmation from the isolated server")
+
+
 def pickup_row(node):
     return node.get("text") in {"Моя позиция", "Минең урын", "Включи геолокацию", "Геолокацияны ҡабыҙ"}
 
@@ -383,6 +400,7 @@ def run(scenario, session, state, results):
     user = json.loads(session.read_text())
     identity("primary", session)
     seeded_pid = pid()
+    confirm_initial_service(state, results, scenario)
     start(user["uid"])
     assert pid() == seeded_pid, "Initial UI must use the process that logged in"
     find(label("Моя позиция"), "initial last-known synthetic pickup")

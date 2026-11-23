@@ -56,6 +56,7 @@ def serve(args, tempdir):
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
     counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
     draft_case = args.case in ("draft", "draft-delayed")
+    draft_admission = {}
     if draft_case:
         counters["draft_route_estimates"] = 0
     scheduled_case = draft_case or args.case in ("scheduled", "late", "unavailable")
@@ -95,6 +96,7 @@ def serve(args, tempdir):
             selection = {"states_by_slot": states, "addressed_slots": addressed_slots} if selection_keys else {}
         write_private_json(args.state_file, {
             **counters, **order_fields, "scheduled_route": scheduled_route, "released": response_released,
+            **({"draft_admission": draft_admission} if draft_case else {}),
             "schedule_http": schedule_http, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
             "attempts": sorted(states), "late_status": late_status, **selection,
         })
@@ -136,6 +138,12 @@ def serve(args, tempdir):
             if key == "schedule":
                 snapshot()  # Preserve receipt even if the backend or response adapter raises.
             response = client.request(self.command, self.path, content=body, headers=headers)
+            if draft_case and self.command == "GET" and parsed.path in ("/config/features", "/instant/availability"):
+                key_name, field = ("features", "taxi") if parsed.path == "/config/features" else ("availability", "enabled")
+                value = response.json().get(field) if response.status_code == 200 else None
+                draft_admission[key_name] = {
+                    "status": response.status_code, "enabled": value if isinstance(value, bool) else None,
+                }
             if (draft_case and self.command == "POST" and parsed.path == "/instant/estimate"
                     and response.status_code == 200 and headers.get("Authorization") == "Bearer " + session["access_token"]):
                 request = json.loads(body)

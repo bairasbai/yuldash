@@ -14,7 +14,7 @@ cleanup() {
     local status=$?
     if [[ $status != 0 && -n ${case_name:-} ]]; then
         if [[ -s ${state:-} ]]; then
-            jq '{schedule, schedule_http, orders, order_status, activate}' "$state" > "$results/$case_name-failure-state.json" || true
+            jq '{schedule, schedule_http, orders, order_status, activate} + (if has("draft_admission") then {draft_admission} else {} end)' "$state" > "$results/$case_name-failure-state.json" || true
         fi
         # Draft runs already capture their own screenshots. The frame files below
         # belong only to the consent instrumentation suite.
