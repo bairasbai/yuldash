@@ -1,0 +1,41 @@
+name: Gemini CI failure analysis
+
+on:
+  workflow_run:
+    workflows: [CI]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: read
+  pull-requests: write
+
+concurrency:
+  group: gemini36-failure-${{ github.event.workflow_run.id }}
+  cancel-in-progress: false
+
+jobs:
+  analyze:
+    if: >-
+      vars.YULDASH_GEMINI_CI_DIAGNOSTICS == 'true' &&
+      github.ref_name == github.event.repository.default_branch &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Explain the failed run
+        env:
+          YULDASH_GEMINI_CI_DIAGNOSTICS: ${{ vars.YULDASH_GEMINI_CI_DIAGNOSTICS }}
+          GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -B .github/scripts/analyze_ci_failure.py
