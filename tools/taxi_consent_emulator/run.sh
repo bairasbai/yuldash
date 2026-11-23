@@ -36,9 +36,21 @@ if adb shell pm list packages | tr -d '\r' | grep -Fxq "package:$pkg"; then
     echo 'This acceptance run requires a fresh emulator without an existing installation.' >&2
     exit 1
 fi
-adb root
-adb wait-for-device
-[[ $(adb shell id -u | tr -d '\r') == 0 ]]
+# adbd may close the root request while it is restarting. Require a live root
+# shell before setting up the isolated network or installing the test APK.
+for attempt in 1 2 3; do
+    timeout 10s adb root || true
+    if timeout 15s adb wait-for-device &&
+            device_uid=$(timeout 5s adb shell id -u | tr -d '\r') &&
+            [[ $device_uid == 0 ]]; then
+        break
+    fi
+    if [[ $attempt == 3 ]]; then
+        echo 'Unable to verify a root shell on the test emulator.' >&2
+        exit 1
+    fi
+    sleep 1
+done
 adb shell svc wifi disable
 adb shell svc data disable
 adb shell settings put global airplane_mode_on 1
