@@ -3113,20 +3113,53 @@ def candidates(r, session: Session, order: InstantOrder, exclude: set) -> list:
     return []
 
 
-def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+# Tie an outcome to the persisted searching pass that performed GEO work.
+# These fields are existing dispatch lineage, not a new route/client revision.
+_SEARCH_OWNER_FIELDS = (
+    "id", "passenger_id", "driver_id", "searching_at", "search_round", "reassigns",
+    "current_offer_driver_id", "offered_at", "offer_expires_at",
+)
+_SEARCH_OWNER_COLUMNS = tuple(getattr(InstantOrder, name) for name in _SEARCH_OWNER_FIELDS)
+
+
+def _search_owner(order: InstantOrder) -> tuple:
+    return tuple(getattr(order, name) for name in _SEARCH_OWNER_FIELDS)
+
+
+def _write_search_outcome(session: Session, owner: tuple, **values):
+    result = session.execute(
+        update(InstantOrder).where(
+            InstantOrder.status == S.searching,
+            *(column == observed for column, observed
+              in zip(_SEARCH_OWNER_COLUMNS, owner, strict=True)),
+        ).values(**values).execution_options(synchronize_session=False)
+    )
+    if result.rowcount != 1:
+        # Only these matcher paths own the transaction. Do not commit a failed
+        # outcome or leave an initial dispatch claim locked after a loss.
+        session.rollback()
+        return False
+    session.commit()
+    return True
+
+
+def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True, *,
+                       search_owner: tuple | None = None) -> InstantOrder:
     """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
 
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
     пассажир УЖЕ нажал «подождать», он в курсе; повторять ему «рядом никого» каждые
     две минуты — спам, из-за которого выключают уведомления."""
-    session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id)
-        .values(status=S.expired, expired_at=utcnow(), current_offer_driver_id=None, offer_expires_at=None)
+    order_id = order.id
+    at = utcnow()
+    committed = _write_search_outcome(
+        session, search_owner if search_owner is not None else _search_owner(order),
+        status=S.expired, expired_at=at, current_offer_driver_id=None, offer_expires_at=None,
     )
-    session.commit()
-    _cleanup_tried(order.id)
-    fresh = session.get(InstantOrder, order.id)
+    fresh = session.get(InstantOrder, order_id, populate_existing=True)
+    if not committed or fresh is None or fresh.status != S.expired or fresh.expired_at != at:
+        return fresh
+    _cleanup_tried(order_id)
     if notify:
         push_bilingual(session, fresh.passenger_id,
                        "Рядом никого", "Яҡында водитель юҡ",
@@ -3196,48 +3229,49 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
                    first_deadline: datetime | None = None, previous_driver: int | None = None) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     first_confirmed = first_deadline is not None
+    order_id = order.id
+    search_owner = _search_owner(order)
+    search_round = order.search_round
+    if order.status != S.searching:
+        return session.get(InstantOrder, order_id, populate_existing=True)
     stopped = cancel_for_suspended_passenger(session, order, refresh_standing=not first_confirmed)
     if stopped is not None:
         return stopped
     r = _redis()
-    if r is None or order.search_round >= settings.instant_max_offers:
-        return _expire_no_drivers(session, order, notify)
-    # A historical process may have marked a driver before saving its first offer.
-    excluded = set() if first_confirmed else _tried_set(r, order.id)
-    if previous_driver is not None and previous_driver not in excluded:
-        # The first offer may have committed immediately before its Redis write.
-        _remember_offered_driver(r, order.id, previous_driver)
+    if r is None or search_round >= settings.instant_max_offers:
+        return _expire_no_drivers(session, order, notify, search_owner=search_owner)
+    # A historical process may have saved an offer before its Redis write.
+    # Exclude its driver immediately for this lookup, but defer any persistent
+    # tried-set effects until this outcome owns the SQL row.
+    excluded = set() if first_confirmed else _tried_set(r, order_id)
+    remember_previous = previous_driver is not None and previous_driver not in excluded
+    if remember_previous:
         excluded.add(previous_driver)
     cands = candidates(r, session, order, exclude=excluded)
     if not cands:
-        return _expire_no_drivers(session, order, notify)
+        return _expire_no_drivers(session, order, notify, search_owner=search_owner)
     if first_confirmed:
         from . import taxi as taxi_mod
         # Candidate lookup can take time. Check the live gate before publishing,
         # and base the deadline on admission, never on the time the worker woke.
         if (not taxi_mod.availability(session, order.from_lat, order.from_lng)["enabled"]
                 or utcnow() >= first_deadline):
-            return _expire_no_drivers(session, order, notify)
+            return _expire_no_drivers(session, order, notify, search_owner=search_owner)
     did = cands[0]
-    if not first_confirmed:
-        _remember_offered_driver(r, order.id, did)
     now = utcnow()
-    session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id)
-        .values(status=S.offered, offered_at=now,
-                current_offer_driver_id=did,
-                offer_expires_at=now + timedelta(seconds=settings.instant_offer_ttl_sec),
-                search_round=order.search_round + 1)
+    expires_at = now + timedelta(seconds=settings.instant_offer_ttl_sec)
+    committed = _write_search_outcome(
+        session, search_owner, status=S.offered, offered_at=now,
+        current_offer_driver_id=did, offer_expires_at=expires_at, search_round=search_round + 1,
     )
-    session.commit()
-    fresh = session.get(InstantOrder, order.id, populate_existing=True)
-    if first_confirmed:
-        # Only the winner publishes, after its offer is visible to driver polling.
-        if (fresh is None or fresh.status != S.offered or fresh.current_offer_driver_id != did
-                or fresh.offered_at != now or fresh.offer_expires_at <= utcnow()):
-            return fresh
-        _remember_offered_driver(r, fresh.id, did)
+    fresh = session.get(InstantOrder, order_id, populate_existing=True)
+    if (not committed or fresh is None or fresh.status != S.offered
+            or fresh.current_offer_driver_id != did or fresh.offered_at != now
+            or fresh.offer_expires_at != expires_at or expires_at <= utcnow()):
+        return fresh
+    if remember_previous:
+        _remember_offered_driver(r, order_id, previous_driver)
+    _remember_offered_driver(r, order_id, did)
     _push_offer(session, fresh, did)
     return fresh
 
