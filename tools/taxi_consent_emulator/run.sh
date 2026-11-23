@@ -135,13 +135,15 @@ installed_apk_hash() {
 
 if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
     [[ -z $baseline_apk ]]
-    for scenario in restore restore-ba relogin alternate; do
+    for scenario in restore restore-ba delayed relogin alternate; do
         case_name="draft-$scenario"
         adb shell pm clear "$pkg" | grep -q Success
         adb shell run-as "$pkg" mkdir -p "$device_dir"
         session="$private/$case_name-session.json"
         state="$private/$case_name-state.json"
-        python tools/taxi_consent_emulator/fixture.py --case draft --session-file "$session" --state-file "$state" \
+        fixture_case=draft
+        if [[ $scenario == delayed ]]; then fixture_case=draft-delayed; fi
+        python tools/taxi_consent_emulator/fixture.py --case "$fixture_case" --session-file "$session" --state-file "$state" \
             >"$private/$case_name-server.log" 2>&1 &
         fixture_pid=$!
         for ((i=0; i<90; i++)); do

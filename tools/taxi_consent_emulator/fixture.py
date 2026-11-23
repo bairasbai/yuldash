@@ -55,10 +55,11 @@ def serve(args, tempdir):
 
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
     counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
-    scheduled_case = args.case in ("scheduled", "late", "unavailable", "draft")
+    draft_case = args.case in ("draft", "draft-delayed")
+    scheduled_case = draft_case or args.case in ("scheduled", "late", "unavailable")
     scheduled_route = None
     schedule_http = {"status": None, "field": None}
-    activation_released = False
+    response_released = False
     quoted_round_trips = []
     delayed = None
     late_status = None
@@ -83,7 +84,7 @@ def serve(args, tempdir):
                     "stops": [point["text"] for point in points],
                     "km": only.distance_km, "minutes": only.eta_min, "fare": only.price_estimate,
                 }
-                if args.case == "draft":
+                if draft_case:
                     order_fields["route"]["points"] = [[p["lat"], p["lng"], p["text"]] for p in points]
             attempts = db.exec(select(TaxiConsentAttempt).where(
                 TaxiConsentAttempt.owner_id == uid,
@@ -91,7 +92,7 @@ def serve(args, tempdir):
             states = [attempt.state for attempt in attempts]
             selection = {"states_by_slot": states, "addressed_slots": addressed_slots} if selection_keys else {}
         write_private_json(args.state_file, {
-            **counters, **order_fields, "scheduled_route": scheduled_route, "released": activation_released,
+            **counters, **order_fields, "scheduled_route": scheduled_route, "released": response_released,
             "schedule_http": schedule_http, "orders": len(orders), "quoted_round_trips": quoted_round_trips,
             "attempts": sorted(states), "late_status": late_status, **selection,
         })
@@ -101,7 +102,7 @@ def serve(args, tempdir):
             pass  # Routes, session details and request bodies are never logged.
 
         def forward(self):
-            nonlocal delayed, late_status, last_card_status, scheduled_route, activation_released
+            nonlocal delayed, late_status, last_card_status, scheduled_route, response_released
             parsed = urlsplit(self.path)
             if parsed.scheme or parsed.netloc or not self.path.startswith("/") or self.path.startswith("//"):
                 return self.send_error(400)
@@ -133,7 +134,7 @@ def serve(args, tempdir):
             if key == "schedule":
                 snapshot()  # Preserve receipt even if the backend or response adapter raises.
             response = client.request(self.command, self.path, content=body, headers=headers)
-            if (args.case == "draft" and self.command == "POST" and parsed.path == "/auth/logout"
+            if (draft_case and self.command == "POST" and parsed.path == "/auth/logout"
                     and response.status_code == 200):
                 # A new synthetic login must be issued after the server's all-session revocation.
                 with Session(conftest.engine) as db:
@@ -153,17 +154,20 @@ def serve(args, tempdir):
                 order = response.json()
                 scheduled_route = {"stops": [s["text"] for s in order["stops"]],
                                    "km": order["distance_km"], "minutes": order["eta_min"], "fare": order["price_estimate"]}
-                if args.case == "draft":
+                if draft_case:
                     scheduled_route["points"] = [[p["lat"], p["lng"], p["text"]] for p in order["stops"]]
-            if key == "activate" and args.case == "late" and response.status_code == 200:
+
+            hold_response = ((key == "activate" and args.case == "late")
+                             or (key == "schedule" and args.case == "draft-delayed"))
+            if hold_response and response.status_code == 200:
                 snapshot()  # The server has committed; the UI still awaits this exact response.
                 release = args.state_file.with_suffix(".release")
                 deadline = time.monotonic() + 45
                 while not release.exists():
                     if time.monotonic() > deadline:
-                        raise TimeoutError("Passenger did not leave before the activation response")
+                        raise TimeoutError("Test did not release the pending response")
                     time.sleep(0.05)
-                activation_released = True
+                response_released = True
             if key == "card" and response.status_code == 200:
                 last_card_status = response.json()["status"]
             if disconnect and args.case == "committed" and response.status_code == 200:
@@ -212,7 +216,7 @@ def serve(args, tempdir):
 
             def metric_point(point):
                 # GPS in the launcher test traverses the emulator's NMEA provider.
-                return tuple(round(v, 5) for v in point) if args.case == "draft" else tuple(point)
+                return tuple(round(v, 5) for v in point) if draft_case else tuple(point)
 
             monkeypatch.setattr(pricing, "route_metrics", lambda frm, to: pricing.RouteMetrics(
                 *metrics.get((metric_point(frm), metric_point(to)), (66.0, 33.0))))
@@ -230,6 +234,7 @@ def serve(args, tempdir):
             market.live_driver(client, make_user)
         passenger = make_user("ScheduledPassenger") if scheduled_case else market.promo_user(client, make_user)
         uid = passenger["id"]
+
         def save_place(user, label, coordinates):
             lat, lng = coordinates
             saved = client.post("/places/saved", headers=user["auth"], json={
@@ -240,7 +245,7 @@ def serve(args, tempdir):
         for label, coordinates in (("QA Origin", ORIG), ("QA Destination", DEST)):
             save_place(passenger, label, coordinates)
         alternate = {}
-        if args.case == "draft":
+        if draft_case:
             other = make_user("DraftAlternatePassenger")
             save_place(other, "QA Alternate Place", (52.70, 58.60))
             alternate = {"alternate": {"uid": other["id"], "access": other["token"]}}
@@ -269,7 +274,7 @@ def local_connect_only(original):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True, choices=(
-        "committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable", "draft",
+        "committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable", "draft", "draft-delayed",
     ))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)

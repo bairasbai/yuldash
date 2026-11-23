@@ -206,7 +206,7 @@ def rotate():
                        "MainActivity recreated for rotation")
 
 
-def kill_background():
+def park_task():
     previous = pid()
     assert previous
     shell("input", "keyevent", "KEYCODE_HOME")
@@ -214,6 +214,13 @@ def kill_background():
         record = task_record(saved=True)
         return record if record and re.search(r'\b(?:mState|state)=STOPPED\b', record[3]) else None
     token, task, size, _ = until(stopped_record, "stopped task with saved Android Bundle")
+    return previous, token, task, size
+
+
+def kill_background(parked=None):
+    previous, token, task, size = parked or park_task()
+    current = task_record(saved=True)
+    assert current and current[:3] == (token, task, size) and pid() == previous
     shell("am", "kill", "--user", "current", PKG)
     until(lambda: pid() is None, "old process disappeared")
     dead = until(lambda: task_record(saved=True), "retained dead task")
@@ -232,6 +239,17 @@ def no_writes(state_path, expected):
     assert state["schedule"] == state["orders"] == expected, "Unexpected scheduled order"
     assert all(state[k] == 0 for k in ("legacy", "quote", "confirm", "activate", "close")), "Unexpected request"
     return state
+
+
+def submitted_revision_persisted():
+    # The candidate commits just one opaque revision. Observe completion without printing the
+    # revision or reading the session/authentication preferences. Every scenario starts with pm clear.
+    raw = adb("exec-out", "run-as", PKG, "cat", "shared_prefs/taxi_draft_revision.xml", check=False)
+    try:
+        revision = ET.fromstring(raw).findtext("string[@name='completed_revision']")
+        return revision is not None and re.fullmatch(r"[0-9a-f-]{36}", revision)
+    except ET.ParseError:
+        return False
 
 
 def run(scenario, session, state, results):
@@ -264,7 +282,19 @@ def run(scenario, session, state, results):
         assert pid() == seeded_pid and submit_label() == expected_cta
         no_writes(state, 0)
         screenshot(results, scenario + "-rotated")
-    old_pid, record, task, bundle = kill_background()
+    parked = None
+    if scenario == "delayed":
+        assert not submitted_revision_persisted()
+        click(expected_cta)
+        def server_committed():
+            snapshot = json.loads(state.read_text())
+            return snapshot["orders"] == 1 and snapshot["schedule"] == 1 and not snapshot["released"]
+        until(server_committed, "backend committed, response still pending")
+        parked = park_task()  # Android has saved the original, unacknowledged form.
+        state.with_suffix(".release").touch()
+        until(lambda: json.loads(state.read_text())["released"], "backend released success")
+        until(submitted_revision_persisted, "stopped process acknowledged the successful order")
+    old_pid, record, task, bundle = kill_background(parked)
     if scenario in ("alternate", "relogin"):
         identity("logout", session)
         until(lambda: "relogin" in json.loads(session.read_text()), "server acknowledged logout and issued a new login")
@@ -302,6 +332,14 @@ def run(scenario, session, state, results):
         clean_form("QA Destination")
         assert pid() != privacy_pid and task_record()[:2] == (token, privacy_task)
         no_writes(state, 1)
+    elif scenario == "delayed":
+        # Android just returned the pre-acknowledgement Bundle. Opening taxi again must not
+        # rehydrate those stops or the expired submission capability.
+        clean_form("QA Destination")
+        result = no_writes(state, 1)
+        assert result["route"]["points"] == [[52.64, 58.41, A], [52.68, 58.54, B]]
+        assert result["confirmed_round_trip"] is True and result["confirmed_return_wait_min"] == 120
+        screenshot(results, "draft-late-acknowledgement")
     else:
         place = "QA Alternate Place" if scenario == "alternate" else "QA Destination"
         # The navigation owner may safely return to Home on an account switch. Reopen taxi
@@ -321,7 +359,8 @@ def run(scenario, session, state, results):
         no_writes(state, 0)
     (results / f"draft-{scenario}-proof.json").write_text(json.dumps({
         "scenario": scenario, "before_pid": old_pid, "after_pid": restored_pid, "same_task": task,
-        "same_activity_record": True, "saved_bundle_bytes": bundle, "submitted": scenario.startswith("restore"),
+        "same_activity_record": True, "saved_bundle_bytes": bundle, "submitted": scenario.startswith("restore") or scenario == "delayed",
+        "acknowledged_after_task_saved": scenario == "delayed",
     }, indent=2))
 
 
