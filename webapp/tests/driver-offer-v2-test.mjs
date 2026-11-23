@@ -39,7 +39,7 @@ async function build(mode, lang = "ru") {
         const s=()=>globalThis.__driverV2;
         export const fetchTaxiApplication=async()=>({status:"approved"});
         export const fetchPretrip=async()=>null, fetchWorkday=async()=>null, fetchWorkZone=async()=>null;
-        export const sendPresence=async()=>{}, fetchDemand=async()=>({zones:[]});
+        export const sendPresence=async()=>s().presence(), fetchDemand=async()=>({zones:[]});
         export const fetchDriverOffer=async()=>{s().legacy.push("poll");return {offer:s().card};};
         export const acceptOrder=async(id)=>{s().legacy.push("accept:"+id);return s().adopted;};
         export const fetchInstantOrder=async()=>s().adopted;
@@ -53,17 +53,19 @@ const Legacy = await build("0");
 const overlay = view => all(view.tree).find(n => typeof n.type === "function" && n.type.name === "OfferOverlay");
 function deferred() { let resolve; const promise = new Promise(r => { resolve = r; }); return { resolve, promise }; }
 
-async function setup(ScreenType = Screen, location = "http://127.0.0.1:5173", card = first) {
+async function setup(ScreenType = Screen, location = "http://127.0.0.1:5173", card = first, position = false) {
   const intervals = new Map(), values = new Map(), legacy = [];
   globalThis.window = {
     location: new URL(location), setInterval(f, delay) { const id = {}; intervals.set(id, { f, delay }); return id; },
     clearInterval(id) { intervals.delete(id); },
   };
-  Object.defineProperty(globalThis, "navigator", { configurable: true, value: {} });
+  Object.defineProperty(globalThis, "navigator", { configurable: true, value: position ? { geolocation: {
+    watchPosition(next) { next({ coords: { latitude: 0, longitude: 0 } }); return 1; }, clearWatch() {},
+  } } : {} });
   globalThis.localStorage = { getItem: k => values.get(k), setItem: (k, v) => values.set(k, v) };
   const env = globalThis.__driverV2 = {
     owner, auth: new EventTarget(), card, adopted, legacy, calls: [],
-    readState: () => first, acceptAction: () => adopted,
+    readState: () => first, acceptAction: () => adopted, presence: () => {},
     async request(path, who, opts) {
       assert.equal(who, owner);
       assert.ok(!opts.signal.aborted);
@@ -81,7 +83,8 @@ async function setup(ScreenType = Screen, location = "http://127.0.0.1:5173", ca
   const view = mount(ScreenType);
   await view.settle();
   const tick = async () => { for (const item of intervals.values()) if (item.delay === 3000) item.f(); await view.settle(); };
-  return { env, view, tick, values };
+  const heartbeat = async () => { for (const item of intervals.values()) if (item.delay === 15000) item.f(); await view.settle(); };
+  return { env, view, tick, values, heartbeat };
 }
 const paths = x => x.calls.map(y => y.path);
 const t = checker();
@@ -159,6 +162,68 @@ await t.test("accept suspended in flight locks same ID; a transport error stays 
   assert.deepEqual(paths(env), [route, accept, read, read, read, read]);
   view.unmount();
 });
+
+for (const [lang, label, busyLabel] of [
+  ["ru", "Проверить результат", "Проверяем…"],
+  ["ba", "Һөҙөмтәне тикшереү", "Тикшерәбеҙ…"],
+]) {
+  await t.test(`manual unknown-outcome check is visible and read-only after heartbeat 403 (${lang})`, async () => {
+    const { env, view, tick, values, heartbeat } = await setup(
+      lang === "ru" ? Screen : await build("1", "ba"), "http://127.0.0.1:5173", first, true,
+    );
+    const response = deferred();
+    env.acceptAction = async () => { await response.promise; throw new globalThis.__driverV2ApiError(0, "unknown"); };
+    const clicked = overlay(view).props;
+    const submitting = clicked.onAccept(clicked.order);
+    env.presence = () => { throw new globalThis.__driverV2ApiError(403, "offline"); };
+    await heartbeat();
+    assert.equal(overlay(view), undefined, "heartbeat transitions to the actual offline screen");
+    assert.deepEqual(paths(env), [route, accept]);
+    assert.equal(button(view.tree, label), undefined, "POST is still in flight, not yet a recovery attempt");
+    response.resolve();
+    assert.equal(await submitting, "closed");
+    await view.settle();
+    assert.ok(button(view.tree, label), "the only manual recheck must survive offer overlay removal");
+    assert.equal(button(view.tree, "Принять"), undefined);
+    assert.equal(button(view.tree, "Ҡабул итеү"), undefined);
+    assert.equal(values.size, 0);
+
+    const lookup = deferred(), check = button(view.tree, label).props.onClick;
+    env.readState = () => lookup.promise;
+    check();
+    check(); // the existing operation ref must block a double tap before render
+    await view.settle();
+    assert.equal(button(view.tree, busyLabel).props.disabled, true);
+    assert.deepEqual(paths(env), [route, accept, read]);
+    assert.equal(env.calls.at(-1).opts.method, "GET");
+    lookup.resolve({ ...adopted, driver_id: owner.userId + 1 });
+    await view.settle();
+    assert.ok(button(view.tree, label));
+    assert.equal(values.size, 0);
+
+    env.readState = () => { throw new globalThis.__driverV2ApiError(404, "unproven"); };
+    button(view.tree, label).props.onClick();
+    await view.settle();
+    assert.ok(button(view.tree, label), "a failed GET is not a negative result");
+    await tick();
+    assert.deepEqual(paths(env), [route, accept, read, read]);
+
+    const late = deferred();
+    env.readState = () => lang === "ru" ? adopted : late.promise;
+    button(view.tree, label).props.onClick();
+    if (lang === "ba") {
+      env.owner = { ...owner, generation: "new-login" };
+      env.auth.dispatchEvent(new Event("change"));
+      late.resolve(adopted);
+    }
+    await view.settle();
+    assert.equal(button(view.tree, label), undefined);
+    assert.equal(values.get("yuldash.taxi.activeOrder"), lang === "ru" ? "42" : undefined);
+    assert.deepEqual(paths(env), [route, accept, read, read, read]);
+    assert.deepEqual(env.legacy, []);
+    view.unmount();
+  });
+}
 
 await t.test("exact changed-offer code refreshes without accepting; repeated rejected tag stays hidden", async () => {
   const { env, view, tick } = await setup();
