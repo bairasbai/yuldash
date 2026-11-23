@@ -28,7 +28,7 @@ import pytest
 from sqlmodel import SQLModel
 
 import app.models  # noqa: F401 — регистрирует таблицы в metadata
-from app.cleanup import _rules
+from app.cleanup import INACTIVE_CASCADE_OWNED, _rules
 from app.timeutil import utcnow
 
 
@@ -58,6 +58,15 @@ def test_rule_guards_every_foreign_key(table: str):
     where = " ".join(r[2] for r in rules)
     missing = []
     for ref_table, ref_col in sorted(_referencing_columns(table)):
+        # Exact inactive child: this FK deletes the child, so making the
+        # parent query wait on it would incorrectly change order retention.
+        if (ref_table, ref_col, table) == ("taxirouteeditoutcome", "order_id", "instantorder"):
+            assert INACTIVE_CASCADE_OWNED == {"taxirouteeditoutcome": ("order_id", "instantorder", "id")}
+            fks = SQLModel.metadata.tables[ref_table].c[ref_col].foreign_keys
+            assert {(fk.column.table.name, fk.column.name, fk.ondelete) for fk in fks} == {
+                ("instantorder", "id", "CASCADE"),
+            }
+            continue
         # Ищем упоминание пары «таблица.колонка» в любом NOT EXISTS этого правила:
         # алиас произвольный, поэтому цепляемся за FROM <таблица> и за <алиас>.<колонка>.
         pattern = rf"FROM\s+{ref_table}\s+(\w+)\s+WHERE\s+\1\.{ref_col}\s*="

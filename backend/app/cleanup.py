@@ -143,6 +143,14 @@ KEEP_FOREVER = {
 }
 
 
+# Inactive TF04 storage. Parent retention removes receipts by actual
+# ON DELETE CASCADE; its own expiry helper is not a scheduled process.
+# A writer must not be connected before reviewing active receipt retention.
+INACTIVE_CASCADE_OWNED = {
+    "taxirouteeditoutcome": ("order_id", "instantorder", "id"),
+}
+
+
 # Белый список имён таблиц: имена в _rules() — наши константы, НЕ юзер-ввод (инъекции нет).
 # Но SQL строится f-строкой по имени таблицы, поэтому явно ограничиваем набор — страховка от
 # будущей правки, где в table случайно попадёт внешнее значение (см. review-plan 2026-07-03, P3).
