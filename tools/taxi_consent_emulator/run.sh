@@ -14,18 +14,28 @@ cleanup() {
     local status=$?
     if [[ $status != 0 && -n ${case_name:-} ]]; then
         if [[ -s ${state:-} ]]; then
-            jq '{schedule, schedule_http, orders, order_status, activate}' "$state" > "$results/$case_name-failure-state.json" || true
+            jq '{schedule, schedule_http, orders, order_status, activate} + (if has("draft_admission") then {draft_admission} else {} end)' "$state" > "$results/$case_name-failure-state.json" || true
         fi
-        for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active scheduled-form; do
-            if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
-                adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
-            fi
-        done
-        adb shell dumpsys window | grep -m2 -E 'mCurrentFocus=|mFocusedApp=' > "$results/$case_name-foreground.txt" || true
+        # Draft runs already capture their own screenshots. The frame files below
+        # belong only to the consent instrumentation suite.
+        if [[ ${TAXI_DRAFT_ONLY:-false} != true ]]; then
+            for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected scheduled-list scheduled-active scheduled-form; do
+                if timeout -k 1s 3s adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
+                    timeout -k 1s 5s adb exec-out run-as "$pkg" cat "$device_dir/$frame-failed.png" > "$results/$case_name-$frame-failed.png" || true
+                fi
+            done
+        fi
+        timeout -k 1s 5s adb shell dumpsys window | grep -m2 -E 'mCurrentFocus=|mFocusedApp=' > "$results/$case_name-foreground.txt" || true
     fi
     if [[ -n "$phase_pid" ]]; then kill "$phase_pid" 2>/dev/null || true; fi
-    if [[ -n "$fixture_pid" ]]; then kill "$fixture_pid" 2>/dev/null || true; wait "$fixture_pid" 2>/dev/null || true; fi
-    adb reverse --remove tcp:8000 >/dev/null 2>&1 || true
+    if [[ -n "$fixture_pid" ]]; then
+        kill "$fixture_pid" 2>/dev/null || true
+        if ! timeout 5s tail --pid="$fixture_pid" -f /dev/null; then
+            kill -KILL "$fixture_pid" 2>/dev/null || true
+        fi
+        wait "$fixture_pid" 2>/dev/null || true
+    fi
+    timeout -k 1s 5s adb reverse --remove tcp:8000 >/dev/null 2>&1 || true
     rm -rf -- "$private"
 }
 trap cleanup EXIT
@@ -36,9 +46,21 @@ if adb shell pm list packages | tr -d '\r' | grep -Fxq "package:$pkg"; then
     echo 'This acceptance run requires a fresh emulator without an existing installation.' >&2
     exit 1
 fi
-adb root
-adb wait-for-device
-[[ $(adb shell id -u | tr -d '\r') == 0 ]]
+# adbd may close the root request while it is restarting. Require a live root
+# shell before setting up the isolated network or installing the test APK.
+for attempt in 1 2 3; do
+    timeout 10s adb root || true
+    if timeout 15s adb wait-for-device &&
+            device_uid=$(timeout 5s adb shell id -u | tr -d '\r') &&
+            [[ $device_uid == 0 ]]; then
+        break
+    fi
+    if [[ $attempt == 3 ]]; then
+        echo 'Unable to verify a root shell on the test emulator.' >&2
+        exit 1
+    fi
+    sleep 1
+done
 adb shell svc wifi disable
 adb shell svc data disable
 adb shell settings put global airplane_mode_on 1
@@ -143,8 +165,20 @@ if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
     [[ -z $baseline_apk ]]
     cases=(restore restore-ba delayed relogin alternate)
     if [[ ${TAXI_DRAFT_VARIANT:-candidate} == baseline ]]; then cases=(baseline); fi
+    if [[ -n ${TAXI_DRAFT_SCENARIO:-} ]]; then
+        selected=()
+        for scenario in "${cases[@]}"; do
+            if [[ $scenario == "$TAXI_DRAFT_SCENARIO" ]]; then selected+=("$scenario"); fi
+        done
+        if [[ ${#selected[@]} != 1 ]]; then
+            echo 'Unknown draft scenario for the selected build.' >&2
+            exit 2
+        fi
+        cases=("${selected[@]}")
+    fi
     for scenario in "${cases[@]}"; do
         case_name="draft-$scenario"
+        echo "Running $case_name"
         adb shell pm clear "$pkg" | grep -q Success
         adb shell run-as "$pkg" mkdir -p "$device_dir"
         session="$private/$case_name-session.json"

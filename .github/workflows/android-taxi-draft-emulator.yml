@@ -19,11 +19,12 @@ permissions:
 
 jobs:
   taxi-draft-emulator:
-    name: Taxi draft (${{ matrix.variant }})
+    name: Taxi draft (${{ matrix.scenario }})
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
-        variant: [candidate, baseline]
+        scenario: [baseline, restore, restore-ba, delayed, relogin, alternate]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -31,14 +32,15 @@ jobs:
       YULDASH_NATIVE_QA_PINNED_API: 'true'
       YULDASH_TAXI_QUOTE_CONSENT_LOCAL: 'true'
       YULDASH_TAXI_DRAFT_DEVICE_QA: 'true'
-      TAXI_DRAFT_VARIANT: ${{ matrix.variant }}
+      TAXI_DRAFT_VARIANT: ${{ matrix.scenario == 'baseline' && 'baseline' || 'candidate' }}
+      TAXI_DRAFT_SCENARIO: ${{ matrix.scenario }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
-          fetch-depth: ${{ matrix.variant == 'baseline' && '0' || '1' }}
+          fetch-depth: ${{ matrix.scenario == 'baseline' && '0' || '1' }}
       - name: Use the exact production source from PR 289 for the control
-        if: matrix.variant == 'baseline'
+        if: matrix.scenario == 'baseline'
         env:
           BASELINE: 6548bf38f66ef9902cf0ad000e51c5ada85af8d9
         run: |
@@ -59,7 +61,7 @@ jobs:
           cache-dependency-path: backend/requirements-dev.txt
       - name: Build the selected production source against the isolated emulator API
         working-directory: android
-        run: bash gradlew :app:assembleDebug :taxiDraftObserver:assembleDebug --stacktrace
+        run: bash gradlew --no-daemon :app:assembleDebug :taxiDraftObserver:assembleDebug --stacktrace
       - name: Install the local backend test dependencies
         run: pip install -r backend/requirements-dev.txt
       - name: Allow runner access to KVM
@@ -67,18 +69,20 @@ jobs:
       - name: Restore the same Android task after a background process kill
         uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
         with:
+          # Android Emulator 37.2.13, the previous stable Linux host build. The guest stays API 30.
+          emulator-build: 16740729
           profile: pixel_2
           api-level: 30
           target: default
           arch: x86_64
           force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: TAXI_DRAFT_ONLY=true bash tools/taxi_consent_emulator/run.sh
       - name: Save lifecycle evidence and synthetic UI frames
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.variant == 'baseline' && 'taxi-draft-baseline' || 'taxi-draft-emulator' }}
+          name: taxi-draft-${{ matrix.scenario }}
           path: android/build/taxi-consent-emulator
           if-no-files-found: ignore
           retention-days: 7
