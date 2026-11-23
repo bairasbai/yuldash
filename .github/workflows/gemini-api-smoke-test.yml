@@ -53,7 +53,18 @@ jobs:
                   raw_status = inner.get("status", "UNKNOWN") if isinstance(inner, dict) else "UNKNOWN"
                   # Never print arbitrary server responses, request headers or the key.
                   safe_status = re.sub(r"[^A-Z_]", "", str(raw_status))[:48] or "UNKNOWN"
-                  print(f"Gemini API: HTTP {exc.code}; status={safe_status}")
+                  reason = "NOT_PROVIDED"
+                  if isinstance(inner, dict):
+                      for detail in inner.get("details", []):
+                          if isinstance(detail, dict) and isinstance(detail.get("reason"), str):
+                              reason = detail["reason"]
+                              break
+                  safe_reason = re.sub(r"[^A-Z0-9_]", "", reason)[:64] or "NOT_PROVIDED"
+                  message = str(inner.get("message", "")).lower() if isinstance(inner, dict) else ""
+                  hint = ("KEY_NOT_VALID" if "api key not valid" in message
+                          else "OAUTH_EXPECTED" if "oauth" in message
+                          else "NONE")
+                  print(f"Gemini API: HTTP {exc.code}; status={safe_status}; reason={safe_reason}; hint={hint}")
                   sys.exit(1)
               except (error.URLError, TimeoutError, OSError):
                   print("Gemini API: NETWORK_ERROR (no HTTP response)")
