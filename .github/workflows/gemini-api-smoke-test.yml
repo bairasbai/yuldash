@@ -42,7 +42,7 @@ jobs:
               data = json.dumps(payload).encode() if payload is not None else None
               req = request.Request(base + path, headers=headers, data=data, method="POST" if data else "GET")
               try:
-                  with request.urlopen(req, timeout=30) as response:
+                  with request.urlopen(req, timeout=65) as response:
                       return response.status, json.load(response)
               except error.HTTPError as exc:
                   try:
@@ -85,7 +85,7 @@ jobs:
 
           # Gemini 2.5 can be listed but 404 on generation for new projects.
           # Use current model IDs recommended by Google instead of legacy 2.5.
-          preferences = ("models/gemini-3.8-flash", "models/gemini-3.5-flash-lite")
+          preferences = ("models/gemini-3.5-flash-lite", "models/gemini-3.8-flash")
           model = next((name for name in preferences if name in options), None)
           if model is None:
               print("Models listing succeeded, but neither supported current smoke-test model was listed")
