@@ -884,6 +884,17 @@ export default function InstantDriverTripScreen() {
         </div>
       )}
 
+      {protectedOffer && pendingOfferId !== null && offerOwner && isDriverOfferOwner(offerOwner) && (
+        <div className="act-card act-card--warn">
+          <p className="act-card__text" role="status">{acceptNote}</p>
+          <button type="button" className="btn-primary" disabled={accepting} onClick={() => void checkAcceptance()}>
+            {accepting
+              ? appText("Проверяем…", "Тикшерәбеҙ…")
+              : appText("Проверить результат", "Һөҙөмтәне тикшереү")}
+          </button>
+        </div>
+      )}
+
       {/* Готовность на сегодня. Показываем ДО тумблера: это про «можно ли вообще ехать». */}
       {pretrip && !pretrip.confirmed && (
         <div className={"act-card " + (pretrip.required ? "act-card--warn" : "act-card--mint")}>
