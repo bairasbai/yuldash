@@ -54,7 +54,15 @@ if [[ -n $baseline_apk ]]; then
     [[ $baseline_hash != "$candidate_hash" ]]
 fi
 adb install -t "${baseline_apk:-$candidate_apk}"
-adb install -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
+    observer=com.yuldash.qa.taxidraft
+    observer_apks=(android/taxiDraftObserver/build/outputs/apk/debug/*.apk)
+    [[ ${#observer_apks[@]} == 1 ]]
+    adb install -t "${observer_apks[0]}"
+    adb shell pm list instrumentation | tr -d '\r' | grep -F " (target=$observer)" >/dev/null
+else
+    adb install -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+fi
 app_uid=$(adb shell pm list packages -U "$pkg" | tr -d '\r' | awk -v p="package:$pkg" '$1==p {sub(/^uid:/,"",$2); print $2}')
 [[ $app_uid =~ ^[0-9]+$ && $app_uid -ge 10000 ]]
 adb shell iptables -N TAXI_QA
@@ -130,6 +138,33 @@ installed_apk_hash() {
     [[ -n $installed ]] || return 1
     adb shell sha256sum "$installed" | cut -d' ' -f1
 }
+
+if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
+    [[ -z $baseline_apk ]]
+    cases=(restore restore-ba delayed relogin alternate)
+    if [[ ${TAXI_DRAFT_VARIANT:-candidate} == baseline ]]; then cases=(baseline); fi
+    for scenario in "${cases[@]}"; do
+        case_name="draft-$scenario"
+        adb shell pm clear "$pkg" | grep -q Success
+        adb shell run-as "$pkg" mkdir -p "$device_dir"
+        session="$private/$case_name-session.json"
+        state="$private/$case_name-state.json"
+        fixture_case=draft
+        if [[ $scenario == delayed ]]; then fixture_case=draft-delayed; fi
+        python tools/taxi_consent_emulator/fixture.py --case "$fixture_case" --session-file "$session" --state-file "$state" \
+            >"$private/$case_name-server.log" 2>&1 &
+        fixture_pid=$!
+        for ((i=0; i<90; i++)); do
+            [[ -s $session ]] && break
+            kill -0 "$fixture_pid" || { cat "$private/$case_name-server.log" >&2; exit 1; }
+            sleep 1
+        done
+        [[ -s $session ]]
+        python tools/taxi_consent_emulator/draft_task.py "$scenario" "$session" "$state" "$results"
+        stop_fixture
+    done
+    exit 0
+fi
 
 # Run the upgrade first so the previous APK is the only app that has touched this fresh installation.
 for case_name in selection-ba-dark committed closed roundtrip selection-ru-light selection-ru-dark selection-ba-light scheduled-ru-light late-ru-dark late-ba-light unavailable-ba-dark; do

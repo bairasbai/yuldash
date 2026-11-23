@@ -17,3 +17,8 @@ dependencyResolutionManagement {
 rootProject.name = "YuldashAndroid"
 include(":app")
 
+
+// External, permissionless UI observer; never packaged in the application.
+if (System.getenv("YULDASH_TAXI_DRAFT_DEVICE_QA") == "true") {
+    include(":taxiDraftObserver")
+}

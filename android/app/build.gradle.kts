@@ -185,6 +185,15 @@ kotlin {
 }
 
 android {
+    // Only an explicitly requested, pinned test build contains the emulator login receiver
+    // and permits the otherwise portrait-only launcher to undergo a real rotation.
+    if (System.getenv("YULDASH_TAXI_DRAFT_DEVICE_QA") == "true") {
+        require(nativeQaPinnedApi && taxiQuoteConsentLocal)
+        sourceSets.getByName("debug").apply {
+            manifest.srcFile("src/taxiDraftQa/AndroidManifest.xml")
+            java.srcDir("src/taxiDraftQa/java")
+        }
+    }
     namespace = "com.yuldash.app"
     compileSdk = 36
 
