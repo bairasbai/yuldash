@@ -6,6 +6,7 @@ on:
       - '.github/scripts/gemini36_pr_review.py'
       - '.github/scripts/analyze_ci_failure.py'
       - '.github/tests/test_gemini*.py'
+      - '.github/tests/fixtures/gemini-fake-openssh.example'
       - '.github/workflows/gemini36-*.yml'
 
 permissions:

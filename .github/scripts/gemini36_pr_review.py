@@ -41,8 +41,18 @@ def safe(value: object, limit: int = 500) -> str:
         return ""
     text = " ".join(scrub_patch(value).split())[:limit]
     text = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    # Do not turn model output into a clickable destination via GFM autolinks.
+    text = re.sub(r"(?i)\b(https?|ftp)://", r"\1[:]//", text)
+    text = re.sub(r"(?i)\bwww\.", "www[.]", text)
     text = text.replace("@", "@\u200b").replace(chr(96), "'")
     return re.sub(r"([\\\[\]*_~|])", r"\\\1", text)
+
+
+class NoRedirect(request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        # GitHub JSON and Gemini are fixed API endpoints. Never forward either
+        # authorization header or request context to an unverified redirect.
+        return None
 
 
 def request_json(url: str, headers: dict[str, str],
@@ -53,7 +63,7 @@ def request_json(url: str, headers: dict[str, str],
         headers={**headers, "Accept": "application/vnd.github+json",
                  "Content-Type": "application/json"},
     )
-    with request.urlopen(req, timeout=70) as resp:
+    with request.build_opener(NoRedirect()).open(req, timeout=70) as resp:
         return json.loads(resp.read(12_000_000))
 
 
@@ -274,19 +284,29 @@ def upsert_comment(repo, pr, headers, marker, body):
                      headers, {"body": body}, method="POST")
 
 
-def matches_pr(pr_obj, repo, sha):
+def matches_pr(pr_obj, repo, sha, default_branch):
     head = pr_obj.get("head") or {}
-    return (pr_obj.get("state") == "open" and not pr_obj.get("draft")
+    base = pr_obj.get("base") or {}
+    return (pr_obj.get("state") == "open" and pr_obj.get("draft") is False
+            and (base.get("repo") or {}).get("full_name") == repo
+            and base.get("ref") == default_branch
             and (head.get("repo") or {}).get("full_name") == repo
             and head.get("sha") == sha)
 
 
 def run() -> int:
+    if os.environ.get("YULDASH_GEMINI_PR_DIFF") != "true":
+        print("Skipped: external PR diff review is disabled")
+        return 0
     key = os.environ.get("GEMINI_API_KEY")
     token = os.environ.get("GITHUB_TOKEN")
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     sha = os.environ.get("PR_SHA", "")
     pr_text = os.environ.get("PR_NUMBER", "")
+    default_branch = os.environ.get("YULDASH_DEFAULT_BRANCH", "")
+    if not default_branch or os.environ.get("PR_BASE_REF") != default_branch:
+        print("Skipped: PR base is not the default branch")
+        return 0
     if not key:
         print("Gemini review unavailable: GEMINI_API_KEY missing")
         return 1
@@ -300,7 +320,7 @@ def run() -> int:
                   "X-GitHub-Api-Version": "2022-11-28"}
     pr_url = f"{API}/repos/{repo}/pulls/{pr}"
     pr_obj = request_json(pr_url, gh_headers)
-    if not matches_pr(pr_obj, repo, sha):
+    if not matches_pr(pr_obj, repo, sha, default_branch):
         print("Skipped: closed, draft, cross-repository or stale PR")
         return 0
     base_sha = pr_obj["base"]["sha"]
@@ -312,6 +332,10 @@ def run() -> int:
     changes = load_changes(repo, pr, gh_headers)
     prompt, changed, reviewed = build_prompt(changes)
     if reviewed:
+        checked = request_json(pr_url, gh_headers)
+        if not matches_pr(checked, repo, sha, default_branch) or checked["base"]["sha"] != base_sha:
+            print("Skipped: PR changed before review")
+            return 0
         result = ask_gemini(prompt, key)
         total = pr_obj.get("changed_files", len(changes))
         summary = render_summary(sha, total, changed, result)
@@ -323,7 +347,7 @@ def run() -> int:
         summary = SUMMARY_MARKER + "\n" + notice
         review = MARKER + "\n" + notice
     latest = request_json(pr_url, gh_headers)
-    if not matches_pr(latest, repo, sha) or latest["base"]["sha"] != base_sha:
+    if not matches_pr(latest, repo, sha, default_branch) or latest["base"]["sha"] != base_sha:
         print("Skipped: PR changed during review")
         return 0
     upsert_comment(repo, pr, gh_headers, SUMMARY_MARKER, summary + "\n" + revision)

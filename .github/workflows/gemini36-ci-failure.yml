@@ -2,12 +2,7 @@ name: Gemini CI failure analysis
 
 on:
   workflow_run:
-    workflows:
-      - CI
-      - Audit traceability tooling
-      - Android taxi consent on emulator
-      - Android taxi draft on emulator
-      - Gemini reviewer offline self-tests
+    workflows: [CI]
     types: [completed]
 
 permissions:
@@ -22,6 +17,9 @@ concurrency:
 jobs:
   analyze:
     if: >-
+      vars.YULDASH_GEMINI_CI_DIAGNOSTICS == 'true' &&
+      github.ref_name == github.event.repository.default_branch &&
+      github.event.workflow_run.path == '.github/workflows/ci.yml' &&
       github.event.workflow_run.event == 'pull_request' &&
       (github.event.workflow_run.conclusion == 'failure' || github.event.workflow_run.conclusion == 'timed_out') &&
       github.event.workflow_run.head_repository.full_name == github.repository
@@ -37,6 +35,7 @@ jobs:
           python-version: '3.12'
       - name: Explain the failed run
         env:
+          YULDASH_GEMINI_CI_DIAGNOSTICS: ${{ vars.YULDASH_GEMINI_CI_DIAGNOSTICS }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           GITHUB_TOKEN: ${{ github.token }}
         run: python -B .github/scripts/analyze_ci_failure.py

@@ -90,9 +90,12 @@ class GeminiReviewerTests(unittest.TestCase):
         hidden = [{"filename":"renamed.txt", "previous_filename":".env.local", "patch":diff},
                   {"filename":"web/pnpm-lock.yaml", "patch":diff}]
         self.assertEqual(reviewer.build_prompt(hidden)[2], 0)
+        # The committed .example is deliberately not a valid key; keep the full
+        # multiline syntax as input to the same product sanitizer.
+        fake_pem = (Path(__file__).parent / "fixtures/gemini-fake-openssh.example").read_text()
+        pem_diff = "\n".join("+" + line for line in fake_pem.splitlines())
         scrubbed = reviewer.scrub_patch("a Bearer abcdefgh\n+GEMINI_API_KEY = 'fake value'\n"
-                                       "+-----BEGIN OPENSSH PRIVATE KEY-----\n+abc123\n"
-                                       "+-----END OPENSSH PRIVATE KEY-----\n+normal")
+                                       + pem_diff + "\n+normal")
         for item in ("abcdefgh", "fake value", "abc123"):
             self.assertNotIn(item, scrubbed)
         self.assertIn("+normal", scrubbed)
@@ -111,15 +114,16 @@ class GeminiReviewerTests(unittest.TestCase):
     def test_stale_head_prevents_publication_and_same_revision_skips_generation(self):
         sha = "f" * 40
         base = "b" * 40
-        pr = {"state": "open", "base": {"sha": base}, "head": {"repo": {"full_name":"org/repo"}, "sha":sha}}
-        env = {"GITHUB_TOKEN":"dummy", "GEMINI_API_KEY":"dummy", "PR_SHA":sha, "GITHUB_REPOSITORY":"org/repo", "PR_NUMBER":"23"}
+        pr = {"state": "open", "draft": False,
+              "base": {"ref": "main", "sha": base, "repo": {"full_name": "org/repo"}}, "head": {"repo": {"full_name":"org/repo"}, "sha":sha}}
+        env = {"YULDASH_GEMINI_PR_DIFF": "true", "YULDASH_DEFAULT_BRANCH": "main", "PR_BASE_REF": "main", "GITHUB_TOKEN":"dummy", "GEMINI_API_KEY":"dummy", "PR_SHA":sha, "GITHUB_REPOSITORY":"org/repo", "PR_NUMBER":"23"}
         files = [{"filename":"a.py", "patch":"@@ -0,0 +1 @@\n+1"}]
         response = {"changes":["x"], "key_files":[], "risks":[], "findings":[]}
         with patch.dict(os.environ, env, clear=True), patch.object(reviewer, "ask_gemini", return_value=response) as model, patch.object(reviewer, "upsert_comment") as publish:
-            with patch.object(reviewer, "request_json", side_effect=[pr, [], files, {**pr, "state":"closed"}]):
+            with patch.object(reviewer, "request_json", side_effect=[pr, [], files, pr, {**pr, "state":"closed"}]):
                 self.assertEqual(reviewer.run(), 0)
                 publish.assert_not_called()
-            with patch.object(reviewer, "request_json", side_effect=[pr, [], files, pr]):
+            with patch.object(reviewer, "request_json", side_effect=[pr, [], files, pr, pr]):
                 self.assertEqual(reviewer.run(), 0)
                 self.assertEqual([c.args[3] for c in publish.call_args_list], [reviewer.SUMMARY_MARKER, reviewer.MARKER])
             marker = f"{reviewer.MARKER}\n<!-- review v2 {sha} {base} -->"
@@ -129,8 +133,59 @@ class GeminiReviewerTests(unittest.TestCase):
             self.assertEqual(model.call_count, 2)
             self.assertEqual(publish.call_count, 2)
 
+    def test_authenticated_json_redirect_is_not_followed(self):
+        for code in (301, 302, 303, 307, 308):
+            self.assertIsNone(reviewer.NoRedirect().redirect_request(
+                None, None, code, "", {}, "https://unused.invalid"))
+
+    def test_review_rechecks_after_diff_read_and_before_egress(self):
+        sha = "a" * 40
+        repo = "owner/repo"
+        pr = {"state": "open", "draft": False, "base": {"ref": "main", "sha": "b" * 40, "repo": {"full_name": repo}},
+              "head": {"repo": {"full_name": repo}, "sha": sha}}
+        env = {"YULDASH_GEMINI_PR_DIFF": "true", "YULDASH_DEFAULT_BRANCH": "main", "PR_BASE_REF": "main", "GEMINI_API_KEY": "dummy", "GITHUB_TOKEN": "dummy",
+               "GITHUB_REPOSITORY": repo, "PR_NUMBER": "1", "PR_SHA": sha}
+        files = [{"filename": "x.py", "patch": "@@ -0,0 +1 @@\n+value = 1"}]
+        with patch.dict(os.environ, env, clear=True), patch.object(reviewer, "ask_gemini") as model:
+            for changed in ({**pr, "draft": True},
+                            {**pr, "base": {**pr["base"], "ref": "stack"}}):
+                with patch.object(reviewer, "request_json", side_effect=[pr, [], files, changed]):
+                    self.assertEqual(reviewer.run(), 0)
+        model.assert_not_called()
+
+    def test_default_and_nonexact_opt_in_do_not_read_network_context(self):
+        for value in ("", "TRUE", "1", "false"):
+            with patch.dict(os.environ, {"YULDASH_GEMINI_PR_DIFF": value}, clear=True):
+                with patch.object(reviewer, "request_json") as req:
+                    self.assertEqual(reviewer.run(), 0)
+                    req.assert_not_called()
+
+    def test_review_rejects_draft_malformed_draft_and_foreign_base(self):
+        sha = "a" * 40
+        repo = "owner/repo"
+        pr = {"state": "open", "draft": False, "base": {"ref": "main", "repo": {"full_name": repo}},
+              "head": {"repo": {"full_name": repo}, "sha": sha}}
+        self.assertTrue(reviewer.matches_pr(pr, repo, sha, "main"))
+        for draft in (True, None, "false", 0):
+            self.assertFalse(reviewer.matches_pr({**pr, "draft": draft}, repo, sha, "main"))
+        self.assertFalse(reviewer.matches_pr({**pr, "base": {"repo": {"full_name": "other/repo"}}},
+                                             repo, sha, "main"))
+
+    def test_nondefault_event_base_skips_before_requests(self):
+        env = {"YULDASH_GEMINI_PR_DIFF": "true", "YULDASH_DEFAULT_BRANCH": "main", "PR_BASE_REF": "stack"}
+        with patch.dict(os.environ, env, clear=True), patch.object(reviewer, "request_json") as req:
+            self.assertEqual(reviewer.run(), 0)
+        req.assert_not_called()
+
+    def test_model_links_are_not_rendered_as_clickable_destinations(self):
+        malicious_text = "Try HTTPS://example.invalid or www.example.invalid or [site](http://other.invalid)"
+        safe = reviewer.safe(malicious_text)
+        self.assertNotRegex(safe.lower(), r"https?://|www\.|\[site\]\(")
+        self.assertIn("example.invalid", safe)
+
     def test_fork_pr_is_ignored_before_model_call(self):
         env = {
+            "YULDASH_GEMINI_PR_DIFF": "true", "YULDASH_DEFAULT_BRANCH": "main", "PR_BASE_REF": "main",
             "GEMINI_API_KEY": "dummy",
             "GITHUB_TOKEN": "dummy",
             "GITHUB_REPOSITORY": "bairasbai/yuldash",
