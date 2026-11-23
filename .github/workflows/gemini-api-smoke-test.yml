@@ -83,10 +83,13 @@ jobs:
               print(f"Models listing: HTTP {code}; no text generateContent model available")
               sys.exit(1)
 
-          preferences = ("models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/gemini-3-flash")
+          # Gemini 2.5 can be listed but 404 on generation for new projects.
+          # Use current model IDs recommended by Google instead of legacy 2.5.
+          preferences = ("models/gemini-3.8-flash", "models/gemini-3.5-flash-lite")
           model = next((name for name in preferences if name in options), None)
           if model is None:
-              model = next((name for name in options if "flash" in name.lower()), options[0])
+              print("Models listing succeeded, but neither supported current smoke-test model was listed")
+              sys.exit(1)
 
           print(f"Models listing: HTTP {code}; selected={model}")
           generation = {
