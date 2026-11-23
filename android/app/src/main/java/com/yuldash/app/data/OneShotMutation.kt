@@ -1,6 +1,7 @@
 package com.yuldash.app.data
 
 import okhttp3.Authenticator
+import okhttp3.Headers
 import okhttp3.ConnectionPool
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.OkHttpClient
@@ -19,6 +20,30 @@ internal fun oneShotTransport(connectMs: Int, readMs: Int, totalTimeoutMs: Long)
     .authenticator(Authenticator.NONE).proxyAuthenticator(Authenticator.NONE)
     .callTimeout(totalTimeoutMs, TimeUnit.MILLISECONDS).connectTimeout(connectMs.toLong(), TimeUnit.MILLISECONDS)
     .readTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).writeTimeout(readMs.toLong(), TimeUnit.MILLISECONDS).build()
+
+internal fun oneShotHeaders(freshRead: Boolean, idempotencyKey: String?, deviceId: String?, usedToken: String?): Headers =
+    Headers.Builder().add("Accept", "application/json").apply {
+        if (freshRead) add("Cache-Control", "no-cache, no-store")
+        idempotencyKey?.let { add("Idempotency-Key", it) }
+        deviceId?.let { add("X-Device-Id", it) }
+        usedToken?.let {
+            val bearer = "Bearer $it"
+            // Match the old transport's non-ASCII compatibility without allowing header injection.
+            require(bearer.all { ch -> ch == '\t' || (ch.code >= 32 && ch.code != 127) })
+            addUnsafeNonAscii("Authorization", bearer)
+        }
+    }.build()
+
+// A bodyless GET cannot use RequestBody.isOneShot(). Reject an OkHttp status-based follow-up
+// (e.g. 503 Retry-After: 0) before a second wire exchange.
+internal fun OkHttpClient.singleRead(admitWire: (() -> Boolean)?): OkHttpClient {
+    var sent = false
+    return newBuilder().addNetworkInterceptor { chain ->
+        if (sent || admitWire?.invoke() == false) throw IOException("Consent read ended")
+        sent = true
+        chain.proceed(chain.request())
+    }.build()
+}
 
 internal fun oneShotBody(
     json: String?,
