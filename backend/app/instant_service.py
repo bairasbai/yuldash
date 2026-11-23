@@ -2906,6 +2906,7 @@ class _SearchOwnerLost(Exception):
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "", *,
                  search_owner: "tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None" = None,
                  _scheduled_notice: tuple[str, str] | None = None,
+                 _on_suspension_commit: Callable[[datetime], None] | None = None,
                  ) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
@@ -2966,6 +2967,9 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         values["cancel_fee_kop"] = cancel_fee_with_pickup_kop(session, order, now)
     прежний_статус = order.status
     бросивший = order.driver_id
+    reassign_event = ((order_id, order.passenger_id, бросивший, order.accepted_at, order.reassigns,
+                       now, values["cancel_reason"])
+                      if _reassignable(прежний_статус, actor, order, bool(values.get("no_show"))) else None)
     write = update(InstantOrder).where(InstantOrder.id == order_id, InstantOrder.status == order.status)
     if scheduled:
         write = write.where(*_scheduled_activation_predicates(search_owner)).execution_options(
@@ -2987,20 +2991,23 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
+    if _on_suspension_commit is not None and search_owner is not None:
+        _on_suspension_commit(now)
     # Поступок водителя фиксируем ОТДЕЛЬНЫМ событием, до всякого переназначения: заказ может
     # уйти дальше и перезаписать свои поля новым водителем, а бросил его этот.
-    if actor == Actor.driver and бросивший and order.accepted_at is not None:
+    if (actor == Actor.driver and бросивший
+            and (reassign_event[3] if reassign_event is not None else order.accepted_at) is not None):
         session.add(DriverCancel(
             driver_id=бросивший, order_id=order_id, at=now,
             no_show=bool(values.get("no_show")), reason=(reason or "")[:200],
         ))
         session.commit()
     # Водитель бросил принятый заказ — человек не должен начинать всё заново.
-    if _reassignable(prev_status=прежний_статус, actor=actor, order=order,
-                     no_show=bool(values.get("no_show"))):
-        fresh = _reassign_after_driver_cancel(session, order_id, бросивший)
+    if reassign_event is not None:
+        fresh = _reassign_after_driver_cancel(session, order_id, бросивший, event=reassign_event)
         if fresh is not None:
             return fresh        # заказ снова в поиске: промокод и цена остаются при нём
+        return _finish_driver_cancel_without_reassign(session, order_id, reassign_event)
     _cleanup_tried(order_id)
     fresh = session.get(InstantOrder, order_id)
     # Поездки не было → скидка по промокоду возвращается пассажиру. Один код даётся на всю жизнь
@@ -3032,8 +3039,38 @@ def _reassignable(prev_status, actor: Actor, order: InstantOrder, no_show: bool)
     )
 
 
+def _driver_cancel_committed_conflict():
+    # The explicit, historical cancellation is committed. Do not serialize
+    # another generation to its former actor using the fallback authorization.
+    return herr(409, "Отмена сохранена, но заказ уже изменился", "Кире алыу һаҡланды, әммә заказ үҙгәрҙе",
+                code="taxi_cancel_committed_order_changed")
+
+
+def _finish_driver_cancel_without_reassign(session: Session, order_id: int, event: tuple) -> InstantOrder:
+    guards = promo_ride._driver_cancel_predicates(event)
+
+    def observe() -> InstantOrder:
+        row = session.exec(select(InstantOrder).where(*guards)
+                           .execution_options(populate_existing=True)).one_or_none()
+        if row is None:
+            raise _driver_cancel_committed_conflict()
+        return row
+
+    order = observe()
+    if all(getattr(order, name) is None for name in _ROUTE_RESUME_MARKERS):
+        # Money has an authoritative event and marker guard inside its UPDATE.
+        # Do not reclaim a discount now owned by a newer or marked episode.
+        promo_ride.release(session, order, _driver_cancel=(event, order.promo_discount_kop))
+        order = observe()
+        if all(getattr(order, name) is None for name in _ROUTE_RESUME_MARKERS):
+            _cleanup_tried(order_id)  # best effort; Redis shares no DB transaction
+    order = observe()
+    _notify_cancel(session, order, Actor.driver)  # current event only; best effort
+    return order
+
+
 def _reassign_after_driver_cancel(session: Session, order_id: int,
-                                  cancelled_driver_id: int | None) -> InstantOrder | None:
+                                  cancelled_driver_id: int | None, *, event: tuple) -> InstantOrder | None:
     """Брошенный заказ возвращается в поиск: те же адреса, та же цена, тот же промокод.
 
     Раньше этого пути не было. Водитель отменял — заказ умирал, пуш бодро спрашивал
@@ -3047,22 +3084,34 @@ def _reassign_after_driver_cancel(session: Session, order_id: int,
     Бросившего добавляем в список «уже предлагали»: круг подбора не должен вернуть заказ
     ему же через минуту. Поэтому `_cleanup_tried` здесь НЕ зовём — наоборот, дополняем.
 
-    Возврат None — заказ за это время успели тронуть (пассажир отменил сам, воркер закрыл);
-    тогда обычный путь отмены отработает как раньше.
+    Возврат None — запись уже не подходит для обычного поиска. Вызывающий
+    должен сверить исходную отмену, прежде чем выполнять её побочные действия.
     """
-    result = session.execute(
+    won = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order_id, InstantOrder.status == S.cancelled)
+        .where(*promo_ride._driver_cancel_predicates(event), *_legacy_no_resume())
         .values(status=S.searching, searching_at=utcnow(), search_round=0,
                 reassigns=InstantOrder.reassigns + 1,
                 driver_id=None, accepted_at=None, arriving_at=None,
                 waiting_started_at=None, current_offer_driver_id=None, offer_expires_at=None,
                 cancel_by="", cancel_reason="", cancelled_at=None, cancel_fee_kop=0)
-    )
-    session.commit()
-    if result.rowcount == 0:
+        .execution_options(synchronize_session=False)
+        .returning(*_SEARCH_OWNER_COLUMNS, *_DESTINATION_SEARCH_COLUMNS)
+    ).one_or_none()
+    if won is None:
+        session.rollback()
         return None
-    order = session.get(InstantOrder, order_id)
+    count = len(_SEARCH_OWNER_COLUMNS)
+    owner = _LegacyOfferSearch(tuple(won[:count]), tuple(won[count:]))
+    session.commit()
+    # Confirm the committed search before external effects. Redis/push do not
+    # share this transaction; the matcher also enforces the same SQL generation.
+    generation = (InstantOrder.status == S.searching, *_search_owner_predicates(session, owner))
+    order = session.exec(select(InstantOrder).where(
+        *generation,
+    ).execution_options(populate_existing=True)).one_or_none()
+    if order is None:
+        raise _driver_cancel_committed_conflict()
     if cancelled_driver_id:
         try:
             r = _redis()
@@ -3070,8 +3119,38 @@ def _reassign_after_driver_cancel(session: Session, order_id: int,
             r.expire(_tried_key(order_id), 3600)
         except Exception:  # noqa: BLE001 — Redis лёг: хуже, чем «повторно предложим», не будет
             pass
+    if session.scalar(select(InstantOrder.id).where(*generation)) != order_id:
+        raise _driver_cancel_committed_conflict()
     _notify_reassign(session, order)
-    return try_offer_next(session, order)
+    pause_commits: list[datetime] = []
+    result = try_offer_next(session, order, _legacy_advance=owner, _on_suspension_commit=pause_commits.append)
+    if len(pause_commits) == 1:
+        # Actual changed-and-committed suspension, not a fresh unrelated
+        # terminal row returned when a losing matcher rereads its order.
+        promo_index = _DESTINATION_SEARCH_FIELDS.index("promo_discount_kop")
+        route = tuple(c == v for i, (c, v) in enumerate(zip(_DESTINATION_SEARCH_COLUMNS, owner.route, strict=True))
+                      if i != promo_index)
+        terminal = session.exec(select(InstantOrder).where(
+            InstantOrder.status == S.cancelled, InstantOrder.cancel_by == Actor.passenger.value,
+            InstantOrder.cancel_reason == "passenger_suspended", InstantOrder.cancelled_at == pause_commits[0],
+            *_search_owner_predicates(session, _LegacyOfferSearch(owner.search)), *route,
+            InstantOrder.promo_discount_kop.in_((owner.route[promo_index], 0)),
+        ).execution_options(populate_existing=True)).one_or_none()
+        if terminal is None:
+            raise _driver_cancel_committed_conflict()
+        return terminal
+    if not isinstance(result, InstantOrder):
+        raise _driver_cancel_committed_conflict()
+    if result.status == S.offered and result.current_offer_driver_id is not None:
+        if _same_search_owner(
+            result, owner, search_round=1, current_offer_driver_id=result.current_offer_driver_id,
+            offered_at=result.offered_at, offer_expires_at=result.offer_expires_at,
+        ):
+            return result
+    elif result.status in (S.searching, S.expired):
+        if _same_search_owner(result, owner):
+            return result
+    raise _driver_cancel_committed_conflict()
 
 
 # ============================ Matcher (подбор + офферы) ============================
@@ -3523,7 +3602,8 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
 
 
 def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True,
-                                   search_owner: tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None = None
+                                   search_owner: tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None = None,
+                                   _on_suspension_commit: Callable[[datetime], None] | None = None,
                                    ) -> InstantOrder | None:
     """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
     Не на паузе → None, вызывающий продолжает обычным путём.
@@ -3562,9 +3642,12 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, ref
         return None
     order_id, passenger_id = order.id, order.passenger_id
     scheduled_notice = {"_scheduled_notice": (ru, ba)} if isinstance(search_owner, _ScheduledActivation) else {}
+    committed_callback = ({"_on_suspension_commit": _on_suspension_commit}
+                          if _on_suspension_commit is not None else {})
     try:
         cancelled = cancel_order(session, order_id, Actor.passenger, passenger_id,
-                                 "passenger_suspended", search_owner=search_owner, **scheduled_notice)
+                                 "passenger_suspended", search_owner=search_owner,
+                                 **scheduled_notice, **committed_callback)
     except _SearchOwnerLost:
         if isinstance(search_owner, _QueuedSearch):
             raise
@@ -3597,7 +3680,8 @@ def _remember_offered_driver(r, order_id: int, driver_id: int) -> None:
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *,
                    first_deadline: datetime | None = None, previous_driver: int | None = None,
                    _queued: _QueuedSearch | None = None,
-                   _legacy_advance: _LegacyOfferSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
+                   _legacy_advance: _LegacyOfferSearch | None = None,
+                   _on_suspension_commit: Callable[[datetime], None] | None = None) -> InstantOrder | _QueuedRetryResult | None:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     first_confirmed = first_deadline is not None
     order_id = order.id
@@ -3609,8 +3693,9 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
     search_round = order.search_round
     if order.status != S.searching or not _same_search_owner(order, search_owner):
         return None if _queued is not None else session.get(InstantOrder, order_id, populate_existing=True)
+    callback = ({"_on_suspension_commit": _on_suspension_commit} if _on_suspension_commit is not None else {})
     stopped = cancel_for_suspended_passenger(
-        session, order, refresh_standing=not first_confirmed, search_owner=search_owner,
+        session, order, refresh_standing=not first_confirmed, search_owner=search_owner, **callback,
     )
     if stopped is not None:
         return _QueuedRetryResult() if _queued is not None else stopped

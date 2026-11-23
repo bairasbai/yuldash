@@ -317,8 +317,22 @@ def _closed_scheduled_suspension_predicates(snapshot: tuple) -> tuple:
     )
 
 
+# Exact written cancellation event used only by the legacy reassign fallback.
+_DRIVER_CANCEL_FIELDS = ("id", "passenger_id", "driver_id", "accepted_at", "reassigns",
+                         "cancelled_at", "cancel_reason")
+_DRIVER_CANCEL_COLUMNS = tuple(getattr(InstantOrder, name) for name in _DRIVER_CANCEL_FIELDS)
+
+
+def _driver_cancel_predicates(event: tuple) -> tuple:
+    return (
+        InstantOrder.status == InstantOrderStatus.cancelled, InstantOrder.cancel_by == "driver",
+        *(column == value for column, value in zip(_DRIVER_CANCEL_COLUMNS, event, strict=True)),
+    )
+
+
 def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None = None,
-            _closed_stuck: tuple | None = None, _closed_scheduled_suspension: tuple | None = None) -> bool:
+            _closed_stuck: tuple | None = None, _closed_scheduled_suspension: tuple | None = None,
+            _driver_cancel: tuple | None = None) -> bool:
     """Поездка не состоялась → скидка возвращается пассажиру (не сгорает). Идемпотентно.
 
     Возврат True — скидка действительно снята с этого заказа. Одного переданного id
@@ -339,6 +353,12 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
         if red is not None and red.user_id != order.passenger_id:
             session.rollback()
             return False
+    if _driver_cancel is not None:
+        event, observed_discount = _driver_cancel
+        closure_guard += (
+            *_driver_cancel_predicates(event), InstantOrder.promo_discount_kop == observed_discount,
+            *(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS),
+        )
     cleared = session.execute(
         update(InstantOrder).where(
             InstantOrder.id == order.id,
