@@ -1,4 +1,4 @@
-# Temporary, read-only connectivity test. Never prints or commits API credentials.
+# Isolated short API probe. Never prints, exports or commits credentials.
 name: Gemini API connectivity smoke test
 
 on:
@@ -13,93 +13,134 @@ permissions:
 
 jobs:
   gemini-api-probe:
-    name: Validate Gemini API key and generateContent
+    name: Test listed text-generation and embedding models
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 15
     env:
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       PYTHONDONTWRITEBYTECODE: '1'
     steps:
-      - name: Check Gemini API without exposing credentials
+      - name: Probe all text models with minimal tokens (no multimodal generation)
         shell: bash
         run: |
           python3 - <<'PY'
           import json
           import os
           import re
-          import sys
-          from urllib import error, request
+          import time
+          from urllib import error, parse, request
 
           key = os.environ.get("GEMINI_API_KEY", "")
           if not key:
-              print("Result: SECRET_MISSING (GEMINI_API_KEY is unavailable to this job)")
-              sys.exit(2)
-
+              print("PROBE_ERROR SECRET_MISSING")
+              raise SystemExit(2)
           base = "https://generativelanguage.googleapis.com/v1beta"
           headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
 
           def call(path, payload=None):
-              data = json.dumps(payload).encode() if payload is not None else None
-              req = request.Request(base + path, headers=headers, data=data, method="POST" if data else "GET")
+              data = json.dumps(payload).encode("utf-8") if payload is not None else None
+              req = request.Request(base + path, data=data, headers=headers,
+                                    method="POST" if data is not None else "GET")
               try:
-                  with request.urlopen(req, timeout=65) as response:
-                      return response.status, json.load(response)
+                  with request.urlopen(req, timeout=27) as resp:
+                      raw = resp.read(262144)
+                      return resp.status, json.loads(raw), "OK", "NONE"
               except error.HTTPError as exc:
                   try:
                       body = json.loads(exc.read(8192).decode("utf-8", "replace"))
-                  except (ValueError, UnicodeError):
-                      body = {}
-                  inner = body.get("error", {}) if isinstance(body, dict) else {}
-                  raw_status = inner.get("status", "UNKNOWN") if isinstance(inner, dict) else "UNKNOWN"
-                  # Never print arbitrary server responses, request headers or the key.
-                  safe_status = re.sub(r"[^A-Z_]", "", str(raw_status))[:48] or "UNKNOWN"
-                  reason = "NOT_PROVIDED"
-                  if isinstance(inner, dict):
-                      for detail in inner.get("details", []):
-                          if isinstance(detail, dict) and isinstance(detail.get("reason"), str):
-                              reason = detail["reason"]
-                              break
-                  safe_reason = re.sub(r"[^A-Z0-9_]", "", reason)[:64] or "NOT_PROVIDED"
-                  message = str(inner.get("message", "")).lower() if isinstance(inner, dict) else ""
-                  hint = ("KEY_NOT_VALID" if "api key not valid" in message
-                          else "OAUTH_EXPECTED" if "oauth" in message
-                          else "NONE")
-                  print(f"Gemini API: HTTP {exc.code}; status={safe_status}; reason={safe_reason}; hint={hint}")
-                  sys.exit(1)
+                      err = body.get("error", {})
+                      status = err.get("status", "ERROR")
+                      details = err.get("details", [])
+                      reason = next((x.get("reason", "NONE") for x in details
+                                     if isinstance(x, dict) and x.get("reason")), "NONE")
+                  except (ValueError, AttributeError, TypeError):
+                      status, reason = "ERROR", "NONE"
+                  clean = lambda x: re.sub(r"[^A-Z0-9_]", "", str(x).upper())[:48]
+                  return exc.code, None, clean(status), clean(reason)
               except (error.URLError, TimeoutError, OSError):
-                  print("Gemini API: NETWORK_ERROR (no HTTP response)")
-                  sys.exit(1)
+                  return 0, None, "NETWORK_OR_TIMEOUT", "NONE"
+              except (ValueError, TypeError):
+                  return 0, None, "INVALID_RESPONSE", "NONE"
 
-          # Enumerate all models offered to this key, not only a hardcoded shortlist.
-          from urllib.parse import quote
+          # All known general-purpose text models from the preceding 65-model listing.
+          text_ids = [
+              "gemini-4-carbon", "gemini-4-argon", "gemini-4-neon", "gemini-4-hydrogen",
+              "gemini-3.8-flash", "gemini-3.7-flash", "gemini-3.6-flash",
+              "gemini-3.5-flash", "gemini-3.5-flash-lite",
+              "gemini-3.1-pro-preview", "gemini-3.1-pro-preview-customtools",
+              "gemini-3.1-flash-lite", "gemini-3.1-flash-lite-preview",
+              "gemini-3-flash-preview", "gemini-2.5-pro", "gemini-2.5-flash",
+              "gemini-2.5-flash-lite", "gemini-pro-latest", "gemini-flash-latest",
+              "gemini-flash-lite-latest", "gemma-4-31b-it", "gemma-4-26b-a4b-it",
+          ]
+          embedding_ids = ["gemini-embedding-001", "gemini-embedding-2-preview", "gemini-embedding-2"]
+
+          listing = []
           page_token = ""
-          models = []
-          pages = 0
-          while True:
-              pages += 1
-              if pages > 30:
-                  print("Model listing exceeded safety page limit")
-                  sys.exit(1)
+          for page in range(30):
               path = "/models?pageSize=100"
               if page_token:
-                  path += "&pageToken=" + quote(page_token, safe="")
-              code, info = call(path)
-              models += info.get("models", [])
-              page_token = info.get("nextPageToken", "")
+                  path += "&pageToken=" + parse.quote(page_token, safe="")
+              http, body, status, reason = call(path)
+              if http != 200:
+                  print(f"LIST_ERROR http={http} status={status} reason={reason}", flush=True)
+                  raise SystemExit(1)
+              listing += body.get("models", [])
+              page_token = body.get("nextPageToken", "")
               if not page_token:
                   break
+          else:
+              print("LIST_ERROR TOO_MANY_PAGES")
+              raise SystemExit(1)
 
-          print(f"LISTING_OK pages={pages} count={len(models)}")
-          for model in models:
-              if not isinstance(model, dict):
+          catalog = {m.get("name"): m.get("supportedGenerationMethods", [])
+                     for m in listing if isinstance(m, dict)}
+          print(f"LIST_OK models={len(listing)} text_target={len(text_ids)} embed_target={len(embedding_ids)}", flush=True)
+          stats = {}
+          for model_id in text_ids:
+              name = "models/" + model_id
+              if "generateContent" not in catalog.get(name, []):
+                  print(f"TEST {model_id} NOT_LISTED", flush=True)
+                  stats[model_id] = "NOT_LISTED"
                   continue
-              name = str(model.get("name", ""))
-              if not re.fullmatch(r"models/[A-Za-z0-9._-]+", name):
+              generation = {
+                  "contents": [{"role": "user", "parts": [{"text": "Reply OK."}]}],
+                  "generationConfig": {"maxOutputTokens": 256}
+              }
+              if model_id.startswith("gemini-4-"):
+                  generation["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "LOW"}
+              started = time.monotonic()
+              http, body, status, reason = call("/" + name + ":generateContent", generation)
+              seconds = round(time.monotonic() - started, 1)
+              if http == 200:
+                  candidates = body.get("candidates", []) if isinstance(body, dict) else []
+                  text_parts = [p.get("text") for c in candidates if isinstance(c, dict)
+                                for p in c.get("content", {}).get("parts", [])
+                                if isinstance(p, dict) and isinstance(p.get("text"), str) and p.get("text").strip()]
+                  status = "PASS_TEXT" if text_parts else "HTTP200_NO_TEXT"
+              print(f"TEST {model_id} http={http} status={status} reason={reason} sec={seconds}", flush=True)
+              stats[model_id] = status
+              time.sleep(0.3)
+
+          for model_id in embedding_ids:
+              name = "models/" + model_id
+              if "embedContent" not in catalog.get(name, []):
+                  print(f"EMBED {model_id} NOT_LISTED", flush=True)
                   continue
-              methods = [
-                  x for x in model.get("supportedGenerationMethods", [])
-                  if isinstance(x, str) and re.fullmatch(r"[A-Za-zA-Z0-9_]+", x)
-              ]
-              print(f"MODEL {name} methods={','.join(methods)}")
-          print("LISTING_COMPLETE")
+              payload = {"model": name, "content": {"parts": [{"text": "test"}]}}
+              http, body, status, reason = call("/" + name + ":embedContent", payload)
+              if http == 200:
+                  values = body.get("embedding", {}).get("values", []) if isinstance(body, dict) else []
+                  status = "PASS_VECTOR" if isinstance(values, list) and len(values) > 0 else "HTTP200_NO_VECTOR"
+              print(f"EMBED {model_id} http={http} status={status} reason={reason}", flush=True)
+
+          excluded = sorted(
+              name.removeprefix("models/") for name in catalog
+              if name not in {"models/" + n for n in text_ids + embedding_ids}
+          )
+          print(f"SPECIALIZED_NOT_INVOKED count={len(excluded)}", flush=True)
+          for model_id in excluded:
+              if re.fullmatch(r"[A-Za-z0-9._-]+", model_id):
+                  print(f"SPECIALIZED {model_id}", flush=True)
+          print("ALL_PROBES_FINISHED", flush=True)
           PY
