@@ -276,7 +276,15 @@ class InstantShareLateResponseTest : ShareHelpBoundaryHarness() {
     @Test fun currentHeldRetryRevokePreservesLinkAndManualRetry() {
         holdOrdinal = 3; commitDelete = false; listFails = true; existing(); completed(read(2)); assertTrue(shown(retryLabel))
         listFails = false; click(retryLabel); val read = blocked(3); finish(read); assertFalse(read.job.isCancelled)
-        currentRoutes("active-91"); commitDelete = true; deleteFails = false; click(revokeLabel)
+        currentRoutes("active-91")
+        commitDelete = true; deleteFails = false
+        ShadowToast.reset()
+        click(revokeLabel)
+        // Pending hides both actions before the loopback server even receives the DELETE.
+        await {
+            records.count { it[0] == "DELETE" && it[1] == "/instant/orders/91/share/501" } >= 2 &&
+                ShadowToast.getTextOfLatestToast() == "Ссылка отозвана"
+        }
         await { !shown(copyLabel) && !shown(revokeLabel) }; assertEquals(2, count("DELETE", "/share/501"))
     }
     @Test fun currentHeldRetryRevokeCommitRetiresLinkAndAllowsNewShare() {
