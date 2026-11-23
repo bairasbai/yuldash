@@ -32,11 +32,13 @@ const client = `
 function buildScreen(flag, lang = "ru") {
   return bundleComponent("src/screens/InstantOrderScreen.tsx", {
     define: { "import.meta.env.VITE_TAXI_QUOTE_CONSENT_LOCAL": JSON.stringify(flag) },
-    real: ["../api/instant", "../api/taxiConsent", "../utils/taxiConsent", "../components/TaxiConsentAction"],
+    real: ["../api/instant", "../api/taxiConsent", "../utils/taxiConsent", "../components/TaxiConsentAction",
+      "../components/PriceFactors", "../utils/format"],
     mocks: {
       "../api/client": client, "./client": client,
       "../i18n/lang": langMock(lang),
       "../features": "export const useFeatures=()=>({taxi:true,ready:true});",
+      "../components/PayMethodPicker": 'export default "PayMethodPicker"; export const PAY_METHODS_OPEN=[]; export const rememberedPayMethod=()=>"cash";',
       "react-dom": "export const createPortal=child=>child;",
       "react-router-dom": 'export const Link="Link"; export const useNavigate=()=>()=>{}; export const useLocation=()=>({state:null});',
       "./AlertDialog": 'export default "AlertDialog";',
@@ -74,7 +76,9 @@ function setup({ location = origin, trips = [], city = false } = {}) {
       s.calls.push(path);
       if (body !== undefined) s.bodies.push(body);
       assert.ok(path in s.responses, "unexpected API call: " + path);
-      return s.responses[path];
+      const response = s.responses[path];
+      if (response instanceof Error) throw response;
+      return response;
     },
   };
   Object.defineProperty(globalThis, "navigator", { configurable: true, value: { geolocation: {
@@ -266,4 +270,104 @@ await t.test("late trip history from a previous login cannot displace the new lo
   assert.deepEqual(s.calls, ["GPS", history]);
   action.unmount(); screen.unmount();
 });
+const estimatePath = "/instant/estimate";
+const fixtureSurge = "Старая оценка: цена выше на 35%";
+const fixtureFactors = [{ code: "winter", kind: "money", amount_rub: 150, title_ru: "Старая оценка зимней дороги" }];
+const legacyEstimate = { price: 825, eta_min: 19, distance_km: 7, pickup_eta_min: 5,
+  surge_note: { ru: fixtureSurge, ba: "Иҫке баһалау: хаҡ 35%-ҡа юғарыраҡ" }, price_factors: fixtureFactors };
+const authoritativeQuote = { payable_kop: 600_00, promo_discount_kop: 0,
+  breakdown: { ride_price_kop: 550_00, pickup_fee_kop: 50_00, options_fee_kop: 0, weather_fee_kop: 0 } };
+
+async function composeWithEstimate(entry, response = legacyEstimate) {
+  const s = setup({ city: true });
+  s.responses[estimatePath] = response;
+  s.responses["/instant/nearby-drivers?lat=54&lng=56"] = { drivers: [] };
+  const screen = mount(entry);
+  await settle(screen);
+  const node = named(screen, "ComposeView");
+  assert.ok(node);
+  screen.unmount();
+  const form = mount(node.type, {
+    ...node.props, from: { lat: 54, lng: 56, text: "А" }, to: { lat: 54.1, lng: 56.1, text: "Б" },
+  });
+  await settle(form);
+  assert.equal(s.calls.filter(p => p === estimatePath).length, 1, "legacy preview API still supplies non-fare information");
+  return { form, s };
+}
+
+const sheet = form => ofType(form.tree, "TaxiSheet")[0].props;
+const componentIn = (tree, name) => all(tree).find(n => typeof n.type === "function" && n.type.name === name);
+function assertLegacyBreakdown(form) {
+  assert.match(text(sheet(form).body), new RegExp(fixtureSurge));
+  const node = componentIn(sheet(form).body, "PriceFactors");
+  assert.ok(node);
+  assert.deepEqual(node.props.factors, fixtureFactors);
+}
+
+await t.test("protected now hides preview charges and surge before and after the authoritative quote", async () => {
+  const { form } = await composeWithEstimate(pilot);
+  assert.match(text(sheet(form).body), /5 мин/, "preview ETA is still displayed");
+  const renderedLegacies = [];
+  for (const quote of [null, authoritativeQuote]) {
+    const action = componentIn(sheet(form).footer, "TaxiConsentAction");
+    assert.ok(action);
+    action.props.onQuote(quote);
+    await settle(form);
+    renderedLegacies.push({
+      factors: Boolean(componentIn(sheet(form).body, "PriceFactors")),
+      surge: text(sheet(form).body).includes(fixtureSurge),
+    });
+    const summary = componentIn(sheet(form).body, "TaxiConsentSummary");
+    if (!quote) assert.equal(summary, undefined);
+    else {
+      assert.equal(summary.props.quote, authoritativeQuote);
+      const renderedSummary = mount(summary.type, summary.props);
+      await settle(renderedSummary);
+      assert.match(text(renderedSummary.tree), /Итого 600 *₽/);
+      assert.ok(!text(renderedSummary.tree).includes("150"));
+      renderedSummary.unmount();
+    }
+  }
+  globalThis.__sh = form.state;
+  form.unmount();
+  assert.deepEqual(renderedLegacies, [{ factors: false, surge: false }, { factors: false, surge: false }]);
+});
+
+await t.test("regular now retains the legacy price explanation and surge", async () => {
+  const { form } = await composeWithEstimate(standard);
+  assertLegacyBreakdown(form);
+  assert.equal(componentIn(sheet(form).body, "TaxiConsentSummary"), undefined);
+  assert.equal(componentIn(sheet(form).footer, "TaxiConsentAction"), undefined);
+  form.unmount();
+});
+
+await t.test("scheduled mode keeps preview factors; switching back to protected now hides them", async () => {
+  const { form, s } = await composeWithEstimate(pilot);
+  const later = button(sheet(form).extra, "На время");
+  assert.ok(later);
+  later.props.onClick();
+  await settle(form);
+  const time = ofType(sheet(form).extra, "input").find(n => n.props.type === "datetime-local");
+  assert.ok(time);
+  const at = "2026-12-03T11:30";
+  time.props.onChange({ target: { value: at } });
+  await settle(form);
+  assert.equal(s.bodies.at(-1).scheduled_at, new Date(at).toISOString());
+  assertLegacyBreakdown(form);
+  assert.equal(componentIn(sheet(form).footer, "TaxiConsentAction"), undefined);
+  button(sheet(form).extra, "Сейчас").props.onClick();
+  await settle(form);
+  assert.equal(componentIn(sheet(form).body, "PriceFactors"), undefined);
+  assert.ok(!text(sheet(form).body).includes(fixtureSurge));
+  form.unmount();
+});
+
+await t.test("a protected preview error still reaches the user without inventing a fare", async () => {
+  const { form } = await composeWithEstimate(pilot, Error("synthetic preview failure"));
+  assert.match(text(sheet(form).extra), /Не получилось оценить поездку/);
+  assert.ok(componentIn(sheet(form).footer, "TaxiConsentAction"), "separate confirmation action is still available");
+  assert.equal(componentIn(sheet(form).body, "TaxiConsentSummary"), undefined);
+  form.unmount();
+});
+
 t.done();
