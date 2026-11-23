@@ -145,15 +145,21 @@ def committed_acceptance(
         return DriverAcceptEvidence.UNKNOWN
     try:
         with engine.connect() as conn:
-            saved = conn.execute(select(_C.binding, _C.expires_at).where(
-                _C.driver_id == driver_id, _C.order_id == order_id, _C.attempt_id == attempt_id,
-                _C.expires_at > _expiry_clock(conn),
-                select(_USER.id).where(_USER.id == driver_id).exists(),
-                select(_ORDER.id).where(_ORDER.id == order_id).exists(),
-            )).one_or_none()
-        if (saved is not None and resume._utc(saved.expires_at) and isinstance(saved.binding, (bytes, memoryview))
-                and hmac.compare_digest(saved.binding, binding)):
-            return DriverAcceptEvidence.COMMITTED
+            return _committed_in(conn, driver_id=driver_id, order_id=order_id, attempt_id=attempt_id, binding=binding)
     except (SQLAlchemyError, ValueError, TypeError):
-        pass
+        return DriverAcceptEvidence.UNKNOWN
+
+
+def _committed_in(conn, *, driver_id, order_id, attempt_id, binding, fences=()):
+    """Internal exact lookup; additional checks share the receipt SELECT."""
+    saved = conn.execute(select(_C.binding, _C.expires_at).where(
+        _C.driver_id == driver_id, _C.order_id == order_id, _C.attempt_id == attempt_id,
+        _C.expires_at > _expiry_clock(conn),
+        select(_USER.id).where(_USER.id == driver_id).exists(),
+        select(_ORDER.id).where(_ORDER.id == order_id).exists(),
+        *fences,
+    )).one_or_none()
+    if (saved is not None and resume._utc(saved.expires_at) and isinstance(saved.binding, (bytes, memoryview))
+            and hmac.compare_digest(saved.binding, binding)):
+        return DriverAcceptEvidence.COMMITTED
     return DriverAcceptEvidence.UNKNOWN
