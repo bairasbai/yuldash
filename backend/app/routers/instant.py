@@ -940,6 +940,7 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     existing = session.get(InstantOrder, order_id)
     if not existing:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
+    expected_offer = isv.capture_offer_for_accept(existing)
     # Гейты водителя: (a) флаг/город по точке подачи + (b) заявка таксиста + долг.
     _guard_taxi_driver(session, user.id, existing.from_lat, existing.from_lng)
     # Анти-дубль назначения: нельзя взять ВТОРОЙ заказ при активном первом. Matcher мог
@@ -962,7 +963,8 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     # прийти и другим путём (ссылка, повторный тап по старому уведомлению) — закрываем и здесь.
     if isv.driver_pause_until(session, user.id) is not None:
         raise herr(403, *isv.driver_pause_message())
-    order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id, idempotent=False)
+    order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id,
+                           idempotent=False, expected_offer=expected_offer)
     return isv.order_payload(session, order, user)
 
 
