@@ -67,6 +67,8 @@ def test_worker_recovers_confirmed_fare_after_http_process_stops(
     found = lookup(client, passenger, price["request_key"]).json()
     assert (found["state"], found["order_id"], found["initial_payable_kop"]) == ("committed", order.id, 45000)
 
+    # Close new admission before repair; the committed order and replay still drain.
+    monkeypatch.setattr(settings, "taxi_initial_consent_admission_enabled", False)
     # A market change between the crash and the worker must not reprice the existing order.
     set_base(900)
     assert order.id in recovery_worker(dry_run=True)["consent_dispatches"]
@@ -86,7 +88,12 @@ def test_worker_recovers_confirmed_fare_after_http_process_stops(
         assert observer.exec(select(LedgerEntry).where(LedgerEntry.order_id == order.id)).all() == []
     response = client.get("/instant/driver/offer", headers=driver["auth"])
     assert response.status_code == 200 and response.json()["offer"]["id"] == order.id
-    assert confirm(client, passenger, price).json()["order"]["id"] == order.id
+    replay = confirm(client, passenger, price)
+    assert replay.status_code == 200 and replay.json()["order"]["id"] == order.id
+    assert replay.headers["cache-control"] == "no-store"
+    conflict = confirm(client, passenger, price, comment="different synthetic intent")
+    assert conflict.status_code == 409 and conflict.json()["detail"]["code"] == "taxi_consent_key_conflict"
+    assert len(orders(passenger["id"])) == 1
     assert driver_offers == [(driver["id"], order.id)]
 
 

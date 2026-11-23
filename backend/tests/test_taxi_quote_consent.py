@@ -41,6 +41,7 @@ def consent_market(client, monkeypatch):
     monkeypatch.setattr(pricing, "route_metrics", lambda *a: pricing.RouteMetrics(12.0, 18.0))
     monkeypatch.setattr(pricing, "weather_metrics", lambda *a: pricing.WeatherMetrics())
     monkeypatch.setattr("app.services.send_push", lambda *a, **k: None)
+    monkeypatch.setattr(settings, "taxi_initial_consent_admission_enabled", True)
     monkeypatch.setattr(settings, "price_freeze_sec", 120)
     monkeypatch.setattr(settings, "promo_ride_max_discount_rub", 1000)
     monkeypatch.setattr(settings, "promo_ride_max_price_share", 0.5)
@@ -578,3 +579,82 @@ def test_missing_first_offer_cache_cannot_repeat_driver_or_advance_new_offer(
     assert second_card.status_code == 200 and second_card.json()["offer"]["id"] == first.id
     assert isv._tried_set(consent_market.redis, first.id) == set(drivers)
     assert pushed == [(second_driver, first.id)]
+
+
+def test_consent_admission_defaults_to_disabled(monkeypatch):
+    from app.config import Settings
+
+    monkeypatch.delenv("TAXI_INITIAL_CONSENT_ADMISSION_ENABLED", raising=False)
+    assert Settings(_env_file=None).taxi_initial_consent_admission_enabled is False
+
+
+def test_admission_disabled_leaves_pending_state_and_legacy_path_intact(
+    client, user_factory, consent_market, monkeypatch,
+):
+    from app.models import PromoRedemption, TaxiConsentAttempt
+    from app.routers import instant
+
+    passenger = promo_user(client, user_factory)
+    issued = quote(client, passenger)
+    key = issued["request_key"]
+
+    def durable_state():
+        with Session(engine) as observer:
+            promo = observer.exec(select(PromoRedemption).where(
+                PromoRedemption.user_id == passenger["id"],
+            )).one()
+            attempt = observer.exec(select(TaxiConsentAttempt).where(
+                TaxiConsentAttempt.owner_id == passenger["id"],
+                TaxiConsentAttempt.request_key == key,
+            )).one()
+            return promo.model_dump(), attempt.model_dump()
+
+    initial = durable_state()
+    redis_before = {k: consent_market.redis.get(k) for k in consent_market.redis.scan_iter(
+        match="taxi:initial-quote:v1:*",
+    )}
+    called = []
+
+    def forbidden(*args, **kwargs):
+        called.append("unexpected")
+        raise AssertionError("Disabled admission reached a new-order side effect")
+
+    monkeypatch.setattr(settings, "taxi_initial_consent_admission_enabled", False)
+    with monkeypatch.context() as patch:
+        patch.setattr(instant, "guard_estimate_budget", forbidden)
+        patch.setattr(isv, "estimate", forbidden)
+        patch.setattr(isv, "_redis", forbidden)
+        patch.setattr(consent, "admit_attempt", forbidden)
+        patch.setattr(consent, "claim_promo", forbidden)
+        patch.setattr(isv, "dispatch_confirmed_order", forbidden)
+        for response in (
+            client.post(QUOTE, headers=passenger["auth"], json=_order_body()),
+            confirm(client, passenger, issued),
+        ):
+            assert response.status_code == 503
+            assert response.headers["cache-control"] == "no-store"
+            detail = response.json()["detail"]
+            assert detail["code"] == "taxi_consent_admission_disabled"
+            assert detail["ru"] and detail["ba"] and detail["ru"] != detail["ba"]
+            assert "state" not in detail and key not in response.text
+        assert not called
+        assert durable_state() == initial
+        assert orders(passenger["id"]) == []
+        assert {k: consent_market.redis.get(k) for k in consent_market.redis.scan_iter(
+            match="taxi:initial-quote:v1:*",
+        )} == redis_before
+
+        read = client.post("/instant/orders/result/v1", headers=passenger["auth"], json={"request_key": key})
+        assert read.status_code == 200 and read.json()["state"] == "unknown"
+        closed = client.post("/instant/orders/close-attempt/v1", headers=passenger["auth"], json={"request_key": key})
+        assert closed.status_code == 200 and closed.json()["history"] == "not_created"
+        assert durable_state()[1]["state"] == "closed"
+        assert not called
+
+    legacy = user_factory("SyntheticLegacyWhileConsentOff")
+    estimate = client.post("/instant/estimate", headers=legacy["auth"], json=_order_body())
+    assert estimate.status_code == 200
+    placed = client.post("/instant/orders", headers=legacy["auth"], json=_order_body())
+    assert placed.status_code == 200
+    legacy_order, = orders(legacy["id"])
+    assert legacy_order.id == placed.json()["id"] and legacy_order.consent_request_key is None

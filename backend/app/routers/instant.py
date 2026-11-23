@@ -568,6 +568,15 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     return isv.order_payload(session, order, user)
 
 
+def _guard_consent_admission() -> None:
+    if not app_settings.taxi_initial_consent_admission_enabled:
+        error = herr(503, "Сейчас нельзя оформить новый заказ с подтверждением цены.",
+                     "Хаҡты раҫлап, яңы заказ биреү әлегә мөмкин түгел.",
+                     code="taxi_consent_admission_disabled")
+        error.headers = {"Cache-Control": "no-store"}
+        raise error
+
+
 def _guard_consent_input(body) -> None:
     if body.scheduled_at is not None or any(v not in car_class.OPTIONS for v in body.options):
         raise herr(422, "Этот расчёт доступен только для заказа сейчас с известными опциями.",
@@ -596,6 +605,7 @@ def _consent_payload(session: Session, order: InstantOrder, user: User) -> dict:
 @router.post("/instant/quotes/v1")
 def quote_now(body: ConsentQuoteIn, response: Response, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Opt-in initial fare only. Legacy /estimate does not acquire this guarantee."""
+    _guard_consent_admission()
     _guard_consent_input(body)
     guard_estimate_budget(user.id)
     _guard_taxi_available(session, body.from_lat, body.from_lng)
@@ -620,6 +630,7 @@ def create_confirmed_order(body: ConfirmedOrderIn, response: Response, user: Use
             if replay.consent_request_digest != request_hash:
                 raise consent.conflict("taxi_consent_key_conflict")
             return _consent_payload(session, replay, user)
+        _guard_consent_admission()
         attempt = consent.admit_attempt(session, user.id, str(body.request_key), str(body.quote_id))
         _guard_consent_input(body)
         ensure_active(session, user.id, refresh=False)  # read-only gate: retain passenger lock
