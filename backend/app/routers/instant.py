@@ -1430,6 +1430,8 @@ def set_waypoints(order_id: int, body: WaypointsIn,
     order = session.get(InstantOrder, order_id)
     if not order or order.passenger_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS):
+        raise taxi_waypoint_consent._legacy_conflict()
     blocked = isv.can_change_destination(order)
     if blocked == "status":
         raise herr(409, "Сейчас маршрут поменять нельзя", "Хәҙер маршрутты үҙгәртеп булмай")
@@ -1443,7 +1445,7 @@ def set_waypoints(order_id: int, body: WaypointsIn,
                                   waypoints_override=fresh)
     if not quote.get("ok"):
         raise herr(503, "Не удалось посчитать цену", "Хаҡты иҫәпләп булманы")
-    taxi_waypoint_consent.apply_guarded_route(session, order, captured, quote, points=fresh)
+    taxi_waypoint_consent.apply_guarded_route(session, order, captured, quote, points=fresh, unmarked=True)
     if order.driver_id:
         isv.notify_driver_destination(session, order, quote)
     return {**quote, "applied": True, "order": isv.order_payload(session, order, user)}
