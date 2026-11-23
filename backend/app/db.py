@@ -1,5 +1,6 @@
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import ProgrammingError
+from sqlalchemy.schema import CreateColumn
 from sqlmodel import SQLModel, Session, create_engine
 
 from .config import settings
@@ -78,7 +79,13 @@ def _migrate_sqlite_add_columns() -> None:
             for col in table.columns:
                 if col.name in have:
                     continue
-                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {_sqlite_coltype(col)} DEFAULT {_sqlite_default(col)}'
+                if table.name == "instantorder" and col.name == "route_resume_agreement_seal":
+                    # Keep this private field's inline CHECK and no SQL
+                    # default identical to Alembic and fresh metadata.
+                    definition = CreateColumn(col).compile(dialect=conn.dialect)
+                    ddl = f'ALTER TABLE "{table.name}" ADD COLUMN {definition}'
+                else:
+                    ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {_sqlite_coltype(col)} DEFAULT {_sqlite_default(col)}'
                 conn.execute(text(ddl))
 
 

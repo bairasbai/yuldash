@@ -1120,6 +1120,16 @@ class InstantOrder(SQLModel, table=True):
     route_resume_deadline_at: Optional[datetime] = Field(default=None, exclude=True, repr=False)
     route_resume_ready_at: Optional[datetime] = Field(default=None, exclude=True, repr=False)
     route_resume_claim_id: Optional[str] = Field(default=None, max_length=32, exclude=True, repr=False)
+    # Unpopulated private provenance; not authority until an owned writer and
+    # matching transaction are activated. SQLite callers must also check bytes.
+    route_resume_agreement_seal: Optional[bytes] = Field(
+        default=None,
+        sa_column=Column(LargeBinary(32),
+                         CheckConstraint("length(route_resume_agreement_seal) = 32",
+                                         name="ck_instantorder_route_resume_seal_len"),
+                         nullable=True),
+        exclude=True, repr=False,
+    )
     # Точки А (откуда) и Б (куда)
     from_lat: float = 0.0
     from_lng: float = 0.0

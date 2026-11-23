@@ -66,7 +66,7 @@ def test_real_marked_order_does_not_join_normal_wait_queue(client, user_factory,
 def test_each_partial_marker_fails_closed(client, user_factory, field):
     actor = user_factory("PartialWait")
     malformed = {"route_resume_id": "", "route_resume_previous_driver_id": 0,
-                 "route_resume_claim_id": ""}
+                 "route_resume_claim_id": "", resume._SEAL: b"\x66" * 32}
     oid = _seed(actor["id"], **{field: malformed.get(field, utcnow())})
     saved = _snapshot(oid)
     response = _post(client, actor, oid)

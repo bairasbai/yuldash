@@ -20,9 +20,10 @@ from .models import InstantOrder, InstantOrderStatus as Status
 
 _ORDER = InstantOrder.__table__
 _COL = _ORDER.c
+_SEAL = "route_resume_agreement_seal"
 _MARKERS = (
     "route_resume_id", "route_resume_previous_driver_id", "route_resume_retired_at",
-    "route_resume_deadline_at", "route_resume_ready_at", "route_resume_claim_id",
+    "route_resume_deadline_at", "route_resume_ready_at", "route_resume_claim_id", _SEAL,
 )
 _FIELDS = (
     "id", "passenger_id", "driver_id", "status", "created_at", "scheduled_at", "wait_until",
@@ -69,10 +70,16 @@ def _token(value) -> bool:
     return type(value) is str and bool(_TOKEN.fullmatch(value))
 
 
+def _seal_shape(value) -> bool:
+    # PostgreSQL BYTEA is typed; SQLite BLOB affinity and length alone allow
+    # raw TEXT-32. Never treat shape validation as a matched agreement.
+    return value is None or (type(value) is bytes and len(value) == 32)
+
+
 def _valid(state: dict) -> bool:
     retired_at = state["route_resume_retired_at"]
     deadline = state["route_resume_deadline_at"]
-    return (type(state["id"]) is int and state["id"] > 0
+    return (_seal_shape(state[_SEAL]) and type(state["id"]) is int and state["id"] > 0
             and state["scheduled_at"] is None and state["wait_until"] is None
             and state["driver_id"] is None and state["accepted_at"] is None
             and state["cancelled_at"] is None and state["price_final"] is None
@@ -188,10 +195,10 @@ def _perform(conn: Connection, statement) -> ResumeObservation | None:
 
 
 def claim(engine: Engine, expected: ResumeObservation, *, lease_seconds: int) -> ResumeObservation | None:
-    """Claim one exact, due, existing marker; no attempts or deadline changes."""
+    """Lab-only claim of an unsealed marker; no verified provenance or dispatch."""
     _duration(lease_seconds)
     state = _state(expected)
-    if not _valid(state) or not _searching(state):
+    if state[_SEAL] is not None or not _valid(state) or not _searching(state):
         return None
     with _writer(engine, state["id"]) as conn:
         now = _clock(conn)
@@ -205,10 +212,11 @@ def claim(engine: Engine, expected: ResumeObservation, *, lease_seconds: int) ->
 
 def store_offer(engine: Engine, claimed: ResumeObservation, *, driver_id: int,
                 offer_seconds: int) -> ResumeObservation | None:
-    """Store one frozen outcome; retain marker/deadline across the live offer."""
+    """Lab-only offer from an unsealed claim; no verified agreement."""
     _duration(offer_seconds)
     state = _state(claimed)
-    if (not _valid(state) or not _searching(state) or not _token(state["route_resume_claim_id"])
+    if (state[_SEAL] is not None or not _valid(state) or not _searching(state)
+            or not _token(state["route_resume_claim_id"])
             or type(driver_id) is not int or driver_id <= 0
             or driver_id == state["route_resume_previous_driver_id"]):
         return None
