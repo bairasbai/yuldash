@@ -2904,7 +2904,8 @@ class _SearchOwnerLost(Exception):
 
 
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "", *,
-                 search_owner: "tuple | _QueuedSearch | _LegacyOfferSearch | None" = None) -> InstantOrder:
+                 search_owner: "tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None" = None
+                 ) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
     Деньги (Модель А — только фиксируем, ничего не списываем):
@@ -2916,14 +2917,18 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     statement = select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
     if search_owner is not None:
         if actor != Actor.passenger or reason != "passenger_suspended":
-            raise ValueError("Search owner is only for matcher suspension cancellation")
+            raise ValueError("Owner snapshot is only for suspension cancellation")
         statement = statement.execution_options(populate_existing=True)
     order = session.exec(statement).first()
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
-    if search_owner is not None and (order.status != S.searching or not _same_search_owner(order, search_owner)):
-        session.rollback()
-        raise _SearchOwnerLost()
+    scheduled = isinstance(search_owner, _ScheduledActivation)
+    if search_owner is not None:
+        same = (_same_scheduled_activation(order, search_owner) if scheduled else
+                order.status == S.searching and _same_search_owner(order, search_owner))
+        if not same:
+            session.rollback()
+            raise _SearchOwnerLost()
     _guard_owns(order, actor, user_id)
     # Очередь «подожду машину» держит заказ в `expired` с проставленным `wait_until`: статус
     # терминальный только на словах — фоновый воркер каждые пару минут перезапускает по нему
@@ -2961,7 +2966,11 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     прежний_статус = order.status
     бросивший = order.driver_id
     write = update(InstantOrder).where(InstantOrder.id == order_id, InstantOrder.status == order.status)
-    if search_owner is not None:
+    if scheduled:
+        write = write.where(*_scheduled_activation_predicates(search_owner)).execution_options(
+            synchronize_session=False, autoflush=False,
+        )
+    elif search_owner is not None:
         write = write.where(*_search_owner_predicates(session, search_owner)).execution_options(synchronize_session=False)
     result = session.execute(write.values(**values))
     if search_owner is not None and result.rowcount != 1:
@@ -3319,6 +3328,38 @@ _DESTINATION_SEARCH_COLUMNS = tuple(getattr(InstantOrder, name) for name in _DES
 
 
 
+# Scope scheduled decisions to the same route, buyer, fare and lifecycle
+# the ordinary scheduler examined. The marker guard is presence-only.
+_SCHEDULED_ACTIVATION_FIELDS = tuple(dict.fromkeys((
+    *_SEARCH_OWNER_FIELDS, *_DESTINATION_SEARCH_FIELDS,
+    "status", "created_at", "scheduled_at", "wait_until", "retry_count", "round_trip", "return_wait_min",
+    "price_final", "paid", "payment_method", "payment_changed_at", "payment_ack_at",
+    "pickup_pending", "pickup_km", "pickup_enroute", *comp_mod.COMPENSATION_FIELDS, "weather_kind",
+    "pending_to_lat", "pending_to_lng", "pending_to_text", "pending_asked_at", "pending_price", "pending_reason",
+    "accepted_at", "arriving_at", "onboard_at", "waiting_started_at", "stop_started_at", "done_at",
+    "cancelled_at", "expired_at", "cancel_by", "cancel_reason", "cancel_fee_kop", "waiting_fee_kop",
+)))
+_SCHEDULED_ACTIVATION_COLUMNS = tuple(getattr(InstantOrder, name) for name in _SCHEDULED_ACTIVATION_FIELDS)
+
+
+@dataclass(frozen=True, repr=False)
+class _ScheduledActivation:
+    values: tuple
+
+
+def _scheduled_activation_predicates(owner: _ScheduledActivation) -> tuple:
+    return (
+        InstantOrder.status == S.scheduled, *_legacy_no_resume(),
+        *(col == value for col, value in zip(_SCHEDULED_ACTIVATION_COLUMNS, owner.values, strict=True)),
+    )
+
+
+def _same_scheduled_activation(order: InstantOrder, owner: _ScheduledActivation) -> bool:
+    return (order.status == S.scheduled
+            and all(getattr(order, name) is None for name in _ROUTE_RESUME_MARKERS)
+            and tuple(getattr(order, name) for name in _SCHEDULED_ACTIVATION_FIELDS) == owner.values)
+
+
 @dataclass(frozen=True)
 class _QueuedSearch:
     search: tuple
@@ -3431,7 +3472,8 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
 
 
 def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True,
-                                   search_owner: tuple | _QueuedSearch | _LegacyOfferSearch | None = None) -> InstantOrder | None:
+                                   search_owner: tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None = None
+                                   ) -> InstantOrder | None:
     """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
     Не на паузе → None, вызывающий продолжает обычным путём.
 
@@ -3592,14 +3634,28 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     честно: рынок мог измениться), затем стандартный matcher (searching → offered|expired).
     Зовётся вручную (клиент по таймеру) или лениво при GET /instant/scheduled, когда время
     подошло. Идемпотентно: не-scheduled заказ возвращаем как есть."""
-    if order.status != S.scheduled:
+    if (order.status != S.scheduled or any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS)
+            or session.is_modified(order, include_collections=False)):
         return order
+    owner = _ScheduledActivation(tuple(getattr(order, name) for name in _SCHEDULED_ACTIVATION_FIELDS))
+    source = dict(zip(_SCHEDULED_ACTIVATION_FIELDS, owner.values, strict=True))
+    order_id = source["id"]
+    exact = _scheduled_activation_predicates(owner)
+
+    def latest():
+        fresh = session.get(InstantOrder, order_id, populate_existing=True)
+        if fresh is None:
+            raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
+        return fresh
+
+    if session.scalar(select(InstantOrder.id).where(*exact).execution_options(autoflush=False)) is None:
+        return latest()
     # ⬇️ Пауза «Справедливости» (§2) на ПАССАЖИРЕ. Гейт стоит на создании предзаказа, но между
     # созданием и временем поездки человека могли отстранить разбором — и предзаказ всё равно
     # ехал: активацию зовут ТРИ пути (кнопка клиента, ленивый GET /instant/scheduled и фоновый
     # воркер), поэтому проверка на ручке была бы бесполезна. Ставим её здесь, в одной точке.
     # Правило и текст — общие с обычным подбором (`cancel_for_suspended_passenger`).
-    stopped = cancel_for_suspended_passenger(session, order)
+    stopped = cancel_for_suspended_passenger(session, order, search_owner=owner)
     if stopped is not None:
         return stopped
     # ⬇️ «Один живой заказ на человека» — то же правило, что и при обычном заказе, но здесь оно
@@ -3617,52 +3673,61 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     # или отменил) — активируется следующим проходом. Заказы уходят по одному, а не пачкой.
     busy = session.exec(
         select(InstantOrder).where(
-            InstantOrder.passenger_id == order.passenger_id,
-            InstantOrder.id != order.id,
+            InstantOrder.passenger_id == source["passenger_id"],
+            InstantOrder.id != order_id,
             InstantOrder.status.in_(LIVE_ORDER_STATUSES),
         ).limit(1)
     ).first()
     if busy is not None:
         return order   # остаётся scheduled — ждёт своей очереди
-    est = estimate(session, (order.from_lat, order.from_lng),
-                   (order.to_lat, order.to_lng), order.category or "standard",
-                   round_trip=bool(order.round_trip),
-                   waypoints=parse_waypoints(order.waypoints_json),
-                   # Опции заказа несут деньги (кресло 150 ₽). Пересчёт без них обнулил бы
-                   # кресло у предзаказа: человек выбрал его вечером, а к утру оно исчезло.
-                   options=cc.parse_options(order.options))
+    # Standing or another caller may have changed the order before a
+    # provider is contacted. Pricing uses the frozen approved inputs.
+    if session.scalar(select(InstantOrder.id).where(*exact).execution_options(autoflush=False)) is None:
+        return latest()
+    est = estimate(session, (source["from_lat"], source["from_lng"]), (source["to_lat"], source["to_lng"]),
+                   source["category"] or "standard", round_trip=bool(source["round_trip"]),
+                   waypoints=parse_waypoints(source["waypoints_json"]), options=cc.parse_options(source["options"]))
     # Обещание потолка (по умолчанию выключено, см. scheduled_price_cap_rub). Урезаем ТОЛЬКО
     # цену самой поездки: компенсации — бензин водителя, и платформа не вправе их резать.
-    потолок = scheduled_price_cap_rub(int(order.price_estimate or 0))
+    потолок = scheduled_price_cap_rub(int(source["price_estimate"] or 0))
     if потолок is not None and int(est["price"]) > потолок:
         компенсации = (int(est.get("pickup_fee", 0)) + int(est.get("options_fee", 0))
                        + int(est.get("weather_fee", 0)))
         est = dict(est)
         est["ride_price"] = max(потолок - компенсации, 0)
         est["price"] = est["ride_price"] + компенсации
-    session.execute(
-        update(InstantOrder).where(InstantOrder.id == order.id, InstantOrder.status == S.scheduled)
-        .values(price_estimate=est["price"], ride_price=est.get("ride_price", est["price"]),
-                ride_base_price=est.get("base_price", 0) or est.get("ride_price", est["price"]),
-                pickup_fee_kop=int(est.get("pickup_fee", 0)) * 100,
-                pickup_km=float(est.get("pickup_km", 0.0)),
-                pickup_pending=bool(est.get("pickup_pending", False)),
-                options_fee_kop=int(est.get("options_fee", 0)) * 100,
-                weather_fee_kop=int(est.get("weather_fee", 0)) * 100,
-                weather_kind=str(est.get("weather_kind", ""))[:16],
-                distance_km=est["distance_km"],
-                eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
-                pricing_k=est.get("pricing_k", est["surge_k"]))
+    values = dict(
+        price_estimate=est["price"], ride_price=est.get("ride_price", est["price"]),
+        ride_base_price=est.get("base_price", 0) or est.get("ride_price", est["price"]),
+        pickup_fee_kop=int(est.get("pickup_fee", 0)) * 100,
+        pickup_km=float(est.get("pickup_km", 0.0)), pickup_pending=bool(est.get("pickup_pending", False)),
+        options_fee_kop=int(est.get("options_fee", 0)) * 100, weather_fee_kop=int(est.get("weather_fee", 0)) * 100,
+        weather_kind=str(est.get("weather_kind", ""))[:16], distance_km=est["distance_km"],
+        eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
+        pricing_k=est.get("pricing_k", est["surge_k"]),
     )
+    # Same existing lower-only cap on the proposed price and compensation,
+    # but no separate ID-only reclamp after committing someone else's order.
+    disc = max(int(source["promo_discount_kop"] or 0), 0)
+    if disc:
+        capped = promo_ride.cap_for_price(disc, promo_ride.discountable_rub(SimpleNamespace(**(source | values))))
+        if capped < disc:
+            values["promo_discount_kop"] = capped
+    result = session.execute(update(InstantOrder).where(*exact).values(**values).execution_options(
+        synchronize_session=False, autoflush=False,
+    ))
+    if result.rowcount != 1:
+        session.rollback()
+        return latest()
+    expected = source | values
+    repriced = _ScheduledActivation(tuple(expected[name] for name in _SCHEDULED_ACTIVATION_FIELDS))
     session.commit()
-    order = session.get(InstantOrder, order.id)
-    if order.status != S.scheduled:
-        return order   # гонку проиграли (кто-то активировал/отменил параллельно) — не дублируем поиск
-    # Цена пересчитана заново → скидка по промокоду могла превысить допустимую долю подешевевшей
-    # поездки. Ужимаем (только вниз), чтобы потолок кампании не обходился через предзаказ.
-    promo_ride.reclamp(session, order)
-    order = session.get(InstantOrder, order.id)
-    return start_matching(session, order)
+    fresh = session.exec(select(InstantOrder).where(
+        *_scheduled_activation_predicates(repriced),
+    ).execution_options(populate_existing=True, autoflush=False)).one_or_none()
+    if fresh is None:
+        return latest()
+    return start_matching(session, fresh, _scheduled_activation=repriced)
 
 
 # Из каких статусов поиск можно (пере)запустить: свежесозданный заказ, предзаказ в момент
@@ -3742,7 +3807,8 @@ def _start_waiting_retry(session: Session, snapshot: tuple) -> _QueuedRetryResul
 
 
 def start_matching(session: Session, order: InstantOrder, notify: bool = True, *,
-                   _wait_snapshot: tuple | None = None) -> InstantOrder | _QueuedRetryResult | None:
+                   _wait_snapshot: tuple | None = None, _scheduled_activation: _ScheduledActivation | None = None
+                   ) -> InstantOrder | _QueuedRetryResult | None:
     """created → searching → (offered | expired). Зовётся при создании заказа и при
     перезапуске поиска из очереди «рядом никого» (там notify=False — см. _expire_no_drivers).
 
@@ -3762,6 +3828,11 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True, *
     if (phase not in _MATCHABLE or any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS)
             or session.is_modified(order, include_collections=False)):
         return order
+    scheduled = ()
+    if _scheduled_activation is not None:
+        if not _same_scheduled_activation(order, _scheduled_activation):
+            return order
+        scheduled = _scheduled_activation_predicates(_scheduled_activation)
     old = _LegacyOfferSearch(_search_owner(order), tuple(getattr(order, n) for n in _DESTINATION_SEARCH_FIELDS))
     wait_state = tuple(getattr(order, name) for name in ("wait_until", "retry_count", "scheduled_at"))
     stamp = utcnow()
@@ -3770,7 +3841,7 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True, *
         # that can put a subsequently published offer before its own search.
         return order
     won = session.execute(update(InstantOrder).where(
-        InstantOrder.status == phase, *_search_owner_predicates(session, old),
+        InstantOrder.status == phase, *_search_owner_predicates(session, old), *scheduled,
         InstantOrder.wait_until == wait_state[0], InstantOrder.retry_count == wait_state[1],
         InstantOrder.scheduled_at == wait_state[2],
     ).values(status=S.searching, searching_at=stamp, search_round=0)
