@@ -62,6 +62,7 @@ internal object SessionKeys {
         "yuldash_filters" to listOf("default_filters", "default_seats"),
         "yuldash_search" to listOf("recent_searches_v1"),
         "driver_bank_recipient_setup" to listOf(DRIVER_BANK_RECIPIENT_PENDING_SETUP),
+        TAXI_CONSENT_PREFS to listOf(TAXI_CONSENT_PENDING), // opaque consent barriers, no request content
     )
 
     /**

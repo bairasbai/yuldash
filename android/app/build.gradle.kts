@@ -73,6 +73,14 @@ require(!nativeQaPinnedApi || System.getenv("YULDASH_DEBUG_API_BASE_URL") == "ht
     "Pinned native QA requires an explicit local API"
 }
 
+// Local price-consent experiment: never enabled in release or an unpinned debug APK.
+val taxiQuoteConsentLocal = when (System.getenv("YULDASH_TAXI_QUOTE_CONSENT_LOCAL")) {
+    null, "false" -> false
+    "true" -> true
+    else -> error("YULDASH_TAXI_QUOTE_CONSENT_LOCAL must be true, false or unset")
+}
+require(!taxiQuoteConsentLocal || nativeQaPinnedApi) { "Price consent requires pinned native QA" }
+
 val debugApiBaseUrl: String = System.getenv("YULDASH_DEBUG_API_BASE_URL")
     ?: Properties().apply {
         val f = rootProject.file("local.properties")
@@ -299,6 +307,7 @@ android {
         debug {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$debugApiBaseUrl\"")
             buildConfigField("boolean", "YULDASH_NATIVE_QA_PINNED_API", nativeQaPinnedApi.toString())
+            buildConfigField("boolean", "YULDASH_TAXI_QUOTE_CONSENT_LOCAL", taxiQuoteConsentLocal.toString())
             enableUnitTestCoverage = true
             // enableAndroidTestCoverage ВЫКЛЮЧЕН намеренно (2026-08-08).
             //
@@ -320,6 +329,7 @@ android {
         release {
             buildConfigField("String", "YULDASH_API_BASE_URL", "\"$releaseApiBaseUrl\"")
             buildConfigField("boolean", "YULDASH_NATIVE_QA_PINNED_API", "false")
+            buildConfigField("boolean", "YULDASH_TAXI_QUOTE_CONSENT_LOCAL", "false")
             // R8: ужатие + обфускация. keep-правила для MapKit/Firebase/Tink/OkHttp — в proguard-rules.pro.
             // ⚠️ Релиз arm64-only → на x86_64-эмуляторе не ставится; финальный smoke — на реальном телефоне.
             isMinifyEnabled = true
