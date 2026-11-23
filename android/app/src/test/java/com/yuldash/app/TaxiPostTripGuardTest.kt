@@ -27,7 +27,9 @@ class TaxiPostTripGuardTest {
         assertTrue(host.contains("openTaxiReceipt.value = o.id"))
         assertTrue(completed.contains("Как прошла поездка?"))
         assertTrue(completed.contains("Чек и детали"))
-        assertTrue(completed.contains("ApiClient.rateInstantOrder(id, stars, tags)"))
+        assertTrue(completed.contains("ApiClient.rateInstantOrder(id, stars, tags, expectedGeneration = generation)"))
+        assertTrue(completed.contains("ApiClient.getInstantOrder(id, generation)"))
+        assertTrue(completed.contains("rememberTaxiCompletedRating(order.id, \"passenger\", readRating, rateOrder)"))
         assertTrue(completed.contains("ApiClient.instantLostItem(id)"))
     }
 

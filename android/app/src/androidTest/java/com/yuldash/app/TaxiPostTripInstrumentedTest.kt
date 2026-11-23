@@ -26,13 +26,15 @@ class TaxiPostTripInstrumentedTest {
     fun passengerCompleted_showsCalmRatingFirst() {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                val order = previewOrder()
                 TaxiPassengerCompletedScreen(
-                    order = previewOrder(),
+                    order = order,
                     onClose = {},
                     onNewOrder = {},
                     onOpenReceipt = {},
                     onOpenChat = {},
-                    rateOrder = { _, _, _ -> Result.success(Unit) },
+                    readRating = { id, _ -> check(id == order.id); Result.success(order.copy(canRate = true)) },
+                    rateOrder = { _, _, _, _ -> Result.success(Unit) },
                     openLostItem = { Result.success(Unit) },
                 )
             }

@@ -42,19 +42,23 @@ class PremiumTaxiScreenshotTest {
 
     @Test
     fun passengerCompleted() = снять("01-пассажир-поездка-завершена") {
+        val order = заказ(status = "done", role = "passenger")
         TaxiPassengerCompletedScreen(
-            order = заказ(status = "done", role = "passenger"),
+            order = order,
             onClose = {}, onNewOrder = {}, onOpenReceipt = {}, onOpenChat = {},
-            rateOrder = { _, _, _ -> Result.success(Unit) },
+            readRating = { id, _ -> check(id == order.id); Result.success(order.copy(canRate = true)) },
+            rateOrder = { _, _, _, _ -> Result.success(Unit) },
         )
     }
 
     @Test
     fun driverCompleted() = снять("02-водитель-поездка-завершена") {
+        val order = заказ(status = "done", role = "driver")
         TaxiDriverCompletedScreen(
-            order = заказ(status = "done", role = "driver"),
+            order = order,
             onReturnToLine = {}, onShiftFinished = {}, onOpenReceipt = {},
-            rateOrder = { _, _, _ -> Result.success(Unit) },
+            readRating = { id, _ -> check(id == order.id); Result.success(order.copy(canRate = true)) },
+            rateOrder = { _, _, _, _ -> Result.success(Unit) },
             finishShift = { Result.success(Unit) },
         )
     }
@@ -88,10 +92,12 @@ class PremiumTaxiScreenshotTest {
 
     @Test
     fun driverCompletedScrolledDown() = снять("06-водитель-завершено-прокручено", прокрутить = true) {
+        val order = заказ(status = "done", role = "driver")
         TaxiDriverCompletedScreen(
-            order = заказ(status = "done", role = "driver"),
+            order = order,
             onReturnToLine = {}, onShiftFinished = {}, onOpenReceipt = {},
-            rateOrder = { _, _, _ -> Result.success(Unit) },
+            readRating = { id, _ -> check(id == order.id); Result.success(order.copy(canRate = true)) },
+            rateOrder = { _, _, _, _ -> Result.success(Unit) },
             finishShift = { Result.success(Unit) },
         )
     }
