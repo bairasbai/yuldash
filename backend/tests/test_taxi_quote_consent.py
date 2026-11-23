@@ -8,7 +8,7 @@ from uuid import uuid4
 
 import fakeredis
 import pytest
-from sqlalchemy import text
+from sqlalchemy import event, text
 from sqlmodel import Session, select
 
 from app import instant_service as isv, pricing, taxi_quote_consent as consent, taxi_worker
@@ -551,25 +551,33 @@ def test_missing_first_offer_cache_cannot_repeat_driver_or_advance_new_offer(
         with Session(engine) as session:
             isv.reconcile_offer(session, first)
     else:
-        committed_reasons = []
-        original_commit = Session.commit
+        rival_drivers = []
 
-        def timeout_after_decline_reason(session):
-            logging_reason = any(isinstance(row, OfferDecline) for row in session.new)
-            original_commit(session)
-            if logging_reason:
-                with Session(engine) as timeout_worker:
-                    advanced = isv.reconcile_offer(timeout_worker, first)
-                    committed_reasons.append(advanced.current_offer_driver_id)
+        def timeout_before_decline_cas(conn, cursor, statement, parameters, context, executemany):
+            sql = statement.upper()
+            if ("UPDATE INSTANTORDER SET STATUS" not in sql or "OFFER_EXPIRES_AT" not in sql
+                    or rival_drivers):
+                return
+            rival_drivers.append(None)  # reentrant rival uses this same event
+            with Session(engine) as timeout_worker:
+                advanced = isv.reconcile_offer(timeout_worker, first)
+                rival_drivers[0] = advanced.current_offer_driver_id
 
-        reason = {}
-        if next_offer == "decline_reason_race":
-            monkeypatch.setattr(Session, "commit", timeout_after_decline_reason)
-            reason = {"reason": "busy"}
-        response = client.post(f"/instant/orders/{first.id}/decline", headers=drivers[first_driver]["auth"], json=reason)
+        reason = {"reason": "busy"} if next_offer == "decline_reason_race" else {}
+        if reason:
+            event.listen(engine, "before_cursor_execute", timeout_before_decline_cas)
+        try:
+            response = client.post(
+                f"/instant/orders/{first.id}/decline", headers=drivers[first_driver]["auth"], json=reason,
+            )
+        finally:
+            if reason:
+                event.remove(engine, "before_cursor_execute", timeout_before_decline_cas)
         assert response.status_code == 200, response.text
         if reason:
-            assert committed_reasons == [second_driver]
+            assert rival_drivers == [second_driver]
+            with Session(engine) as session:
+                assert not session.exec(select(OfferDecline).where(OfferDecline.order_id == first.id)).all()
 
     with Session(engine) as late_worker:
         result = isv.reconcile_offer(late_worker, first)

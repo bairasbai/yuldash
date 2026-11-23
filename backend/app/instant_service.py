@@ -2830,7 +2830,7 @@ class _SearchOwnerLost(Exception):
 
 
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "", *,
-                 search_owner: "tuple | _QueuedSearch | None" = None) -> InstantOrder:
+                 search_owner: "tuple | _QueuedSearch | _LegacyOfferSearch | None" = None) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
     Деньги (Модель А — только фиксируем, ничего не списываем):
@@ -3228,6 +3228,11 @@ _WAIT_RETRY_COLUMNS = (*_SEARCH_OWNER_COLUMNS, *_WAIT_COLUMNS, InstantOrder.stat
 
 
 @dataclass(frozen=True)
+class _LegacyOfferSearch:
+    search: tuple
+
+
+@dataclass(frozen=True)
 class _QueuedSearch:
     search: tuple
     wait: tuple
@@ -3239,25 +3244,33 @@ class _QueuedRetryResult:
 
 
 def _same_search_owner(order, owner, **updated) -> bool:
-    if not isinstance(owner, _QueuedSearch):
+    if not isinstance(owner, (_QueuedSearch, _LegacyOfferSearch)):
         return _search_owner(order) == owner
     expected = dict(zip(_SEARCH_OWNER_FIELDS, owner.search, strict=True)) | updated
-    return (_search_owner(order) == tuple(expected.values())
-            and tuple(getattr(order, f) for f in _WAIT_FIELDS) == owner.wait
-            and all(getattr(order, name) is None for name in _ROUTE_RESUME_MARKERS)
-            and order.wait_until is not None and order.wait_until > utcnow())
+    if (_search_owner(order) != tuple(expected.values())
+            or any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS)):
+        return False
+    return (not isinstance(owner, _QueuedSearch)
+            or (tuple(getattr(order, f) for f in _WAIT_FIELDS) == owner.wait
+                and order.wait_until is not None and order.wait_until > utcnow()))
+
+
+def _legacy_no_resume() -> tuple:
+    return tuple(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS)
 
 
 def _ordinary_wait_predicates(session: Session) -> tuple:
-    return (InstantOrder.wait_until > _offer_write_clock(session),
-            *(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS))
+    return (InstantOrder.wait_until > _offer_write_clock(session), *_legacy_no_resume())
 
 
-def _search_owner_predicates(session: Session, owner: tuple | _QueuedSearch) -> tuple:
+def _search_owner_predicates(session: Session, owner: tuple | _QueuedSearch | _LegacyOfferSearch) -> tuple:
     if isinstance(owner, _QueuedSearch):
         return (*(column == value for column, value in zip(_SEARCH_OWNER_COLUMNS, owner.search, strict=True)),
                 *(column == value for column, value in zip(_WAIT_COLUMNS, owner.wait, strict=True)),
                 *_ordinary_wait_predicates(session))
+    if isinstance(owner, _LegacyOfferSearch):
+        return (*(column == value for column, value in zip(_SEARCH_OWNER_COLUMNS, owner.search, strict=True)),
+                *_legacy_no_resume())
     return tuple(column == observed for column, observed in zip(_SEARCH_OWNER_COLUMNS, owner, strict=True))
 
 
@@ -3268,7 +3281,7 @@ def _lock_ordinary_wait_row(session: Session, order_id: int) -> None:
         session.execute(select(InstantOrder.id).where(InstantOrder.id == order_id).with_for_update()).all()
 
 
-def _write_search_outcome(session: Session, owner: tuple | _QueuedSearch, **values):
+def _write_search_outcome(session: Session, owner: tuple | _QueuedSearch | _LegacyOfferSearch, **values):
     if isinstance(owner, _QueuedSearch):
         _lock_ordinary_wait_row(session, owner.search[0])
     result = session.execute(
@@ -3295,7 +3308,7 @@ def _current_queued_offer_passenger(session: Session, owner: _QueuedSearch) -> i
 
 
 def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True, *,
-                       search_owner: tuple | _QueuedSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
+                       search_owner: tuple | _QueuedSearch | _LegacyOfferSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
     """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
 
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
@@ -3310,8 +3323,9 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     fresh = session.get(InstantOrder, order_id, populate_existing=True)
     queued = isinstance(search_owner, _QueuedSearch)
     if (not committed or fresh is None or fresh.status != S.expired or fresh.expired_at != at
-            or queued and not _same_search_owner(fresh, search_owner,
-                                                 current_offer_driver_id=None, offer_expires_at=None)):
+            or isinstance(search_owner, (_QueuedSearch, _LegacyOfferSearch)) and not _same_search_owner(
+                fresh, search_owner, current_offer_driver_id=None, offer_expires_at=None,
+            )):
         return None if queued else fresh
     _cleanup_tried(order_id)
     if notify:
@@ -3324,7 +3338,7 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
 
 
 def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True,
-                                   search_owner: tuple | _QueuedSearch | None = None) -> InstantOrder | None:
+                                   search_owner: tuple | _QueuedSearch | _LegacyOfferSearch | None = None) -> InstantOrder | None:
     """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
     Не на паузе → None, вызывающий продолжает обычным путём.
 
@@ -3393,15 +3407,18 @@ def _remember_offered_driver(r, order_id: int, driver_id: int) -> None:
 
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *,
                    first_deadline: datetime | None = None, previous_driver: int | None = None,
-                   _queued: _QueuedSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
+                   _queued: _QueuedSearch | None = None,
+                   _legacy_advance: _LegacyOfferSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     first_confirmed = first_deadline is not None
     order_id = order.id
-    search_owner = _queued if _queued is not None else _search_owner(order)
+    guarded_owner = _queued or _legacy_advance
+    search_owner = guarded_owner if guarded_owner is not None else _search_owner(order)
     search_round = order.search_round
     if _queued is not None and (order.status != S.searching or not _same_search_owner(order, _queued)):
         return None
-    if order.status != S.searching:
+    if (order.status != S.searching
+            or _legacy_advance is not None and not _same_search_owner(order, _legacy_advance)):
         return session.get(InstantOrder, order_id, populate_existing=True)
     stopped = cancel_for_suspended_passenger(
         session, order, refresh_standing=not first_confirmed, search_owner=search_owner,
@@ -3439,8 +3456,8 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
     if (not committed or fresh is None or fresh.status != S.offered
             or fresh.current_offer_driver_id != did or fresh.offered_at != now
             or fresh.offer_expires_at != expires_at or expires_at <= utcnow()
-            or _queued is not None and not _same_search_owner(
-                fresh, _queued, search_round=search_round + 1, current_offer_driver_id=did,
+            or guarded_owner is not None and not _same_search_owner(
+                fresh, guarded_owner, search_round=search_round + 1, current_offer_driver_id=did,
                 offered_at=now, offer_expires_at=expires_at,
             )):
         return None if _queued is not None else fresh
@@ -3659,54 +3676,63 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True, *
     return try_offer_next(session, order, notify)
 
 
+def _advance_legacy_offer(session: Session, old: tuple, notify: bool,
+                          decline_reason: str = "") -> tuple[InstantOrder | None, bool]:
+    order_id = old[0]
+    previous_driver = old[_SEARCH_OWNER_FIELDS.index("current_offer_driver_id")]
+    won = session.execute(
+        update(InstantOrder).where(
+            InstantOrder.status == S.offered, *_search_owner_predicates(session, old), *_legacy_no_resume(),
+        ).values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None)
+        .execution_options(synchronize_session=False).returning(*_SEARCH_OWNER_COLUMNS)
+    ).one_or_none()
+    if won is None:
+        session.rollback()
+        return session.get(InstantOrder, order_id, populate_existing=True), False
+    owner = _LegacyOfferSearch(tuple(won))
+    if decline_reason:
+        # This root transaction already physically won the transition.
+        # Best-effort analytics cannot outlive a lost offer or break decline
+        # when insertion fails. The savepoint is inside the winning DML.
+        try:
+            with session.begin_nested():
+                session.add(OfferDecline(order_id=order_id, driver_id=previous_driver, reason=decline_reason[:32]))
+                session.flush()
+        except Exception:  # noqa: BLE001
+            pass
+    session.commit()
+    order = session.exec(select(InstantOrder).where(
+        InstantOrder.status == S.searching, *_search_owner_predicates(session, owner),
+    ).execution_options(populate_existing=True)).one_or_none()
+    if order is None:
+        return session.get(InstantOrder, order_id, populate_existing=True), True
+    return try_offer_next(session, order, notify, previous_driver=previous_driver, _legacy_advance=owner), True
+
+
 def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True, *,
                             expected_offer: tuple[int | None, datetime | None] | None = None) -> InstantOrder:
-    """Оффер отклонён/протух → назад в searching → следующий кандидат.
-
-    Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
-    из фоновой пачки воскрешал заказ, который водитель уже принял (заказ отбирался у него
-    посреди подачи) или который пассажир уже отменил."""
-    previous_driver, previous_expiry = expected_offer or (order.current_offer_driver_id, order.offer_expires_at)
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status == S.offered,
-               InstantOrder.current_offer_driver_id == previous_driver,
-               InstantOrder.offer_expires_at == previous_expiry)
-        .values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None)
-    )
-    session.commit()
-    order = session.get(InstantOrder, order.id)
-    if result.rowcount == 0:
-        return order        # заказ уже не в оффере (принят/отменён/закрыт) — не трогаем
-    return try_offer_next(session, order, notify, previous_driver=previous_driver)
+    """Advance an ordinary exact offer; never take ownership of a capped marker."""
+    old = _search_owner(order)
+    if expected_offer is not None and expected_offer != (order.current_offer_driver_id, order.offer_expires_at):
+        return session.get(InstantOrder, old[0], populate_existing=True)
+    return _advance_legacy_offer(session, old, notify)[0]
 
 
 def reconcile_offer(session: Session, order: InstantOrder) -> InstantOrder:
-    """Ленивый таймаут: если оффер протух — двигаем к следующему кандидату.
-    Так работает без фонового воркера (arq) — на чтении заказа/поллинге оффера."""
+    """Ленивый таймаут обычного оффера; capped-регламент сюда не подключён."""
     if order.status == S.offered and order.offer_expires_at and order.offer_expires_at < utcnow():
         return advance_after_no_accept(session, order)
     return order
 
 
 def decline_offer(session: Session, order_id: int, driver_id: int, reason: str = "") -> InstantOrder:
-    """Водитель отклонил оффер → следующий кандидат. Идемпотентно."""
+    """Идемпотентный отказ: статистика только по выигранному переходу."""
     order = session.get(InstantOrder, order_id)
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.status != S.offered or order.current_offer_driver_id != driver_id:
-        # оффер уже не актуален (принят/протух/отдан другому) — не ошибка
         return order
-    expected_offer = (driver_id, order.offer_expires_at)
-    if reason:
-        # Журнал причин (разбор №2). Пишем ДО перехода, но отдельным try: сорвавшаяся запись
-        # статистики не должна мешать водителю отказаться — отказ важнее аналитики.
-        try:
-            session.add(OfferDecline(order_id=order_id, driver_id=driver_id, reason=reason[:32]))
-            session.commit()
-        except Exception:  # noqa: BLE001
-            session.rollback()
-    return advance_after_no_accept(session, order, expected_offer=expected_offer)
+    return _advance_legacy_offer(session, _search_owner(order), True, decline_reason=reason)[0]
 
 
 # ============================ Push / приватность ============================

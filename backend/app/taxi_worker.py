@@ -279,25 +279,23 @@ def advance_stale_offers(session: Session, dry_run: bool = False) -> list:
     приложение — и подбор замирал до его возвращения."""
     now = utcnow()
     stale_before = now - timedelta(minutes=settings.order_offer_stale_min)
-    rows = session.exec(
-        select(InstantOrder).where(
-            InstantOrder.status == S.offered,
-            InstantOrder.offer_expires_at != None,      # noqa: E711
-            InstantOrder.offer_expires_at < now,
-        ).limit(200)
-    ).all()
+    rows = session.exec(select(*isv._SEARCH_OWNER_COLUMNS).where(
+        InstantOrder.status == S.offered, InstantOrder.offer_expires_at < now, *isv._legacy_no_resume(),
+    ).limit(200)).all()
     moved = []
-    for o in rows:
-        if o.offered_at and o.offered_at > stale_before:
-            continue                                    # только что предложили — пусть подумает
+    for old in rows:
+        if old.offered_at and old.offered_at > stale_before:
+            continue
         if dry_run:
-            moved.append(o.id)
+            moved.append(old.id)
             continue
         try:
-            isv.advance_after_no_accept(session, o, notify=False)
-            moved.append(o.id)
+            _, won = isv._advance_legacy_offer(session, tuple(old), notify=False)
+            if won:
+                moved.append(old.id)
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] сдвиг оффера #{o.id}: {type(e).__name__}: {e}")
+            session.rollback()
+            log.warning(f"[TAXI-WORKER] сдвиг оффера #{old.id}: {type(e).__name__}: {e}")
     return moved
 
 
