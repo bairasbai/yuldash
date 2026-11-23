@@ -317,6 +317,15 @@ class RideshareCompletedBoundaryTest {
         findWhenReady("Сумма к оплате")
         findWhenReady("Подтвердить оплату", actionable = true).performClick()
         findWhenReady("Проверяем, принято ли подтверждение.")
+        // Pending UI follows the local reservation, before the HTTP request arrives.
+        // Observe the same command's reconciliation after the fixture's lost POST response.
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            bankCommandKey?.let { key ->
+                requests.any { it.first == "GET /command-intents/$key" && it.second == "Bearer $tokenA" }
+            } == true
+        }
         assertEquals(1, posts())
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
