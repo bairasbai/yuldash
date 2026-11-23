@@ -1,5 +1,7 @@
 package com.yuldash.app.data
 
+import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*
@@ -311,5 +313,139 @@ class ColdTripPassportRepositoryTest {
         // Accepted P0 boundary: neither the barrier nor grant removal reached durable storage.
         // A new process can only be denied when at least one revocation write actually commits.
         assertNotNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
+    @Test fun lateExpiryBarrierAllowsSameOwnerRemovalWithoutNewGrant() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        val grant = requireNotNull(load(f, prepared.pass)).grant
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        assertTrue(f.gate.expireCandidate(f.owner, 11, grant.snapshotCandidate))
+        assertTrue(f.disk.setBarrier(f.owner.barrier("cold-booking", 11), "blocked"))
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.revokeCold(request))
+        assertFalse(JSONObject(f.disk.read(f.owner.namespace)!!)
+            .getJSONObject("records").getJSONObject("11").has("cold_grant"))
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
+    @Test fun staleRequestWithoutDurableBarrierStaysStale() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        val grant = requireNotNull(load(f, prepared.pass)).grant
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        assertTrue(f.gate.expireCandidate(f.owner, 11, grant.snapshotCandidate))
+        assertNull(f.disk.barrier(f.owner.barrier("cold-booking", 11)))
+        assertEquals(SnapshotPersistence.STALE, f.repo.revokeCold(request))
+        assertNotNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
+    @Test fun authorizedRequestCanFinishAfterLaterExpiry() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        val grant = requireNotNull(load(f, prepared.pass)).grant
+        val coldBarrier = f.owner.barrier("cold-booking", 11)
+        var raced = false
+        val disk = object : SnapshotDisk by f.disk {
+            override fun setBarrier(key: String, value: String?): Boolean {
+                if (key == coldBarrier && value == "blocked" && !raced) {
+                    raced = true
+                    check(f.gate.expireCandidate(f.owner, 11, grant.snapshotCandidate))
+                }
+                return f.disk.setBarrier(key, value)
+            }
+        }
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        val repo = OfflineTripSnapshotRepository(disk, f.active, { f.now }, f.gate)
+        assertTrue(f.gate.coldCurrent(request))
+        assertEquals(SnapshotPersistence.COMMITTED, repo.revokeCold(request))
+        assertTrue(raced)
+        assertFalse(f.gate.coldCurrent(request))
+        assertFalse(JSONObject(f.disk.read(f.owner.namespace)!!)
+            .getJSONObject("records").getJSONObject("11").has("cold_grant"))
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
+    @Test fun terminalReplayDoesNotMakeRemovalStale() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.close(f.repo.ticket()!!, 11))
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.revokeCold(request))
+        assertNotNull(f.disk.barrier(f.owner.barrier("cold-booking", 11)))
+        val doc = JSONObject(f.disk.read(f.owner.namespace)!!)
+        assertEquals(1, doc.getJSONArray("closed_bookings").length())
+        assertEquals(11, doc.getJSONArray("closed_bookings").getInt(0))
+        assertFalse(doc.getJSONObject("records").has("11"))
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.revokeCold(f.gate.revokeCold(f.gate.ticket()!!, 11)!!))
+    }
+
+    @Test fun terminalBarrierFailureIsNotReportedAsCommitted() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.close(f.repo.ticket()!!, 11))
+        f.disk.barrierFault = { key, value -> key == f.owner.barrier("cold-booking", 11) && value == "blocked" }
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        assertEquals(SnapshotPersistence.NOT_DURABLE, f.repo.revokeCold(request))
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
+    @Test fun terminalGrantWriteFailureIsDurablyBlocked() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        val granted = JSONObject(f.disk.read(f.owner.namespace)!!).getJSONObject("records").getJSONObject("11")
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.close(f.repo.ticket()!!, 11))
+        val doc = JSONObject(f.disk.read(f.owner.namespace)!!)
+        doc.getJSONObject("records").put("11", granted)
+        f.disk.write(f.owner.namespace, doc.toString())
+        f.disk.writeFault = { _, _ -> true }
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        assertEquals(SnapshotPersistence.DURABLY_BLOCKED, f.repo.revokeCold(request))
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
+    @Test fun terminalRevocationCannotCrossOwner() = runBlocking {
+        val f = fixture()
+        save(f)
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.close(f.repo.ticket()!!, 11))
+        val request = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        val other = f.owner.copy(userId = 8, scope = java.util.UUID.randomUUID().toString())
+        f.active.set(other)
+        assertEquals(SnapshotPersistence.STALE, f.repo.revokeCold(request))
+        assertNull(f.disk.barrier(other.barrier("cold-booking", 11)))
+        assertNull(f.disk.read(other.namespace))
+    }
+
+    @Test fun lateColdReadAfterRemovalCannotRestore() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        val started = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        val actual = f.disk
+        val disk = object : SnapshotDisk {
+            var first = true
+            override fun read(namespace: String): String? {
+                if (first) {
+                    first = false
+                    started.countDown()
+                    check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)) { "Cold read was not released" }
+                }
+                return actual.read(namespace)
+            }
+            override fun write(namespace: String, value: String) = actual.write(namespace, value)
+            override fun barrier(key: String) = actual.barrier(key)
+            override fun setBarrier(key: String, value: String?) = actual.setBarrier(key, value)
+            override fun retire(namespace: String) = actual.retire(namespace)
+            override fun purgeExcept(namespace: String?) = actual.purgeExcept(namespace)
+        }
+        val repository = OfflineTripSnapshotRepository(disk, f.active, { f.now }, f.gate)
+        val restore = f.gate.beginColdRestore(f.owner, 11)!!
+        val loading = async(Dispatchers.IO) { repository.loadCold(f.owner, 11, candidate(prepared.pass), restore) }
+        check(started.await(5, java.util.concurrent.TimeUnit.SECONDS)) { "Cold read did not start" }
+        val removal = async(Dispatchers.IO) { repository.revokeCold(f.gate.revokeCold(f.gate.ticket()!!, 11)!!) }
+        release.countDown()
+        assertNull(loading.await())
+        assertEquals(SnapshotPersistence.COMMITTED, removal.await())
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
     }
 }

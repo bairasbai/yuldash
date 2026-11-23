@@ -1183,8 +1183,9 @@ object ApiClient {
     )
 
     /** Приватные детали брони: телефон и точная встреча открываются только после подтверждения. */
-    suspend fun getBookingDetails(bookingId: Int): Result<BookingDetailsDto> =
-        OfflineTripSnapshotHooks.details(bookingId)
+    suspend fun getBookingDetails(bookingId: Int, singleAttemptTransport: Boolean = false,
+        transportSlot: java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>? = null): Result<BookingDetailsDto> =
+        OfflineTripSnapshotHooks.details(bookingId, singleAttemptTransport, transportSlot)
 
     // ---------- Заявки ----------
 
@@ -1670,7 +1671,7 @@ object ApiClient {
 
     suspend fun sendMessage(bookingId: Int, text: String, requestKey: String? = null): Result<Unit> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("text", text), auth = true,
-            idempotencyKey = requestKey).mapCatching { parseBookingSendReceipt(it, requestKey); Unit }
+            idempotencyKey = requestKey).mapCatching { parseBookingSendReceipt(it, requestKey, ::myUserId); Unit }
 
     /** Bind queued work before it can suspend or switch to a new account. */
     private val bookingReceiptListeners = java.util.concurrent.CopyOnWriteArraySet<(Int, Long, MessageDto) -> Unit>()
@@ -1685,7 +1686,7 @@ object ApiClient {
             "message" -> call("POST", "/bookings/${action.bookingId}/messages",
                 JSONObject().put("text", action.payload), auth = true, expectedGeneration = generation,
                 idempotencyKey = Outbox.messageRequestKey(action)).mapCatching {
-                    val receipt = parseBookingSendReceipt(it, Outbox.messageRequestKey(action))
+                    val receipt = parseBookingSendReceipt(it, Outbox.messageRequestKey(action), ::myUserId)
                     if (receipt.hiddenForMe && isCurrentSession(generation)) bookingReceiptListeners.forEach { listener ->
                         runCatching { listener(action.bookingId, generation, receipt) }
                     }
@@ -1718,9 +1719,14 @@ object ApiClient {
      *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
     suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
         OfflineTripSnapshotHooks.state(bookingId).result
-    internal suspend fun getTripStateForNavigation(bookingId: Int) = OfflineTripSnapshotHooks.state(bookingId)
-    internal suspend fun readTripSnapshotJson(path: String, read: SnapshotTransportRead): Result<JSONObject> =
-        call("GET", path, null, auth = true, expectedGeneration = read.generation, snapshotRead = read)
+    internal suspend fun getTripStateForNavigation(bookingId: Int, singleAttemptTransport: Boolean = false,
+        transportSlot: java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>? = null) =
+        OfflineTripSnapshotHooks.state(bookingId, singleAttemptTransport, transportSlot)
+    internal suspend fun readTripSnapshotJson(path: String, read: SnapshotTransportRead,
+        singleAttemptTransport: Boolean = false,
+        transportSlot: java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>? = null): Result<JSONObject> =
+        call("GET", path, null, auth = true, expectedGeneration = read.generation, snapshotRead = read,
+            singleAttemptMutation = singleAttemptTransport, transportSlot = transportSlot)
 
     /** Водитель отмечает «выехал»/«подъезжаю»/«Пассажир сел» → push пассажиру. status: "departed"|"arriving"|"boarded"|"done". */
     suspend fun driverStatus(bookingId: Int, status: String): Result<Unit> =
@@ -1786,18 +1792,7 @@ object ApiClient {
 
     suspend fun sendVoiceMessage(bookingId: Int, voiceUrl: String, requestKey: String? = null): Result<MessageDto> =
         call("POST", "/bookings/$bookingId/messages", JSONObject().put("voice_url", voiceUrl), auth = true,
-            idempotencyKey = requestKey, singleAttemptMutation = true).mapCatching { parseBookingSendReceipt(it, requestKey) }
-
-    private fun parseBookingSendReceipt(body: JSONObject, key: String?): MessageDto {
-        val message = parseMessageDto(body)
-        if (body.has("hidden_for_me")) check(body.opt("hidden_for_me") == true &&
-            body.opt("id") is Number && body.optDouble("id") == message.id.toDouble() && message.id > 0 &&
-            body.opt("sender_id") is Number && body.optDouble("sender_id") == message.senderId.toDouble() &&
-            message.senderId == myUserId() && !key.isNullOrBlank() && message.requestId == key) {
-            "Unconfirmed hidden receipt"
-        }
-        return message
-    }
+            idempotencyKey = requestKey, singleAttemptMutation = true).mapCatching { parseBookingSendReceipt(it, requestKey, ::myUserId) }
 
     // Фото в чате: загрузить (multipart) → публичный URL, затем отправить как сообщение с меткой [img].
     suspend fun uploadChatPhoto(bytes: ByteArray, ext: String = "jpg"): Result<String> =
@@ -3615,6 +3610,7 @@ object ApiClient {
         idempotencyKey: String? = null,
         singleAttemptMutation: Boolean = false,
         snapshotRead: SnapshotTransportRead? = SnapshotTransportRead.denialFor(path, expectedGeneration ?: queueSessionGeneration(), auth),
+        transportSlot: java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>? = null,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3644,6 +3640,7 @@ object ApiClient {
         val backoff = if (retryOnNetwork && testTimeoutMs == null) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
+            currentCoroutineContext().ensureActive()
             if (sessionBound && !sameSession(generation)) return@withContext staleSession()
             snapshotRead?.attempt()
             var conn: HttpURLConnection? = null
@@ -3669,13 +3666,25 @@ object ApiClient {
                             addUnsafeNonAscii("Authorization", bearer)
                         }
                     }.build()
-                    val request = Request.Builder().url(BASE + path).method(method, requestBody).headers(headers).build()
-                    snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
-                    mutationResponse = oneShotTransport().newCall(request).execute()
-                    code = mutationResponse.code
-                    snapshotRead?.status(code)
-                    serverUnreachable.value = false
-                    text = mutationResponse.body?.string().orEmpty()
+                    val request = Request.Builder().url(BASE + path)
+                        .method(method, if (method.equals("GET", ignoreCase = true)) null else requestBody).headers(headers).build()
+                    val transport = oneShotTransport().newCall(request)
+                    if (transportSlot is com.yuldash.app.ParentTransportGate) transportSlot.publish(transport)
+                    else transportSlot?.set(transport)
+                    val cancellation = currentCoroutineContext()[kotlinx.coroutines.Job]?.invokeOnCompletion { cause ->
+                        if (cause is CancellationException) transport.cancel()
+                    }
+                    try {
+                        snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
+                        mutationResponse = transport.execute()
+                        code = mutationResponse.code
+                        snapshotRead?.status(code)
+                        serverUnreachable.value = false
+                        text = mutationResponse.body?.string().orEmpty()
+                    } finally {
+                        cancellation?.dispose()
+                        transportSlot?.compareAndSet(transport, null)
+                    }
                 } else {
                     conn = (URL(BASE + path).openConnection() as HttpURLConnection).apply {
                         requestMethod = method
@@ -3716,10 +3725,11 @@ object ApiClient {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                     conn?.disconnect(); conn = null
                     mutationResponse?.close(); mutationResponse = null
-                    val refreshed = tryRefresh(usedToken, generation)
+                    val refreshed = tryRefresh(usedToken, generation, transportSlot)
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
-                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead)
+                        idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
+                        transportSlot = transportSlot)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -3840,7 +3850,8 @@ object ApiClient {
 
     /** Обновить пару токенов по refresh. Mutex: при пачке 401 рефреш идёт один раз.
      *  `staleToken` — access, с которым словили 401; если он уже сменился — другой поток обновил. */
-    internal suspend fun tryRefresh(staleToken: String?, generation: Long): Result<Unit> = refreshMutex.withLock {
+    internal suspend fun tryRefresh(staleToken: String?, generation: Long,
+        transportGate: java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>? = null): Result<Unit> = refreshMutex.withLock {
         val intent = synchronized(sessionLock) {
             if (!sameSession(generation)) return@withLock staleSession()
             if (token != null && token != staleToken) return@withLock Result.success(Unit)
@@ -3859,8 +3870,10 @@ object ApiClient {
             rt to id
         }
         val (rt, rotationId) = intent
+        if (transportGate is com.yuldash.app.ParentTransportGate) transportGate.ensureOpen()
         val result = call("POST", "/auth/refresh", JSONObject().put("refresh_token", rt).put("rotation_id", rotationId),
-            auth = false, isRetry = true, expectedGeneration = generation)
+            auth = false, isRetry = true, expectedGeneration = generation,
+            singleAttemptMutation = transportGate is com.yuldash.app.ParentTransportGate, transportSlot = transportGate)
         synchronized(sessionLock) {
             if (!sameSession(generation)) return@withLock staleSession()
             result.exceptionOrNull()?.let { failure ->
@@ -7024,20 +7037,6 @@ internal fun parseAdminAdDto(a: JSONObject): AdminAdDto {
             )
 }
 
-internal fun parseMessageDto(o: JSONObject): MessageDto =
-    MessageDto(
-        id = o.optInt("id"),
-        text = o.optString("text"),
-        senderId = o.optInt("sender_id"),
-        voiceUrl = o.optNullableString("voice_url"),
-        deleted = o.optBoolean("deleted"),
-        edited = o.optBoolean("edited"),
-        flag = o.optString("flag"),
-        fromAdmin = o.optBoolean("from_admin"),
-        hiddenForMe = o.optBoolean("hidden_for_me"),
-        requestId = o.optString("request_id"),
-    )
-
 /**
  * Мой user_id из токена (поле `sub`). Кривой токен или не-число — `null`, без падения.
  *
@@ -7055,7 +7054,7 @@ internal fun parseJwtUserId(token: String): Int? = runCatching {
     JSONObject(json).optString("sub").toIntOrNull()
 }.getOrNull()
 
-private fun JSONObject.optNullableString(key: String): String? {
+internal fun JSONObject.optNullableString(key: String): String? {
     return normalizeOptionalJsonString(
         hasValue = has(key),
         isJsonNull = isNull(key),

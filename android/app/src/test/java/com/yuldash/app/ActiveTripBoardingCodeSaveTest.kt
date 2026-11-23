@@ -9,6 +9,10 @@ import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.BookingDetailsDto
 import com.yuldash.app.data.MemoryDiskPreferences
@@ -45,6 +49,10 @@ class ActiveTripBoardingCodeSaveTest {
     private val plain = MemoryDiskPreferences()
     private val secure = MemoryDiskPreferences()
     private val mounted = mutableStateOf(false)
+    private val owner = object : LifecycleOwner {
+        val registry = LifecycleRegistry(this)
+        override val lifecycle: Lifecycle get() = registry
+    }
     private val requests = CopyOnWriteArrayList<String>()
     @Volatile private var preparingPass: TripPass? = null
     private val preparationRequests = CopyOnWriteArrayList<String>()
@@ -66,7 +74,7 @@ class ActiveTripBoardingCodeSaveTest {
                         "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/boarding-code" -> """{"code":"5678"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"negotiate","from_city":"Город А","to_city":"Город Б"}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"negotiate","from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00"}"""
                         else -> return MockResponse().setResponseCode(404).setBody("{}")
                     }
                     return MockResponse().setHeader("Content-Type", "application/json").setBody(body)
@@ -78,14 +86,21 @@ class ActiveTripBoardingCodeSaveTest {
         ApiClient.testTimeoutMs = 1000
         ApiClient.testTrace = ::traceOwnedTransport
         TripPassStore.initStores(plain, secure)
-        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate"))
+        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234")
+            .put("from_city", "Город А").put("to_city", "Город Б").put("depart_at", "2031-02-03T09:00:00")
+            .put("pay_method", "negotiate"))
         preparePositive(pass)
         assertTrue(TripPassStore.save(context, pass))
         assertEquals("1234", diskCode())
     }
 
     @After fun cleanup() {
-        compose.runOnIdle { mounted.value = false }
+        compose.runOnIdle {
+            mounted.value = false
+            if (owner.registry.currentState.isAtLeast(Lifecycle.State.CREATED)) {
+                owner.registry.currentState = Lifecycle.State.DESTROYED
+            }
+        }
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         ApiClient.testTrace = null
         ApiClient.resetForTest()
@@ -152,6 +167,7 @@ class ActiveTripBoardingCodeSaveTest {
         offlineRole = true
         secure.failWriteOf = "pass_42"
         openScreen()
+        compose.runOnIdle { owner.registry.currentState = Lifecycle.State.RESUMED }
         waitForText("Код не сохранён на телефоне")
         var lastFailure: Throwable? = null
         try {
@@ -181,7 +197,7 @@ class ActiveTripBoardingCodeSaveTest {
             requests.count { it == "GET /bookings/42/details" })
     }
 
-    /** Startup may renew one superseded projection; a local disk-save retry may never fetch code. */
+    /** Startup requires exactly one code read; a local disk-save retry never fetches code. */
     private fun assertInitialCodeReadProtocol(): Int {
         val codePath = "GET /bookings/42/boarding-code"
         val detailsPath = "GET /bookings/42/details"
@@ -189,7 +205,7 @@ class ActiveTripBoardingCodeSaveTest {
         val reads = requests.filter { it in owned }
         val codes = reads.indices.filter { reads[it] == codePath }
         val details = reads.indices.filter { reads[it] == detailsPath }
-        assertTrue("Startup permits one code read and at most one projection retry", codes.size in 1..2)
+        assertEquals("Startup permits exactly one code read", 1, codes.size)
         assertTrue("Startup must not repeatedly reload participant details", details.size <= 1)
         val events = transportObservations.filter { it.endsWith(" preparation=false") }
         assertEquals("Every initial code GET must have one completed transport call", codes.size,
@@ -202,14 +218,8 @@ class ActiveTripBoardingCodeSaveTest {
             assertTrue("A refreshed startup projection requires an actual successful role read",
                 events.any { it == "success /bookings/42/role preparation=false" })
         }
-        if (codes.size == 1) {
-            assertTrue("Optional initial details must precede the only code request",
-                details.isEmpty() || details.single() < codes.single())
-        } else {
-            assertEquals("A second code requires exactly one new participant-details read", 1, details.size)
-            assertTrue("The fresh details must separate the initial and retried code reads",
-                codes.first() < details.single() && details.single() < codes.last())
-        }
+        assertTrue("Optional initial details must precede the only code request",
+            details.isEmpty() || details.single() < codes.single())
         return codes.size
     }
 
@@ -254,10 +264,11 @@ class ActiveTripBoardingCodeSaveTest {
     }
 
     private fun openScreen() {
+        owner.registry.currentState = Lifecycle.State.CREATED
         mounted.value = true
         compose.setContent {
             if (mounted.value) {
-                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru, LocalLifecycleOwner provides owner) {
                     // Empty coordinates and no Ride avoid mounting a real MapKit during this test.
                     ActiveTripScreen(ride = null, contacts = emptyList(), bookingId = 42,
                         onBack = {}, onTripEnd = {}, onSos = {})
@@ -269,8 +280,11 @@ class ActiveTripBoardingCodeSaveTest {
     private fun waitForText(text: String) {
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() ||
+                runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText(text)) }.isSuccess
         }
+        compose.onNodeWithText(text).assertIsDisplayed()
     }
 
     private fun diskCode(): String =
@@ -288,6 +302,7 @@ class ActiveTripBoardingCodeSaveTest {
             "$prefix/role" -> JSONObject().put("role", "passenger").put("status", "confirmed").put("driver_phase", "departed")
             "$prefix/details" -> pass.toJson().put("ride_id", pass.bookingId + 1000)
                 .put("role", "passenger").put("status", "confirmed").put("contact_unlocked", true)
+                .put("from_city", "Город А").put("to_city", "Город Б").put("depart_at", "2031-02-03T09:00:00")
                 .put("pay_method", pass.payMethod ?: "negotiate")
             "$prefix/boarding-code" -> JSONObject().put("code", pass.boardingCode)
             else -> return null

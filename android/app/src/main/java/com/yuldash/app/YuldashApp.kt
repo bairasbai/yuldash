@@ -2313,23 +2313,6 @@ internal fun OnboardingSafetyNote(text: String) {
     }
 }
 
-@Composable
-internal fun OnboardingDots(count: Int, selected: Int, modifier: Modifier = Modifier) {
-    Row(modifier = modifier, horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-        repeat(count) { index ->
-            val active = selected == index
-            val w by animateDpAsState(if (active) 26.dp else 8.dp, tween(CanonMotion.SLOW), label = "dotW")
-            val c by animateColorAsState(if (active) CanonGreen2 else CanonMuted.copy(alpha = 0.32f), tween(CanonMotion.SLOW), label = "dotC")
-            Box(
-                modifier = Modifier
-                    .padding(horizontal = 4.dp)
-                    .size(width = w, height = 8.dp)
-                    .background(c, RoundedCornerShape(999.dp))
-            )
-        }
-    }
-}
-
 internal fun onboardingSlides() = listOf(
     OnboardingSlide(
         eyebrowRu = "Дорога по Башкортостану",

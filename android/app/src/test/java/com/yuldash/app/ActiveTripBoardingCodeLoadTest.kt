@@ -8,6 +8,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleOwner
+import androidx.lifecycle.LifecycleRegistry
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.MemoryDiskPreferences
 import com.yuldash.app.data.Outbox
@@ -37,6 +41,11 @@ class ActiveTripBoardingCodeLoadTest {
     private val preparationRequests = CopyOnWriteArrayList<String>()
     @Volatile private var preparingRole = false
     private val server = MockWebServer()
+    private val roleLifecycle = object : LifecycleOwner {
+        val registry = LifecycleRegistry(this)
+        override val lifecycle: Lifecycle get() = registry
+    }
+    @Volatile private var holdInitialRole = false
     @Volatile private var codeStatus = 200
     @Volatile private var privateRecoveryDetails: String? = null
     @Volatile private var codeBody = """{"code":"1234"}"""
@@ -56,7 +65,7 @@ class ActiveTripBoardingCodeLoadTest {
                 val body = when (request.path) {
                     "/bookings/42/messages" -> """{"items":[]}"""
                     "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""
-                    "/bookings/42/details" -> privateRecoveryDetails ?: """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"negotiate"}"""
+                    "/bookings/42/details" -> privateRecoveryDetails ?: """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","pay_method":"negotiate"}"""
                     else -> return MockResponse().setResponseCode(404).setBody("{}")
                 }
                 return MockResponse().setBody(body)
@@ -68,7 +77,12 @@ class ActiveTripBoardingCodeLoadTest {
     }
 
     @After fun cleanup() {
-        compose.runOnIdle { mounted.value = false }
+        compose.runOnIdle {
+            mounted.value = false
+            if (roleLifecycle.registry.currentState.isAtLeast(Lifecycle.State.CREATED)) {
+                roleLifecycle.registry.currentState = Lifecycle.State.DESTROYED
+            }
+        }
         Shadows.shadowOf(Looper.getMainLooper()).idle()
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
@@ -78,6 +92,7 @@ class ActiveTripBoardingCodeLoadTest {
     }
 
     private fun mount() {
+        roleLifecycle.registry.currentState = if (holdInitialRole) Lifecycle.State.CREATED else Lifecycle.State.RESUMED
         preparingRole = true
         try { runBlocking { ApiClient.getTripState(42).getOrThrow() } }
         finally { preparingRole = false }
@@ -87,15 +102,21 @@ class ActiveTripBoardingCodeLoadTest {
         assertNull(OfflineTripSnapshots.privatePass(42))
         mounted.value = true
         compose.setContent {
-            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru,
+                LocalLifecycleOwner provides roleLifecycle) {
                 ActiveTripScreen(ride = null, contacts = emptyList(), bookingId = 42,
                     onBack = {}, onTripEnd = {}, onSos = {})
             }
         }
     }
-    private fun waitFor(text: String) = compose.waitUntil(10000) {
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    private fun waitFor(text: String) {
+        compose.waitUntil(10000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.mainClock.advanceTimeByFrame()
+            compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() ||
+                runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText(text)) }.isSuccess
+        }
+        compose.onNodeWithText(text).assertIsDisplayed()
     }
 
     private fun rejectsThenRetries(status: Int, body: String) {
@@ -247,7 +268,8 @@ class ActiveTripBoardingCodeLoadTest {
     }
 
     @Test fun freshRoleAfterBlankKeepsChatAndOffersExplicitPrivateDataRecovery() {
-        privateRecoveryDetails = """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"negotiate","driver_phone":"+70000000042","pickup":"PRIVATE_RECOVERY_POINT_42"}"""
+        holdInitialRole = true
+        privateRecoveryDetails = """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","pay_method":"negotiate","driver_phone":"+70000000042","pickup":"PRIVATE_RECOVERY_POINT_42"}"""
         codeBody = """{"code":""}"""
         mount()
         compose.waitUntil(10000) {
@@ -256,9 +278,10 @@ class ActiveTripBoardingCodeLoadTest {
                 requested.count { it == "GET /bookings/42/messages" } == 1 &&
                 OfflineTripSnapshots.projection(42) == null
         }
-        // Exact startup precondition: CODE may renew DETAILS after a newer ROLE.
-        val initialPrivateReads = listOf("GET /bookings/42/details", "GET /bookings/42/details", "GET /bookings/42/boarding-code")
-        assertEquals(initialPrivateReads, requested.filter { it in setOf("GET /bookings/42/details", "GET /bookings/42/boarding-code") })
+        // A current projection needs exactly one DETAILS and one CODE; role polling starts only afterwards.
+        val initialPrivateReads = requested.filter { it in setOf("GET /bookings/42/details", "GET /bookings/42/boarding-code") }
+        assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"), initialPrivateReads)
+        compose.runOnIdle { roleLifecycle.registry.currentState = Lifecycle.State.RESUMED }
         val owner = requireNotNull(OfflineTripSnapshots.currentOwner())
         val generation = ApiClient.queueSessionGeneration()
         assertNull(OfflineTripSnapshots.privatePass(42))
@@ -288,7 +311,7 @@ class ActiveTripBoardingCodeLoadTest {
         compose.onAllNodesWithText("+70000000042", substring = true).assertCountEquals(0)
         compose.onAllNodesWithText("PRIVATE_RECOVERY_POINT_42", substring = true).assertCountEquals(0)
         assertNull(OfflineTripSnapshots.privatePass(42))
-        assertEquals(2, requested.count { it == "GET /bookings/42/details" })
+        assertEquals(initialPrivateReads.count { it == "GET /bookings/42/details" }, requested.count { it == "GET /bookings/42/details" })
         assertEquals(1, requested.count { it == "GET /bookings/42/boarding-code" })
         assertEquals(1, requested.count { it == "GET /bookings/42/messages" })
         val beforeRetry = requested.size
@@ -306,7 +329,7 @@ class ActiveTripBoardingCodeLoadTest {
         assertEquals("PRIVATE_RECOVERY_POINT_42", restored.pickup)
         assertEquals(owner, OfflineTripSnapshots.currentOwner())
         assertTrue(ApiClient.isCurrentSession(generation))
-        assertEquals(3, requested.count { it == "GET /bookings/42/details" })
+        assertEquals(initialPrivateReads.count { it == "GET /bookings/42/details" } + 1, requested.count { it == "GET /bookings/42/details" })
         assertEquals(2, requested.count { it == "GET /bookings/42/boarding-code" })
         assertEquals(1, requested.count { it == "GET /bookings/42/messages" })
         assertFalse(requested.any { it.startsWith("POST ") })

@@ -79,7 +79,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
                     val body = when (request.path) {
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/role" -> """{"role":"passenger","status":"$tripStatus","driver_phase":"departed"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"price":700,"pay_method":"cash","pay_amount":400}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","price":700,"pay_method":"cash","pay_amount":400}"""
                         "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","amount":400}"""
                         else -> "{}"
                     }
@@ -129,6 +129,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     // Каждый шаг ожидания — idle главного Looper + доставка снимков (testing.md, правило 5).
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(15000) {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
+        compose.mainClock.advanceTimeByFrame()
         Snapshot.sendApplyNotifications()
         condition()
     }
@@ -159,7 +160,12 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         val ba = language == AppLanguage.Ba
         val error = if (ba) "Кодты йөкләп булманы" else "Не удалось загрузить код"
         // Код посадки — отдельный запрос, не детали брони: его отказ доходит до экрана в своё время (CI PR207).
-        waitFor { compose.onAllNodesWithText(error).fetchSemanticsNodes().isNotEmpty() }
+        try {
+            waitFor { compose.onAllNodesWithText(error).fetchSemanticsNodes().isNotEmpty() }
+        } catch (failure: ComposeTimeoutException) {
+            val found = runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText(error)) }.isSuccess
+            if (!found) throw failure
+        }
         compose.onNodeWithText(error).performScrollTo().assertIsDisplayed()
         val retry = if (ba) "Кодты яңынан йөкләргә" else "Повторить загрузку кода"
         if (rapid) compose.onNodeWithText(retry).performTouchInput { click(); advanceEventTime(50); click() }
@@ -182,9 +188,13 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         val sibling = disk(99)
         release.countDown()
         waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
-        // Диск и экран — разные события: ждём и сам код на экране, а не только запись на диск.
-        waitFor { compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty() }
-        compose.onNodeWithText("5678").performScrollTo().assertIsDisplayed()
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.mainClock.advanceTimeByFrame()
+            Snapshot.sendApplyNotifications()
+            runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText("5678")) }.isSuccess
+        }
+        compose.onNodeWithText("5678").assertIsDisplayed()
         val saved = JSONObject(requireNotNull(disk()))
         assertEquals("cash", saved.getString("pay_method"))
         assertEquals(400, saved.getInt("pay_amount"))

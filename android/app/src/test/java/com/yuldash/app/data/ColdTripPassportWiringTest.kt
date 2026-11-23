@@ -2,6 +2,7 @@ package com.yuldash.app.data
 
 import android.app.Application
 import kotlinx.coroutines.async
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -300,6 +301,23 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
     }
 
+    @Test fun updateColdBoardingCodePublishesItsResult() = runBlocking {
+        OfflineTripSnapshots.init(context)
+        ApiClient.getBookingDetails(11).getOrThrow()
+        ApiClient.getBoardingCode(11).getOrThrow()
+        requireNotNull(OfflineTripSnapshots.privatePass(11))
+        passSecure.failWriteOf = "pass_11"
+        val previousVersion = OfflineTripSnapshots.version.value
+        try {
+            assertEquals(SnapshotPersistence.DURABLY_BLOCKED,
+                OfflineTripSnapshots.updateColdBoardingCode(context, 11, "4821"))
+            assertEquals(SnapshotPersistence.DURABLY_BLOCKED, OfflineTripSnapshots.persistence.value)
+            assertTrue(OfflineTripSnapshots.version.value > previousVersion)
+        } finally {
+            passSecure.failWriteOf = null
+        }
+    }
+
     @Test fun newDetailsBlankPrivatePostAndRemovalRevokeDurably() = runBlocking {
         saveCold()
         ApiClient.getBookingDetails(11).getOrThrow()
@@ -371,4 +389,22 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         assertEquals(TripPassStore.RemovalResult.CLEARED,
             TripPassStore.requestRemoval(context, 11, expectedGeneration = ApiClient.queueSessionGeneration()))
     }
+
+    @Test fun deferredRemovalKeepsAccessClosedAndFinishesWithoutNetwork() = runBlocking {
+        saveCold()
+        val calls = requests.size
+        passSecure.failRemovalOf = "pass_11"
+        assertEquals(TripPassStore.RemovalResult.DEFERRED,
+            TripPassStore.requestRemoval(context, 11, expectedGeneration = ApiClient.queueSessionGeneration()))
+        assertTrue(passSecure.restarted().contains("pass_11"))
+        assertEquals(calls, requests.size)
+        passSecure.failRemovalOf = null
+        assertEquals(TripPassStore.RemovalResult.CLEARED,
+            TripPassStore.requestRemoval(context, 11, expectedGeneration = ApiClient.queueSessionGeneration()))
+        TripPassStore.initStores(passPlain.restarted(), passSecure.restarted())
+        reopenCold()
+        assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+        assertEquals(calls, requests.size)
+    }
+
 }

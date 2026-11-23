@@ -2543,32 +2543,6 @@ internal fun isFrostyWinterNight(now: java.util.Calendar = java.util.Calendar.ge
     return winter && night
 }
 
-/** Спокойный баннер морозной ночи: напомнить взять тепло и проверить заряд. Тон — заботливый, не тревожный. */
-@Composable
-internal fun FrostyNightBanner(modifier: Modifier = Modifier) {
-    Card(
-        modifier = modifier,
-        colors = CardDefaults.cardColors(containerColor = CanonMint),
-        shape = CanonItemShape,
-        elevation = CardDefaults.cardElevation(defaultElevation = CanonDepth.flat),
-    ) {
-        Row(Modifier.padding(12.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(Icons.Default.AcUnit, contentDescription = appText("Морозная ночь", "Һыуыҡ төн"), tint = CanonGreen2, modifier = Modifier.size(26.dp))
-            Spacer(Modifier.width(12.dp))
-            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Text(appText("Морозная ночь", "Һыуыҡ төн"), fontWeight = FontWeight.Bold, color = CanonGreen2)
-                Text(
-                    appText(
-                        "Возьми тёплые вещи и проверь заряд телефона перед дорогой. Поделись поездкой со своими.",
-                        "Йылы кейем ал һәм юлға сыҡҡанға тиклем телефон зарядын тикшер. Сәфәреңде үҙеңдекеләр менән уртаҡлаш.",
-                    ),
-                    color = CanonGreen2, fontSize = 14.sp, lineHeight = 20.sp,
-                )
-            }
-        }
-    }
-}
-
 /** F12 «Застрял на трассе»: заметная, но спокойная (амбер), отдельный уровень от красной паники SOS.
  *  Состояния: обычная / отправка / отправлено. Двуязычие внутри. */
 @Composable

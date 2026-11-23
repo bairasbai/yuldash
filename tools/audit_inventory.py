@@ -75,7 +75,6 @@ def category(path):
 def block(path, kind):
     name = Path(path).name.lower()
     if name == "trippass.kt":
-        # This mixed file also owns Outbox; storage changes can affect B05 chat.
         return "B01"
     if path.startswith(("web/", "promo/")):
         return "B11"

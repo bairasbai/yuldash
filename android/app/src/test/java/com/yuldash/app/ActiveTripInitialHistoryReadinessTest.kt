@@ -220,11 +220,21 @@ class ActiveTripInitialHistoryReadinessTest {
     }
     private fun waitFor(condition: () -> Boolean) = compose.waitUntil(10_000) {
         Shadows.shadowOf(Looper.getMainLooper()).idle()
+        compose.mainClock.advanceTimeByFrame()
         Snapshot.sendApplyNotifications()
         condition()
     }
-    private fun textExists(value: String) = compose.onAllNodesWithText(value).fetchSemanticsNodes().isNotEmpty().also {
-        if (value == "Не удалось загрузить данные поездки") dataErrorLastObserved09 = it
+    private fun textExists(value: String): Boolean {
+        val exists = runCatching {
+            compose.onNodeWithText(value).assertIsDisplayed()
+            true
+        }.getOrDefault(false) || runCatching {
+            compose.onNode(hasScrollAction()).performScrollToNode(hasText(value))
+            compose.onNodeWithText(value).assertIsDisplayed()
+            true
+        }.getOrDefault(false)
+        if (value == "Не удалось загрузить данные поездки") dataErrorLastObserved09 = exists
+        return exists
     }
     private fun pump(millis: Long) {
         repeat((millis / 100).toInt()) {

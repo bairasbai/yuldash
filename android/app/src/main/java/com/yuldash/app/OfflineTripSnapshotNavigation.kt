@@ -5,12 +5,40 @@ import com.yuldash.app.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.isActive
 
-internal fun YuldashViewModel.openOfflineTrip(saved: OfflineTripSnapshot, revision: Long, cold: ColdTripPassport? = null) {
+internal class ParentTransportGate : java.util.concurrent.atomic.AtomicReference<okhttp3.Call?>() {
+    @Synchronized fun close() {
+        if (closed) return
+        closed = true
+        get()?.cancel()
+        set(null)
+    }
+
+    @Synchronized fun publish(call: okhttp3.Call) {
+        if (closed || get() != null) {
+            call.cancel()
+            throw kotlinx.coroutines.CancellationException()
+        }
+        set(call)
+    }
+
+    @Synchronized fun ensureOpen() {
+        if (closed) throw kotlinx.coroutines.CancellationException()
+    }
+
+    @Synchronized fun beginColdRestore(owner: SnapshotOwner, bookingId: Int): SnapshotColdRestoreTicket? {
+        if (closed) return null
+        return OfflineTripSnapshots.gate.beginColdRestore(owner, bookingId)
+    }
+
+    private var closed = false
+}
+
+internal fun YuldashViewModel.openOfflineTrip(saved: OfflineTripSnapshot, revision: Long) {
     if (privateNavigationRevision != revision || !OfflineTripSnapshots.current(saved.owner)) return
     selectedRide.value = bookingLinkStubRide(saved.bookingId)
     activeBookingId.value = saved.bookingId
     activeTrip.value = null; activeDriverBookingId.value = null
-    offlineTripSnapshot.value = OfflineTripSnapshotMode(saved, revision, cold)
+    offlineTripSnapshot.value = OfflineTripSnapshotMode(saved, revision)
     screen.value = Screen.ActiveTrip
 }
 
@@ -45,7 +73,7 @@ internal suspend fun restoreBookingSnapshotNavigation(
             if (requested.contentScreen() == Screen.ActiveTrip && target == Screen.Booking && state.role == "passenger" &&
                 bookingStatusAllowsActiveTrip(state.status)) vm.screen.value = requested
             onRestored(state); restored = true
-        } else read.saved?.let { saved -> vm.openOfflineTrip(saved, revision, read.cold); restored = true }
+        } else read.saved?.let { saved -> vm.openOfflineTrip(saved, revision); restored = true }
     }
     return restored
 }
@@ -69,20 +97,26 @@ internal suspend fun restoreBookingSnapshotNavigation(
     var loading by remember(owner, booking, revision) { mutableStateOf(true) }
     var failure by remember(owner, booking, revision) { mutableStateOf<Throwable?>(null) }
     var unavailable by remember(owner, booking, revision) { mutableStateOf(false) }
+    var hideGeneration by remember(owner, booking, session, ride, revision) { mutableIntStateOf(0) }
+    val transportSlot = remember(owner, booking, session, ride, revision) { ParentTransportGate() }
     fun currentIdentity(): Boolean = scope.isActive && !pending && vm.pendingBookingNavigation.value == null &&
         vm.pendingScreenNavigation.value == null && vm.pendingPublicRideNavigation.value == null &&
         vm.activeBookingId.value == booking && vm.selectedRide.value == ride && vm.privateNavigationRevision == revision &&
         ApiClient.isCurrentSession(session) && OfflineTripSnapshots.currentOwner() == owner
     fun currentLive() = currentIdentity() && vm.screen.value.contentScreen() == Screen.ActiveTrip
+    fun currentHideGeneration() = hideGeneration
+    fun currentRead(generation: Int) = currentLive() && currentHideGeneration() == generation
     fun currentReceipt(id: Int) = id > 0 && id == booking && currentIdentity() &&
         (vm.screen.value.contentScreen() == Screen.ActiveTrip ||
             (vm.screen.value == Screen.TripReceipt && currentReceiptBookingId() in listOf(0, id)))
-    LaunchedEffect(owner, booking, ride, revision, pending, retry) {
+    LaunchedEffect(owner, booking, ride, revision, pending, retry, currentHideGeneration()) {
         val id = booking ?: return@LaunchedEffect
         if (!currentLive()) return@LaunchedEffect
+        val hideGeneration = currentHideGeneration()
+        if (hideGeneration != 0) return@LaunchedEffect
         loading = true; failure = null; unavailable = false
-        val read = readBookingNavigation(id)
-        if (!currentLive()) return@LaunchedEffect
+        val read = readBookingNavigation(id, singleAttemptTransport = true, transportSlot = transportSlot)
+        if (!currentRead(hideGeneration)) return@LaunchedEffect
         val state = read.live.getOrNull()
         val error = read.live.exceptionOrNull()
         if (state?.status in setOf("done", "cancelled")) confirmedTerminalContext = true
@@ -92,8 +126,9 @@ internal suspend fun restoreBookingSnapshotNavigation(
         if (read.saved != null) {
             vm.openOfflineTrip(read.saved, revision); unavailable = true
         } else if (error == null || error is java.io.IOException || (error is ApiException && error.status in 500..599)) {
-            val details = ApiClient.getBookingDetails(id)
-            if (!currentLive()) return@LaunchedEffect
+            if (!currentRead(hideGeneration)) return@LaunchedEffect
+            val details = ApiClient.getBookingDetails(id, singleAttemptTransport = true, transportSlot = transportSlot)
+            if (!currentRead(hideGeneration)) return@LaunchedEffect
             failure = details.exceptionOrNull() ?: error
             if (details.getOrNull()?.status in setOf("done", "cancelled")) confirmedTerminalContext = true
         } else failure = error
@@ -118,7 +153,12 @@ internal suspend fun restoreBookingSnapshotNavigation(
     if (mode != null && mode.snapshot.bookingId == booking) {
         OfflineActiveTripSnapshot(mode, { currentLive() && vm.offlineTripSnapshot.value === mode && mode.revision == revision },
             onRetry = { if (currentLive()) { OfflineTripSnapshots.dismissFallback(mode.snapshot.bookingId); vm.offlineTripSnapshot.value = null; retry++ } },
-            onBack = { if (currentLive()) vm.navigateLocally(onBack) })
+            onBack = { if (currentLive()) vm.navigateLocally(onBack) },
+            onHideStart = {
+                transportSlot.close()
+                hideGeneration += 1
+            },
+            coldRestoreAdmission = { transportSlot.beginColdRestore(mode.snapshot.owner, mode.snapshot.bookingId) })
         return
     }
     val observedTerminal = booking?.let(OfflineTripSnapshots::terminal)

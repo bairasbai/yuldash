@@ -8,6 +8,11 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.hasScrollAction
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performClick
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
@@ -98,7 +103,7 @@ class BoardingCodeVisibilityTest {
             .put("boarding_undo_confirmed_id", if (corrected) confirmedUndoId else JSONObject.NULL)
             .put("boarding_undo_onboard_at", if (corrected) onboardEpoch else JSONObject.NULL)
             .apply { if (details) put("booking_id", 42).put("ride_id", 17).put("from_city", "Город А").put("to_city", "Город Б")
-                .put("contact_unlocked", current in setOf("confirmed", "onboard")) }
+                .put("depart_at", "2031-02-03T09:00:00").put("contact_unlocked", current in setOf("confirmed", "onboard")) }
             .toString()
     }
 
@@ -221,11 +226,14 @@ class BoardingCodeVisibilityTest {
 
     /** Код пришёл с сервера и нарисован на экране (карточка «Код посадки» с цифрами). */
     private fun waitForCodeLoaded() {
+        waitUntilRequested("GET /bookings/42/boarding-code")
+        waitUntilRequested("GET /bookings/42/details")
         compose.waitUntil(15000) {
             Shadows.shadowOf(Looper.getMainLooper()).idle()
-            compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty()
+            compose.mainClock.advanceTimeByFrame()
+            runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText("5678")) }.isSuccess
         }
-        waitUntilRequested("GET /bookings/42/details")
+        compose.onNodeWithText("5678").assertIsDisplayed()
     }
 
     /** Опрос состояния поездки ходит раз в ~12 с — прокручиваем время, а не ждём по-настоящему. */

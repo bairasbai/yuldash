@@ -343,6 +343,10 @@ class BookingOfflinePaymentJourneyTest {
             vm.offlineTripSnapshot.value != null &&
             compose.onAllNodesWithText(banner).fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText(banner).assertIsDisplayed()
+        compose.waitUntil(15000) {
+            settle()
+            runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText("Город А → Город Б")) }.isSuccess
+        }
         compose.onNodeWithText("Город А → Город Б").assertIsDisplayed()
         assertNull(vm.activeTrip.value)
         assertNotNull(OfflineTripSnapshots.warmFallback(42))

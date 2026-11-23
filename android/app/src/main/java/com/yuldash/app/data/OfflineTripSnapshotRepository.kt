@@ -280,7 +280,8 @@ internal class OfflineTripSnapshotRepository(
             val blocked = disk.setBarrier(barrier, proof(next))
             if (!valid(ticket) || !authority.canObserve(permit, ticket, bookingId, state, rideId, route)) return@withLock SnapshotPersistence.STALE
             records.put(bookingId.toString(), encode(next)); doc.put("version", Math.addExact(doc.getLong("version"), 1))
-            if (!disk.write(owner.namespace, doc.toString())) {
+            val payloadSaved = disk.write(owner.namespace, doc.toString())
+            if (!payloadSaved) {
                 if (!blocked) quarantined += owner.namespace
                 changed()
                 return@withLock if (!coldBarrierSaved) SnapshotPersistence.NOT_DURABLE
@@ -415,16 +416,20 @@ internal class OfflineTripSnapshotRepository(
     }
 
     suspend fun revokeCold(request: SnapshotColdRevocation): SnapshotPersistence {
-        if (!authority.coldCurrent(request)) return SnapshotPersistence.STALE
+        if (!authority.current(request.ticket)) return SnapshotPersistence.STALE
         return writer.withLock {
-            if (!authority.coldCurrent(request)) return@withLock SnapshotPersistence.STALE
             val owner = request.ticket.owner
             val bookingId = request.bookingId
-            val blocked = runCatching {
-                disk.setBarrier(owner.barrier("cold-booking", bookingId), "blocked")
-            }.getOrDefault(false)
+            val coldBarrier = owner.barrier("cold-booking", bookingId)
+            val admitted = authority.coldCurrent(request)
+            val alreadyBlocked = runCatching { disk.barrier(coldBarrier) }.getOrNull() == "blocked"
+            val doc = runCatching { root(owner) }.getOrNull()
+            val terminalClosed = doc?.let { closed(it, "closed_bookings", bookingId) } == true
+            val authorized = (admitted || alreadyBlocked || terminalClosed) && authority.current(request.ticket)
+            if (!authorized) return@withLock SnapshotPersistence.STALE
+            val blocked = runCatching { disk.setBarrier(coldBarrier, "blocked") }.getOrDefault(false)
             val saved = runCatching {
-                val doc = root(owner)
+                if (doc == null) return@runCatching false
                 val records = doc.getJSONObject("records")
                 val old = records.optJSONObject(bookingId.toString())?.let { decodeRecord(owner, it) }
                 if (old?.grant == null) true else {
@@ -435,7 +440,7 @@ internal class OfflineTripSnapshotRepository(
             }.getOrDefault(false)
             if (!blocked && !saved) quarantined += owner.namespace
             changed()
-            if (!authority.coldCurrent(request)) SnapshotPersistence.STALE
+            if (!authority.current(request.ticket)) SnapshotPersistence.STALE
             else if (!blocked) SnapshotPersistence.NOT_DURABLE
             else if (saved) SnapshotPersistence.COMMITTED
             else SnapshotPersistence.DURABLY_BLOCKED

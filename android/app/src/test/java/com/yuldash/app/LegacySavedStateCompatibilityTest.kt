@@ -417,7 +417,10 @@ class LegacySavedStateCompatibilityTest {
                 " terminal="+(OfflineTripSnapshots.terminal(42)!=null),failure)
         }
         assertTrue(records.any {it.second=="/bookings/42/role"})
-        compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция"))
+        compose.waitUntil(12000) {
+            Snapshot.sendApplyNotifications();compose.mainClock.advanceTimeBy(100);Shadows.shadowOf(Looper.getMainLooper()).idle()
+            runCatching { compose.onNodeWithTag("rideshareCompletedList").performScrollToNode(hasText("Квитанция")) }.isSuccess
+        }
         compose.onNodeWithText("Квитанция").assertIsDisplayed().assertIsEnabled()
         receiptClick=compose.onNodeWithText("Квитанция").fetchSemanticsNode().config[SemanticsActions.OnClick].action!!
         val checkCallback = {

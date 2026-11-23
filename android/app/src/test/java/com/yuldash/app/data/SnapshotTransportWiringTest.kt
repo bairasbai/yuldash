@@ -361,9 +361,13 @@ internal open class SnapshotWiringFixture {
     }
     protected fun armFault(kind: String) {
         val namespace = owner().namespace
+        val bookingBarrier = owner().barrier("booking", 11)
         metaFault.reject = { changes -> changes[SNAPSHOT_BARRIERS_KEY]?.let { value ->
-            if (kind == "clear") JSONObject(value).length() == 0
-            else kind in setOf("barrier", "both") && value.contains("closed")
+            if (kind == "clear" && changes["__previous_barriers"]?.let { JSONObject(it).has(bookingBarrier) } == true &&
+                !JSONObject(value).has(bookingBarrier)) {
+                metaFault.armed = false
+                true
+            } else kind in setOf("barrier", "both") && value.contains("closed")
         } == true }
         secureFault.reject = { changes -> kind in setOf("payload", "both") && changes[namespace]?.let {
             JSONObject(it).getJSONArray("closed_bookings").length() > 0
@@ -384,6 +388,9 @@ internal class SnapshotWiringCommitFault {
                     changes[requireNotNull(key)] = value; editor.putString(key, value); return this
                 }
                 override fun commit(): Boolean {
+                    if (SNAPSHOT_BARRIERS_KEY in changes) {
+                        changes["__previous_barriers"] = base.getString(SNAPSHOT_BARRIERS_KEY, null)
+                    }
                     if (armed && reject(changes)) { rejected++; return false }
                     return editor.commit()
                 }
