@@ -70,7 +70,10 @@ def label(value):
 
 
 def find(predicate, description, scroll=False):
+    earlier = scroll == "earlier"
+    previous_view = None
     def probe():
+        nonlocal earlier, previous_view
         nodes = tree()
         for node in nodes:
             if predicate(node) and len(bounds(node)) == 4:
@@ -82,7 +85,12 @@ def find(predicate, description, scroll=False):
                 left, top, right, bottom = max(candidates, key=lambda b: b[3] - b[1])
                 x = (left + right) // 2
                 pad = (bottom - top) // 6
-                shell("input", "swipe", x, bottom - pad, x, top + pad, 350)
+                visible = tuple((n.get("text"), n.get("bounds")) for n in nodes if n.get("text"))
+                if previous_view == visible:
+                    earlier = not earlier
+                previous_view = visible
+                start, end = (top + pad, bottom - pad) if earlier else (bottom - pad, top + pad)
+                shell("input", "swipe", x, start, x, end, 350)
         return None
     return until(probe, description)[0]
 
@@ -130,9 +138,48 @@ def identity(action, session_path):
     assert "result=107" in result, "Fixture authentication operation did not complete"
 
 
+def pickup_row(node):
+    return node.get("text") in {"Моя позиция", "Минең урын", "Включи геолокацию", "Геолокацияны ҡабыҙ"}
+
+
+def open_stop_picker(next_title):
+    # Some Android 11 accessibility snapshots omit an icon-only merged child. The entire
+    # insert row is clickable and sits halfway from pickup to the next route row (see OrderInsertStopRow).
+    def open_visible_control():
+        nodes = tree()
+        button = next((n for n in nodes if label("Заехать по пути")(n)), None)
+        if button is not None:
+            touch(button)
+            return True
+        pickup = next((n for n in nodes if pickup_row(n)), None)
+        following = next((n for n in nodes if label(next_title)(n)), None)
+        if pickup is None or following is None:
+            return False
+        left, top, right, bottom = bounds(pickup)
+        _, next_top, _, next_bottom = bounds(following)
+        if next_top <= bottom:
+            return False
+        shell("input", "tap", (left + right) // 2, (top + bottom + next_top + next_bottom) // 4)
+        return True
+    until(open_visible_control, "visible insert control between pickup and next stop")
+
+
+def open_order_details():
+    nodes = tree()
+    button = next((n for n in nodes if label("Детали заказа")(n)), None)
+    if button is not None:
+        touch(button)
+        return
+    # The real sheet also accepts an upward swipe on its always-visible route header.
+    pickup = find(pickup_row, "draggable pickup header")
+    left, top, right, bottom = bounds(pickup)
+    x, y = (left + right) // 2, (top + bottom) // 2
+    shell("input", "swipe", x, y, x, max(0, y - 200), 350)
+
+
 def add_stops():
     for query, title in (("QA%salpha", A), ("QA%sbravo", B)):
-        click("Заехать по пути")
+        open_stop_picker("QA Destination" if title == A else A)
         touch(find(lambda n: n.get("class") == "android.widget.EditText", "stop search editor"))
         shell("input", "text", query)
         click(title)
@@ -141,7 +188,7 @@ def add_stops():
 def choose_return_wait():
     # The visible title and switch are separate accessibility nodes in SettingSwitchRow.
     # Select the switch to the right of this title, in the same row, before scrolling on.
-    find(label("Обратно тоже"), "round trip settings", scroll=True)
+    find(label("Обратно тоже"), "round trip settings", scroll="earlier")
     nodes = tree()
     header = next(n for n in nodes if label("Обратно тоже")(n))
     left, top, right, bottom = bounds(header)
@@ -160,13 +207,15 @@ def choose_route(scheduled=True):
     click("QA Destination", scroll=True)
     add_stops()
     if scheduled:
-        click("Детали заказа")
-        choose_return_wait()
+        open_order_details()
         click("На время", scroll=True)
         for _ in range(2):
             button = find(lambda n: n.get("resource-id") == "android:id/button1", "native picker OK")
             touch(button)
             time.sleep(0.4)
+        # The limited NOW pilot requires explicit consent before fetching a fare. Scheduling
+        # first loads intercity terms through the normal estimate and unlocks the return switch.
+        choose_return_wait()
 
 
 def ordered_route():
@@ -255,8 +304,9 @@ def submitted_revision_persisted():
 
 def run(scenario, session, state, results):
     assert shell("getprop", "ro.kernel.qemu") == "1"
-    shell("wm", "size", "880x2400")
-    shell("wm", "density", "320")
+    # Keep input/accessibility coordinates aligned with the actual AVD framebuffer.
+    shell("wm", "size", "reset")
+    shell("wm", "density", "200")
     shell("settings", "put", "system", "accelerometer_rotation", 0)
     shell("settings", "put", "system", "user_rotation", 0)
     user = json.loads(session.read_text())
@@ -278,7 +328,7 @@ def run(scenario, session, state, results):
         assert submit_label() == expected_cta
         nodes = tree()
         assert any(label("QA Destination")(n) for n in nodes)
-        assert any(label("Детали заказа")(n) for n in nodes)
+        assert any(n.get("text") == "Изменить" for n in nodes)
         assert not any(n.get("text") in (A, B) or label("Убрать остановку")(n) for n in nodes)
         no_writes(state, 0)
         screenshot(results, "baseline-lost-stops")
@@ -385,10 +435,28 @@ def run(scenario, session, state, results):
     }, indent=2))
 
 
+def save_visible_controls(folder, scenario):
+    # Retain geometry and known fixture labels only; arbitrary editable text stays on-device.
+    known = set(BASHKIR) | set(BASHKIR.values()) | {
+        A, B, "QA Destination", "QA Origin", "QA Alternate Place", "Изменить", "Үҙгәртеү",
+        "Куда едем?", "Ҡайҙа барабыҙ?", "Куда заехать?", "Ҡайҙа инеп сығырға?",
+    }
+    rows = []
+    for node in tree():
+        labels = [node.get(k) for k in ("text", "content-desc") if node.get(k) in known]
+        if labels or any(node.get(k) == "true" for k in ("clickable", "scrollable", "checkable")):
+            rows.append({"labels": labels, "class": node.get("class"), "bounds": bounds(node),
+                         "clickable": node.get("clickable"), "scrollable": node.get("scrollable")})
+    (folder / f"draft-{scenario}-controls.json").write_text(json.dumps({
+        "display": shell("wm", "size"), "density": shell("wm", "density"), "visible": rows[:160],
+    }, ensure_ascii=False, indent=2))
+
+
 if __name__ == "__main__":
     scenario, session, state, folder = sys.argv[1:]
     try:
         run(scenario, Path(session), Path(state), Path(folder))
     except Exception:
         screenshot(Path(folder), "draft-" + scenario + "-failure")
+        save_visible_controls(Path(folder), scenario)
         raise
