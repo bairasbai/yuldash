@@ -2632,8 +2632,34 @@ def _notify_pickup_fee(session: Session, order: InstantOrder, before_kop: int) -
     )
 
 
+# An offer plus the terms the server observed when this accept request began.
+# These are persisted scalars, not a mutable ORM reference or a client token.
+_ACCEPT_OFFER_FIELDS = (
+    "id", "status", "passenger_id", "driver_id", "accepted_at",
+    "current_offer_driver_id", "offered_at", "offer_expires_at",
+    "searching_at", "search_round", "reassigns",
+    "from_lat", "from_lng", "from_text", "to_lat", "to_lng", "to_text",
+    "waypoints_json", "destination_changed_at", "destination_changes",
+    "round_trip", "return_wait_min", "distance_km", "eta_min",
+    "category", "fallback_categories", "options", "tariff_id",
+    "price_estimate", "ride_price", "ride_base_price", "pickup_pending",
+    "pickup_km", "pickup_enroute", "pickup_fee_kop", "options_fee_kop",
+    "weather_fee_kop", "weather_kind",
+)
+_ACCEPT_OFFER_COLUMNS = tuple(getattr(InstantOrder, name) for name in _ACCEPT_OFFER_FIELDS)
+
+
+def capture_offer_for_accept(order: InstantOrder) -> tuple:
+    return tuple(getattr(order, name) for name in _ACCEPT_OFFER_FIELDS)
+
+
+def _accept_offer_changed():
+    return herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде", code="taxi_offer_changed")
+
+
 def transition(session: Session, order_id: int, actor: Actor, target: S,
-               user_id: int, idempotent: bool = True) -> InstantOrder:
+               user_id: int, idempotent: bool = True, *,
+               expected_offer: tuple | None = None) -> InstantOrder:
     """Один переход состояния заказа. Гонки безопасны на любой БД:
     — row-lock (`with_for_update`, паттерн из bookings.py) для Postgres в проде;
     — атомарный условный UPDATE `WHERE status = <ожидаемый>` — корректно и на SQLite
@@ -2641,11 +2667,18 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
 
     accept НЕ идемпотентен (idempotent=False): два одновременных accept → второму 409.
     Остальные переходы идемпотентны (двойной тап не ломает)."""
-    order = session.exec(
-        select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
-    ).first()
+    statement = select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
+    if target == S.accepted:
+        # The router has already loaded this Order; lock acquisition does not
+        # itself refresh an ORM identity already present in the session.
+        statement = statement.execution_options(populate_existing=True)
+    order = session.exec(statement).first()
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
+
+    if target == S.accepted and expected_offer is not None:
+        if capture_offer_for_accept(order) != expected_offer:
+            raise _accept_offer_changed()
 
     # Двойной тап (не гонка accept): уже в целевом статусе — вернуть как есть.
     if idempotent and order.status == target:
@@ -2656,6 +2689,9 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     if ALLOWED.get((source, actor)) != target:
         raise herr(409, "Этот шаг сейчас недоступен", "Был аҙым хәҙер мөмкин түгел")
     _guard_actor(order, actor, user_id, target)
+    if target == S.accepted and expected_offer is None:
+        # Internal callers without a router read are fenced from this read.
+        expected_offer = capture_offer_for_accept(order)
 
     now = utcnow()
     values = {"status": target, f"{target.value}_at": now}
@@ -2682,12 +2718,17 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
             # Сурж уже в price_estimate (зафиксирован при создании); ожидание — целыми ₽ сверху.
             values["price_final"] = order.price_estimate + ожидание_коп // 100
 
-    # Атомарно: сдвигаем статус ТОЛЬКО если он всё ещё source. Иначе гонку проиграли.
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order_id, InstantOrder.status == source)
-        .values(**values)
-    )
+    # Status alone cannot distinguish two offers, especially on SQLite where
+    # SELECT FOR UPDATE does not take a row lock. Reject before any commit or
+    # dispatch cleanup when a later write superseded the captured offer.
+    write = update(InstantOrder).where(InstantOrder.id == order_id, InstantOrder.status == source)
+    if target == S.accepted:
+        write = write.where(*(
+            column == old for column, old in zip(_ACCEPT_OFFER_COLUMNS, expected_offer, strict=True)
+        )).execution_options(synchronize_session=False)
+    result = session.execute(write.values(**values))
+    if target == S.accepted and result.rowcount != 1:
+        raise _accept_offer_changed()
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
