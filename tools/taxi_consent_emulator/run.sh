@@ -185,6 +185,7 @@ if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
         state="$private/$case_name-state.json"
         fixture_case=draft
         if [[ $scenario == delayed ]]; then fixture_case=draft-delayed; fi
+        if [[ $scenario == restore-ba-light ]]; then fixture_case=draft-now-witness; fi
         python tools/taxi_consent_emulator/fixture.py --case "$fixture_case" --session-file "$session" --state-file "$state" \
             >"$private/$case_name-server.log" 2>&1 &
         fixture_pid=$!

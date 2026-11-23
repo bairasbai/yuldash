@@ -15,6 +15,7 @@ COMPONENT = PKG + "/.MainActivity"
 DIR = "files/taxi-consent-qa"
 ADB = ["adb"]
 A, B = "QA Stop A", "QA Stop B"
+SCHEDULED_DESTINATION, NOW_DESTINATION = "QA Destination", "QA Now Destination"
 RESTORE_APPEARANCE = {
     "restore": ("Ru", False),
     "restore-ba": ("Ba", True),
@@ -23,7 +24,8 @@ RESTORE_APPEARANCE = {
 }
 BASHKIR = {
     "Заехать по пути": "Юлда инеп сығыу", "Детали заказа": "Заказ деталдәре",
-    "Куда заехать?": "Ҡайҙа инеп сығырға?",
+    "Куда заехать?": "Ҡайҙа инеп сығырға?", "Рассчитать цену": "Хаҡты иҫәпләү",
+    "Изменить": "Үҙгәртеү",
     "На время": "Ваҡытҡа", "Обратно тоже": "Кире лә", "2 ч": "2 сәғ",
     "Моя позиция": "Минең урын", "Новый заказ": "Яңы заказ", "Убрать остановку": "Туҡталышты алыу",
 }
@@ -31,7 +33,7 @@ BASHKIR = {
 
 OBSERVER = "com.yuldash.qa.taxidraft/.WindowObserver"
 KNOWN_UI = set(BASHKIR) | set(BASHKIR.values()) | {
-    A, B, "QA Destination", "QA Origin", "QA Alternate Place", "Изменить", "Үҙгәртеү",
+    A, B, SCHEDULED_DESTINATION, NOW_DESTINATION, "QA Origin", "QA Alternate Place", "Изменить", "Үҙгәртеү",
     "Куда едем?", "Ҡайҙа барабыҙ?", "Куда заехать?", "Ҡайҙа инеп сығырға?",
     "Включи геолокацию", "Геолокацияны ҡабыҙ", "Профиль", "Быстрый заказ", "Тиҙ заказ",
     "Рассчитать цену", "Хаҡты иҫәпләү", "Сейчас", "Хәҙер",
@@ -286,9 +288,9 @@ def open_order_details():
     shell("input", "swipe", x, y, x, max(0, y - 200), 350)
 
 
-def add_stops():
+def add_stops(destination=SCHEDULED_DESTINATION):
     for query, title in (("QA%salpha", A), ("QA%sbravo", B)):
-        touch(open_stop_picker("QA Destination" if title == A else A))
+        touch(open_stop_picker(destination if title == A else A))
         shell("input", "text", query)
         click(title)
 
@@ -311,9 +313,9 @@ def choose_return_wait():
     click("2 ч", scroll=True)
 
 
-def choose_route(scheduled=True):
-    click("QA Destination", scroll=True)
-    add_stops()
+def choose_route(scheduled=True, destination=SCHEDULED_DESTINATION):
+    click(destination, scroll=True)
+    add_stops(destination)
     if scheduled:
         open_order_details()
         click("На время", scroll=True)
@@ -326,11 +328,11 @@ def choose_route(scheduled=True):
         choose_return_wait()
 
 
-def ordered_route():
+def ordered_route(destination=SCHEDULED_DESTINATION):
     def probe():
         nodes = tree()
         texts = [(n.get("text"), bounds(n)) for n in nodes]
-        rows = [next((b for text, b in texts if text == name), None) for name in (A, B, "QA Destination")]
+        rows = [next((b for text, b in texts if text == name), None) for name in (A, B, destination)]
         if all(rows) and rows[0][1] < rows[1][1] < rows[2][1]:
             return True
         return False
@@ -350,6 +352,59 @@ def clean_form(place):
     assert nodes and not any(n.get("text") in (A, B) or label("Убрать остановку")(n)
                              for n in nodes), "Previous stops on new form"
     assert any(n.get("class") == "android.widget.EditText" for n in nodes), "Destination is still selected"
+
+
+def selected_destination(nodes, name):
+    """A selected route row also has the exact localized edit control beside it."""
+    for node in nodes:
+        place = visible_rectangle(node)
+        if not place or node.get("text") != name or node.get("class") != "android.widget.TextView":
+            continue
+        for edit in nodes:
+            nearby = visible_rectangle(edit)
+            if (nearby and label("Изменить")(edit) and edit.get("clickable") == "true"
+                    and place[2] <= nearby[0] and place[1] < nearby[3] and nearby[1] < place[3]):
+                return True
+    return False
+
+
+def protected_now_witness():
+    nodes = tree()
+    if last_observation != "focused-compose" or not nodes:
+        return None
+    return {
+        "scheduled_destination_selected": selected_destination(nodes, SCHEDULED_DESTINATION),
+        "now_destination_selected": selected_destination(nodes, NOW_DESTINATION),
+        "protected_now_cta": any(label("Рассчитать цену")(node) for node in nodes),
+        "editor": any(node.get("class") == "android.widget.EditText" for node in nodes),
+        "stops": any(node.get("text") in (A, B) for node in nodes),
+    }
+
+
+def fresh_resumed_record(record):
+    return (record is not None and record[2] == 0
+            and re.search(r"\b(?:mState|state)=RESUMED\b", record[3])
+            and re.search(r"\b(?:mHaveState|haveState)=false\s+(?:mIcicle|icicle)=null\b", record[3]))
+
+
+def witness_park():
+    # API 30 ActivityRecord clears mIcicle when the app finishes resuming.
+    # Require that explicit empty record, not merely a missing parsed size.
+    current = pid()
+    assert current, "No live process before the RESUMED witness"
+
+    def fresh_from_same_process():
+        assert pid() == current, "Live process changed before the RESUMED snapshot"
+        record = task_record()
+        assert pid() == current, "Live process changed during the RESUMED snapshot"
+        return record if fresh_resumed_record(record) else None
+
+    record = until(fresh_from_same_process, "resumed Activity with explicitly empty saved Bundle")
+    parked = park_task()
+    assert parked[:3] == (current, record[0], record[1]) and parked[3] > 0, (
+        "Home did not save a fresh Bundle for the same live Activity record"
+    )
+    return parked
 
 
 def rotation_query(stage, *args, check=True):
@@ -528,6 +583,7 @@ def run(scenario, session, state, results):
         assert pid() == seeded_pid and submit_label() == expected_cta
         no_writes(state, 0)
         route_luminance["rotated"] = check_route_theme(results, scenario + "-rotated")
+    witness = scenario == "restore-ba-light"
     parked = None
     if scenario == "delayed":
         assert not submitted_revision_persisted()
@@ -577,14 +633,63 @@ def run(scenario, session, state, results):
         screenshot(results, scenario + "-submitted")
         click("Новый заказ")
         clean_form("QA Destination")
-        # Protected NOW: the same selections may live on screen but must not return after death.
-        choose_route(scheduled=False)
-        ordered_route()
-        privacy_pid, token, privacy_task, _ = kill_background()
-        start()
-        clean_form("QA Destination")
-        assert pid() != privacy_pid and task_record()[:2] == (token, privacy_task)
-        no_writes(state, 1)
+        if witness:
+            # The two distinct addresses identify the earlier scheduled field vs the new NOW field
+            # after a fresh stop. Never tap the NOW price or confirmation button.
+            choose_route(scheduled=False, destination=NOW_DESTINATION)
+            ordered_route(NOW_DESTINATION)
+            expected_now = {
+                "scheduled_destination_selected": False, "now_destination_selected": True,
+                "protected_now_cta": True, "editor": False, "stops": True,
+            }
+            def ready():
+                sample = protected_now_witness()
+                return sample if sample == expected_now else None
+            before_now = until(ready, "distinct selected NOW destination and protected price CTA before Home")
+            no_writes(state, 1)
+            proof_path = results / "restore-ba-light-protected-now.json"
+            proof = {"before_home": before_now}
+            def save_proof():
+                proof_path.write_text(json.dumps(proof, indent=2))
+            save_proof()
+            parked = witness_park()
+            proof["before_home_saved_bundle_bytes"] = 0
+            proof["stopped"] = {"pid": parked[0], "task_id": parked[2], "saved_bundle_bytes": parked[3]}
+            save_proof()
+            privacy_pid, token, privacy_task, _ = kill_background(parked)
+            start()
+            cold_pid = pid()
+            cold = until(task_record, "cold task record for protected NOW")
+            assert cold_pid and cold_pid != privacy_pid and cold[:2] == (token, privacy_task)
+            proof["cold"] = {"pid": cold_pid, "task_id": privacy_task, "frames": []}
+            save_proof()
+            # Sample the first focused frame, then two bounded follow-up frames. Do not
+            # discard a selected address and wait for a later passing observation.
+            for sample in range(3):
+                if sample:
+                    time.sleep(0.25)
+                frame = until(protected_now_witness, "focused protected NOW frame")
+                assert pid() == cold_pid, "Cold observation replaced the new process"
+                proof["cold"]["frames"].append(frame)
+                save_proof()
+            no_writes(state, 1)
+            assert not any(frame["scheduled_destination_selected"] for frame in proof["cold"]["frames"]), (
+                "Earlier scheduled destination was selected after cold NOW resume"
+            )
+            assert not any(frame["now_destination_selected"] for frame in proof["cold"]["frames"]), (
+                "Distinct NOW destination was selected after cold resume"
+            )
+            clean_form(SCHEDULED_DESTINATION)
+            clean_form(NOW_DESTINATION)
+        else:
+            # Protected NOW: the same selections may live on screen but must not return after death.
+            choose_route(scheduled=False)
+            ordered_route()
+            privacy_pid, token, privacy_task, _ = kill_background()
+            start()
+            clean_form(SCHEDULED_DESTINATION)
+            assert pid() != privacy_pid and task_record()[:2] == (token, privacy_task)
+            no_writes(state, 1)
     elif scenario == "delayed":
         # Android just returned the pre-acknowledgement Bundle. Opening taxi again must not
         # rehydrate those stops or the expired submission capability.
