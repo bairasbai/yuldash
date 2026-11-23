@@ -1,0 +1,78 @@
+name: Android taxi TF11 focused emulator
+
+on:
+  pull_request:
+    branches: [feat/friday-taxi-tf11-rating-20261123]
+    paths:
+      - '.github/workflows/android-taxi-rating-emulator.yml'
+      - 'tools/taxi_rating_emulator/**'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: taxi-tf11-emulator-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  tf11-compose:
+    # One intentionally pinned target. Changing the subject requires a reviewed QA edit.
+    if: >-
+      github.event.pull_request.base.sha == 'd51b36d789ac8939c78d83da2d96afa2fa221533' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      TF11_SUBJECT: d51b36d789ac8939c78d83da2d96afa2fa221533
+      YULDASH_NATIVE_QA_PINNED_API: 'true'
+      YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:8000
+    steps:
+      - name: Initialize synthetic-evidence envelope
+        run: printf '%s\n' '{"status":"not_completed","expected":10}' > "$RUNNER_TEMP/taxi-tf11-summary.json"
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
+          path: qa
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: d51b36d789ac8939c78d83da2d96afa2fa221533
+          persist-credentials: false
+          path: subject
+      - name: Assert subject SHA and run result-parser controls
+        run: |
+          actual_subject=$(git -C subject rev-parse HEAD)
+          test "$actual_subject" = "$TF11_SUBJECT"
+          PYTHONDONTWRITEBYTECODE=1 python3 -m unittest discover -s qa/tools/taxi_rating_emulator -p 'test_*.py'
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: gradle
+          cache-dependency-path: 'subject/android/**/*.gradle*'
+      - uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407 # v3
+        with:
+          packages: platform-tools platforms;android-36
+      - name: Build only the pinned debug and test APKs
+        working-directory: subject/android
+        run: bash gradlew --no-daemon :app:assembleDebug :app:assembleDebugAndroidTest
+      - name: Allow runner access to KVM
+        run: sudo chmod a+rw /dev/kvm
+      - name: Run ten synthetic Compose tests on Android 11
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          emulator-build: 16740729
+          profile: pixel_2
+          api-level: 30
+          target: default
+          arch: x86_64
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash qa/tools/taxi_rating_emulator/run.sh
+      - name: Upload only synthetic result metadata
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: android-taxi-tf11-summary
+          path: ${{ runner.temp }}/taxi-tf11-summary.json
+          if-no-files-found: error
+          retention-days: 7
