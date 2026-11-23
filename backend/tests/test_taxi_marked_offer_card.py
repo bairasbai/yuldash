@@ -55,6 +55,8 @@ def test_real_retire_claim_store_yields_only_private_driver_observation(request,
     args = _args(data)
     assert retire_offered_waypoints(db, **args) is OfferedRetirement.COMMITTED
     assert _bind(data) is None  # searching is not a card
+    assert resume.claim(db, resume.observe(db, oid), lease_seconds=25) is None
+    _mutate(db, oid, **{resume._SEAL: None})  # exercise only legacy unsealed lab
     claim = resume.claim(db, resume.observe(db, oid), lease_seconds=25)
     assert resume.store_offer(db, claim, driver_id=successor, offer_seconds=20)
     before = _row(db, oid)
