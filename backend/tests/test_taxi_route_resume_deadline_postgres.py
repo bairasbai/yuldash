@@ -152,7 +152,7 @@ def test_autocommit_configuration_refused_before_postgres_row_lock(guarded_postg
     options = {"isolation_level": "AUTOCOMMIT"} if source == "engine" else {}
     bad = create_engine(engine.url, hide_parameters=True, **options)
     if source == "driver":
-        def set_driver_mode(raw, record):
+        def set_driver_mode(raw, _record, _proxy):
             raw.autocommit = True
         event.listen(bad, "checkout", set_driver_mode)
     seen = []
