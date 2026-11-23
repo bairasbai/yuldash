@@ -19,6 +19,7 @@ import { LoadingList } from "../components/States";
 import { SubHeader } from "./ConsentsScreen";
 import { IconCar, IconChevron, IconReceipt } from "../components/Icons";
 import { kopExactLabel } from "../utils/format";
+import { isTaxiRouteResumeTimeout } from "../utils/taxiRouteResumeTimeout";
 import { serverDate } from "../utils/serverTime";
 
 type Status = "loading" | "error" | "soon" | "ready";
@@ -64,7 +65,11 @@ export default function MyTaxiTripsScreen() {
     return () => ac.abort();
   }, [load]);
 
-  function statusLabel(s: string): string {
+  function statusLabel(order: InstantOrder): string {
+    const s = order.status;
+    if (isTaxiRouteResumeTimeout(order)) return appText(
+      "Не нашли водителя после изменения маршрута", "Маршрут үҙгәргәндән һуң йөрөтөүсе табылманы"
+    );
     if (s === "done") return appText("Поездка завершена", "Сәфәр тамамланды");
     if (s === "cancelled") return appText("Отменена", "Кире алынған");
     if (s === "expired") return appText("Машину не нашли", "Машина табылманы");
@@ -140,7 +145,7 @@ export default function MyTaxiTripsScreen() {
                       <span className="money-row__net">{kopExactLabel(payKop)}</span>
                     )}
                   </div>
-                  <div className="money-row__date">{statusLabel(o.status)}</div>
+                  <div className="money-row__date">{statusLabel(o)}</div>
 
                   <div className="info-list" style={{ marginTop: 10 }}>
                     {o.from_text && (

@@ -164,6 +164,7 @@ const ALL_SUITES = [
   { test: "payment-draft-sync-test", src: null, out: null, bundle: false },
   // Отмена пассажиром освобождает экран водителя и не затирает следующий заказ.
   { test: "driver-cancelled-order-test", src: null, out: null, bundle: false },
+  { test: "taxi-route-resume-timeout-test", src: null, out: null, bundle: false },
   // Медленный accept не сопровождается противоречивым decline от таймера.
   { test: "driver-offer-accept-race-test", src: null, out: null, bundle: false },
   // Чат поездки — отдельная страница: непрочитанные, «лента внизу», клавиатура (логика)…

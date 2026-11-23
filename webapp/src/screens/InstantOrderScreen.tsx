@@ -64,6 +64,7 @@ import YandexMap, { type GeoPoint } from "../components/YandexMap";
 import { IconCar, IconStar, IconPhone, IconChat, IconHome, IconWork, IconPin, IconClock, IconBolt, IconChevron, IconClose, IconProfile, IconShield, IconWallet } from "../components/Icons";
 import { YuMoon, YuWomenOnly } from "../components/BrandIcons";
 import { priceLabel, kopExactLabel } from "../utils/format";
+import { isTaxiRouteResumeTimeout } from "../utils/taxiRouteResumeTimeout";
 import { serverMs } from "../utils/serverTime";
 import { minDateTimeNow, maxDateTimeInDays } from "../utils/dateInput";
 import { setActiveTaxiOrder, setTaxiOrderOnScreen } from "../navSignals";
@@ -1644,7 +1645,14 @@ function TrackingView({
   // --- Отменён: InstantFinalCard (красный круг, честный текст про плату/страйки, «Новый заказ») ---
   if (s === "cancelled") {
     const fee = order.cancel_fee_kop ?? 0;
-    const subtitle = order.no_show
+    const resumeTimeout = isTaxiRouteResumeTimeout(order);
+    const timeoutTitle = resumeTimeout ? appText("Не нашли водителя", "Йөрөтөүсе табылманы") : null;
+    const subtitle = resumeTimeout
+      ? appText(
+          "После изменения маршрута не нашли водителя. Если поездка ещё нужна, оформи новый заказ.",
+          "Маршрут үҙгәргәндән һуң йөрөтөүсе табылманы. Сәфәр әле лә кәрәк булһа, яңы заказ бир."
+        )
+      : order.no_show
       ? appText(
           `Водитель ждал ${order.wait_free_min}+ минут, но не дождался. Подача — ${kopExactLabel(fee)}, переведи водителю. Частые такие отмены ставят такси на паузу.`,
           `Йөрөтөүсе ${order.wait_free_min}+ минут көттө, тик көтөп еткермәне. Килеү хаҡы — ${kopExactLabel(fee)}, йөрөтөүсегә күсер. Йыш улай булһа — такси паузаға китә.`
@@ -1659,15 +1667,15 @@ function TrackingView({
           : appText("Ты отменил заказ — бесплатно.", "Һин заказды кире алдың — бушлай.");
     return (
       <>
-        <SubHeader title={appText("Заказ отменён", "Заказ кире алынды")} onBack={() => navigate(-1)} />
+        <SubHeader title={timeoutTitle ?? appText("Заказ отменён", "Заказ кире алынды")} onBack={() => navigate(-1)} />
         <div className="ifinal ifinal--bad">
           <span className="ifinal__icon appear" style={{ "--i": 0 } as React.CSSProperties} aria-hidden><IconClose size={40} /></span>
           <h2 className="appear" style={{ "--i": 1 } as React.CSSProperties}>
-            {order.no_show ? appText("Поездка не состоялась", "Сәфәр булманы") : appText("Заказ отменён", "Заказ ҡабул ителмәне")}
+            {timeoutTitle ?? (order.no_show ? appText("Поездка не состоялась", "Сәфәр булманы") : appText("Заказ отменён", "Заказ ҡабул ителмәне"))}
           </h2>
           <p className="appear" style={{ "--i": 3 } as React.CSSProperties}>{subtitle}</p>
           {/* Телефон/чат уже открывались → мягко напоминаем завершать поездку в приложении. */}
-          {order.contact_then_cancel && (
+          {!resumeTimeout && order.contact_then_cancel && (
             <p className="ifinal__soft appear" style={{ "--i": 4 } as React.CSSProperties}>
               {appText(
                 "Договорились ехать? Заверши поездку в приложении — так работает защита и SOS 💚",
