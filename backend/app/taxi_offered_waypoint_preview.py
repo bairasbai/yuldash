@@ -40,6 +40,7 @@ class OfferedWaypointPreview:
     """Internal only. No client token, receipt, authorization or edit."""
     _source: tuple
     _waypoints_json: str
+    _price_estimate: int
     terms: QuotedTerms
     ride_base_price: int
     promo_discount_kop: int
@@ -170,7 +171,7 @@ def preview_offered_waypoints(
         terms = QuotedTerms(p.ride_price * 100, quote["old_price"] * 100,
                             promo_ride.payable_kop(p), promo_ride.payable_kop(order))
         return OfferedWaypointPreview(
-            captured, isv.dump_waypoints(points), terms, p.ride_base_price, p.promo_discount_kop,
+            captured, isv.dump_waypoints(points), p.price_estimate, terms, p.ride_base_price, p.promo_discount_kop,
             _sql_metric(quote.get("distance_km")), _sql_metric(quote.get("eta_min")), observed_at, valid_until,
         )
     except (HTTPException, TypeError, ValueError, OverflowError):
