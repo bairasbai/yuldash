@@ -791,8 +791,8 @@ function ComposeView({
         </div>
       )}
 
-      {/* Сурж */}
-      {to && estimate?.surge_note && (
+      {/* Сурж из предварительной оценки не относится к подтверждаемой цене. */}
+      {!protectedNow && to && estimate?.surge_note && (
         <div className="taxi-surge">
           <IconBolt size={14} /> {ru ? estimate.surge_note.ru : estimate.surge_note.ba}
         </div>
@@ -825,9 +825,8 @@ function ComposeView({
         </div>
       )}
 
-      {/* Из чего сложилась цена. Человек не спорит с суммой, которую понимает:
-          одно число без объяснения читается как «сколько захотели». */}
-      {to && estimate && <PriceFactors factors={estimate.price_factors} />}
+      {/* Факторы /estimate не описывают отдельный защищённый расчёт /quotes/v1. */}
+      {!protectedNow && to && estimate && <PriceFactors factors={estimate.price_factors} />}
 
       {protectedNow && consentQuote && <TaxiConsentSummary quote={consentQuote} />}
 
