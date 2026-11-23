@@ -35,8 +35,8 @@ def local_label(text):
     return BASHKIR.get(text, text) if sys.argv[1] == "restore-ba" else text
 
 
-def adb(*args, check=True):
-    return subprocess.run([*ADB, *map(str, args)], capture_output=True, check=check, timeout=45).stdout
+def adb(*args, check=True, timeout=45):
+    return subprocess.run([*ADB, *map(str, args)], capture_output=True, check=check, timeout=timeout).stdout
 
 
 def shell(*args):
@@ -69,8 +69,11 @@ def tree(native=False):
     focus = adb("shell", "dumpsys window | grep -m 1 mCurrentFocus=", check=False).decode()
     last_observation = "app-not-foreground"
     if live and PKG in focus:
-        reply = shell("am", "broadcast", "-n", PKG + "/.TaxiDraftFixtureReceiver",
-                      "--es", "fixture", "read-controls", "--es", "labels", OBSERVER_LABELS)
+        try:
+            reply = adb("shell", "am", "broadcast", "-n", PKG + "/.TaxiDraftFixtureReceiver",
+                        "--es", "fixture", "read-controls", timeout=6).decode()
+        except subprocess.TimeoutExpired as expired:
+            raise AssertionError("Foreground app did not service the read-only UI probe") from expired
         assert pid() == live, "Window probe replaced the live app process"
         if "result=107" in reply:
             data = adb("exec-out", "run-as", PKG, "cat", DIR + "/controls.json")
@@ -334,8 +337,23 @@ def submitted_revision_persisted():
     return result.returncode == 0
 
 
+def check_motion_policy(scenario, results):
+    # Test the unmodified route-loss control with normal animation timings. The candidate must
+    # handle reduced motion and remain responsive when it opens the real consent footer.
+    value = "1" if scenario == "baseline" else "0"
+    scales = {}
+    for name in ("animator_duration_scale", "window_animation_scale", "transition_animation_scale"):
+        shell("settings", "put", "global", name, value)
+        actual = shell("settings", "get", "global", name)
+        assert float(actual) == float(value), "Unexpected system animation policy"
+        scales[name] = actual
+    (results / (scenario + "-system-animation.json")).write_text(json.dumps(scales, indent=2))
+
+
 def run(scenario, session, state, results):
     assert shell("getprop", "ro.kernel.qemu") == "1"
+    assert pid() is None, "Motion policy must be set before cold login"
+    check_motion_policy(scenario, results)
     # Keep input/accessibility coordinates aligned with the actual AVD framebuffer.
     shell("wm", "size", "reset")
     shell("wm", "density", "reset")
@@ -481,11 +499,66 @@ def save_visible_controls(folder, scenario):
     }, ensure_ascii=False, indent=2))
 
 
+def stack_snapshot(folder, scenario, package):
+    """Only named Java stack methods, wait relationships and process metadata may leave the AVD."""
+    def shell(command):
+        try:
+            return subprocess.run(["adb", "shell", command], capture_output=True, timeout=10).stdout.decode().strip()
+        except (OSError, subprocess.TimeoutExpired):
+            return ""
+
+    identifier = shell("pidof " + package)
+    live = re.fullmatch(r"[0-9]+", identifier) is not None
+    prefix = "/data/anr/"
+    # An ANR trace may already capture the failure earlier than our subsequent SIGQUIT.
+    if live:
+        shell("run-as " + package + " kill -3 " + identifier)
+        time.sleep(2)
+    files = shell("ls -t /data/anr/").splitlines()
+    traces = []
+    for name in files[:8]:
+        if not re.fullmatch(r"(?:anr_[A-Za-z0-9_.-]+|traces\.txt)", name):
+            continue
+        # Filter in the emulator before exporting anything: never capture logcat, raw stacks,
+        # Intent extras, URLs, free-form thread names or the contents of app preferences.
+        cmd = ("sed -n '/^Cmd line: com\\.yuldash\\.app$/,/^----- end/p' " + prefix + name
+               + " | sed -nE 's/^\x22main\x22 .*tid=([0-9]+).*/T main \\1/p; "
+                 "s/^\x22[^\x22]+\x22 .*tid=([0-9]+).*/T thread \\1/p; "
+                 "s/^[ ]+at ([A-Za-z0-9_.$<>/-]+)\\(.*/F \\1/p; "
+                 "s/.*held by thread ([0-9]+).*/L \\1/p'")
+        stack = {}
+        active = main = None
+        for line in shell(cmd).splitlines():
+            if line.startswith("T "):
+                _, kind, number = line.split()
+                active = stack.setdefault(number, {"frames": [], "lock_owners": []})
+                if kind == "main":
+                    main = number
+            elif active is not None and line.startswith("F ") and len(active["frames"]) < 44:
+                active["frames"].append(line[2:])
+            elif active is not None and line.startswith("L "):
+                active["lock_owners"].append(line[2:])
+        if main is not None:
+            keep = {main, *stack[main]["lock_owners"]}
+            traces.append({"trace": name, "main_tid": main, "threads": {k: stack[k] for k in keep if k in stack}})
+        if len(traces) >= 3:
+            break
+    (Path(folder) / ("draft-" + scenario + "-main-thread.json")).write_text(json.dumps({
+        "pid": int(identifier) if live else None, "traces": traces,
+        "anr_window": "Application Not Responding" in shell("dumpsys window | grep -m 1 mCurrentFocus="),
+        "probe_write_epoch": shell("run-as " + package + " stat -c %Y files/taxi-consent-qa/controls.json"),
+    }, indent=2))
+
+
 if __name__ == "__main__":
     scenario, session, state, folder = sys.argv[1:]
     try:
         run(scenario, Path(session), Path(state), Path(folder))
     except Exception:
+        stack_snapshot(folder, scenario, PKG)
         screenshot(Path(folder), "draft-" + scenario + "-failure")
-        save_visible_controls(Path(folder), scenario)
+        try:
+            save_visible_controls(Path(folder), scenario)
+        except (AssertionError, subprocess.SubprocessError):
+            pass  # Keep the original cause and the earlier thread state.
         raise

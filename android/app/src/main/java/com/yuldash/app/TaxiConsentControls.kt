@@ -47,6 +47,7 @@ import com.yuldash.app.data.TaxiConsentRoute
 import com.yuldash.app.data.TaxiConsentState
 import com.yuldash.app.data.TaxiConsentTime
 import com.yuldash.app.data.TaxiQuoteConsentApi
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -145,6 +146,14 @@ internal fun TaxiConsentRecoveryEntry(
     }
 }
 
+/** Quote expiry follows elapsed time even when the user disables interface animations. */
+internal suspend fun pollTaxiConsentClock(checkTime: () -> Unit) {
+    while (currentCoroutineContext().isActive) {
+        checkTime()
+        delay(1_000L)
+    }
+}
+
 @Composable
 internal fun TaxiConsentControls(
     controller: TaxiConsentController?,
@@ -172,9 +181,7 @@ internal fun TaxiConsentControls(
     LaunchedEffect(controller, order) {
         if (order != null) controller.deliverOrder(isCurrentScreen = { currentScreen() }, publish = { publish(it) })
     }
-    RepeatWhileVisible(controller) {
-        while (isActive) { controller.checkTime(); delay(CanonMotion.TICK.toLong()) }
-    }
+    RepeatWhileVisible(controller) { pollTaxiConsentClock(controller::checkTime) }
     if (order != null) return
 
     val busy = state.loading || state.sending || state.recovering
