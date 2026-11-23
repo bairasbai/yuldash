@@ -1,12 +1,512 @@
 # Единый реестр проверки Юлдаш
 
+**31.10: диагностические исходники и параметры серии138 приняты отдельно; реальные поездки ещё не запускались.**
+Свежий принимающий148 проверил восемь исходников; источник —
+`diagnostics/integration12-continuation-retry138/source-review141.json` (1f0a162d…).
+Отдельно приняты фактические параметры Gate142 (abe0eee9…) и Batch143
+(0756d52b…). Root закрепил Batch471ba8b5… и объявленные ограничения времени
+b0cbdf50…: это ещё не подтверждение выполнения или восстановления.
+Автор127 переносит эти точные ссылки в помощники Y138/Root; независимый144
+ждёт окончательных исходников. Пробный запуск без участников, вход и все
+десять новых прогонов 01–05 пока не выполнены. Башкирский и физические
+телефоны остаются открытыми пунктами 06/07.
+
+**31.10: продолжение138 принято как план; служебный код обновляется.**
+Currentplan08b3cb59… принят139b70f87e1… вместеsavedCIMclosure52d08…
+(24known/6unknown/pool0; oldnativewaitUNPROVEN/authfalse). Rootprereg3096dc4f…
+созданДО14minimalcopies494281B;4schemas23917B reuse, wholeprojectне копировался.
+Автор127 пишетonlynew138, fresh140 ждётfreeze; old125/117/83/App/QA unchanged.
+ДоactorRPC обязательныsource/config approval, noactorslifecycleprobe и отдельная
+независимаяactualNativeCompleteInventory/framesприёмка. НовыйMain/auth ещё0.
+
+
+**31.10, auth125 FAILED; новые поездки ещё не запускались.**
+Actualreadiness5f8ec435… PASS0/394unused; Rootlauncher136b4aa… запущен01:33:11UTC.
+Helper26848 проверилD1id1/P1id3: обеexisting-session,0login, original03prefs/local,
+actualassets иnetwork_errors0;16seenended0. Ноauthresult79366eda… остаётся
+auth_ready=false/phase_closed=false: own-observer-finish AUTH_FINAL_BOUNDARY_FAILED.
+Observerbody0stop-file/0pool записан, ноprocess148a… осталсяrunning; исходный
+wait/finalwrite внешнегоwrapper не доказан, причинаUNKNOWN (stderrотброшен).
+Gateend15060 timeout, launcher24040exit1; Mainintent/все10businessdirs ABSENT.
+Rootclosure52d08f07… подтвердил24knownCIM+6unknownbirthwrappers currentabsence,
+5profilepool0; это неNativewaitpromotion/неисправлениестарыхfalse.
+Автор127 готовиттольконовыйplan138 observableforegoundlifecycle/minimalnew
+namespace; до fresh139/source/config никакихActorRPC. Core10остаётсяRoot.
+
+
+**31.10: исправленные помощники приняты133; запуска поездок ещё нет.**
+Source13181870a06… отклонил3P1: nativeJSONL какодинJSON, старыеactivebudget
+контрольныесуммы и2разных finished_at одного nativewait. PhaseC306cc9a3…
+исправилточноэтистыки, сохранивстрогиепроверки; Rootдоизмененийсохранил6raw
+минимальныхфайлов. Fresh133e596062c… прочитал8sources/6schemas и принял
+толькоисходники после12независимыхпроверок. Actualconfigcandidate0f6ebb45…
+(payloade0529d0f…) прошёлschema/pins132, ноописаниезапускаошибочносодержало
+старыеимена113/107. Rejected13261004dfb… immutable; новыйbinding134c2bfd28f…
+с именами125 проверяетсяfresh134, payload/sourceunchanged. Доactual134seal
+auth-ready/prepare/business/D2 не запускались; BA/07 остаютсяоткрыты.
+
+**31.10: новый запуск125 ещё не начат; исправляются помощники проверки входа.**
+План6ca51779… принят126fde9cfbc… только как план; созданы16 минимальных
+source/schema копий439569B. Fresh1280f4012b2… не принял первый X4:
+команда auth-ready попадала в observer-ready; отдельный HTTP500 мог пройти
+в существующей сессии при пустом console. Root сохранил исходные3 rawфайла
+и reader129 перед narrowfix (registration397e490d…,4копии226352B); guard
+не меняется. Fresh130 проверит исправления, затем нужны actualGate/Batch и
+combinedsource/config. Business/D2/P2X1 по-прежнему0; BA/07 открыты.
+
+**31.10: retry117 завершился FAILED при первом входе D1/P1; бизнес0.**
+Prepare468c1a2e…/continuation2931980c…: первые D1/P1 получили HTTP401
+GET/me и POST/me/update; console401 не прошёл guard. Отдельный safe wire
+6dc32e0b… содержит4 таких ответа и9health200: primary label health был устаревшим
+global stage, это не доказательство сетевого отказа. Причина самого401 неизвестна.
+Последний rollback успешно проверил D1/P1/native/device; первые ошибки и
+whole_baseline=false, MAIN_FINALLY_UNPROVEN/pending/UNKNOWN остаются сохранены.
+Rootcurrent572cb539…:32seenCIM+прочиеcaptured=53 завершены;3birth-unknown wrapper
+PID отсутствуют, pool0. Fresh124020f722a… принял закрытие и точный видимый
+original03 scope, без server-language readback и без prepare/product PASS.
+Read-only SQL386ac0bd… после124 подтвердил: у synthetic1/3/4 язык сервераru
+совпадает с original03 UI-target; query_only1/changes0/DB+WALhash unchanged.
+Исторический server-language вoriginal03 не сохранялся, его «восстановление»
+не утверждается. Plan125 готовит отдельный auth-ready prerequisite со строгим
+guard и фактическим target-readback до следующего immutable intent; source/RPC
+пока не меняются. BAhuman/07 по-прежнему открыты.
+
+**31.10, первая попытка83 остановилась до UI: папка receipts отсутствовала.**
+Accepted99 (8f917acc…) и sealedcfg e77716d4… были проверены metadata CLI0.
+Runtime watch20252/caller4516 получил ENOENT на первом ACK; case=null,
+prepare/helper/business/D2 запусков0. Restore observer28408 закрыт своим stop,
+все восемь захваченных экземпляров отсутствуют; Root assessment9df5b05c…
+подтверждает current pool0 и observer.seen=[] без новой приёмки baseline.
+MAIN_FINALLY_UNPROVEN/restore_pending/context_unknown сохранены как FAILED.
+Повтор — только новые X/Yretry117, без удаления старых доказательств; план
+37df004a…/precopy registrationa4293d2c… приняты frozen117739611d2…; созданы16
+минимальных файлов. SourceX4 принят119305aec57…, actualGate —79e73fdc…,
+RootsealedGate154d48d6…/Batch6888dc42… приняты119. FinalY/Root7 принят122
+c5f518ff…, actualconfig123 d8bb0418…; Rootsealedcfg2b938747… metadata inventory0.
+До нового intent Root создал ordinary NEWreceipts и выполнил readonly readiness:
+f2bb2c71… PASS/163unused. Actualretry117 запущен23:35:39UTC watch21392:
+fresh-preflight/prepare-ready PASS, prepare9016/observer31412 выполняются.
+01–05 ещё не приняты; BAhuman/телефоны07 остаются открытыми.
+
+**31.10: исходники D2 приняты; actual01–05 ещё не запущены.**
+Ранее принятые source83/86, Gate96 и Batch98 сохраняются; стенд10 после
+прерывания работает с теми же подтверждёнными процессами. Исправление97
+проверено целевыми oldRED/newGREEN, budget101 — на actualBatch без выдуманных
+deadline fields. Final95 rev04 (handoffc19ec210…) принят100 (3ab33d48…)
+только как исходники и схемы; runtime/product/config99 этим не приняты.
+Принятый план104 (4cdfda38… / b7e217c4…) закрывает ещё два стыка:
+честное разделение старых CIM-журналов и новых nativeD2 данных; запрет отпускать
+основной процесс к RPC, пока исход закрытия D2 неизвестен. Final4 заморожены;
+Rootfactory11127d6c97a… принят114 (73248d9a…), Rootexchange113e382aa3e…
+заморожен с проверками30/30 и строгой схемой. Actual config99 candidate909a8407…
+(payload0dbf1c23…) передан fresh99 вместе с исходниками113 и фактическими связями.
+Actual Rootconfig/producers99, prepare и бизнес-проверки
+ещё обязательны; BAhuman/телефоны07 и старые FAILED/UNKNOWN остаются открытыми.
+
+**30.10, 20:32 МСК: параметры01–05 приняты; actual запуск заблокирован D2 P1.**
+Source83 принят86, его Gate payload —96, отдельно bound Batch —98.
+Final Gate0f8928b2…/Batchf96ca036… сохранены; actual prepare/business не выполнены.
+В D2 source-review97 (76d16223…) обнаружен P1 первого чтения checkpoint:
+после actual D2 event отказ чтения не закрывает stdin и обходит main finally.
+Автор95 исправляет только эту ветку с целевым тестом; независимая100 и actual
+Rootconfig99 ещё обязательны до UI. Результаты стенда10 приняты94 только как
+сохранённые service/system/asset proofs; ни профиль, ни продукт этим не приняты.
+Отложенные BAhuman/физические телефоны07 и старые FAILED/UNKNOWN неизменны.
+
+**30.10, продолжение после перерыва: 01–05 ещё не запущены на текущем коде.**
+Принятая ранее original03 PWA-приёмка82 сохраняется. Начатый помощник83
+продолжает автор90; условный план D2 revision03 принят свежим93
+(4d7f6092… / ac8836ba…), исходники D2 пишет95. До фактической потребности
+дополнительный профиль не создаётся; runtime/source/config приёмки ещё нужны.
+Прежний стенд09 сейчас завершён, причина неизвестна; новый разрешённый
+стенд10 поднят с отдельными PID/журналом. Его сохранённые actual proofs
+`stand10-actual-fixed-bindings-root02.json` (59359d48…) проверяет свежий94;
+это пока не приёмка профилей, prepare или бизнеса. Новые точные bindings83
+и wire extractor10 также проверяются до следующего UI. Продукт/QA/HEAD прежние.
+Полное закрытие06 ждёт отложенного подтверждения башкирских фраз;07 требует
+реальных телефонов. Ниже сохранена история промежуточных проверок.
+
+**Обязанность original03 PWA-настроек закрыта независимой приёмкой82.**
+Отчёт `diagnostics/originals-recovery80-runtime-acceptance82.json` (a4f3cb3b…)
+принял фактические D1/P1 readbacks и независимый current end17/0/profile0.
+Это только язык/тема/шрифт/роль/install; prepare/P2/X1/01–05 и whole-baseline
+не приняты. Старые FAILED/UNKNOWN и network-clean=false сохраняются.
+
+**Original03 PWA D1/P1 восстановлены по фактическим проверкам; приёмка82 ожидается.**
+После source81 (09e7c353…) оба восстановления80 завершились с проверенными
+actor/serverlang/DOM/ролью/install flag, сетью, source/build/isolation и installed
+APK после readback. Observer D1=9/P1=8 полных/partial0, оба exit0. Независимый
+Root end17/0 и profile roots0; assessment33180ea9… передан82. Это не успех
+prepare/P2/X1/бизнеса или всего baseline; старые FAILED/UNKNOWN сохраняются.
+До фактической приёмки82 и fresh end0 следующий принятый план83 не реализуется.
+
+**План80 revision02 принят; восстановление ещё не выполнено.**
+Независимая проверка20cf4dd6… приняла планabda48b6… и все20 ссылок.
+Разрешена только узкая реализация PWA-восстановления originals03 D1/P1;
+до запуска нужны свежая приёмка исходников81 и текущая проверка ROOT.
+P1 запрещён после сетевого/source/build/isolation отказа D1 даже при end0.
+Причина ERR_ABORTED и запись аналитики не доказаны; старые UNKNOWN неизменны.
+
+**Actual attempt02 D1: UNRESOLVED; новые факты подтверждены80.**
+Браузер выполнил одну загрузку и закрылся, explicit prefs/login/business0.
+SameRequest local POST/events: HTTP204, затем2мс до ERR_ABORTED; Rootclose позже
+на5301мс, механизм отмены неизвестен. Backend всегда204, включая rollback:
+запись аналитики не доказана. Native self-check уже проходит. Observer отказал
+Known generation command changed, сохранив8 полных идентичностей; current
+offendingPID/command неизвестны. После выхода ROOT независимо проверил8/0 и
+profile roots0, сохранив исходный UNKNOWN. Assessment9d4754fc…, приёмка фактов
+`diagnostics/pwa-load02-d1-failure-review80.json` (8b5be5a3…). План80 для строгой
+семантики ACK/no-body и первоначального восстановления D1/P1 ещё не принят:
+условие75 о causal proof нельзя молча считать выполненным. Ни P1, ни бизнес
+после этого запуска не выполнялись; originals03 PWA остаются открытыми.
+
+**Первая actual диагностика D1: UNRESOLVED до браузера.**
+После source78 controller дошёл до observer, который отказал на проверке своей
+текущей идентичности; helper/browser не запускались, журнал/ready не созданы.
+Оба собственных процесса завершены, child дождались по исходному дескриптору;
+оценка `diagnostics/pwa-load01-d1-start-failure-assessment-root.json` (d06bfc43…).
+Ошибка не различает Selfcount/time/command. В producer доказан сдвиг float-времени
+на0,6мкс, но историческое CIM-время неизвестно; причину запуска это не доказывает.
+Следом — ограниченный selfprocess metadata probe и при необходимости узкий fix;
+никакого обхода P1, изменения старого UNRESOLVED или приёмки PWA originals.
+
+**Повторная приёмка диагностики77: не принято, UI не запускался.**
+При исключении GetProcessTimes/GetProcessId уже созданный child мог остаться
+без terminate/wait; повторный запрос в finally также мог прервать уборку.
+Отказ `diagnostics/integration12-pwa-load-diagnostic01/source-review77.json`
+(083eb2b9…). Зарегистрирован узкий fix собственного дескриптора и приёмка78;
+остальные исходники сохраняются. Никаких новых пользовательских данных и поездок
+эта диагностика пока не проверяла; исходные PWA D1/P1 остаются открытым пунктом.
+
+**Диагностика local /events пока не запущена: исходник не принят76.**
+Найдены P1: синхронный CIM мог нарушить обещанный срок, а source allowlist
+не проверял origin; P2: console связывался с URL запроса вместо initiator.frames.
+Отказ `diagnostics/integration12-pwa-load-diagnostic01/source-review76.json`
+(239ec4f7…). Зарегистрировано узкое исправление и новая приёмка77; до неё UI
+не запускать. Все фактические FAILED и открытое восстановление D1/P1 сохранены.
+
+**Root03: реальная подготовка FAILED, восстановление PWA остаётся открытым.**
+Prepare (a9cdf87e…) выполнял UI; native/device в его отчёте восстановлены,
+D1/P1 не подтверждены. Четыре прерывания local POST /events дают отказ сетевого
+сторожа; причина самого ERR_ABORTED не установлена. analytics.ts использует
+keepalive без signal/AbortController; это не разрешает исключить local failures.
+Старое primary.phase — последний bounded-ярлык, не доказательство ошибки health.
+Observer exit0 содержит PID16900/30760 с пустой командой; строгий Gate отказал
+обоснованно. Восемь console-записей могут повторять одни события, уникальным
+числом ошибок не считаются. ROOT после выхода проверил capture/verify и все26
+сохранённых PID/start: текущих0, но две исторические команды не восстановлены.
+Оценка `diagnostics/integration12-batch-root03-failed-prepare-assessment.json`
+(72e9dd9c…), независимая оценка75 (2e1a72b7…); FAILED/unknown/pending сохранены.
+Следом — приёмка плана75, пассивная диагностика причины, узкое исправление и
+подтверждённое восстановление originals03. Бизнес-сценариев root03 не выполнял.
+
+**Retry01: исправление принято на уровне исходников, сценарии ещё не запускались.**
+Свежий независимый74 принял helper8b0d2368…, observer83d84574…, Gate4a206fba…
+с точными обратными проверками и 22 адресными проверками без ошибок; отчёт
+`diagnostics/integration12-baseline-restore-revision04/source-review74-retry01.json`
+(ee8a6795…). Строгая проверка команды сохранена; новая команда проходит реальный
+извлечённый блок. Старая история04 учтена отдельно от активного retry01, её
+пять известных экземпляров и два неустановленных по времени wrapper PID
+по-прежнему блокируют новый UI при неподтверждённом завершении.
+ROOT после приёмки создал только pending-конфигурации05 (exit0); их приёмки
+и реальная серия остаются впереди. Продукт, восстановление и весь режим не приняты.
+
+**30.10.2026: вторая попытка integration12 остановлена на запуске наблюдателя.**
+Исправление чтения отчётов принято73; свежая проверка фактических процессов,
+исходников, сборки и 22 маркеров прошла. Наблюдатель подготовки04 отказал на
+точном сравнении аргументов: прямые слеши в переданной команде против обратных
+в ожидаемой Windows-команде. До журнала/ready и запуска помощника не дошёл.
+Оценка `diagnostics/integration12-batch-root02-failed-observer-preinit-assessment.json`
+(46b05042…), независимая ограниченная приёмка73 (64949405…): остановка до UI
+подтверждена, FAILED/unknown/pending сохранены. Записанные корневые процессы
+отсутствуют; root02 capture/verify завершён. Дочерние краткого наблюдателя
+не записаны задним числом. Ни один бизнес-сценарий этим запуском не проверен.
+Дальше — узкое исправление команды и новая область наблюдателя с сохранением
+контроля всех старых известных экземпляров; общего PASS и восстановления нет.
+
+**30.10.2026: серия integration12 остановлена до подготовки.**
+Первый управляющий запуск exit2: launchers пуст, case null, ни подготовка04,
+ни её наблюдатель не запускались. Проверка сохранённой конфигурации получила
+SyntaxError при передаче корректного отчёта через PowerShell. Фактические
+RED/GREEN автора66 показали замену U+2192 на U+001A в консольной кодировке866;
+после передачи исходных байтов JSON совпал с прямым чтением. Независимая
+приёмка исправления ещё требуется. Три FAILED-квитанции, intent и checkpoint сохранены,
+их restore_pending/context_unknown не сняты. Фактическая ограниченная оценка
+`diagnostics/integration12-batch-root01-failed-pre-ui-assessment.json` (bc95c033…):
+оба записанных корневых процесса отсутствуют, файлов начала/результата
+подготовки нет; захват короткоживущих дочерних процессов отсутствует.
+Ни один из десяти сценариев этим запуском не проверен. Следом — узкое
+исправление передачи метаданных, независимая приёмка и новая область результатов.
+
+**P2: фактическая диагностика завершена с зарегистрированными ошибками.**
+Исходный `p2-network-probe12-01/result.json` (659ba020…) остаётся exit1,
+`product_accepted:false`: одна загрузка и одна перезагрузка, два поколения документа.
+В обоих замечен GET внешнего скрипта, затем `net::ERR_FAILED`; ответов от него нет.
+Хеш origin точно совпал с публичным `http://gc.kis.v2.scr.kaspersky-labs.com`;
+механизм появления скрипта этим не доказан. Действующая фабрика блокирует этот origin.
+Все четыре ответа CSS/JS имеют текущие SHA; ошибок операций/закрытия/guards нет,
+source до/после совпал. Старый missing-body03 не воспроизведён; старый FAILED03
+не меняется. Исходные настройки native/d1/p1 этим запуском не затрагивались.
+Наблюдатель завершён exit0; ROOT отдельно проверил оба seen PID/start/command:
+живых 0 (`p2-network-probe12-known-closed01.json`, e68668bb…). Короткий helper
+завершился до child capture — отказ сторожа сохранён, запись не выдумана.
+Файловая независимая приёмка66 (1261ec7f…) подтверждает только эти факты,
+не готовность приложения. Следом — узкий план учёта строго подтверждённой
+блокировки и ожидания прочитанных ответов перед навигацией; неизвестные ошибки
+остаются отказом, разрешения внешней сети и системная защита не меняются.
+
+**История запуска стенда09 перед диагностикой P2.**
+Первый GET посредника вернул отказ соединения. Впоследствии все 12 записанных
+экземпляров старого стенда08 проверены как отсутствующие; причина остановки неизвестна.
+По прежнему разрешению Александра запущены API09, новый журнал посредника V5 и PWA09.
+Исходники запуска отличаются от08 только пятью именами, независимо приняты69.
+Фактический API PID26060: все 27 проверок настроек положительны, health200;
+68 счётчиков и хеши DB/WAL совпали до и после запуска и health. Доказательство
+`diagnostics/isolated-api09/runtime-start-health-proof.json` (325e2d1e…),
+независимая ограниченная приёмка `runtime-proof-review69.json` (ef96cbf6…).
+Все три процесса записаны и захвачены; уборка — `owned-stand-final09-plan.json` вне git.
+Эмулятор ещё не восстановлен, исходный GMT/auto1 остаётся обязательством при его запуске.
+P2 source02 был принят66 после исправления `product_accepted:false`, но требует
+перепривязки к фактическим данным09 и новой приёмки до запуска. План carryover67
+условно принят68; сеть P2 остаётся UNKNOWN, 10 сценариев поездок ещё не запускались.
+
+**30.10.2026: свежие проверки веб-частей прошли.**
+У PWA после изменения `ui.css` повторно выполнены 141 набор: exit 0,
+stderr пуст. Заявленная сумма 2680 не считается числом уникальных тестов.
+Результат `diagnostics/pwa-check-current12-02-result.json` (b3206b79…),
+независимая ограниченная приёмка `test-applicability12-review65.json` (02dd71f6…).
+Для лендинга не удалось найти прежние первичные журналы, поэтому заново выполнены
+lint, check и build: все exit 0; независимо сверены 121 выходной файл, включая RU/BA.
+Результат `web-current12-gates-result.json` (948b1045…), приёмка
+`web-current12-acceptance65.json` (c7b3169b…). Записанные процессы lint/build
+после завершения отсутствуют; короткий check завершился до записи дерева процессов.
+Визуальная приёмка лендинга этим не заменяется. Исторический backend 6726 PASS/3 SKIP
+применим к неизменённому коду; свежего запуска pytest не было, точное старое
+установленное окружение не подтверждено. Полный неизменённый набор не повторяется
+только из-за клиентских правок (правило `docs/audit-rules.md`).
+
+**Baseline03 FAILED; исходные настройки возвращены, финальные поездки не запускались.**
+Original baseline0c269… и result2b1e… сохранены. Native/d1/p1 rollback прошёл;
+частично созданный P2 оставлен, login не достигнут; X1 loop не достигнут.
+Нужные JS/CSS имеют ожидаемые SHA, итоговый guard упал на накопленных2unknownHTTP
+и1непрочитанномраннемbody. Точную причину журнал не сохранил — не подтверждена.
+Отдельно observer03 exit1/d6c96… без данных конкретного конфликтующегоPID;
+PIDreuse не объявляется фактом. Root позже независимо сверил56записанныхinstances:
+живых0 (739a274…). Исходные prefs/role/actors возвращены, contextsclosed true;
+baseline03 остаётся обязательной исходной правдой для следующей подготовки.
+План bounded ownP2 диагностики afe5ff… принят свежим63 (30e54a…); source ещё
+готовится, runtime не запускался, пользовательских действий/данных не меняет.
+All48 visual subsets по-прежнему приняты a300778…/78d1c617…;
+whole06/BAhuman/physical07 OPEN, никакого нового business PASS не заявлено.
+
+
+**Дополнительные 48 состояний приняты в ограниченном объёме.**
+Общий пакет extras48-current12-aggregate.json (a300778…) и независимая
+приёмка61 (78d1c617…) связывают 6 исходных результатов, 6 приёмок и 48 кадров:
+4 карты + 4 Trips + 4 Notifications + 16 Cabinet + 12 Chat + 8 Payment.
+Четыре Trips взяты только как принятый subset из FAILED02; исходный отказ
+не переименован. Все поля версии/сборки совпадают, настройки возвращены.
+Статические CSS-баннеры не являются реальным SW-циклом, Requests здесь пустые,
+платёжных действий нет. BA носителем, physical07 и весь06 остаются открыты.
+Собственные visual fixtures109/110,105/106 мягко сняты helper0b13, exit0.
+Baseline02 подготовка отказала ДО UI/настроек: Root пропустил явный CONTROLclear;
+профили/снимокbaseline не создавались, observer0/seen0/closed. Up+clear теперь
+подтверждены (e83bdb…). Metadata-only revision03 проходит свежую приёмку62;
+только после неё — baseline и 10 реальных интеграционных сценариев.
+
+
+
+**Дополнительные40/48 подтверждены,8вкладок ожидают новый helper.**
+NativeMap4 (report56 6b8a589…), PWAlayout16 (55 54c6d54…), chat12 (55 afe0acb…),
+payment8 (55 c6305bf…) прошли runtime/личный просмотр в их узкомscope.
+Все исходныеprefs/actors/device/NULLflags восстановлены; собственныеcase/observer
+завершены, exactprofilelastprocess/ports0. Paymentactions0/fixturewrites0.
+ПредварительныйP2 darkязыковойплашки отозван по исходнымRGBA, продуктне менялся.
+NativeTabs12 FAIL2/8 сохранён: ошибочныйscrollableguard иложныйRU «Все»inventory;
+56 готовитignoredrevision02, независимаяприёмкаещёвпереди. Текущийfull12PASS
+непереписан. Новыеbusiness01–05 ещёне запускались: свежий58 проверяетbaseline-
+restorehelper инашёл необходимостьнезависимыхпопытоквосстановленияпослеошибки.
+BAноситель/physical07/fullwhole06 остаютсяоткрыты.
+
+**Полный12 local execution PASSED,68/1476/0; whole06ещёоткрыт.**
+Raw759e4b2c…:16успешныхшагов,68uniquePNG, sourceStartEndequal, mainprefs.errors[].
+Restoreace44ff0… вернулобаoriginalNULL/readback/actors1,3/closed. Общийobserver
+стоппослеэтого:60seen/lastprocesses0/listenports0/exit0; mainv2/v3+observerv2 verified.
+Сохранены2145+58+58originalV4lines. Независимопринятыscoped36Native+32PWA,
+исторические10/11осталисьFAILED;humanBA/48extras/physical07ещёне приняты.
+Источник: test-results/release/runs/W1-E2E-06-consolidated12/result.json,
+diagnostics/pwa-install-precondition12/restore-result.json, final12-acceptance56.json,
+pwa12-visual-acceptance55.json; полныйcurrentcheckpointвLOCALAPPDATA/yuldash/
+rideshare-claude-tails-20261024/latest-root-state12.json. Rootserialextras48идут.
+До10интеграцийобязательнановаяbaseline/restoreподготовка: S01–05 самиprefs/actor
+не возвращают, текущиеp2/x1отсутствуютиbodyproofдлянихнеполучен. Helperauthoring
+идётпоплану28a/peer623; businessruntimeHOLDextras+softretire+baselineготовность.
+
+
+**Версия12 RUNNING: полный06 пока не принят.**
+HEAD4b4a475d/source1312b15/QA41 24e31403…; общий помощник нажатий проверяет
+границы своих scroll-предков на прежних dumps, без новых пауз/повторов.
+Те же15 Node: legacy8ERR_ASSERTION+7PASS→15PASS/0FAIL/0SKIP, свежая независимая
+приёмка57 пройдена. Приложение и прежние351 тест неизменны, нового351run нет.
+Android debug+androidTest и PWA собраны, фактическая установка9db/6f сверена;
+binding9de21b09…/installe73502ff…. PWAupdate12 passed/closed/restored,0click,
+оба1/3получилиA4E; observer16seen/last0. Full12 job38220 фактически идёт.
+Исходные install-флаги сейчас1, вернуть originalNULL после любого исхода и до
+остановки observer39896. Все8extras12 SOURCEприняты, runtimeHOLD пока нетполногоPASS.
+Старые full10/11 остаются FAILED. Target12диагностикастарыйmissнеповторила,
+но подготовительная SAME XML показала допуск обрезанного текста старым правилом.
+Источники: test-results/release/diagnostics/native-scroll-viewport12-regression/,
+diagnostics/native-scroll-viewport12-acceptance57.json и runs/W1-E2E-06-consolidated12/.
+BA носитель и физические телефоны07 остаются открытыми; current01–05 ещё не запущены.
+
+
+**Версия11 FAILED:11/68 кадров;140 check.ok и1 step.fail.**
+Точный XML нажатия Settings отсутствует: tapY1996 совпал с границей scroll1996,
+затем Язык не найден, FAIL PNG показывает Профиль. Причина не установлена.
+Scoped5Native/6PWA RUlight приняты, driver-ветка не достигнута. Приложение
+и QA остались4c1684bf/b15/7881. Mainprefs.errors[],source_start=end;
+restore68d80dff… фактически вернул оба NULL/actors1,3/closed. Общий observer
+остановлен после этого:43seen/lastlive0/exit0. Source-only8extras11 не запускать.
+Диагностика Settings tap12 готовится; полный68 и01–05 остаются открытыми.
+Источники: test-results/release/runs/W1-E2E-06-consolidated11/result.json
+(SHA58da41d1…), diagnostics/pwa-install-precondition11/restore-result.json,
+diagnostics/final11-acceptance56.json и pwa11-visual-acceptance55.json.
+
+
+**30.10 (МСК): версия11 — повторная полная проверка06 идёт, PASS ещё нет.**
+HEAD4c1684bf / product1312/b15f5749… / QA41/7881d25a….
+Только4 строки сценария: водитель ждёт две надписи перед прежними прокрутками.
+Независимая проверка исходников55 пройдена. Диагностика B11 воспроизвела
+ту же ошибку на экране загрузки, после ожидания строгая проверка прошла;
+result9de9bc4a…, закрыто/восстановлено/исходники неизменны. Один B/RUlight
+кадр независимо принят56 только визуально, это не приёмка всего06 или03.
+Обе сборки11 прошли; APK9db/test6f/PWAa4e прежние. Фактическая установка
+проверена: bindingd3cbb050… / installdbe40d48…. 351 проверка приложения
+применима по неизменным исходникам и тестам; повторно в счёт не добавляется.
+PWAupdate11 прошёл для1/3: обе текущие загрузки файлов сверены,0updateclick;
+настройки возвращены/браузеры закрыты, отдельный observer16seen/last0.
+Подготовка11 прошла и закрыта; до завершения полного прогона install-флаги
+временно1. Обязательно вернуть исходные NULL после любого исхода11 и только
+затем остановить общий observer31884. Extras/интеграции ждут полногоPASS.
+Переводы BA и физические телефоны07 остаются открытыми.
+Источники: test-results/release/diagnostics/native-driver-consent11-probe/,
+diagnostics/native-driver-consent11-acceptance56.json, pwa-local-update11/
+и runs/W1-E2E-06-consolidated11/; полные исходные контрольные суммы в JSON.
+
+
+**30.10 (МСК): версия10 собрана и установлена, полная приёмка06 остаётся открытой.**
+HEAD401faff1 / source1312/b15f5749… / QA41/424a8053…. Два промежутка
+офлайн-карточки уменьшены, все сведения и полный «Повторить» помещаются в том
+же усиленном тесте: обе прежние неудачи сохранены; окончательный класс5PASS.
+На текущей версии 351 уникальная проверка (61 сырой XML), ошибок/пропусков0;
+это уже включает адресные5. Независимый56 подтвердил исходники и все61 XML.
+Сборки Android debug+androidTest и PWA прошли; установка обоих APK сверена
+фактически: binding4a636fa8… / installc5da85da…. Полученные 56 UI-кадров приняты только визуально; полный прогон не прошёл.
+Малый settings-probe10 прошёл4/4 с восстановлением и независимым просмотром.
+PWAupdate10 прошёл для1/3: текущие файлы,0updateclick, восстановлено/закрыто.
+Полный10 FAILED:56/68 кадров,927 check.ok и1 step.fail B/ru-light — сценарий
+не нашёл контейнер прокрутки. Все полученные56 кадров приняты визуально
+в своих областях; это не превращает итог прогона в PASS. Причина пока неизвестна:
+точный XML ошибки отсутствует, поздний PNG уже показывает нужный экран.
+Исходные настройки и source_start=end подтверждены. Оба install-флага вернулись
+к исходным NULL, акторы1/3 сохранены, браузеры закрыты (restore902c7744…).
+Общий observer остановлен после восстановления;52seen/last0/exit0, main/observer
+проверены,1453 исходных события V4 сохранены. Следующий шаг — короткая B-диагностика.
+Extras и10 текущих интеграционных01–05 не запущены; строгая цепочка ещё не закрыта.
+Сырые доказательства: test-results/release/diagnostics/offline10-units/result.json,
+diagnostics/final10-acceptance56.json и build-binding-narrow-layout10.json.
+Подтверждение башкирского носителем (часть06) и физические телефоны07 открыты.
+
+
+**29.10 20:32Z: версия 09 собрана, полная приёмка 06 ещё открыта.**
+HEAD 8b7a93f0, product 1312 / 3644daa4…, QA41 c84c749b….
+Офлайн-карточка сохраняет все сведения без дублированного заголовка участка.
+351 уникальная проверка Android (61 XML), debug + androidTest, PWA check
+(141 набор) и build прошли; новая установка проверена (binding d95a2cea…).
+В первых двух фактических cold-кадрах все обязательные сведения помещаются,
+но независимый55 отметил частичную видимость «Повторить» в первом кадре.
+Диагностика09 завершена FAILED: 238 успешных проверок / 2 из 8 кадров,
+step.fail A/ba-light: настройка не прочитана однозначно (причина пока неизвестна).
+Настройки/устройство восстановлены, исходники до/после совпали; процесс завершён.
+Старый полный08c остаётся FAILED. Следующий шаг — малый разбор настроек.
+Все результаты: test-results/release/diagnostics/offline09-units/result.json,
+diagnostics/final09-acceptance55.json и runs/DIAGNOSTIC-NATIVE-COLD09-early01/.
+Нужны завершение UI-проверок, текущая интеграция01–05 и строгая цепочка приёмки.
+Подтверждение башкирского носителем (часть06) и физические телефоны07 открыты.
+
+
+**Актуально29.10 19:27Z: 08cнепринят, исправляется офлайн-карточка09.**
+Actualfull08c FAILED344/1/46matrix: saved-timeнепомещаетсявусловиепервогокадра,
+result3b726cba…; timestampнаPNGесть, exactcoldXMLотсутствует. Все44base/27nav
+принятытольковихобластях. Первыйnativefooter535px вместо46pxпринят54.
+Настройкивосстановленыerrors0/source_start=end; externalflagsобеисходныеNULL,
+actualrestorea996f742…/actors1,3/closed. Наблюдательзакрыт/verify0,742V4linesсохранены.
+Планминимального09: скрытьдублированный«Участок»тольковофлайне, полныеостановки
+иостальныеобязательныеполяоставить; новыйреальныйразмертеста4профиляиадресный
+cold8передповтором68. Исходникиb6b2/QA41dd132покаещёнеменялись.
+Строгийcurrent01–05потребует10реальныхпрогоновпослеUI;f140остаётсяисторией.
+ПодтверждениеBAносителем(часть06) иреальныетелефоны07открыты; wholemodeнепринят.
+
+
+**Актуально29.10 18:51Z — этап08c ещё не принят по экрану.**
+Две найденные проблемы исправлены в ветке: нижние действия попутки адаптируются
+к узкому экрану, все пять подписей PWA сохраняют размер текста. HEADb6b2f801,
+source1311/5a76d6a6…, QA41/dd132739… неизменён. Независимый53 принял исходники и
+применимость277 уникальныхPASS:266неизменённых08b +весьновыйкласс11GREEN03.
+08bпо-прежнемуFAILED275/277, его результат не переименован; два сбоя тестового
+окна устранены только в тесте. Android08c debug+androidTest сборки и PWA08c
+сборка exit0, installed APK/test совпали; bindingd3467aac…/install2ac10a1d….
+PWAupdate08c actualPASSdde68598…:обаactor1/3, поодномуUpdateclick, prefsrestored/closed.
+Сейчас ранний nav27/24PNG, затем обязательный полный68 и дополнительные кадры.
+Прежние процессы стенда исчезли; повторно занятые PID не тронуты. Новыйстенд
+Root:API23740/providerdisabled/lifespanoff, proxyV4/PWA/emulator; cleanupplanfinal08.
+Исходные externalflags обеNULL восстановлены; после будущей подготовки68
+обязателен возврат исходныхзначений доостановки общегонаблюдателя.
+Подтверждение BA носителем и проверка реального телефона07 остаются открыты.
+
+
+**Уточнение29.10 07:30Z:** externalInstallflags послеfailed07 восстановлены:
+recovery actualPASS0d714513…/actor1,3/обеNULLreadback/closed/cleanup0,
+source46принят0d98c68c… . Freshobserverclosed17seen/last0/verify0.
+Полный07 по-прежнему FAILED46matrix; P1Androidfooter/P2PWAfooter ещё не исправлены.
+Продукт001255frozen, идут исходники boundednavдиагноза и native08drafts;
+суженный диагностический успех не заменяет полные68 и независимую приёмку.
+
+**Текущий незавершённый этап29.10 после07:** full07 FAILED322checks/46matrix,
+result41ceaefd…; основнойfinally вернулРустам/настройки, errors0/sourceequal.
+Независимо найдены P1Android: footerоставляетmain46px (49report93a31243…)
+и P2PWA: BAПрофильобрезанвнижнейпанели8кадров (48reporte527bcf4…).
+Nativeplan03 1db3d34d… ожидает50review; PWAplan2ecbb1e1… ожидаетactualDOMfit.
+Продукт001255/sourceb140 иQA41dd132 покаfrozen. Полных68PASSнет.
+ExternalInstallflagsещё1: прежнийobservertimeout03:34; restore07остановилсядоUI.
+Новыйrestore-onlyrecovery12/fresh46review/RootNULLreadbackboth — обязательный
+следующийшагдолюбыхproductwrites/новогоUI. 681V3lines frozen/owncaseprofiles0verified;
+postfailedreadonly24086e2c…targetonboard/answerNULL/shares0/SOS0, контакт1неудалён.
+BA носителем и реальные устройства07 открыты.
+
+**Актуально29.10 01:35Z:** узкий gate07-new03 actual PASS8/8 (bfbe3f54…);
+fresh48 принял8реальных PNG, P0/P1/P2нет (a7e58bda…). Настройки/soleflags
+восстановлены, браузеры/observer закрыты; unknownwrites0, winter4×200/no_share.
+Начат W1-E2E-06-consolidated07 PID16936/01:34:53Z на HEAD001255e/sourceb140…;
+полные68 и extras ещё НЕ приняты. ExternalInstallprepare07 READYc48a9bdb…,
+послеcase обязателен restore/readback обоихoriginalnull flags, observer остаётся live.
+Вместо неверного contacts0 закреплён readonlybaseline1несвязанного контакта,
+targetTripShare/SOS0/ackNULL/providerdisabled/safeState guards сохранены.
+BA носителем и реальные устройства07 по-прежнему открыты.
+
 **Текущий незавершённый этап29.10 МСК:** consolidated07 UI исправления в ветке,
 actual222uniqueAndroidPASS/0FAIL/ERROR/SKIP, PWA141checkPASS, source43безP0/P1/P2.
-Новаясборка/8statePWAwidthgate/full68 ещёвпереди. API8010пауза: inspect07-old
+Build/install07 успешны (binding a9f6fe37…), 8statePWAwidthgate/full68 ещё впереди.
+После source44-приёмки запущен isolated API18528/8010; startup+health proof3e9a26c4…
+показывает неизменность68tablecounts/protected105/106/DB/WAL только в этом окне.
+Настройки отключают провайдеры уведомлений; общего сетевого запрета нет.
+UPDATE07 actual PASS80af5e67…: actor1/3, текущие JS/CSS, prefs restored/contexts closed,
+observer exit0/verify0. Новый winter/WS guard ещё ожидает свежую source45-приёмку.
+Предыдущее inspect07-old
 на5statesпоймалautomaticwinter-check106/WS; restoreprefs/flagsclosedtrue,
 блокоплатыright409RU/379.55BA доказалcause409/380, Bbutton20.46<48.
 ВнешниеуведомленияизпрошлогоPOST200неподтверждены; currentrecipientcounts0,
-42предложилisolatedENVtestбезoutbound/lifespan, покатолькоsource, restartнебыл.
+42 предложил isolated ENV=test/providerdisabled/lifespanoff; реализовано и проверено выше.
 No SQLwinterreset/nowinterOK; safeStates/TripShare/SOS/ack0guardsнужныдальше.
 Correct06bFAILED303checks/45rows; restoreerrors0, externalrestore907b23c5…PASS,
 654V3events frozen. Этипрогоныне68PASS; BA/реальныеустройства07открыты.

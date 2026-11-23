@@ -83,18 +83,18 @@
     "infra_resource_config": 448,
     "public_site_promo": 91,
     "pwa_main": 337,
-    "test_support": 1330
+    "test_support": 1333
   },
   "counts_by_block": {
-    "B01": 176,
-    "B02": 325,
+    "B01": 177,
+    "B02": 326,
     "B03": 123,
     "B04": 80,
     "B05": 63,
     "B06": 107,
     "B07": 148,
     "B08": 216,
-    "B09": 757,
+    "B09": 758,
     "B10": 448,
     "B11": 92
   },
@@ -664,8 +664,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDecisionBar.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "ea92bf7db458825bac7bf1757de779478963594846f637197e67cd725ee81943",
-      "lines": 97
+      "sha256": "847b105b95bc0959241d061a61543ece740857eaeb4f98f1ca14580d45959bdb",
+      "lines": 131
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/ActiveTripDetails.kt",
@@ -1315,7 +1315,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/OfflineActiveTripSnapshot.kt",
       "kind": "android_main",
       "block": "B01",
-      "sha256": "fc2fafc4c586c6d9dc87f3674be0abb988faed1ba3ae26c0c14d0771a616f10e",
+      "sha256": "11c31a8804679691b014380f29cc9433c3149c8279c60500afc0e9347a4b4e4c",
       "lines": 164
     },
     {
@@ -1392,7 +1392,7 @@
       "path": "android/app/src/main/java/com/yuldash/app/PickupStopPicker.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "b315fd0b3aaea8385876d74c4b14a59f413abc68ec595180737b9ad8115f04a7",
+      "sha256": "622a729eaf7535e0a3453a9cc04e999eb59e8cccb83db93600eedbb326e26ee7",
       "lines": 174
     },
     {
@@ -1497,8 +1497,8 @@
       "path": "android/app/src/main/java/com/yuldash/app/RideshareBoarding.kt",
       "kind": "android_main",
       "block": "B02",
-      "sha256": "3f8e44f27bacdd9e87cafe4d3a56197eaa9bce0c30b63483c1ecbfb17393fe01",
-      "lines": 538
+      "sha256": "f23687dfa3beebf1645c9bb222142513a083b8a4d77d047d29e9f15d8c19d5f1",
+      "lines": 543
     },
     {
       "path": "android/app/src/main/java/com/yuldash/app/RideshareCompletedScreen.kt",
@@ -2591,6 +2591,13 @@
       "block": "B02",
       "sha256": "24e3bc064eb5af8b9d73eddbe2537333dd7513b3b4470ebe6fe4a2d03920430d",
       "lines": 253
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/ActiveTripFooterResponsiveTest.kt",
+      "kind": "test_support",
+      "block": "B02",
+      "sha256": "6f0b4b5a6014c769a825b273f59ee6a01790eb8f0704a81d50010fe6f6b74817",
+      "lines": 345
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/ActiveTripLateTerminalTest.kt",
@@ -3774,6 +3781,13 @@
       "block": "B06",
       "sha256": "41519e20011fab47948da08733cf33a9a62eecea9b0b6994ca51dabf3c317055",
       "lines": 84
+    },
+    {
+      "path": "android/app/src/test/java/com/yuldash/app/OfflineActiveTripSnapshotResponsiveTest.kt",
+      "kind": "test_support",
+      "block": "B01",
+      "sha256": "77f2f71064480b15eba76eb3aebee75eb793433b669159ce33c9e515f894cbea",
+      "lines": 217
     },
     {
       "path": "android/app/src/test/java/com/yuldash/app/OfflineActiveTripSnapshotTest.kt",
@@ -13467,7 +13481,7 @@
       "path": "tools/rideshare_e2e/lib/android.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "a4622e7a75bdcd76f3b1db5e7998ff8946f8e753c1c21aac208a0126c8f21664",
+      "sha256": "d7e1077bf55cb9bab1ed3bfa56d1915d43852869cbc1eb484e296b07c6fae8f6",
       "lines": 218
     },
     {
@@ -13495,8 +13509,8 @@
       "path": "tools/rideshare_e2e/lib/native-scroll.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "446f937cc8421ea53df8b2421e875503b462fac8c74ba650851172efc1fa051f",
-      "lines": 29
+      "sha256": "5c4d4aafc7145887184d6f96aeaacfdcaedaf5484c73fa972cbfb8f7610979be",
+      "lines": 49
     },
     {
       "path": "tools/rideshare_e2e/lib/offline-controls.mjs",
@@ -13642,8 +13656,8 @@
       "path": "tools/rideshare_e2e/s06.mjs",
       "kind": "infra_resource_config",
       "block": "B10",
-      "sha256": "046d2d919c5b40d96bf123ad9f28f0b4708c24c166358507f555a2c1b5a8650d",
-      "lines": 499
+      "sha256": "423a7bf031b0bd108f9a2d5080e18cc610a3991722be7ada51ff9ac8482b9b32",
+      "lines": 521
     },
     {
       "path": "tools/rideshare_e2e/stand-common.ps1",
@@ -13756,6 +13770,13 @@
       "block": "B10",
       "sha256": "e19b21a0b380805ccdc8644c8950197a9223d381267589534f4c29d396235725",
       "lines": 191
+    },
+    {
+      "path": "tools/tests/native_scroll_viewport.test.mjs",
+      "kind": "test_support",
+      "block": "B09",
+      "sha256": "96750fc4d4f1d02263bbf5b6e60d768819c5c149b028b92b41502679395cbae4",
+      "lines": 47
     },
     {
       "path": "tools/tests/test_audit_file_status.py",
@@ -16344,8 +16365,8 @@
       "path": "webapp/src/ui.css",
       "kind": "pwa_main",
       "block": "B09",
-      "sha256": "aa22a2c8e2435e7750f45c5d78e0f12956750058ec4ef20d1edb9e1b3594629c",
-      "lines": 21018
+      "sha256": "39a585225ea9edebf511f19f7e59ab4b42c6fa7eb120b90c198b24624cf273bb",
+      "lines": 21033
     },
     {
       "path": "webapp/src/uiPrefs.ts",

@@ -1,4 +1,844 @@
 <!-- RIDESHARE-CLAUDE-TAILS-20261024 -->
+31.10, следующий шаг по серии138: после независимых проверок исходников
+и фактических параметров автор127 переносит закреплённые ссылки в помощники
+восстановления. Затем независимая проверка144, проверка конкретного запуска
+и короткая проба без входа в приложение; только после этого — вход и поездки.
+Текущие результаты и ограничения — в начале `docs/audit-blocks.md`.
+
+31.10, дополнение до правки: описание запуска закреплено также в проверяющем
+файле. Root отдельно регистрирует его одну точную копию (124 592 байта) в
+`test-results/release/diagnostics/observed138-rejected141/gates.mjs`;
+предварительная опись — `C:/Users/Bayra/AppData/Local/yuldash/rideshare-claude-tails-20261024/observed138-rejected141-gate-preservation-root02.json`.
+Владелец и назначение прежние; требуется сохранить ссылку на старую проверку.
+
+31.10, до исправления пути PowerShell: Root сохраняет только два изменяемых
+исходника (запуск и его описание), 20 026 байт, в
+`test-results/release/diagnostics/observed138-rejected141/`.
+Владелец — Root, редактор — author127; назначение — сохранить точную версию
+для независимого отказа. Предварительная опись с полными путями, суммами,
+веткой и местом результата:
+`C:/Users/Bayra/AppData/Local/yuldash/rideshare-claude-tails-20261024/observed138-rejected141-preservation-root01.json`.
+Копии сохраняются как доказательства; приложение, профили и база не копируются.
+
+**31.10, текущий шаг: исправление помощников проверки, поездки ещё не запущены.**
+Последняя независимая проверка нашла пять ошибок учёта и завершения собственных
+процессов. Исправляются только четыре диагностических файла, код приложения
+и сохранённые неудачные результаты не меняются. Далее: независимая проверка
+исправлений → короткий запуск без входа в приложение → проверка входа →
+сценарии поездок 01–05. Подтверждение башкирских фраз и проверка на настоящих
+телефонах остаются отдельными незакрытыми пунктами. Источник замечаний:
+`test-results/release/diagnostics/integration12-continuation-retry138/source-review140.json`.
+
+31.10: Source14072cb18c9… отклонил5точныхF1–F5. ДоисправленийRoot
+зарегистрировалтольконеобходимые4rawsources в C:\Users\Bayra\AppData\Local\yuldash\rideshare-claude-tails-20261024\observed138-rejected140-preservation-root01.json; ownerRoot/editor127/exactpaths/SHA/bytes/result/retention внутри.
+Sourcehelper/observer/guard/probe неизменны. Fixтолькоnew138, послеfresh141;
+actorRPC/probe/Main всёещё0, source-only nativeнеподменяет.
+
+31.10, ДО новых source138: exactplan08b3cb59…/review139b70f87e1… приняты
+толькоPLAN+savedCIMclosure52d08…. Rootзарегистрировал14minimalcopies494281B
+и4reusedschemas23917B в C:\Users\Bayra\AppData\Local\yuldash\rideshare-claude-tails-20261024\observed138-minimal-copies-registration-root01.json; ownerRoot/editor127, exactpaths/SHA/result/retention внутри.
+Никакихwholeclone/profile/DB/deps/oldresults. Послеcopy толькоsource; Rootnative
+noactorsprobe+отдельнаяactualinventoryприёмка обязательны доactorRPC.
+
+
+**31.10, auth125 FAILED; новые поездки ещё не запускались.**
+Actualreadiness5f8ec435… PASS0/394unused; Rootlauncher136b4aa… запущен01:33:11UTC.
+Helper26848 проверилD1id1/P1id3: обеexisting-session,0login, original03prefs/local,
+actualassets иnetwork_errors0;16seenended0. Ноauthresult79366eda… остаётся
+auth_ready=false/phase_closed=false: own-observer-finish AUTH_FINAL_BOUNDARY_FAILED.
+Observerbody0stop-file/0pool записан, ноprocess148a… осталсяrunning; исходный
+wait/finalwrite внешнегоwrapper не доказан, причинаUNKNOWN (stderrотброшен).
+Gateend15060 timeout, launcher24040exit1; Mainintent/все10businessdirs ABSENT.
+Rootclosure52d08f07… подтвердил24knownCIM+6unknownbirthwrappers currentabsence,
+5profilepool0; это неNativewaitpromotion/неисправлениестарыхfalse.
+Автор127 готовиттольконовыйplan138 observableforegoundlifecycle/minimalnew
+namespace; до fresh139/source/config никакихActorRPC. Core10остаётсяRoot.
+
+31.10: actualconfig13463bf43ee… принят/Rootsealed e864d2ce…/inventory0.
+Rootconcrete launchwrapper135ceeebcb3… отклонён P2: не все собственные
+журналы checkedunused доobserver. До narrowfix Rootзарегистрировал1raw
+копию C:\Users\Bayra\AppData\Local\yuldash\rideshare-claude-tails-20261024\retry125-root-launch135-preservation-root01.json; свежая136 провериттолькотекущийwrapper. Main/UIещёне запускались.
+
+31.10: FINALPhaseC306cc9a3… принятfresh133e596062c… SOURCEONLY;8runtime+6schemas
+заморожены. Reader5d37299e…(JSONLraw2); Yhelper1ad7d2ec…/runnerfe110317…/
+factory7366bf15…; strictguards/equality/fence/caps unchanged. Configpending132
+0f6ebb45…/e0529d0f… schema/pinsPASS, Rootbinding113/107ошибка далаREJECTED132
+61004dfb…; новыйbinding134c2bfd28f… сcorrect125prefixes проверяетсяfresh134.
+Actualpayload/source неразмножались/неизменялись. receipts/intent/runtimecfgfinal
+ещёABSENT, newUI/main0; core10soleRoot/runtimeещёнужен.
+
+31.10, дополнительный rawhelper ДО hash-only reader binding: Root зарегистрировал
+ещё1минимальныйфайл C:\Users\Bayra\AppData\Local\yuldash\rideshare-claude-tails-20261024\auth125-source131-helper-preservation-root02.json; шестой исходник131 сохраняется перед правкой, безполнойкопиипроекта.
+
+31.10, ДО PhaseC: Source131 подтвердил3P1 (native JSONL parse, stale active
+budget/schema pins, два finished_at одного nativewait). Все8 покаfrozen; Root
+сохранил5 минимальных rawфайлов по C:\Users\Bayra\AppData\Local\yuldash\rideshare-claude-tails-20261024\auth125-source131-preservation-root01.json: exactpaths/SHA/bytes/owner/result/retention внутри.
+129 готовиттолькочитатель,127толькоrunner/schema/rebinding. ActualUI/main0.
+
+31.10: исправленныйX125 принят fresh1303c9bb3ef… (12 independent purechecks);
+actualGate payloadfc882aa5… принятddf6b463…/Rootsealedb48ce444…; actualboundBatch
+84094e4d… отдельно принят47755365…/Rootsealed3737e41d…. Engine metadata preflight0,
+новыйouterpolicyf95f3f1f… (46pins/8finally/70tails, теже7caps). Это не runtimePASS.
+Reader129rev02c1b6142d… frozen,28purechecks; combined131 читает его, ждёт final7
+от127 и5schemas. До actualconfig132 auth/UI/main не запускались.
+Новый formal draft12 5f6282e8…:204 current implementation paths (201+3 extracted
+UI dependencies),7 requirements неизменны; tests/acceptances пусты, oldf140PASS
+не retag. Actual CLI root01 exit1 ожидаем: только незавершённые цепочки,
+ошибок schema/path/hash/HEAD0. Process20088 originalwait+v2verify завершён.
+
+31.10: source128 не принят: auth-ready dispatch и HTTP500 existing-session. До правки Root зарегистрировал 4 минимальных rawsource-копии C:\Users\Bayra\AppData\Local\yuldash\rideshare-claude-tails-20261024\auth125-rejected-source-preservation-root01.json; ownerRoot, exact paths/SHA/bytes/retention внутри. Guard/observer без изменений. Старый rejection128 сохраняется; после narrowfix fresh130 обязателен. Reader129 отдельно исправляет строгий формат ссылок raw_bindings.
+
+31.10: source125 разделён без пересечений:127 — X/Y/auth и Root3копии,
+129 — только новый TAILS/d2-root-server-language125.py и свои purefixtures.
+Root владеет actualadoptions/config/runtime/docs. Договорreader/3consumers
+согласовать до кода: fixedpost-main request/proof, rawSHA/source/DBgeneration/
+original03UI-target/actualcaller-main refs/freshness; никакихActorRPC у авторов.
+
+31.10, ДО новых копий: auth-ready/server-target plan1256ca51779… принят126
+fde9cfbc…(PLAN_ONLY). Root зарегистрировал16 текущих source/schema439569B
+в TAILS/auth-readiness125-minimal-copies-registration.json: ownerRoot,
+author127; exact sourceSHA/полныепути/назначение/место результата/retention там.
+Только новые diagnostics/integration12-continuation-retry125,
+integration12-d2-retry125 и TAILS/d2-root-{capture,exchange,factory-recovery}125;
+новый stdlib d2-root-server-language125.py — новый код, не копия. Без wholeclone,
+профилей/БД/dependencies; уникальные source/inverse/evidence сохраняются Root.
+Порядок: X125/auth-ready+строгий прежнийguard → freshsource/Gate/Batch →
+Y/Root/freshserver-target proof+типы → source/configapproval → ordinaryreceipts+
+pre-intentauth-ready(max2contexts/known401Guest/expectedActor/no token files)
+и current gates → main. Первое401 остаётся FAILED; businessguard не ослаблять.
+Copy count0 до передачи127, старые117/83/engine/caller/app/QA не трогать.
+
+31.10, retry117 FAILED: no business/D2/P2X1 initialization. Prepare468c1a2e…,
+continuation2931980c…; actual401 /me и /me/update на первыхD1/P1 доказаны
+wire6dc32e0b…(4unauth/9health200), исходная меткаhealth устарела после успешного
+guard из-за globalstage. Почему401 — UNKNOWN; tokens/keys не читать.
+Последние4 восстановления true и last2contexts clean не стирают первые ошибки.
+Rootclosure572cb539…/indep124020f722a…:53known currentend/3unknown wrapperPID
+absent/pool0, scopedoriginal03visibleprefsaccepted, serverreadbackfalse.
+После закрытия RootroSQL386ac0bd… прочитал только id/telegram_id/language
+synthetic1/3/4, actualru==original03UIru; URIro/query_only1/changes0/DBWALsame.
+Это current target equality, не выдуманное историческое servervalue.
+Автор125 пишет один план auth-readiness+freshserver-target-proof до нового
+mainintent, guard не ослаблять; старыеX117/Y117/адопции/журналыimmutable.
+
+31.10: formal schema-check118 выявил два унаследованных ACTIVE const в новой
+outer-policy schema: oldBatchf96/olddaа не принимают реальный новый policy1b34.
+Разрешён ровно двухстрочный rebind к фактическим Batch6888/payload94fa с inverse
+до правки и actual oldRED/newGREEN; strict shape,101/104history и false guarantees
+сохраняются. Это уточнение необходимых active bindings117; остальные4 схемы и
+runtime7 не меняются. Source122 проверит новые raw schema SHA в finalhandoff.
+
+31.10: sourceXretry4 принят119305aec57…, 18 авторских/13 независимых чистых
+проверок. Metadata generator0 создал новые pending; actualGate payload61772773…
+принят79e73fdc…, RootsealedGate154d48d6…. Frozen bind-batch0 создал bound
+Batch36d881b1…/payload94faf911…, его отдельно проверяет119. Папка receipts
+пока правильно отсутствует; будет создана после генерации/приёмки до intent.
+ФазаB Y/Root ждёт фактический finalBatch и новый Rootpolicy proof. Actualbusiness0.
+
+31.10: frozen117739611d2… принял план и сохранённое закрытие preUI, без
+baseline/runtime/product PASS. Автор118 начал16 зарегистрированных копий,
+затем только sourceX4; новые Gate/Batch/config остаются у Root. Fresh119 ждёт
+явного sourceX freeze и проверяет отдельный prior old83-restore, не удаляя его
+из истории. Окончательный117 SHA —739611d2…, ранний7de1 не использовать.
+
+31.10, actual83: Root не создал receipts после генерации. Первый запуск
+остановился до prepare/UI: ENOENT, case=null; MAIN_FINALLY_UNPROVEN и
+restore_pending/context_unknown сохранены. Наблюдатель28408 остановлен своим
+stop-файлом; wrapper19620/caller4516/watcher20252 завершились штатно. Root
+assessment9df5b05c…: восемь захваченных экземпляров сейчас отсутствуют,
+observer.seen=[], текущих pool-профилей0; новых baseline restoration claims нет.
+Старые83/95/адопции/intent/checkpoint не удалять, не двигать и не перезаписывать.
+
+До копирования: retry117 plan37df004a…/registrationa4293d2c…; owner Root,
+автор118. Ровно16 минимальных source/schema файлов,430754 байта: новые
+diagnostics/integration12-continuation-retry117 и integration12-d2-retry117,
+TAILS/d2-root-{capture,exchange,factory-recovery}117. Состав/полные пути/исходные
+SHA записаны в registration, без проекта/профилей/БД/зависимостей. Результат
+остаётся там же как требуемый исходник доказательств; уникальное не удалять.
+Порядок: независимая117 принимает закрытие preUI и план → source118 → sourceX
+и реальные Gate/Batch bindings119 → sourceY/Root122 → actualconfig123 → metadata
+проверка и явное создание NEW receipts до нового intent → реальные01–05.
+Пока копий0; без117accepted не создавать. Неиспользованные десять business
+имён/маркеров сохранить; использованные watcher/caller/baseline получают новые.
+
+31.10: исправленный source11127d6c97a… принят свежим114 (73248d9a…)
+только как исходник. Final Rootexchange113e382aa3e… заморожен, handoffd798c614…;
+проверки30/30 и строгой схемы зелёные, own12 процессов завершены, копий0.
+Root создал только metadata candidate runtime-config.pending99.json909a8407…,
+payload0dbf1c23…, binding7aab45b7…; source95/83/продукт не изменялись.
+Fresh99 проверяет фактический payload и всю связку113/107/111 до любых новых
+CIM/native/UI действий. No actual prepare/business; будущих фактов не создано.
+
+31.10: до actual99 автор113 нашёл лишнее поле exchange_wrapper_wait в строгом
+captureFrame; отдельное доказательство ожидания уже есть, поле из frame удаляется.
+Только одна строка нового113, inverse-beforeedit и SAME schema checks; old65c5
+восстанавливается из inverse без новой полной копии. Source95/83 не меняются.
+Revision02 source11127d6c97a…/handoff181dfebf… заморожена после oldmain RED и
+newmain GREEN до query; новая независимая114 проверяет фактический результат.
+
+31.10: source111 fb2abef9… отклонён112 (e005c527…): None==None в native birth
+scopes-check допускает неполную запись. Root до правки зарегистрировал одну
+минимальную копию exact rejected source в diagnostics/
+d2-root-factory-recovery111-rejected112.py.txt для SAME RED/GREEN и inverse.
+Это уникальное raw-доказательство; владелец Root, хранить до конца приёмки.
+Автор111 исправляет только native identity/source-bound scope ledger; затем
+новая независимая114. Runtime не исполнялся; source95/83/app без изменений.
+
+31.10: final95 rev04 c19ec210… принят независимым100 (3ab33d48…) только как
+исходники/схемы; продукт и запуск ещё не приняты. Новый узкий Rootexchange113
+готовит команды текущего capture107 → prior/combined proof → preflight за один
+обмен до60с. Зона — только новые TAILS/d2-root-exchange113.* и diagnostics/
+d2-root-exchange113-*; без копий, UI/API/DB/ADB и запуска CIM до actual99.
+Проверки — чистые данные и реальные frozen validators; затем свежая приёмка
+actualconfig99 всей связки. Не создавать заранее доказательства будущих событий.
+Собственные104 записи процессов автора95 проверены: оставшихся экземпляров0,
+порты не занимались; четыре необходимые исходные копии переданы Root. Final4:
+helper3a1103fe / runnerc59aedf7 / observer20604565 / sharedc4b2dc4c.
+
+31.10: до реализации Rootfactory111 зарегистрирована зона автора111:
+только новые TAILS/d2-root-factory-recovery111.* и diagnostics/d2-root-factory-recovery111-*.
+Назначение — read-only финализатор фактического factory-resolution V4 по accepted104;
+не останавливает процессы, не запускает UI/API, не объявляет end0 полнотой factory.
+Порядок: контракт/input schema → проверки raw-backed event inventory/original waits
+и pure tests → freeze/source112 → actualconfig99 до native query/UI. Если полнота
+driver/launcher inventory не доказана реальными данными и независимой event-приёмкой,
+остаётся HOLD. Source112 заранее не принимает будущие события. Источники95/83 и
+адопции автор111 не пишет; временных копий проектов и профилей не создаёт.
+
+31.10: вспомогательный Rootcapture107 исправлен после REJECT108; source cba97dd1…
+принят свежим109 (143b2585…) только как исходник. Четыре целевых oldRED/newGREEN,
+18 чистых проверок и syntax0 сохранены. Actual CIM этим скриптом не выполнялся;
+config99 и source95/100 до запуска по-прежнему обязательны. Один старый candidate
+bdf6… сохранён по prereg496835c2… как необходимое raw доказательство.
+Помощник95 rev04 ещё не заморожен: история21 и unsafe11+2 проходят; проверка
+настоящего frozen caller выявила зависание успешного завершения из-за открытого
+stdin после доставки receipt. Исправляется только свой конец pipe после flush
+проверенного receipt; unsafe fence и счётчик отказов не ослабляются. Продукт,
+frozen83/engine/caller/адопции и сам стенд не меняются. Actual поездок всё ещё0.
+
+31.10, продолжение после прерывания: стенд10 сохранился; ROOT сверил исходные
+PID/время/команды API19448, proxy5508, PWA5500, emulator6476/QEMU12388 и порты.
+Агент95 возобновлён. Budget rev03 (handoff9e851ebf…, runner ee7999de…) сохранён;
+исправления104 до прерывания не начинались. План104 4cdfda38… принят свежим
+проверяющим b7e217c4…: ROOT передал95 только helper+runner и metadata rev04.
+Порядок: inversebeforeedit → раздельные nativeNEW_D2/priorCIM-history proofs
+через frozen83 validators + атомарная задержка stdin при unsafe setup → целевые
+тесты/сохранение старых raw → fresh100 source/schema → actual Rootconfig99.
+Native-данные старых журналов не выдумывать, UNKNOWN не стирать; восстановление
+при неясном закрытии D2 не запускать. До setup ошибка checkpoint по-прежнему
+даёт один EOF и штатный main finally. Продукт/83/engine/caller/адопции неизменны.
+Readonly106 собирает известные фактические inputs в один новый справочный JSON;
+это не runtimeconfig и не приёмка. Ни prepare, ни бизнес ещё не запускались.
+
+30.10, 20:32 МСК: source83 принят свежим86 (1d8668be…), actual Gate payload
+принят96 (6c7da2b0…), отдельно actual bound Batch принят98 (c0afd956…).
+ROOT создал final Gate0f8928b2… и Batchf96ca036… только после этих проверок;
+ни prepare, ни business ещё не запускались. Сохранены четыре точных RUNNING
+process receipts стенда10 (4435 байт, prereg fbaf1be6…) для доказательств после
+штатного изменения original records при остановке; для live-проверок они запрещены.
+Независимый97 отклонил D2 runner8f4f…: первое missing/read-error checkpoint
+после actualD2event оставляет stdin открытым, восстановление не начинается.
+Отчёт97 76d16223… immutable. ROOT передал95 узкую правку только runner,
+целевые RED/GREEN fixtures и metadata revision02; helper/observer/shared frozen.
+До правки — oldhandoff, prereg одного oldrunner raw proof, inversebeforeedit.
+После правки — свежая независимая100; затем actual Rootconfig и проверка99 до UI.
+
+До реализации D2: revision03 плана88 (4d7f6092…) принята свежим93
+(ac8836ba…). Исправлены graceful EOF/отдельное ожидание main finally;
+при вынужденной остановке — MAIN_FINALLY_UNPROVEN и отдельная обязанность
+восстановления, без повторного UI. Язык сервера отделён от локальных theme/font.
+Автор95 получает только новый diagnostics/integration12-d2-conditional/:
+три минимальные производные observer/observer-runner/shared и новый helper,
+чистые fixtures/config/handoff; регистрация source/target/owner до копий.
+Никакого создания профиля до фактического D2_SETUP_REQUIRED. Старые80/83,
+продукт, engine/caller, business/cleanup и документы ему не передаются.
+После реализации обязательна свежая независимая source/config приёмка до UI.
+
+Продолжение 30.10, 19:45 МСК: прежние агенты после перерыва отсутствуют.
+Четыре начатые копии83 переданы единственному автору90 без новых копий;
+готовые83/87 планы и inverse сохранены. Независимый89 проверяет отдельный
+условный план D2 (88), без реализации и запуска профиля.
+Старые стенд09/эмулятор09 сейчас не слушают свои порты. Проверены16
+сохранённых PID:15 отсутствуют; PID3468 занят новым непрозрачным процессом
+с другим временем рождения, его не трогаем. Причина прежнего выхода неизвестна.
+Доказательство stand09-resume-current-closure01.json / 55dc74da…;
+не объявлять это выполненной нами остановкой или историческим закрытием UI.
+До двух минимальных копий API10 зарегистрирован план2224e0b1… вне копий.
+Только namespace09→10; backend/DB/ключи/провайдеры не меняются. Свежий91
+проверяет два actual исходника и план fixed bindings83 d67ae6b8… до старта.
+Root восстановит разрешённый стенд с новыми process/health/installed receipts;
+83 получит их точные привязки, затем отдельную source/config приёмку до UI.
+Старые доказательства и FAILED/UNKNOWN неизменны; business01–05 не запускались.
+
+До реализации83 зарегистрирована её точная зона: единственный автор79,
+четыре производных исходника helper/guard/observe-baseline-restore12.ps1/gates
+в новом diagnostics/integration12-continuation-prepare83/. Сначала fresh ROOT
+admission со всеми old26+diag8+recovery17, job/wrapper и profile roots0;
+потом регистрация четырёх source/target/owner/purpose/result путей по правилу
+temporary-copies, только затем извлечение/копии и минимальные правки.
+Plan83v2 9484d12e/review85 28332f6a и Root history-addendum175b9134/review87
+6d04e700 приняты до кода; actual recovery82 a4f3cb3b уже получен. Новые точные
+diag01/02 — closed-unsuccessful, recoveryD1/P1 — только успешное восстановление,
+не prepared. Все старые raw/commands/UNKNOWN immutable. Engine/caller и10
+business/producer/cleanup исходников/имён неизменны. Meaningful negatives,
+inverse, frozen source и свежая source86, отдельная Gate/Batch payload-приёмка
+обязательны до Root UI. Ни P2/X1, ни business пока не запускать.
+
+Actual original03 PWA D1/P1 принят свежим82 (a4f3cb3b…): P0/P1/P2 нет.
+Закрыта только обязанность исходных PWA-настроек; whole-baseline/product false,
+старые FAILED/UNKNOWN сохранены. До копий83 ROOT ещё обновит current end0.
+Уточняется точная привязка диагностических failed01/02 к принятому условию85
+об отдельной closed-unsuccessful history; broad ignoreUnknown запрещён.
+Ни одной копии/правки источников continuation83 пока не создано.
+
+Фактическое восстановление80 выполнено: D1 и P1 получили
+ORIGINALS_PREFERENCES_VERIFIED, их helper/observer/controller exit0.
+У обоих actor/serverlang/DOM/localrole/install, networkguard и source/build/
+isolation true; actual installed APK перепроверены после readback. Login/business0,
+P2/X1 не тронуты. D1 observer9 и P1 observer8 полных записей, partial0.
+ROOT независимо проверил17/0 и four profile roots0 (11:57 UTC); все10
+записанных job-instance/wrapper проверены завершёнными. Assessment33180ea9…
+передан свежему82; независимая приёмка пока ожидается. Старые FAILED/UNKNOWN,
+причина transport abort и persistence аналитики не переименованы/не доказаны.
+Finite external capture gaps builderD1/P1 и D1observer/helper сохранены честно;
+есть исходные Popen wait/журналы и независимый actual end, без ретро-capture.
+
+Исходники восстановления80 и ROOTbuilder приняты свежим81 (09e7c353…):
+5tuple6849/e2ce/4390/a702/a1c8 + builder669ac, interfaceccd19b,
+handoff62332b, cleanupffc355. Сверены17pins/35rawrefs/41handoffrefs/inverse,
+финальные contract37/ACK20/defaultHTTP-body13/fullguard17/mismatch6/watchdog3
+без отказов. Это только source/config, runtime/recovery/product ещё false.
+ROOT начинает один fresh builder D1 и только при его exit0 — typed atomic
+restore-original d1. P1 отдельно после всех D1 facts и fresh independentend0;
+01–05 и continuation83 до фактической приёмки обоих PWA по-прежнему не запускать.
+
+Следующий статический план83 revision02 принят свежим85 (9484d12e… /
+28332f6a…), но ДО любых его копий/реализации нужны фактические независимо
+принятые recovery80 D1 И P1 и fresh current end0. Сейчас эти входы — будущие,
+не доказательства. Новые prepare/restore/observer/Batch namespaces и точная
+закрытая неуспешная legacy-history не изменяют старые FAILED/пустые commands.
+Подготовительный ACK204 и HTTP tuple принимаются отдельно только для будущей
+подготовки и её finally; бизнес-код и10 имён проверок остаются неизменными.
+
+До дополнительной правки нового guard ROOT зарегистрировал принятое уточнение
+ee7f90d6… / reviewaa0163fd…: только predicate внешнего candidate https→http
+для прежних exact origin/path hashes, GET/script/query. Старый41204 guard
+противоречил собственному хешу HTTP origin. Исторический probe659b содержит
+2 Request/2 ERR_FAILED/6 observed errors, не6 подтверждённых factory markers.
+Автор66 правит только новую копию recovery80 с inverse до edit; actual unique
+marker неизменённой фабрики, единственный terminal ERR_FAILED, responseNull,
+no response ever и строгий console остаются обязательными. Разрешений внешней
+сети это не добавляет. HTTPpositive с реальной tuple/HTTPSnegative и near-miss
+fixtures обязательны до81; old raw и parent80v2 A/C/P1 условия неизменны.
+
+План восстановления80 revision02 принят до кода (abda48b6…; независимый
+review20cf4dd6…). ROOT регистрирует реализацию: автор66 единственный писатель
+двух новых производных PWA-only helper/guard в diagnostics/integration12-originals-recovery80/
+и минимальных правок observer/controller/shared диагностики; до извлечения двух
+файлов — отдельная регистрация владельца, точных путей, исходных SHA и размера.
+1. Только original03 D1/P1; без prepare/P2/X1/Android/login/бизнеса. Старые04/02
+   FAILED и использованные исходники04 не менять. Причина отмены и запись
+   аналитики остаются неизвестными; строгий sameRequest204-before-terminal —
+   явно принятое исключение лишь для восстановления. Все near-miss — отказ.
+2. GET/me только в памяти {id,lang}; наружу actor_match/lang_match/enum языка.
+   Исходные actor/serverlang/DOM/theme/font/localrole/install проверять отдельно.
+   Новые inverse/отрицательные тесты и свежая приёмка81 до любого UI.
+3. ROOT один выполняет fresh preflight и D1→независимый end→отдельный P1.
+   До P1 обязательны D1 prefs+networkguard+source/build/isolation+resolvedcontext
+   и fresh everyseen0; end0 не исправляет сеть/происхождение. Только потом
+   продолжение незапущенных01–05 и итоговая уборка собственного стенда.
+Ни приложение, ни восстановление этим планом не приняты; source-кода ещё нет.
+
+Actual attempt02 после принятой source79: один браузер D1 открыл документ и
+закрылся, явных prefs/login/business действий нет. Native self count/cmd/birth
+прошли. Итог UNRESOLVED: одно и то же POST /events получило204 (ordinal51),
+через2мс ERR_ABORTED/canceled (52); close начат позже на5301мс. Один документ,
+44 запроса/44 ответа/43finished/1failed, console0. Причина engine cancel неизвестна;
+204 у этого backend не доказывает запись аналитики (он отдаётся и при rollback).
+Observer сохранил8 полных идентичностей, но отказал Known generation command
+changed; текущие offendingPID/command не сохранены, ничего об empty/race не гадать.
+ROOT capture/verify и отдельный end e4a121cb… подтвердили текущих8/0 и profile roots0;
+старый observer UNKNOWN не снят. Assessment9d4754fc…, независимые факты80 8b5be5a3….
+Следом — явный план80, пока НЕ ПРИНЯТ: строгий HTTP-ACK толькоsameRequest local
+POST/events единственный204-before-ERR_ABORTED, noAPIbody, persistence/engine cause
+не доказаны; все near-miss и другие ошибки остаются отказом. Это требует явного
+пересмотра условия75 о causal proof, а не ложного объявления причины найденной.
+Также safe current-command/native-end evidence перед отказом observer и отдельная
+строгая oldfailed04 lineage для восстановления originals03. Старые used sources/
+FAILED не переписывать. Автор66 только статически готовит план, 80 принимает его
+независимо; до этого ни нового guard-кода, ни восстановления/бизнес-серии нет.
+
+План05 зарегистрирован до правок после actual selfprobe (3ec6aefe…): точный
+native StartTime совпал с captured kernel FILETIME, CIM потерял0,5мкс. В ЭТОМ
+образце legacyfloat совпал с CIM, прежний guard прошёл бы; прежний отказ не
+объявлять воспроизведённым. Child/parent завершены, Root currentPID0 (327aab16…).
+Автор66 меняет только runner/observer/shared/helper диагностических источников:
+целочисленный UTC7+decimal FILETIME string, строгий native birth в обоих guards,
+CIMcount/fullcmd и ownhandle cleanup остаются; safe self_check различает причины.
+Новое имя02 и source-review79; old01/raw/preflight42 не менять. Helper допускает
+новый запуск только после закреплённых rawrefs oldfailed/nohelper и свежего Root
+known-end, без приписывания старому UNRESOLVED полной идентичности/phase closed.
+Metadata c569 остаётся. Проверки precision/native mismatch/count0/cmdempty/readerror/
+PIDreuse/unsafe number + watchdog; inverse до edit, свежая приёмка79 до UI.
+
+Actual diagnostic D1 после приёмки78 (554d5df2…) остановился до helper/browser:
+controller40564/observer10752 завершились, исходный дескриптор дождался child.
+Ошибка совпала с literal Observer current identity unknown: не сохранено, какая
+из трёх проверок Selfcount/time/command отказала. PID сейчас отсутствуют,
+helper/journal/ready не созданы; оценка ROOT d06bfc43…, старые файлы01 неизменны.
+В producer отдельно доказана потеря точности: raw FILETIME даёт .3784784Z,
+floatcreated записал .378479Z (+0,6мкс). Историческое CIM-время не записано,
+причина именно прежнего отказа ещё не установлена. План до новых изменений:
+два новых файла native-birth-probe01 для одного собственного ограниченного
+PS selfchild; ROOT один запускает self-PID CIM(timeout3/hardchild8s) и сравнивает
+raw kernel FILETIME/native StartTime/CIM decimalstrings. Никакого UI/профилей/
+globalCIM/базы. Лишь после результата — строгий native FILETIME безfloat,
+согласованные observer/shared guards, новый namespace02 и свежая приёмка79.
+
+После source-review77 (083eb2b9…) диагностика также не запущена. До правки
+зарегистрирован узкий план66: в observer-runner.py только безусловная ограниченная
+уборка собственного исходного Popen-дескриптора, независимо от отказа чтения
+PID/time metadata; не повторять этот запрос внутри finally, UNKNOWN сохранить.
+SAME actual sleeping-child RED→GREEN проверяет первый и повторный отказ metadata;
+даже RED-тест сам убирает свой child. Остальные четыре исходника не менять;
+новые inverse/interface/handoff и свежая независимая приёмка78 обязательны.
+
+Уточнение диагностики после независимого отказа76 (239ec4f7…): исходник
+не запускался. До правок зарегистрирован узкий план66: новый observer-runner.py
+запускает только закреплённую команду своего PS-наблюдателя, записывает его PID,
+точное время создания и argv; предел100с обеспечивается сохранённым дескриптором
+своего child, при истечении — DEADLINE_UNKNOWN и завершение только этого child,
+без подделки observer result и без убийства по имени. CIM получает timeout3с.
+Позиции исходника разрешены только точному локальному origin+pathname; связь
+console с запросом идёт по initiator.frames того же поколения документа.
+Обратные патчи и SAME RED→GREEN сохраняются; новый interface/handoff03,
+пять точных SHA и свежая независимая приёмка77 обязательны до любого UI.
+Исполнимый мост остаётся в этих же пяти исходниках: typed `run d1|p1` одним
+ROOT-controller запускает observer, ждёт ready не дольше6с и стартует helper
+не позжеobserver+10с. Наблюдатель ограничен100с, helper65с по своим дескрипторам.
+После helper controller отдельно вызывает только fixed shared Action=end:
+CIM timeout3с и общий query-child bound5с, перечитывание журнала с FileShare7,
+проверка всех сохранённых PID/start и текущих корней четырёх собственных профилей.
+Только при live0 и отсутствии неоднозначности — отдельный live-end proof и stop.
+Завершённый verifier12 используется затем для допуска P1; UNKNOWN не снимается.
+Старый отказ76 и все runtime FAILED сохраняются; PWA originals03 ещё не приняты.
+
+Текущий этап после FAILED root03 (30.10.2026):
+1. Реальная подготовка выполняла UI, но не принята. В отчёте native/device
+   восстановлены, исходные PWA D1/P1 не подтверждены; новые P2/X1 не достигнуты.
+   Причина отказа сети — четыре local POST /events с ERR_ABORTED, механизм отмены
+   неизвестен. primary.phase actual-live-local-health — устаревший ярлык последнего
+   bounded-вызова, а не доказательство сбоя health; реальные ошибки — drain guard.
+2. Observer exit0 сохранил две пустые команды; Gate правильно отказал. После
+   завершения ROOT отдельно выполнил все четыре capture/verify и everyseen26/0
+   (7c75dfb8…): это текущая проверка PID/start, а не восстановление исторических
+   команд. Оценка72e9dd9c…, свежая независимая оценка75 2e1a72b7…; все FAILED,
+   unknown/pending и фактическая saved-only noRPC-квитанция неизменны.
+3. До новой бизнес-серии — приоритетно восстановить PWA originals03. План66:
+   независимая приёмка75 короткой пассивной диагностики обычной загрузки D1/P1;
+   новые файлы только diagnostics/integration12-pwa-load-diagnostic01/. Неизменённая
+   фабрика, по одной загрузке, без prefs/login/business, без внешних разрешений.
+   До навигации — связь Request/response/failure, поколений документов, CDP и
+   console; только безопасные перечисления, времена/номера/хеши/разрешённые позиции
+   исходника, без тел, заголовков, query и личных значений. Неясность = UNRESOLVED,
+   не разрешение всех local failures. ROOT один владеет UI; закрытие всех замеченных
+   процессов проверяется независимо, отсутствующие исторические команды не угадывать.
+4. После установленной причины — минимальный сетевой guard только под доказанный
+   случай и свежая приёмка; будущий observer повторно читает команду только того же
+   PID/start, сохраняет неполную запись и UNKNOWN при неуспехе. Строгий Gate не
+   ослаблять. Новые имена/результаты, исходный baseline03 — единственный эталон.
+   Сначала доказанное восстановление D1/P1 и остальных целей, потом сценарии.
+
+Текущий результат retry01: все три исходника независимо приняты свежим74
+(source-review74-retry01.json, ee8a6795…). Точный блок argv проверен RED→GREEN;
+22 адресные проверки пройдены, прежние FAILED сохранены. Helper8b0d2368…,
+observer83d84574…, Gate4a206fba…; используется interface-retry01-canonical.json
+(c2e08e8e…), ранний interface-retry01.json — неиспользуемый метадрафт.
+После реальной приёмки74 ROOT создал только метаданные pending05 (exit0).
+Дальше: две отдельные приёмки конфигураций72, их фиксация без изменения payload,
+новый управляющий запуск root03 с обязательным возвратом настроек после выхода.
+Живых проверок экранов в этом этапе ещё не было; приложение и QA41 не менялись.
+
+Текущий этап 30.10.2026 после второй попытки серии:
+1. Исправление консольной перекодировки независимо принято73 (062d0ad3…),
+   новая конфигурация04 принята72 отдельно. Фактическая fresh-preflight успешна:
+   текущие процессы/исходники/сборка и 22 свободных маркера проверены.
+2. Наблюдатель подготовки04 завершился exit1 до создания журнала/ready и до
+   запуска помощника: exact argv сравнивает Windows-пути с обратными слешами,
+   управляющий запуск передал прямые. FAILED/unknown/pending второй попытки
+   сохранены. Ограниченная оценка ROOT (46b05042…) и независимая приёмка фактов73
+   (64949405…) подтверждают остановку до UI. Четыре записанных корневых PID
+   отсутствуют; захваченные процессы root02 отдельно проверены после завершения.
+3. Автор66 готовит узкий план исправления argv и новой области наблюдателя,
+   поскольку прежняя запись запуска неизменяема. Нельзя пропускать старую историю:
+   нужен явный подтверждённый доинициализационный отказ и актуальная проверка
+   всех сохранённых экземпляров перед следующим UI. После приёмки — новая серия,
+   затем восстановление, независимые приёмки и финальная уборка стенда09.
+
+План retry01 зафиксирован до изменений: единственный писатель66 меняет только
+`integration12-baseline-restore-revision04/helper.mjs`, его observer.ps1 и
+`integration12-root-gates/gates.mjs` вне git. Наблюдатель получает новое имя retry01,
+точное сравнение argv не ослабляется; управляющий запуск передаёт канонические
+Windows-пути. Helper/output04 и все бизнес-сценарии остаются в ещё свободных областях.
+Отказ старого observer04 учитывается отдельно: закреплённые assessment46b050…,
+review649494… и raw record/capture, отсутствие его журналов и актуальная проверка
+каждого сохранённого PID/start/command перед новым UI. Любое расхождение — отказ.
+Старая история04 относится только к собственным observer-файлам; helper04,
+его intent/result связываются с активным retry01, а не с завершённым отказом04.
+Новые управляющие выходы — revision05; исходные FAILED04 неизменны. До запуска:
+проверка реального блока сравнения argv RED→GREEN, отрицательные проверки старой
+истории, независимая приёмка всех трёх исходников и отдельные приёмки конфигураций.
+
+30.10.2026, серия integration12, первая попытка:
+- Источники подготовки04.02, управляющего запуска02 и проверок03 независимо
+  приняты; обе конфигурации приняты отдельно и зафиксированы.
+- Фактический `integration12-batch-root01` завершился exit2 до подготовки:
+  launchers пуст, case null, файлов начала/результата подготовки нет. Оба
+  записанных корневых процесса сейчас отсутствуют; короткий запуск завершился
+  до записи дочерних процессов, это ограничение сохранено. Доказательство
+  `diagnostics/integration12-batch-root01-failed-pre-ui-assessment.json` (bc95c033…).
+- Первая проверка отказала при чтении сохранённого source-review71-revision02:
+  прямое чтение JSON успешно, передача через PowerShell дала SyntaxError
+  (920534fa…). Автор66 сохранил фактические RED exit1/GREEN exit0: кодировка
+  консоли866 превращала U+2192 в U+001A. Передача исходных байтов устранила
+  искажение, результат полностью равен прямому JSON-чтению. Старые intent,
+  checkpoint и три FAILED-квитанции неизменны; неизвестность/обязательство
+  восстановления не превращать в PASS. Следом — минимальное исправление,
+  независимая приёмка и новый отдельный выходной каталог запуска.
+
+Текущий план продолжения после диагностики P2:
+1. Планы carryover67 и network amendment67 условно приняты70 (012577f8…).
+   Автор64 готовит отдельную зарегистрированную версию04, исходные03 неизменны.
+   Нужны проверка строгой связи Request/блокировка/отсутствие ответа, ожидание
+   прочитанных файлов перед переходом, учёт поколений процессов и независимый
+   возврат каждого исходного аккаунта/настроек. Причину старого missing-body03
+   не объявлять установленной. Перед UI — независимая приёмка замороженного исходника.
+2. Восстановленный стенд09 и эмулятор09 принадлежат ROOT. Установленные APK
+   фактически совпали с текущей сборкой; переустановки не было. Доказательство
+   `emulator09-current-installed-timezone-proof.json` вне git (efcbc4ba…).
+   При завершении сначала вернуть исходные GMT/auto1 с проверкой хода времени,
+   затем остановить собственные процессы по планам09; общий adb22148 сохранить.
+3. После принятой подготовки04 — два прохода пяти сценариев и обязательный
+   возврат исходных настроек после любого выхода, затем свежая приёмка результатов,
+   формальная цепочка доказательств и финальная уборка. Сценарии ещё не запускались.
+
+30.10.2026, продолжение проверки:
+- Свежий `webapp/tests/run.mjs` завершён с кодом 0: прошли 141 набора.
+  Сумма заявленных внутри наборов проверок — 2680, это не число уникальных тестов.
+  Ошибок в stderr нет; записанные процессы и их порты проверены после завершения.
+  Доказательство: `test-results/release/diagnostics/pwa-check-current12-02-result.json`
+  (SHA256 b3206b7953b9daf57c40e06bc2e66fab8b5de95a2d3e0ff8d7b551f538f1677e).
+  Первая попытка прервана инструментом без результата; успех ей не присваивается.
+- План диагностики P2 независимо принят в `p2-network-probe12-plan-review63.json`.
+  После прерывания прежнего автора источник продолжает отдельный автор64;
+  единственный доступ к браузеру и эмулятору остаётся у ROOT. Запуска диагностики
+  ещё не было. Следом — независимая приёмка исходника, затем фактическая диагностика.
+
+Текущий план после FAILED baseline03:
+1. Оригинальный baseline03 (0c269…) и FAILED03 (2b1e…) сохранены. Native/d1/p1
+фактически возвращены;56записанныхWindowsпроцессов независимо сверены, живых0
+в текущий момент (739a274…). P2 — собственный частично созданный профиль,
+логин ещё не начат; X1 не достигнут. Ключи/профиль не удалять и не читатьauthstorage.
+2. Свежий63 принимает план короткой безопасной диагностики ownP2: без логина,
+изменений настроек/данных, только обычная загрузка и метаданные сетевых ошибок.
+Обе версии JS/CSS правильные; причина трёх ошибок не сохранена, её не угадывать.
+Отдельный observer03 упал на genericidentitycheck безданных о конкретномPID;
+это НЕ доказательство PIDreuse. Староеlastsnapshot0 не используетсявместоконца.
+3. По фактам диагностики — минимальный fix/carryover с новым исходником и приёмкой.
+Исходные поля baseline03 остаются правдой, P2 нельзя назвать вновь отсутствующим.
+После подготовки —10локальныхинтеграций и обязательное восстановление послеЛЮБОГОвыхода.
+Все48extras уже приняты в scoped aggregate (a300778…/peer78d1c617…); собственные
+visualfixtures мягко сняты, больше не обновлять. Whole06/BAhuman/physical07 OPEN.
+
+Вторая проверка вкладок сохранена как FAILED (result059649…): все четыре
+варианта Trips сняты, ошибка первого Notifications — helper запрещал ряд
+ниже половины экрана. Реальный ряд [54,1211][1026,1374] виден в2340px,
+но условие y<1170 его отбрасывало. finally вернул устройство, prefs и Рустама;
+ошибок восстановления нет, v2verify0,196 исходныхV4событий сохранены.
+56 готовит новый scoped helper только для четырёх Notifications, с прежними
+ограничениями жестов/полных целей. Четыре Trips будут приняты отдельно59;
+FAILED02 никогда не переименовывается в PASS. Требуются все8уникальныхсостояний
+на том же product/head/QA, независимо от числа диагностических запусков.
+Новая baseline-revision02 принята свежим60 (report1c58803…): четыре замечания58
+устранены,13 meaningfulfixtures просмотрены; runtime ещё не запускался.
+До business всё ещё нужно завершить48extras, retire только собственных fixtures,
+затем подготовить фактический baseline и новыеp2/x1. Никаких прод-изменений.
+
+PWAchat12 фактический PASS12/восстановление/закрытие подтверждены, все12PNG
+лично приняты55:8чатов+4пустыеЗаявки, populatedнепроверены (reportafe0acb…).
+Предварительнаянаходкапустойdarkязыковойплашки ОТОЗВАНА: исходныеRGBAсодержат
+буквы; областиchat/Requests совпадают, продуктовыйфикс не обоснован.
+PWApayment12 фактический PASS8/0paymentactions/0fixturewrites,
+prefs RU/system/normal и NULLфлаги/аккаунты1,3вернулись, contextsclosed/errors[].
+Наблюдательзавершёнпослеcase/last0/v2verify0;289V4событийсохранены.
+Независимый55 проверяет8primaryPNG. Baselinehelper05a921…/observer2d0c08…
+заморожены metadata; свежий58проверяетисточникидоUI, runtimeещёнезапущен.
+
+Дополнительная карта12: фактический PASS4/66, настройки/аккаунт/устройство возвращены,
+независимый56 принял четыре кнопки водителя. NativeTabs12 завершён FAIL2/8:
+helper ошибочно требовал scrollable=true для целиком помещающегося BA-ряда;
+также обнаружен ложный RU inventoryPASS для обрезанного «Все». ИсходныйFAIL
+сохранён, finally вернул prefs/device/actor, v2verify0; 56 готовит отдельный
+registered revision02 только helper, без изменения продукта/QA/HEAD.
+PWA layout12 фактический PASS16:12 реальных кадров+4 статическихCSSбаннера,
+не реальныйSWцикл. Все16PNG лично приняты55 в этомscope (report54c6d54…);
+prefs/NULL/actor восстановлены, observer завершён послеcase, lastprocess/port0.
+Короткий18.7s child capture пропущен: v2 creationguard отказал, capture невыдуман;
+общий точнопрофильныйobserver работал всёвремя. PWAchat12 сейчас идёт.
+
+Полный12 наконец завершён PASSED:68 уникальных кадров,1476 проверок,
+16 шагов, ошибок0; source_start=end, mainprefs.errors[], исходныйРустам,
+RU/system/normal возвращены. Result759e4b2c…. Исходные install-флаги обоих
+профилей фактически вернулисьNULL/readback/actors1,3/closed (restoreace44ff0…).
+Только затем общий observer остановлен:60seen/lastprocesses0/ports0/exit0;
+mainv2/v3final01+observerv2 verified0,2145+58+58 исходных V4событий сохранены.
+Независимые56/55 лично приняли все36Native+32PWA кадра в их областях и прочли
+rawmain/restore/observer. Это ещё не whole06: BAноситель/дополнительные48/07 открыты.
+Root выполняет48дополнительныхкадров последовательно. ПервыйNativeMap12guard
+корректно отказал ДОUI из-за пропущенного RootRSACC_TASK_PWSH; результатныефайлы
+не создавались. Новыйrunnernative-map-driver-extra12-run02 с темжеисходником
+4ec724… идёт, текущих3/4PNG. Общийfull12PASSнеизменён, source4b4a/b15/QA24e frozen.
+Обнаружен настоящий gap01–05: ихfinallyзакрываетбраузеры, ноне batchprefs/actor;
+metadataготовит2отдельныхboundedcapture/restore+observerпоplan28a/peer623.
+СначалаbaselineДОподготовки01A, новыеp2/x1ещёнесуществуют: ordinaryUIlogin+
+своиassetbodyproofs/actualselfIDs, неguess5/6. Никакогоcredentialstoreчтения;
+nativepreferred_role getterтолькоотдельныйUIstoreyuldash_prefs, токеныyuldashзапрещены.
+PWAroleточныйвозвраттолькоallowlistnonsecretkeyпослевозвратаactor, неonboarding.
+SourcehelperбудетпринятнезависимодоUI;10businesscasesещёне запускались.
+
+Версия12 зафиксирована в4b4a475d: помощник прокрутки проверяет действительные
+границы своих scroll-предков до выбора и до единственного нажатия. Чужой соседний
+scroll не ограничивает закреплённые кнопки. Циклы, бюджеты, паузы и прежние
+пороги.08/.88/.96 сохранены, исходный scrollGesture не менялся.
+На том же Node-тесте9f8a663…: прежний реальный критерий дал8ERR_ASSERTION+7PASS;
+после исправления те же15PASS/0FAIL/0SKIP. Fresh gpt-6.1-sol57 независимо принял
+исходники и сырые протоколы (6275420e…). Приложение/source1312/b15 и прежние
+351 проверки приложения не менялись; эти351 не запускались и не считаются заново.
+QA41 теперь24e31403…. Обе сборки повторены и прошли; фактические APK9db/test6f/
+PWAa4e прежние, установка сверена (binding9de21b09… / installe73502ff…).
+PWAupdate12 фактически прошёл для1/3: файлы сверены,0updateclick, не SW-cycle;
+настройки возвращены, браузеры закрыты, observer16seen/last0/exit0.
+Новый полный12 реально запущен23:39:14Z, job38220. Пока только первый RUlight
+комплект5Native+6PWA, полный68 не принят. Оба исходных install-флага временно1;
+после ЛЮБОГО исхода сначала restore12кNULL/readback/actors/closed, лишь затем
+остановка общего observer39896. Все8extras12 приняты только по исходникам,
+runtimeHOLD до actualFULL68PASS+NULLrestore; затем отдельные UI48 и10интеграций.
+Текущий короткий журнал: LOCALAPPDATA/yuldash/rideshare-claude-tails-20261024/
+latest-root-state12.json. Точный старый miss11 не воспроизведён; tap12targetflag=false,
+подготовительная SAME XML доказала пробел в старом критерии. BA/телефоны07 открыты.
+
+Диагностика tap12 закрыта PASS/22 проверка/0 ошибок, настройки/устройство/актор
+восстановлены, source_unchanged=true (32033e65…). Точный старый промах не повторён:
+original_clipped_gate_reproduced=false в целевой фазе. В подготовительной SAME XML
+8ea9318f… старое правило разрешает обрезанную строку; отдельная более строгая
+проверка реального scroll открыла настройки и прочла RUdark. Это не PASS всего06.
+План12: вынести прежний критерий видимости в чистую функцию помощника нажатий;
+на её реальном старом поведении получить адресные RED на нижнем обрезании/1px;
+с теми же тестами добавить проверку своих scroll-предков (не чужих контейнеров),
+получить GREEN и независимую приёмку; только затем новая QA-версия и полный68.
+Приложение не менять, прежние циклы/паузы/порог.08/.88/.96 не ослаблять;
+кнопки вне scroll должны работать как раньше. Сборки/интеграции — после фиксации.
+
+Версия11 завершена FAILED:140 check.ok/0 check.fail,1 step.fail на base Android
+ru-dark, только11 кадров (5Native+6PWA RUlight). При входе в настройки tapSettings
+имел y1996 — границу прокрутки1996; точного XML нажатия нет, причина пока
+не установлена. FAIL PNG показывает Профиль. Начальная driver-правка не достигнута.
+Mainfinally вернул настройки, errors[],source_start=end. Helper11 фактически
+вернул оба флага к исходным NULL/readback/actors1,3/closed, restore68d80dff….
+Только затем общий observer31884 остановлен:43seen/lastlive0/exit0;
+202+58+58 исходных V4 событий сохранены; main/observer v2 verify0.
+Следующий шаг — ограниченная диагностика Settings tap с SAME XML, прежней
+проверкой нажатия и отдельным сравнением с реальной областью прокрутки.
+Приложение/QA сейчас всё ещё4c1684bf/b15/7881, ничего не изменено после прогона.
+Все8 extras11 приняты только по исходникам, выполнение заблокировано.
+
+30.10 (МСК), версия11: тест водителя ждёт две нужные надписи до прокрутки.
+Изменены только4 строки S06; источник принят независимым55 (c629ccf7…).
+HEAD4c1684bf, QA41/7881d25a…, product1312/b15 и все тесты приложения прежние.
+Обе сборки повторены и прошли; фактические APK9db/test6f/PWAa4e прежние.
+Bindingd3cbb050…; предыдущие149 артефактов сохранены по контрольным суммам,
+из них только один новый APK180509231 байт; остальное повторно не копировали.
+Один диагностический кадр водителя B принят56 только в его области (c6fe0226…).
+Полный68 версии11 ещё не запускался; ниже результат10 остаётся FAILED.
+
+30.10 (МСК), версия10: кнопка «Повторить» целиком помещается в строгом тесте.
+На том же тесте27a839e0…: исходный экран4FAIL+1PASS; первый кандидат4FAIL+1PASS
+(надпись уже помещалась, область кнопки ещё на11px ниже видимой области);
+второй кандидат5PASS. Обе неудачи сохранены, условия не менялись.
+Единственные изменения экрана — два промежутка Canon*: внутри карточки12→8dp,
+между предупреждением/карточкой/кнопкой16→12dp; текст, шрифт, остановки,
+правила доступа, срок хранения и действия сохранены. SHA компонента11c31a88….
+HEAD401faff1, product1312/b15f5749…, QA41/424a8053…; исходники зафиксированы.
+На текущем коде 351 уникальная проверка / 61 XML без ошибок и пропусков;
+пять адресных проверок уже входят в351. Независимый56 сверил все сырые XML.
+Android debug+androidTest и PWA build прошли. Оба Android-пакета установлены
+и совпали по фактическим контрольным суммам: binding4a636fa8… / installc5da85da….
+PWA check141 наборов применим по неизменённым исходникам; веб-часть между
+8b7a93f0 и401faff1 не менялась. Сборка PWA фактически повторена и прошла.
+Settings-probe10 завершён: все4 варианта прошли, исходные настройки возвращены,
+четыре снимка и12 XML независимо приняты. PWAupdate10 прошёл для1/3: файлы
+уже текущие (0 нажатий обновления), настройки возвращены, браузеры закрыты.
+Полный10 завершён FAILED: 927 check.ok, один step.fail на B/ru-light до первого
+кадра водителя; всего56 из68. Все44 базовых +4A согласия Native +4A PWA +4A
+офлайн просмотрены независимо и приняты только в их визуальных областях.
+Точный XML ошибки отсутствует; поздний PNG уже показывает нужный экран.
+Причина воспроизведена отдельной диагностикой B11: в XML решения прокрутки
+ещё загрузка, целевых надписей и контейнера нет. После ожидания двух надписей
+строгая проверка прошла. result9de9bc4a…; closed/restored/source_unchanged=true.
+План11: добавить только два driver-only ожидания перед прежними прокрутками;
+независимо проверить diff, зафиксировать QA, сохранить единственный новый APK
+по контрольной сумме, собрать и проверить фактические пакеты; повторить все68.
+Только после полного PASS и восстановления флагов — оставшиеся UI и01–05.
+Старый полный10 остаётся FAILED; приложение в этой правке не меняется.
+Основной finally вернул настройки без ошибок, source_start=end. Затем helper10
+вернул оба внешних install-флага к исходным NULL/readback/actors1,3/closed;
+restore902c7744…. Только после этого остановлен observer25668:52seen/last0,
+main v2/v3 и observer v2 verify0, сохранены1453+58+58 исходных V4 событий.
+Проверка всего68 и режима не принята; extras и10 текущих01–05 ещё не запускались.
+Источники: diagnostics/native-retry10-{red,candidate01-failed,green02}/,
+diagnostics/offline10-units/result.json (834b0e25…),
+diagnostics/final10-acceptance56.json, build-binding-narrow-layout10.json
+в test-results/release/. Подтверждение BA носителем (также06) и телефоны07 открыты.
+
+29.10 20:32Z — исправление офлайн-карточки сохранено в 8b7a93f0.
+Убран только дублированный заголовок участка в сохранённой поездке; остановки,
+состояние и время сохранения остаются. В обычной поездке заголовок сохранён.
+Один и тот же тест на четырёх профилях: до исправления 4 ошибки геометрии,
+после — все 5 проверок класса прошли. Затем 351 уникальная проверка / 61 XML
+без ошибок; Android debug и androidTest, PWA check (141 набор) и build прошли.
+Новая сборка действительно установлена: binding d95a2cea…, install 73323718….
+DIAGNOSTIC-NATIVE-COLD09-early01 завершён ошибкой: 238 успешных проверок,
+два кадра RU/light,dark; шаг A/ba-light не прочитал однозначно настройку.
+XML момента ошибки не сохранён; причина пока не подтверждена. Сведения
+о поездке в обоих полученных кадрах видны целиком. Независимый55 нашёл частично видимую «Повторить»;
+прокрутка предусмотрена кодом, фактическая недоступность не подтверждена.
+Причина сбоя настроек подтверждена отдельной диагностикой b7750bed…:
+заголовок размера текста виден на краю прокрутки, выбранное значение скрыто.
+SAME XML d3c21414… сохранён; исходные настройки/экран/аккаунт восстановлены,
+процесс закрыт, 83 исходных события V4 сохранены. Проверяющий сценарий теперь
+прокручивает до самого значения в пределах реальной области; строгое условие
+одного значения сохранено (независимый55 принял исходники da155562…).
+План10: новый Retry-тест 27a839e0… дал 4 ошибки видимости + 1 PASS на старом
+экране (сырой XML/result 3e593926…); единственная правка — промежутки внутри
+карточки CanonSpace.md→sm, затем те же проверки и новая сборка/установка,
+ранние 8 cold-кадров, полный06 и дополнительные экраны. Сейчас идёт GREEN01.
+Перед изменением сохранены 149 ссылок на сборки, новых копий только2
+(182473951 байт), manifest a8ad1a31…. Весь экран и режим ещё не приняты.
+Источник: test-results/release/diagnostics/offline09-units/result.json,
+diagnostics/final09-acceptance55.json, runs/DIAGNOSTIC-NATIVE-COLD09-early01/.
+Старый FAILED08c сохранён без изменений. Подтверждение башкирского носителем
+(также входит в 06) и проверка физических телефонов 07 остаются открыты.
+
+29.10 19:27Z: full08c завершён FAILED344PASS/1FAIL/46matrix, result3b726cba…;
+44base ипервыйnativeconsent535pxпринятыpartial53/54, ноcoldsaved-time ниже96%кадра.
+TimestampестьнаFAIL-android; preciseXMLне сохранён — точныйbottomневыдумывать.
+Обычныйfinally prefs errors0/initialРустам/source_start=end; externalrestore
+a996f742… оба1→исходныйNULL/readback/actors1,3/closed. Observerstop/verify0,
+casev2+d1v3verify0;742originalV4lines frozen. Ниextras08c, ни10businessrerunsнеRUN.
+План09(54:483334c6…, peer53условноaccepted): legacyRED4actualheightoffline →
+optionalshowSegmentLabel defaulttrueвBookingSegmentNote, толькоofflinefalse →
+sameGREEN4/affectedguards/build → numericgeometrylogsизтехжеnodes/литеральные
+OFFLINE_UIhashes послеfinalbytes → targetedcold8передfull68 → всеextras/payment.
+Required08cAPKs/dist сохранены149refs/117newcopies182544278B,manifestb7c4e929….
+PWAнаb6b2безпродуктовыхизменений; authorpayment08ctemplateblockedFAILEDguard.
+ПослеUIприёмки — retireтолькосвоихvisual105106/109110, одинcurrent01–05integration
+10cases(старые155миннеETA), текущиефлаги/ownershipfixtures/safeemptyridecleanup.
+BAhumanобязателентакже06;physical07open. НеобходитьstrictschemaстарымPASS.
+
+29.10 18:51Z: FINALsourceb6b2f801/1311/5a76d6a6 frozen, QA41dd132unchanged.
+Actualnew11GREEN03 XMLdf01ba50…/0FAILERRORSKIP, толькоtesthelperstate+Looperpump.
+Независимый53 подтвердил277=266unchangedPASS08b+11freshPASS; failed08b сохранён.
+Android08c/debug+androidTest иPWA08c сборки0, installeddebug/testSHA совпали,
+bindingd3467aac…/inputs6e11374e…/install2ac10a1d…/producer30e6e7bc…/configb88cb61a….
+Update08c actualPASSdde68598…: оба1/3, singleclick/currentJS+CSS/prefsrestored/closed,
+81originalV4lines frozen; observer20220иcase21136 закрыты/verify0.
+Сейчас trialnav27/24PNG PID4776 сsourcecf370ca0…, observer16288; oldflagsNULL,
+файлы результатов07/08bне переписываются. Далееfull68consolidated08c.
+Freshstand после отсутствияпрежнихPID:API23740/18:30:16.882109Z, proxy22088,
+PWA19064, emulator24612; sharedADB9044 сохранить. PIDповторнозанятыечужимине трогали.
+Before/afterstartup+localhosthealth08 proof499218e4…:68counts/scalars+DBWALhashsame
+только вэтомокне; это не всемирныйnetworkdeny и не историческоеno-send.
+Cleanupplanowned-stand-final08-plan.json; originaltimezoneGMT/auto1 восстановить
+сreadback+epochпередgracefulemukill. BAноситель/реальныйтелефон07открыты.
+
+29.10, продолжение08: recovery флагов07 завершён, обе исходныеNULL/readback.
+Nav diagnostic07 завершён:8наборов, prefs/viewport/flag восстановлены, contextsclosed,
+unknownwrites0; result3fc9956d…; исходный CSS не вмещает BA Profile (right329.281>320).
+План08: сохранить07сборки → исправить2nativefooter+узкийCSS → actual unit/guards/build →
+ранний nav/consent gate и новый полный06 → независимые скриншоты/приёмка → cleanup.
+07артефакты сохранены с дедупликацией149refs/117newfiles/182541329байт,
+manifest9bb026f9…; старыеfailed07результаты неизменны. Native exact2draft применён,
+новыйtest153ff… наlegacy дал2BAFAIL+2RUPASS; это partialRED, не4FAIL.
+Сейчас native08GREEN01 actual запущен; свежий source-review52 ad27a842… условно принят,
+runtime/весьрежим ещё не приняты. CSS02draft ожидает freshpeer+раннийactualgate.
+BAподтверждение и реальныйтелефон07 по-прежнему открыты; main/push/prod не выполнялись.
+
+29.10 07:30Z: mandatoryexternalflag recovery actual PASS0d714513…,
+actor1/3 до/после, обе1→исходныйNULL/readback, contextsclosed/phaseclosedtrue/cleanup0.
+Source2e019944… принят46(0d98c68c…); старыеfailed07/prepare/observer не переписаны.
+Новыйobserver29060captured/stop/exit0/seen17/lastprocesses0/listen0/verify0.
+RestorePID7576завершилсядоlivecapture — пробелучтён, fakecaptureне создан.
+Восстановитель менял толькоsoleflag; это не новое доказательство чтения всехpref.
+Теперь отдельный navdiagnostic07 поplan46 2578c118…: 8 numericbaseline sets,
+всегда layoutAccepted=false/knownP2=true, oldPASSextrasguards не ослаблять.
+Author12модельatcapacityдофинальногоnavhandoff; Rootпередалединственнуюзапись33,
+native49толькоignoreddrafts двухфайлов/test, actualproduct/QA/HEAD001255frozen.
+Nativeplan03 условно принят50(587b3c3f…), effectiveAppButtonstyle+actualRED/GREEN открыты.
+
+29.10, актуальный итог07: W1-E2E-06-consolidated07 FAILED01:59:19Z,
+result41ceaefd…/322 checks/46matrix (44base+2firstAconsent), НЕ68PASS.
+Главный finally: restorationerrors0/РустамRU-system-normal/sourcebefore=end;
+681originalV3lines frozen, target105/106mutatingPOST в них нет.
+Actualreadonly24086e2c… после: обеonboard/answerNULL/winterackNULL/shares0/SOS0,
+contacts3/4=1/globalSOS0. Casecapture+lateD1+obserververify завершены.
+НО externalInstallflags ещё1: общийobserver timedout03:34:11Z; попыткаrestore07
+07:01:22Z остановилась ДОUI настаромobserverexited. Нуженfreshrestore-onlyrecovery
+12→46review→RootactualNULLreadbackboth, ДОлюбогоновогорuntime/productwrites.
+НовыйP1Android49 доказан XML/2PNG: main46px, footer1942px; scrollguardmin280.8.
+Причина PRODUCTlayout, неloading/QA; неослаблятьguard/неприбавлятьblindwait.
+Предпочтительныйnative08plan03 1db3d34d…: compactactionsrow+report-onlyduplicate
+noteвpending, state/callbacksвpersistentfooterбезLazyhoist. Fresh50reviewдоauthoring.
+НовыйP2PWA48: BAнижнийПрофильобрезанв8PNG; reporte527bcf4… . План33 2ecbb1e1…
+ждётactualintrinsicDOMfit; старыеextras требуютPASSED и сейчаснепригодныдлязапуска.
+Отдельныйнавдиагноз планирует46: толькоизмеренияпослеfreshrestore, неfullacceptance.
+Продукт/QA/HEAD001255 покаНЕменялись, толькоdocsprogress; BA/реальный07 открыты.
+
+29.10 01:35Z: gate07-new03 actual PASS8/8, resultbfbe3f54…; все320=scroll320,
+8protectedwinterbefore/after равны, declared4winterPOST200/no_share,
+unknownwrites0/neterrors0/prefs+soleflags restored/contextsclosedtrue/cleanup0.
+Freshvisual48 лично просмотрел8PNG, P0/P1/P2нет, reporta7e58bda…;
+paymentseg вне этих viewport — видимость ещё в main68. Observer29052exit0,
+seen18/lastprocesses0/listen0/captureverify0; latep1captureпослеexitне создан.
+266оригинальных V3 строк сохранены consent-gate07-new03-wire-extract.
+Producer07 actual exit0/versionbeforeexecution. Installprepare07 c48a9bdb…READY,
+обаoriginalflagnull→1, prefs restored/closed. ПОСЛЕmainPASSEDилиFAILED+runnerexit
+ОБЯЗАТЕЛЬНО restore-pwa-install07/readback ДОstopобщегоobserver/итога.
+W1-E2E-06-consolidated07 RUNNING PID16936, start01:34:53.138231Z;
+observer20884 start01:34:09.817348Z, обаinitialcapture есть. HEAD001255e frozen.
+Case ещё не PASS; BA и реальный07 открыты, дополнительные кадры ещё впереди.
+
+29.10 01:23Z, gate07 пока НЕ пройден: первый запуск33904 остановился до intent/UI
+на двух Windows-именах одной папки (samefile доказан readonlymetadata310da…);
+aliasfix03 принят45. Второй36836 также остановился ДО UI/refresh: требование
+contacts3/4=0 оказалось неверным. Actual readonlyaggregate f5bfe760…: один контакт,
+но shares105/106=0, linkedcontacts0, SOS0, winterackNULL, globalSOS0.
+Существующий контакт не удалять. В safety.py winter_check выбирает телефоны только
+из TripShare; без передачи поездки этот контакт не используется. Новый guard обязан
+закрепить baseline1 и его неизменность, сохранив строгие target0/provider/safeState guards.
+Оба observer закрыты; у второго capture/verify выполнены, seen0/last0.
+Короткие case livecapture не сняты; ограничения честно сохранены, не allchildren proof.
+
+29.10, продолжение07: isolated API18528 запущен после независимой source44-приёмки;
+runtime-start-health-proof.json 3e9a26c4… подтверждает только старт/health без изменения
+68 счётчиков таблиц, защищённых105/106 и DB/WAL. Провайдеры уведомлений отключены
+настройками этого процесса; это не общий сетевой запрет и не доказательство отсутствия
+старых отправок. UPDATE07 actual PASS80af5e67…: actor1/3, реальные новые JS/CSS,
+исходные настройки возвращены, оба браузера закрыты; observer exit0/verify0.
+Build/install07 зелёные, binding a9f6fe37…; HEAD001255e9/source1310 b140c1db… frozen.
+План: узкий guard автоматического winter-check106 и WS→свежая приёмка45→8 состояний
+PWA→полные68→остальные видимые состояния→вывод тестовых поездок из оборота/уборка.
+Нельзя отвечать winterOK за человека или сбрасывать winter-поля SQL. BA/реальный07 открыты.
+
 29.10, consolidated07 CODEFROZEN: acceptedplan03точноприменён(52CSS+2classname),
 SegmentedTabsselectedforegroundCanonOnFilled; identicalREDtestcandidate7b33276d…переустановлен.
 Freshsource43ПРИНЯЛ5файлов, P0/P1/P2нет; handlers/цены/переводынеизменны.
