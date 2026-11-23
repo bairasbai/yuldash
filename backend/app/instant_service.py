@@ -2904,7 +2904,8 @@ class _SearchOwnerLost(Exception):
 
 
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "", *,
-                 search_owner: "tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None" = None
+                 search_owner: "tuple | _QueuedSearch | _LegacyOfferSearch | _ScheduledActivation | None" = None,
+                 _scheduled_notice: tuple[str, str] | None = None,
                  ) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
@@ -2976,6 +2977,13 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     if search_owner is not None and result.rowcount != 1:
         session.rollback()
         raise _SearchOwnerLost()
+    if scheduled:
+        # Capture the terminal event owned by this write, never reconstruct
+        # from whichever row a later post-commit query happens to observe.
+        expected = dict(zip(_SCHEDULED_ACTIVATION_FIELDS, search_owner.values, strict=True)) | values
+        terminal = tuple(expected[field] for field in promo_ride._STUCK_CLOSE_FIELDS)
+        session.commit()
+        return _finish_scheduled_suspension(session, order_id, terminal, _scheduled_notice)
     session.commit()
     if result.rowcount == 0:
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
@@ -3360,6 +3368,49 @@ def _same_scheduled_activation(order: InstantOrder, owner: _ScheduledActivation)
             and tuple(getattr(order, name) for name in _SCHEDULED_ACTIVATION_FIELDS) == owner.values)
 
 
+def _finish_scheduled_suspension(session, order_id, terminal, notice):
+    def exact():
+        return session.exec(select(InstantOrder).where(
+            *promo_ride._closed_scheduled_suspension_predicates(terminal),
+        ).execution_options(populate_existing=True, autoflush=False)).one_or_none()
+
+    def latest():
+        fresh = session.get(InstantOrder, order_id, populate_existing=True)
+        if fresh is None:
+            raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
+        return fresh
+
+    fresh = exact()
+    if fresh is None:
+        return latest()
+    # Same eligible release, with the existing Redemption -> Order order.
+    # Independently guarded at the physical promo write; no lock around
+    # Redis/push and no legacy effects if the guarded release lost its row.
+    if (fresh.promo_discount_kop or 0) > 0:
+        if not promo_ride.release(session, fresh, _closed_scheduled_suspension=terminal):
+            return latest()
+        terminal = tuple(0 if name == "promo_discount_kop" else value
+                         for name, value in zip(promo_ride._STUCK_CLOSE_FIELDS, terminal, strict=True))
+    if exact() is None:
+        return latest()
+    _cleanup_tried(order_id)
+    fresh = exact()
+    if fresh is None:
+        return latest()
+    _notify_cancel(session, fresh, Actor.passenger)
+    fresh = exact()
+    if fresh is None:
+        return latest()
+    if notice is not None:
+        from .services import push_notification
+        push_notification(
+            session, fresh.passenger_id, "taxi",
+            "Заказ отменён", "Заказ кире алынды",
+            notice[0], notice[1], ref_kind="instant", ref_id=order_id,
+        )
+    return fresh
+
+
 @dataclass(frozen=True)
 class _QueuedSearch:
     search: tuple
@@ -3510,9 +3561,10 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, ref
     else:
         return None
     order_id, passenger_id = order.id, order.passenger_id
+    scheduled_notice = {"_scheduled_notice": (ru, ba)} if isinstance(search_owner, _ScheduledActivation) else {}
     try:
         cancelled = cancel_order(session, order_id, Actor.passenger, passenger_id,
-                                 "passenger_suspended", search_owner=search_owner)
+                                 "passenger_suspended", search_owner=search_owner, **scheduled_notice)
     except _SearchOwnerLost:
         if isinstance(search_owner, _QueuedSearch):
             raise
@@ -3522,6 +3574,8 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, ref
         # Stop this matcher without claiming it cancelled a later search or
         # issuing a suspension notice about the passenger's own cancellation.
         return fresh
+    if scheduled_notice:
+        return cancelled  # sent only by the exact owned scheduled terminal effects
     from .services import push_notification
     push_notification(
         session, passenger_id, "taxi",
