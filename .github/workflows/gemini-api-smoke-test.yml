@@ -79,6 +79,7 @@ jobs:
               and re.fullmatch(r"models/[A-Za-z0-9._-]+", model.get("name", ""))
               and not any(x in model.get("name", "").lower() for x in ("tts", "image", "embedding", "robotics"))
           ]
+          print("Neon model listed: " + ("YES" if "models/gemini-4-neon" in options else "NO"))
           if not options:
               print(f"Models listing: HTTP {code}; no text generateContent model available")
               sys.exit(1)
