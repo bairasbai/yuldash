@@ -309,8 +309,18 @@ def _closed_stuck_predicates(snapshot: tuple) -> tuple:
     )
 
 
+def _closed_nightly_predicates(snapshot: tuple) -> tuple:
+    # A cancelled order cannot enter legacy waiting. A nightly expired
+    # scheduled order can, so only the unchanged, unqueued close can release.
+    return (
+        (InstantOrder.status == InstantOrderStatus.cancelled)
+        | ((InstantOrder.status == InstantOrderStatus.expired) & InstantOrder.wait_until.is_(None)),
+        *_stuck_close_identity(snapshot),
+    )
+
+
 def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None = None,
-            _closed_stuck: tuple | None = None) -> bool:
+            _closed_stuck: tuple | None = None, _closed_nightly: tuple | None = None) -> bool:
     """Поездка не состоялась → скидка возвращается пассажиру (не сгорает). Идемпотентно.
 
     Возврат True — скидка действительно снята с этого заказа. Одного переданного id
@@ -326,6 +336,8 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
     closure_guard = _closed_wait_predicates(_closed_wait) if _closed_wait is not None else ()
     if _closed_stuck is not None:
         closure_guard += _closed_stuck_predicates(_closed_stuck)
+    if _closed_nightly is not None:
+        closure_guard += _closed_nightly_predicates(_closed_nightly)
     cleared = session.execute(
         update(InstantOrder).where(
             InstantOrder.id == order.id,
@@ -347,7 +359,8 @@ def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None
 
 
 def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None,
-                _closed_stucks: dict[int, tuple] | None = None) -> int:
+                _closed_stucks: dict[int, tuple] | None = None,
+                _closed_nightlies: dict[int, tuple] | None = None) -> int:
     """Вернуть скидку по списку заказов, закончившихся без поездки. Своя сессия.
 
     Возврат обещан в шапке модуля — «поездка не состоялась → скидка возвращается», — но
@@ -365,7 +378,7 @@ def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None,
     freed = 0
     with Session(engine) as session:
         for oid in ids:
-            if _closed_waits is None and _closed_stucks is None:
+            if _closed_waits is None and _closed_stucks is None and _closed_nightlies is None:
                 order = session.get(InstantOrder, oid)
                 if order is not None and release(session, order):
                     freed += 1
@@ -381,8 +394,15 @@ def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None,
                 if stuck is None:
                     continue
                 guards.extend(_closed_stuck_predicates(stuck))
+            nightly = None if _closed_nightlies is None else _closed_nightlies.get(oid)
+            if _closed_nightlies is not None:
+                if nightly is None:
+                    continue
+                guards.extend(_closed_nightly_predicates(nightly))
             order = session.exec(select(InstantOrder).where(InstantOrder.id == oid, *guards)).one_or_none()
-            if order is not None and release(session, order, _closed_wait=waited, _closed_stuck=stuck):
+            if order is not None and release(
+                session, order, _closed_wait=waited, _closed_stuck=stuck, _closed_nightly=nightly,
+            ):
                 freed += 1
     return freed
 

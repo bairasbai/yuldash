@@ -859,59 +859,49 @@ def close_stale_orders(now=None) -> int:
     """Закрыть такси-заказы, зависшие в активном состоянии. Возвращает, сколько закрыто."""
     now = now or utcnow()
     cut = now - timedelta(hours=settings.taxi_stale_hours)
-    closed = 0
-    with engine.begin() as conn:
-        # Водителю важнее всех: пока заказ висел, он не мог взять ни одного нового.
-        # Списки разные, потому что и правда разная: несостоявшийся заказ и состоявшаяся
-        # поездка с комиссией — это два разных письма человеку.
-        #
-        # Пассажира тоже уведомляем (аудит 2026-08-08, волна 19). Ровно та беда, что описана
-        # в шапке этой функции — «у пассажира в приложении оставалось "вы едете"» — чинилась
-        # только со стороны водителя: он получал письмо, пассажир не получал ничего.
-        cancel_victims = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, driver_id FROM instantorder "
-            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        cancel_pax = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, passenger_id FROM instantorder "
-            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        done_victims = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, driver_id FROM instantorder "
-            "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        done_pax = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, passenger_id FROM instantorder "
-            "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'cancelled' "
-            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
-        ), {"cut": cut}).rowcount or 0
-        # done_at обязателен: без него поездка выпадает из заработка водителя и из стажа для
-        # лесенки комиссии — комиссию бы взяли, а поездку человек в своей истории не нашёл.
-        closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
-            "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut, "now": now}).rowcount or 0
-        stale_scheduled = [r[0] for r in conn.execute(text(
-            "SELECT id FROM instantorder "
-            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
-        ), {"cut": cut}).all()]
-        closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'expired' "
-            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
-        ), {"cut": cut}).rowcount or 0
-    _accrue_auto_done([oid for oid, _ in done_victims])
-    # Поездки не было → промокод возвращаем человеку (обещание в шапке `promo_ride`).
-    # Закрытые как «done» сюда НЕ попадают: там поездка состоялась и скидка отработала.
     from . import promo_ride
-    promo_ride.release_ids([oid for oid, _ in cancel_victims] + stale_scheduled)
-    _notify_closed("order", cancel_victims)
-    _notify_closed("order_done", done_victims)
-    _notify_closed("order_pax", cancel_pax)
-    _notify_closed("order_done_pax", done_pax)
-    return closed
+    from .taxi_route_resume import _MARKERS
+
+    # This is an ordinary-only closure. Keep each existing age/status rule
+    # at the write itself, and never act on IDs or owners selected earlier.
+    unmarked = " AND ".join(f"{column} IS NULL" for column in _MARKERS)
+    # Reuse the ordinary closure identity, with real typed values from the
+    # exact write (not a new read that could observe someone else's queue).
+    closure_columns = promo_ride._STUCK_CLOSE_COLUMNS
+    closure_return = ", ".join(promo_ride._STUCK_CLOSE_FIELDS)
+    with engine.begin() as conn:
+        cancelled = conn.execute(text(
+            "UPDATE instantorder SET status = 'cancelled' "
+            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut "
+            f"AND {unmarked} RETURNING {closure_return}"
+        ).columns(*closure_columns), {"cut": cut}).all()
+        # done_at обязателен: без него поездка выпадает из заработка водителя и из стажа.
+        done = conn.execute(text(
+            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
+            "WHERE status = 'onboard' AND created_at < :cut "
+            f"AND {unmarked} RETURNING id, driver_id, passenger_id"
+        ), {"cut": cut, "now": now}).all()
+        expired = conn.execute(text(
+            "UPDATE instantorder SET status = 'expired' "
+            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut "
+            f"AND {unmarked} RETURNING {closure_return}"
+        ).columns(*closure_columns), {"cut": cut}).all()
+    # Existing finance/notice steps are post-commit and only use the rows
+    # changed by this transaction. Closed-as-done never releases the promo.
+    if done:
+        _accrue_auto_done([row.id for row in done])
+    if cancelled or expired:
+        closures = {row.id: tuple(row) for row in (*cancelled, *expired)}
+        promo_ride.release_ids(closures, _closed_nightlies=closures)
+    if cancelled:
+        _notify_closed("order", [(row.id, row.driver_id) for row in cancelled])
+    if done:
+        _notify_closed("order_done", [(row.id, row.driver_id) for row in done])
+    if cancelled:
+        _notify_closed("order_pax", [(row.id, row.passenger_id) for row in cancelled])
+    if done:
+        _notify_closed("order_done_pax", [(row.id, row.passenger_id) for row in done])
+    return len(cancelled) + len(done) + len(expired)
 
 
 # ------------------------------ протухшее «Я оплатил» ------------------------------
