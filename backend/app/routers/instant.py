@@ -393,9 +393,10 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
     _guard_taxi_available(session, body.from_lat, body.from_lng)   # пассажиру — только гейт (a)
     # Предзаказ считаем на ВРЕМЯ ПОДАЧИ, обычный заказ — на сейчас (см. EstimateIn.scheduled_at).
     когда = _parse_scheduled_at(body.scheduled_at) if body.scheduled_at else None
+    waypoints = [w.model_dump() for w in body.waypoints]
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
                        body.category, round_trip=body.round_trip,
-                       waypoints=[w.model_dump() for w in body.waypoints], when=когда,
+                       waypoints=waypoints, when=когда,
                        # Опции салона стоят денег (кресло 150 ₽) — цена обязана их учитывать
                        # ещё ДО заказа, иначе на экране одна сумма, а в заказе другая.
                        options=body.options)
@@ -405,7 +406,8 @@ def estimate(body: EstimateIn, user: User = Depends(current_user), session: Sess
     # и обещать неизменность значит обещать то, чего мы не держим (решение Александра).
     est["price_locked_sec"] = 0 if когда is not None else price_freeze.remember(
         isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
-        body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
+        body.category, car_class.dump_options(body.options), bool(body.round_trip), est,
+        waypoints=waypoints)
     # Потолок доли скидки — от той же базы, что спишет сам заказ (цена МИНУС компенсации
     # водителю: подача издалека, кресло, зимняя дорога), иначе оценка ДО «Заказать» обещает
     # скидку больше, чем потом спишется (аудит leaf-1.3, B-1).
@@ -431,9 +433,10 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     # Страйки §5 + resolved-жалобы no_show/unpaid/damage §9 — общий счётчик (попутка работает).
     if quality_mod.passenger_pause_until(session, user.id) is not None:
         raise herr(403, *isv.strike_pause_message())
+    waypoints = [w.model_dump() for w in body.waypoints]
     est = isv.estimate(session, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
                        body.category, round_trip=body.round_trip,
-                       waypoints=[w.model_dump() for w in body.waypoints],
+                       waypoints=waypoints,
                        # Опции салона стоят денег (кресло 150 ₽) — цена обязана их учитывать
                        # ещё ДО заказа, иначе на экране одна сумма, а в заказе другая.
                        options=body.options)
@@ -441,7 +444,8 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
     # платит старую, подешевело — новую (app/price_freeze.py).
     est = price_freeze.apply(
         isv._redis(), user.id, (body.from_lat, body.from_lng), (body.to_lat, body.to_lng),
-        body.category, car_class.dump_options(body.options), bool(body.round_trip), est)
+        body.category, car_class.dump_options(body.options), bool(body.round_trip), est,
+        waypoints=waypoints)
     # Не даём плодить параллельные активные заказы одному пассажиру (двойной тап/спам).
     # Лочим строку пассажира → два одновременных POST сериализуются: первый создаёт заказ,
     # второй под локом видит existing и возвращает его (без row-lock оба проходили SELECT→INSERT).
@@ -481,7 +485,7 @@ def create_order(body: OrderIn, user: User = Depends(current_user), session: Ses
         # Круговой рейс фиксируем на заказе: по нему водитель поймёт, что его ждёт обратная
         # дорога, а не просто высадка. Сервер сам решает, доступен ли он (город — нет).
         round_trip=bool(est.get("round_trip")),
-        waypoints_json=isv.dump_waypoints([w.model_dump() for w in body.waypoints]),
+        waypoints_json=isv.dump_waypoints(waypoints),
         return_wait_min=(body.return_wait_min if est.get("round_trip") else 0), distance_km=est["distance_km"],
         eta_min=est["eta_min"], tariff_id=est["tariff_id"],
         surge_k=est["surge_k"],
