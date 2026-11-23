@@ -3987,6 +3987,24 @@ def street_only(text: str) -> str:
     return cut if cut else t
 
 
+_COARSE_ROUTE_DECIMALS = 2
+
+
+def _stops_for_viewer(order: InstantOrder, viewer_id: int) -> list[dict]:
+    points = parse_waypoints(order.waypoints_json)
+    if (viewer_id == order.passenger_id
+            or (viewer_id == order.driver_id and order.status in UNLOCKED)):
+        return points
+    # An offer candidate (or former actor receiving a command response)
+    # must not get precise intermediate locations or free-form address text.
+    # Preserve numeric/string/boolean DTO fields, order and completed stops.
+    return [
+        {"lat": round(w["lat"], _COARSE_ROUTE_DECIMALS),
+         "lng": round(w["lng"], _COARSE_ROUTE_DECIMALS), "text": "", "done": w["done"]}
+        for w in points
+    ]
+
+
 def order_payload(session: Session, order: InstantOrder, viewer: User, *,
                   actor_authorized: bool = False) -> dict:
     """Витрина заказа. Приватность: телефоны и контакты сторон — ТОЛЬКО после accept.
@@ -4039,7 +4057,7 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
     # виден. Точные координаты открываются вместе с телефоном — после accept (unlocked).
     blur = role == "driver" and not unlocked
     def _blur(v):
-        return round(v, 2) if (blur and v is not None) else v
+        return round(v, _COARSE_ROUTE_DECIMALS) if (blur and v is not None) else v
     from_lat, from_lng = _blur(order.from_lat), _blur(order.from_lng)
     to_lat, to_lng = _blur(order.to_lat), _blur(order.to_lng)
 
@@ -4141,8 +4159,7 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         } if order.pending_to_lat is not None else None),
         # Поездку завершил водитель досрочно и почему — пассажир должен видеть причину словами.
         "early_finish_reason": order.early_finish_reason or "",
-        # Остановки: пассажир видит свой маршрут, водитель — куда заезжать.
-        "stops": parse_waypoints(order.waypoints_json),
+        "stops": _stops_for_viewer(order, viewer.id),
         "standing": order.stop_started_at is not None,
         # Промокод: скидку оплачивает платформа, но ЗНАТЬ о ней должны обе стороны — иначе
         # водитель попросит полную сумму, а пассажир будет уверен, что платит со скидкой.
