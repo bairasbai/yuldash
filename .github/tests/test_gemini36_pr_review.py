@@ -34,11 +34,11 @@ class GeminiReviewerTests(unittest.TestCase):
         result = {
             "summary": "Check @everyone",
             "findings": [
-                {"severity": "BLOCKER", "file": "src/api.py", "line": 12,
+                {"severity": "CRITICAL", "file": "src/api.py", "line": 12,
                  "title": "Crash", "evidence": "Null access", "fix": "Handle None"},
-                {"severity": "BLOCKER", "file": "src/api.py", "line": 99,
+                {"severity": "CRITICAL", "file": "src/api.py", "line": 99,
                  "title": "Invented", "evidence": "No anchor", "fix": "No"},
-                {"severity": "MAJOR", "file": "other.py", "line": 12,
+                {"severity": "WARNING", "file": "other.py", "line": 12,
                  "title": "Invented", "evidence": "No file", "fix": "No"},
             ],
         }
@@ -59,7 +59,7 @@ class GeminiReviewerTests(unittest.TestCase):
 
         def fake_request(url, headers, payload, method):
             seen.update(url=url, headers=headers, payload=payload, method=method)
-            return {"candidates": [{"content": {"parts": [{"text": '{"summary":"OK","findings":[]}'}]}}]}
+            return {"candidates": [{"content": {"parts": [{"text": '{"changes":["Изменение"],"key_files":[],"risks":[],"findings":[]}'}]}}]}
 
         with patch.object(reviewer, "request_json", side_effect=fake_request):
             result = reviewer.ask_gemini("diff", "dummy-key-for-test")
@@ -67,6 +67,67 @@ class GeminiReviewerTests(unittest.TestCase):
         self.assertIn("/gemini-3.6-flash:generateContent", seen["url"])
         self.assertEqual(seen["payload"]["generationConfig"]["responseMimeType"], "application/json")
         self.assertNotIn("dummy-key-for-test", str(seen["payload"]))
+
+    def test_summary_renders_separate_sections_and_excludes_unseen_paths(self):
+        result = {"changes": ["Добавлено ожидание готовности"], "risks": ["Медленный запуск"],
+                  "key_files": [{"file": "run.sh", "change": "Проверяет UID"},
+                                {"file": "imaginary.py", "change": "invented"}]}
+        body = reviewer.render_summary("f" * 40, 2, {"run.sh": {3}}, result)
+        self.assertTrue(body.startswith(reviewer.SUMMARY_MARKER))
+        for item in ("Суть изменений", "| run.sh | Проверяет UID |", "Зоны риска", "Неполный охват"):
+            self.assertIn(item, body)
+        self.assertNotIn("imaginary.py", body)
+
+    def test_empty_findings_distinct_from_discarded_unanchored_findings(self):
+        clean = reviewer.render_review("a" * 40, 1, 1, {"a.sh": {1}}, {"findings": []})
+        self.assertIn("Критических проблем не найдено.", clean)
+        invalid = reviewer.render_review("a" * 40, 1, 1, {"a.sh": {1}}, {"findings": [{}]})
+        self.assertNotIn("Критических проблем не найдено.", invalid)
+        self.assertIn("Требуется ручная проверка", invalid)
+
+    def test_raw_tokens_multiline_keys_renames_and_lockfiles_are_excluded(self):
+        diff = "@@ -1 +1 @@\n+new"
+        hidden = [{"filename":"renamed.txt", "previous_filename":".env.local", "patch":diff},
+                  {"filename":"web/pnpm-lock.yaml", "patch":diff}]
+        self.assertEqual(reviewer.build_prompt(hidden)[2], 0)
+        scrubbed = reviewer.scrub_patch("a Bearer abcdefgh\n+GEMINI_API_KEY = 'fake value'\n"
+                                       "+-----BEGIN OPENSSH PRIVATE KEY-----\n+abc123\n"
+                                       "+-----END OPENSSH PRIVATE KEY-----\n+normal")
+        for item in ("abcdefgh", "fake value", "abc123"):
+            self.assertNotIn(item, scrubbed)
+        self.assertIn("+normal", scrubbed)
+        self.assertEqual(reviewer.added_lines("@@ -1 +1,2 @@\n+++i\n+second"), {1, 2})
+
+    def test_upsert_updates_only_own_exact_marker_across_pages(self):
+        marker = reviewer.MARKER
+        fake = {"id": 5, "body": marker, "user": {"login": "outsider[bot]"}}
+        similar = {**fake, "body": "quoted\n" + marker, "user": {"login": "github-actions[bot]"}}
+        owned = {**fake, "id": 19, "user": {"login": "github-actions[bot]"}}
+        with patch.object(reviewer, "request_json", side_effect=[[fake, similar]*50, [owned], {}]) as req:
+            reviewer.upsert_comment("org/repo", 23, {}, marker, marker + "\nupdated")
+        self.assertEqual(req.call_args.args[0], reviewer.API + "/repos/org/repo/issues/comments/19")
+        self.assertEqual(req.call_args.kwargs["method"], "PATCH")
+
+    def test_stale_head_prevents_publication_and_same_revision_skips_generation(self):
+        sha = "f" * 40
+        base = "b" * 40
+        pr = {"state": "open", "base": {"sha": base}, "head": {"repo": {"full_name":"org/repo"}, "sha":sha}}
+        env = {"GITHUB_TOKEN":"dummy", "GEMINI_API_KEY":"dummy", "PR_SHA":sha, "GITHUB_REPOSITORY":"org/repo", "PR_NUMBER":"23"}
+        files = [{"filename":"a.py", "patch":"@@ -0,0 +1 @@\n+1"}]
+        response = {"changes":["x"], "key_files":[], "risks":[], "findings":[]}
+        with patch.dict(os.environ, env, clear=True), patch.object(reviewer, "ask_gemini", return_value=response) as model, patch.object(reviewer, "upsert_comment") as publish:
+            with patch.object(reviewer, "request_json", side_effect=[pr, [], files, {**pr, "state":"closed"}]):
+                self.assertEqual(reviewer.run(), 0)
+                publish.assert_not_called()
+            with patch.object(reviewer, "request_json", side_effect=[pr, [], files, pr]):
+                self.assertEqual(reviewer.run(), 0)
+                self.assertEqual([c.args[3] for c in publish.call_args_list], [reviewer.SUMMARY_MARKER, reviewer.MARKER])
+            marker = f"{reviewer.MARKER}\n<!-- review v2 {sha} {base} -->"
+            comment = {"body":marker, "user":{"login":"github-actions[bot]"}}
+            with patch.object(reviewer, "request_json", side_effect=[pr, [comment]]):
+                self.assertEqual(reviewer.run(), 0)
+            self.assertEqual(model.call_count, 2)
+            self.assertEqual(publish.call_count, 2)
 
     def test_fork_pr_is_ignored_before_model_call(self):
         env = {

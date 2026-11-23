@@ -1,17 +1,12 @@
 name: Gemini reviewer offline self-tests
 
 on:
-  push:
-    branches: [chore/gemini36-reviewer-20261123]
-    paths:
-      - '.github/scripts/gemini36_pr_review.py'
-      - '.github/tests/test_gemini36_pr_review.py'
-      - '.github/workflows/gemini36-reviewer-tests.yml'
   pull_request:
     paths:
       - '.github/scripts/gemini36_pr_review.py'
-      - '.github/tests/test_gemini36_pr_review.py'
-      - '.github/workflows/gemini36-reviewer-tests.yml'
+      - '.github/scripts/analyze_ci_failure.py'
+      - '.github/tests/test_gemini*.py'
+      - '.github/workflows/gemini36-*.yml'
 
 permissions:
   contents: read
@@ -29,5 +24,5 @@ jobs:
           python-version: '3.12'
       - name: Compile and test reviewer without secrets
         run: |
-          python -m py_compile .github/scripts/gemini36_pr_review.py
-          python -m unittest discover -s .github/tests -p 'test_gemini36_pr_review.py' -v
+          python -m py_compile .github/scripts/gemini36_pr_review.py .github/scripts/analyze_ci_failure.py
+          python -m unittest discover -s .github/tests -p 'test_gemini*.py' -v
