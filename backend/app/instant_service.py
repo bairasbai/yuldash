@@ -17,6 +17,7 @@ import re
 import json
 import hashlib
 import hmac
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
@@ -41,6 +42,7 @@ from .models import (
 from .services import (member_since, pick_lang, sms_lang_of,
     blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
                        passenger_rating, send_text)
+from .taxi_route_resume import _MARKERS as _ROUTE_RESUME_MARKERS
 from .timeutil import utcnow
 
 PRESENCE_KEY = "presence"                    # Redis GEO-множество координат водителей «на линии»
@@ -2828,7 +2830,7 @@ class _SearchOwnerLost(Exception):
 
 
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "", *,
-                 search_owner: tuple | None = None) -> InstantOrder:
+                 search_owner: "tuple | _QueuedSearch | None" = None) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
     Деньги (Модель А — только фиксируем, ничего не списываем):
@@ -2845,7 +2847,7 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     order = session.exec(statement).first()
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
-    if search_owner is not None and (order.status != S.searching or _search_owner(order) != search_owner):
+    if search_owner is not None and (order.status != S.searching or not _same_search_owner(order, search_owner)):
         session.rollback()
         raise _SearchOwnerLost()
     _guard_owns(order, actor, user_id)
@@ -2886,7 +2888,7 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     бросивший = order.driver_id
     write = update(InstantOrder).where(InstantOrder.id == order_id, InstantOrder.status == order.status)
     if search_owner is not None:
-        write = write.where(*_search_owner_predicates(search_owner)).execution_options(synchronize_session=False)
+        write = write.where(*_search_owner_predicates(session, search_owner)).execution_options(synchronize_session=False)
     result = session.execute(write.values(**values))
     if search_owner is not None and result.rowcount != 1:
         session.rollback()
@@ -3220,14 +3222,58 @@ def _search_owner(order: InstantOrder) -> tuple:
     return tuple(getattr(order, name) for name in _SEARCH_OWNER_FIELDS)
 
 
-def _search_owner_predicates(owner: tuple) -> tuple:
+_WAIT_FIELDS = ("wait_until", "retry_count", "destination_changed_at")
+_WAIT_COLUMNS = tuple(getattr(InstantOrder, name) for name in _WAIT_FIELDS)
+_WAIT_RETRY_COLUMNS = (*_SEARCH_OWNER_COLUMNS, *_WAIT_COLUMNS, InstantOrder.status, InstantOrder.expired_at)
+
+
+@dataclass(frozen=True)
+class _QueuedSearch:
+    search: tuple
+    wait: tuple
+
+
+@dataclass(frozen=True)
+class _QueuedRetryResult:
+    offer: _QueuedSearch | None = None
+
+
+def _same_search_owner(order, owner, **updated) -> bool:
+    if not isinstance(owner, _QueuedSearch):
+        return _search_owner(order) == owner
+    expected = dict(zip(_SEARCH_OWNER_FIELDS, owner.search, strict=True)) | updated
+    return (_search_owner(order) == tuple(expected.values())
+            and tuple(getattr(order, f) for f in _WAIT_FIELDS) == owner.wait
+            and all(getattr(order, name) is None for name in _ROUTE_RESUME_MARKERS)
+            and order.wait_until is not None and order.wait_until > utcnow())
+
+
+def _ordinary_wait_predicates(session: Session) -> tuple:
+    return (InstantOrder.wait_until > _offer_write_clock(session),
+            *(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS))
+
+
+def _search_owner_predicates(session: Session, owner: tuple | _QueuedSearch) -> tuple:
+    if isinstance(owner, _QueuedSearch):
+        return (*(column == value for column, value in zip(_SEARCH_OWNER_COLUMNS, owner.search, strict=True)),
+                *(column == value for column, value in zip(_WAIT_COLUMNS, owner.wait, strict=True)),
+                *_ordinary_wait_predicates(session))
     return tuple(column == observed for column, observed in zip(_SEARCH_OWNER_COLUMNS, owner, strict=True))
 
 
-def _write_search_outcome(session: Session, owner: tuple, **values):
+def _lock_ordinary_wait_row(session: Session, order_id: int) -> None:
+    # Current PostgreSQL clock predicates must run after waiting for a row
+    # lock, including a blocker which locked without changing the row.
+    if session.get_bind().dialect.name == "postgresql":
+        session.execute(select(InstantOrder.id).where(InstantOrder.id == order_id).with_for_update()).all()
+
+
+def _write_search_outcome(session: Session, owner: tuple | _QueuedSearch, **values):
+    if isinstance(owner, _QueuedSearch):
+        _lock_ordinary_wait_row(session, owner.search[0])
     result = session.execute(
         update(InstantOrder).where(
-            InstantOrder.status == S.searching, *_search_owner_predicates(owner),
+            InstantOrder.status == S.searching, *_search_owner_predicates(session, owner),
         ).values(**values).execution_options(synchronize_session=False)
     )
     if result.rowcount != 1:
@@ -3239,8 +3285,17 @@ def _write_search_outcome(session: Session, owner: tuple, **values):
     return True
 
 
+def _current_queued_offer_passenger(session: Session, owner: _QueuedSearch) -> int | None:
+    # Evidence was captured at the actual owned offer, before subsequent
+    # callback(s) or ORM refresh can substitute another driver's result.
+    return session.execute(select(InstantOrder.passenger_id).where(
+        InstantOrder.status == S.offered, InstantOrder.offer_expires_at > _offer_write_clock(session),
+        *_search_owner_predicates(session, owner),
+    )).scalar_one_or_none()
+
+
 def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True, *,
-                       search_owner: tuple | None = None) -> InstantOrder:
+                       search_owner: tuple | _QueuedSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
     """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
 
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
@@ -3253,8 +3308,11 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
         status=S.expired, expired_at=at, current_offer_driver_id=None, offer_expires_at=None,
     )
     fresh = session.get(InstantOrder, order_id, populate_existing=True)
-    if not committed or fresh is None or fresh.status != S.expired or fresh.expired_at != at:
-        return fresh
+    queued = isinstance(search_owner, _QueuedSearch)
+    if (not committed or fresh is None or fresh.status != S.expired or fresh.expired_at != at
+            or queued and not _same_search_owner(fresh, search_owner,
+                                                 current_offer_driver_id=None, offer_expires_at=None)):
+        return None if queued else fresh
     _cleanup_tried(order_id)
     if notify:
         push_bilingual(session, fresh.passenger_id,
@@ -3262,11 +3320,11 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
                        "Пока не нашли водителя. Попробуй ещё раз или оставь заявку.",
                        "Водитель табылманы әле. Тағы ҡабатлап ҡара йәки ғариза ҡалдыр.",
                        data=_status_data(fresh, "expired"))
-    return fresh
+    return _QueuedRetryResult() if queued else fresh
 
 
 def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True,
-                                   search_owner: tuple | None = None) -> InstantOrder | None:
+                                   search_owner: tuple | _QueuedSearch | None = None) -> InstantOrder | None:
     """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
     Не на паузе → None, вызывающий продолжает обычным путём.
 
@@ -3307,6 +3365,8 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, ref
         cancelled = cancel_order(session, order_id, Actor.passenger, passenger_id,
                                  "passenger_suspended", search_owner=search_owner)
     except _SearchOwnerLost:
+        if isinstance(search_owner, _QueuedSearch):
+            raise
         fresh = session.get(InstantOrder, order_id, populate_existing=True)
         if fresh is None:
             raise herr(404, "Заказ не найден", "Заказ табылманы")
@@ -3332,19 +3392,22 @@ def _remember_offered_driver(r, order_id: int, driver_id: int) -> None:
 
 
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *,
-                   first_deadline: datetime | None = None, previous_driver: int | None = None) -> InstantOrder:
+                   first_deadline: datetime | None = None, previous_driver: int | None = None,
+                   _queued: _QueuedSearch | None = None) -> InstantOrder | _QueuedRetryResult | None:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     first_confirmed = first_deadline is not None
     order_id = order.id
-    search_owner = _search_owner(order)
+    search_owner = _queued if _queued is not None else _search_owner(order)
     search_round = order.search_round
+    if _queued is not None and (order.status != S.searching or not _same_search_owner(order, _queued)):
+        return None
     if order.status != S.searching:
         return session.get(InstantOrder, order_id, populate_existing=True)
     stopped = cancel_for_suspended_passenger(
         session, order, refresh_standing=not first_confirmed, search_owner=search_owner,
     )
     if stopped is not None:
-        return stopped
+        return _QueuedRetryResult() if _queued is not None else stopped
     r = _redis()
     if r is None or search_round >= settings.instant_max_offers:
         return _expire_no_drivers(session, order, notify, search_owner=search_owner)
@@ -3375,13 +3438,18 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *
     fresh = session.get(InstantOrder, order_id, populate_existing=True)
     if (not committed or fresh is None or fresh.status != S.offered
             or fresh.current_offer_driver_id != did or fresh.offered_at != now
-            or fresh.offer_expires_at != expires_at or expires_at <= utcnow()):
-        return fresh
+            or fresh.offer_expires_at != expires_at or expires_at <= utcnow()
+            or _queued is not None and not _same_search_owner(
+                fresh, _queued, search_round=search_round + 1, current_offer_driver_id=did,
+                offered_at=now, offer_expires_at=expires_at,
+            )):
+        return None if _queued is not None else fresh
+    owned = _QueuedSearch(_search_owner(fresh), _queued.wait) if _queued is not None else None
     if remember_previous:
         _remember_offered_driver(r, order_id, previous_driver)
     _remember_offered_driver(r, order_id, did)
     _push_offer(session, fresh, did)
-    return fresh
+    return _QueuedRetryResult(owned) if owned is not None else fresh
 
 
 # Заказ «живой»: человек прямо сейчас едет или ждёт машину. Предзаказ (scheduled) сюда НЕ
@@ -3531,7 +3599,39 @@ def dispatch_confirmed_order(session: Session, order_id: int) -> bool:
         raise
 
 
-def start_matching(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def _start_waiting_retry(session: Session, snapshot: tuple) -> _QueuedRetryResult | None:
+    order_id = snapshot[0]
+    count = snapshot[len(_SEARCH_OWNER_COLUMNS) + 1]
+    if type(count) is not int or not 0 <= count < (1 << 31) - 1:
+        return None
+    _lock_ordinary_wait_row(session, order_id)
+    won = session.execute(
+        update(InstantOrder).where(
+            *(column == value for column, value in zip(_WAIT_RETRY_COLUMNS, snapshot, strict=True)),
+            InstantOrder.status.in_((S.expired, S.searching)),
+            *_ordinary_wait_predicates(session),
+        ).values(status=S.searching, searching_at=utcnow(), search_round=0, retry_count=count + 1)
+        .execution_options(synchronize_session=False).returning(*_SEARCH_OWNER_COLUMNS, *_WAIT_COLUMNS)
+    ).one_or_none()
+    if won is None:
+        session.rollback()
+        return None
+    owner = _QueuedSearch(tuple(won[:len(_SEARCH_OWNER_COLUMNS)]), tuple(won[len(_SEARCH_OWNER_COLUMNS):]))
+    session.commit()  # retry count belongs to this actual start, never to a subsequent row
+    order = session.exec(select(InstantOrder).where(
+        InstantOrder.status == S.searching, *_search_owner_predicates(session, owner),
+    ).execution_options(populate_existing=True)).one_or_none()
+    if order is None:
+        session.rollback()
+        return None
+    try:
+        return try_offer_next(session, order, notify=False, _queued=owner)
+    except _SearchOwnerLost:
+        return None
+
+
+def start_matching(session: Session, order: InstantOrder, notify: bool = True, *,
+                   _wait_snapshot: tuple | None = None) -> InstantOrder | _QueuedRetryResult | None:
     """created → searching → (offered | expired). Зовётся при создании заказа и при
     перезапуске поиска из очереди «рядом никого» (там notify=False — см. _expire_no_drivers).
 
@@ -3545,6 +3645,8 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     раз предлагать заказ ЗА КРУГ». Он копился за всю жизнь заказа, и очередь «подожду машину»
     после 8 суммарных офферов замолкала навсегда — полоска «ищем машину» живая, а сервер уже
     никому не предлагает, даже если свободный водитель стоит в ста метрах."""
+    if _wait_snapshot is not None:
+        return _start_waiting_retry(session, _wait_snapshot)
     result = session.execute(
         update(InstantOrder)
         .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE))

@@ -183,44 +183,35 @@ def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
     две минуты значит выпросить выключение уведомлений. Нашли водителя → обычный оффер, и
     пассажир получит нормальный пуш о найденной машине."""
     now = utcnow()
-    rows = session.exec(
-        select(InstantOrder).where(
-            InstantOrder.wait_until != None,            # noqa: E711
-            InstantOrder.wait_until > now,
-            InstantOrder.status.in_((S.expired, S.searching)),
-        ).limit(200)
-    ).all()
+    rows = session.exec(select(*isv._WAIT_RETRY_COLUMNS).where(
+        InstantOrder.status.in_((S.expired, S.searching)), *isv._ordinary_wait_predicates(session),
+    ).limit(200)).all()
     retried = []
     gap = timedelta(minutes=settings.order_retry_every_min)
-    for o in rows:
-        # Не чаще order_retry_every_min: между попытками должен пройти интервал.
-        if o.searching_at and (now - o.searching_at) < gap:
+    for row in rows:
+        if row.searching_at and (now - row.searching_at) < gap:
             continue
         if dry_run:
-            retried.append(o.id)
+            retried.append(row.id)
             continue
         try:
-            fresh = isv.start_matching(session, o, notify=False)
-            session.execute(
-                InstantOrder.__table__.update()
-                .where(InstantOrder.__table__.c.id == o.id)
-                .values(retry_count=(o.retry_count or 0) + 1)
-            )
-            session.commit()
-            retried.append(o.id)
-            if fresh is not None and fresh.status == S.offered:
-                try:
+            result = isv.start_matching(session, row, notify=False, _wait_snapshot=tuple(row))
+            if result is None:
+                continue
+            retried.append(row.id)
+            if result.offer is not None:
+                passenger_id = isv._current_queued_offer_passenger(session, result.offer)
+                if passenger_id is not None:
                     push_notification(
-                        session, fresh.passenger_id, "taxi",
+                        session, passenger_id, "taxi",
                         "Водитель нашёлся 🚕", "Водитель табылды 🚕",
                         "Мы нашли машину по твоему заказу.",
                         "Заказың буйынса машина таптыҡ.",
-                        ref_kind="instant", ref_id=fresh.id,
+                        ref_kind="instant", ref_id=row.id,
                     )
-                except Exception:  # noqa: BLE001
-                    pass
         except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] перезапуск поиска #{o.id}: {type(e).__name__}: {e}")
+            session.rollback()
+            log.warning(f"[TAXI-WORKER] перезапуск поиска #{row.id}: {type(e).__name__}: {e}")
     return retried
 
 
