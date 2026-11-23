@@ -1,5 +1,5 @@
 """Opaque agreement for an OFFERED waypoint observation only, not an admission or receipt."""
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from datetime import datetime
 import hashlib
 import hmac
@@ -9,7 +9,7 @@ from types import SimpleNamespace
 from fastapi import HTTPException
 
 from . import instant_service as isv, promo_ride, taxi_offered_waypoint_preview as offered
-from .taxi_route_agreement import QuotedTerms, _integer, _source_value, _sql_metric, _stamp
+from .taxi_route_agreement import QuotedTerms, WaypointWriteProjection, _integer, _source_value, _sql_metric, _stamp
 
 _PURPOSE = b"taxi-offered-waypoint-preview-agreement-v1\x00"
 _COLUMNS = (*offered._FIELDS, *(f"tariff.{name}" for name in isv._DESTINATION_QUOTE_TARIFF_FIELDS))
@@ -23,7 +23,7 @@ class OfferedWaypointAgreement:
 
 
 def _material(key: bytes, owner_id: int, order_id: int, source: tuple,
-              preview: offered.OfferedWaypointPreview, now: datetime) -> bytes:
+              preview: offered.OfferedWaypointPreview, now: datetime) -> tuple[bytes, WaypointWriteProjection]:
     if (type(key) is not bytes or len(key) < 16 or not offered._id(owner_id) or not offered._id(order_id)
             or type(preview) is not offered.OfferedWaypointPreview
             or type(source) is not tuple or len(source) != len(_COLUMNS)
@@ -78,19 +78,19 @@ def _material(key: bytes, owner_id: int, order_id: int, source: tuple,
     # No route-metric or tariff computation. Bind the values already
     # projected by the canonical quote, including all hidden write fields.
     # ACK resets on a future changed route; no timestamp/status/marker here.
-    projection = (
-        ("waypoints_json", preview._waypoints_json), ("ride_price", ride_rub),
-        ("ride_base_price", preview.ride_base_price), ("price_estimate", gross),
-        ("promo_discount_kop", promo_kop), ("distance_km", _sql_metric(preview.distance_km).hex()),
-        ("eta_min", _sql_metric(preview.eta_min).hex()), ("destination_ack_at", None),
+    projection = WaypointWriteProjection(
+        preview._waypoints_json, ride_rub, preview.ride_base_price, gross, promo_kop,
+        _sql_metric(preview.distance_km), _sql_metric(preview.eta_min), None,
     )
+    values = ((f.name, getattr(projection, f.name)) for f in fields(projection))
+    projection_payload = tuple((name, value.hex() if type(value) is float else value) for name, value in values)
     payload = json.dumps(
-        (owner_id, order_id, tuple(zip(_COLUMNS, current, strict=True)), projection,
+        (owner_id, order_id, tuple(zip(_COLUMNS, current, strict=True)), projection_payload,
          (t.ride_price_kop, t.previous_ride_price_kop, t.payable_estimate_kop, t.previous_payable_estimate_kop),
          _stamp(preview.observed_at), _stamp(preview.valid_until)),
         **enc,
     ).encode("ascii")
-    return hmac.digest(key, _PURPOSE + payload, hashlib.sha256)
+    return hmac.digest(key, _PURPOSE + payload, hashlib.sha256), projection
 
 
 def bind_offered_waypoints(
@@ -101,8 +101,23 @@ def bind_offered_waypoints(
         raise ValueError("Expected an offered waypoint preview")
     return OfferedWaypointAgreement(
         preview.observed_at, preview.valid_until,
-        _material(key, owner_id, order_id, preview._source, preview, preview.observed_at),
+        _material(key, owner_id, order_id, preview._source, preview, preview.observed_at)[0],
     )
+
+
+def _matched_projection(
+    key: bytes, agreement: OfferedWaypointAgreement | None, *, owner_id: int, order_id: int,
+    preview: offered.OfferedWaypointPreview, current: tuple, now: datetime,
+) -> WaypointWriteProjection | None:
+    if (type(agreement) is not OfferedWaypointAgreement or type(preview) is not offered.OfferedWaypointPreview
+            or type(agreement.binding) is not bytes or len(agreement.binding) != hashlib.sha256().digest_size
+            or agreement.observed_at != preview.observed_at or agreement.valid_until != preview.valid_until):
+        return None
+    try:
+        expected, projection = _material(key, owner_id, order_id, current, preview, now)
+    except (AttributeError, HTTPException, TypeError, ValueError, OverflowError):
+        return None
+    return projection if hmac.compare_digest(agreement.binding, expected) else None
 
 
 def matches_offered_waypoints(
@@ -110,12 +125,5 @@ def matches_offered_waypoints(
     preview: offered.OfferedWaypointPreview, current: tuple, now: datetime,
 ) -> bool:
     """Compare independent current observation against the original private preview only."""
-    if (type(agreement) is not OfferedWaypointAgreement or type(preview) is not offered.OfferedWaypointPreview
-            or type(agreement.binding) is not bytes or len(agreement.binding) != hashlib.sha256().digest_size
-            or agreement.observed_at != preview.observed_at or agreement.valid_until != preview.valid_until):
-        return False
-    try:
-        expected = _material(key, owner_id, order_id, current, preview, now)
-    except (AttributeError, HTTPException, TypeError, ValueError, OverflowError):
-        return False
-    return hmac.compare_digest(agreement.binding, expected)
+    return _matched_projection(key, agreement, owner_id=owner_id, order_id=order_id,
+                               preview=preview, current=current, now=now) is not None
