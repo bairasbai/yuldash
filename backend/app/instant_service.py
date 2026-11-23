@@ -2760,6 +2760,11 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     if ALLOWED.get((source, actor)) != target:
         raise herr(409, "Этот шаг сейчас недоступен", "Был аҙым хәҙер мөмкин түгел")
     _guard_actor(order, actor, user_id, target)
+    if target == S.accepted and any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS):
+        # Neither ordinary accept endpoint owns capped successor offers yet.
+        # Check after recipient authorization, without exposing marker contents.
+        raise herr(409, "Сейчас это предложение нельзя принять.", "Әле был тәҡдимде ҡабул итеп булмай.",
+                   code="taxi_route_resume_accept_unavailable")
     if target == S.accepted and expected_offer is None:
         # Internal callers without a router read are fenced from this read.
         expected_offer = capture_offer_for_accept(order)
@@ -2798,9 +2803,11 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     # dispatch cleanup when a later write superseded the captured offer.
     write = update(InstantOrder).where(InstantOrder.id == order_id, InstantOrder.status == source)
     if target == S.accepted:
+        # SQLite's initial SELECT does not reserve a writer. A mark installed
+        # after that read must still defeat either ordinary endpoint's UPDATE.
         write = write.where(*(
             column == old for column, old in zip(_ACCEPT_OFFER_COLUMNS, expected_offer, strict=True)
-        )).execution_options(synchronize_session=False)
+        ), *_legacy_no_resume()).execution_options(synchronize_session=False)
         if card_precondition is not None:
             write = write.where(
                 InstantOrder.price_final.is_(None),
