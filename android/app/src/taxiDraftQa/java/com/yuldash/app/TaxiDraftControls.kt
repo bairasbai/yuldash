@@ -40,7 +40,7 @@ internal object TaxiDraftControls {
     }
 
     private val labels = setOf(
-        "QA Stop A", "QA Stop B", "QA Destination", "QA Origin", "QA Alternate Place",
+        "QA Stop A", "QA Stop B", "QA Destination", "QA Now Destination", "QA Origin", "QA Alternate Place",
         "Заехать по пути", "Юлда инеп сығыу", "Детали заказа", "Заказ деталдәре",
         "На время", "Ваҡытҡа", "Обратно тоже", "Кире лә", "2 ч", "2 сәғ",
         "Моя позиция", "Минең урын", "Новый заказ", "Яңы заказ", "Убрать остановку", "Туҡталышты алыу",

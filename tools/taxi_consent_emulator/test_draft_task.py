@@ -134,5 +134,74 @@ class RotationTests(unittest.TestCase):
                 task.rotate()
 
 
+class ProtectedNowWitnessTests(unittest.TestCase):
+    def setUp(self):
+        self.enterContext(patch.object(task, "language", "Ba", create=True))
+
+    def test_routes_are_attributed_by_distinct_label_and_adjacent_edit(self):
+        old_chip = rectangle(task.SCHEDULED_DESTINATION, "[10,10][100,30]", widget="android.widget.TextView")
+        new_route = rectangle(task.NOW_DESTINATION, "[10,220][100,260]", widget="android.widget.TextView")
+        edit = rectangle("Үҙгәртеү", "[140,210][220,270]", widget="android.widget.Button", click=True)
+        price = rectangle("Хаҡты иҫәпләү", "[100,300][240,360]", click=True)
+        with patch.object(task, "tree", return_value=[old_chip, new_route, edit, price]), \
+                patch.object(task, "last_observation", "focused-compose"):
+            self.assertEqual(task.protected_now_witness(), {
+                "scheduled_destination_selected": False, "now_destination_selected": True,
+                "protected_now_cta": True, "editor": False, "stops": False,
+            })
+        self.assertFalse(task.selected_destination([new_route, {**edit, "clickable": "false"}],
+                                                   task.NOW_DESTINATION))
+
+    def test_nonfocused_observer_cannot_claim_selected_or_clean(self):
+        with patch.object(task, "tree", return_value=[EDIT]), \
+                patch.object(task, "last_observation", "app-not-foreground"):
+            self.assertIsNone(task.protected_now_witness())
+
+    def test_fresh_bundle_requires_explicit_resume_empty_state(self):
+        self.assertTrue(task.fresh_resumed_record(("token", 9, 0, "mHaveState=false mIcicle=null\nstate=RESUMED")))
+        for size, text in (
+            (0, "state=RESUMED"),
+            (5, "mHaveState=true mIcicle=Bundle[mParcelledData.dataSize=5]\nstate=RESUMED"),
+            (0, "mHaveState=false mIcicle=null\nstate=STOPPED"),
+        ):
+            self.assertFalse(task.fresh_resumed_record(("token", 9, size, text)))
+
+    def test_park_rejects_changed_pid_token_task_or_missing_bundle(self):
+        fresh = ("activity", 9, 0, "mHaveState=false mIcicle=null\nstate=RESUMED")
+        for parked in ((42, "activity", 9, 0), (43, "activity", 9, 12),
+                       (42, "other", 9, 12), (42, "activity", 10, 12)):
+            with self.subTest(parked=parked), patch.object(task, "task_record", return_value=fresh), \
+                    patch.object(task, "pid", return_value=42), patch.object(task, "park_task", return_value=parked):
+                with self.assertRaisesRegex(AssertionError, "fresh Bundle"):
+                    task.witness_park()
+        with patch.object(task, "task_record", return_value=fresh), patch.object(task, "pid", return_value=42), \
+                patch.object(task, "park_task", return_value=(42, "activity", 9, 12)):
+            self.assertEqual(task.witness_park(), (42, "activity", 9, 12))
+
+    def test_stale_before_home_does_not_dispatch_home(self):
+        stale = ("activity", 9, 93, "mHaveState=true mIcicle=Bundle[mParcelledData.dataSize=93]\nstate=RESUMED")
+        def check(probe, _):
+            if probe() is None:
+                raise AssertionError("before Home has no fresh evidence")
+        with patch.object(task, "task_record", return_value=stale), \
+                patch.object(task, "pid", return_value=42), patch.object(task, "until", side_effect=check), \
+                patch.object(task, "park_task") as park:
+            with self.assertRaisesRegex(AssertionError, "no fresh evidence"):
+                task.witness_park()
+        park.assert_not_called()
+
+
+    def test_changed_or_lost_pid_cannot_supply_a_fresh_resumed_snapshot(self):
+        fresh = ("activity", 9, 0, "mHaveState=false mIcicle=null\nstate=RESUMED")
+        for observed in ((42, 99), (42, None), (42, 42, 99), (42, 42, None)):
+            with self.subTest(observed=observed), patch.object(task, "pid", side_effect=observed), \
+                    patch.object(task, "task_record", return_value=fresh) as read_record, \
+                    patch.object(task, "park_task") as park:
+                with self.assertRaisesRegex(AssertionError, "Live process changed"):
+                    task.witness_park()
+                self.assertEqual(read_record.call_count, 1 if len(observed) == 3 else 0)
+                park.assert_not_called()
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -55,7 +55,7 @@ def serve(args, tempdir):
 
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
     counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
-    draft_case = args.case in ("draft", "draft-delayed")
+    draft_case = args.case in ("draft", "draft-delayed", "draft-now-witness")
     draft_admission = {}
     if draft_case:
         counters["draft_route_estimates"] = 0
@@ -262,6 +262,8 @@ def serve(args, tempdir):
 
         for label, coordinates in (("QA Origin", ORIG), ("QA Destination", DEST)):
             save_place(passenger, label, coordinates)
+        if args.case == "draft-now-witness":
+            save_place(passenger, "QA Now Destination", (52.72, 58.63))
         alternate = {}
         if draft_case:
             other = make_user("DraftAlternatePassenger")
@@ -292,7 +294,7 @@ def local_connect_only(original):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--case", required=True, choices=(
-        "committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable", "draft", "draft-delayed",
+        "committed", "closed", "roundtrip", "selection", "scheduled", "late", "unavailable", "draft", "draft-delayed", "draft-now-witness",
     ))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)
