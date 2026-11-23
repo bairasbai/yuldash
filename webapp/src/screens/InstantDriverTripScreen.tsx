@@ -15,10 +15,15 @@
 //  • Оффер: таймер по серверному дедлайну, «Принять»/«Пропустить» (на вебе — звук/вибро вместо звонка).
 //  • Активная поездка: «Я на месте» → «Пассажир сел» → «Завершить», телефон и чат после accept.
 // ================================================================
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
+import {
+  acceptProtectedDriverOffer, driverOfferVersion, fetchProtectedDriverOffer, findProtectedDriverAcceptance,
+  isDriverOfferOwner, localDriverOfferMode, offerOwnerSnapshot, sameDriverOffer, type DisplayedDriverOffer,
+} from "../api/taxiDriverOffer";
+import { subscribeSessionChanges } from "../utils/sessionCredentials";
 import { fetchDriverStatus, setDriverOnline, type DriverStatus } from "../api/driver";
 import { commissionLabel } from "../utils/commissionLabel";
 import {
@@ -207,6 +212,17 @@ export default function InstantDriverTripScreen() {
   const [zone, setZone] = useState<WorkZone | null>(null);
 
   const [offer, setOffer] = useState<InstantOrder | null>(null);
+  const offerMode = localDriverOfferMode();
+  const protectedOffer = offerMode === "protected";
+  const [offerOwner] = useState(() => protectedOffer ? offerOwnerSnapshot() : null);
+  const renderedOffer = useRef<DisplayedDriverOffer | null>(null);
+  const staleOffer = useRef<DisplayedDriverOffer | null>(null);
+  const offerOp = useRef<AbortController | null>(null);
+  const offerScreenLive = useRef(false);
+  const offerEpoch = useRef(0);
+  const [offerPoll, refreshOfferPoll] = useState(0);
+  const pendingOffer = useRef<number | null>(null);
+  const [pendingOfferId, setPendingOfferId] = useState<number | null>(null);
   /** Заказ берётся прямо сейчас — второй тап не должен слать второй запрос. */
   const [accepting, setAccepting] = useState(false);
   /** Почему не взяли: «уже взял другой» либо «проверь связь». Молчать тут нельзя. */
@@ -294,6 +310,36 @@ export default function InstantDriverTripScreen() {
   }, [boot]);
 
   const online = !!driver?.online;
+  useLayoutEffect(() => {
+    renderedOffer.current = protectedOffer && online && !active ? driverOfferVersion(offer) : null;
+    return () => { renderedOffer.current = null; };
+  }, [protectedOffer, online, active, offer]);
+
+  useEffect(() => {
+    if (!protectedOffer) return;
+    offerScreenLive.current = true;
+    const dropOffer = () => {
+      if (!offerOwner || !isDriverOfferOwner(offerOwner)) {
+        offerEpoch.current++;
+        offerOp.current?.abort();
+        offerOp.current = null;
+        renderedOffer.current = null;
+        pendingOffer.current = null;
+        setPendingOfferId(null);
+        setOffer(null);
+        setAccepting(false);
+        setAcceptNote("");
+      }
+    };
+    const unsubscribe = subscribeSessionChanges(dropOffer);
+    return () => {
+      unsubscribe();
+      offerScreenLive.current = false;
+      offerEpoch.current++;
+      offerOp.current?.abort();
+      offerOp.current = null;
+    };
+  }, [protectedOffer, offerOwner]);
 
   // ---------------- Геолокация (watch) — держим последнюю позицию ----------------
   useEffect(() => {
@@ -357,26 +403,42 @@ export default function InstantDriverTripScreen() {
       setOfferBlocked(null);
       return;
     }
+    if (offerMode === "blocked" || (protectedOffer && (!offerOwner || !isDriverOfferOwner(offerOwner)))) {
+      setOfferBlocked(null);
+      return;
+    }
     let alive = true;
+    let pulling = false;
+    const controller = new AbortController();
+    const epoch = offerEpoch.current;
     const tick = () => {
-      fetchDriverOffer()
+      if (protectedOffer && (pulling || offerOp.current || pendingOffer.current !== null || !offerOwner ||
+          !isDriverOfferOwner(offerOwner))) return;
+      pulling = true;
+      const request = protectedOffer && offerOwner ? fetchProtectedDriverOffer(offerOwner, controller.signal) : fetchDriverOffer();
+      request
         .then((r) => {
-          if (!alive) return;
+          if (!alive || (protectedOffer && (offerEpoch.current !== epoch || !offerOwner ||
+              !isDriverOfferOwner(offerOwner) || offerOp.current || pendingOffer.current !== null ||
+              activeIdRef.current !== null))) return;
+          if (protectedOffer && sameDriverOffer(staleOffer.current, driverOfferVersion(r.offer))) return;
           setOfferBlocked(r.blocked ?? null);
           setOffer((prev) => {
             if (r.offer && (!prev || prev.id !== r.offer.id)) ringOffer();
             return r.offer;
           });
         })
-        .catch(() => {});
+        .catch(() => {})
+        .finally(() => { pulling = false; });
     };
     tick();
     const iv = window.setInterval(tick, OFFER_POLL_MS);
     return () => {
       alive = false;
+      controller.abort();
       window.clearInterval(iv);
     };
-  }, [online, active]);
+  }, [online, active, offerMode, protectedOffer, offerOwner, offerPoll]);
 
   // ---------------- Спрос рядом: раз в минуту, пока на линии без поездки ----------------
   useEffect(() => {
@@ -467,7 +529,82 @@ export default function InstantDriverTripScreen() {
     }
   }
 
-  async function accept(): Promise<"accepted" | "retry" | "closed"> {
+  function acceptCurrentOrder(order: InstantOrder) {
+    setCurrentActive(order);
+    setOffer(null);
+    setAcceptNote("");
+    pendingOffer.current = null;
+    setPendingOfferId(null);
+    try { localStorage.setItem(ACTIVE_KEY, String(order.id)); } catch { /* The server confirmed acceptance. */ }
+  }
+
+  function offerOpCurrent(op: AbortController) {
+    return offerScreenLive.current && offerOp.current === op && !op.signal.aborted &&
+      !!offerOwner && isDriverOfferOwner(offerOwner);
+  }
+
+  async function accept(displayed: InstantOrder): Promise<"accepted" | "retry" | "closed"> {
+    if (offerMode === "legacy") return acceptLegacy();
+    if (!protectedOffer || !offerOwner || !isDriverOfferOwner(offerOwner) ||
+        offerOp.current || pendingOffer.current !== null || activeIdRef.current !== null) return "closed";
+    const version = driverOfferVersion(displayed);
+    if (!version || !sameDriverOffer(version, renderedOffer.current)) return "closed";
+    const op = new AbortController();
+    offerOp.current = op;
+    setAccepting(true);
+    setAcceptNote("");
+    setEndedNote("");
+    try {
+      const order = await acceptProtectedDriverOffer(version, offerOwner, op.signal,
+        async () => offerOpCurrent(op) && sameDriverOffer(version, renderedOffer.current));
+      if (!offerOpCurrent(op)) return "closed";
+      acceptCurrentOrder(order);
+      return "accepted";
+    } catch (error) {
+      if (!offerOpCurrent(op)) return "closed";
+      if (error instanceof ApiError && error.status === 409 && error.code === "taxi_offer_changed") {
+        staleOffer.current = version;
+        renderedOffer.current = null;
+        offerEpoch.current++;
+        setOffer(null);
+        setAcceptNote(appText("Условия заказа изменились. Проверь новую карточку перед принятием.",
+          "Заказ шарттары үҙгәрҙе. Ҡабул итер алдынан яңы карточканы тикшер."));
+        refreshOfferPoll((n) => n + 1);
+      } else {
+        pendingOffer.current = version.id;
+        setPendingOfferId(version.id);
+        setAcceptNote(appText("Неясно, принят ли заказ. Проверь результат, не нажимай «Принять» снова.",
+          "Заказ ҡабул ителгәнме, билдәһеҙ. Һөҙөмтәне тикшер, «Ҡабул итеү» төймәһенә ҡабат баҫма."));
+      }
+      return "closed"; // No protected timeout, retry or decline side effect.
+    } finally {
+      if (offerOp.current === op) {
+        offerOp.current = null;
+        if (isDriverOfferOwner(offerOwner)) setAccepting(false);
+      }
+    }
+  }
+
+  async function checkAcceptance() {
+    const id = pendingOffer.current;
+    if (!offerScreenLive.current || id === null || offerOp.current ||
+        !offerOwner || !isDriverOfferOwner(offerOwner)) return;
+    const op = new AbortController();
+    offerOp.current = op;
+    setAccepting(true);
+    try {
+      const order = await findProtectedDriverAcceptance(id, offerOwner, op.signal);
+      if (offerOpCurrent(op) && pendingOffer.current === id && order) acceptCurrentOrder(order);
+    } catch { /* A failed lookup does not prove the accept was not applied. */ }
+    finally {
+      if (offerOp.current === op) {
+        offerOp.current = null;
+        if (isDriverOfferOwner(offerOwner)) setAccepting(false);
+      }
+    }
+  }
+
+  async function acceptLegacy(): Promise<"accepted" | "retry" | "closed"> {
     if (!offer || accepting) return "closed"; // второй тап на медленной сети — не второй заказ
     setAcceptNote("");
     setEndedNote("");
@@ -514,14 +651,15 @@ export default function InstantDriverTripScreen() {
   const [askWhy, setAskWhy] = useState<number | null>(null);
 
   async function skip(afterFailedAccept = false) {
-    if (!offer || (accepting && !afterFailedAccept)) return;
+    if (!offer || (accepting && !afterFailedAccept) || offerMode === "blocked" ||
+        (protectedOffer && (!offerOwner || !isDriverOfferOwner(offerOwner) || offerOp.current || pendingOffer.current !== null))) return;
     const id = offer.id;
     setAcceptNote("");
     setOffer(null);
     try {
       await declineOrder(id);
       // Дедлайн истёк сам — спрашивать нечего: водитель ничего не решал.
-      if (!afterFailedAccept) setAskWhy(id);
+      if (!afterFailedAccept && (!protectedOffer || (offerOwner && isDriverOfferOwner(offerOwner)))) setAskWhy(id);
     } catch {
       /* уже ушёл дальше */
     }
@@ -706,7 +844,9 @@ export default function InstantDriverTripScreen() {
           connectionLost={presenceFails >= 2}
           blockedReason={offerBlocked}
           endedNote={endedNote}
-          acceptNote={!offer ? acceptNote : ""}
+          acceptNote={offerMode === "blocked"
+            ? appText("Режим проверки предложений здесь недоступен.", "Тәҡдимдәрҙе тикшереү режимы бында асыҡ түгел.")
+            : !offer ? acceptNote : ""}
           onGoOffline={() => void toggleOnline()}
           declinePanel={
             <DeclineReasonPanel
@@ -724,6 +864,9 @@ export default function InstantDriverTripScreen() {
             note={acceptNote}
             onAccept={accept}
             onSkip={skip}
+            protectedOffer={protectedOffer}
+            pending={protectedOffer && pendingOfferId === offer.id}
+            onCheck={checkAcceptance}
           />
         )}
       </>
@@ -1085,12 +1228,18 @@ function OfferOverlay({
   note,
   onAccept,
   onSkip,
+  protectedOffer,
+  pending,
+  onCheck,
 }: {
   order: InstantOrder;
   accepting: boolean;
   note: string;
-  onAccept: () => Promise<"accepted" | "retry" | "closed">;
+  onAccept: (displayed: InstantOrder) => Promise<"accepted" | "retry" | "closed">;
   onSkip: (afterFailedAccept?: boolean) => void;
+  protectedOffer: boolean;
+  pending: boolean;
+  onCheck: () => void;
 }) {
   const { appText } = useLang();
   const expiryRef = useRef(new DriverOfferExpiry(order.id));
@@ -1108,26 +1257,33 @@ function OfferOverlay({
   const remaining = Math.max(0, exp - now);
   const secondsLeft = remaining <= 0 ? 0 : Math.ceil(remaining / 1000);
   const canAccept = remaining > 0;
+  const hasPrecondition = !protectedOffer || driverOfferVersion(order) !== null;
   const progress = Math.min(1, Math.max(0, remaining / windowRef.current.ms));
 
   const beginAccept = () => {
-    if (!canAccept) return;
+    if (!canAccept || accepting || pending || !hasPrecondition) return;
+    if (protectedOffer) {
+      void onAccept(order);
+      return;
+    }
     if (!expiryRef.current.beginAccept(order.id)) return;
-    void onAccept().then((result) => {
+    void onAccept(order).then((result) => {
       const declineAfterFailure = expiryRef.current.finishAccept(order.id, result !== "retry");
       if (declineAfterFailure) onSkipRef.current(true);
     });
   };
 
   const skipOnce = () => {
-    if (expiryRef.current.manualDecline(order.id)) onSkipRef.current();
+    if (!pending && expiryRef.current.manualDecline(order.id)) onSkipRef.current();
   };
 
   useEffect(() => {
     // Дедлайн истёк (или пришёл битым) — безопасно пропускаем без вопросов.
-    if (remaining <= 0 && expiryRef.current.expire(order.id)) onSkipRef.current(true);
-  }, [remaining <= 0, order.id]); // eslint-disable-line react-hooks/exhaustive-deps
+    if (!protectedOffer && remaining <= 0 && expiryRef.current.expire(order.id)) onSkipRef.current(true);
+  }, [protectedOffer, remaining <= 0, order.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  const offeredStops = protectedOffer && Array.isArray(order.stops) ? order.stops : [];
+  const hasOfferedStops = offeredStops.length > 0;
   const fromPt: GeoPoint | null = order.from_lat != null && (order.from_lat !== 0 || order.from_lng !== 0) ? { lat: order.from_lat, lng: order.from_lng ?? 0 } : null;
   const toPt: GeoPoint | null = order.to_lat != null && (order.to_lat !== 0 || order.to_lng !== 0) ? { lat: order.to_lat, lng: order.to_lng ?? 0 } : null;
 
@@ -1147,6 +1303,7 @@ function OfferOverlay({
     .join("  ·  ");
 
   const gross = order.driver_gross_kop ?? 0;
+  const hasGross = typeof order.driver_gross_kop === "number" && Number.isSafeInteger(gross) && gross >= 0;
   const hasServerNet = gross > 0;
   const income = hasServerNet ? kopExactLabel(order.driver_net_kop ?? 0) : `${order.price_estimate} ₽`;
   const feePct = order.driver_fee_percent ?? 0;
@@ -1155,7 +1312,7 @@ function OfferOverlay({
   const trustHead = rating != null ? appText(`Пассажир ★ ${rating.toFixed(1).replace(".", ",")}`, `Пассажир ★ ${rating.toFixed(1).replace(".", ",")}`) : appText("Пассажир · новичок", "Пассажир · яңы юлсы");
   const trustDetail = order.passenger_trips > 0 ? appText(`${order.passenger_trips} завершённых поездок`, `${order.passenger_trips} тамамланған сәфәр`) : appText("Первая поездка в Юлдаш", "Юлдашта тәүге сәфәр");
   const notes: string[] = [];
-  if (hasServerNet)
+  if (hasServerNet && !protectedOffer)
     notes.push(
       appText(
         `Пассажир платит ${kopExactLabel(gross)} · комиссия ${kopExactLabel(order.driver_fee_kop ?? 0)} (${feePctLabel}%)`,
@@ -1185,11 +1342,12 @@ function OfferOverlay({
     <div className="toffer" role="dialog" aria-modal="true" aria-label={appText("Входящий заказ", "Яңы заказ")}>
       {/* Карта не интерактивна: случайный свайп в последние секунды не отнимет «Принять». */}
       <div className="toffer__map" aria-hidden>
-        <YandexMap from={fromPt} to={toPt} route={!!(fromPt && toPt)} height="100%" />
+        <YandexMap from={fromPt} to={toPt} route={!!(fromPt && toPt) && !hasOfferedStops} height="100%" />
       </div>
       <div className="toffer__chip">
         <IconMap size={18} />
-        <span>{appText("Маршрут A → Б", "Юл А → Б")}</span>
+        <span>{hasOfferedStops ? appText("Маршрут с остановками", "Туҡтауҙар менән юл")
+          : appText("Маршрут A → Б", "Юл А → Б")}</span>
       </div>
 
       <section className="toffer__sheet" key={order.id}>
@@ -1222,8 +1380,23 @@ function OfferOverlay({
                 <strong>{pickupLine}</strong>
               </span>
             </div>
-            <RouteTimeline from={order.from_text} to={order.to_text} fromLabel={appText("Точка A", "A нөктәһе")} toLabel={appText("Точка Б", "Б нөктәһе")} compact />
+            {hasOfferedStops ? <ol className="toffer-card__stops" role="list"
+              aria-label={appText("Маршрут по порядку", "Маршрут тәртип буйынса")}>
+              <li><small>{appText("Точка А", "А нөктәһе")}</small>
+                <strong>{order.from_text.trim() || appText("Точка А", "А нөктәһе")}</strong></li>
+              {/* The tag binds exact intermediate stops, but the pre-accept card reveals only
+                  their count/order. Do not render unredacted stop addresses or coordinates. */}
+              {offeredStops.map((_, i) => <li key={i}>
+                <strong>{appText(`Остановка ${i + 1}`, `${i + 1}-се туҡтау`)}</strong>
+              </li>)}
+              <li><small>{appText("Точка Б", "Б нөктәһе")}</small>
+                <strong>{order.to_text.trim() || appText("Точка Б", "Б нөктәһе")}</strong></li>
+            </ol> : <RouteTimeline from={order.from_text} to={order.to_text} fromLabel={appText("Точка A", "A нөктәһе")} toLabel={appText("Точка Б", "Б нөктәһе")} compact />}
             {tripMeta && <p className="toffer-card__meta">{tripMeta}</p>}
+            {protectedOffer && hasGross && <p className="toffer-card__meta">
+              {appText(`Сумма заказа до комиссии: ${kopExactLabel(gross)}`,
+                `Комиссияға тиклем заказ хаҡы: ${kopExactLabel(gross)}`)}
+            </p>}
           </div>
 
           {/* InstantOfferMoneyAndClass: две равные колонки одной высоты (116). */}
@@ -1272,17 +1445,23 @@ function OfferOverlay({
           )}
 
           {/* Не взяли и не поняли почему — худшее, что может быть за рулём. Говорим прямо. */}
-          {note && <p className="toffer__note" role="status">{note}</p>}
+          {(note || !hasPrecondition) && <p className="toffer__note" role="status">{note || appText(
+            "Нельзя проверить условия этой карточки. Ждём обновления.",
+            "Был карточканың шарттарын тикшереп булмай. Яңырыуҙы көтәбеҙ.",
+          )}</p>}
         </div>
 
         {/* Решение закреплено вне прокрутки: отказ не выглядит опасным, принятие — самое заметное. */}
         <div className="toffer__actions">
-          <button type="button" className="btn-soft toffer__btn" onClick={skipOnce} disabled={accepting}>
+          <button type="button" className="btn-soft toffer__btn" onClick={skipOnce} disabled={accepting || pending}>
             {appText("Пропустить", "Үткәреп ебәреү")}
           </button>
-          <button type="button" className="btn-primary toffer__btn" onClick={beginAccept} disabled={accepting || !canAccept}>
+          {pending ? <button type="button" className="btn-primary toffer__btn" onClick={onCheck} disabled={accepting}>
+            {appText("Проверить результат", "Һөҙөмтәне тикшереү")}
+          </button> : <button type="button" className="btn-primary toffer__btn" onClick={beginAccept}
+            disabled={accepting || !canAccept || !hasPrecondition}>
             {accepting ? <span className="spinner spinner--sm spinner--on-filled" aria-hidden /> : appText("Принять", "Ҡабул итеү")}
-          </button>
+          </button>}
         </div>
       </section>
     </div>

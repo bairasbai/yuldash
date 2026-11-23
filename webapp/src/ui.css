@@ -18123,6 +18123,28 @@ button.settings-row:active {
   line-height: var(--line-body);
   font-weight: var(--weight-bold);
 }
+.toffer-card__stops {
+  display: grid;
+  gap: var(--space-xs);
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.toffer-card__stops li {
+  display: grid;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.toffer-card__stops small {
+  color: var(--muted-strong);
+  font-size: var(--font-micro);
+  line-height: var(--line-micro);
+}
+.toffer-card__stops strong {
+  color: var(--text);
+  font-size: var(--font-caption);
+  line-height: var(--line-caption);
+}
 .toffer-card__meta {
   margin: 0;
   color: var(--muted-strong);
