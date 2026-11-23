@@ -9,9 +9,9 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
 
-from . import taxi_route_edit_outcome as outcome, taxi_route_resume as resume
+from . import taxi_retirement_agreement_seal as seal, taxi_route_edit_outcome as outcome, taxi_route_resume as resume
 from .config import settings
-from .models import InstantOrder, InstantOrderStatus as S, Tariff
+from .models import InstantOrder, InstantOrderStatus as S, Tariff, TaxiRouteEditOutcome
 from .taxi_offered_waypoint_agreement import OfferedWaypointAgreement, _matched_projection
 from .taxi_offered_waypoint_preview import OfferedWaypointPreview, _FIELDS
 from .instant_service import _DESTINATION_QUOTE_TARIFF_FIELDS
@@ -20,6 +20,7 @@ _ORDER = InstantOrder.__table__
 _TARIFF = Tariff.__table__
 _ORDER_COLS = tuple(_ORDER.c[name] for name in _FIELDS)
 _TARIFF_COLS = tuple(_TARIFF.c[name] for name in _DESTINATION_QUOTE_TARIFF_FIELDS)
+_RECEIPT = TaxiRouteEditOutcome.__table__.c
 
 
 class OfferedRetirement(Enum):
@@ -60,6 +61,61 @@ def _clock_bounds(conn: Connection):
     return resume._clock(conn), resume._clock(conn)
 
 
+def _store_seal(conn, *, key, owner_id, order_id, attempt_id, receipt_expires_at,
+                agreement, preview, captured, source, projected, retired, generated, current_tariff):
+    if retired is None:
+        raise _Unresolved
+    persisted = dict(zip(_FIELDS, retired, strict=True))
+    at = persisted["route_resume_retired_at"]
+    deadline = persisted["route_resume_deadline_at"]
+    expected = source | projected | {
+        "status": S.searching, "current_offer_driver_id": None, "offer_expires_at": None,
+        "route_resume_id": generated, "route_resume_previous_driver_id": source["current_offer_driver_id"],
+        "route_resume_retired_at": at, "route_resume_deadline_at": deadline,
+        "route_resume_ready_at": at, "route_resume_claim_id": None, "destination_changed_at": at,
+    }
+    if persisted != expected:
+        raise _Unresolved
+    binding = seal.bind_retirement_agreement(
+        key, owner_id=owner_id, order_id=order_id, old_source=captured, preview=preview, agreement=agreement,
+        marker_id=persisted["route_resume_id"], retired_at=at, deadline_at=deadline,
+    )
+    if binding is None or not seal.matches_retirement_agreement(
+        key, binding, owner_id=owner_id, order_id=order_id, current=persisted, now=at,
+    ):
+        raise _Unresolved
+
+    # No effects leave this transaction between retirement and its seal.
+    # Recheck not only marker identity but exact persisted projection and the
+    # original cutoffs. SQL current clocks are evaluated in these statements.
+    _, upper = _clock_bounds(conn)
+    still_eligible = (
+        current_tariff,
+        literal(at, type_=DateTime()) <= resume._clock(conn),
+        upper < literal(agreement.valid_until, type_=DateTime()),
+        upper < literal(receipt_expires_at, type_=DateTime()),
+        upper < literal(source["offer_expires_at"], type_=DateTime()),
+        upper < _ORDER.c.route_resume_deadline_at,
+        select(_RECEIPT.order_id).where(
+            _RECEIPT.owner_id == owner_id, _RECEIPT.order_id == order_id,
+            _RECEIPT.attempt_id == attempt_id, _RECEIPT.binding == agreement.binding,
+            _RECEIPT.expires_at == receipt_expires_at,
+        ).exists(),
+    )
+    owned = tuple(col == persisted[col.name] for col in _ORDER_COLS if col.name != resume._SEAL)
+    stored = conn.execute(update(_ORDER).where(
+        *owned, *still_eligible, _ORDER.c[resume._SEAL].is_(None),
+    ).values({resume._SEAL: binding._digest}).returning(_ORDER.c.id)).scalar_one_or_none()
+    if stored != order_id:
+        raise _Unresolved
+    # SQLite RETURNING does not observe AFTER triggers. Verify the real row,
+    # exact seal and staged receipt still coexist before any commit.
+    if conn.scalar(select(_ORDER.c.id).where(
+        *owned, *still_eligible, _ORDER.c[resume._SEAL] == binding._digest,
+    )) != order_id:
+        raise _Unresolved
+
+
 def _stage_then_retire(conn, *, key, owner_id, order_id, attempt_id, receipt_expires_at, agreement, preview):
     captured = _locked_state(conn, owner_id, order_id)
     now = conn.scalar(select(type_coerce(resume._clock(conn), DateTime())))
@@ -81,6 +137,8 @@ def _stage_then_retire(conn, *, key, owner_id, order_id, attempt_id, receipt_exp
     ).exists()
     lower, upper = _clock_bounds(conn)
     stamp = resume._clock(conn)
+    generated = uuid4().hex
+    projected = asdict(projected)
     statement = update(_ORDER).where(
         *(col == value for col, value in zip(_ORDER_COLS, captured[:len(_FIELDS)], strict=True)),
         current_tariff,
@@ -91,14 +149,17 @@ def _stage_then_retire(conn, *, key, owner_id, order_id, attempt_id, receipt_exp
         # No backwards or equal route edit stamp, even on clock reversal.
         (_ORDER.c.destination_changed_at.is_(None) | (_ORDER.c.destination_changed_at < lower)),
     ).values(
-        **asdict(projected), destination_changed_at=stamp,
+        **projected, destination_changed_at=stamp,
         status=S.searching, current_offer_driver_id=None, offer_expires_at=None,
-        route_resume_id=uuid4().hex, route_resume_previous_driver_id=source["current_offer_driver_id"],
+        route_resume_id=generated, route_resume_previous_driver_id=source["current_offer_driver_id"],
         route_resume_retired_at=stamp, route_resume_ready_at=stamp,
         route_resume_deadline_at=resume._clock(conn, resume._MAX_SECONDS), route_resume_claim_id=None,
-    ).returning(_ORDER.c.id)
-    if conn.execute(statement).scalar_one_or_none() != order_id:
-        raise _Unresolved
+    ).returning(*_ORDER_COLS)
+    retired = conn.execute(statement).one_or_none()
+    _store_seal(conn, key=key, owner_id=owner_id, order_id=order_id, attempt_id=attempt_id,
+                receipt_expires_at=receipt_expires_at, agreement=agreement, preview=preview,
+                captured=captured, source=source, projected=projected, retired=retired, generated=generated,
+                current_tariff=current_tariff)
 
 
 def retire_offered_waypoints(

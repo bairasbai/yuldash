@@ -83,7 +83,7 @@ def test_atomic_offer_retirement_and_exact_marker_existing_reader(healthy, monke
     prior = _row(db, oid)
     seen = []
     def at_update(conn, cursor, statement, parameters, context, executemany):
-        if statement.startswith("UPDATE instantorder SET"):
+        if statement.startswith("UPDATE instantorder SET") and "SET route_resume_agreement_seal" not in statement:
             assert conn.scalar(select(_CHILD.c.attempt_id)) == args["attempt_id"]
             seen.append((_row(db, oid), _children(db, oid)))
     event.listen(db, "before_cursor_execute", at_update)
@@ -122,8 +122,13 @@ def test_atomic_offer_retirement_and_exact_marker_existing_reader(healthy, monke
     assert retire_offered_waypoints(db, **(args | {"attempt_id": str(uuid4())})) is OfferedRetirement.UNKNOWN
     assert _row(db, oid) == row and _children(db, oid) == children
 
-    # Existing inactive primitives independently recognize the real created
-    # state, but retirement itself did not call even these SQL operations.
+    # The new producer may not enter old unsealed lab operations.
+    assert resume._seal_shape(row.route_resume_agreement_seal)
+    assert type(row.route_resume_agreement_seal) is bytes
+    assert resume.claim(db, resume.observe(db, oid), lease_seconds=30) is None
+    # Smoke old unsealed lab semantics only via explicit synthetic removal.
+    with db.begin() as conn:
+        conn.execute(update(_O).where(_O.c.id == oid).values({resume._SEAL: None}))
     observed = resume.observe(db, oid)
     assert resume._valid(resume._state(observed))
     claimed = resume.claim(db, observed, lease_seconds=30)
@@ -235,7 +240,8 @@ def test_supported_commit_ack_or_unknown_but_never_reapply(healthy, request, mon
     if lost_ack:
         assert evidence is out.CommittedEvidence.COMMITTED
         row = _row(db, oid)
-        assert row.route_resume_retired_at and len(_children(db, oid)) == 1
+        assert row.route_resume_retired_at and len(row.route_resume_agreement_seal) == 32
+        assert len(_children(db, oid)) == 1
         assert retire_offered_waypoints(db, **args) is OfferedRetirement.UNKNOWN
         assert _row(db, oid) == row
     else:
@@ -269,3 +275,124 @@ def test_wrong_actor_exhaustion_fallback_and_matching_receipt_never_retire(healt
         "receipt_expires_at": args["receipt_expires_at"] + timedelta(days=1),
     })) is OfferedRetirement.UNKNOWN
     assert _row(db, oid) == orig and _children(db, oid) == recorded
+
+
+@pytest.mark.parametrize("interference", ("bad_seal", "second_skip", "after_first", "after_second",
+                                          "receipt_removed", "second_expiry"))
+def test_seal_stage_failure_rolls_back_actual_retirement_and_receipt(healthy, request, monkeypatch, interference):
+    from app import taxi_retirement_agreement_seal as seal
+
+    request.getfixturevalue("route")
+    db, _, oid, _, _, _, _ = healthy
+    args = _args(healthy, duration=2 if interference == "second_expiry" else None)
+    before = _row(db, oid)
+    seen = []
+    ddl = {
+        "second_skip": (
+            "BEFORE UPDATE OF route_resume_agreement_seal ON instantorder", "SELECT RAISE(IGNORE)"
+        ),
+        "after_first": (
+            "AFTER UPDATE OF destination_changed_at ON instantorder",
+            "UPDATE instantorder SET ride_base_price = ride_base_price + 1 WHERE id = NEW.id",
+        ),
+        "after_second": (
+            "AFTER UPDATE OF route_resume_agreement_seal ON instantorder",
+            "UPDATE instantorder SET price_estimate = price_estimate + 1 WHERE id = NEW.id",
+        ),
+        "receipt_removed": (
+            "AFTER UPDATE OF route_resume_agreement_seal ON instantorder",
+            "DELETE FROM taxirouteeditoutcome WHERE order_id = NEW.id",
+        ),
+    }
+    if interference in ddl:
+        event_clause, body = ddl[interference]
+        with db.begin() as c:
+            c.exec_driver_sql(f"CREATE TRIGGER interrupt_retirement {event_clause} BEGIN {body}; END")
+    if interference == "bad_seal":
+        real = seal.bind_retirement_agreement
+
+        def corrupt(*args, **kwargs):
+            assert real(*args, **kwargs) is not None
+            return seal.RetirementAgreementSeal(b"\xa3" * 32)
+
+        monkeypatch.setattr(seal, "bind_retirement_agreement", corrupt)
+
+    def witness(conn, cursor, sql, parameters, context, executemany):
+        if sql.startswith("UPDATE instantorder SET route_resume_agreement_seal"):
+            row = conn.execute(select(_O).where(_O.c.id == oid)).one()
+            assert row.status is S.searching and row.route_resume_agreement_seal is None
+            assert row.ride_price == 170 and row.route_resume_deadline_at
+            assert conn.scalar(select(_CHILD.c.attempt_id)) == args["attempt_id"]
+            assert _row(db, oid) == before and _children(db, oid) == []
+            seen.append(True)
+            if interference == "second_expiry":
+                _wait_db(db, args["agreement"].valid_until)
+
+    event.listen(db, "before_cursor_execute", witness)
+    try:
+        assert retire_offered_waypoints(db, **args) is OfferedRetirement.UNKNOWN
+    finally:
+        event.remove(db, "before_cursor_execute", witness)
+    assert seen == ([] if interference == "bad_seal" else [True])
+    assert _row(db, oid) == before and _children(db, oid) == []
+
+
+def test_persisted_seal_survives_actual_short_receipt_purge_without_replaying(healthy, request):
+    from app import taxi_retirement_agreement_seal as seal
+
+    request.getfixturevalue("route")
+    db, owner, oid, prior, successor, *_ = healthy
+    args = _args(healthy)
+    args["receipt_expires_at"] = utcnow() + timedelta(seconds=3)
+    assert retire_offered_waypoints(db, **args) is OfferedRetirement.COMMITTED
+    raw = resume.observe(db, oid)
+    observed = resume._state(raw)
+    old_stamp = observed["route_resume_retired_at"]
+    cutoff = observed["route_resume_deadline_at"]
+    first_marker = observed["route_resume_id"]
+    preserved = observed[resume._SEAL]
+    assert type(preserved) is bytes and len(preserved) == 32
+    assert cutoff == old_stamp + timedelta(seconds=120)
+    assert observed["route_resume_previous_driver_id"] == prior
+    assert not resume.claim(db, raw, lease_seconds=20)
+    # Only model the later durable successor here; no runtime caller can
+    # currently offer a sealed generation. Never clear or regenerate seal.
+    with db.begin() as conn:
+        next_at = _clock(conn)
+        conn.execute(update(_O).where(_O.c.id == oid).values(
+            status=S.offered, offered_at=next_at, offer_expires_at=next_at + timedelta(seconds=15),
+            current_offer_driver_id=successor, search_round=observed["search_round"] + 1,
+            route_resume_ready_at=None, route_resume_claim_id=None,
+        ))
+    receipt = dict(owner_id=owner, order_id=oid, attempt_id=args["attempt_id"], binding=args["agreement"].binding)
+    assert out.committed_evidence(db, **receipt, now=args["receipt_expires_at"]-timedelta(microseconds=1)) is (
+        out.CommittedEvidence.COMMITTED
+    )
+    _wait_db(db, args["receipt_expires_at"])
+    with db.begin() as conn:
+        conn.exec_driver_sql("BEGIN IMMEDIATE")
+        assert out.purge_expired(conn, cutoff=_clock(conn), limit=1) == 1
+    assert out.committed_evidence(db, **receipt, now=utcnow()) is out.CommittedEvidence.UNKNOWN
+    assert _children(db, oid) == []
+    current = resume._state(resume.observe(db, oid))  # new connection, do not re-mint
+    assert current[resume._SEAL] == preserved
+    assert current["route_resume_id"] == first_marker and current["route_resume_deadline_at"] == cutoff
+    with db.connect() as conn:
+        now = _clock(conn)
+    assert now < current["offer_expires_at"] < cutoff
+    rehydrated = seal.RetirementAgreementSeal(current[resume._SEAL])
+    fields = dict(key=args["key"], seal=rehydrated, owner_id=owner, order_id=oid)
+    assert seal.matches_retirement_agreement(**fields, current=current, now=now)
+    assert seal.matches_retirement_agreement(**fields, current=current, now=cutoff-timedelta(microseconds=1))
+    assert not seal.matches_retirement_agreement(**fields, current=current, now=cutoff)
+    assert retire_offered_waypoints(db, **args) is OfferedRetirement.UNKNOWN
+    fresh_receipt = args | {"receipt_expires_at": now + timedelta(seconds=30)}
+    assert retire_offered_waypoints(db, **fresh_receipt) is OfferedRetirement.UNKNOWN
+    assert resume._state(resume.observe(db, oid)) == current and _children(db, oid) == []
+    with db.begin() as conn:
+        conn.execute(update(_O).where(_O.c.id == oid).values(
+            ride_price=current["ride_price"] + 10, price_estimate=current["price_estimate"] + 10,
+        ))
+    damaged = resume._state(resume.observe(db, oid))
+    assert damaged[resume._SEAL] == preserved and damaged["route_resume_deadline_at"] == cutoff
+    assert not seal.matches_retirement_agreement(**fields, current=damaged, now=now)

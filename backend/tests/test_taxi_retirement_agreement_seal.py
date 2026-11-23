@@ -38,7 +38,7 @@ def approved(request, monkeypatch):
     # Feed only generated lineage from this result. Route/fare to bind come
     # from verified old snapshot + independently vetted replacement projection.
     saved = seal.bind_retirement_agreement(**kwargs)
-    assert saved is not None
+    assert saved is not None and saved._digest == actual[resume._SEAL]
     return db, owner_id, order_id, prior, successor, kwargs, saved, actual
 
 
@@ -51,6 +51,8 @@ def _match(fixture, state=None, **overrides):
 
 def _successor(fixture):
     db, _, oid, _, successor, *_ = fixture
+    assert resume.claim(db, resume.observe(db, oid), lease_seconds=30) is None
+    _mutate(db, oid, **{resume._SEAL: None})  # earlier unsealed lab only
     claim = resume.claim(db, resume.observe(db, oid), lease_seconds=30)
     assert claim is not None and _match(fixture, resume._state(claim))
     final = resume.store_offer(db, claim, driver_id=successor, offer_seconds=25)
