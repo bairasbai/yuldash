@@ -56,6 +56,8 @@ def serve(args, tempdir):
     assert Path(conftest.engine.url.database).parent == Path(tempdir)
     counters = dict.fromkeys((*ENDPOINTS.values(), "card", "activate"), 0)
     draft_case = args.case in ("draft", "draft-delayed")
+    if draft_case:
+        counters["draft_route_estimates"] = 0
     scheduled_case = draft_case or args.case in ("scheduled", "late", "unavailable")
     scheduled_route = None
     schedule_http = {"status": None, "field": None}
@@ -134,6 +136,14 @@ def serve(args, tempdir):
             if key == "schedule":
                 snapshot()  # Preserve receipt even if the backend or response adapter raises.
             response = client.request(self.command, self.path, content=body, headers=headers)
+            if (draft_case and self.command == "POST" and parsed.path == "/instant/estimate"
+                    and response.status_code == 200 and headers.get("Authorization") == "Bearer " + session["access_token"]):
+                request = json.loads(body)
+                if (request.get("scheduled_at") and request.get("round_trip") is True
+                        and request.get("return_wait_min") == 120 and request.get("waypoints") == [
+                            {"lat": 52.64, "lng": 58.41, "text": "QA Stop A"},
+                            {"lat": 52.68, "lng": 58.54, "text": "QA Stop B"}]):
+                    counters["draft_route_estimates"] += 1
             if (draft_case and self.command == "POST" and parsed.path == "/auth/logout"
                     and response.status_code == 200):
                 # A new synthetic login must be issued after the server's all-session revocation.

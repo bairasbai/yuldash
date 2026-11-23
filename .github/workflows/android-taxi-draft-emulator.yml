@@ -17,6 +17,11 @@ permissions:
 
 jobs:
   taxi-draft-emulator:
+    name: Taxi draft (${{ matrix.variant }})
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [candidate, baseline]
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
@@ -24,10 +29,19 @@ jobs:
       YULDASH_NATIVE_QA_PINNED_API: 'true'
       YULDASH_TAXI_QUOTE_CONSENT_LOCAL: 'true'
       YULDASH_TAXI_DRAFT_DEVICE_QA: 'true'
+      TAXI_DRAFT_VARIANT: ${{ matrix.variant }}
     steps:
       - uses: actions/checkout@v4
         with:
           persist-credentials: false
+          fetch-depth: ${{ matrix.variant == 'baseline' && '0' || '1' }}
+      - name: Use the exact production source from PR 289 for the control
+        if: matrix.variant == 'baseline'
+        env:
+          BASELINE: 6548bf38f66ef9902cf0ad000e51c5ada85af8d9
+        run: |
+          git restore --source="$BASELINE" --staged --worktree -- android/app/src/main
+          git diff --exit-code "$BASELINE" -- android/app/src/main
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -41,7 +55,7 @@ jobs:
           python-version: '3.12'
           cache: pip
           cache-dependency-path: backend/requirements-dev.txt
-      - name: Build the candidate against the isolated emulator API
+      - name: Build the selected production source against the isolated emulator API
         working-directory: android
         run: bash gradlew :app:assembleDebug --stacktrace
       - name: Install the local backend test dependencies
@@ -61,7 +75,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: taxi-draft-emulator
+          name: ${{ matrix.variant == 'baseline' && 'taxi-draft-baseline' || 'taxi-draft-emulator' }}
           path: android/build/taxi-consent-emulator
           if-no-files-found: ignore
           retention-days: 7

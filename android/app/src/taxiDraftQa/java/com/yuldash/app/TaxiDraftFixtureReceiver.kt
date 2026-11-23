@@ -24,6 +24,12 @@ class TaxiDraftFixtureReceiver : BroadcastReceiver() {
                     .edit().putString("app_language", language).commit())
                 check(context.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
                     .edit().putBoolean("dark_override", language == "Ba").commit())
+                if (action == "primary") {
+                    // The normal location reader starts with its last fix before listening to GPS.
+                    // Set this *only* in the initial login process; a cold task is never reseeded.
+                    LocationPrefs.lastLat = 52.591
+                    LocationPrefs.lastLng = 58.317
+                }
                 ApiClient.saveToken(identity.getString("access"))
                 check(ApiClient.myUserId() == identity.getInt("uid"))
                 check(context.getSharedPreferences("yuldash_prefs", Context.MODE_PRIVATE)

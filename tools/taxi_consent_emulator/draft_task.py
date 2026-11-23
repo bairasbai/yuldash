@@ -259,23 +259,36 @@ def run(scenario, session, state, results):
     shell("wm", "density", "320")
     shell("settings", "put", "system", "accelerometer_rotation", 0)
     shell("settings", "put", "system", "user_rotation", 0)
-    shell("cmd", "location", "set-location-enabled", "true")
-    for kind in ("COARSE", "FINE"):
-        shell("pm", "grant", PKG, "android.permission.ACCESS_" + kind + "_LOCATION")
     user = json.loads(session.read_text())
     identity("primary", session)
     seeded_pid = pid()
     start(user["uid"])
     assert pid() == seeded_pid, "Initial UI must use the process that logged in"
-    def gps_pickup():
-        # Older AVDs can drop an injected fix if the GPS listener has not yet registered.
-        adb("emu", "geo", "fix", "58.317", "52.591")
-        return any(label("Моя позиция")(node) for node in tree())
-    until(gps_pickup, "synthetic GPS pickup")
+    find(label("Моя позиция"), "initial last-known synthetic pickup")
     choose_route()
     ordered_route()
     expected_cta = submit_label()
     no_writes(state, 0)
+    if scenario == "baseline":
+        baseline_record = task_record()[:2]
+        screenshot(results, "baseline-before-rotation")
+        rotate()
+        assert pid() == seeded_pid and task_record()[:2] == baseline_record
+        find(label("QA Destination"), "destination on the restored route")
+        assert submit_label() == expected_cta
+        nodes = tree()
+        assert any(label("QA Destination")(n) for n in nodes)
+        assert any(label("Детали заказа")(n) for n in nodes)
+        assert not any(n.get("text") in (A, B) or label("Убрать остановку")(n) for n in nodes)
+        no_writes(state, 0)
+        screenshot(results, "baseline-lost-stops")
+        (results / "baseline-control.json").write_text(json.dumps({
+            "source": "6548bf38f66ef9902cf0ad000e51c5ada85af8d9",
+            "before_stops": [A, B], "after_stops": [], "destination_retained": True,
+            "scheduled_time_retained": True, "same_pid": seeded_pid, "same_task": baseline_record[1],
+            "orders": 0, "schedule": 0, "quote": 0, "confirm": 0, "legacy": 0,
+        }, indent=2))
+        return
     if scenario.startswith("restore"):
         screenshot(results, scenario + "-before")
         rotate()
@@ -295,7 +308,10 @@ def run(scenario, session, state, results):
         state.with_suffix(".release").touch()
         until(lambda: json.loads(state.read_text())["released"], "backend released success")
         until(submitted_revision_persisted, "stopped process acknowledged the successful order")
+    if scenario.startswith("restore"):
+        until(lambda: no_writes(state, 0)["draft_route_estimates"] > 0, "initial scheduled round-trip estimate")
     old_pid, record, task, bundle = kill_background(parked)
+    estimates_before_resume = json.loads(state.read_text())["draft_route_estimates"]
     if scenario in ("alternate", "relogin"):
         identity("logout", session)
         until(lambda: "relogin" in json.loads(session.read_text()), "server acknowledged logout and issued a new login")
@@ -308,7 +324,10 @@ def run(scenario, session, state, results):
     if scenario.startswith("restore"):
         ordered_route()
         assert submit_label() == expected_cta
-        no_writes(state, 0)
+        estimates_after_resume = until(
+            lambda: (count if (count := no_writes(state, 0)["draft_route_estimates"]) > estimates_before_resume else 0),
+            "fresh authenticated estimate for the restored scheduled round trip",
+        )
         screenshot(results, scenario + "-restored")
         click(expected_cta)
         find(label("Новый заказ"), "scheduled receipt")
@@ -318,10 +337,11 @@ def run(scenario, session, state, results):
         assert result["route"]["points"] == [[52.64, 58.41, A], [52.68, 58.54, B]]
         assert result["route"]["minutes"] == 90 and result["route"]["fare"] > 0
         assert result["confirmed_round_trip"] is True and result["confirmed_return_wait_min"] == 120
-        (results / (scenario + "-order.json")).write_text(json.dumps({
-            key: result[key] for key in ("orders", "schedule", "confirm", "activate", "legacy", "route",
-                                         "scheduled_route", "confirmed_round_trip", "confirmed_return_wait_min")
-        }, indent=2))
+        order_evidence = {key: result[key] for key in ("orders", "schedule", "confirm", "activate", "legacy", "route",
+                                         "scheduled_route", "confirmed_round_trip", "confirmed_return_wait_min")}
+        order_evidence["route_estimates_before_resume"] = estimates_before_resume
+        order_evidence["route_estimates_after_resume"] = estimates_after_resume
+        (results / (scenario + "-order.json")).write_text(json.dumps(order_evidence, indent=2))
         screenshot(results, scenario + "-submitted")
         click("Новый заказ")
         clean_form("QA Destination")
