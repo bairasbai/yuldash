@@ -58,14 +58,24 @@ internal class TaxiDriverRecoveryJournal(
         else SendPermit(owner, newHandle).also { armed = it }
     }
 
-    /** Claim once at the final transport admission point, still under the caller's session fence. */
-    fun consumeSendPermit(permit: SendPermit, admit: () -> Unit): Boolean = guarded(permit.owner) {
-        if (armed !== permit) return@guarded false
-        armed = null
-        if (storageUncertain || readOwned(permit.owner)?.value != permit.handle.value) return@guarded false
-        admit()
-        true
-    } ?: false
+    internal enum class Admission { NOT_INVOKED, INVOKED_OUTCOME_UNKNOWN }
+
+    /** Claim once under the session fence. Invoking the callback never proves an HTTP outcome. */
+    fun consumeSendPermit(permit: SendPermit, admit: () -> Unit): Admission {
+        var invoked = false
+        runCatching {
+            guarded(permit.owner) {
+                if (armed !== permit) return@guarded
+                armed = null
+                if (storageUncertain || readOwned(permit.owner)?.value != permit.handle.value) return@guarded
+                // A caller or session fence may throw after control passed to the
+                // caller. Neither failure proves the command was never dispatched.
+                invoked = true
+                admit()
+            }
+        }
+        return if (invoked) Admission.INVOKED_OUTCOME_UNKNOWN else Admission.NOT_INVOKED
+    }
 
     private fun readOwned(owner: SnapshotOwner): TaxiDriverRecoveryHandle? {
         val row = storage.read() ?: return null
