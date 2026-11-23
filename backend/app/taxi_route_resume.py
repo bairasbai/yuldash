@@ -10,6 +10,8 @@ from datetime import datetime, timedelta
 import re
 from uuid import uuid4
 
+from psycopg2 import Error as PsycopgError
+from psycopg2.extensions import TRANSACTION_STATUS_IDLE, connection as PsycopgConnection
 from sqlalchemy import func, select, update
 from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.pool import SingletonThreadPool, StaticPool
@@ -102,23 +104,57 @@ def _successor_offer(state: dict) -> bool:
             and state["route_resume_ready_at"] is None and state["route_resume_claim_id"] is None)
 
 
+def _require_writer_mode(conn: Connection) -> None:
+    raw = conn.connection.driver_connection
+    sqlalchemy_auto = conn.get_execution_options().get("isolation_level") == "AUTOCOMMIT"
+    if conn.dialect.name == "sqlite":
+        if raw.in_transaction:
+            # The primitive owns this checkout, not the transaction already
+            # on it. Closing an unsafe checkout avoids pooling a live lock.
+            conn.invalidate()
+            raise ValueError("Unsupported route resume transaction mode")
+        unsupported = getattr(raw, "autocommit", None) is True or raw.isolation_level is None
+    else:
+        if not isinstance(raw, PsycopgConnection):
+            raise ValueError("Unsupported route resume transaction mode")
+        # psycopg2 reports the physical transaction status without executing
+        # a query. SQLAlchemy's logical begin alone cannot establish ownership.
+        try:
+            idle = raw.get_transaction_status() == TRANSACTION_STATUS_IDLE
+        except PsycopgError:
+            idle = False
+        if not idle:
+            conn.invalidate()
+            raise ValueError("Unsupported route resume transaction mode")
+        # Engine-level autocommit can change the raw mode without an SA option.
+        unsupported = raw.autocommit is not False
+    if unsupported or sqlalchemy_auto:
+        raise ValueError("Unsupported route resume transaction mode")
+
+
 @contextmanager
 def _writer(engine: Engine, order_id: int):
-    if engine.dialect.name not in ("postgresql", "sqlite"):
+    if (engine.dialect.name not in ("postgresql", "sqlite")
+            or (engine.dialect.name == "postgresql" and engine.dialect.driver != "psycopg2")):
         raise ValueError("Unsupported route resume database")
     if engine.dialect.name == "sqlite" and (
         engine.url.database in (None, "", ":memory:")
         or isinstance(engine.pool, (StaticPool, SingletonThreadPool))
     ):
         raise ValueError("Route resume needs an independently connected SQLite file database")
-    with engine.begin() as conn:
-        if conn.dialect.name == "sqlite":
-            conn.exec_driver_sql("BEGIN IMMEDIATE")
-        else:
-            # Acquire the physical owner row before the clock-bearing DML.
-            # An UPDATE predicate alone could be evaluated before lock wait.
-            conn.execute(select(_COL.id).where(_COL.id == order_id).with_for_update()).all()
-        yield conn
+    with engine.connect() as conn:
+        _require_writer_mode(conn)
+        with conn.begin():
+            # A begin listener can change the raw mode or open a physical
+            # SQLite transaction; verify again before any primitive SQL.
+            _require_writer_mode(conn)
+            if conn.dialect.name == "sqlite":
+                conn.exec_driver_sql("BEGIN IMMEDIATE")
+            else:
+                # Acquire the physical owner row before the clock-bearing DML.
+                # An UPDATE predicate alone could be evaluated before lock wait.
+                conn.execute(select(_COL.id).where(_COL.id == order_id).with_for_update()).all()
+            yield conn
 
 
 def _clock(conn: Connection, seconds: int = 0):

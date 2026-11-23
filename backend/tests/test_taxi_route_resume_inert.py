@@ -1,12 +1,13 @@
 """Actual InstantOrder storage contract. No matcher/endpoint invokes this module."""
 from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+import sqlite3
 from threading import Event
 from time import sleep
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import create_engine, event
 from sqlmodel import Session
 
 from app import instant_service as isv, taxi_route_resume as resume
@@ -258,3 +259,47 @@ def test_invalid_persisted_window_cannot_claim_or_store_even_with_claim_nonce(us
     assert resume.store_timeout(engine, bad_lease) is None
     assert resume.observe(engine, oid) == bad_lease
     assert _row(oid).current_offer_driver_id is None
+
+
+@pytest.mark.skipif(engine.dialect.name != "sqlite", reason="SQLite DBAPI transaction modes")
+@pytest.mark.parametrize("mode", ("raw_autocommit", "sa_autocommit", "raw_open", "raw_autocommit_open"))
+def test_resume_sqlite_preflight_refuses_unsupported_mode_without_leaking_lock(user_factory, mode):
+    if mode.startswith("raw_autocommit") and not hasattr(sqlite3.Connection, "autocommit"):
+        pytest.skip("sqlite3 explicit autocommit is Python 3.12+")
+    oid, _, _ = _seed(user_factory)
+    original = resume.observe(engine, oid)
+    assert original is not None
+    kwargs = {"connect_args": {"timeout": 0}, "hide_parameters": True}
+    if mode.startswith("raw_autocommit"):
+        kwargs["connect_args"]["autocommit"] = True
+    if mode == "sa_autocommit":
+        kwargs.update(isolation_level="AUTOCOMMIT", skip_autocommit_rollback=True)
+    unsafe = create_engine(engine.url, **kwargs)
+    if mode.endswith("_open"):
+        event.listen(unsafe, "checkout", lambda raw, *_: raw.execute("BEGIN IMMEDIATE").close())
+    seen = []
+
+    def watch(conn, cursor, statement, parameters, context, executemany):
+        seen.append(statement)
+
+    event.listen(unsafe, "before_cursor_execute", watch)
+    control = create_engine(engine.url, connect_args={"timeout": 0}, hide_parameters=True)
+    try:
+        # Capture the precondition error but run the independent probe first
+        # so the vulnerable baseline reproduces the physical writer leak.
+        failure = None
+        try:
+            resume.claim(unsafe, original, lease_seconds=30)
+        except ValueError as exc:
+            failure = str(exc)
+        with control.begin() as check:
+            check.exec_driver_sql("BEGIN IMMEDIATE")
+            assert check.connection.driver_connection.in_transaction
+        assert failure == "Unsupported route resume transaction mode"
+        assert seen == []
+        assert resume.observe(control, oid) == original
+        claimed = resume.claim(engine, original, lease_seconds=30)
+        assert claimed and resume.observe(control, oid) == claimed
+    finally:
+        control.dispose()
+        unsafe.dispose()
