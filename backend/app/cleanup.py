@@ -865,12 +865,16 @@ def close_stale_orders(now=None) -> int:
     # This is an ordinary-only closure. Keep each existing age/status rule
     # at the write itself, and never act on IDs or owners selected earlier.
     unmarked = " AND ".join(f"{column} IS NULL" for column in _MARKERS)
+    # Reuse the ordinary closure identity, with real typed values from the
+    # exact write (not a new read that could observe someone else's queue).
+    closure_columns = promo_ride._STUCK_CLOSE_COLUMNS
+    closure_return = ", ".join(promo_ride._STUCK_CLOSE_FIELDS)
     with engine.begin() as conn:
         cancelled = conn.execute(text(
             "UPDATE instantorder SET status = 'cancelled' "
             "WHERE status IN ('accepted', 'arriving') AND created_at < :cut "
-            f"AND {unmarked} RETURNING id, driver_id, passenger_id"
-        ), {"cut": cut}).all()
+            f"AND {unmarked} RETURNING {closure_return}"
+        ).columns(*closure_columns), {"cut": cut}).all()
         # done_at обязателен: без него поездка выпадает из заработка водителя и из стажа.
         done = conn.execute(text(
             "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
@@ -880,14 +884,15 @@ def close_stale_orders(now=None) -> int:
         expired = conn.execute(text(
             "UPDATE instantorder SET status = 'expired' "
             "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut "
-            f"AND {unmarked} RETURNING id"
-        ), {"cut": cut}).scalars().all()
+            f"AND {unmarked} RETURNING {closure_return}"
+        ).columns(*closure_columns), {"cut": cut}).all()
     # Existing finance/notice steps are post-commit and only use the rows
     # changed by this transaction. Closed-as-done never releases the promo.
     if done:
         _accrue_auto_done([row.id for row in done])
     if cancelled or expired:
-        promo_ride.release_ids([row.id for row in cancelled] + expired)
+        closures = {row.id: tuple(row) for row in (*cancelled, *expired)}
+        promo_ride.release_ids(closures, _closed_nightlies=closures)
     if cancelled:
         _notify_closed("order", [(row.id, row.driver_id) for row in cancelled])
     if done:

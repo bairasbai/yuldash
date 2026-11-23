@@ -27,7 +27,12 @@ def nightly(request, monkeypatch):
 
     monkeypatch.setattr(cleanup, "_accrue_auto_done", lambda ids: receipt("fee", ids))
     monkeypatch.setattr(cleanup, "_notify_closed", receipt)
-    monkeypatch.setattr(promo_ride, "release_ids", lambda ids: receipt("promo", ids))
+    def promo_effect(ids, *, _closed_nightlies):
+        assert set(ids) == _closed_nightlies.keys()
+        assert all(oid == row[0] for oid, row in _closed_nightlies.items())
+        receipt("promo", ids)
+
+    monkeypatch.setattr(promo_ride, "release_ids", promo_effect)
     return db, owner, oid, driver, other, now, cut, effects
 
 
