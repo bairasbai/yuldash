@@ -72,7 +72,7 @@ jobs:
           target: default
           arch: x86_64
           force-avd-creation: true
-          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim -camera-back none
           script: TAXI_DRAFT_ONLY=true bash tools/taxi_consent_emulator/run.sh
       - name: Save lifecycle evidence and synthetic UI frames
         if: always()
