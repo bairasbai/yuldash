@@ -1,14 +1,17 @@
 """Uncalled private view of a genuinely sealed successor, not driver admission."""
-from dataclasses import dataclass
 import hmac
 import json
+from dataclasses import dataclass
+from datetime import datetime
 
 from sqlalchemy import DateTime, select, type_coerce
 from sqlalchemy.engine import Connection
 from sqlalchemy.exc import SQLAlchemyError
 
-from . import taxi_marked_offer_card as card, taxi_offered_waypoint_preview as preview
-from . import taxi_retirement_agreement_seal as seal, taxi_route_resume as resume
+from . import taxi_marked_offer_card as card
+from . import taxi_offered_waypoint_preview as preview
+from . import taxi_retirement_agreement_seal as seal
+from . import taxi_route_resume as resume
 from .models import InstantOrderStatus as S
 from .taxi_route_agreement import _source_value
 from .taxi_sealed_resume_claim import _upper_clock
@@ -27,10 +30,11 @@ class _ObservedSealedOffer:
     # Kept internal for a future locked exact SQL CAS; never return as a DTO.
     _values: tuple
     _proof: SealedOfferCardProof
+    _observed_at: datetime
 
 
 def _read_sealed_offer(
-    conn: Connection, key: bytes, *, owner_id: int, order_id: int, driver_id: int,
+    conn: Connection, key: bytes, *, owner_id: int, order_id: int, driver_id: int, fences=(),
 ) -> _ObservedSealedOffer | None:
     """One scoped SELECT; locks/eligibility/admission are a future caller's job."""
     if (conn.dialect.name not in ("postgresql", "sqlite")
@@ -47,7 +51,7 @@ def _read_sealed_offer(
             col.route_resume_id.is_not(None), col[resume._SEAL].is_not(None),
             _upper_clock(conn) < col.offer_expires_at,
             _upper_clock(conn) < col.route_resume_deadline_at,
-            ~card._HAS_PAYMENT, ~card._HAS_LEDGER,
+            ~card._HAS_PAYMENT, ~card._HAS_LEDGER, *fences,
         )).one_or_none()
         if result is None:
             return None
@@ -65,7 +69,7 @@ def _read_sealed_offer(
         encoded = json.dumps(material, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("ascii")
     except (SQLAlchemyError, TypeError, ValueError, OverflowError, RecursionError):
         return None
-    return _ObservedSealedOffer(values, SealedOfferCardProof(hmac.digest(key, _PURPOSE + encoded, "sha256")))
+    return _ObservedSealedOffer(values, SealedOfferCardProof(hmac.digest(key, _PURPOSE + encoded, "sha256")), now)
 
 
 def observe_sealed_offer_card(
