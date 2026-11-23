@@ -1792,9 +1792,15 @@ def passenger_may_close(order: InstantOrder, now: Optional[datetime] = None) -> 
     return _minutes_on_board(order, now) >= порог
 
 
+_DESTINATION_QUOTE_TARIFF_FIELDS = (
+    "id", "active", "category", "zone", "base", "min_price", "per_km", "per_min", "k",
+)
+
+
 def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
                       now: Optional[datetime] = None,
-                      waypoints_override: Optional[list] = None) -> dict:
+                      waypoints_override: Optional[list] = None, *,
+                      expected_tariff: tuple | None = None) -> dict:
     """Во что обойдётся смена адреса на `new_to`. НИЧЕГО не меняет — только считает.
 
     До посадки пассажира считаем как обычную поездку от точки А: водитель ещё едет за ним,
@@ -1824,6 +1830,12 @@ def destination_quote(session: Session, order: InstantOrder, new_to: tuple,
     t = active_tariff(session, zone, order.category or "standard")
     if t is None:
         return {"ok": False, "reason": "no_tariff"}
+    # The guarded internal preview checks the actual object about to price
+    # this route. A same-ID rate change restored before final read is not
+    # equivalent to using the originally captured rates.
+    if (expected_tariff is not None
+            and tuple(getattr(t, name) for name in _DESTINATION_QUOTE_TARIFF_FIELDS) != expected_tariff):
+        return {"ok": False, "reason": "tariff_changed"}
 
     k = order_pricing_k(order)
     price = _tariff_price(t, total_km, total_min, k)
