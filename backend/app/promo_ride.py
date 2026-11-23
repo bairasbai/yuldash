@@ -32,6 +32,7 @@ from sqlmodel import Session, select
 from . import compensation as comp_mod
 from .config import settings
 from .models import InstantOrder, InstantOrderStatus, PromoCode, PromoRedemption
+from .taxi_route_resume import _MARKERS as _ROUTE_RESUME_MARKERS
 from .timeutil import utcnow
 
 # Вид промокода, дающий скидку на поездку в такси. perk_value такого кода — РУБЛИ скидки.
@@ -265,7 +266,23 @@ def consume(session: Session, user_id: int, order: InstantOrder) -> int:
     return disc
 
 
-def release(session: Session, order: InstantOrder) -> bool:
+# Only the legacy wait-expiry worker supplies this post-close evidence.
+_WAIT_EXPIRY_FIELDS = (
+    "id", "passenger_id", "status", "wait_until", "searching_at", "expired_at", "search_round",
+    "retry_count", "driver_id", "offered_at", "current_offer_driver_id", "offer_expires_at",
+)
+_WAIT_EXPIRY_COLUMNS = tuple(getattr(InstantOrder, name) for name in _WAIT_EXPIRY_FIELDS)
+
+
+def _closed_wait_predicates(snapshot: tuple) -> tuple:
+    return (
+        InstantOrder.status == InstantOrderStatus.expired, InstantOrder.wait_until.is_(None),
+        *(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS),
+        *(col == value for col, value in zip(_WAIT_EXPIRY_COLUMNS, snapshot, strict=True)),
+    )
+
+
+def release(session: Session, order: InstantOrder, *, _closed_wait: tuple | None = None) -> bool:
     """Поездка не состоялась → скидка возвращается пассажиру (не сгорает). Идемпотентно.
 
     Возврат True — скидка действительно снята с этого заказа. Одного переданного id
@@ -278,11 +295,13 @@ def release(session: Session, order: InstantOrder) -> bool:
     red = session.exec(
         select(PromoRedemption).where(PromoRedemption.used_order_id == order.id).with_for_update()
     ).first()
+    closure_guard = _closed_wait_predicates(_closed_wait) if _closed_wait is not None else ()
     cleared = session.execute(
         update(InstantOrder).where(
             InstantOrder.id == order.id,
             InstantOrder.status.in_(_DEAD),
             InstantOrder.promo_discount_kop > 0,
+            *closure_guard,
         ).values(promo_discount_kop=0)
     )
     if cleared.rowcount == 0:
@@ -297,7 +316,7 @@ def release(session: Session, order: InstantOrder) -> bool:
     return True
 
 
-def release_ids(order_ids) -> int:
+def release_ids(order_ids, *, _closed_waits: dict[int, tuple] | None = None) -> int:
     """Вернуть скидку по списку заказов, закончившихся без поездки. Своя сессия.
 
     Возврат обещан в шапке модуля — «поездка не состоялась → скидка возвращается», — но
@@ -315,8 +334,18 @@ def release_ids(order_ids) -> int:
     freed = 0
     with Session(engine) as session:
         for oid in ids:
-            order = session.get(InstantOrder, oid)
-            if order is not None and release(session, order):
+            if _closed_waits is None:
+                order = session.get(InstantOrder, oid)
+                if order is not None and release(session, order):
+                    freed += 1
+                continue
+            evidence = _closed_waits.get(oid)
+            if evidence is None:
+                continue
+            order = session.exec(select(InstantOrder).where(
+                InstantOrder.id == oid, *_closed_wait_predicates(evidence),
+            )).one_or_none()
+            if order is not None and release(session, order, _closed_wait=evidence):
                 freed += 1
     return freed
 

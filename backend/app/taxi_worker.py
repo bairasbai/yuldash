@@ -32,6 +32,7 @@
 import sys
 from datetime import timedelta
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from . import declare_remind, incident_escalate, instant_service as isv, waiting_on_us
@@ -41,6 +42,7 @@ from .db import engine
 from .logs import log
 from .models import InstantOrder, InstantOrderStatus as S, ParcelDelivery
 from .services import push_notification
+from .taxi_route_resume import _MARKERS as _ROUTE_RESUME_MARKERS
 from .timeutil import utcnow
 
 # Статусы, из которых заказ уже никуда не уедет сам (терминальные).
@@ -223,52 +225,59 @@ def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
 
 
 def finish_expired_waits(session: Session, dry_run: bool = False) -> list:
-    """Время ожидания вышло, машина так и не нашлась → честно закрываем и говорим об этом."""
+    """Close only the exact expired ordinary wait, never a TF04 recovery."""
     now = utcnow()
-    rows = session.exec(
-        select(InstantOrder).where(
-            InstantOrder.wait_until != None,            # noqa: E711
-            InstantOrder.wait_until <= now,
-            InstantOrder.status.in_((S.expired, S.searching)),
-        ).limit(200)
-    ).all()
-    finished = []
-    for o in rows:
-        if dry_run:
-            finished.append(o.id)
+    columns = promo_ride._WAIT_EXPIRY_COLUMNS
+    unmarked = tuple(getattr(InstantOrder, name).is_(None) for name in _ROUTE_RESUME_MARKERS)
+    rows = session.exec(select(*columns).where(
+        InstantOrder.wait_until <= now,
+        InstantOrder.status.in_((S.expired, S.searching)),
+        *unmarked,
+    ).limit(200)).all()
+    if dry_run:
+        return [row.id for row in rows]
+
+    finished = {}
+    for row in rows:
+        try:
+            # Lock via the conditional write. A stale renewal, acceptance
+            # or resume marker installed after selection must win intact.
+            changed = session.execute(
+                update(InstantOrder).where(
+                    *(col == value for col, value in zip(columns, row, strict=True)),
+                    *unmarked,
+                ).values(wait_until=None, status=S.expired, expired_at=row.expired_at or utcnow())
+                .execution_options(synchronize_session=False).returning(*columns)
+            ).one_or_none()
+            if changed is None:
+                session.rollback()
+                continue
+            session.commit()
+            finished[changed.id] = tuple(changed)
+        except Exception as e:  # noqa: BLE001
+            session.rollback()
+            log.warning(f"[TAXI-WORKER] закрытие ожидания #{row.id}: {type(e).__name__}: {e}")
             continue
         try:
-            fresh = session.exec(
-                select(InstantOrder).where(InstantOrder.id == o.id).with_for_update()
-            ).first()
-            if not fresh or fresh.wait_until is None or fresh.status not in (S.expired, S.searching):
-                continue
-            fresh.wait_until = None
-            fresh.status = S.expired
-            fresh.expired_at = fresh.expired_at or utcnow()
-            session.add(fresh)
-            session.commit()
-            finished.append(fresh.id)
-            try:
+            # Best-effort fresh notice check; keep network outside the write
+            # lock. Promo release separately uses a guarded physical UPDATE.
+            if session.exec(select(InstantOrder.id).where(
+                *promo_ride._closed_wait_predicates(tuple(changed)),
+            )).one_or_none() is not None:
                 push_notification(
-                    session, fresh.passenger_id, "taxi",
+                    session, changed.passenger_id, "taxi",
                     "Машину не нашли", "Машина табылманы",
                     "Свободных водителей рядом так и не появилось. Попробуй ещё раз "
                     "или оставь заявку попутчикам.",
                     "Тирә-яҡта буш водителдәр табылманы. Тағы ҡабатлап ҡара йәки "
                     "юлдаштарға ғариза ҡалдыр.",
-                    ref_kind="instant", ref_id=fresh.id,
+                    ref_kind="instant", ref_id=changed.id,
                 )
-            except Exception:  # noqa: BLE001
-                pass
-        except Exception as e:  # noqa: BLE001
-            log.warning(f"[TAXI-WORKER] закрытие ожидания #{o.id}: {type(e).__name__}: {e}")
-    # Ждали до конца и машины так и не нашлось — скидку возвращаем: человек не виноват,
-    # что рядом никого. Обещано в шапке `promo_ride`, а звалось только при отмене.
-    # В режиме просмотра не должно быть побочных commit через отдельную сессию промокода.
-    if not dry_run:
-        promo_ride.release_ids(finished)
-    return finished
+        except Exception:  # noqa: BLE001
+            session.rollback()
+    # Preserve the established PromoRedemption -> Order lock ordering.
+    promo_ride.release_ids(finished, _closed_waits=finished)
+    return list(finished)
 
 
 # ----------------------------- 4. Протухшие офферы -----------------------------
