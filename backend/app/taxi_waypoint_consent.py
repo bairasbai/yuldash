@@ -3,8 +3,10 @@ import json
 import math
 from collections import Counter
 from collections.abc import Callable
+from datetime import timedelta
 from types import SimpleNamespace
 
+from sqlalchemy import update
 from sqlmodel import Session, select
 
 from . import instant_service as isv, promo_ride
@@ -19,7 +21,8 @@ _ALLOWED = (S.accepted, S.arriving, S.onboard)
 # earlier phase or a pending driver request cannot be returned after an interleave.
 _STATE_FIELDS = (
     "id", "passenger_id", "driver_id", "status", "created_at", "accepted_at",
-    "arriving_at", "onboard_at", "reassigns", "from_lat", "from_lng", "from_text",
+    "arriving_at", "onboard_at", "reassigns", "search_round", "searching_at", "offered_at",
+    "current_offer_driver_id", "offer_expires_at", "fallback_categories", "from_lat", "from_lng", "from_text",
     "to_lat", "to_lng", "to_text", "waypoints_json", "destination_changed_at",
     "destination_changes", "pending_to_lat", "pending_to_lng", "pending_to_text",
     "pending_asked_at", "pending_price", "pending_reason", "round_trip", "return_wait_min",
@@ -139,6 +142,101 @@ def _project(order, quote):
     discountable = promo_ride.discountable_rub(p)
     p.promo_discount_kop = promo_ride.cap_for_price(p.promo_discount_kop, discountable)
     return p
+
+
+def capture_route_write(order: InstantOrder) -> tuple:
+    """The exact persisted source which the caller is about to price."""
+    return tuple(getattr(order, name) for name in _STATE_FIELDS)
+
+
+def _legacy_conflict():
+    return herr(409, "Маршрут заказа изменился. Открой заказ заново.",
+                "Заказ маршруты үҙгәрҙе. Заказды яңынан ас.",
+                code="taxi_route_changed")
+
+
+def _next_write_time(previous):
+    now = utcnow()
+    if previous is not None and now <= previous:
+        # Advance even when two observations tick at the same clock sample.
+        # Never wrap a terminal timestamp to an older route state.
+        try:
+            return previous + timedelta(microseconds=1)
+        except OverflowError:
+            raise _legacy_conflict() from None
+    return now
+
+
+def _write_route(session: Session, order: InstantOrder, captured: tuple, changes: dict):
+    # SQL compares after route I/O. PostgreSQL READ COMMITTED rechecks the
+    # predicate after a conflicting row lock; SQLite's writer does it atomically.
+    # No intermediate committed fare/discount or ORM writes on the loser.
+    statement = update(InstantOrder).where(*(
+        column == old for column, old in zip(_STATE_COLUMNS, captured, strict=True)
+    )).values(**changes).execution_options(synchronize_session=False)
+    changed = session.execute(statement)
+    if changed.rowcount != 1:
+        raise _legacy_conflict()
+    session.commit()
+    session.refresh(order)
+    return order
+
+
+def _legacy_price_values(source, quote):
+    projected = SimpleNamespace(**vars(source))
+    isv.set_ride_price(projected, int(quote["price"]), quote.get("base_price"))
+    changes = {
+        "ride_price": projected.ride_price, "price_estimate": projected.price_estimate,
+        "distance_km": float(quote["distance_km"]), "eta_min": float(quote["eta_min"]),
+    }
+    if quote.get("base_price") is not None:
+        changes["ride_base_price"] = projected.ride_base_price
+    discount = int(source.promo_discount_kop or 0)
+    if discount > 0:
+        capped = promo_ride.cap_for_price(discount, promo_ride.discountable_rub(projected))
+        if capped < discount:
+            changes["promo_discount_kop"] = capped
+    return changes
+
+
+def apply_guarded_route(session: Session, order: InstantOrder, captured: tuple, quote: dict, *,
+                        points: list[dict] | None = None, destination: tuple | None = None,
+                        text: str = "", driver_ack: bool = False):
+    """Commit price, changed route and applicable discount together.
+
+    This is NOT the protected post-price confirmation. The existing public
+    callers retain their ordinary inputs and existing tariff/routing policy.
+    """
+    if (points is None) == (destination is None) or driver_ack and destination is None:
+        raise ValueError("Expected exactly one route edit and a destination for driver acceptance")
+    source = SimpleNamespace(**dict(zip(_STATE_FIELDS, captured, strict=True)))
+    at = _next_write_time(source.destination_changed_at)
+    changes = _legacy_price_values(source, quote)
+    changes.update(destination_changed_at=at, destination_ack_at=at if driver_ack else None)
+    if points is not None:
+        changes["waypoints_json"] = isv.dump_waypoints(points)
+    else:
+        changes.update(to_lat=float(destination[0]), to_lng=float(destination[1]),
+                       destination_changes=int(source.destination_changes or 0) + 1,
+                       pending_to_lat=None, pending_to_lng=None, pending_to_text="",
+                       pending_price=None, pending_asked_at=None, pending_reason="")
+        if text:
+            changes["to_text"] = text[:200]
+        if quote.get("tariff_id"):
+            changes["tariff_id"] = int(quote["tariff_id"])
+    return _write_route(session, order, captured, changes)
+
+
+def propose_guarded_destination(session: Session, order: InstantOrder, captured: tuple,
+                                destination: tuple, text: str, quote: dict):
+    """Do not make a driver consider an offer based on a superseded route."""
+    source = dict(zip(_STATE_FIELDS, captured, strict=True))
+    return _write_route(session, order, captured, {
+        "pending_to_lat": float(destination[0]), "pending_to_lng": float(destination[1]),
+        "pending_to_text": (text or "")[:200], "pending_price": int(quote["price"]),
+        "pending_asked_at": _next_write_time(source["pending_asked_at"]),
+        "pending_reason": quote.get("ask_reason") or "price",
+    })
 
 
 def preview(session: Session, owner_id: int, order_id: int, requested: list[dict],
