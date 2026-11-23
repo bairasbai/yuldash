@@ -1,4 +1,5 @@
 """Real legacy decline/reconcile/worker cannot take ownership of capped offers."""
+from contextlib import contextmanager
 from datetime import timedelta
 
 import fakeredis
@@ -34,7 +35,7 @@ def order(user_factory):
 
 
 @pytest.fixture
-def effects(monkeypatch, order):  # noqa: F811
+def effects(monkeypatch):
     redis = fakeredis.FakeStrictRedis(decode_responses=True)
     out = []
     monkeypatch.setattr(taxi_worker.settings, "order_offer_stale_min", 0)
@@ -42,8 +43,24 @@ def effects(monkeypatch, order):  # noqa: F811
     monkeypatch.setattr(isv, "_remember_offered_driver", lambda r, oid, did: out.append(("tried", oid, did)))
     monkeypatch.setattr(isv, "_push_offer", lambda s, o, did: out.append(("send", o.id, did)))
     monkeypatch.setattr(isv, "_cleanup_tried", lambda oid: out.append(("cleanup", oid)))
-    monkeypatch.setattr(isv, "push_bilingual", lambda *a, **kw: out.append(("expiry", order[0])))
+    monkeypatch.setattr(isv, "push_bilingual", lambda *a, **kw: out.append(("expiry", int(kw["data"]["order_id"]))))
     return out
+
+
+@contextmanager
+def _ordinary_stale_offer(owner, driver):
+    now = utcnow()
+    oid = _seed(owner["id"], status=S.offered, current_offer_driver_id=driver["id"],
+                offered_at=now-timedelta(minutes=1), offer_expires_at=now-timedelta(seconds=2), search_round=1)
+    try:
+        yield oid
+    finally:
+        with engine.begin() as conn:
+            conn.execute(delete(_O).where(_O.c.id == oid))
+
+
+def _effects_for(effects, order_id):
+    return [entry for entry in effects if entry[1] == order_id]
 
 
 def _decline(client, oid, driver):
@@ -68,7 +85,7 @@ def test_existing_marker_no_movement_effects_or_decline_log(client, order, effec
         conn.execute(update(_O).where(_O.c.id == oid).values(**marker))
     before = _snapshot(oid)
     geo = []
-    monkeypatch.setattr(isv, "candidates", lambda *a, **kw: geo.append(1) or [])
+    monkeypatch.setattr(isv, "candidates", lambda r, s, candidate, **kw: geo.append(candidate.id) or [])
     if method == "decline":
         result = _decline(client, oid, driver)
         assert result.status_code == 200
@@ -77,10 +94,22 @@ def test_existing_marker_no_movement_effects_or_decline_log(client, order, effec
         result = client.get(f"/instant/orders/{oid}", headers=owner["auth"])
         assert result.status_code == 200
     else:
-        with Session(engine) as session:
-            assert oid not in taxi_worker.advance_stale_offers(session, dry_run=True)
-            assert oid not in taxi_worker.advance_stale_offers(session)
-    assert _snapshot(oid) == before and geo == effects == _audit(oid) == []
+        # The worker scans the shared test database, not just this fixture.
+        # Prove it really processes an unrelated eligible order; do not count
+        # that order's side effects against the marked order.
+        with _ordinary_stale_offer(owner, driver) as ordinary, Session(engine) as session:
+            dry_run = taxi_worker.advance_stale_offers(session, dry_run=True)
+            assert ordinary in dry_run and oid not in dry_run
+            assert geo == effects == []
+            moved = taxi_worker.advance_stale_offers(session)
+            assert ordinary in moved and oid not in moved
+            assert _snapshot(ordinary).status is S.expired
+            assert geo.count(ordinary) == 1
+            assert _effects_for(effects, ordinary) == [("cleanup", ordinary)]
+        assert oid not in geo and _effects_for(effects, oid) == []
+    assert _snapshot(oid) == before and _audit(oid) == []
+    if method != "worker":
+        assert geo == effects == []
 
 
 @pytest.mark.skipif(engine.dialect.name != "sqlite", reason="actual second SQLite writer at final advance")
@@ -88,10 +117,17 @@ def test_existing_marker_no_movement_effects_or_decline_log(client, order, effec
 def test_stale_read_then_mark_at_real_advance_sql_leaves_no_side_effect(client, order, effects, monkeypatch, method):  # noqa: F811
     oid, _, driver, other = order
     hit, expected, geo = [], [], []
-    monkeypatch.setattr(isv, "candidates", lambda *a, **k: geo.append(1) or [other["id"]])
+    def candidates(redis, session, candidate, **kwargs):
+        geo.append(candidate.id)
+        return [other["id"]] if candidate.id == oid else []
+
+    monkeypatch.setattr(isv, "candidates", candidates)
 
     def witness(conn, cursor, statement, parameters, context, many):
-        if statement.upper().startswith("UPDATE INSTANTORDER SET STATUS") and not hit:
+        # Bind to this exact advance, not an earlier eligible row from a
+        # different test or this worker's subsequent outcome UPDATE.
+        if (statement.upper().startswith("UPDATE INSTANTORDER SET STATUS") and not hit
+                and context.compiled_parameters[0].get("id_1") == oid):
             hit.append(1)
             with engine.begin() as rival:
                 assert rival.connection.driver_connection is not conn.connection.driver_connection
@@ -107,7 +143,11 @@ def test_stale_read_then_mark_at_real_advance_sql_leaves_no_side_effect(client, 
     finally:
         event.remove(engine, "before_cursor_execute", witness)
     assert hit == [1] and _snapshot(oid) == expected[0]
-    assert _audit(oid) == effects == geo == []
+    assert _audit(oid) == []
+    if method == "worker":
+        assert oid not in geo and _effects_for(effects, oid) == []
+    else:
+        assert effects == geo == []
 
 
 @pytest.mark.skipif(engine.dialect.name != "sqlite", reason="true write while old advance owns no physical row")
