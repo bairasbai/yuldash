@@ -47,10 +47,11 @@ class TaxiDraftFixtureReceiver : BroadcastReceiver() {
                 val identity = if (action == "primary") session else session.getJSONObject(action)
                 val language = intent.getStringExtra("language")
                 require(language == "Ru" || language == "Ba")
+                require(intent.hasExtra("dark"))
                 check(context.getSharedPreferences("yuldash_settings", Context.MODE_PRIVATE)
                     .edit().putString("app_language", language).commit())
                 check(context.getSharedPreferences("yuldash_theme", Context.MODE_PRIVATE)
-                    .edit().putBoolean("dark_override", language == "Ba").commit())
+                    .edit().putBoolean("dark_override", intent.getBooleanExtra("dark", false)).commit())
                 if (action == "primary") {
                     // The normal location reader starts with its last fix before listening to GPS.
                     // Set this *only* in the initial login process; a cold task is never reseeded.

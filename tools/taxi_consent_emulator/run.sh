@@ -163,7 +163,7 @@ installed_apk_hash() {
 
 if [[ ${TAXI_DRAFT_ONLY:-false} == true ]]; then
     [[ -z $baseline_apk ]]
-    cases=(restore restore-ba delayed relogin alternate)
+    cases=(restore restore-ba restore-ru-dark restore-ba-light delayed relogin alternate)
     if [[ ${TAXI_DRAFT_VARIANT:-candidate} == baseline ]]; then cases=(baseline); fi
     if [[ -n ${TAXI_DRAFT_SCENARIO:-} ]]; then
         selected=()

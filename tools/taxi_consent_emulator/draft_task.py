@@ -8,11 +8,19 @@ import sys
 import time
 from pathlib import Path
 
+from PIL import Image, ImageStat
+
 PKG = "com.yuldash.app"
 COMPONENT = PKG + "/.MainActivity"
 DIR = "files/taxi-consent-qa"
 ADB = ["adb"]
 A, B = "QA Stop A", "QA Stop B"
+RESTORE_APPEARANCE = {
+    "restore": ("Ru", False),
+    "restore-ba": ("Ba", True),
+    "restore-ru-dark": ("Ru", True),
+    "restore-ba-light": ("Ba", False),
+}
 BASHKIR = {
     "Заехать по пути": "Юлда инеп сығыу", "Детали заказа": "Заказ деталдәре",
     "На время": "Ваҡытҡа", "Обратно тоже": "Кире лә", "2 ч": "2 сәғ",
@@ -33,7 +41,7 @@ scroll_evidence = []
 
 
 def local_label(text):
-    return BASHKIR.get(text, text) if sys.argv[1] == "restore-ba" else text
+    return BASHKIR.get(text, text) if language == "Ba" else text
 
 
 def adb(*args, check=True, timeout=45):
@@ -187,7 +195,7 @@ def identity(action, session_path):
         subprocess.run([*ADB, "shell", "-T", f"run-as {PKG} sh -c 'umask 077; cat > {DIR}/session.json'"],
                        stdin=fp, check=True, timeout=15)
     result = shell("am", "broadcast", "--include-stopped-packages", "-n", PKG + "/.TaxiDraftFixtureReceiver",
-                   "--es", "fixture", action, "--es", "language", "Ba" if sys.argv[1] == "restore-ba" else "Ru")
+                   "--es", "fixture", action, "--es", "language", language, "--ez", "dark", str(dark).lower())
     assert "result=107" in result, "Fixture authentication operation did not complete"
 
 
@@ -303,7 +311,10 @@ def ordered_route():
 
 
 def submit_label():
-    return find(lambda n: (n.get("text", "").startswith("Заказать на ") or n.get("text", "").endswith("-ға заказ итеү")), "scheduled order control").get("text")
+    def matches(node):
+        text = node.get("text", "")
+        return text.endswith("-ға заказ итеү") if language == "Ba" else text.startswith("Заказать на ")
+    return find(matches, f"scheduled order control in {language}").get("text")
 
 
 def clean_form(place):
@@ -357,6 +368,17 @@ def screenshot(folder, name):
     (folder / (name + ".png")).write_bytes(png)
 
 
+def check_route_theme(folder, name):
+    screenshot(folder, name)
+    with Image.open(folder / (name + ".png")) as frame:
+        # The central portion of the expanded route contains its cards, clear of the system bars.
+        width, height = frame.size
+        form = frame.crop((0, height // 5, width, height * 88 // 100)).convert("L")
+        median = ImageStat.Stat(form).median[0]
+    assert (median < 64 if dark else median > 192), f"Route theme mismatch in {name}: median luminance {median}"
+    return median
+
+
 def no_writes(state_path, expected):
     state = json.loads(state_path.read_text())
     assert state["schedule"] == state["orders"] == expected, "Unexpected scheduled order"
@@ -391,6 +413,7 @@ def check_motion_policy(scenario, results):
 def run(scenario, session, state, results):
     assert shell("getprop", "ro.kernel.qemu") == "1"
     assert pid() is None, "Motion policy must be set before cold login"
+    route_luminance = {}
     check_motion_policy(scenario, results)
     # Keep input/accessibility coordinates aligned with the actual AVD framebuffer.
     shell("wm", "size", "reset")
@@ -429,12 +452,12 @@ def run(scenario, session, state, results):
         }, indent=2))
         return
     if scenario.startswith("restore"):
-        screenshot(results, scenario + "-before")
+        route_luminance["before"] = check_route_theme(results, scenario + "-before")
         rotate()
         ordered_route()
         assert pid() == seeded_pid and submit_label() == expected_cta
         no_writes(state, 0)
-        screenshot(results, scenario + "-rotated")
+        route_luminance["rotated"] = check_route_theme(results, scenario + "-rotated")
     parked = None
     if scenario == "delayed":
         assert not submitted_revision_persisted()
@@ -467,7 +490,7 @@ def run(scenario, session, state, results):
             lambda: (count if (count := no_writes(state, 0)["draft_route_estimates"]) > estimates_before_resume else 0),
             "fresh authenticated estimate for the restored scheduled round trip",
         )
-        screenshot(results, scenario + "-restored")
+        route_luminance["restored"] = check_route_theme(results, scenario + "-restored")
         click(expected_cta)
         find(label("Новый заказ"), "scheduled receipt")
         result = no_writes(state, 1)
@@ -519,6 +542,7 @@ def run(scenario, session, state, results):
         no_writes(state, 0)
     (results / f"draft-{scenario}-proof.json").write_text(json.dumps({
         "scenario": scenario, "before_pid": old_pid, "after_pid": restored_pid, "same_task": task,
+        "language": language, "theme": "dark" if dark else "light", "route_frame_luminance": route_luminance,
         "same_activity_record": True, "saved_bundle_bytes": bundle, "submitted": scenario.startswith("restore") or scenario == "delayed",
         "acknowledged_after_task_saved": scenario == "delayed",
     }, indent=2))
@@ -592,6 +616,7 @@ def stack_snapshot(folder, scenario, package):
 
 if __name__ == "__main__":
     scenario, session, state, folder = sys.argv[1:]
+    language, dark = RESTORE_APPEARANCE.get(scenario, ("Ru", False))
     try:
         run(scenario, Path(session), Path(state), Path(folder))
     except Exception:
