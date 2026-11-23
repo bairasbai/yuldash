@@ -15,6 +15,8 @@
 """
 import re
 import json
+import hashlib
+import hmac
 from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
@@ -2653,13 +2655,68 @@ def capture_offer_for_accept(order: InstantOrder) -> tuple:
     return tuple(getattr(order, name) for name in _ACCEPT_OFFER_FIELDS)
 
 
+_OFFER_CARD_PURPOSE = b"taxi-offer-card-precondition-v1\x00"
+_OFFER_CARD_FIELD = "offer_card_precondition"
+_OFFER_CARD_TAG = re.compile(r"v1\.[a-f0-9]{64}")
+
+
+def parse_offer_card_precondition(body: object) -> str:
+    if isinstance(body, dict) and set(body) == {_OFFER_CARD_FIELD}:
+        value = body[_OFFER_CARD_FIELD]
+        if type(value) is str and _OFFER_CARD_TAG.fullmatch(value):
+            return value
+    # No echo of the provided value.
+    raise herr(422, "Некорректное подтверждение оффера", "Офферҙы раҫлау дөрөҫ түгел",
+               code="taxi_offer_precondition_invalid")
+
+
+def _offer_card_timestamp(value):
+    if not isinstance(value, datetime) or value.tzinfo is not None:
+        raise ValueError("Unsupported offer timestamp")
+    return value.isoformat(timespec="microseconds") + "Z"
+
+
+def offer_card_precondition(offer: tuple, price_final: int | None,
+                            driver_id: int, now: datetime) -> str | None:
+    """Opaque proof of the persisted offered route, gross, recipient and lineage."""
+    state = dict(zip(_ACCEPT_OFFER_FIELDS, offer, strict=True))
+    searching = state["searching_at"]
+    offered = state["offered_at"]
+    deadline = state["offer_expires_at"]
+    if (price_final is not None or state["status"] != S.offered
+            or state["current_offer_driver_id"] != driver_id or state["driver_id"] is not None
+            or type(state["price_estimate"]) is not int or state["price_estimate"] < 0
+            or type(state["search_round"]) is not int or state["search_round"] <= 0
+            or not all(isinstance(value, datetime) and value.tzinfo is None
+                       for value in (searching, offered, deadline))
+            or not searching <= offered <= now < deadline):
+        return None
+    try:
+        encoded = json.dumps(offer, ensure_ascii=True, allow_nan=False, separators=(",", ":"),
+                             default=_offer_card_timestamp).encode("ascii")
+    except (ValueError, TypeError):
+        return None
+    digest = hmac.new(settings.jwt_secret.encode(), _OFFER_CARD_PURPOSE + encoded,
+                      hashlib.sha256).hexdigest()
+    return f"v1.{digest}"
+
+
+def _offer_write_clock(session: Session):
+    # Order timestamps are naive UTC. Compare in the actual SQL write,
+    # including time spent waiting for the database writer slot.
+    if session.get_bind().dialect.name == "postgresql":
+        return func.timezone("UTC", func.clock_timestamp())
+    return func.strftime("%Y-%m-%d %H:%M:%f000", "now")
+
+
 def _accept_offer_changed():
     return herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде", code="taxi_offer_changed")
 
 
 def transition(session: Session, order_id: int, actor: Actor, target: S,
                user_id: int, idempotent: bool = True, *,
-               expected_offer: tuple | None = None) -> InstantOrder:
+               expected_offer: tuple | None = None,
+               card_precondition: str | None = None) -> InstantOrder:
     """Один переход состояния заказа. Гонки безопасны на любой БД:
     — row-lock (`with_for_update`, паттерн из bookings.py) для Postgres в проде;
     — атомарный условный UPDATE `WHERE status = <ожидаемый>` — корректно и на SQLite
@@ -2694,6 +2751,10 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         expected_offer = capture_offer_for_accept(order)
 
     now = utcnow()
+    if target == S.accepted and card_precondition is not None:
+        fresh_tag = offer_card_precondition(expected_offer, order.price_final, user_id, now)
+        if fresh_tag is None or not hmac.compare_digest(fresh_tag, card_precondition):
+            raise _accept_offer_changed()
     values = {"status": target, f"{target.value}_at": now}
     pickup_fee_before = int(getattr(order, "pickup_fee_kop", 0) or 0)
     if target == S.accepted:
@@ -2726,6 +2787,14 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         write = write.where(*(
             column == old for column, old in zip(_ACCEPT_OFFER_COLUMNS, expected_offer, strict=True)
         )).execution_options(synchronize_session=False)
+        if card_precondition is not None:
+            write = write.where(
+                InstantOrder.price_final.is_(None),
+                InstantOrder.searching_at.is_not(None),
+                InstantOrder.offered_at.is_not(None),
+                InstantOrder.offer_expires_at.is_not(None),
+                InstantOrder.offer_expires_at > _offer_write_clock(session),
+            )
     result = session.execute(write.values(**values))
     if target == S.accepted and result.rowcount != 1:
         raise _accept_offer_changed()
