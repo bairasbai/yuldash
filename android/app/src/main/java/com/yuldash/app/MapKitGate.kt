@@ -38,7 +38,21 @@ import com.yandex.mapkit.MapKitFactory
  * `if (MapKitUnavailable(modifier)) return`. Держит это `MapKitGateGuardTest` — новая карта без
  * шва не пройдёт сборку проверок.
  */
-internal fun mapKitKeyAvailable(): Boolean = BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank()
+internal fun mapKitKeyAvailable(): Boolean = BuildConfig.YANDEX_MAPKIT_KEY.isNotBlank() && !isJvmUiTest()
+
+/**
+ * JVM-тесты UI (Robolectric): нативный MapKit на JVM не работает в принципе — `MapView` падает
+ * ещё на `MapKitFactory.initialize` (проверка ACCESS_NETWORK_STATE), а дальше упёрся бы в
+ * нативные библиотеки, которых на JVM нет.
+ *
+ * Аудит 23.11.2026: шов проверял ТОЛЬКО ключ, поэтому на машине с ключом в `local.properties`
+ * (рабочая машина Александра) JVM-тесты, открывающие экран брони/карту, создавали живой MapView
+ * и падали (HomeBookingNavigationTest 17/28, FindRideButtonTest, BlankBoardingCodeRecoveryTest,
+ * FeatureParcelRideGateTest), а в CI без ключа те же тесты шли зелёными — результат проверки
+ * зависел от машины. Теперь под Robolectric шов всегда показывает заглушку, как в CI без ключа;
+ * на устройстве FINGERPRINT не «robolectric» — поведение прода не меняется.
+ */
+private fun isJvmUiTest(): Boolean = "robolectric".equals(android.os.Build.FINGERPRINT, ignoreCase = true)
 
 // MapKit init: setLocale ДО initialize и ТОЛЬКО один раз на процесс.
 // Повторный setLocale после initialize → AssertionError (краш при возврате на карту с подэкрана).

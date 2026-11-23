@@ -115,7 +115,11 @@ def test_series_with_a_date_watch_announces_only_its_matching_ride(client, user_
     date = local_date(now + timedelta(days=4))
     watch_id = _watch(user_factory()["id"], driver["id"], now, watch_date=datetime.combine(date, time.min))
     events, ride_ids = _group(driver["id"], now, size=5, group=dispatch.GroupKey("recurrence", uuid4().hex))
-    result = dispatch.dispatch_event(engine, events[0], now=now + timedelta(seconds=1))
+    # «Сейчас» берём В МОМЕНТ диспетчеризации, а не от now выше: под нагрузкой создание
+    # караулов/рейсов занимает больше секунды, и now+1s оказывался РАНЬШЕ next_attempt_at
+    # события (enqueue ставит его в utcnow() enqueue) — диспетчер честно возвращал пусто,
+    # тест флаковал (аудит 23.11.2026, воспроизведено задержкой 1.2с).
+    result = dispatch.dispatch_event(engine, events[0], now=utcnow() + timedelta(seconds=1))
     assert [note.ride_ids for note in result if note.watch_id == watch_id] == [(ride_ids[2],)]
     notices = _notices(watch_id, ride_ids)
     assert [note.ride_id for note in notices] == [ride_ids[2]]
@@ -138,7 +142,7 @@ def test_group_loads_previous_notices_in_two_batches(client, user_factory, monke
         return previous(session, matching_ids)
 
     monkeypatch.setattr(dispatch, "_notified_pairs", batched)
-    notices = dispatch.dispatch_event(engine, events[0], now=now + timedelta(seconds=1))
+    notices = dispatch.dispatch_event(engine, events[0], now=utcnow() + timedelta(seconds=1))
     assert {note.watch_id for note in notices} == watch_ids
     assert all(note.ride_ids == tuple(ride_ids) for note in notices)
     assert batches == [ride_ids, ride_ids]
@@ -159,7 +163,7 @@ def test_unavailable_ride_does_not_create_a_notice(client, user_factory, unavail
         else:
             ride.depart_at = now - timedelta(hours=3)
         session.commit()
-    assert dispatch.dispatch_event(engine, events[0], now=now + timedelta(seconds=1)) == []
+    assert dispatch.dispatch_event(engine, events[0], now=utcnow() + timedelta(seconds=1)) == []
     assert _notices(watch_id, ride_ids) == []
 
 
@@ -255,7 +259,7 @@ def test_quiet_hours_and_late_block_suppress_push_after_notice_commit(client, us
     now = utcnow()
     watch_id = _watch(watcher["id"], driver["id"], now)
     events, ride_ids = _group(driver["id"], now)
-    result = [note for note in dispatch.dispatch_event(engine, events[0], now=now + timedelta(seconds=1))
+    result = [note for note in dispatch.dispatch_event(engine, events[0], now=utcnow() + timedelta(seconds=1))
               if note.watch_id == watch_id]
     assert len(result) == 1
     assert len(_notices(watch_id, ride_ids)) == 1
@@ -308,7 +312,7 @@ def test_late_block_between_pushes_is_respected(client, user_factory, monkeypatc
         with Session(engine) as session:
             assert services.notify_route_watchers(session, events[0]) == 2
     else:
-        route_watch_worker.run_due(engine, now=now + timedelta(seconds=1))
+        route_watch_worker.run_due(engine, now=utcnow() + timedelta(seconds=1))
     assert pushed == [first["id"]]
     assert len(_notices(second_watch, ride_ids)) == 1
 
