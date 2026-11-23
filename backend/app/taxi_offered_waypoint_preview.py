@@ -10,6 +10,7 @@ from sqlalchemy.engine import Engine
 from sqlmodel import Session, select
 
 from . import instant_service as isv, promo_ride, taxi_waypoint_consent as waypoint
+from .taxi_route_resume import _MARKERS
 from .compensation import COMPENSATION_FIELDS
 from .models import InstantOrder, InstantOrderStatus as S, Tariff
 from .taxi_route_agreement import QuotedTerms, _point, _sql_metric
@@ -19,8 +20,7 @@ _FIELDS = (*waypoint._STATE_FIELDS,
            "scheduled_at", "wait_until", "retry_count", "expired_at", "cancelled_at", "done_at",
            "options", "women_only", "pickup_km", "pickup_enroute", "weather_kind",
            "destination_ack_at", "no_show", "cancel_fee_kop",
-           "route_resume_id", "route_resume_previous_driver_id", "route_resume_retired_at",
-           "route_resume_deadline_at", "route_resume_ready_at", "route_resume_claim_id")
+           *_MARKERS)
 _COLUMNS = tuple(getattr(InstantOrder, name) for name in _FIELDS)
 _TARIFF_COLUMNS = tuple(getattr(Tariff, name) for name in isv._DESTINATION_QUOTE_TARIFF_FIELDS)
 _INT_MAX = (1 << 31) - 1
@@ -28,8 +28,7 @@ _NONE = (
     "driver_id", "accepted_at", "arriving_at", "onboard_at", "scheduled_at", "wait_until",
     "expired_at", "cancelled_at", "done_at", "pending_to_lat", "pending_to_lng",
     "pending_asked_at", "pending_price", "price_final", "waiting_started_at", "stop_started_at",
-    "route_resume_id", "route_resume_previous_driver_id", "route_resume_retired_at",
-    "route_resume_deadline_at", "route_resume_ready_at", "route_resume_claim_id",
+    *_MARKERS,
 )
 _FALSE = ("round_trip", "pickup_pending", "paid", "no_show")
 _ZERO = ("return_wait_min", "retry_count", "reassigns", "waiting_fee_kop", "cancel_fee_kop")

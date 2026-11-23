@@ -55,6 +55,7 @@ def test_ordinary_accept_rejects_any_mark_without_settlement_or_effects(client, 
         "route_resume_deadline_at": retired + timedelta(seconds=120),
         "route_resume_ready_at": None if marks == "complete" else retired,
         "route_resume_claim_id": None if marks == "complete" else uuid4().hex,
+        "route_resume_agreement_seal": None if marks == "complete" else b"\x66" * 32,
     }
     _mark(oid, values if marks == "complete" else {marks: values[marks]})
     before = _state(oid)

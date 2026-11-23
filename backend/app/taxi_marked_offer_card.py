@@ -109,7 +109,7 @@ def bind_current_card(
             _COL.id == order_id, _COL.passenger_id == owner_id,
             _COL.current_offer_driver_id == driver_id,
             _COL.status == InstantOrderStatus.offered,
-            _COL.route_resume_id.is_not(None),
+            _COL.route_resume_id.is_not(None), _COL[resume._SEAL].is_(None),
             ~_HAS_PAYMENT, ~_HAS_LEDGER,
         )).one_or_none()
         if result is None:
