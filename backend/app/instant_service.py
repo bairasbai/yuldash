@@ -20,6 +20,7 @@ import hmac
 from dataclasses import dataclass
 from datetime import datetime, timedelta
 from enum import Enum
+from types import SimpleNamespace
 from typing import Callable, Optional
 
 from sqlalchemy import and_, update
@@ -2210,8 +2211,37 @@ def _category_price(session: Session, order: InstantOrder, category: str) -> Opt
     t = active_tariff(session, zone, category)
     if not t:
         return None
-    return _tariff_price(t, max(order.distance_km or 0.5, 0.5),
-                         max(order.eta_min or 0.1, 0.1), order_pricing_k(order))
+    return _fallback_fare(order, t, order_pricing_k(order))
+
+
+def _fallback_fare(order, tariff, multiplier):
+    return _tariff_price(tariff, max(order.distance_km or 0.5, 0.5),
+                         max(order.eta_min or 0.1, 0.1), multiplier)
+
+
+def _fallback_changed():
+    return herr(409, "Заказ изменился. Открой его заново.",
+                "Заказ үҙгәрҙе. Уны яңынан ас.", code="taxi_route_changed")
+
+
+def _guard_ordinary_fallback(order):
+    if any(getattr(order, name) is not None for name in _ROUTE_RESUME_MARKERS):
+        raise _fallback_changed()
+
+
+_FALLBACK_WRITE_FIELDS = (
+    "id", "passenger_id", "driver_id", "status", "created_at", "scheduled_at", "expired_at", "cancelled_at",
+    "accepted_at", "searching_at", "search_round", "reassigns", "retry_count", "wait_until",
+    "current_offer_driver_id", "offered_at", "offer_expires_at",
+    "from_lat", "from_lng", "from_text", "to_lat", "to_lng", "to_text", "waypoints_json",
+    "destination_changed_at", "destination_changes", "pending_asked_at", "pending_to_lat", "pending_to_lng",
+    "pending_to_text", "pending_price", "pending_reason", "round_trip", "return_wait_min",
+    "category", "fallback_categories", "options", "women_only", "distance_km", "eta_min",
+    "tariff_id", "pricing_k", "surge_k", "ride_price", "ride_base_price", "price_estimate",
+    "price_final", "promo_discount_kop", "pickup_pending", "paid", "payment_method", "payment_changed_at",
+    *comp_mod.COMPENSATION_FIELDS,
+)
+_FALLBACK_WRITE_COLUMNS = tuple(getattr(InstantOrder, name) for name in _FALLBACK_WRITE_FIELDS)
 
 
 def fallback_options(session: Session, order: InstantOrder) -> list:
@@ -2221,6 +2251,7 @@ def fallback_options(session: Session, order: InstantOrder) -> list:
     рядом реально кто-то есть — обещать «Эконом за 4 минуты», когда экономов тоже нет,
     значит соврать второй раз подряд.
     """
+    _guard_ordinary_fallback(order)
     base = order.category or "standard"
     already = {cc.class_to_category(c) for c in cc.parse_classes(order.fallback_categories or "")}
     place = class_rollout.place_at(session, order.from_lat, order.from_lng)
@@ -2246,47 +2277,71 @@ def add_fallback_category(session: Session, order: InstantOrder, category: str) 
     «Эконом 240 ₽» на экране и должен заплатить ровно 240, кто бы ни приехал. Это же снимает
     вопрос «а если приедет Комфорт»: приедет — повезёт, доплаты не будет.
     """
+    _guard_ordinary_fallback(order)
+    source = {name: getattr(order, name) for name in _FALLBACK_WRITE_FIELDS}
+    if source["status"] not in (S.created, S.searching, S.offered):
+        raise _fallback_changed()
+    projected = SimpleNamespace(**source)
     cat = (category or "").strip().lower()
-    allowed = set(_FALLBACK_ALLOWED.get(order.category or "standard", ()))
+    allowed = set(_FALLBACK_ALLOWED.get(projected.category or "standard", ()))
     if cat not in allowed:
         raise herr(400, "Этот класс нельзя добавить к поиску",
                    "Был класты эҙләүгә ҡушып булмай")
-    place = class_rollout.place_at(session, order.from_lat, order.from_lng)
+    place = class_rollout.place_at(session, projected.from_lat, projected.from_lng)
     if cat not in class_rollout.open_categories(session, place):
         raise herr(400, "Класс пока не работает в этом месте",
                    "Был класс был урында әлегә эшләмәй")
-    cats = set(cc.parse_classes(order.fallback_categories or ""))
+
+    cats = set(cc.parse_classes(projected.fallback_categories or ""))
     cats.add(cc.category_to_class(cat))
-    order.fallback_categories = cc.dump_classes(cats)
-    price = _category_price(session, order, cat)
-    if price is not None and price < order_ride_price(order):
-        # База считается по ТОМУ ЖЕ классу: иначе в чеке «наценка» окажется разницей между
-        # ценой Эконома и базой Комфорта — числом, которого никогда не было.
-        zone = zone_for_km(order.distance_km or 0.0)
-        ct = active_tariff(session, zone, cat)
-        base = (_tariff_price(ct, max(order.distance_km or 0.5, 0.5),
-                              max(order.eta_min or 0.1, 0.1), 1.0) if ct else None)
-        set_ride_price(order, price, base)
-        # Цена уехала — значит оффер, который сейчас висит у водителя на экране, врёт
-        # (аудит 2026-08-08, волна 167). Проба: заказ «Комфорт» за 300 ₽ разослан водителю,
-        # пассажир соглашается искать и в «Эконом» — цена падает до 100 ₽, а оффер остаётся
-        # прежним. Водитель смотрит на 300, нажимает «Принять» и везёт за 100.
-        #
-        # Правило простое: изменилась цена — старое предложение недействительно. Снимаем оффер,
-        # заказ снова уходит в рассылку и водители видят настоящую сумму. Потерять секунды
-        # на повторной рассылке не страшно; узнать после поездки, что заплатят втрое меньше
-        # обещанного, — это причина уйти из сервиса навсегда.
-        order.current_offer_driver_id = None
-        order.offer_expires_at = None
-    session.add(order)
+    changes = {"fallback_categories": cc.dump_classes(cats)}
+    tariff = active_tariff(session, zone_for_km(projected.distance_km or 0.0), cat)
+    guards = []
+    if tariff is not None:
+        rate_values = tuple(getattr(tariff, name) for name in _DESTINATION_QUOTE_TARIFF_FIELDS)
+        rate_query = select(Tariff.id).where(*(
+            getattr(Tariff, name) == value
+            for name, value in zip(_DESTINATION_QUOTE_TARIFF_FIELDS, rate_values, strict=True)
+        ))
+        guards.append(rate_query.exists())
+        price = _fallback_fare(projected, tariff, order_pricing_k(projected))
+        if price < order_ride_price(projected):
+            base = _fallback_fare(projected, tariff, 1.0)
+            set_ride_price(projected, price, base)
+            # Preserve the existing policy: a cheaper total invalidates
+            # the old recipient/lease without an extra dispatch call.
+            changes.update(ride_price=projected.ride_price, ride_base_price=projected.ride_base_price,
+                           price_estimate=projected.price_estimate, current_offer_driver_id=None,
+                           offer_expires_at=None)
+
+    # The existing cap only reduces the stored discount. Compute it before
+    # the write so no autoflush or independent promo update can outlive loss.
+    discount = int(projected.promo_discount_kop or 0)
+    if discount > 0:
+        capped = promo_ride.cap_for_price(discount, promo_ride.discountable_rub(projected))
+        if capped < discount:
+            changes["promo_discount_kop"] = capped
+
+    if tariff is not None and session.get_bind().dialect.name == "postgresql":
+        locked = session.scalar(select(InstantOrder.id).where(
+            InstantOrder.id == source["id"], InstantOrder.passenger_id == source["passenger_id"],
+            InstantOrder.status == source["status"], *_legacy_no_resume(),
+        ).with_for_update())
+        if locked != source["id"] or session.scalar(rate_query.with_for_update(read=True)) != rate_values[0]:
+            raise _fallback_changed()
+
+    saved = session.execute(update(InstantOrder).where(
+        *(column == source[name] for column, name in zip(_FALLBACK_WRITE_COLUMNS, _FALLBACK_WRITE_FIELDS, strict=True)),
+        *_legacy_no_resume(), *guards,
+    ).values(**changes).returning(InstantOrder.id).execution_options(synchronize_session=False)).scalar_one_or_none()
+    current = source | changes
+    if saved is None or session.scalar(select(InstantOrder.id).where(
+        *(column == current[name] for column, name in zip(_FALLBACK_WRITE_COLUMNS, _FALLBACK_WRITE_FIELDS, strict=True)),
+        *_legacy_no_resume(), *guards,
+    )) != saved:
+        raise _fallback_changed()
     session.commit()
-    session.refresh(order)
-    # См. apply_destination — цена могла упасть (поиск в более дешёвом классе), потолок
-    # скидки по промокоду чиним вслед за ней, только вниз (аудит leaf-1.3, B-2).
-    promo_ride.reclamp(session, order)
-    session.refresh(order)
-    return {"price": order.price_estimate,
-            "categories": sorted(order_categories(order))}
+    return {"price": current["price_estimate"], "categories": sorted(order_categories(SimpleNamespace(**current)))}
 
 
 # ============================ Отмены / ожидание / страйки (волна 2 §5, Модель А) ============================
