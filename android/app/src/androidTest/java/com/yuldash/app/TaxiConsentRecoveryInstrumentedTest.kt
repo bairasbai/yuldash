@@ -110,11 +110,24 @@ class TaxiConsentRecoveryInstrumentedTest {
         compose.onNode(destination).performScrollTo().performClick()
     }
 
+    private enum class FareCheck {
+        route, calculate, unavailable, review, dismiss, details, round_trip, options,
+        seat_visible, hidden_fare, selection, complete,
+    }
+
+    private fun markFareCheck(check: FareCheck) {
+        // Optional diagnostic, never a test prerequisite and never contains data.
+        runCatching { File(qaDir, "fare-check-stage").writeText(check.name + "\n") }
+    }
+
     @Test fun legacyFareMetadataCannotLeakIntoProtectedQuote() {
+        markFareCheck(FareCheck.route)
         openPassengerRoute()
+        markFareCheck(FareCheck.calculate)
         click("taxiConsentPrimary")
         val unavailable = args.getString("case")?.startsWith("fareunavailable-") == true
         if (unavailable) {
+            markFareCheck(FareCheck.unavailable)
             val problem = if (language == AppLanguage.Ba) "Сумманы алып булманы. Иҫәпте ҡабатла."
                           else "Не удалось получить сумму. Повтори расчёт."
             compose.waitUntil(30_000) { compose.onAllNodesWithText(problem).fetchSemanticsNodes().isNotEmpty() }
@@ -122,29 +135,38 @@ class TaxiConsentRecoveryInstrumentedTest {
             compose.onNodeWithTag("taxiConsentTotal").assertDoesNotExist()
             compose.onNodeWithTag("taxiConsentConfirm").assertDoesNotExist()
         } else {
+            markFareCheck(FareCheck.review)
             waitForTag("taxiConsentConfirm")
             val summary = if (language == AppLanguage.Ba) "600 ₽ − ташлама 150 ₽. Раҫларға бөтәһе: 450 ₽."
                           else "600 ₽ − скидка 150 ₽. Итого к подтверждению: 450 ₽."
             compose.onNodeWithText(summary).assertIsDisplayed()
+            markFareCheck(FareCheck.dismiss)
             click("taxiConsentReviewCancel")
         }
+        markFareCheck(FareCheck.details)
         click("taxiOrderDetails")
         // The fixture exposes round-trip availability only in the auxiliary response.
         // Its visible controls prove that response actually reached the sidebar.
+        markFareCheck(FareCheck.round_trip)
         val roundTrip = isToggleable() and hasAnyAncestor(hasTestTag("taxiRoundTripOptions"))
         compose.waitUntil(30_000) { compose.onAllNodes(roundTrip).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(roundTrip).performScrollTo().assertIsDisplayed()
+        markFareCheck(FareCheck.options)
         val options = if (language == AppLanguage.Ba) "Ултырғыс, арба, хайуан кәрәкме?"
                       else "Нужно кресло, коляска, животное?"
         compose.onNode(hasText(options) and hasClickAction()).performScrollTo().performClick()
+        markFareCheck(FareCheck.seat_visible)
         val seat = if (language == AppLanguage.Ba) "Ултырғыс 1–4" else "Кресло 1–4"
         compose.onNode(hasText(seat) and hasClickAction()).performScrollTo().assertIsDisplayed().assertIsEnabled()
+        markFareCheck(FareCheck.hidden_fare)
         val surge = if (language == AppLanguage.Ba) "Һынау ихтыяжы" else "Тестовый спрос"
         val night = if (language == AppLanguage.Ba) "Һынау төнгө тарифы" else "Тестовый ночной тариф"
         for (text in listOf(surge, night, "+777 ₽", "37%")) {
             compose.onNodeWithText(text, substring = true, useUnmergedTree = true).assertDoesNotExist()
         }
+        markFareCheck(FareCheck.selection)
         compose.onNode(hasText(seat) and hasClickAction()).performClick().assertIsSelected()
+        markFareCheck(FareCheck.complete)
     }
 
     @Test fun roundTripRetainsWaitAndCreatesOrder() {

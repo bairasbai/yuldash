@@ -1,0 +1,108 @@
+name: Taxi NOW Android emulator (isolated phase diagnostics)
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [feat/taxi-now-android-integration-20261123]
+    paths: [.github/workflows/taxi-now-android-emulator-phases.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  isolated-taxi-now-emulator:
+    if: >-
+      github.repository == 'bairasbai/yuldash' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'feat/taxi-now-android-integration-20261123' &&
+      github.event.pull_request.base.sha == 'f8410ad7a538be4fdd64c65e29a2af8e932501d2' &&
+      github.event.pull_request.head.ref == 'qa/taxi-now-android-fare-subphases-20261123'
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:8000
+      YULDASH_NATIVE_QA_PINNED_API: 'true'
+      YULDASH_TAXI_QUOTE_CONSENT_LOCAL: 'true'
+      TAXI_EXTERNAL_PRICING_ENABLED: 'false'
+    steps:
+      # Keep the working application checkout at the approved product revision.
+      - name: Check out the exact integrated Android candidate
+        uses: actions/checkout@v4
+        with:
+          ref: f8410ad7a538be4fdd64c65e29a2af8e932501d2
+          persist-credentials: false
+      - name: Read the reviewed diagnostics from the QA commit
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: .qa-phase-source
+          fetch-depth: 2
+          sparse-checkout: |
+            tools/taxi_consent_emulator
+            android/app/src/androidTest/java/com/yuldash/app
+          persist-credentials: false
+      - name: Check out the exact previous Android APK source for the upgrade case
+        uses: actions/checkout@v4
+        with:
+          ref: 851c770a986a497dd667711ee8b174bd49cc7a38
+          path: .qa-taxi-baseline
+          sparse-checkout: android
+          persist-credentials: false
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Verify both source revisions
+        run: |
+          test "$(git rev-parse HEAD)" = f8410ad7a538be4fdd64c65e29a2af8e932501d2
+          test "$(git -C .qa-taxi-baseline rev-parse HEAD)" = 851c770a986a497dd667711ee8b174bd49cc7a38
+      - name: Verify exact QA-only overlays before using them
+        run: |
+          test "$(git -C .qa-phase-source show -s --format=%P HEAD)" = f8410ad7a538be4fdd64c65e29a2af8e932501d2
+          printf '%s\n' .github/workflows/taxi-now-android-emulator-phases.yml android/app/src/androidTest/java/com/yuldash/app/TaxiConsentRecoveryInstrumentedTest.kt tools/taxi_consent_emulator/run.sh |
+            cmp -s - <(git -C .qa-phase-source diff --name-only HEAD^ HEAD)
+          printf '%s  %s\n' d46a23dd42c862f1535813997d3877868ba5ab58889367ac7cf076230538b8ca .qa-phase-source/android/app/src/androidTest/java/com/yuldash/app/TaxiConsentRecoveryInstrumentedTest.kt |
+            sha256sum -c --status
+          printf '%s  %s\n' d92162c75cd518ac5c4bb4d6fdfc52fd0c9b17b5da21226780525cc4a0b8b380 .qa-phase-source/tools/taxi_consent_emulator/run.sh |
+            sha256sum -c --status
+          cp .qa-phase-source/android/app/src/androidTest/java/com/yuldash/app/TaxiConsentRecoveryInstrumentedTest.kt android/app/src/androidTest/java/com/yuldash/app/TaxiConsentRecoveryInstrumentedTest.kt
+          cp .qa-phase-source/tools/taxi_consent_emulator/run.sh tools/taxi_consent_emulator/run.sh
+          printf '%s\n' android/app/src/androidTest/java/com/yuldash/app/TaxiConsentRecoveryInstrumentedTest.kt tools/taxi_consent_emulator/run.sh |
+            cmp -s - <(git diff --name-only)
+      - name: Build baseline APK with CI's disposable debug signing key
+        working-directory: .qa-taxi-baseline/android
+        run: bash gradlew :app:assembleDebug --no-daemon
+      - name: Build exact debug APK and instrumentation
+        working-directory: android
+        run: bash gradlew :app:assembleDebug :app:assembleDebugAndroidTest -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --no-daemon
+      - name: Run scoped Android consent unit tests
+        working-directory: android
+        run: bash gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.Taxi*Consent*Test' -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner --no-daemon
+      - name: Prepare dependencies and KVM
+        run: |
+          pip install -r backend/requirements-dev.txt
+          sudo chmod a+rw /dev/kvm
+      - name: Assert isolated fare and recovery flows on a disposable Android 11 emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d
+        with:
+          api-level: 30
+          target: default
+          arch: x86_64
+          force-avd-creation: true
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          # The harness guards the guest by UID and uses private temporary
+          # session files. Never expose raw harness logs, screenshots or DB data.
+          script: >-
+            evidence="$(mktemp -d 2>/dev/null)" || { printf 'Android 11 QA: fail (phase unknown).\n'; exit 1; };
+            trap 'rm -rf -- "$evidence" android/build/taxi-consent-emulator' 0;
+            status=0;
+            TAXI_QA_PHASE_FILE="$evidence/phase" TAXI_CONSENT_BASELINE_APK=.qa-taxi-baseline/android/app/build/outputs/apk/debug/app-debug.apk bash tools/taxi_consent_emulator/run.sh >"$evidence/harness.log" 2>&1 || status=$?;
+            bash tools/taxi_consent_emulator/run.sh --report-phase "$evidence/phase" "$status"
