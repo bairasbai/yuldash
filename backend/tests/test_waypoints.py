@@ -226,3 +226,213 @@ def test_long_stop_adds_to_the_waiting_fee(client, user_factory):
         s.refresh(order)
         assert order.waiting_fee_kop > 0, "двадцать минут стоянки прошли бесплатно"
         assert order.stop_started_at is None
+
+
+# --------------------------- TF04: protected edit ---------------------------
+@pytest.fixture
+def protected_waypoints(user_factory, monkeypatch):
+    pax = user_factory("WpConsentOwner")
+    drv = user_factory("WpConsentDriver", role=UserRole.driver)
+    seen = {"quotes": 0, "pushes": [], "price": 250, "needs_driver_ok": False}
+
+    def quote(session, order, destination, *, now, waypoints_override):
+        seen["quotes"] += 1
+        override = seen.get("during_quote")
+        if override:
+            override()
+        return {"ok": True, "price": seen["price"], "base_price": 220,
+                "old_price": isv.order_ride_price(order), "distance_km": 6.4,
+                "eta_min": 14.0, "tariff_id": None,
+                "needs_driver_ok": seen["needs_driver_ok"]}
+
+    def push(session, recipient, category, ru, ba, ru_body, ba_body, **refs):
+        seen["pushes"].append((recipient, refs))
+
+    monkeypatch.setattr(isv, "destination_quote", quote)
+    monkeypatch.setattr("app.services.push_notification", push)
+    order_id = _make_order(pax["id"], drv["id"], ride_price=225, pickup_fee_kop=7500,
+                           promo_discount_kop=18000)
+    return pax, drv, order_id, seen
+
+
+def _protected_request(client, pax, order_id, stage, points, **extra):
+    return client.post(f"/instant/orders/{order_id}/waypoints/{stage}", headers=pax["auth"],
+                       json={"waypoints": points, **extra})
+
+
+def _protected_points(point=STOP_A):
+    return [{"lat": point[0], "lng": point[1], "text": "Аптека"}]
+
+
+def _persisted_route(order_id):
+    with Session(engine) as s:
+        o = s.get(InstantOrder, order_id)
+        return (o.waypoints_json, o.ride_price, o.price_estimate,
+                o.promo_discount_kop, o.destination_changed_at)
+
+
+def test_protected_preview_has_no_order_mutation_and_exact_payable(client, protected_waypoints):
+    from app import promo_ride
+    pax, _, order_id, seen = protected_waypoints
+    original = _persisted_route(order_id)
+    preview = _protected_request(client, pax, order_id, "preview", _protected_points())
+    assert preview.status_code == 200, preview.text
+    assert preview.headers["cache-control"] == "no-store"
+    body = preview.json()
+    assert body["previous_ride_price_kop"] == 22500
+    assert body["ride_price_kop"] == 25000
+    assert body["previous_payable_estimate_kop"] == 12000
+    assert body["payable_estimate_kop"] == 32500 - promo_ride.cap_for_price(18000, 250)
+    assert body["schema"] == "taxi-waypoints-preview-v1"
+    assert body["confirmation_available"] is False
+    assert "quote_token" not in body
+    assert _persisted_route(order_id) == original
+    assert seen["pushes"] == []
+
+
+def test_protected_preview_fails_closed_for_driver_and_wrong_user(client, protected_waypoints, user_factory):
+    pax, _, order_id, seen = protected_waypoints
+    stranger = user_factory("WpConsentStranger")
+    original = _persisted_route(order_id)
+    assert _protected_request(client, stranger, order_id, "preview", _protected_points()).status_code == 404
+    assert seen["quotes"] == 0
+    seen["needs_driver_ok"] = True
+    result = _protected_request(client, pax, order_id, "preview", _protected_points())
+    assert result.status_code == 409
+    assert result.json()["detail"]["code"] == "taxi_waypoints_driver_consent_required"
+    assert _persisted_route(order_id) == original
+    assert seen["pushes"] == []
+
+
+@pytest.mark.parametrize("updated", [
+    {"round_trip": True}, {"pending_to_lat": STOP_A[0]}, {"status": S.searching},
+])
+def test_protected_preview_rejects_unsupported_route_without_pricing(client, protected_waypoints, updated):
+    pax, _, order_id, seen = protected_waypoints
+    with Session(engine) as s:
+        o = s.get(InstantOrder, order_id)
+        for key, value in updated.items():
+            setattr(o, key, value)
+        s.commit()
+    result = _protected_request(client, pax, order_id, "preview", _protected_points())
+    assert result.status_code == 409
+    assert result.json()["detail"]["code"] == "taxi_waypoints_unavailable"
+    assert seen["quotes"] == 0 and not seen["pushes"]
+
+
+def test_protected_preview_requires_exact_request_shape(client, protected_waypoints):
+    pax, _, order_id, seen = protected_waypoints
+    res = _protected_request(client, pax, order_id, "preview", _protected_points(), price_kop=1)
+    assert res.status_code == 422
+    res = _protected_request(client, pax, order_id, "preview", [{**_protected_points()[0], "done": True}])
+    assert res.status_code == 422
+    assert seen["quotes"] == 0
+
+
+def test_preview_stage_does_not_register_a_confirm_mutation(client, protected_waypoints):
+    pax, _, order_id, seen = protected_waypoints
+    points = _protected_points()
+    before = _persisted_route(order_id)
+    offer = _protected_request(client, pax, order_id, "preview", points)
+    assert offer.status_code == 200, offer.text
+    missing = _protected_request(client, pax, order_id, "confirm", points,
+                                 quote_token="not-issued")
+    assert missing.status_code == 404
+    assert _persisted_route(order_id) == before
+    assert seen["quotes"] == 1 and not seen["pushes"]
+
+
+def test_protected_preview_reuses_actual_estimate_budget_after_owner_fence(
+        client, protected_waypoints, user_factory, monkeypatch):
+    from app.middleware import settings, user_over_limit
+    pax, drv, order_id, seen = protected_waypoints
+    stranger = user_factory("WpBudgetStranger")
+    monkeypatch.setattr(settings, "rate_limit_enabled", True)
+    monkeypatch.setattr(settings, "rate_limit_per_min", 100_000)
+    monkeypatch.setattr(settings, "rate_limit_auth_per_min", 100_000)
+    monkeypatch.setattr(settings, "rate_limit_estimate_per_min", 100_000)
+    monkeypatch.setattr(settings, "rate_limit_estimate_per_user_per_min", 1)
+
+    checked = []
+
+    def observe_bucket(name, user_id, limit):
+        checked.append((name, user_id, limit))
+        return user_over_limit(name, user_id, limit)
+
+    monkeypatch.setattr("app.routers.instant.user_over_limit", observe_bucket)
+    for actor in (drv, stranger):
+        result = _protected_request(client, actor, order_id, "preview", _protected_points())
+        assert result.status_code == 404
+    assert checked == [] and seen["quotes"] == 0
+
+    before = _persisted_route(order_id)
+    first = _protected_request(client, pax, order_id, "preview", _protected_points())
+    second = _protected_request(client, pax, order_id, "preview", _protected_points(STOP_B))
+    # The original estimate endpoint must share the same bucket. No external
+    # estimate/path is possible because both repeat calls are rejected first.
+    ordinary = client.post("/instant/estimate", headers=pax["auth"],
+                           json={"from_lat": UFA[0], "from_lng": UFA[1],
+                                 "to_lat": DEST[0], "to_lng": DEST[1]})
+    assert [first.status_code, second.status_code, ordinary.status_code] == [200, 429, 429]
+    assert checked == [("estimate", pax["id"], 1)] * 3
+    assert seen["quotes"] == 1 and not seen["pushes"]
+    assert _persisted_route(order_id) == before
+
+
+@pytest.mark.parametrize("field,value", [
+    ("status", S.arriving),
+    ("driver_id", None),
+    ("passenger_id", None),
+    ("to_lat", 54.768),
+    ("waypoints_json", isv.dump_waypoints([
+        {"lat": STOP_B[0], "lng": STOP_B[1], "text": "Школа", "done": True},
+    ])),
+    ("pending_to_lat", 54.768),
+    ("waiting_fee_kop", 100),
+    ("payment_method", "sbp"),
+    ("pickup_fee_kop", 7600),
+    ("promo_discount_kop", 10000),
+])
+def test_protected_preview_drops_estimate_after_concurrent_order_change(
+        client, protected_waypoints, field, value):
+    pax, drv, order_id, seen = protected_waypoints
+    if field == "passenger_id":
+        value = drv["id"]
+
+    def writer_during_quote():
+        with Session(engine) as writer:
+            changed = writer.get(InstantOrder, order_id)
+            setattr(changed, field, value)
+            writer.commit()
+
+    before = _persisted_route(order_id)
+    seen["during_quote"] = writer_during_quote
+    response = _protected_request(client, pax, order_id, "preview", _protected_points())
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "taxi_waypoints_quote_conflict"
+    assert "payable_estimate_kop" not in response.json()
+    with Session(engine) as observer:
+        assert getattr(observer.get(InstantOrder, order_id), field) == value
+    if field not in {"waypoints_json", "promo_discount_kop"}:
+        assert _persisted_route(order_id) == before
+    assert seen["quotes"] == 1 and not seen["pushes"]
+
+
+def test_protected_preview_rejects_overflow_in_persisted_stop_before_budget(
+        client, protected_waypoints, monkeypatch):
+    pax, _, order_id, seen = protected_waypoints
+    with Session(engine) as writer:
+        changed = writer.get(InstantOrder, order_id)
+        changed.waypoints_json = '[{"lat":' + "1" + "0" * 400 + ',"lng":55.0,"done":true}]'
+        writer.commit()
+
+    def must_not_charge(user_id):
+        pytest.fail("corrupted order reached budget admission")
+
+    monkeypatch.setattr("app.routers.instant.guard_estimate_budget", must_not_charge)
+    before = _persisted_route(order_id)
+    response = _protected_request(client, pax, order_id, "preview", _protected_points())
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"]["code"] == "taxi_waypoints_unavailable"
+    assert seen["quotes"] == 0 and not seen["pushes"]
+    assert _persisted_route(order_id) == before

@@ -35,6 +35,7 @@ from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import promo_ride
 from .. import taxi_quote_consent as consent
+from .. import taxi_waypoint_consent
 from .. import quality as quality_mod
 from .. import taxi as taxi_mod
 from .. import workday as workday_mod
@@ -224,6 +225,15 @@ class WaypointsIn(BaseModel):
     спорить о том, что уже позади, не о чем.
     """
     waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
+
+
+class ProtectedWaypointIn(WaypointIn):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+
+class WaypointPreviewIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    waypoints: list[ProtectedWaypointIn] = Field(..., max_length=3)
 
 
 class DestinationIn(BaseModel):
@@ -1319,6 +1329,16 @@ def decline_destination(order_id: int, body: DeclineDestinationIn | None = None,
     isv.notify_pay_now_debt(session, debt) or isv.notify_debt_near_block(session, debt)
     return {"ok": True, "finished_early": True,
             "order": isv.order_payload(session, order, user)}
+
+
+@router.post("/instant/orders/{order_id}/waypoints/preview")
+def preview_waypoints(order_id: int, body: WaypointPreviewIn, response: Response,
+                      user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Calculate an authorized edit without writing to the order or creating a quote row."""
+    response.headers["Cache-Control"] = "no-store"
+    return taxi_waypoint_consent.preview(session, user.id, order_id,
+                                         [w.model_dump() for w in body.waypoints],
+                                         guard_budget=guard_estimate_budget)
 
 
 @router.post("/instant/orders/{order_id}/waypoints")
