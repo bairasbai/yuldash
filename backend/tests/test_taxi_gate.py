@@ -10,7 +10,7 @@
   reject → гейт держит + комментарий виден + повторная подача разрешена;
 - анти-IDOR (чужая заявка не видна; чужой документ не подставить) и админ-права.
 """
-from datetime import date, timedelta
+from datetime import timedelta
 
 import fakeredis
 import pytest
@@ -21,6 +21,8 @@ from app import instant_service as isv
 from app.config import settings
 from app.models import InstantOrder, InstantOrderStatus as S, TaxiCity, UserRole
 from app.timeutil import utcnow
+from test_taxi_quote_consent import consent_market as consent_market
+from test_taxi_quote_consent import QUOTE, confirm, quote
 
 BAIMAK = (52.591, 58.317)
 SIBAY = (52.716, 58.664)
@@ -330,3 +332,38 @@ def test_apply_error_is_bilingual(client, user_factory):
     detail = r.json()["detail"]
     assert isinstance(detail, dict) and detail.get("ru") and detail.get("ba")
     assert detail["ru"] != detail["ba"]   # реально переведено, не копия
+
+
+@pytest.mark.parametrize("scope", ["global", "city"])
+def test_paused_taxi_blocks_new_fare_but_keeps_recovery_available(
+    client, user_factory, consent_market, monkeypatch, scope,
+):
+    pax = user_factory("ConsentGate")
+    accepted = quote(client, pax)
+    pending = quote(client, pax)
+    order = confirm(client, pax, accepted)
+    assert order.status_code == 200
+    assert order.headers["cache-control"] == "no-store"
+    order_id = order.json()["order"]["id"]
+
+    if scope == "global":
+        monkeypatch.setattr(settings, "taxi_enabled", False)
+    else:
+        admin = user_factory("ConsentCityAdmin", role=UserRole.admin)
+        _add_city(client, admin, "Баймак", enabled=False)
+
+    assert client.post(QUOTE, headers=pax["auth"], json=_estimate_body()).status_code == 403
+    assert confirm(client, pax, pending).status_code == 403
+    replay = confirm(client, pax, accepted)
+    assert replay.status_code == 200
+    assert replay.json()["order"]["id"] == order_id
+    lookup = client.post("/instant/orders/result/v1", headers=pax["auth"],
+                         json={"request_key": accepted["request_key"]})
+    assert lookup.status_code == 200
+    assert lookup.json()["order_id"] == order_id
+    closed = client.post("/instant/orders/close-attempt/v1", headers=pax["auth"],
+                         json={"request_key": pending["request_key"]})
+    assert closed.status_code == 200
+    assert closed.json()["history"] == "not_created"
+    with Session(engine) as session:
+        assert session.exec(select(InstantOrder.id).where(InstantOrder.passenger_id == pax["id"])).all() == [order_id]
