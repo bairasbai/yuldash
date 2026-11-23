@@ -43,11 +43,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -75,23 +73,19 @@ internal fun TaxiDriverCompletedScreen(
     onReturnToLine: () -> Unit,
     onShiftFinished: () -> Unit,
     onOpenReceipt: () -> Unit,
-    rateOrder: suspend (Int, Int, String) -> Result<Unit> = { id, stars, tags ->
-        ApiClient.rateInstantOrder(id, stars, tags)
+    readRating: TaxiRatingRead = { id, generation -> ApiClient.getInstantOrder(id, generation) },
+    rateOrder: TaxiRatingWrite = { id, stars, tags, generation ->
+        ApiClient.rateInstantOrder(id, stars, tags, expectedGeneration = generation)
     },
     finishShift: suspend () -> Result<Unit> = { ApiClient.setOnline(false) },
 ) {
     val scope = rememberCoroutineScope()
-    var stars by rememberSaveable(order.id) { mutableIntStateOf(0) }
-    var selectedTags by rememberSaveable(order.id) { mutableStateOf(emptyList<String>()) }
-    var ratingSending by remember(order.id) { mutableStateOf(false) }
-    var ratingSent by rememberSaveable(order.id) { mutableStateOf(false) }
+    val (rating, submitRating) = rememberTaxiCompletedRating(order.id, "driver", readRating, rateOrder)
+    val availability = rating?.availability ?: TaxiRatingAvailability.Unavailable
+    val ratingSending = rating?.sending == true
     var shiftEnding by remember(order.id) { mutableStateOf(false) }
     var errorText by remember(order.id) { mutableStateOf<String?>(null) }
 
-    val rateFail = appText(
-        "Не получилось отправить оценку. Проверь сеть и повтори.",
-        "Баһаны ебәреп булманы. Селтәрҙе тикшереп ҡабатла.",
-    )
     val shiftFail = appText(
         "Не получилось завершить смену. Проверь сеть и повтори.",
         "Сменаны тамамлап булманы. Селтәрҙе тикшереп ҡабатла.",
@@ -193,32 +187,25 @@ internal fun TaxiDriverCompletedScreen(
 
             TaxiDriverPassengerRating(
                 order = order,
-                stars = stars,
-                selectedTags = selectedTags,
+                stars = rating?.stars ?: 0,
+                selectedTags = rating?.tags.orEmpty(),
                 sending = ratingSending,
-                sent = ratingSent,
-                onStars = { value ->
-                    stars = value
-                    selectedTags = emptyList()
-                    errorText = null
-                },
-                onTag = { code ->
-                    selectedTags = if (code in selectedTags) selectedTags - code else selectedTags + code
-                },
-                onSubmit = {
-                    if (stars <= 0 || ratingSending || ratingSent) return@TaxiDriverPassengerRating
-                    ratingSending = true
-                    errorText = null
-                    scope.launch {
-                        rateOrder(order.id, stars, selectedTags.joinToString(","))
-                            .onSuccess { ratingSent = true }
-                            .onFailure { errorText = serverSaid(it, rateFail) }
-                        ratingSending = false
-                    }
-                },
+                availability = availability,
+                unconfirmed = rating?.unconfirmed == true,
+                onStars = { rating?.select(it) },
+                onTag = { rating?.toggle(it) },
+                onRetry = { rating?.retry() },
+                onSubmit = { scope.launch { submitRating() } },
                 modifier = Modifier.appearIn(4),
             )
 
+            if (rating?.unconfirmed == true && availability == TaxiRatingAvailability.Saved) {
+                Text(
+                    appText("Показана оценка с сервера. Отправка не подтверждена.", "Серверҙағы баһа күрһәтелә. Ебәреү раҫланманы."),
+                    style = CanonCaption,
+                    color = CanonMuted,
+                )
+            }
             AnimatedVisibility(visible = errorText != null, enter = fadeIn(), exit = fadeOut()) {
                 Surface(color = CanonDangerBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
                     Text(
@@ -366,9 +353,11 @@ private fun TaxiDriverPassengerRating(
     stars: Int,
     selectedTags: List<String>,
     sending: Boolean,
-    sent: Boolean,
+    availability: TaxiRatingAvailability,
+    unconfirmed: Boolean,
     onStars: (Int) -> Unit,
     onTag: (String) -> Unit,
+    onRetry: () -> Unit,
     onSubmit: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -385,14 +374,14 @@ private fun TaxiDriverPassengerRating(
         ) {
             TaxiDriverPassengerIdentity(order)
             AnimatedContent(
-                targetState = sent,
+                targetState = availability,
                 transitionSpec = {
                     (fadeIn(tween(CanonMotion.NORMAL)) + scaleIn(initialScale = 0.97f)) togetherWith
                         (fadeOut(tween(CanonMotion.QUICK)) + scaleOut(targetScale = 0.97f))
                 },
                 label = "driverPassengerRatingResult",
-            ) { completed ->
-                if (completed) {
+            ) { current ->
+                if (current == TaxiRatingAvailability.Saved && stars > 0) {
                     Column(
                         Modifier.fillMaxWidth().heightIn(min = 148.dp),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -408,7 +397,7 @@ private fun TaxiDriverPassengerRating(
                         Text(appText("Спасибо за оценку", "Баһа өсөн рәхмәт"), style = CanonTitle, color = CanonText)
                         Text(starsText(stars), style = CanonCaption, color = CanonMuted)
                     }
-                } else {
+                } else if (current == TaxiRatingAvailability.Available) {
                     Column(
                         Modifier.fillMaxWidth(),
                         horizontalAlignment = Alignment.CenterHorizontally,
@@ -497,6 +486,8 @@ private fun TaxiDriverPassengerRating(
                             height = 50.dp,
                         )
                     }
+                } else {
+                    TaxiRatingNotice(current, unconfirmed, onRetry)
                 }
             }
         }
