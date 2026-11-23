@@ -2,9 +2,40 @@
 """Смоук-тест бэкенда без сервера/порта: гоняем весь сценарий через TestClient.
 Запуск: backend/.venv ... python smoke.py  (из папки backend)
 """
+import atexit
+import os
+import pathlib
+import sys
+import tempfile
+
+# Консоль Windows (cp1251) не умеет «→» и «₽»: без этого print ронял смоук
+# UnicodeEncodeError уже ПОСЛЕ прошедших проверок (23.11.2026).
+sys.stdout.reconfigure(errors="replace")
+
+# Изолированная СВЕЖАЯ база на каждый прогон — как в tests/conftest.py.
+# Раньше смоук шёл в рабочую ./yuldash.db: зависел от её состояния (старые строки
+# с NULL auth_epoch давали 401 после входа, 23.11.2026) и засорял её тестовыми людьми.
+_DB = pathlib.Path(tempfile.gettempdir()) / f"yuldash_smoke_{os.getpid()}.db"
+_DB.unlink(missing_ok=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{_DB.as_posix()}"
+os.environ["ENV"] = "dev"
+os.environ["SEED_DEMO"] = "false"
+atexit.register(lambda: _DB.unlink(missing_ok=True))
+
+from datetime import timedelta, timezone
+
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.timeutil import utcnow
+
+# Дата выезда — всегда в будущем и С ПОЯСОМ (+00:00): время без пояса сервер считает
+# уфимским (UTC+5), и наивный UTC уходил на 5 часов в прошлое → 400. Захардкоженная
+# дата была бомбой замедленного действия (сломалась после 23.06.2026).
+# +20 минут, не «завтра»: посадку водитель отмечает не раньше чем за 30 минут до
+# выезда (DONE_EARLY_GRACE) — «завтра» сервер отклоняет 409 «рано».
+DEPART = (utcnow() + timedelta(minutes=20)).replace(tzinfo=timezone.utc).isoformat()
+DEPART_NEXT = (utcnow() + timedelta(days=1)).replace(tzinfo=timezone.utc).isoformat()
 
 with TestClient(app) as c:
     assert c.get("/health").json()["status"] == "ok"
@@ -29,7 +60,7 @@ with TestClient(app) as c:
     # водитель создаёт поездку
     ride = c.post("/rides", headers=h, json={
         "from_city": "Баймак", "to_city": "Сибай",
-        "depart_at": "2026-06-23T17:30:00", "seats_total": 3, "price": 350, "category": "regular",
+        "depart_at": DEPART, "seats_total": 3, "price": 350, "category": "regular",
     }).json()
     print("ride:", ride["id"], ride["from_city"], "->", ride["to_city"], ride["price"], "RUB")
 
@@ -101,10 +132,24 @@ with TestClient(app) as c:
     print("sos:", sos["id"], sos["category"], sos["status"])
     assert sos["status"] == "open"
 
-    # премиум-предпочтения поездки round-trip (питомцы / детское кресло / только женщины / багаж)
-    pride = c.post("/rides", headers=h, json={
+    # премиум-предпочтения поездки round-trip (питомцы / детское кресло / только женщины / багаж).
+    # «Только женщины» публикует лишь ПОДТВЕРЖДЁННАЯ женщина за рулём (волна 168):
+    # самодекларации пола мало — нужно gender_verified у профиля водителя.
+    fcode = c.post("/auth/request-code", json={"phone": "+79270000003"}).json()["dev_code"]
+    fv = c.post("/auth/verify", json={"phone": "+79270000003", "code": fcode, "name": "Айгуль"}).json()
+    fh = {"Authorization": f"Bearer {fv['access_token']}"}
+    from app.models import DriverProfile, User
+    from sqlmodel import Session as _FS, select as _fsel
+    from app.db import engine as _feng
+    with _FS(_feng) as _fs:
+        _fu = _fs.exec(_fsel(User).where(User.phone == "+79270000003")).first()
+        _fu.gender = "female"
+        _fs.add(_fu)
+        _fs.add(DriverProfile(user_id=_fu.id, gender_verified=True))
+        _fs.commit()
+    pride = c.post("/rides", headers=fh, json={
         "from_city": "Сибай", "to_city": "Уфа",
-        "depart_at": "2026-06-24T08:00:00", "seats_total": 3, "price": 700,
+        "depart_at": DEPART_NEXT, "seats_total": 3, "price": 700,
         "pets_allowed": True, "child_seat": True, "women_only": True, "baggage": True,
     }).json()
     assert pride["pets_allowed"] and pride["child_seat"] and pride["women_only"] and pride["baggage"]
@@ -118,17 +163,56 @@ with TestClient(app) as c:
     c.post("/driver/profile", headers=h, json={
         "car_make": "Kia", "car_model": "Rio", "car_color": "Белый", "car_plate": "А123ВС102", "seats": 4,
     })
-    lic = c.post("/upload/photo", headers=h, json={"photo_b64": "aGVsbG8=", "ext": "jpg"}).json()["url"]
-    carp = c.post("/upload/photo", headers=h, json={"photo_b64": "d29ybGQ=", "ext": "jpg"}).json()["url"]
+    # Загрузка снифит формат (sniff_image=True): «hello» вместо фото — 400.
+    # Генерируем настоящую маленькую картинку; OCR-автопроверку выключаем —
+    # смоук проверяет ручной путь модерации, а не распознавание документов.
+    import base64
+    import io
+    from PIL import Image
+    from app.config import settings as _settings
+    _settings.driver_autocheck_enabled = False
+    _buf = io.BytesIO()
+    Image.new("RGB", (32, 32), (180, 180, 180)).save(_buf, format="JPEG")
+    _photo = base64.b64encode(_buf.getvalue()).decode()
+    lic = c.post("/upload/photo", headers=h, json={"photo_b64": _photo, "ext": "jpg"}).json()["url"]
+    carp = c.post("/upload/photo", headers=h, json={"photo_b64": _photo, "ext": "jpg"}).json()["url"]
     vr = c.post("/driver/verify", headers=h, json={"license_url": lic, "car_photo_url": carp}).json()
     assert vr["docs_status"] == "pending"
     st = c.get("/driver/status", headers=h).json()
     print("driver verify:", st["docs_status"], "car:", st["car_make"], st["car_model"], st["car_plate"])
     assert st["car_make"] == "Kia" and st["docs_status"] == "pending"
 
-    # модерация админом: подтверждаем водителя -> verified=True
-    admin_code = c.post("/auth/request-code", json={"phone": "+79270000777"}).json()["dev_code"]
-    av = c.post("/auth/verify", json={"phone": "+79270000777", "code": admin_code, "name": "Админ"}).json()
+    # модерация админом: подтверждаем водителя -> verified=True.
+    # С 11.2026 админ входит ТОЛЬКО через Telegram (cn_admin_telegram_cutover):
+    # SMS-токен админку больше не открывает. Играем Telegram синтетически, как
+    # tests/conftest.py::telegram_login_ready — без единого внешнего запроса.
+    import httpx
+    from app.config import settings
+    settings.telegram_bot_token = "smoke-synthetic-bot"
+    settings.telegram_webhook_secret = "smoke-synthetic-webhook"
+    _real_post = httpx.post
+    def _synthetic_post(url, **kwargs):
+        if str(url).startswith("https://api.telegram.org/"):
+            return httpx.Response(200, json={"ok": True, "result": {}})
+        return _real_post(url, **kwargs)
+    httpx.post = _synthetic_post
+    _tg_headers = {"X-Telegram-Bot-Api-Secret-Token": "smoke-synthetic-webhook"}
+    _tg_id = 777000777
+    _challenge = c.post("/auth/tg/start").json()["request_id"]
+    assert c.post("/telegram/webhook", headers=_tg_headers, json={"message": {
+        "text": "/start " + _challenge, "from": {"id": _tg_id},
+        "chat": {"id": _tg_id, "type": "private"},
+    }}).status_code == 200
+    assert c.post("/telegram/webhook", headers=_tg_headers, json={"message": {
+        "from": {"id": _tg_id}, "chat": {"id": _tg_id, "type": "private"},
+        "contact": {"user_id": _tg_id, "phone_number": "+79270000777"},
+    }}).status_code == 200
+    from app.models import TgAuth
+    from sqlmodel import Session as _TS, select as _tsel
+    from app.db import engine as _teng
+    with _TS(_teng) as _ts:
+        _tg_code = _ts.exec(_tsel(TgAuth).where(TgAuth.request_id == _challenge)).one().code
+    av = c.post("/auth/tg/verify", json={"request_id": _challenge, "code": _tg_code}).json()
     # делаем этого пользователя админом напрямую в БД (в проде роль выдаётся вручную)
     from sqlmodel import Session as _S, select as _sel
     from app.db import engine as _eng

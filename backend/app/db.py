@@ -1,3 +1,5 @@
+import re
+
 from sqlalchemy import inspect, text
 from sqlalchemy.exc import ProgrammingError
 from sqlmodel import SQLModel, Session, create_engine
@@ -44,11 +46,43 @@ def _sqlite_coltype(col) -> str:
     return "TEXT"
 
 
+def _sqlite_server_default(col) -> str:
+    """Литерал из server_default, когда Python-default у колонки нет.
+
+    Зачем. При явном `sa_column=Column(...)` значение `Field(default=0)` НЕ попадает
+    в колонку — единственный дефолт там `server_default="0"` (так объявлен `auth_epoch`).
+    Старая версия догонялки смотрела только Python-default и добавляла колонку с NULL:
+    у всех старых пользователей `auth_epoch` становился NULL, свежий токен наследовал
+    NULL и `_token_revoked` отклонял его — вход проходил, а `/me` отвечал 401
+    (разбор 23.11.2026, smoke.py на старой локальной базе). Прод не затронут:
+    alembic-миграция cm_auth_epoch добавляет колонку с server_default="0".
+
+    В DDL идёт только простой литерал: число или строка в кавычках. Выражения
+    (CURRENT_TIMESTAMP и т.п.) не подставляем — для них остаётся NULL, как раньше.
+    """
+    sd = getattr(col, "server_default", None)
+    arg = getattr(sd, "arg", None) if sd is not None else None
+    if arg is None:
+        return "NULL"
+    raw = getattr(arg, "text", None) if not isinstance(arg, (str, int, float, bool)) else arg
+    if isinstance(raw, bool):
+        return "1" if raw else "0"
+    if isinstance(raw, (int, float)):
+        return str(raw)
+    if isinstance(raw, str):
+        s = raw.strip()
+        if re.fullmatch(r"-?\d+(\.\d+)?", s):
+            return s
+        if re.fullmatch(r"'(?:[^']|'')*'", s):
+            return s
+    return "NULL"
+
+
 def _sqlite_default(col) -> str:
     """SQL-литерал значения по умолчанию для добавляемой колонки (NULL, если нет)."""
     default = getattr(col, "default", None)
     if default is None or getattr(default, "arg", None) is None or callable(getattr(default, "arg", None)):
-        return "NULL"
+        return _sqlite_server_default(col)
     val = default.arg
     if isinstance(val, bool):
         return "1" if val else "0"
@@ -76,10 +110,19 @@ def _migrate_sqlite_add_columns() -> None:
                 continue
             have = {c["name"] for c in inspector.get_columns(table.name)}
             for col in table.columns:
-                if col.name in have:
-                    continue
-                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {_sqlite_coltype(col)} DEFAULT {_sqlite_default(col)}'
-                conn.execute(text(ddl))
+                if col.name not in have:
+                    ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {_sqlite_coltype(col)} DEFAULT {_sqlite_default(col)}'
+                    conn.execute(text(ddl))
+                # Ремонт старых строк: колонка, добавленная прежней догонялкой без дефолта,
+                # оставила у существующих строк NULL (auth_epoch → 401 после входа).
+                # NOT NULL-колонке со статичным дефолтом возвращаем этот дефолт.
+                # Идемпотентно: на здоровой базе WHERE col IS NULL не находит строк.
+                if not col.nullable:
+                    literal = _sqlite_default(col)
+                    if literal != "NULL":
+                        conn.execute(text(
+                            f'UPDATE "{table.name}" SET "{col.name}" = {literal} '
+                            f'WHERE "{col.name}" IS NULL'))
 
 
 def init_db() -> None:

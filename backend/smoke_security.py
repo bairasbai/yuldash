@@ -6,12 +6,36 @@
   4) участник брони по-прежнему работает (WS живой).
 Запуск: backend/.venv/Scripts/python.exe smoke_security.py  (из папки backend)
 """
+import atexit
 import json
+import os
+import pathlib
+import sys
+import tempfile
+
+# Консоль Windows (cp1251) не умеет «→»: print ронял смоук после прошедших проверок.
+sys.stdout.reconfigure(errors="replace")
+
+# Изолированная свежая база на прогон (см. smoke.py): смоук не зависит от состояния
+# рабочей ./yuldash.db и не пишет в неё тестовых людей.
+_DB = pathlib.Path(tempfile.gettempdir()) / f"yuldash_smoke_sec_{os.getpid()}.db"
+_DB.unlink(missing_ok=True)
+os.environ["DATABASE_URL"] = f"sqlite:///{_DB.as_posix()}"
+os.environ["ENV"] = "dev"
+os.environ["SEED_DEMO"] = "false"
+atexit.register(lambda: _DB.unlink(missing_ok=True))
+
+from datetime import timedelta, timezone
 
 from fastapi.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
 from app.main import app
+from app.timeutil import utcnow
+
+# Дата выезда — всегда в будущем и с поясом +00:00 (см. smoke.py):
+# без пояса сервер считает время уфимским (UTC+5), прошлое отклоняется 400.
+DEPART = (utcnow() + timedelta(days=1)).replace(tzinfo=timezone.utc).isoformat()
 
 
 def login(c, phone, name):
@@ -31,7 +55,7 @@ with TestClient(app) as c:
 
     ride = c.post("/rides", headers=dh, json={
         "from_city": "Баймак", "to_city": "Сибай",
-        "depart_at": "2026-07-01T09:00:00", "seats_total": 3, "price": 300,
+        "depart_at": DEPART, "seats_total": 3, "price": 300,
     }).json()
     bk = c.post("/bookings", headers=ah, json={"ride_id": ride["id"], "seats": 1}).json()
     bid = bk["id"]
@@ -73,11 +97,11 @@ with TestClient(app) as c:
     assert locked.status_code == 429, f"перебор не заблокирован: {locked.status_code}"
     print("[OK] перебор OTP: после 5 попыток → 429")
 
-    # 4) throttle запроса кода — >3 в минуту на номер → 429
-    for i in range(3):
-        assert c.post("/auth/request-code", json={"phone": "+79991110020"}).status_code == 200
+    # 4) throttle запроса кода: повтор раньше окна повтора (RESEND_SECONDS=60с) → 429.
+    # Прежнее правило «3 кода в минуту» заменено интервалом повтора — смоук сверяет его.
+    assert c.post("/auth/request-code", json={"phone": "+79991110020"}).status_code == 200
     flood = c.post("/auth/request-code", json={"phone": "+79991110020"})
     assert flood.status_code == 429, f"throttle не сработал: {flood.status_code}"
-    print("[OK] throttle: 4-й запрос кода в минуту → 429")
+    print("[OK] throttle: повтор кода раньше окна повтора → 429")
 
     print("SECURITY SMOKE OK")
