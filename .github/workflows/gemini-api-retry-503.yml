@@ -1,0 +1,70 @@
+# Retry only models that returned 503 in the comprehensive 2026-11-23 API probe.
+# The API key remains exclusively in GitHub Actions Secrets and is never printed.
+name: Gemini API transient-503 retest
+on:
+  push:
+    branches:
+      - chore/gemini-api-smoke-20261123
+    paths:
+      - .github/workflows/gemini-api-retry-503.yml
+permissions:
+  contents: read
+jobs:
+  retry-503:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+    steps:
+      - name: Retry affected text models (max two tiny requests per model)
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import time
+          from urllib import error, request
+          key = os.environ.get("GEMINI_API_KEY", "")
+          if not key:
+              print("NO_KEY")
+              raise SystemExit(2)
+          base = "https://generativelanguage.googleapis.com/v1beta/"
+          headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
+          ids = ("gemini-4-hydrogen", "gemini-3.8-flash", "gemini-3.7-flash",
+                 "gemini-flash-latest", "gemma-4-31b-it")
+          for model in ids:
+              for attempt in (1, 2):
+                  body = {"contents": [{"parts": [{"text": "Reply OK."}]}],
+                          "generationConfig": {"maxOutputTokens": 256}}
+                  if model.startswith("gemini-4-"):
+                      body["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "LOW"}
+                  req = request.Request(base + "models/" + model + ":generateContent",
+                                        headers=headers, method="POST",
+                                        data=json.dumps(body).encode("utf-8"))
+                  try:
+                      with request.urlopen(req, timeout=30) as resp:
+                          data = json.load(resp)
+                          candidates = data.get("candidates", [])
+                          parts = [p.get("text", "") for c in candidates
+                                   for p in c.get("content", {}).get("parts", [])
+                                   if isinstance(p, dict)]
+                          result = "PASS_TEXT" if any(p.strip() for p in parts if isinstance(p, str)) else "HTTP200_NO_TEXT"
+                          http = resp.status
+                  except error.HTTPError as exc:
+                      http = exc.code
+                      try:
+                          parsed = json.loads(exc.read(4096))
+                          raw = str(parsed.get("error", {}).get("status", "ERROR"))
+                          result = re.sub(r"[^A-Z0-9_]", "", raw.upper())[:50]
+                      except (ValueError, TypeError, AttributeError):
+                          result = "ERROR"
+                  except (error.URLError, TimeoutError, OSError):
+                      http, result = 0, "NETWORK_OR_TIMEOUT"
+                  print(f"RETEST model={model} attempt={attempt} http={http} status={result}", flush=True)
+                  if http != 503:
+                      break
+                  if attempt == 1:
+                      time.sleep(3)
+          print("RETEST_COMPLETE", flush=True)
+          PY
