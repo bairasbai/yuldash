@@ -1,5 +1,7 @@
 package com.yuldash.app.data
 
+import com.yuldash.app.data.TaxiDriverRecoveryJournal.Admission.INVOKED_OUTCOME_UNKNOWN
+import com.yuldash.app.data.TaxiDriverRecoveryJournal.Admission.NOT_INVOKED
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
@@ -31,6 +33,7 @@ class TaxiDriverRecoveryJournalTest {
 
     private class Login(var active: SnapshotOwner?) : TaxiDriverRecoverySessionFence {
         var guarded = false
+        var failAfterAction = false
         override fun ifCurrent(owner: SnapshotOwner, action: () -> Unit) {
             if (active != owner) return
             check(!guarded)
@@ -39,6 +42,7 @@ class TaxiDriverRecoveryJournalTest {
                 action()
             } finally {
                 guarded = false
+                check(!failAfterAction) { "Synthetic fence cleanup failure" }
             }
         }
     }
@@ -53,13 +57,13 @@ class TaxiDriverRecoveryJournalTest {
         assertFalse(handle.toString().contains(handle.value))
         var admissions = 0
         var admittedWithinFence = false
-        assertTrue(journal.consumeSendPermit(permit) {
+        assertEquals(INVOKED_OUTCOME_UNKNOWN, journal.consumeSendPermit(permit) {
             admittedWithinFence = login.guarded
             admissions++
         })
         assertTrue(admittedWithinFence)
         assertEquals(1, admissions)
-        assertFalse(journal.consumeSendPermit(permit) { admissions++ })
+        assertEquals(NOT_INVOKED, journal.consumeSendPermit(permit) { admissions++ })
         assertEquals(1, admissions)
         assertNull(journal.prepare(owner, handle))
 
@@ -68,7 +72,7 @@ class TaxiDriverRecoveryJournalTest {
         login.active = restoredOwner
         assertNull(journal.restoreForStatus(owner))
         assertEquals(handle.value, reopened.restoreForStatus(restoredOwner)?.value)
-        assertFalse(reopened.consumeSendPermit(permit) { admissions++ })
+        assertEquals(NOT_INVOKED, reopened.consumeSendPermit(permit) { admissions++ })
         assertNull(reopened.prepare(restoredOwner, handle))
         assertEquals(1, admissions)
     }
@@ -91,7 +95,7 @@ class TaxiDriverRecoveryJournalTest {
             assertFalse(journal.clearCommitted(now, handle))
             assertFalse(journal.clearAtSessionBoundary(owner))
             var admissions = 0
-            assertFalse(journal.consumeSendPermit(permit) { admissions++ })
+            assertEquals(NOT_INVOKED, journal.consumeSendPermit(permit) { admissions++ })
             assertEquals(0, admissions)
             assertEquals(original, slot.row)
         }
@@ -131,16 +135,41 @@ class TaxiDriverRecoveryJournalTest {
         val original = disk.row
         disk.row = disk.row!!.substringBeforeLast('\n') + "\n" + another.value
         var admissions = 0
-        assertFalse(journal.consumeSendPermit(permit) { admissions++ })
+        assertEquals(NOT_INVOKED, journal.consumeSendPermit(permit) { admissions++ })
         assertEquals(0, admissions)
         // A failed final read consumes the permit: restoring the old bytes cannot rearm it.
         val replacement = disk.row
         disk.row = original
-        assertFalse(journal.consumeSendPermit(permit) { admissions++ })
+        assertEquals(NOT_INVOKED, journal.consumeSendPermit(permit) { admissions++ })
         assertEquals(0, admissions)
         disk.row = replacement
         assertTrue(journal.clearCommitted(owner, another))
         assertNull(disk.row)
+    }
+
+    @Test fun invocationFollowedByCallerOrFenceFailureIsUnknownAndNeverRepeats() {
+        listOf(false, true).forEach { fenceFailure ->
+            val disk = Disk()
+            val login = Login(owner)
+            val journal = TaxiDriverRecoveryJournal(disk, login)
+            val permit = requireNotNull(journal.prepare(owner, handle))
+            val stored = disk.row
+            var admissions = 0
+            login.failAfterAction = fenceFailure
+            assertEquals(INVOKED_OUTCOME_UNKNOWN, journal.consumeSendPermit(permit) {
+                admissions++
+                check(fenceFailure) { "Synthetic caller failure after dispatch" }
+            })
+            assertEquals(1, admissions)
+            assertEquals(NOT_INVOKED, journal.consumeSendPermit(permit) { admissions++ })
+            assertEquals(1, admissions)
+            assertEquals(stored, disk.row)
+            login.failAfterAction = false
+            assertEquals(handle.value, journal.restoreForStatus(owner)?.value)
+            assertNull(journal.prepare(owner, handle))
+            assertTrue(journal.clearCommitted(owner, handle))
+            assertNull(disk.row)
+        }
     }
 
     @Test fun malformedRecordIsNotStatusEvidenceAndCannotBeOverwrittenByNewClick() {
