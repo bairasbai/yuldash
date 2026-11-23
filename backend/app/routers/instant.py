@@ -1213,6 +1213,7 @@ def change_destination(order_id: int, body: DestinationIn,
         raise herr(409, "Уже почти на месте — закажи новую поездку",
                    "Инде барып еттек — яңы сәфәр заказ ит")
 
+    captured = taxi_waypoint_consent.capture_route_write(order)
     quote = isv.destination_quote(session, order, (body.to_lat, body.to_lng))
     if not quote.get("ok"):
         raise herr(503, "Не удалось посчитать цену. Попробуй ещё раз",
@@ -1224,18 +1225,23 @@ def change_destination(order_id: int, body: DestinationIn,
 
     # Крупная смена — сначала слово водителю.
     if quote["needs_driver_ok"] and order.driver_id:
-        isv.offer_destination_to_driver(session, order, (body.to_lat, body.to_lng),
-                                        body.to_text, quote)
+        taxi_waypoint_consent.propose_guarded_destination(session, order, captured,
+                                                         (body.to_lat, body.to_lng), body.to_text, quote)
         isv.notify_driver_destination(session, order, quote, pending=True)
         return {**quote, "applied": False, "waiting_driver": True}
 
     # Предложение уже висит у водителя со старым адресом — отзываем, иначе он примет заказ,
     # которого не видел. Дальше обычный поиск подхватит заказ уже с новым адресом.
     if order.status == S.offered:
+        # The existing dispatch invalidation owns a separate transaction.
+        # Keep this branch outside the first guarded-pricing slice.
         isv.advance_after_no_accept(session, order, notify=False)
         session.refresh(order)
-
-    isv.apply_destination(session, order, (body.to_lat, body.to_lng), body.to_text, quote)
+        isv.apply_destination(session, order, (body.to_lat, body.to_lng), body.to_text, quote)
+    else:
+        taxi_waypoint_consent.apply_guarded_route(
+            session, order, captured, quote, destination=(body.to_lat, body.to_lng), text=body.to_text,
+        )
     if order.driver_id:
         isv.notify_driver_destination(session, order, quote)
     return {**quote, "applied": True, "order": isv.order_payload(session, order, user)}
@@ -1286,14 +1292,16 @@ def accept_destination(order_id: int, user: User = Depends(current_user),
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.pending_to_lat is None or order.pending_to_lng is None:
         raise herr(409, "Нечего подтверждать", "Раҫлар нәмә юҡ")
+    captured = taxi_waypoint_consent.capture_route_write(order)
     new_to = (order.pending_to_lat, order.pending_to_lng)
     to_text = order.pending_to_text
     # Пересчитываем заново: пока водитель думал, машина ехала, и старая цифра устарела.
     quote = isv.destination_quote(session, order, new_to)
     if not quote.get("ok"):
         raise herr(503, "Не удалось посчитать цену", "Хаҡты иҫәпләп булманы")
-    isv.apply_destination(session, order, new_to, to_text, quote)
-    isv.ack_destination(session, order)     # согласился — значит точно видел
+    taxi_waypoint_consent.apply_guarded_route(
+        session, order, captured, quote, destination=new_to, text=to_text, driver_ack=True,
+    )
     return {"ok": True, "order": isv.order_payload(session, order, user)}
 
 
@@ -1363,13 +1371,14 @@ def set_waypoints(order_id: int, body: WaypointsIn,
     if blocked == "too_often":
         raise herr(429, "Слишком часто. Подожди пару секунд", "Бик йыш. Бер-ике секунд көт")
 
+    captured = taxi_waypoint_consent.capture_route_write(order)
     done = [w for w in isv.parse_waypoints(order.waypoints_json) if w.get("done")]
     fresh = done + [{**w.model_dump(), "done": False} for w in body.waypoints]
     quote = isv.destination_quote(session, order, (order.to_lat, order.to_lng),
                                   waypoints_override=fresh)
     if not quote.get("ok"):
         raise herr(503, "Не удалось посчитать цену", "Хаҡты иҫәпләп булманы")
-    isv.apply_waypoints(session, order, fresh, quote)
+    taxi_waypoint_consent.apply_guarded_route(session, order, captured, quote, points=fresh)
     if order.driver_id:
         isv.notify_driver_destination(session, order, quote)
     return {**quote, "applied": True, "order": isv.order_payload(session, order, user)}
