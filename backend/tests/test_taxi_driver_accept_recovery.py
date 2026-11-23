@@ -5,18 +5,24 @@ from uuid import uuid4
 
 import pytest
 from cryptography.fernet import Fernet
+from fastapi import FastAPI, HTTPException
+from fastapi.security import HTTPAuthorizationCredentials
+from fastapi.testclient import TestClient
+from jose import ExpiredSignatureError
 from sqlalchemy import event, select, update
 from sqlmodel import Session
 from test_taxi_offered_waypoint_retire import _clock, _wait_db, healthy, route, testdb  # noqa: F401 - fixtures
 from test_taxi_sealed_offer_card import _bind, offered  # noqa: F401
 from test_taxi_sealed_resume_claim import near_deadline, retired  # noqa: F401
 
+from app import security
 from app import taxi_driver_accept_outcome as outcome
 from app import taxi_driver_accept_recovery as recovery
 from app import taxi_route_resume as resume
 from app import taxi_sealed_offer_accept as accept
 from app.models import AuthSession, InstantOrder, TaxiDriverAcceptOutcome, User
 from app.models import InstantOrderStatus as S
+from app.routers import auth
 from app.taxi_sealed_offer_card import SealedOfferCardProof
 
 _ORDER = InstantOrder.__table__.c
@@ -191,3 +197,84 @@ def test_result_context_expiry_uses_db_clock_and_cannot_extend_receipt(example):
         db, key, driver_id=params["principal"].driver_id, order_id=params["order_id"],
         attempt_id=params["attempt_id"], proof=params["displayed_proof"],
     ) is _UNKNOWN
+
+
+def test_real_auth_rotation_and_scoped_logout_gate_exact_recovery(example, monkeypatch):
+    db, proof_key, cipher, params, other_driver = example
+    driver = params["principal"].driver_id
+
+    def login(user_id):
+        # Exercise production issuance after identity verification, without using SMS/Telegram.
+        with Session(db) as session:
+            return security.issue_tokens(session, user_id)
+
+    def principal(pair):
+        credentials = HTTPAuthorizationCredentials(scheme="Bearer", credentials=pair["access_token"])
+        with Session(db) as session:
+            user, claims = security._authenticated_user(credentials, session)
+            return recovery.DriverRecoveryPrincipal(user.id, claims["sid"], claims["auth_epoch"])
+
+    def get_session():
+        with Session(db) as session:
+            yield session
+
+    app = FastAPI()
+    app.include_router(auth.router)
+    app.dependency_overrides[auth.get_session] = get_session
+    original_pair = login(driver)
+    original = principal(original_pair)
+    assert original.driver_id == driver and original.session_id == original_pair["session_id"]
+    scoped = db, proof_key, cipher, params | {"principal": original}, other_driver
+    envelope = _mint(scoped)
+    assert envelope and _recover(scoped, envelope) is _UNKNOWN
+    assert _accept(scoped) is accept.SealedAcceptance.ACCEPTED
+    # The active-order response can no longer prove the attempt after cancellation.
+    with db.begin() as conn:
+        conn.execute(update(InstantOrder).where(_ORDER.id == params["order_id"]).values(status=S.cancelled))
+    after_accept = _state(scoped)
+
+    # Issue an actually expired signed access for the same trusted claims, without
+    # sleeping or replacing the original login's normal refresh credential.
+    with monkeypatch.context() as expired:
+        expired.setattr(security.settings, "access_expire_min", -1)
+        with Session(db) as session:
+            login_row = session.get(AuthSession, original.session_id)
+            expired_access = security.make_token(driver, auth_session=login_row, auth_epoch=original.auth_epoch)
+    with pytest.raises(ExpiredSignatureError):
+        security._decode(expired_access)
+    with pytest.raises(HTTPException) as rejected:
+        principal({"access_token": expired_access})
+    assert rejected.value.status_code == 401
+
+    with TestClient(app) as client:
+        rotated = client.post("/auth/refresh", json={"refresh_token": original_pair["refresh_token"]})
+        assert rotated.status_code == 200
+        rotated_pair = rotated.json()
+        assert rotated_pair["refresh_token"] != original_pair["refresh_token"]
+        assert rotated_pair["session_id"] == original.session_id
+        authenticated = principal(rotated_pair)
+        assert authenticated == original
+        assert _recover(scoped, envelope, principal=authenticated) is _KNOWN
+
+        different = principal(login(other_driver))
+        second_login = login(driver)
+        same_account = principal(second_login)
+        assert different.driver_id == other_driver
+        assert same_account.driver_id == driver and same_account.session_id != original.session_id
+        assert _recover(scoped, envelope, principal=different) is _UNKNOWN
+        assert _recover(scoped, envelope, principal=same_account) is _UNKNOWN
+
+        closed = client.post("/auth/logout/session", headers={
+            "Authorization": "Bearer " + rotated_pair["logout_token"],
+        })
+        assert closed.status_code == 200
+        # Access validation and outcome SQL must both reject the revoked login,
+        # including a principal retained by an in-flight request before logout.
+        with pytest.raises(HTTPException) as rejected:
+            principal(rotated_pair)
+        assert rejected.value.status_code == 401
+        assert _recover(scoped, envelope, principal=original) is _UNKNOWN
+        assert client.post("/auth/refresh", json={"refresh_token": rotated_pair["refresh_token"]}).status_code == 401
+        assert principal(second_login) == same_account
+        assert _recover(scoped, envelope, principal=same_account) is _UNKNOWN
+        assert _state(scoped) == after_accept
