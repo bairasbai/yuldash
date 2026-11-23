@@ -86,7 +86,7 @@ jobs:
 
           # Gemini 2.5 can be listed but 404 on generation for new projects.
           # Use current model IDs recommended by Google instead of legacy 2.5.
-          preferences = ("models/gemini-3.5-flash-lite", "models/gemini-3.8-flash")
+          preferences = ("models/gemini-4-neon", "models/gemini-3.5-flash-lite", "models/gemini-3.8-flash")
           model = next((name for name in preferences if name in options), None)
           if model is None:
               print("Models listing succeeded, but neither supported current smoke-test model was listed")
@@ -97,6 +97,8 @@ jobs:
               "contents": [{"role": "user", "parts": [{"text": "Reply with just OK."}]}],
               "generationConfig": {"maxOutputTokens": 128}
           }
+          if model == "models/gemini-4-neon":
+              generation["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "LOW"}
           code, result = call("/" + model + ":generateContent", generation)
           if not isinstance(result, dict) or not result.get("candidates"):
               print(f"generateContent: HTTP {code}; no candidates")
