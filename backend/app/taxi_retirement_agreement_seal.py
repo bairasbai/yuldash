@@ -95,15 +95,27 @@ def matches_retirement_agreement(
     current: Mapping, now: datetime,
 ) -> bool:
     """Equality to the originally approved write projection, not permission."""
+    try:
+        retired, deadline = current["route_resume_retired_at"], current["route_resume_deadline_at"]
+        return (offered._utc(now) and offered._utc(retired) and offered._utc(deadline)
+                and retired <= now < deadline
+                and _matches_stored_agreement(key, seal, owner_id=owner_id, order_id=order_id, current=current))
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return False
+
+
+def _matches_stored_agreement(
+    key: bytes, seal: RetirementAgreementSeal | None, *, owner_id: int, order_id: int, current: Mapping,
+) -> bool:
+    """Authenticate the persisted terms at any age, but make no clock decision."""
     if (type(seal) is not RetirementAgreementSeal or type(seal._digest) is not bytes
-            or len(seal._digest) != 32 or not offered._utc(now)
-            or not offered._id(owner_id) or not offered._id(order_id)):
+            or len(seal._digest) != 32 or not offered._id(owner_id) or not offered._id(order_id)):
         return False
     try:
         retired = current["route_resume_retired_at"]
         deadline = current["route_resume_deadline_at"]
         if (not _well_formed(key, current["route_resume_id"], retired, deadline)
-                or not retired <= now < deadline or current["destination_changed_at"] != retired
+                or current["destination_changed_at"] != retired
                 or type(current["id"]) is not int or current["id"] != order_id
                 or type(current["passenger_id"]) is not int or current["passenger_id"] != owner_id
                 or not offered._id(current["route_resume_previous_driver_id"])):
