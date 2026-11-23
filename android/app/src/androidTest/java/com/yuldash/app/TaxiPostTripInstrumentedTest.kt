@@ -7,6 +7,7 @@ import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.InstantOrderDto
@@ -62,8 +63,8 @@ class TaxiPostTripInstrumentedTest {
 
         composeRule.onNodeWithText("Детали поездки").assertIsDisplayed()
         composeRule.onAllNodesWithText("350 ₽").onFirst().assertIsDisplayed()
-        composeRule.onNodeWithText("ул. Ленина, 12").assertIsDisplayed()
-        composeRule.onNodeWithText("Сказать «рәхмәт»").assertIsDisplayed()
+        composeRule.onNodeWithText("ул. Ленина, 12").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Сказать «рәхмәт»").performScrollTo().assertIsDisplayed()
         composeRule.waitForIdle()
         holdIfRequested()
     }
