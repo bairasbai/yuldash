@@ -35,8 +35,10 @@ class TaxiDriverCompletedGuardTest {
     @Test
     fun `rating tags receipt unpaid and real shift exit stay wired`() {
         val completed = source("TaxiDriverCompletedScreen.kt")
-        assertTrue(completed.contains("ApiClient.rateInstantOrder(id, stars, tags)"))
-        assertTrue(completed.contains("selectedTags.joinToString(\",\")"))
+        val rating = source("TaxiCompletedRating.kt")
+        assertTrue(completed.contains("ApiClient.rateInstantOrder(id, stars, tags, expectedGeneration = generation)"))
+        assertTrue(rating.contains("tags.joinToString(\",\")"))
+        assertTrue(completed.contains("rememberTaxiCompletedRating(order.id, \"driver\", readRating, rateOrder)"))
         assertTrue(completed.contains("TaxiDriverRatingTag(\"ontime\""))
         assertTrue(completed.contains("TaxiDriverRatingTag(\"unsafe\""))
         assertTrue(completed.contains("UnpaidReportButton(orderId = order.id)"))

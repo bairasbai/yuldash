@@ -3,6 +3,7 @@ package com.yuldash.app
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.junit4.StateRestorationTester
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
@@ -13,6 +14,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.InstantOrderDto
 import com.yuldash.app.ui.theme.YuldashTheme
+import java.util.concurrent.atomic.AtomicInteger
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -69,8 +72,116 @@ class TaxiDriverCompletedInstrumentedTest {
         composeRule.onNodeWithText("Сменаны тамамлау").assertIsDisplayed()
     }
 
-    private fun render(language: AppLanguage = AppLanguage.Ru) {
+    @Test
+    fun completed_recoversSavedStarsEvenWhenRatingWindowClosed() {
+        val writes = AtomicInteger()
+        render(
+            readRating = { _, _ -> Result.success(previewOrder().copy(myStars = 4, canRate = false)) },
+            rateOrder = { _, _, _, _ -> writes.incrementAndGet(); Result.success(Unit) },
+        )
+
+        composeRule.onNodeWithText("Спасибо за оценку").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("4 звезды").assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(0, writes.get())
+    }
+
+    @Test
+    fun completed_deniedRatingKeepsRecoveryActions() {
+        render(readRating = { _, _ -> Result.success(previewOrder().copy(canRate = false)) })
+
+        composeRule.onNodeWithText("Оценка этой поездки сейчас недоступна.").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        composeRule.onNodeWithText("Чек и детали").performScrollTo().assertIsDisplayed()
+    }
+
+    @Test
+    fun completed_lostWriteAnswerReReadsWithoutSecondWrite() {
+        val reads = AtomicInteger()
+        val writes = AtomicInteger()
+        render(
+            readRating = { _, _ ->
+                Result.success(previewOrder().copy(myStars = if (reads.incrementAndGet() == 1) 0 else 5))
+            },
+            rateOrder = { _, _, _, _ ->
+                writes.incrementAndGet()
+                Result.failure(java.io.IOException("Test response lost"))
+            },
+        )
+
+        composeRule.onNodeWithContentDescription("5 звёзд").performScrollTo().performClick()
+        composeRule.onNodeWithText("Отправить оценку").performScrollTo().performClick()
+        composeRule.onNodeWithText("Спасибо за оценку").performScrollTo().assertIsDisplayed()
+        assertEquals(2, reads.get())
+        assertEquals(1, writes.get())
+    }
+
+    @Test
+    fun completed_unconfirmedWriteRechecksButNeverResends() {
+        val reads = AtomicInteger()
+        val writes = AtomicInteger()
+        val restoration = StateRestorationTester(composeRule)
+        render(
+            restoration = restoration,
+            readRating = { _, _ ->
+                reads.incrementAndGet()
+                Result.success(previewOrder())
+            },
+            rateOrder = { _, _, _, _ ->
+                writes.incrementAndGet()
+                Result.failure(java.io.IOException("Test response lost"))
+            },
+        )
+
+        composeRule.onNodeWithContentDescription("5 звёзд").performScrollTo().performClick()
+        composeRule.onNodeWithText("Отправить оценку").performScrollTo().performClick()
+        composeRule.onNodeWithText("Повторить").performScrollTo().performClick()
+        composeRule.onNodeWithText("Отправка не подтверждена. Проверь оценку ещё раз.")
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(3, reads.get())
+        restoration.emulateSavedInstanceStateRestore()
+        composeRule.onNodeWithText("Отправка не подтверждена. Проверь оценку ещё раз.")
+            .performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(4, reads.get())
+        assertEquals(1, writes.get())
+    }
+
+    @Test
+    fun passengerCompleted_readsOwnSavedRatingAndDoesNotSubmit() {
+        val writes = AtomicInteger()
+        val order = previewOrder().copy(role = "passenger", myStars = 0)
         composeRule.setContent {
+            YuldashTheme {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                    TaxiPassengerCompletedScreen(
+                        order = order,
+                        onClose = {},
+                        onNewOrder = {},
+                        onOpenReceipt = {},
+                        onOpenChat = {},
+                        readRating = { _, _ -> Result.success(order.copy(myStars = 2)) },
+                        rateOrder = { _, _, _, _ -> writes.incrementAndGet(); Result.success(Unit) },
+                        openLostItem = { Result.success(Unit) },
+                    )
+                }
+            }
+        }
+
+        composeRule.onNodeWithText("Спасибо за оценку").performScrollTo().assertIsDisplayed()
+        composeRule.onNodeWithText("2 звезды").assertIsDisplayed()
+        composeRule.onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(0, writes.get())
+    }
+
+    private fun render(
+        language: AppLanguage = AppLanguage.Ru,
+        readRating: TaxiRatingRead = { _, _ -> Result.success(previewOrder()) },
+        rateOrder: TaxiRatingWrite = { _, _, _, _ -> Result.success(Unit) },
+        restoration: StateRestorationTester? = null,
+    ) {
+        val content: @androidx.compose.runtime.Composable () -> Unit = {
             YuldashTheme {
                 CompositionLocalProvider(LocalAppLanguage provides language) {
                     TaxiDriverCompletedScreen(
@@ -78,12 +189,14 @@ class TaxiDriverCompletedInstrumentedTest {
                         onReturnToLine = {},
                         onShiftFinished = {},
                         onOpenReceipt = {},
-                        rateOrder = { _, _, _ -> Result.success(Unit) },
+                        readRating = readRating,
+                        rateOrder = rateOrder,
                         finishShift = { Result.success(Unit) },
                     )
                 }
             }
         }
+        if (restoration != null) restoration.setContent(content) else composeRule.setContent(content)
     }
 
     private fun holdIfRequested() {
@@ -99,6 +212,7 @@ class TaxiDriverCompletedInstrumentedTest {
         id = 90_101,
         status = "done",
         role = "driver",
+        canRate = true,
         fromLat = 54.7351,
         fromLng = 55.9587,
         toLat = 54.7442,

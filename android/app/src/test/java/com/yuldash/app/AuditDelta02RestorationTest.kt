@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onParent
 import androidx.compose.ui.test.v2.runComposeUiTest
 import com.yuldash.app.data.InstantOrderDto
 import kotlinx.coroutines.awaitCancellation
+import org.junit.Assert.assertEquals
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -73,18 +74,25 @@ class AuditDelta02RestorationTest {
     }
 
     @Test
-    fun `passenger rating becomes available after state restoration cancels request`() = runComposeUiTest {
+    fun `passenger rating rechecks authority after restoration cancels request`() = runComposeUiTest {
         val starts = AtomicInteger()
+        val reads = AtomicInteger()
+        val fixture = order("passenger").copy(canRate = true)
         val restoration = StateRestorationTester(this)
         restoration.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 TaxiPassengerCompletedScreen(
-                    order = order("passenger"),
+                    order = fixture,
                     onClose = {},
                     onNewOrder = {},
                     onOpenReceipt = {},
                     onOpenChat = {},
-                    rateOrder = { _, _, _ -> starts.incrementAndGet(); awaitCancellation() },
+                    readRating = { id, _ ->
+                        check(id == fixture.id)
+                        val stars = if (reads.incrementAndGet() >= 3) 5 else 0
+                        Result.success(fixture.copy(myStars = stars))
+                    },
+                    rateOrder = { _, _, _, _ -> starts.incrementAndGet(); awaitCancellation() },
                 )
             }
         }
@@ -100,7 +108,17 @@ class AuditDelta02RestorationTest {
 
         restoration.emulateSaveAndRestore()
 
-        onNodeWithText("Отправить оценку").assertIsEnabled()
+        onNodeWithText("Отправка не подтверждена. Проверь оценку ещё раз.")
+            .performScrollTo().assertExists()
+        onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(2, reads.get())
+        assertEquals(1, starts.get())
+        onNodeWithText("Повторить").performScrollTo().performClick()
+
+        onNodeWithText("Спасибо за оценку").performScrollTo().assertExists()
+        onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(3, reads.get())
+        assertEquals(1, starts.get())
     }
 
     @Test
@@ -115,6 +133,7 @@ class AuditDelta02RestorationTest {
                     onNewOrder = {},
                     onOpenReceipt = {},
                     onOpenChat = {},
+                    readRating = { _, _ -> Result.success(order("passenger").copy(canRate = true)) },
                     openLostItem = { starts.incrementAndGet(); awaitCancellation() },
                 )
             }
@@ -129,17 +148,24 @@ class AuditDelta02RestorationTest {
     }
 
     @Test
-    fun `driver rating becomes available after state restoration cancels request`() = runComposeUiTest {
+    fun `driver rating rechecks authority after restoration cancels request`() = runComposeUiTest {
         val starts = AtomicInteger()
+        val reads = AtomicInteger()
+        val fixture = order("driver").copy(canRate = true)
         val restoration = StateRestorationTester(this)
         restoration.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 TaxiDriverCompletedScreen(
-                    order = order("driver"),
+                    order = fixture,
                     onReturnToLine = {},
                     onShiftFinished = {},
                     onOpenReceipt = {},
-                    rateOrder = { _, _, _ -> starts.incrementAndGet(); awaitCancellation() },
+                    readRating = { id, _ ->
+                        check(id == fixture.id)
+                        val stars = if (reads.incrementAndGet() >= 3) 5 else 0
+                        Result.success(fixture.copy(myStars = stars))
+                    },
+                    rateOrder = { _, _, _, _ -> starts.incrementAndGet(); awaitCancellation() },
                 )
             }
         }
@@ -156,7 +182,17 @@ class AuditDelta02RestorationTest {
 
         restoration.emulateSaveAndRestore()
 
-        onNodeWithText("Отправить оценку").performScrollTo().assertIsEnabled()
+        onNodeWithText("Отправка не подтверждена. Проверь оценку ещё раз.")
+            .performScrollTo().assertExists()
+        onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(2, reads.get())
+        assertEquals(1, starts.get())
+        onNodeWithText("Повторить").performScrollTo().performClick()
+
+        onNodeWithText("Спасибо за оценку").performScrollTo().assertExists()
+        onNodeWithText("Отправить оценку").assertDoesNotExist()
+        assertEquals(3, reads.get())
+        assertEquals(1, starts.get())
     }
 
     @Test
@@ -170,6 +206,7 @@ class AuditDelta02RestorationTest {
                     onReturnToLine = {},
                     onShiftFinished = {},
                     onOpenReceipt = {},
+                    readRating = { _, _ -> Result.success(order("driver").copy(canRate = true)) },
                     finishShift = { starts.incrementAndGet(); awaitCancellation() },
                 )
             }

@@ -62,8 +62,15 @@ class TaxiPassengerJourneyTest {
                             if (rejectFirst && creates.size == 1) json("""{"detail":"Тестовый временный отказ заказа"}""", 503)
                             else json(order(), 201)
                         }
-                        path == "/instant/orders/71" -> { polls.add(status); json(order()) }
-                        path == "/instant/orders/71/rate" -> { ratings.add(request.body.readUtf8()); json("{}") }
+                        path == "/instant/orders/71" && request.method == "GET" -> {
+                            val current = status
+                            polls.add(current)
+                            json(order(current))
+                        }
+                        path == "/instant/orders/71/rate" && request.method == "POST" && status == "done" -> {
+                            ratings.add(request.body.readUtf8())
+                            json("""{"ratee_id":72,"rating":5.0,"count":1}""")
+                        }
                         path == "/places/saved/10/used" || path == "/places/recent" -> json("{}")
                         else -> json("{}", 404)
                     }
@@ -96,7 +103,15 @@ class TaxiPassengerJourneyTest {
         advanceDriver("arriving", "Машина на месте")
         advanceDriver("onboard", "В пути")
         advanceDriver("done", "Поездка завершена")
-        compose.onNodeWithContentDescription("5 звёзд").performScrollTo().performClick()
+        // The completed heading appears before the screen finishes its own GET to check eligibility.
+        val fiveStars = hasContentDescription("5 звёзд") and hasClickAction()
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.mainClock.advanceTimeBy(100)
+            compose.onAllNodes(fiveStars).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertTrue(ratings.isEmpty())
+        compose.onNode(fiveStars).performScrollTo().assertIsEnabled().performClick()
         compose.onNodeWithText("Отправить оценку").performScrollTo().performClick()
         waitForText("Спасибо за оценку")
         assertEquals(5, JSONObject(ratings.single()).getInt("stars"))
@@ -155,7 +170,11 @@ class TaxiPassengerJourneyTest {
         assertEquals("Уфа, Ленина 10", body.getString("to_text"))
         assertEquals("cash", body.getString("payment_method"))
     }
-    private fun order() = """{"id":71,"status":"$status","role":"passenger","from_lat":54.735,"from_lng":55.958,"to_lat":54.751,"to_lng":56.001,"from_text":"Моя позиция","to_text":"Уфа, Ленина 10","category":"standard","payment_method":"cash","price_estimate":250,"price_final":250,"driver_name":"Тестовый водитель","driver_car":"Тестовая машина","driver_plate":"А001АА","can_rate":true}"""
+    private fun order(current: String = status): String {
+        val myStars = ratings.lastOrNull()?.let { JSONObject(it).getInt("stars") } ?: 0
+        return """{"id":71,"status":"$current","role":"passenger","from_lat":54.735,"from_lng":55.958,"to_lat":54.751,"to_lng":56.001,"from_text":"Моя позиция","to_text":"Уфа, Ленина 10","category":"standard","payment_method":"cash","price_estimate":250,"price_final":250,"driver_name":"Тестовый водитель","driver_car":"Тестовая машина","driver_plate":"А001АА","my_stars":$myStars,"can_rate":${current == "done"}}"""
+    }
+
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)
         .setHeader("Content-Type", "application/json").setBody(body)
 }

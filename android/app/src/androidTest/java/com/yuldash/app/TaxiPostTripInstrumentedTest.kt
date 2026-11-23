@@ -2,13 +2,17 @@ package com.yuldash.app
 
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onFirst
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performScrollTo
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
+import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.InstantOrderDto
 import com.yuldash.app.data.InstantReceiptDto
 import org.junit.Rule
@@ -26,13 +30,15 @@ class TaxiPostTripInstrumentedTest {
     fun passengerCompleted_showsCalmRatingFirst() {
         composeRule.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                val order = previewOrder()
                 TaxiPassengerCompletedScreen(
-                    order = previewOrder(),
+                    order = order,
                     onClose = {},
                     onNewOrder = {},
                     onOpenReceipt = {},
                     onOpenChat = {},
-                    rateOrder = { _, _, _ -> Result.success(Unit) },
+                    readRating = { id, _ -> check(id == order.id); Result.success(order.copy(canRate = true)) },
+                    rateOrder = { _, _, _, _ -> Result.success(Unit) },
                     openLostItem = { Result.success(Unit) },
                 )
             }
@@ -47,23 +53,96 @@ class TaxiPostTripInstrumentedTest {
 
     @Test
     fun receipt_showsPremiumDocumentAndRecoveryActions() {
-        composeRule.setContent {
-            CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                TaxiReceiptScreen(
-                    orderId = 90_001,
-                    onBack = {},
-                    initialReceipt = previewReceipt(),
-                    loadRemote = false,
-                )
+        check(BuildConfig.DEBUG && BuildConfig.YULDASH_NATIVE_QA_PINNED_API &&
+            ApiClient.apiBase() == "http://127.0.0.1:8000") {
+            "Receipt session fixture requires the pinned isolated debug build"
+        }
+        check(!ApiClient.isLoggedIn()) { "Receipt session fixture must start as guest" }
+        // An intentionally unsigned, synthetic bearer for the local session guard only.
+        val fixtureBearer = "fixture.eyJzdWIiOiI5MDAwMSJ9.unsigned"
+        val mounted = mutableStateOf(true)
+        val fixtureRoute = mutableStateOf(false)
+        var originalFailure: Throwable? = null
+        try {
+            composeRule.setContent {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+                    if (mounted.value) key(fixtureRoute.value) {
+                        TaxiReceiptScreen(
+                            orderId = 90_001,
+                            onBack = {},
+                            initialReceipt = previewReceipt(),
+                            loadRemote = false,
+                        )
+                    }
+                }
+            }
+
+            // A supplied private receipt is still hidden without an active session.
+            composeRule.onNodeWithText("Детали поездки").assertDoesNotExist()
+            composeRule.onNodeWithText("ул. Ленина, 12").assertDoesNotExist()
+
+            ApiClient.saveToken(fixtureBearer)
+            check(ApiClient.currentToken() == fixtureBearer &&
+                ApiClient.isCurrentSession(ApiClient.queueSessionGeneration()))
+            // Model opening a fresh receipt route, not making the guest composition
+            // adopt the new generation across an account change.
+            composeRule.runOnIdle { fixtureRoute.value = true }
+            receiptAssertion(ReceiptStage.HEADER) {
+                composeRule.onNodeWithText("Детали поездки").assertIsDisplayed()
+            }
+            receiptAssertion(ReceiptStage.AMOUNT) {
+                composeRule.onAllNodesWithText("350 ₽").onFirst().assertIsDisplayed()
+            }
+            receiptAssertion(ReceiptStage.ADDRESS) {
+                composeRule.onNodeWithText("ул. Ленина, 12").performScrollTo().assertIsDisplayed()
+            }
+            receiptAssertion(ReceiptStage.THANKS) {
+                composeRule.onNodeWithText("Сказать «рәхмәт»").performScrollTo().assertIsDisplayed()
+            }
+            composeRule.waitForIdle()
+            holdIfRequested()
+        } catch (failure: Throwable) {
+            originalFailure = failure
+            throw failure
+        } finally {
+            try {
+                try {
+                    composeRule.runOnIdle { mounted.value = false }
+                    composeRule.waitForIdle()
+                } finally {
+                    clearReceiptFixtureSession(fixtureBearer)
+                }
+            } catch (cleanup: Throwable) {
+                val primary = originalFailure
+                if (primary == null) throw cleanup
+                if (primary !== cleanup) primary.addSuppressed(cleanup)
             }
         }
+    }
 
-        composeRule.onNodeWithText("Детали поездки").assertIsDisplayed()
-        composeRule.onAllNodesWithText("350 ₽").onFirst().assertIsDisplayed()
-        composeRule.onNodeWithText("ул. Ленина, 12").assertIsDisplayed()
-        composeRule.onNodeWithText("Сказать «рәхмәт»").assertIsDisplayed()
-        composeRule.waitForIdle()
-        holdIfRequested()
+    private fun clearReceiptFixtureSession(fixtureBearer: String) {
+        try {
+            // Normal logout enqueues HTTP only for a nonblank bearer. First remove
+            // our synthetic value locally; refuse to touch an unexpected session.
+            if (ApiClient.currentToken() == fixtureBearer) ApiClient.saveToken("")
+            check(ApiClient.currentToken().isNullOrBlank())
+            ApiClient.logout()
+            check(!ApiClient.isLoggedIn()) { "Fixture must leave no current session" }
+        } finally {
+            ApiClient.resetForTest()
+        }
+    }
+
+    private enum class ReceiptStage { HEADER, AMOUNT, ADDRESS, THANKS }
+
+    private fun receiptAssertion(stage: ReceiptStage, assertion: () -> Unit) {
+        try {
+            assertion()
+        } catch (failure: AssertionError) {
+            // Emit one fixed marker only when the assertion group fails. The isolated
+            // harness may report the marker, never its private cause or semantics tree.
+            throw AssertionError("TF11_RECEIPT_ASSERTION_${stage.name}", failure)
+        }
     }
 
     private fun holdIfRequested() {
