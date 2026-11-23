@@ -1,4 +1,7 @@
 """Uncalled lease claim for one exact sealed retirement; no dispatch authority."""
+from dataclasses import dataclass
+import hmac
+import json
 from uuid import uuid4
 
 from sqlalchemy import DateTime, func, select, type_coerce, update
@@ -6,9 +9,40 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.exc import SQLAlchemyError
 
 from . import taxi_retirement_agreement_seal as seal, taxi_route_resume as resume
+from .taxi_route_agreement import _source_value
 
 _ORDER = resume._ORDER
 _C = _ORDER.c
+_ACK_PURPOSE = b"taxi-sealed-resume-acknowledged-claim-v1\x00"
+
+
+@dataclass(frozen=True, slots=True, repr=False)
+class SealedResumeClaim:
+    """Private acknowledged lease capability, never an API or recovery token."""
+    _observation: resume.ResumeObservation
+    _ack: bytes
+
+
+def _ack_digest(key: bytes, observation: resume.ResumeObservation) -> bytes:
+    payload = tuple((name, {"blob": value.hex()} if name == resume._SEAL else _source_value(value))
+                    for name, value in zip(resume._FIELDS, observation.values, strict=True))
+    encoded = json.dumps(payload, ensure_ascii=True, allow_nan=False, separators=(",", ":")).encode("ascii")
+    return hmac.digest(key, _ACK_PURPOSE + encoded, "sha256")
+
+
+def _acknowledged(key: bytes, token: SealedResumeClaim) -> resume.ResumeObservation | None:
+    if (type(key) is not bytes or len(key) < 16 or type(token) is not SealedResumeClaim
+            or type(token._ack) is not bytes or len(token._ack) != 32
+            or type(token._observation) is not resume.ResumeObservation
+            or type(token._observation.values) is not tuple):
+        return None
+    try:
+        if hmac.compare_digest(token._ack, _ack_digest(key, token._observation)):
+            return token._observation
+    except (AttributeError, TypeError, ValueError, OverflowError):
+        pass
+    return None
+
 
 
 def _upper_clock(conn):
@@ -43,7 +77,7 @@ class _Unresolved(Exception):
 def claim_sealed_retirement(
     engine: Engine, key: bytes, *, owner_id: int, order_id: int, marker_id: str,
     expected: resume.ResumeObservation, lease_seconds: int,
-) -> resume.ResumeObservation | None:
+) -> SealedResumeClaim | None:
     """Claim exact sealed work, without permission to offer or assign.
 
     A non-None result follows acknowledged commit. None means no usable
@@ -106,6 +140,8 @@ def claim_sealed_retirement(
                         _upper_clock(conn) < _C.route_resume_deadline_at,
                     )) != order_id):
                 raise _Unresolved
+        # Never mint from observe(). A lost acknowledgement took the error
+        # path before this point even if the database physically committed.
+        return SealedResumeClaim(claim, _ack_digest(key, claim))
     except (_Unresolved, SQLAlchemyError, ValueError, TypeError, OverflowError):
         return None
-    return claim

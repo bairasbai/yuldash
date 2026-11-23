@@ -62,8 +62,8 @@ def test_actual_retire_purge_and_claim_without_changing_approved_terms(retired, 
     for name in ("stage_committed", "committed_evidence", "purge_expired"):
         monkeypatch.setattr(out, name, _unexpected)
     actual = claim.claim_sealed_retirement(db, **_params(retired, lease_seconds=120))
-    assert actual and resume.observe(db, oid) == actual
-    after = resume._state(actual)
+    assert actual and resume.observe(db, oid) == actual._observation
+    after = resume._state(actual._observation)
     assert after == before | {
         "route_resume_claim_id": after["route_resume_claim_id"],
         "route_resume_ready_at": before["route_resume_deadline_at"],
@@ -72,7 +72,7 @@ def test_actual_retire_purge_and_claim_without_changing_approved_terms(retired, 
     assert after["status"] is S.searching and after["current_offer_driver_id"] is None
     assert after["route_resume_deadline_at"] - after["route_resume_retired_at"] == timedelta(seconds=120)
     assert claim.claim_sealed_retirement(db, **_params(retired)) is None
-    assert resume.store_offer(db, actual, driver_id=other, offer_seconds=20) is None
+    assert resume.store_offer(db, actual._observation, driver_id=other, offer_seconds=20) is None
 
 
 @pytest.mark.parametrize("changed", ("route", "fare", "generation", "partial", "pending", "assigned", "raw_text"))
@@ -114,13 +114,13 @@ def test_wrong_owner_order_generation_key_or_card_is_not_a_claim(retired):
 def test_exact_ready_lease_takeover_requires_fresh_owned_observation(retired):
     db, _, oid, _, _, expected = retired
     first = claim.claim_sealed_retirement(db, **_params(retired, lease_seconds=1))
-    assert first and not claim.claim_sealed_retirement(db, **_params(retired, expected=first))
-    in_flight = resume._state(first)
+    assert first and not claim.claim_sealed_retirement(db, **_params(retired, expected=first._observation))
+    in_flight = resume._state(first._observation)
     _wait_db(db, in_flight["route_resume_ready_at"])
     assert claim.claim_sealed_retirement(db, **_params(retired, expected=expected)) is None
-    successor = claim.claim_sealed_retirement(db, **_params(retired, expected=first))
-    assert successor and resume.observe(db, oid) == successor
-    renewed = resume._state(successor)
+    successor = claim.claim_sealed_retirement(db, **_params(retired, expected=first._observation))
+    assert successor and resume.observe(db, oid) == successor._observation
+    renewed = resume._state(successor._observation)
     assert renewed["route_resume_claim_id"] != in_flight["route_resume_claim_id"]
     assert renewed == in_flight | {
         "route_resume_ready_at": renewed["route_resume_ready_at"],
