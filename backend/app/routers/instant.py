@@ -8,7 +8,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Body, Depends, Response
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -854,7 +854,8 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
 
 
 @router.get("/instant/driver/offer")
-def driver_offer(user: User = Depends(current_user), session: Session = Depends(get_session)):
+def driver_offer(response: Response, user: User = Depends(current_user),
+                 session: Session = Depends(get_session)):
     """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше.
 
     Вместе с пустым оффером отдаём ПРИЧИНУ (`blocked`). Раньше все пять веток возвращали
@@ -864,6 +865,7 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
 
     Коды, а не текст: подписи живут в клиенте на двух языках, как везде в проекте.
     """
+    response.headers["Cache-Control"] = "no-store"
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
         return {"offer": None, "blocked": "not_approved"}
     if debt_mod.taxi_block_reason(session, user.id) is not None:
@@ -888,7 +890,16 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
     # Гейт (a) по точке подачи: такси выключено глобально/в этом городе → оффер не показываем.
     if not taxi_mod.availability(session, order.from_lat, order.from_lng)["enabled"]:
         return {"offer": None}
-    return {"offer": isv.order_payload(session, order, user)}
+    snapshot = isv.capture_offer_for_accept(order)
+    price_final = order.price_final
+    payload = isv.order_payload(session, order, user)
+    # Scope the proof to the stable persisted route/gross projection actually
+    # used to construct this current recipient's card. No other route mints it.
+    if isv.capture_offer_for_accept(order) == snapshot and order.price_final == price_final:
+        tag = isv.offer_card_precondition(snapshot, price_final, user.id, utcnow())
+        if tag is not None and payload["driver_gross_kop"] == order.price_estimate * 100:
+            payload["offer_card_precondition"] = tag
+    return {"offer": payload}
 
 
 @router.get("/instant/orders/{order_id}")
@@ -936,7 +947,19 @@ def add_alternative(order_id: int, body: AlternativeIn, user: User = Depends(cur
 # --------- переходы водителя (accept/decline/arrived/onboard/done) ---------
 @router.post("/instant/orders/{order_id}/accept")
 def accept(order_id: int, user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Водитель принимает оффер. Гонка двух accept → второму 409 (row-lock + условный UPDATE)."""
+    """Legacy acceptance; deliberately no request body parsing or proof."""
+    return _accept_order(order_id, user, session)
+
+
+@router.post("/instant/orders/{order_id}/accept/v2")
+def accept_card(order_id: int, body: object = Body(default=None),
+                user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Accept only the offered route and gross from the current driver's card."""
+    tag = isv.parse_offer_card_precondition(body)
+    return _accept_order(order_id, user, session, card_precondition=tag)
+
+
+def _accept_order(order_id: int, user: User, session: Session, *, card_precondition: str | None = None):
     existing = session.get(InstantOrder, order_id)
     if not existing:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
@@ -964,7 +987,8 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     if isv.driver_pause_until(session, user.id) is not None:
         raise herr(403, *isv.driver_pause_message())
     order = isv.transition(session, order_id, isv.Actor.driver, S.accepted, user.id,
-                           idempotent=False, expected_offer=expected_offer)
+                           idempotent=False, expected_offer=expected_offer,
+                           card_precondition=card_precondition)
     return isv.order_payload(session, order, user)
 
 
