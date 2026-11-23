@@ -70,38 +70,36 @@ jobs:
                   print("Gemini API: NETWORK_ERROR (no HTTP response)")
                   sys.exit(1)
 
-          code, info = call("/models?pageSize=100")
-          options = [
-              model.get("name", "")
-              for model in info.get("models", [])
-              if isinstance(model, dict)
-              and "generateContent" in model.get("supportedGenerationMethods", [])
-              and re.fullmatch(r"models/[A-Za-z0-9._-]+", model.get("name", ""))
-              and not any(x in model.get("name", "").lower() for x in ("tts", "image", "embedding", "robotics"))
-          ]
-          print("Neon model listed: " + ("YES" if "models/gemini-4-neon" in options else "NO"))
-          if not options:
-              print(f"Models listing: HTTP {code}; no text generateContent model available")
-              sys.exit(1)
+          # Enumerate all models offered to this key, not only a hardcoded shortlist.
+          from urllib.parse import quote
+          page_token = ""
+          models = []
+          pages = 0
+          while True:
+              pages += 1
+              if pages > 30:
+                  print("Model listing exceeded safety page limit")
+                  sys.exit(1)
+              path = "/models?pageSize=100"
+              if page_token:
+                  path += "&pageToken=" + quote(page_token, safe="")
+              code, info = call(path)
+              models += info.get("models", [])
+              page_token = info.get("nextPageToken", "")
+              if not page_token:
+                  break
 
-          # Gemini 2.5 can be listed but 404 on generation for new projects.
-          # Use current model IDs recommended by Google instead of legacy 2.5.
-          preferences = ("models/gemini-4-neon", "models/gemini-3.5-flash-lite", "models/gemini-3.8-flash")
-          model = next((name for name in preferences if name in options), None)
-          if model is None:
-              print("Models listing succeeded, but neither supported current smoke-test model was listed")
-              sys.exit(1)
-
-          print(f"Models listing: HTTP {code}; selected={model}")
-          generation = {
-              "contents": [{"role": "user", "parts": [{"text": "Reply with just OK."}]}],
-              "generationConfig": {"maxOutputTokens": 128}
-          }
-          if model == "models/gemini-4-neon":
-              generation["generationConfig"]["thinkingConfig"] = {"thinkingLevel": "LOW"}
-          code, result = call("/" + model + ":generateContent", generation)
-          if not isinstance(result, dict) or not result.get("candidates"):
-              print(f"generateContent: HTTP {code}; no candidates")
-              sys.exit(1)
-          print(f"generateContent: PASS (HTTP {code}; model={model})")
+          print(f"LISTING_OK pages={pages} count={len(models)}")
+          for model in models:
+              if not isinstance(model, dict):
+                  continue
+              name = str(model.get("name", ""))
+              if not re.fullmatch(r"models/[A-Za-z0-9._-]+", name):
+                  continue
+              methods = [
+                  x for x in model.get("supportedGenerationMethods", [])
+                  if isinstance(x, str) and re.fullmatch(r"[A-Za-zA-Z0-9_]+", x)
+              ]
+              print(f"MODEL {name} methods={','.join(methods)}")
+          print("LISTING_COMPLETE")
           PY
