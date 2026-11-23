@@ -23,6 +23,7 @@ RESTORE_APPEARANCE = {
 }
 BASHKIR = {
     "Заехать по пути": "Юлда инеп сығыу", "Детали заказа": "Заказ деталдәре",
+    "Куда заехать?": "Ҡайҙа инеп сығырға?",
     "На время": "Ваҡытҡа", "Обратно тоже": "Кире лә", "2 ч": "2 сәғ",
     "Моя позиция": "Минең урын", "Новый заказ": "Яңы заказ", "Убрать остановку": "Туҡталышты алыу",
 }
@@ -220,29 +221,56 @@ def pickup_row(node):
     return node.get("text") in {"Моя позиция", "Минең урын", "Включи геолокацию", "Геолокацияны ҡабыҙ"}
 
 
+def visible_rectangle(node):
+    rect = bounds(node)
+    if len(rect) == 4 and rect[0] < rect[2] and rect[1] < rect[3]:
+        return tuple(rect)
+    return None
+
+
+def stop_editor(nodes):
+    if not any(label("Куда заехать?")(node) for node in nodes):
+        return None
+    return next((node for node in nodes if node.get("class") == "android.widget.EditText"
+                 and node.get("enabled") != "false" and visible_rectangle(node)), None)
+
+
+def insert_target(nodes, next_title):
+    """A visible enabled insert parent; the merged plus-icon child isn't actionable."""
+    if not any(pickup_row(node) for node in nodes) or not any(label(next_title)(node) for node in nodes):
+        return None
+    for node in nodes:
+        if (label("Заехать по пути")(node) and node.get("clickable") == "true"
+                and node.get("enabled") != "false" and visible_rectangle(node)):
+            return node
+    return None
+
+
 def open_stop_picker(next_title):
-    # Some Android 11 accessibility snapshots omit an icon-only merged child. The entire
-    # insert row is clickable and sits halfway from pickup to the next route row (see OrderInsertStopRow).
-    def open_visible_control():
+    # In the old control's normal animations, the first snapshot may describe
+    # the route before its sheet settles. Use the same on-screen row twice.
+    # Do not infer a tap from the midpoint of unrelated controls.
+    previous = None
+
+    def stable_row_or_editor():
+        nonlocal previous
         nodes = tree()
-        # Prefer the actual clickable Compose parent, not its non-clickable plus-icon
-        # semantics child. An icon tap did not open search on the PR 289 baseline.
-        button = next((n for n in nodes if label("Заехать по пути")(n)
-                       and n.get("clickable") == "true"), None)
-        if button is not None:
-            touch(button)
-            return True
-        pickup = next((n for n in nodes if pickup_row(n)), None)
-        following = next((n for n in nodes if label(next_title)(n)), None)
-        if pickup is None or following is None:
-            return False
-        left, top, right, bottom = bounds(pickup)
-        _, next_top, _, next_bottom = bounds(following)
-        if next_top <= bottom:
-            return False
-        shell("input", "tap", (left + right) // 2, (top + bottom + next_top + next_bottom) // 4)
-        return True
-    until(open_visible_control, "visible insert control between pickup and next stop")
+        editor = stop_editor(nodes)
+        if editor is not None:
+            return "editor", editor
+        target = insert_target(nodes, next_title)
+        rect = visible_rectangle(target) if target is not None else None
+        stable = rect is not None and rect == previous
+        previous = rect
+        return ("row", target) if stable else None
+
+    kind, node = until(stable_row_or_editor, "stable stop insert row or stop search editor")
+    if kind == "editor":
+        return node
+    touch(node)
+    # Input delivery is not proof of the next UI state. Never tap this action
+    # twice, even if focus or geometry briefly changes and later looks identical.
+    return until(lambda: stop_editor(tree()), "stop search editor after insert tap")
 
 
 def open_order_details():
@@ -260,8 +288,7 @@ def open_order_details():
 
 def add_stops():
     for query, title in (("QA%salpha", A), ("QA%sbravo", B)):
-        open_stop_picker("QA Destination" if title == A else A)
-        touch(find(lambda n: n.get("class") == "android.widget.EditText", "stop search editor"))
+        touch(open_stop_picker("QA Destination" if title == A else A))
         shell("input", "text", query)
         click(title)
 
@@ -325,19 +352,62 @@ def clean_form(place):
     assert any(n.get("class") == "android.widget.EditText" for n in nodes), "Destination is still selected"
 
 
-def lifecycle_events():
-    events = adb("logcat", "-b", "events", "-d", "-s", "wm_on_create_called:I", "am_on_create_called:I").decode()
-    return sum(1 for line in events.splitlines() if "MainActivity" in line)
+def rotation_query(stage, *args, check=True):
+    """An ADB stall is not a missing Activity observation or a test pass."""
+    try:
+        return adb(*args, check=check, timeout=6).decode().strip()
+    except (subprocess.TimeoutExpired, subprocess.CalledProcessError) as exc:
+        raise AssertionError("ADB rotation probe unavailable: " + stage) from exc
 
 
-def rotate():
-    before = lifecycle_events()
+def rotation_generation(expected_pid):
+    actual_pid = rotation_query("process", "shell", "pidof", PKG, check=False)
+    assert actual_pid == str(expected_pid), "MainActivity process changed or is unavailable during rotation"
+    focused = rotation_query("focus", "shell", "dumpsys window | grep -m 1 mCurrentFocus=", check=False)
+    if PKG not in focused:
+        return None
+    reply = rotation_query("foreground observer", "shell", "am", "broadcast", "-n",
+                           PKG + "/.TaxiDraftFixtureReceiver", "--es", "fixture", "read-controls")
+    if not re.search(r"\bresult=107\b", reply):
+        return None
+    frame = json.loads(rotation_query("foreground snapshot", "exec-out", "run-as", PKG,
+                                      "cat", DIR + "/controls.json"))
+    assert (rotation_query("process after observation", "shell", "pidof", PKG, check=False)
+            == actual_pid), "Foreground rotation observation replaced the app process"
+    generation = frame.get("activity-generation")
+    if frame.get("observation") != "focused-compose" or type(generation) is not int or generation <= 0:
+        return None
+    return generation
+
+
+def rotate(evidence_path=None):
+    expected_pid = pid()
+    assert expected_pid is not None, "No live MainActivity before rotation"
+    initial_record = task_record()
+    assert initial_record is not None, "No Activity record before rotation"
+    def observed_orientation(expected):
+        return re.search(rf'SurfaceOrientation:\s*{expected}\b',
+                         rotation_query("display", "shell", "dumpsys", "input"))
+
+    until(lambda: observed_orientation(0), "portrait before rotation")
+    before = until(lambda: rotation_generation(expected_pid), "focused MainActivity before rotation")
+    evidence = [{"orientation": 0, "pid": expected_pid, "task_id": initial_record[1], "generation": before}]
+
+    def persist():
+        if evidence_path is not None:
+            evidence_path.write_text(json.dumps(evidence, indent=2))
+
+    persist()
     for orientation in (1, 0):
-        shell("settings", "put", "system", "user_rotation", orientation)
-        until(lambda: re.search(rf'SurfaceOrientation:\s*{orientation}\b', shell("dumpsys", "input")),
-              "display rotation " + str(orientation))
-        before = until(lambda: (count if (count := lifecycle_events()) > before else None),
-                       "MainActivity recreated for rotation")
+        rotation_query("set rotation", "shell", "settings", "put", "system", "user_rotation", orientation)
+        until(lambda: observed_orientation(orientation), "display rotation " + str(orientation))
+        before = until(lambda: (seen if (seen := rotation_generation(expected_pid))
+                                is not None and seen > before else None),
+                       "different focused MainActivity instance after rotation")
+        record = task_record()
+        assert record and record[:2] == initial_record[:2], "Rotation replaced the original Android task"
+        evidence.append({"orientation": orientation, "pid": expected_pid, "task_id": record[1], "generation": before})
+        persist()
 
 
 def park_task():
@@ -434,7 +504,7 @@ def run(scenario, session, state, results):
     if scenario == "baseline":
         baseline_record = task_record()[:2]
         screenshot(results, "baseline-before-rotation")
-        rotate()
+        rotate(results / (scenario + "-rotation.json"))
         assert pid() == seeded_pid and task_record()[:2] == baseline_record
         find(label("QA Destination"), "destination on the restored route")
         assert submit_label() == expected_cta
@@ -453,7 +523,7 @@ def run(scenario, session, state, results):
         return
     if scenario.startswith("restore"):
         route_luminance["before"] = check_route_theme(results, scenario + "-before")
-        rotate()
+        rotate(results / (scenario + "-rotation.json"))
         ordered_route()
         assert pid() == seeded_pid and submit_label() == expected_cta
         no_writes(state, 0)

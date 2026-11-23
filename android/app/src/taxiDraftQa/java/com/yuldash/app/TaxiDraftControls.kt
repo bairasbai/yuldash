@@ -20,12 +20,25 @@ import androidx.lifecycle.findViewTreeLifecycleOwner
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import java.lang.ref.WeakReference
 import kotlin.math.roundToInt
 
 /** Read-only UI observation for the pinned QA flavor. Nothing registers a lifecycle listener or
  * keeps an Activity/Compose view alive. Inspect only a focused window of our resumed MainActivity.
+ * The process-local generation changes on observation of a different Activity instance.
  */
 internal object TaxiDraftControls {
+    private var lastActivity: WeakReference<MainActivity>? = null
+    private var activityGeneration = 0
+
+    private fun observed(kind: String, nodes: JSONArray, activity: MainActivity): JSONObject {
+        if (lastActivity?.get() !== activity) {
+            lastActivity = WeakReference(activity)
+            activityGeneration++
+        }
+        return result(kind, nodes).put("activity-generation", activityGeneration)
+    }
+
     private val labels = setOf(
         "QA Stop A", "QA Stop B", "QA Destination", "QA Origin", "QA Alternate Place",
         "Заехать по пути", "Юлда инеп сығыу", "Детали заказа", "Заказ деталдәре",
@@ -80,7 +93,7 @@ internal object TaxiDraftControls {
             val bounds = visibleBounds(confirm) ?: return result("no-root")
             nodes.put(node(bounds, "android.widget.Button", id = "android:id/button1",
                 clickable = confirm.isClickable, enabled = confirm.isEnabled))
-            return result("native-dialog", nodes)
+            return observed("native-dialog", nodes, main)
         }
         val seen = mutableSetOf<String>()
         fun visitView(view: View) {
@@ -96,7 +109,8 @@ internal object TaxiDraftControls {
             }
         }
         visitView(window)
-        return result(if (nodes.length() > 0) "focused-compose" else "no-root", nodes)
+        return if (nodes.length() > 0) observed("focused-compose", nodes, main)
+        else result("no-root")
     }
 
     // getLocalVisibleRect includes ancestor clipping. Add the real view's origin in screen
