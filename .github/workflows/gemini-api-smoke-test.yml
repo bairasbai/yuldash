@@ -1,0 +1,90 @@
+# Temporary, read-only connectivity test. Never prints or commits API credentials.
+name: Gemini API connectivity smoke test
+
+on:
+  push:
+    branches:
+      - chore/gemini-api-smoke-20261123
+    paths:
+      - .github/workflows/gemini-api-smoke-test.yml
+
+permissions:
+  contents: read
+
+jobs:
+  gemini-api-probe:
+    name: Validate Gemini API key and generateContent
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PYTHONDONTWRITEBYTECODE: '1'
+    steps:
+      - name: Check Gemini API without exposing credentials
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import re
+          import sys
+          from urllib import error, request
+
+          key = os.environ.get("GEMINI_API_KEY", "")
+          if not key:
+              print("Result: SECRET_MISSING (GEMINI_API_KEY is unavailable to this job)")
+              sys.exit(2)
+
+          base = "https://generativelanguage.googleapis.com/v1beta"
+          headers = {"x-goog-api-key": key, "Content-Type": "application/json"}
+
+          def call(path, payload=None):
+              data = json.dumps(payload).encode() if payload is not None else None
+              req = request.Request(base + path, headers=headers, data=data, method="POST" if data else "GET")
+              try:
+                  with request.urlopen(req, timeout=30) as response:
+                      return response.status, json.load(response)
+              except error.HTTPError as exc:
+                  try:
+                      body = json.loads(exc.read(8192).decode("utf-8", "replace"))
+                  except (ValueError, UnicodeError):
+                      body = {}
+                  inner = body.get("error", {}) if isinstance(body, dict) else {}
+                  raw_status = inner.get("status", "UNKNOWN") if isinstance(inner, dict) else "UNKNOWN"
+                  # Never print arbitrary server responses, request headers or the key.
+                  safe_status = re.sub(r"[^A-Z_]", "", str(raw_status))[:48] or "UNKNOWN"
+                  print(f"Gemini API: HTTP {exc.code}; status={safe_status}")
+                  sys.exit(1)
+              except (error.URLError, TimeoutError, OSError):
+                  print("Gemini API: NETWORK_ERROR (no HTTP response)")
+                  sys.exit(1)
+
+          code, info = call("/models?pageSize=100")
+          options = [
+              model.get("name", "")
+              for model in info.get("models", [])
+              if isinstance(model, dict)
+              and "generateContent" in model.get("supportedGenerationMethods", [])
+              and re.fullmatch(r"models/[A-Za-z0-9._-]+", model.get("name", ""))
+              and not any(x in model.get("name", "").lower() for x in ("tts", "image", "embedding", "robotics"))
+          ]
+          if not options:
+              print(f"Models listing: HTTP {code}; no text generateContent model available")
+              sys.exit(1)
+
+          preferences = ("models/gemini-2.5-flash", "models/gemini-2.5-flash-lite", "models/gemini-3-flash")
+          model = next((name for name in preferences if name in options), None)
+          if model is None:
+              model = next((name for name in options if "flash" in name.lower()), options[0])
+
+          print(f"Models listing: HTTP {code}; selected={model}")
+          generation = {
+              "contents": [{"role": "user", "parts": [{"text": "Reply with just OK."}]}],
+              "generationConfig": {"maxOutputTokens": 128}
+          }
+          code, result = call("/" + model + ":generateContent", generation)
+          if not isinstance(result, dict) or not result.get("candidates"):
+              print(f"generateContent: HTTP {code}; no candidates")
+              sys.exit(1)
+          print(f"generateContent: PASS (HTTP {code}; model={model})")
+          PY
