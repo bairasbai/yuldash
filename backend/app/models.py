@@ -2,7 +2,7 @@ from datetime import date as date_type, datetime
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, UniqueConstraint, false, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, Column, ForeignKey, Integer, Index, JSON, LargeBinary, UniqueConstraint, false, text
 from sqlmodel import SQLModel, Field
 
 from . import chat_receipt_models  # noqa: F401 — registers per-message chat receipts
@@ -1324,6 +1324,21 @@ class InstantOrder(SQLModel, table=True):
     # «Сказать рәхмәт» после такси-заказа (дедуп). Раньше благодарность была только у попуток —
     # водителю такси, который помог занести коляску, сказать спасибо было нечем.
     thanked: bool = False
+
+
+class TaxiRouteEditOutcome(SQLModel, table=True):
+    """Inactive committed-write evidence only, never raw route/receipt content."""
+
+    __table_args__ = (
+        CheckConstraint("length(binding) = 32", name="ck_taxi_route_edit_outcome_binding"),
+    )
+    owner_id: int = Field(primary_key=True, exclude=True, repr=False)
+    order_id: int = Field(sa_column=Column(Integer, ForeignKey("instantorder.id", ondelete="CASCADE"),
+                                           primary_key=True, nullable=False, index=True),
+                          exclude=True, repr=False)
+    attempt_id: str = Field(primary_key=True, max_length=36, exclude=True, repr=False)
+    binding: bytes = Field(sa_column=Column(LargeBinary(32), nullable=False), exclude=True, repr=False)
+    expires_at: datetime = Field(index=True, exclude=True, repr=False)
 
 
 class RouteWatch(SQLModel, table=True):

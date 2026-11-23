@@ -15,7 +15,7 @@
 from sqlmodel import SQLModel
 
 import app.models  # noqa: F401 — импорт наполняет metadata всеми таблицами
-from app.cleanup import KEEP_FOREVER, _ALLOWED_TABLES, _rules
+from app.cleanup import INACTIVE_CASCADE_OWNED, KEEP_FOREVER, _ALLOWED_TABLES, _rules
 from app.timeutil import utcnow
 
 
@@ -27,7 +27,7 @@ def _cleaned_tables() -> set:
 def test_у_каждой_таблицы_есть_решение_о_сроке_хранения():
     """Либо чистим, либо записали причину, почему храним вечно. Молчания быть не должно."""
     all_tables = set(SQLModel.metadata.tables)
-    decided = _cleaned_tables() | set(KEEP_FOREVER)
+    decided = _cleaned_tables() | set(KEEP_FOREVER) | set(INACTIVE_CASCADE_OWNED)
     forgotten = sorted(all_tables - decided)
 
     assert forgotten == [], (
