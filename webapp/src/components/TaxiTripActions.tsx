@@ -25,6 +25,9 @@ import {
   previewDestination,
   setPaymentMethod,
   setWaypoints,
+  editTaxiStops,
+  type TaxiStop,
+  type WaypointEdit,
   waitForDriver,
   cancelInstantOrder,
   type DestinationQuote,
@@ -33,6 +36,7 @@ import {
 } from "../api/instant";
 import { roadsideHelpOrder, winterCheckOrder, winterCheckOrderOk } from "../api/safety";
 import { geocode } from "../api/discovery";
+import { activeWaypointIndex, stopId, stopFareSnapshot, taxiStopControl, useTaxiStopRequest } from "../utils/taxiStopControl";
 import { serverMs } from "../utils/serverTime";
 import {
   forgetWinterCheck,
@@ -321,6 +325,11 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
 }
 
 // ----------------------------- Остановки -----------------------------
+function sameStoredStop(stored: TaxiStop | undefined, previous: TaxiStop, done: boolean): boolean {
+  return !!stored && stored.done === done && stored.waypoint_id === previous.waypoint_id &&
+    stored.lat === previous.lat && stored.lng === previous.lng && stored.text === previous.text;
+}
+
 /**
  * «Заехать по пути».
  *
@@ -328,36 +337,101 @@ function ChangeDestination({ order, onDone }: { order: InstantOrder; onDone: () 
  * и цена тогда падает. А вот порядок менять нельзя — водитель уже едет к первой точке,
  * и перестановка на ходу это путаница ради редкого случая. Проеденные точки не трогаем.
  */
-function Stops({ order, onDone }: { order: InstantOrder; onDone: () => void }) {
+function Stops({ initial, onDone }: { initial: InstantOrder; onDone: () => void }) {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
   const [open, setOpen] = useState(false);
-  const [busy, setBusy] = useBusy();
+  const [saving, setBusy] = useBusy();
+  const request = useTaxiStopRequest(initial);
+  const { order, hold, execute, problem } = request;
+  const busy = saving || request.busy;
+  const control = taxiStopControl(order);
+  const lockedIndex = activeWaypointIndex(order, control);
+  const editV1 = control?.passenger_edit_v1 === true;
   const [note, setNote] = useState("");
+  const [acknowledged, setAcknowledged] = useState<{ key: string; note: string } | null>(null);
+  const displayKey = stopFareSnapshot(order);
+  useEffect(() => {
+    if (acknowledged && acknowledged.key !== displayKey) setAcknowledged(null);
+  }, [acknowledged, displayKey]);
+  const shownNote = acknowledged?.key === displayKey ? acknowledged.note : note;
+  const [replacement, setReplacement] = useState<{ id: string; route: string; wait: string | null } | null>(null);
 
   const all = order.stops ?? [];
   const done = all.filter((s) => s.done);
   const live = all.filter((s) => !s.done);
+  const coherentIds = all.every(s => stopId(s.waypoint_id)) && new Set(all.map(s => s.waypoint_id)).size === all.length;
+  const blocked = hold || control === null || (control?.active_wait?.kind === "planned" && lockedIndex === null) ||
+    (editV1 && (!control?.route_revision || !coherentIds));
+  const replacing = editV1 && replacement && replacement.route === control?.route_revision &&
+    replacement.wait === control.wait_revision
+    ? live.findIndex((s, i) => s.waypoint_id === replacement.id && i !== lockedIndex) : -1;
+  type Pending = { kind: "keep"; point: TaxiStop } | { kind: "new"; point: Point };
+  const keep = (points: TaxiStop[]): Pending[] => points.map(point => ({ kind: "keep", point }));
 
-  async function save(next: { lat: number; lng: number; text?: string }[]) {
-    if (busy) return;
-    setBusy(true);
+  async function save(next: Pending[]) {
+    if (busy || blocked) return;
     setNote("");
+    setAcknowledged(null);
+    const fareNote = (q: DestinationQuote) => appText(`Готово. Цена: ${q.price} ₽`, `Әҙер. Хаҡ: ${q.price} һум`);
+    const legacy = next.map(({ point }) => point);
+    if (control && order.status === "onboard") {
+      let applied: DestinationQuote | undefined;
+      const route = control.route_revision;
+      const ok = await execute(async scope => {
+        let result;
+        if (editV1) {
+          if (!route) throw Error("Missing stop revision");
+          const waypoints: WaypointEdit[] = next.map(({ kind, point }) => {
+            if (kind === "new") return { kind, lat: point.lat, lng: point.lng, text: point.text.slice(0, 200) };
+            if (!stopId(point.waypoint_id)) throw Error("Missing stop identity");
+            return { kind, waypoint_id: point.waypoint_id };
+          });
+          result = await editTaxiStops(order.id, { route_revision: route, wait_revision: control.wait_revision, waypoints }, scope);
+        } else {
+          result = await setWaypoints(order.id, legacy, scope);
+        }
+        if (result?.applied !== true || !result.order || result.order.id !== order.id ||
+            !Number.isSafeInteger(result.price) || result.price < 0) throw Error("Unverified edit");
+        if (editV1) {
+          const fresh = taxiStopControl(result.order);
+          const before = control.active_wait, after = fresh?.active_wait;
+          const returned = result.order.stops;
+          // The server copies completed occurrences first and retains exact owner-visible keep values.
+          // Fare/wait counters, ETA and other order metadata can change independently.
+          const remaining = Array.isArray(returned) ? returned.slice(done.length) : [];
+          const priorIds = new Set(all.map(stop => stop.waypoint_id));
+          if (!fresh?.passenger_edit_v1 || !fresh.route_revision || fresh.route_revision === route ||
+              fresh.wait_revision !== control.wait_revision || after?.kind !== before?.kind ||
+              after?.wait_id !== before?.wait_id || after?.waypoint_id !== before?.waypoint_id ||
+              (after?.kind === "planned" && activeWaypointIndex(result.order, fresh) === null) ||
+              !Array.isArray(returned) || !returned.every(stop => stop && stopId(stop.waypoint_id)) ||
+              new Set(returned.map(stop => stop.waypoint_id)).size !== returned.length ||
+              returned.length !== done.length + next.length ||
+              done.some((previous, i) => !sameStoredStop(returned[i], previous, true)) ||
+              next.some(({ kind, point }, i) => {
+                const stored = remaining[i];
+                return kind === "keep" ? !sameStoredStop(stored, point, false)
+                  : stored.done !== false || priorIds.has(stored.waypoint_id) || stored.lat !== point.lat ||
+                    stored.lng !== point.lng || stored.text !== point.text.slice(0, 200);
+              })) throw Error("Unverified versioned edit");
+        }
+        applied = result;
+        return result.order;
+      }, editV1 ? "passenger-edit" : undefined);
+      if (ok && applied?.order) {
+        setReplacement(null);
+        setAcknowledged({ key: stopFareSnapshot(applied.order), note: fareNote(applied) });
+      }
+      return;
+    }
+    setBusy(true);
     try {
-      const q = await setWaypoints(order.id, next);
-      setNote(
-        appText(
-          `Готово. Цена: ${q.price} ₽`,
-          `Әҙер. Хаҡ: ${q.price} һум`
-        )
-      );
+      setNote(fareNote(await setWaypoints(order.id, legacy)));
       onDone();
     } catch (e) {
-      setNote(
-        e instanceof ApiError && e.message
-          ? e.message
-          : appText("Не получилось. Попробуй ещё раз.", "Килеп сыҡманы. Тағы ҡабатла.")
-      );
+      setNote(e instanceof ApiError && e.message ? e.message
+        : appText("Не получилось. Попробуй ещё раз.", "Килеп сыҡманы. Тағы ҡабатла."));
     } finally {
       setBusy(false);
     }
@@ -404,45 +478,62 @@ function Stops({ order, onDone }: { order: InstantOrder; onDone: () => void }) {
             <li key={`l${i}`} className="trip-stops__row">
               <IconPin size={16} />
               <span>{s.text || appText("Точка на карте", "Картала нөктә")}</span>
-              <button
-                type="button"
-                className="trip-stops__del"
-                disabled={busy}
-                onClick={() =>
-                  void save(
-                    live
-                      .filter((_, j) => j !== i)
-                      .map((x) => ({ lat: x.lat, lng: x.lng, text: x.text }))
-                  )
-                }
-              >
-                {appText("Убрать", "Алып ташлау")}
-              </button>
+              {i === lockedIndex ? <span className="trip-stops__tag">
+                {appText("Водитель ждёт здесь", "Йөрөтөүсе бында көтә")}
+              </span> : <>
+                <button type="button" className="trip-stops__del" disabled={busy || blocked}
+                  onClick={() => { setReplacement(null); void save(keep(live.filter((_, j) => j !== i))); }}>
+                  {appText("Убрать", "Алып ташлау")}
+                </button>
+                {editV1 && <button type="button" className="trip-stops__del" disabled={busy || blocked}
+                  onClick={() => {
+                    if (control?.route_revision && stopId(s.waypoint_id))
+                      setReplacement({ id: s.waypoint_id, route: control.route_revision, wait: control.wait_revision });
+                  }}>{appText("Заменить", "Алмаштырыу")}</button>}
+              </>}
             </li>
           ))}
         </ul>
       )}
 
-      {live.length < 3 && (
-        <AddressSearch
-          placeholder={appText("Куда заехать", "Ҡайҙа инергә")}
-          onPick={(p) =>
-            void save([
-              ...live.map((x) => ({ lat: x.lat, lng: x.lng, text: x.text })),
-              { lat: p.lat, lng: p.lng, text: p.text },
-            ])
-          }
-        />
+      {replacing >= 0 && !blocked && !busy && <>
+        <p className="act-card__text">{appText(`Замена остановки № ${replacing + 1}`, `Туҡталыш № ${replacing + 1}: алмаштырыу`)}</p>
+        <AddressSearch key={replacement?.id} placeholder={appText("Новая остановка", "Яңы туҡталыш")}
+          onPick={point => {
+            const next = keep(live);
+            next[replacing] = { kind: "new", point };
+            void save(next);
+          }} />
+        <button type="button" className="btn-ghost" onClick={() => setReplacement(null)}>
+          {appText("Назад", "Артҡа")}
+        </button>
+      </>}
+      {replacing < 0 && live.length < 3 && !blocked && (!control || !busy) && (
+        <AddressSearch placeholder={appText("Куда заехать", "Ҡайҙа инергә")}
+          onPick={point => void save([...keep(live), { kind: "new", point }])} />
       )}
+      {(blocked || problem) && <p className="act-card__text" role="status">
+        {problem === "protected"
+          ? appText("Не удалось безопасно сохранить изменения остановок. Проверь список.",
+              "Туҡталыштарҙы хәүефһеҙ үҙгәртеп булманы. Исемлекте тикшер.")
+          : problem === "stale"
+            ? appText("Остановки изменились. Проверь список.", "Туҡталыштар үҙгәрҙе. Исемлекте тикшер.")
+            : problem === "cooldown" && !blocked
+              ? appText("Слишком часто. Подожди пару секунд.", "Бик йыш. Бер-ике секунд көт.")
+              : appText("Не удалось подтвердить состояние остановок. Обнови поездку.",
+                  "Туҡталыштарҙың хәле раҫланманы. Сәфәрҙе яңырт.")}
+      </p>}
+      {blocked && <button type="button" className="btn-soft trip-btn" disabled={busy}
+        onClick={() => void execute()}>{appText("Обновить поездку", "Сәфәрҙе яңыртыу")}</button>}
       {live.length >= 3 && (
         <p className="trip-hint">
           {ru ? "Больше трёх остановок не получится" : "Өс туҡтауҙан артыҡ булмай"}
         </p>
       )}
 
-      {note && (
+      {shownNote && (
         <div className="notice" role="status">
-          {note}
+          {shownNote}
         </div>
       )}
       <button type="button" className="btn-ghost" onClick={() => setOpen(false)} disabled={busy}>
@@ -946,7 +1037,7 @@ export default function TaxiTripActions({
         )}
 
       {(onboard || enRoute) && <ChangeDestination order={order} onDone={onChanged} />}
-      {(onboard || enRoute) && <Stops order={order} onDone={onChanged} />}
+      {(onboard || enRoute) && <Stops key={order.id} initial={order} onDone={onChanged} />}
       <PayMethod order={order} onDone={onChanged} />
       {onboard && <RoadsideButton orderId={order.id} />}
     </div>
