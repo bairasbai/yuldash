@@ -226,3 +226,51 @@ def test_long_stop_adds_to_the_waiting_fee(client, user_factory):
         s.refresh(order)
         assert order.waiting_fee_kop > 0, "двадцать минут стоянки прошли бесплатно"
         assert order.stop_started_at is None
+
+
+def test_first_future_waypoint_does_not_interrupt_manual_wait(client, user_factory, monkeypatch):
+    """An onboard pause can start before any waypoint exists; the next waypoint is not that pause."""
+    from app.config import settings
+    from test_auth_session_logout import _bearer, _issue
+
+    monkeypatch.setattr(settings, "taxi_external_pricing_enabled", False)
+    monkeypatch.setattr(settings, "redis_url", "")
+    passenger = user_factory("Synthetic Waiting Passenger")
+    driver = user_factory("Synthetic Waiting Driver", role=UserRole.driver)
+    passenger_auth = _bearer(_issue(passenger["id"])["access_token"])
+    driver_auth = _bearer(_issue(driver["id"])["access_token"])
+    oid = _make_order(passenger["id"], driver["id"], waiting_fee_kop=700)
+    route = f"/instant/orders/{oid}"
+
+    standing = client.post(f"{route}/stop", headers=driver_auth)
+    assert standing.status_code == 200
+    assert standing.json()["standing"] is True
+    assert standing.json()["order"]["stops"] == []
+    with Session(engine) as observer:
+        before = observer.get(InstantOrder, oid)
+        started = before.stop_started_at
+        assert started is not None
+        assert (before.status, before.waiting_fee_kop) == (S.onboard, 700)
+        assert isv.parse_waypoints(before.waypoints_json) == []
+
+    added = client.post(f"{route}/waypoints", headers=passenger_auth, json={
+        "waypoints": [{"lat": STOP_A[0], "lng": STOP_A[1], "text": "Synthetic future waypoint"}],
+    })
+    assert added.status_code == 200
+    assert added.json()["applied"] is True
+    for auth in (passenger_auth, driver_auth):
+        observation = client.get(route, headers=auth)
+        assert observation.status_code == 200
+        order = observation.json()
+        assert (order["id"], order["status"], order["standing"], order["waiting_fee_kop"]) == (
+            oid, "onboard", True, 700,
+        )
+        [future] = order["stops"]
+        assert (future["lat"], future["lng"], future["text"], future["done"]) == (
+            *STOP_A, "Synthetic future waypoint", False,
+        )
+
+    with Session(engine) as observer:
+        after = observer.get(InstantOrder, oid)
+        assert (after.stop_started_at, after.status, after.waiting_fee_kop) == (started, S.onboard, 700)
+        assert isv.parse_waypoints(after.waypoints_json) == order["stops"]
