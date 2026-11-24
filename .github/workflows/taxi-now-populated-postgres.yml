@@ -1,29 +1,30 @@
-name: Taxi Now populated PostgreSQL QA
+name: Taxi Now active drain PostgreSQL QA
 
 # Single separately authorized draft, not part of the shared acceptance gate.
 on:
   pull_request:
     types: [opened]
-    branches: [feat/taxi-now-android-integration-20261123]
+    branches: [qa/taxi-now-postgres-populated-20261124]
 
 permissions:
   contents: read
 
 jobs:
-  taxi-now-populated-postgres:
+  taxi-now-active-drain-postgres:
     if: >-
       github.repository == 'bairasbai/yuldash' &&
       github.event.pull_request.base.repo.full_name == 'bairasbai/yuldash' &&
       github.event.pull_request.head.repo.full_name == 'bairasbai/yuldash' &&
-      github.event.pull_request.base.ref == 'feat/taxi-now-android-integration-20261123' &&
-      github.event.pull_request.base.sha == 'f8410ad7a538be4fdd64c65e29a2af8e932501d2' &&
-      github.event.pull_request.head.ref == 'qa/taxi-now-postgres-populated-20261124' &&
+      github.event.pull_request.base.ref == 'qa/taxi-now-postgres-populated-20261124' &&
+      github.event.pull_request.base.sha == 'd316253caaf0b453787d723b57bea0b339e59c1d' &&
+      github.event.pull_request.head.ref == 'qa/taxi-now-postgres-active-drain-20261124' &&
       github.event.pull_request.draft == true
     runs-on: ubuntu-24.04
     timeout-minutes: 12
     env:
       QA_HEAD: ${{ github.event.pull_request.head.sha }}
-      QA_BASE: f8410ad7a538be4fdd64c65e29a2af8e932501d2
+      QA_BASE: d316253caaf0b453787d723b57bea0b339e59c1d
+      QA_PRODUCT: f8410ad7a538be4fdd64c65e29a2af8e932501d2
       QA_OLD: 662eed80295476e31c4c4d045b5ed1f2384c60dd
       GIT_NO_LAZY_FETCH: "1"
       GIT_NO_REPLACE_OBJECTS: "1"
@@ -56,19 +57,27 @@ jobs:
           set -Eeuo pipefail
           [[ "$QA_HEAD" =~ ^[0-9a-f]{40}$ ]]
           [[ "$(git rev-list --parents -n 1 HEAD)" == "$QA_HEAD $QA_BASE" ]]
-          expected=$'.github/workflows/taxi-now-populated-postgres.yml\ntools/taxi_consent_cross_version/README.md\ntools/taxi_consent_cross_version/sitecustomize.py\ntools/taxi_consent_cross_version/verify.py'
-          actual="$(git diff --name-only "$QA_BASE" "$QA_HEAD")"
-          statuses="$(git diff --name-status "$QA_BASE" "$QA_HEAD" | cut -f 1 | sort -u)"
-          [[ "$actual" == "$expected" && "$statuses" == A ]]
-          if ! git fetch --no-tags --depth=1 https://github.com/bairasbai/yuldash.git "$QA_OLD" >/dev/null 2>&1; then
+          [[ "$(git cat-file -p "$QA_BASE" | awk '/^parent / {print $2} /^$/ {exit}')" == "$QA_PRODUCT" ]]
+          expected=$'M\t.github/workflows/taxi-now-populated-postgres.yml\nM\ttools/taxi_consent_cross_version/README.md\nA\ttools/taxi_consent_cross_version/active_drain.py\nM\ttools/taxi_consent_cross_version/verify.py'
+          actual="$(git diff --no-renames --name-status "$QA_BASE" "$QA_HEAD")"
+          [[ "$actual" == "$expected" ]]
+          sha256sum --check --status <<'SHA256'
+          0c6464bda2dbcfb9e2876d117c00331ab25ea8b9913eab90da8c24b3d792c18c  tools/taxi_consent_cross_version/README.md
+          a1efa1ad003e58b2480d3402de72e3b8d2ca72047780c52165066bddb4fe7321  tools/taxi_consent_cross_version/active_drain.py
+          673b6f7393df981e2e17f3194888044cd98d5e449d74fceab4af0688845ddf69  tools/taxi_consent_cross_version/sitecustomize.py
+          a9a84d1a70be93c20cff3dc5010f7c3752356a0bbaa99cc0aec460eff37705ab  tools/taxi_consent_cross_version/verify.py
+          SHA256
+          if ! git fetch --no-tags --depth=1 https://github.com/bairasbai/yuldash.git "$QA_OLD" "$QA_PRODUCT" >/dev/null 2>&1; then
             printf '%s\n' 'pinned-source-fetch:fail'
             exit 1
           fi
           [[ "$(git rev-parse --verify "$QA_OLD^{commit}")" == "$QA_OLD" ]]
+          [[ "$(git rev-parse --verify "$QA_PRODUCT^{commit}")" == "$QA_PRODUCT" ]]
           for manifest in requirements.txt requirements-dev.txt; do
             old_blob="$(git rev-parse "$QA_OLD:backend/$manifest")"
             candidate_blob="$(git rev-parse "$QA_BASE:backend/$manifest")"
-            [[ "$old_blob" == "$candidate_blob" ]]
+            product_blob="$(git rev-parse "$QA_PRODUCT:backend/$manifest")"
+            [[ "$old_blob" == "$candidate_blob" && "$product_blob" == "$candidate_blob" ]]
           done
           printf '%s\n' 'pinned-source:pass'
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
@@ -85,7 +94,7 @@ jobs:
             exit 1
           fi
           printf '%s\n' 'test-dependencies:pass'
-      - name: Verify old to integrated PostgreSQL and retained receipts
+      - name: Verify old to integrated PostgreSQL and active-order restart
         shell: bash
         env:
           QA_SERVICE_CONTAINER: ${{ job.services.postgres.id }}
@@ -96,7 +105,7 @@ jobs:
             exit 1
           fi
           TMPDIR="$work" "$RUNNER_TEMP/taxi-cross-version-venv/bin/python" \
-            tools/taxi_consent_cross_version/verify.py --readonly-objects "$PWD" postgresql
+            tools/taxi_consent_cross_version/verify.py --readonly-objects "$PWD" postgresql --active-drain
           if ! rmdir "$work" 2>/dev/null; then
             printf '%s\n' 'temporary-workspace-cleanup:fail'
             exit 1

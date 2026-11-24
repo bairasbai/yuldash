@@ -103,3 +103,23 @@ is restored. Never downgrade a schema carrying committed receipts.
 References: [integrated workflow](https://github.com/bairasbai/yuldash/blob/f8410ad7a538be4fdd64c65e29a2af8e932501d2/.github/workflows/ci.yml),
 [GitHub service containers](https://docs.github.com/en/actions/tutorials/use-containerized-services/use-docker-service-containers),
 [PostgreSQL image entrypoint](https://github.com/docker-library/postgres/blob/master/docker-entrypoint.sh).
+
+### Optional active-order restart witness
+
+Append `--active-drain` to the same guarded command. The existing six phases stay
+unchanged. Two additional processes use the exact same pinned newer source and
+the same disposable database. The first loads admission ON, obtains a real
+quote, and commits through the mounted confirm route. A synthetic interruption
+after commit yields a TestClient HTTP 500 before first dispatch; this does not
+simulate a socket or network loss. The second
+loads admission OFF (ordinary taxi and the worker stay ON), recovers the exact
+order through authenticated result, replay and close, and rejects a new request.
+The registered dispatch task runs twice: the same order retains its committed
+fare, advances one round, and emits exactly one captured offer before its
+original search deadline.
+
+This uses in-memory Redis per process, synthetic routing/weather and a captured
+notification boundary. It does not claim a real Redis restart, full service
+lifespan, mixed-fleet or provider coverage. The default CI command does not
+enable the optional phases. PostgreSQL still requires the same job-owned socket
+and empty database checks as the original matrix.
