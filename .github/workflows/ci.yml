@@ -30,6 +30,9 @@ concurrency:
 
 jobs:
   backend-tests:
+    if: &ordinary_non_probe >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref != 'qa/tf09-host-capabilities-20261124'
     runs-on: ubuntu-latest
     # Потолок — чтобы зависший тест не съел дефолтные 360 минут Actions. Честный прогон набора
     # (~4800 тестов) локально без покрытия 9–13 мин; в CI с --cov дольше — запас с лихвой.
@@ -68,6 +71,7 @@ jobs:
   # и включён контроль FK — это доказывает, что новые блокировки денег/брони держат нагрузку.
   # Плюс валидируем миграции alembic (одна голова, upgrade/downgrade идемпотентны) на реальной БД.
   backend-tests-postgres:
+    if: *ordinary_non_probe
     runs-on: ubuntu-latest
     timeout-minutes: 45          # тот же набор + миграции на Postgres; потолок и --maxfail — см. backend-tests
     defaults:
@@ -123,6 +127,7 @@ jobs:
   #   * google-services.json (FCM) и local.properties (ключи MapKit/геокодера) в git НЕ лежат —
   #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
   android-build:
+    if: *ordinary_non_probe
     runs-on: ubuntu-latest
     timeout-minutes: 45          # две сборки + ~1100 юнит-тестов; первая сборка ещё и тянет зависимости
     defaults:
@@ -188,6 +193,7 @@ jobs:
   # (run 30746442925). Оставлять continue-on-error после этого — держать декоративный гейт:
   # он рисует галочку и пропускает регрессию (см. docs/lessons.md, «ложно-зелёный CI»).
   android-unit-tests:
+    if: *ordinary_non_probe
     runs-on: ubuntu-latest
     timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
     env:
@@ -284,6 +290,7 @@ jobs:
   # Сборка PWA-фронта (webapp/). Защищает ветку: PR не пройдёт, если фронт не собрался.
   # Не зависит от backend-tests — гоняется параллельно, своя рабочая папка.
   webapp-build:
+    if: *ordinary_non_probe
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -307,6 +314,7 @@ jobs:
   # сломанная сборка или ошибка линтера всплывали лишь при выкладке. Параллельно остальным,
   # своя папка; секреты не нужны (страница статическая).
   web-build:
+    if: *ordinary_non_probe
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -325,3 +333,51 @@ jobs:
         run: npm run lint
       - name: Build
         run: npm run build
+
+
+
+  tf09-host-capabilities:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'opened' &&
+      github.repository == 'bairasbai/yuldash' &&
+      github.actor == 'bairasbai' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.head.repo.full_name == 'bairasbai/yuldash' &&
+      github.event.pull_request.base.repo.full_name == 'bairasbai/yuldash' &&
+      github.event.pull_request.head.ref == 'qa/tf09-host-capabilities-20261124' &&
+      github.event.pull_request.base.ref == 'qa/tf09-host-capabilities-base-20261124' &&
+      github.event.repository.default_branch != 'qa/tf09-host-capabilities-base-20261124' &&
+      github.event.pull_request.base.sha == '402b4cd4efb6255070345ab6f8649264d0769448'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 4
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable source and probe host metadata (no workload)
+        shell: bash
+        env:
+          PROBE_HEAD: ${{ github.event.pull_request.head.sha }}
+          PROBE_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          PROBE_BASE_REF: ${{ github.event.pull_request.base.ref }}
+          PROBE_BASE: ${{ github.event.pull_request.base.sha }}
+          GIT_NO_REPLACE_OBJECTS: '1'
+          GIT_NO_LAZY_FETCH: '1'
+        run: |
+          set -Eeuo pipefail
+          trap 'printf "%s\n" "::error title=TF09 host probe::immutable source or probe preflight refused"' ERR
+          [[ "$PROBE_HEAD" =~ ^[a-f0-9]{40}$ ]]
+          [[ "$PROBE_HEAD_REF" == qa/tf09-host-capabilities-20261124 ]]
+          [[ "$PROBE_BASE_REF" == qa/tf09-host-capabilities-base-20261124 ]]
+          [[ "$PROBE_BASE" == 402b4cd4efb6255070345ab6f8649264d0769448 ]]
+          [[ "$(git rev-list --parents -n 1 HEAD)" == "$PROBE_HEAD $PROBE_BASE" ]]
+          [[ "$(git rev-parse "$PROBE_BASE^{tree}")" == 0dc0d5e804001e87a950c644598fe6bd5e959693 ]]
+          expected=$'A\t.github/scripts/tf09_host_capabilities.py\nM\t.github/workflows/ci.yml'
+          [[ "$(git diff --no-renames --name-status "$PROBE_BASE" "$PROBE_HEAD")" == "$expected" ]]
+          sha256sum --check --status <<'SHA256'
+          94b3e025dae34658470eabafa6cff98264d0b7334f4857062d82024f729680c6  .github/scripts/tf09_host_capabilities.py
+          SHA256
+          TF09_CAPABILITY_VERIFIED="$PROBE_BASE" /usr/bin/python3 -I -B .github/scripts/tf09_host_capabilities.py
