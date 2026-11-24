@@ -1,0 +1,111 @@
+name: TF09 populated PostgreSQL migration QA
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [qa/tf09-populated-migration-source-20261124]
+    paths: [.github/workflows/tf09-populated-postgres.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  tf09-populated-postgres:
+    if: >-
+      github.event_name == 'pull_request' &&
+      github.event.action == 'opened' &&
+      github.repository == 'bairasbai/yuldash' &&
+      github.actor == 'bairasbai' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'qa/tf09-populated-migration-source-20261124' &&
+      github.event.pull_request.base.ref != github.event.repository.default_branch &&
+      github.event.pull_request.base.sha == '06881776e42158f425330025798a79df8d2eb33f' &&
+      github.event.pull_request.head.ref == 'qa/tf09-populated-postgres-hosted-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 14
+    env:
+      QA_HEAD: ${{ github.event.pull_request.head.sha }}
+      QA_BASE: 06881776e42158f425330025798a79df8d2eb33f
+      QA_OLD: f8410ad7a538be4fdd64c65e29a2af8e932501d2
+      QA_PRODUCT: fb96e82a06767ee80e6a38a9d580499b18d7f8b4
+      GIT_NO_LAZY_FETCH: "1"
+      GIT_NO_REPLACE_OBJECTS: "1"
+    services:
+      postgres:
+        # docker-library/repo-info d0792a986b5b7826ad47d6e64aef531a6eb277e9, postgres:16 linux/amd64.
+        image: postgres@sha256:72d22ce26d04fe56a5384e9f6b026152d1cf05db602a7a3524a3ed337d5f5752
+        env:
+          POSTGRES_USER: taxi_cross_version_qa
+          POSTGRES_DB: taxi_cross_version_qa
+          POSTGRES_PASSWORD: disposable_ci_socket_only
+          POSTGRES_INITDB_ARGS: --auth-local=trust --auth-host=scram-sha-256
+        volumes:
+          - /tmp/yuldash-taxi-cross-version-pg:/run/postgresql
+        # No TCP publishing. Only the local disposable socket directory is shared.
+        options: >-
+          --health-cmd "pg_isready -h /run/postgresql -U taxi_cross_version_qa -d taxi_cross_version_qa"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 3
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: eeed56a2559bb31b991e6978eee99e44b980e07e
+          path: qa-guard
+          persist-credentials: false
+      - name: Verify exact source, guard and requirements
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          trap 'printf "%s\n" "TF09 populated PG: source=hold"' ERR
+          [[ "$QA_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-list --parents -n 1 HEAD)" == "$QA_HEAD $QA_BASE" ]]
+          [[ "$(git rev-list --parents -n 1 "$QA_BASE")" == "$QA_BASE $QA_PRODUCT" ]]
+          [[ "$(git rev-parse "$QA_BASE^{tree}")" == 63b1bc90f04e9a0c50c29f4f8a8809148430e816 ]]
+          [[ "$(git rev-parse "$QA_PRODUCT^{tree}")" == d921b0677561c062349dd53b976dbb2f6f4f62fd ]]
+          [[ "$(git -C qa-guard rev-parse HEAD)" == eeed56a2559bb31b991e6978eee99e44b980e07e ]]
+          expected=$'M\t.github/workflows/ci.yml\nA\t.github/workflows/tf09-populated-postgres.yml\nA\ttools/taxi_stop_populated/run_hosted.py'
+          [[ "$(git diff --no-renames --name-status "$QA_BASE" "$QA_HEAD")" == "$expected" ]]
+          sha256sum --check --status <<'SHA256'
+          dbc3e51b20e62803ad46a3a873e9ec0e05aac65454348cd62589318f586ec876  .github/workflows/ci.yml
+          f09bc65bb3fec9d2887373fc5415d34811ae6b87852aa50aa2e0151ab0c01680  tools/taxi_stop_populated/run_hosted.py
+          7f028b00712d28f380f0b0fa6c33f6f69b6c9928d4f9e0fcd42c6c19fbafb2ab  tools/taxi_stop_populated/witness.py
+          673b6f7393df981e2e17f3194888044cd98d5e449d74fceab4af0688845ddf69  qa-guard/tools/taxi_consent_cross_version/sitecustomize.py
+          a9a84d1a70be93c20cff3dc5010f7c3752356a0bbaa99cc0aec460eff37705ab  qa-guard/tools/taxi_consent_cross_version/verify.py
+          SHA256
+          git fetch --no-tags --depth=1 https://github.com/bairasbai/yuldash.git "$QA_OLD" >/dev/null 2>&1
+          [[ "$(git rev-parse "$QA_OLD^{commit}")" == "$QA_OLD" ]]
+          for manifest in requirements.txt requirements-dev.txt; do
+            [[ "$(git rev-parse "$QA_OLD:backend/$manifest")" == "$(git rev-parse "$QA_PRODUCT:backend/$manifest")" ]]
+            [[ "$(git hash-object "backend/$manifest")" == "$(git rev-parse "$QA_PRODUCT:backend/$manifest")" ]]
+          done
+          printf '%s\n' 'TF09 populated PG: source=pass'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install ordinary test dependencies outside the fixture environment
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          work=$(mktemp -d "$RUNNER_TEMP/tf09-pg-venv.XXXXXX")
+          trap 'rm -rf -- "$work"' EXIT
+          python -m venv "$work/env" >/dev/null 2>&1
+          "$work/env/bin/python" -m pip --disable-pip-version-check install -r backend/requirements-dev.txt >/dev/null 2>&1 || {
+            printf '%s\n' 'TF09 populated PG: dependencies=hold'
+            exit 1
+          }
+          printf '%s\n' 'TF09 populated PG: dependencies=pass'
+          # GitHub provides the actual job-owned service ID. It is never printed.
+          env -i PATH=/usr/bin:/bin RUNNER_TEMP="$RUNNER_TEMP" GITHUB_ACTIONS=true RUNNER_OS="$RUNNER_OS" \
+            RUNNER_ARCH="$RUNNER_ARCH" QA_SERVICE_CONTAINER="$QA_SERVICE_CONTAINER" \
+            "$work/env/bin/python" -I -B tools/taxi_stop_populated/run_hosted.py "$PWD" \
+            "$PWD/qa-guard/tools/taxi_consent_cross_version" "$PWD/tools/taxi_stop_populated/witness.py"
+        env:
+          QA_SERVICE_CONTAINER: ${{ job.services.postgres.id }}
