@@ -11,15 +11,18 @@ import android.os.SystemClock
 import androidx.activity.ComponentActivity
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.asAndroidBitmap
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsOn
+import androidx.compose.ui.test.assertIsNotSelected
 import androidx.compose.ui.test.assertIsSelected
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasClickAction
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.isToggleable
 import androidx.compose.ui.test.hasText
@@ -110,11 +113,24 @@ class TaxiConsentRecoveryInstrumentedTest {
         compose.onNode(destination).performScrollTo().performClick()
     }
 
+    private enum class FareCheck {
+        route, calculate, unavailable, review, dismiss, details, round_trip, options,
+        seat_visible, hidden_fare, selection, complete,
+    }
+
+    private fun markFareCheck(check: FareCheck) {
+        // Optional diagnostic, never a test prerequisite and never contains data.
+        runCatching { File(qaDir, "fare-check-stage").writeText(check.name + "\n") }
+    }
+
     @Test fun legacyFareMetadataCannotLeakIntoProtectedQuote() {
+        markFareCheck(FareCheck.route)
         openPassengerRoute()
+        markFareCheck(FareCheck.calculate)
         click("taxiConsentPrimary")
         val unavailable = args.getString("case")?.startsWith("fareunavailable-") == true
         if (unavailable) {
+            markFareCheck(FareCheck.unavailable)
             val problem = if (language == AppLanguage.Ba) "Сумманы алып булманы. Иҫәпте ҡабатла."
                           else "Не удалось получить сумму. Повтори расчёт."
             compose.waitUntil(30_000) { compose.onAllNodesWithText(problem).fetchSemanticsNodes().isNotEmpty() }
@@ -122,29 +138,44 @@ class TaxiConsentRecoveryInstrumentedTest {
             compose.onNodeWithTag("taxiConsentTotal").assertDoesNotExist()
             compose.onNodeWithTag("taxiConsentConfirm").assertDoesNotExist()
         } else {
+            markFareCheck(FareCheck.review)
             waitForTag("taxiConsentConfirm")
             val summary = if (language == AppLanguage.Ba) "600 ₽ − ташлама 150 ₽. Раҫларға бөтәһе: 450 ₽."
                           else "600 ₽ − скидка 150 ₽. Итого к подтверждению: 450 ₽."
             compose.onNodeWithText(summary).assertIsDisplayed()
+            markFareCheck(FareCheck.dismiss)
             click("taxiConsentReviewCancel")
         }
+        markFareCheck(FareCheck.details)
         click("taxiOrderDetails")
         // The fixture exposes round-trip availability only in the auxiliary response.
         // Its visible controls prove that response actually reached the sidebar.
+        markFareCheck(FareCheck.round_trip)
         val roundTrip = isToggleable() and hasAnyAncestor(hasTestTag("taxiRoundTripOptions"))
         compose.waitUntil(30_000) { compose.onAllNodes(roundTrip).fetchSemanticsNodes().isNotEmpty() }
         compose.onNode(roundTrip).performScrollTo().assertIsDisplayed()
+        markFareCheck(FareCheck.options)
         val options = if (language == AppLanguage.Ba) "Ултырғыс, арба, хайуан кәрәкме?"
                       else "Нужно кресло, коляска, животное?"
         compose.onNode(hasText(options) and hasClickAction()).performScrollTo().performClick()
+        markFareCheck(FareCheck.seat_visible)
         val seat = if (language == AppLanguage.Ba) "Ултырғыс 1–4" else "Кресло 1–4"
-        compose.onNode(hasText(seat) and hasClickAction()).performScrollTo().assertIsDisplayed().assertIsEnabled()
+        val seatToggle = hasText(seat) and hasClickAction() and
+            SemanticsMatcher.expectValue(SemanticsProperties.Role, Role.Checkbox)
+        compose.onNode(seatToggle).performScrollTo().assertIsDisplayed().assertIsEnabled()
+            .assertIsNotSelected()
+        markFareCheck(FareCheck.hidden_fare)
         val surge = if (language == AppLanguage.Ba) "Һынау ихтыяжы" else "Тестовый спрос"
         val night = if (language == AppLanguage.Ba) "Һынау төнгө тарифы" else "Тестовый ночной тариф"
         for (text in listOf(surge, night, "+777 ₽", "37%")) {
             compose.onNodeWithText(text, substring = true, useUnmergedTree = true).assertDoesNotExist()
         }
-        compose.onNode(hasText(seat) and hasClickAction()).performClick().assertIsSelected()
+        markFareCheck(FareCheck.selection)
+        compose.onNode(seatToggle).performClick().assertIsSelected()
+        // After selection the separate, same-label summary chip is a remove action.
+        val removeSeat = if (language == AppLanguage.Ba) "Алыу: $seat" else "Убрать: $seat"
+        compose.onNode(hasText(seat) and hasClickAction() and hasContentDescription(removeSeat)).assertExists()
+        markFareCheck(FareCheck.complete)
     }
 
     @Test fun roundTripRetainsWaitAndCreatesOrder() {
@@ -210,7 +241,22 @@ class TaxiConsentRecoveryInstrumentedTest {
         val checkLabel = if (language == AppLanguage.Ba) "Заказ һөҙөмтәһен тикшереү" else "Проверить результат заказа"
         capture("cold-entry", checkLabel)
         click("taxiConsentCheckResult")
-        if (args.getString("case") == "committed") {
+        val recoveryCase = args.getString("case")
+        if (recoveryCase == "committed" || recoveryCase == "cardunavailable") {
+            if (recoveryCase == "cardunavailable") {
+                assertEquals(AppLanguage.Ba, language)
+                val unavailable = "Заказ булдырылған, әммә уның карточкаһын асып булманы. Тағы тикшереп ҡара."
+                compose.waitUntil(30_000) {
+                    compose.onAllNodesWithText(unavailable).fetchSemanticsNodes().isNotEmpty()
+                }
+                compose.onNodeWithText(unavailable).assertIsDisplayed()
+                compose.onNodeWithText(checkLabel).assertIsDisplayed().assertIsEnabled()
+                compose.onNodeWithTag("taxiConsentPrimary").assertDoesNotExist()
+                compose.onNodeWithTag("taxiConsentConfirm").assertDoesNotExist()
+                assertTrue(TaxiQuoteConsentApi.markers(context).pending(requireNotNull(TaxiQuoteConsentApi.owner()).binding))
+                rendezvous("card-unavailable")
+                click("taxiConsentCheckResult")
+            }
             val expiredTitle = if (language == AppLanguage.Ba) "Яҡында әлегә бер кем дә юҡ" else "Рядом пока никого"
             captureOrderCard("resolved", expiredTitle, requireNotNull(args.getString("orderId")).toInt())
         } else {

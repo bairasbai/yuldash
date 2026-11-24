@@ -35,6 +35,28 @@ def write_private_json(filename, obj):
     os.replace(fp.name, filename)
 
 
+class CardLookupOutage:
+    """One loopback response failure, armed only by a genuine committed lookup."""
+
+    def __init__(self):
+        self._order_id = None
+        self.injected = 0
+
+    def observe_committed_result(self, status, payload):
+        order_id = payload.get("order_id")
+        if (status == 200 and payload.get("schema") == "taxi-consent-result-v1"
+                and payload.get("state") == "committed"
+                and type(order_id) is int and order_id > 0):
+            self._order_id = order_id
+
+    def intercept_card(self, method, path, status):
+        if (not self.injected and self._order_id is not None
+                and method == "GET" and path == f"/instant/orders/{self._order_id}" and status == 200):
+            self.injected = 1
+            return True
+        return False
+
+
 def serve(args, tempdir):
     backend = Path(__file__).resolve().parents[2] / "backend"
     sys.path[:0] = [str(backend), str(backend / "tests")]
@@ -59,6 +81,7 @@ def serve(args, tempdir):
     delayed = None
     late_status = None
     last_card_status = None
+    card_outage = CardLookupOutage() if args.case == "cardunavailable" else None
 
     selection_keys = []
     addressed_slots = {"result": [], "close": []}
@@ -83,6 +106,7 @@ def serve(args, tempdir):
             "attempts": sorted(states), "late_status": late_status,
             "protected_quote_status": protected_quote_status,
             "legacy_fare_fixture_status": legacy_fare_fixture_status, **selection,
+            **({"card_outage_injected": card_outage.injected} if card_outage is not None else {}),
         })
 
     class Bridge(BaseHTTPRequestHandler):
@@ -119,6 +143,13 @@ def serve(args, tempdir):
                 return
             response = client.request(self.command, self.path, content=body, headers=headers)
             content = response.content
+            outgoing_status = response.status_code
+            if card_outage is not None:
+                if key == "result" and response.status_code == 200:
+                    card_outage.observe_committed_result(response.status_code, response.json())
+                if key == "card" and card_outage.intercept_card(self.command, parsed.path, response.status_code):
+                    outgoing_status = 503
+                    content = b'{"detail":{"code":"fixture_card_unavailable"}}'
             if key == "quote":
                 protected_quote_status = response.status_code
             if key == "estimate" and args.case in {"fareok", "fareunavailable"}:
@@ -132,9 +163,9 @@ def serve(args, tempdir):
                         "round_trip_available": True, "round_trip_discount_percent": 37,
                         "round_trip_max_wait_hours": 4,
                     }, ensure_ascii=False).encode()
-            if key == "card" and response.status_code == 200:
+            if key == "card" and outgoing_status == 200:
                 last_card_status = response.json()["status"]
-            if disconnect and args.case == "committed" and response.status_code == 200:
+            if disconnect and args.case in {"committed", "cardunavailable"} and response.status_code == 200:
                 # The normal authenticated card read will reconcile the expired driver offer.
                 # This makes the recovered status observably different from the lost receipt.
                 with Session(conftest.engine) as db:
@@ -153,7 +184,7 @@ def serve(args, tempdir):
                     raise RuntimeError(f"Synthetic confirmation failed with HTTP {response.status_code}")
                 self.close_connection = True
                 return
-            self.send_response(response.status_code)
+            self.send_response(outgoing_status)
             for name in ("Content-Type", "Cache-Control"):
                 if name in response.headers:
                     self.send_header(name, response.headers[name])
@@ -215,7 +246,7 @@ def local_connect_only(original):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--case", required=True, choices=("committed", "closed", "roundtrip", "selection", "fareok", "fareunavailable"))
+    parser.add_argument("--case", required=True, choices=("committed", "cardunavailable", "closed", "roundtrip", "selection", "fareok", "fareunavailable"))
     parser.add_argument("--session-file", required=True, type=Path)
     parser.add_argument("--state-file", required=True, type=Path)
     args = parser.parse_args()

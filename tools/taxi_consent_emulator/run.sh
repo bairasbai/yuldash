@@ -1,6 +1,53 @@
 #!/usr/bin/env bash
 # Run only on a fresh, expendable, rootable AVD. The test host never opens an external API.
 set -euo pipefail
+report_qa_phase() {
+    local record=$1 rc=$2 case_id stage result extra
+    if [[ $rc =~ ^(0|[1-9][0-9]{0,2})$ && $rc -le 255 && -f $record && ! -L $record ]] &&
+        IFS=' ' read -r case_id stage result extra <"$record" &&
+        [[ -z $extra ]] &&
+        cmp -s "$record" <(printf '%s %s %s\n' "$case_id" "$stage" "$result"); then
+        if [[ $rc == 0 && $case_id == all && $stage == complete && $result == pass ]]; then
+            printf 'Android 11 QA: pass (all cases complete).\n'
+            return 0
+        fi
+        if [[ $rc != 0 && $result == fail ]]; then
+            case "$case_id:$stage" in
+                setup:guest|setup:install|setup:network)
+                    printf 'Android 11 QA: fail (case=%s phase=%s).\n' "$case_id" "$stage"
+                    return 1 ;;
+            esac
+            case "$case_id" in
+                fareok-ru-light|fareok-ba-dark|fareunavailable-ru-light|fareunavailable-ba-dark)
+                    case "$stage" in
+                        fare_route|fare_calculate|fare_unavailable|fare_review|fare_dismiss|fare_details|fare_round_trip|fare_options|fare_seat_visible|fare_hidden_fare|fare_selection|fare_complete)
+                            printf 'Android 11 QA: fail (case=%s phase=%s).\n' "$case_id" "$stage"
+                            return 1 ;;
+                    esac ;;
+            esac
+            case "$case_id" in
+                selection-ba-dark|committed|cardunavailable|closed|roundtrip|selection-ru-light|selection-ru-dark|selection-ba-light|fareok-ru-light|fareok-ba-dark|fareunavailable-ru-light|fareunavailable-ba-dark)
+                    case "$stage" in
+                        fixture|seed|wait_seed|upgrade|restart|recover|wait_recovery|screen|wait_other|state_check|instrumentation|frame)
+                            printf 'Android 11 QA: fail (case=%s phase=%s).\n' "$case_id" "$stage"
+                            return 1 ;;
+                    esac ;;
+            esac
+        fi
+    fi
+    printf 'Android 11 QA: fail (phase unknown).\n'
+    return 1
+}
+
+if [[ ${1:-} == --report-phase ]]; then
+    report_qa_phase "${2:-}" "${3:-}"
+    exit $?
+fi
+# Optional host-only status channel. No device output, IDs or arguments enter the record.
+qa_status_file=${TAXI_QA_PHASE_FILE:-}
+unset TAXI_QA_PHASE_FILE
+qa_case=setup
+qa_phase=guest
 cd "$(dirname "$0")/../.."
 pkg=com.yuldash.app
 suite=com.yuldash.app.TaxiConsentRecoveryInstrumentedTest
@@ -12,6 +59,11 @@ mkdir -p "$results"
 fixture_pid= phase_pid=
 cleanup() {
     local status=$?
+    if [[ -n $qa_status_file ]]; then
+        local result=fail
+        if [[ $status == 0 ]]; then result=pass; fi
+        (umask 077; printf '%s %s %s\n' "$qa_case" "$qa_phase" "$result" >"$qa_status_file") || true
+    fi
     if [[ $status != 0 && -n ${case_name:-} ]]; then
         for frame in quote-review interrupted cold-entry resolved roundtrip-resolved third-selected; do
             if adb shell run-as "$pkg" test -f "$device_dir/$frame-failed.png"; then
@@ -50,8 +102,10 @@ if [[ -n $baseline_apk ]]; then
     candidate_hash=$(sha256sum "$candidate_apk" | cut -d' ' -f1)
     [[ $baseline_hash != "$candidate_hash" ]]
 fi
+qa_phase=install
 adb install -t "${baseline_apk:-$candidate_apk}"
 adb install -t android/app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+qa_phase=network
 app_uid=$(adb shell pm list packages -U "$pkg" | tr -d '\r' | awk -v p="package:$pkg" '$1==p {sub(/^uid:/,"",$2); print $2}')
 [[ $app_uid =~ ^[0-9]+$ && $app_uid -ge 10000 ]]
 adb shell iptables -N TAXI_QA
@@ -65,10 +119,15 @@ adb reverse tcp:8000 tcp:8000
 
 wait_device_file() {
     local name=$1
+    case "$name" in
+        force-stop.ready|review.ready) qa_phase=wait_seed ;;
+        selected.ready|cancel-close.ready|cold.ready|card-unavailable.ready) qa_phase=wait_recovery ;;
+        *) qa_phase=wait_other ;;
+    esac
     for ((i=0; i<180; i++)); do
         if adb shell run-as "$pkg" test -f "$device_dir/$name"; then return; fi
         if ! kill -0 "$phase_pid" 2>/dev/null; then
-            cat "$phase_log" >&2
+            printf 'Android instrumentation did not report exactly one successful test.\n' >&2
             echo "Instrumentation ended before $name" >&2
             return 1
         fi
@@ -82,6 +141,12 @@ continue_after_check() {
 }
 start_phase() {
     local method=$1 language=$2 dark=$3 order_id=$4
+    case "$method" in
+        confirmThenWaitForForceStop|seedThreeIssuedAttemptsAndWaitForRestart) qa_phase=seed ;;
+        coldEntryChecksAndClosesOnlyThirdAttempt|coldEntryChecksOrClosesOriginalAttempt) qa_phase=recover ;;
+        legacyFareMetadataCannotLeakIntoProtectedQuote|roundTripRetainsWaitAndCreatesOrder) qa_phase=screen ;;
+        *) qa_phase=instrumentation ;;
+    esac
     phase_log="$results/$case_name-$method.txt"
     adb shell am instrument -w -r -e class "$suite#$method" -e taxiConsentFixture true \
         -e case "$case_name" -e language "$language" -e dark "$dark" -e orderId "$order_id" \
@@ -90,6 +155,7 @@ start_phase() {
 }
 check_state() {
     local point=$1 condition=$2
+    qa_phase=state_check
     jq -e "$condition" "$state" >/dev/null || {
         echo "SQL/HTTP mismatch at $case_name/$point" >&2
         cat "$state" >&2
@@ -97,12 +163,41 @@ check_state() {
     }
     cp "$state" "$results/$case_name-$point.json"
 }
+refine_fare_failure() {
+    case "$case_name" in
+        fareok-ru-light|fareok-ba-dark|fareunavailable-ru-light|fareunavailable-ba-dark) ;;
+        *) return 0 ;;
+    esac
+    local marker="$private/fare-check-stage" label
+    # Read a bounded private marker only; compare entire bytes to fixed labels.
+    # Never echo its contents, even if missing, malformed or unexpected.
+    if adb exec-out run-as "$pkg" cat "$device_dir/fare-check-stage" 2>/dev/null | head -c 64 >"$marker"; then
+        for label in route calculate unavailable review dismiss details round_trip options seat_visible hidden_fare selection complete; do
+            if cmp -s "$marker" <(printf '%s\n' "$label"); then
+                qa_phase=fare_$label
+                break
+            fi
+        done
+    fi
+    return 0
+}
 finish_phase() {
-    wait "$phase_pid"
+    qa_phase=instrumentation
+    local status=0
+    wait "$phase_pid" || status=$?
+    if [[ $status != 0 ]]; then
+        refine_fare_failure
+        exit "$status"
+    fi
     phase_pid=
-    if ! grep -Eq '^OK \(1 test\)' "$phase_log"; then cat "$phase_log" >&2; exit 1; fi
+    if ! grep -Eq '^OK \(1 test\)' "$phase_log"; then
+        refine_fare_failure
+        printf 'Android instrumentation did not report exactly one successful test.\n' >&2
+        exit 1
+    fi
 }
 collect_frame() {
+    qa_phase=frame
     adb exec-out run-as "$pkg" cat "$device_dir/$1.png" > "$results/$case_name-$1.png"
     [[ -s "$results/$case_name-$1.png" ]]
 }
@@ -113,6 +208,7 @@ stop_fixture() {
 }
 
 force_stop_phase() {
+    qa_phase=restart
     adb shell am force-stop "$pkg"
     wait "$phase_pid" || true
     phase_pid=
@@ -129,8 +225,10 @@ installed_apk_hash() {
 }
 
 # Run the upgrade first so the previous APK is the only app that has touched this fresh installation.
-for case_name in selection-ba-dark committed closed roundtrip selection-ru-light selection-ru-dark selection-ba-light \
+for case_name in selection-ba-dark committed cardunavailable closed roundtrip selection-ru-light selection-ru-dark selection-ba-light \
     fareok-ru-light fareok-ba-dark fareunavailable-ru-light fareunavailable-ba-dark; do
+    qa_case=$case_name
+    qa_phase=fixture
     adb shell pm clear "$pkg" | grep -q Success
     adb shell run-as "$pkg" mkdir -p "$device_dir"
     session="$private/$case_name-session.json"
@@ -153,6 +251,7 @@ for case_name in selection-ba-dark committed closed roundtrip selection-ru-light
         wait_device_file force-stop.ready
         restart=force-stop
         if [[ $case_name == selection-ba-dark && -n $baseline_apk ]]; then
+            qa_phase=upgrade
             restart=apk-update
             [[ $(installed_apk_hash) == "$baseline_hash" ]]
             adb install -r -t "$candidate_apk"
@@ -208,13 +307,13 @@ for case_name in selection-ba-dark committed closed roundtrip selection-ru-light
         echo 'Passed the round trip with a 120-minute return wait.'
         continue
     fi
-    if [[ $case_name == committed ]]; then seed_lang=ru; cold_lang=ba; else seed_lang=ba; cold_lang=ru; fi
+    if [[ $case_name == committed || $case_name == cardunavailable ]]; then seed_lang=ru; cold_lang=ba; else seed_lang=ba; cold_lang=ru; fi
     start_phase confirmThenWaitForForceStop "$seed_lang" false 0
     wait_device_file review.ready
     check_state review '.quote == 1 and .confirm == 0 and .orders == 0 and .result == 0 and .close == 0 and .legacy == 0'
     continue_after_check review
     wait_device_file force-stop.ready
-    if [[ $case_name == committed ]]; then expected_orders=1; else expected_orders=0; fi
+    if [[ $case_name == committed || $case_name == cardunavailable ]]; then expected_orders=1; else expected_orders=0; fi
     before_read=".quote == 1 and .confirm == 1 and .result == 0 and .close == 0 and .card == 0 and .legacy == 0 and .orders == $expected_orders"
     check_state interrupted "$before_read"
     order_id=$(jq -r '.order_id // 0' "$state")
@@ -228,8 +327,15 @@ for case_name in selection-ba-dark committed closed roundtrip selection-ru-light
         check_state dismissed '.result == 1 and .close == 0 and .confirm == 1 and .orders == 0 and .legacy == 0'
         continue_after_check cancel-close
     fi
+    if [[ $case_name == cardunavailable ]]; then
+        wait_device_file card-unavailable.ready
+        check_state unavailable '.quote == 1 and .confirm == 1 and .result == 1 and .card == 1 and .card_outage_injected == 1 and .last_card_status == null and .close == 0 and .legacy == 0 and .orders == 1 and .attempts == ["committed"]'
+        continue_after_check card-unavailable
+    fi
     finish_phase
-    if [[ $case_name == committed ]]; then
+    if [[ $case_name == cardunavailable ]]; then
+        check_state final '.quote == 1 and .confirm == 1 and .result == 2 and .card == 2 and .card_outage_injected == 1 and .close == 0 and .legacy == 0 and .orders == 1 and .order_status == "expired" and .last_card_status == "expired" and .attempts == ["committed"]'
+    elif [[ $case_name == committed ]]; then
         check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 0 and .card >= 1 and .orders == 1 and .order_status == "expired" and .last_card_status == "expired" and .attempts == ["committed"] and .legacy == 0'
     else
         check_state final '.quote == 1 and .confirm == 1 and .result == 1 and .close == 1 and .card == 0 and .orders == 0 and .order_status == null and .last_card_status == null and .attempts == ["closed"] and .late_status == 409 and .legacy == 0'
@@ -240,3 +346,5 @@ for case_name in selection-ba-dark committed closed roundtrip selection-ru-light
     stop_fixture
     echo "Passed $case_name on fresh Android processes."
 done
+qa_case=all
+qa_phase=complete
