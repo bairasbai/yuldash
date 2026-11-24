@@ -1,0 +1,69 @@
+name: TF09 native Android 11 acceptance
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [qa/tf09-integrated-client-tests-20261124]
+    paths: [.github/workflows/tf09-native-api30.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  android11-isolated:
+    if: >-
+      github.repository == 'bairasbai/yuldash' &&
+      github.actor == 'bairasbai' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'qa/tf09-integrated-client-tests-20261124' &&
+      github.event.pull_request.base.ref != github.event.repository.default_branch &&
+      github.event.pull_request.base.sha == '402b4cd4efb6255070345ab6f8649264d0769448' &&
+      github.event.pull_request.head.ref == 'qa/tf09-native-api30-r3-20261124'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 70
+    steps:
+      - name: Checkout exact known source and Android acceptance tests
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 402b4cd4efb6255070345ab6f8649264d0769448
+          path: product
+          persist-credentials: false
+      - name: Checkout reviewed runner glue only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: qa
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify exact source, parent and glue
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          trap 'printf "%s\n" "TF09 isolated Android: failed (source pins)"' ERR
+          test "$(git -C product rev-parse HEAD)" = 402b4cd4efb6255070345ab6f8649264d0769448
+          test "$(git -C product rev-parse 'HEAD^{tree}')" = 0dc0d5e804001e87a950c644598fe6bd5e959693
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git -C qa rev-parse HEAD)" = "$PR_HEAD_SHA"
+          test "$(git -C qa show -s --format=%P HEAD)" = 402b4cd4efb6255070345ab6f8649264d0769448
+          printf '%s\n' $'M\t.github/workflows/ci.yml' $'A\t.github/workflows/tf09-native-api30.yml' \
+            $'A\ttools/tf09_native_lane/boot-guest.sh' $'A\ttools/tf09_native_lane/run-guest.sh' \
+            $'A\ttools/tf09_native_lane/run-offline.sh' |
+            cmp -s - <(git -C qa diff --name-status HEAD^ HEAD)
+          sha256sum --check --status <<'SUMS'
+          84ddbba14d8bcff80101eb52bb938a7183de4dfc793147d7fe97f66e1700554d  qa/tools/tf09_native_lane/boot-guest.sh
+          a9793ef2af8f960b5e6cab01835a2ef6415c208c9ff80643abbcd8f9865b1442  qa/tools/tf09_native_lane/run-guest.sh
+          6191b87a5b6bd6e0d98a6bc97e22043ee937230bb649c5104fe66825d2cc6a85  qa/tools/tf09_native_lane/run-offline.sh
+          250ef5f90607404a29a457ba6ab4ef6b1269e82161818b97b459031b4b0db1cc  qa/.github/workflows/ci.yml
+          SUMS
+      - name: Prepare verified binaries then execute from offline namespace
+        id: native
+        shell: bash
+        run: bash qa/tools/tf09_native_lane/run-offline.sh "$PWD/product" "$PWD/qa/tools/tf09_native_lane"
+      - name: Report if the trusted runner did not classify its failure
+        if: failure() && steps.native.outcome == 'failure' && steps.native.outputs.reported != 'true'
+        shell: bash
+        run: printf '%s\n' '::error title=TF09 Android acceptance::unclassified runner failure'
