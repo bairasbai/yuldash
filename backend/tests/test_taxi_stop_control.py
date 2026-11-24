@@ -4,16 +4,15 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import pytest
-from sqlmodel import Session
-from test_auth_session_logout import _bearer, _issue
-from test_waypoints import STOP_A, STOP_B, _make_order
-
 from app import instant_service
 from app.config import settings
 from app.db import engine
 from app.models import InstantOrder, UserRole
 from app.models import InstantOrderStatus as S
 from app.timeutil import utcnow
+from sqlmodel import Session
+from test_auth_session_logout import _bearer, _issue
+from test_waypoints import STOP_A, STOP_B, _make_order
 
 
 def point(coords, label):
@@ -314,3 +313,155 @@ def test_same_label_different_locations_require_current_selected_identity(scene,
         assert scene.request(oid, "/stop/v1", scene.d, body=command)["standing"] is False
         assert scene.snapshot(oid)["waiting_fee_kop"] == 1700
     assert scene.quotes == scene.notices == [oid, oid]
+
+
+def edit_body(order, *edits):
+    control = order["stop_control"]
+    return {"route_revision": control["route_revision"], "wait_revision": control["wait_revision"],
+            "waypoints": list(edits)}
+
+
+def keep(identity):
+    return {"kind": "keep", "waypoint_id": identity}
+
+
+@pytest.mark.parametrize("replace", (False, True))
+def test_passenger_edit_v1_preserves_selected_occurrence_even_with_identical_future_point(scene, replace):
+    oid = scene.new({**C, "done": True}, A, A, B)
+    ready = prepare(scene, oid)
+    done, selected, duplicate, last = ready["stops"]
+    waiting = scene.request(oid, "/stop/v1", scene.d, body=start(ready, 1))["order"]
+    assert waiting["stop_control"]["passenger_edit_v1"] is True
+    before = scene.snapshot(oid)
+
+    # Older value-only caller cannot safely identify which A should remain.
+    legacy = scene.request(oid, "/waypoints", scene.p, body={"waypoints": [A, B]}, status=409)
+    assert legacy["detail"]["code"] == "taxi_active_waypoint_protected"
+    replacement = [{"kind": "new", **C}] if replace else []
+    body = edit_body(waiting, keep(selected["waypoint_id"]), *replacement, keep(last["waypoint_id"]))
+    updated = scene.request(oid, "/waypoints/v1", scene.p, body=body)["order"]
+    assert updated["stops"][:2] == [done, selected]
+    assert updated["stops"][-1] == last
+    if replace:
+        inserted = updated["stops"][2]
+        assert {k: v for k, v in inserted.items() if k != "waypoint_id"} == {**C, "done": False}
+        assert inserted["waypoint_id"] not in {point["waypoint_id"] for point in ready["stops"]}
+    assert duplicate["waypoint_id"] not in {point["waypoint_id"] for point in updated["stops"]}
+    assert updated["stop_control"]["active_wait"] == waiting["stop_control"]["active_wait"]
+    assert updated["stop_control"]["route_revision"] != waiting["stop_control"]["route_revision"]
+    after = scene.snapshot(oid)
+    for name in ("stop_started_at", "stop_wait_revision", "waiting_fee_kop", "price_estimate"):
+        assert after[name] == before[name]
+    # Same mutation is not repeated, even while the existing successful edit cooldown applies.
+    replay = scene.request(oid, "/waypoints/v1", scene.p, body=body, status=409)
+    assert replay["detail"]["code"] == "taxi_waypoints_stale"
+    assert scene.quotes == scene.notices == [oid]
+    assert scene.snapshot(oid) == after
+
+
+def test_passenger_edit_v1_rejects_untrusted_or_missing_identity_without_quote(scene):
+    oid = scene.new({**C, "done": True}, A, A)
+    done, selected, duplicate = prepare(scene, oid)["stops"]
+    ready = scene.request(oid, "", scene.p, method="GET")
+    waiting = scene.request(oid, "/stop/v1", scene.d, body=start(ready, 1))["order"]
+    other = prepare(scene, scene.new(B))["stops"][0]["waypoint_id"]
+    before = scene.snapshot(oid)
+    for edit in ([keep(duplicate["waypoint_id"])], [{"kind": "new", **A}, keep(duplicate["waypoint_id"])]):
+        refused = scene.request(oid, "/waypoints/v1", scene.p, body=edit_body(waiting, *edit), status=409)
+        assert refused["detail"]["code"] == "taxi_active_waypoint_protected"
+    for edit in ([keep(other)], [keep(str(uuid4()))], [keep(done["waypoint_id"])],
+                 [keep(selected["waypoint_id"])] * 2,
+                 [keep(duplicate["waypoint_id"]), keep(selected["waypoint_id"])]):
+        refused = scene.request(oid, "/waypoints/v1", scene.p, body=edit_body(waiting, *edit), status=409)
+        assert refused["detail"]["code"] == "taxi_waypoints_stale"
+    same = keep(selected["waypoint_id"])
+    for row in ({**same, **A}, {"kind": "new", **A, "waypoint_id": selected["waypoint_id"]}):
+        scene.request(oid, "/waypoints/v1", scene.p, body=edit_body(waiting, row), status=422)
+    valid = edit_body(waiting, same)
+    for actor in (scene.d, scene.x):
+        scene.request(oid, "/waypoints/v1", actor, body=valid, status=404)
+    scene.request(oid, "/waypoints/v1", scene.p, body={**valid, "wait_revision": None}, status=409)
+    scene.request(oid, "/waypoints/v1", scene.p, body={**valid, "route_revision": str(uuid4())}, status=409)
+    assert scene.snapshot(oid) == before and not scene.quotes and not scene.notices
+
+
+def test_passenger_edit_v1_advertised_only_on_prepared_or_draining_trip(scene, monkeypatch):
+    oid = scene.new(A, A)
+    body = {"route_revision": str(uuid4()), "wait_revision": None, "waypoints": []}
+    current = scene.request(oid, "", scene.p, method="GET")
+    assert current["stop_control"]["passenger_edit_v1"] is False
+    scene.request(oid, "/waypoints/v1", scene.p, body=body, status=404)
+    ready = prepare(scene, oid)
+    assert ready["stop_control"]["passenger_edit_v1"] is True
+    waiting = scene.request(oid, "/stop/v1", scene.d, body=start(ready))["order"]
+    monkeypatch.setattr(settings, "taxi_stop_control_enabled", False)
+    current = scene.request(oid, "", scene.p, method="GET")
+    assert current["stop_control"]["passenger_edit_v1"] is True
+    selected = current["stops"][0]["waypoint_id"]
+    drained = scene.request(oid, "/waypoints/v1", scene.p,
+                            body=edit_body(current, keep(selected)))["order"]
+    assert drained["stop_control"]["active_wait"] == waiting["stop_control"]["active_wait"]
+    scene.request(oid, "/stop/v1", scene.d,
+                  body={"action": "resume", "wait_id": waiting["stop_control"]["active_wait"]["wait_id"]})
+    assert "stop_control" not in scene.request(oid, "", scene.p, method="GET")
+    scene.request(oid, "/waypoints/v1", scene.p, body=edit_body(drained, keep(selected)), status=404)
+    assert scene.quotes == scene.notices == [oid]
+
+
+def test_passenger_edit_v1_locked_reread_fences_wait_started_during_quote(scene, monkeypatch):
+    oid = scene.new(A, A)
+    ready = prepare(scene, oid)
+    first, second = [point["waypoint_id"] for point in ready["stops"]]
+    quote = instant_service.destination_quote
+    during = {}
+
+    def quoted_with_driver_write(*args, **kwargs):
+        result = quote(*args, **kwargs)
+        during.update(scene.request(oid, "/stop/v1", scene.d, body=start(ready))["order"])
+        return result
+
+    monkeypatch.setattr(instant_service, "destination_quote", quoted_with_driver_write)
+    rejected = scene.request(oid, "/waypoints/v1", scene.p, body=edit_body(ready, keep(second)), status=409)
+    assert rejected["detail"]["code"] == "taxi_waypoints_stale"
+    after = scene.snapshot(oid)
+    assert after["stop_active_waypoint_id"] == first and after["stop_started_at"] is not None
+    assert after["destination_changed_at"] is None and after["waiting_fee_kop"] == 700
+    assert scene.quotes == [oid] and not scene.notices
+    assert scene.request(oid, "", scene.p, method="GET")["stops"] == during["stops"] == ready["stops"]
+
+
+def test_passenger_edit_v1_does_not_change_existing_price_path_or_driver_start_fence(scene, monkeypatch):
+    typed_order = scene.new(A, A, B)
+    typed = prepare(scene, typed_order)
+    first, second, last = [point["waypoint_id"] for point in typed["stops"]]
+    legacy_order = scene.new(A, B)
+    inputs = []
+
+    def quote(session, order, destination, *, waypoints_override):
+        inputs.append(([{k: v for k, v in p.items() if k != "waypoint_id"}
+                        for p in waypoints_override], destination))
+        return {"ok": True, "price": 975, "base_price": 800, "distance_km": 65.5,
+                "eta_min": 32.75, "needs_driver_ok": True, "ask_reason": "price"}
+
+    monkeypatch.setattr(instant_service, "destination_quote", quote)
+    v0 = scene.request(legacy_order, "/waypoints", scene.p, body={"waypoints": [A, B]})
+    v1 = scene.request(typed_order, "/waypoints/v1", scene.p,
+                       body=edit_body(typed, keep(first), keep(last)))
+    assert inputs[0] == inputs[1]
+    for k in ("ok", "applied", "price", "base_price", "distance_km", "eta_min", "needs_driver_ok", "ask_reason"):
+        assert v1[k] == v0[k]
+    before = scene.snapshot(typed_order)
+    old = scene.snapshot(legacy_order)
+    for name in ("price_estimate", "ride_price", "distance_km", "eta_min", "waiting_fee_kop",
+                 "promo_discount_kop", "destination_ack_at"):
+        assert old[name] == before[name]
+    assert scene.notices == [legacy_order, typed_order]
+    assert second not in {p["waypoint_id"] for p in v1["order"]["stops"]}
+    # Passenger committed first. Even swapping in the latest route revision cannot start
+    # waiting at an identical sibling under the already-removed driver's selected ID.
+    stale = start(typed, 1)
+    for route_revision in (stale["route_revision"], v1["order"]["stop_control"]["route_revision"]):
+        rejected = scene.request(typed_order, "/stop/v1", scene.d,
+                                 body={**stale, "route_revision": route_revision}, status=409)
+        assert rejected["detail"]["code"] == "taxi_waypoints_stale"
+    assert scene.snapshot(typed_order) == before

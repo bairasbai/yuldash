@@ -7,7 +7,8 @@ from sqlalchemy import update
 from sqlmodel import Session, select
 
 from .errors import herr
-from .models import InstantOrder, InstantOrderStatus as S
+from .models import InstantOrder
+from .models import InstantOrderStatus as S
 
 
 def new_revision() -> str:
@@ -107,6 +108,46 @@ def retain_legacy_ids(order: InstantOrder, previous: list[dict], fresh: list[dic
             for point in fresh]
 
 
+def passenger_edit_v1_available(order: InstantOrder, *, admission_enabled: bool) -> bool:
+    # An OFF rollout may still need identity-aware edits to preserve a protected occurrence.
+    draining = explicit_wait_active(order) and order.stop_wait_kind == "planned"
+    return bool(order.status == S.onboard and order.stop_route_revision and (admission_enabled or draining))
+
+
+def retain_explicit_ids(
+    order: InstantOrder, previous: list[dict], requested: list[tuple[str | None, dict | None]],
+) -> list[dict]:
+    """Build from trusted occurrences, not values or client-selected identifiers for new points."""
+    planned = order.stop_started_at is not None and order.stop_wait_kind == "planned"
+    try:
+        stored = json.loads(order.waypoints_json) if order.waypoints_json else []
+    except (TypeError, ValueError):
+        raise stale_route() from None
+    if not isinstance(stored, list) or len(stored) != len(previous):
+        raise stale_route()  # Tolerant legacy normalization must not silently remove persisted occurrences.
+    source_ids = [point.get("waypoint_id") for point in previous]
+    if None in source_ids or len(set(source_ids)) != len(source_ids):
+        raise stale_route()
+    pending = {point["waypoint_id"]: point for point in previous if not point["done"]}
+    retained = [identity for identity, _ in requested if identity is not None]
+    if len(set(retained)) != len(retained) or any(identity not in pending for identity in retained):
+        raise stale_route()
+    if planned and order.stop_active_waypoint_id not in retained:
+        raise active_stop_protected()
+    present = set(retained)
+    if retained != [identity for identity in pending if identity in present]:
+        raise stale_route()  # This write contract does not reorder retained pending occurrences.
+    fresh = [point for point in previous if point["done"]]
+    for identity, point in requested:
+        if identity is not None:
+            fresh.append(pending[identity])
+        elif point is not None:
+            fresh.append({**point, "done": False, "waypoint_id": new_revision()})
+        else:
+            raise stale_route()
+    return fresh
+
+
 def explicit_wait_requires_command():
     return herr(409, "Это ожидание нужно завершить в обновлённом приложении",
                 "Был көтөүҙе яңыртылған ҡушымтала тамамларға кәрәк", code="taxi_explicit_wait_required")
@@ -133,4 +174,5 @@ def payload(order: InstantOrder, *, admission_enabled: bool) -> dict:
             "waypoint_id": order.stop_active_waypoint_id if kind == "planned" else None,
         }
     return {"admission_enabled": admission_enabled, "route_revision": order.stop_route_revision,
-            "wait_revision": order.stop_wait_revision, "active_wait": active}
+            "wait_revision": order.stop_wait_revision, "active_wait": active,
+            "passenger_edit_v1": passenger_edit_v1_available(order, admission_enabled=admission_enabled)}

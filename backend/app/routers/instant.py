@@ -227,6 +227,27 @@ class WaypointsIn(BaseModel):
     waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
 
 
+class WaypointKeepIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["keep"]
+    waypoint_id: UUID
+
+
+class WaypointNewIn(WaypointIn):
+    model_config = ConfigDict(extra="forbid", allow_inf_nan=False)
+
+    kind: Literal["new"]
+
+
+class WaypointsV1In(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    route_revision: UUID
+    wait_revision: UUID | None
+    waypoints: list[Annotated[WaypointKeepIn | WaypointNewIn, Field(discriminator="kind")]] = Field(max_length=3)
+
+
 class StopStartPlannedIn(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -1375,9 +1396,31 @@ def set_waypoints(order_id: int, body: WaypointsIn,
 
     Проеденные остановки не трогаем: их уже проехали, спорить не о чем.
     """
+    return _set_waypoints(order_id, body, user, session)
+
+
+@router.post("/instant/orders/{order_id}/waypoints/v1")
+def set_waypoints_v1(order_id: int, body: WaypointsV1In, response: Response,
+                     user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Edit pending stops by occurrence identity; keep existing quote and write rules."""
+    response.headers["Cache-Control"] = "no-store"
+    return _set_waypoints(order_id, body, user, session)
+
+
+def _check_waypoint_edit_revision(order: InstantOrder, body: WaypointsV1In):
+    if not stop_control.passenger_edit_v1_available(order, admission_enabled=app_settings.taxi_stop_control_enabled):
+        raise stop_control.opted_out()
+    expected_wait = str(body.wait_revision) if body.wait_revision is not None else None
+    if str(body.route_revision) != order.stop_route_revision or expected_wait != order.stop_wait_revision:
+        raise stop_control.stale_route()
+
+
+def _set_waypoints(order_id: int, body: WaypointsIn | WaypointsV1In, user: User, session: Session):
     order = session.get(InstantOrder, order_id)
     if not order or order.passenger_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if isinstance(body, WaypointsV1In):
+        _check_waypoint_edit_revision(order, body)
     blocked = isv.can_change_destination(order)
     if blocked == "status":
         raise herr(409, "Сейчас маршрут поменять нельзя", "Хәҙер маршрутты үҙгәртеп булмай")
@@ -1386,10 +1429,15 @@ def set_waypoints(order_id: int, body: WaypointsIn,
 
     marker = stop_control.change_marker(order)
     previous = isv.parse_waypoints(order.waypoints_json)
-    done = [point for point in previous if point["done"]]
-    requested = done + [{**w.model_dump(), "done": False} for w in body.waypoints]
-    # Reject a known protected edit before running the existing legacy quote.
-    fresh = stop_control.retain_legacy_ids(order, previous, requested)
+    if isinstance(body, WaypointsV1In):
+        edits = [(str(w.waypoint_id), None) if isinstance(w, WaypointKeepIn)
+                 else (None, w.model_dump(exclude={"kind"})) for w in body.waypoints]
+        fresh = stop_control.retain_explicit_ids(order, previous, edits)
+    else:
+        done = [point for point in previous if point["done"]]
+        requested = done + [{**w.model_dump(), "done": False} for w in body.waypoints]
+        # Reject a known protected edit before running the existing quote.
+        fresh = stop_control.retain_legacy_ids(order, previous, requested)
     quote = isv.destination_quote(session, order, (order.to_lat, order.to_lng),
                                   waypoints_override=fresh)
     if not quote.get("ok"):
@@ -1401,6 +1449,8 @@ def set_waypoints(order_id: int, body: WaypointsIn,
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if stop_control.change_marker(order) != marker:
         raise stop_control.stale_route()
+    if isinstance(body, WaypointsV1In):
+        _check_waypoint_edit_revision(order, body)
     isv.apply_waypoints(session, order, fresh, quote)
     if order.driver_id:
         isv.notify_driver_destination(session, order, quote)
