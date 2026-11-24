@@ -465,3 +465,35 @@ def test_passenger_edit_v1_does_not_change_existing_price_path_or_driver_start_f
                                  body={**stale, "route_revision": route_revision}, status=409)
         assert rejected["detail"]["code"] == "taxi_waypoints_stale"
     assert scene.snapshot(typed_order) == before
+
+
+def test_passenger_edit_v1_types_only_the_prewrite_cooldown(scene, monkeypatch):
+    clock = utcnow()
+    monkeypatch.setattr(instant_service, "utcnow", lambda: clock)
+    oid = scene.new(A, B)
+    ready = prepare(scene, oid)
+    first, last = [point["waypoint_id"] for point in ready["stops"]]
+    initial = edit_body(ready, keep(first), keep(last))
+    active = scene.request(oid, "/waypoints/v1", scene.p, body=initial)["order"]
+    next_edit = edit_body(active, keep(first))
+    before = scene.snapshot(oid)
+
+    # A stale/replayed edit is still fenced before checking the cooldown.
+    replay = scene.request(oid, "/waypoints/v1", scene.p, body=initial, status=409)
+    assert replay["detail"]["code"] == "taxi_waypoints_stale"
+    clock += timedelta(seconds=instant_service.DESTINATION_MIN_GAP_SEC - 1)
+    denied = scene.request(oid, "/waypoints/v1", scene.p, body=next_edit, status=429)
+    old = scene.request(oid, "/waypoints", scene.p, body={"waypoints": [A]}, status=429)
+    assert old["detail"] == {
+        "ru": "Слишком часто. Подожди пару секунд",
+        "ba": "Бик йыш. Бер-ике секунд көт",
+    }
+    assert denied["detail"] == {**old["detail"], "code": "taxi_waypoint_edit_cooldown"}
+    assert scene.snapshot(oid) == before
+    assert scene.quotes == scene.notices == [oid]
+
+    # Exact boundary of the existing cooldown: ordinary behavior resumes, unchanged.
+    clock += timedelta(seconds=1)
+    changed = scene.request(oid, "/waypoints/v1", scene.p, body=next_edit)["order"]
+    assert [point["waypoint_id"] for point in changed["stops"]] == [first]
+    assert scene.quotes == scene.notices == [oid, oid]

@@ -1425,7 +1425,8 @@ def _set_waypoints(order_id: int, body: WaypointsIn | WaypointsV1In, user: User,
     if blocked == "status":
         raise herr(409, "Сейчас маршрут поменять нельзя", "Хәҙер маршрутты үҙгәртеп булмай")
     if blocked == "too_often":
-        raise herr(429, "Слишком часто. Подожди пару секунд", "Бик йыш. Бер-ике секунд көт")
+        raise herr(429, "Слишком часто. Подожди пару секунд", "Бик йыш. Бер-ике секунд көт",
+                   code="taxi_waypoint_edit_cooldown" if isinstance(body, WaypointsV1In) else None)
 
     marker = stop_control.change_marker(order)
     previous = isv.parse_waypoints(order.waypoints_json)
