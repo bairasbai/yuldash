@@ -28,8 +28,25 @@ concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
+env:
+  TF09_QA_LANE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'qa/tf09-integrated-ci-20261124' }}
+
 jobs:
   backend-tests:
+    if: &tf09_exact_event >-
+      github.event_name != 'pull_request' ||
+      github.event.pull_request.head.ref != 'qa/tf09-integrated-ci-20261124' ||
+      (
+        github.repository == 'bairasbai/yuldash' &&
+        github.actor == 'bairasbai' &&
+        github.event.action == 'opened' &&
+        github.event.pull_request.base.repo.full_name == 'bairasbai/yuldash' &&
+        github.event.pull_request.head.repo.full_name == 'bairasbai/yuldash' &&
+        github.event.pull_request.base.ref == 'qa/tf09-integrated-snapshot-base-20261124' &&
+        github.event.pull_request.base.sha == '662eed80295476e31c4c4d045b5ed1f2384c60dd' &&
+        github.event.repository.default_branch != 'qa/tf09-integrated-snapshot-base-20261124' &&
+        github.event.pull_request.draft == true
+      )
     runs-on: ubuntu-latest
     # Потолок — чтобы зависший тест не съел дефолтные 360 минут Actions. Честный прогон набора
     # (~4800 тестов) локально без покрытия 9–13 мин; в CI с --cov дольше — запас с лихвой.
@@ -43,6 +60,45 @@ jobs:
         working-directory: backend
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - &tf09_head_checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2, same proof as #392
+        if: env.TF09_QA_LANE == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - &tf09_verify_source
+        name: Verify exact TF09 integrated product projection
+        if: env.TF09_QA_LANE == 'true'
+        working-directory: .
+        shell: bash
+        env:
+          QA_HEAD: ${{ github.event.pull_request.head.sha }}
+          QA_BASE: fb96e82a06767ee80e6a38a9d580499b18d7f8b4
+          QA_HEAD_REF: ${{ github.event.pull_request.head.ref }}
+          QA_SNAPSHOT_REF: ${{ github.event.pull_request.base.ref }}
+          QA_SNAPSHOT_SHA: ${{ github.event.pull_request.base.sha }}
+          GIT_NO_LAZY_FETCH: '1'
+          GIT_NO_REPLACE_OBJECTS: '1'
+        run: |
+          set -Eeuo pipefail
+          trap 'printf "%s\n" "::error title=TF09 Android diagnostic::immutable source preflight refused"' ERR
+          [[ "$QA_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$QA_HEAD_REF" == 'qa/tf09-integrated-ci-20261124' ]]
+          [[ "$QA_SNAPSHOT_REF" == 'qa/tf09-integrated-snapshot-base-20261124' ]]
+          [[ "$QA_SNAPSHOT_SHA" == '662eed80295476e31c4c4d045b5ed1f2384c60dd' ]]
+          [[ "$(git rev-list --parents -n 1 HEAD)" == "$QA_HEAD $QA_BASE" ]]
+          [[ "$(git rev-parse "$QA_BASE^{tree}")" == d921b0677561c062349dd53b976dbb2f6f4f62fd ]]
+          expected=$'A\t.github/scripts/tf09_android_diagnostic.py\nM\t.github/workflows/ci.yml'
+          [[ "$(git diff --no-renames --name-status "$QA_BASE" "$QA_HEAD")" == "$expected" ]]
+          sha256sum --check --status <<'SHA256'
+          87ef0d0f73d5e9d80c7853fe0065fe2b1c2387c74e932476900ccacc97818ec4  .github/scripts/tf09_android_diagnostic.py
+          SHA256
+          for path in android/local.properties android/app/google-services.json; do
+            [[ ! -e "$path" && ! -L "$path" ]]
+          done
+          printf 'TF09_QA_VERIFIED=%s\n' "$QA_BASE" >> "$GITHUB_ENV"
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -68,6 +124,7 @@ jobs:
   # и включён контроль FK — это доказывает, что новые блокировки денег/брони держат нагрузку.
   # Плюс валидируем миграции alembic (одна голова, upgrade/downgrade идемпотентны) на реальной БД.
   backend-tests-postgres:
+    if: *tf09_exact_event
     runs-on: ubuntu-latest
     timeout-minutes: 45          # тот же набор + миграции на Postgres; потолок и --maxfail — см. backend-tests
     defaults:
@@ -89,6 +146,9 @@ jobs:
           --health-retries 5
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - *tf09_head_checkout
+      - *tf09_verify_source
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -123,6 +183,7 @@ jobs:
   #   * google-services.json (FCM) и local.properties (ключи MapKit/геокодера) в git НЕ лежат —
   #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
   android-build:
+    if: *tf09_exact_event
     runs-on: ubuntu-latest
     timeout-minutes: 45          # две сборки + ~1100 юнит-тестов; первая сборка ещё и тянет зависимости
     defaults:
@@ -130,6 +191,9 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - *tf09_head_checkout
+      - *tf09_verify_source
       - uses: actions/setup-java@v4
         with:
           distribution: temurin
@@ -188,6 +252,7 @@ jobs:
   # (run 30746442925). Оставлять continue-on-error после этого — держать декоративный гейт:
   # он рисует галочку и пропускает регрессию (см. docs/lessons.md, «ложно-зелёный CI»).
   android-unit-tests:
+    if: *tf09_exact_event
     runs-on: ubuntu-latest
     timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
     env:
@@ -198,6 +263,9 @@ jobs:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - *tf09_head_checkout
+      - *tf09_verify_source
       - uses: actions/setup-java@v4
         with:
           # ЗДЕСЬ 21, а в сборке APK — 17, и это не описка.
@@ -219,13 +287,17 @@ jobs:
       # build.gradle.kts, не проверялся вообще — то есть «храповик» держался только на том,
       # что кто-то вспомнит запустить его руками. Гейт, который никто не гоняет, не гейт.
       - name: Тесты экранов + порог покрытия (Robolectric + Compose + JaCoCo)
+        if: env.TF09_QA_LANE != 'true'
         run: chmod +x ./gradlew && ./gradlew :app:jacocoCoverageVerification --no-daemon --stacktrace
+      - name: TF09 Android diagnostic (same tests + coverage gate)
+        if: env.TF09_QA_LANE == 'true'
+        run: python3 -B ../.github/scripts/tf09_android_diagnostic.py
       # Имя упавшего теста — В ЛОГ, а не только в артефакт (аудит 2026-08-06).
       # Артефакт надо скачать и распаковать; при разборе из чата или CLI это недоступно, а Gradle
       # со --stacktrace печатает двести строк своих внутренностей и ни одного имени теста. Красный
       # шаг превращался в гадание: «упало что-то из полутора тысяч». Здесь — имя и сообщение.
       - name: Какие тесты упали (если упали)
-        if: failure()
+        if: failure() && env.TF09_QA_LANE != 'true'
         working-directory: android
         run: |
           python3 - <<'PY'
@@ -254,7 +326,7 @@ jobs:
           PY
       # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
       - name: Отчёт о тестах (даже если упали)
-        if: always()
+        if: always() && env.TF09_QA_LANE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-unit-test-report
@@ -263,7 +335,7 @@ jobs:
       # Отчёт о покрытии — чтобы при падении порога было видно, ЧТО именно перестало покрываться,
       # а не только «стало ниже планки».
       - name: Отчёт о покрытии (даже если упал порог)
-        if: always()
+        if: always() && env.TF09_QA_LANE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-coverage-report
@@ -273,7 +345,7 @@ jobs:
       # больше 45 минут без единого упавшего теста. Файл пишется по ходу прогона, поэтому
       # выкладывается и при обрыве по лимиту — по нему видно, не кончилась ли память.
       - name: Журнал сборщика мусора тестов (даже при обрыве)
-        if: always()
+        if: always() && env.TF09_QA_LANE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-test-gc-log
@@ -284,12 +356,16 @@ jobs:
   # Сборка PWA-фронта (webapp/). Защищает ветку: PR не пройдёт, если фронт не собрался.
   # Не зависит от backend-tests — гоняется параллельно, своя рабочая папка.
   webapp-build:
+    if: *tf09_exact_event
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: webapp
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - *tf09_head_checkout
+      - *tf09_verify_source
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
@@ -307,6 +383,7 @@ jobs:
   # сломанная сборка или ошибка линтера всплывали лишь при выкладке. Параллельно остальным,
   # своя папка; секреты не нужны (страница статическая).
   web-build:
+    if: *tf09_exact_event
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
@@ -314,6 +391,9 @@ jobs:
         working-directory: web
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - *tf09_head_checkout
+      - *tf09_verify_source
       - uses: actions/setup-node@v4
         with:
           node-version: "22"     # Next 16 требует Node ≥ 20.9; та же версия, что у webapp-build
