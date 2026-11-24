@@ -1,0 +1,131 @@
+name: TF09 native Android 11 acceptance
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [qa/tf09-integrated-client-tests-20261124]
+    paths: [.github/workflows/tf09-native-api30.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  android11-isolated:
+    if: >-
+      github.repository == 'bairasbai/yuldash' &&
+      github.actor == 'bairasbai' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref == 'qa/tf09-integrated-client-tests-20261124' &&
+      github.event.pull_request.base.ref != github.event.repository.default_branch &&
+      github.event.pull_request.base.sha == '402b4cd4efb6255070345ab6f8649264d0769448' &&
+      github.event.pull_request.head.ref == 'qa/tf09-native-built-api30-20261124'
+    runs-on: ubuntu-latest
+    timeout-minutes: 70
+    steps:
+      - name: Checkout exact known source and Android acceptance tests
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 402b4cd4efb6255070345ab6f8649264d0769448
+          path: product
+          persist-credentials: false
+      - name: Checkout reviewed runner glue only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          path: qa
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify exact source, parent and glue
+        shell: bash
+        env:
+          PR_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          trap 'printf "%s\n" "TF09 isolated Android: failed (source pins)"' ERR
+          test "$(git -C product rev-parse HEAD)" = 402b4cd4efb6255070345ab6f8649264d0769448
+          test "$(git -C product rev-parse 'HEAD^{tree}')" = 0dc0d5e804001e87a950c644598fe6bd5e959693
+          [[ "$PR_HEAD_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$(git -C qa rev-parse HEAD)" = "$PR_HEAD_SHA"
+          test "$(git -C qa show -s --format=%P HEAD)" = 402b4cd4efb6255070345ab6f8649264d0769448
+          printf '%s\n' $'M\t.github/workflows/ci.yml' $'A\t.github/workflows/tf09-native-api30.yml' \
+            $'A\ttools/tf09_native_lane/boot-guest.sh' $'A\ttools/tf09_native_lane/run-guest.sh' \
+            $'A\ttools/tf09_native_lane/run-offline.sh' |
+            cmp -s - <(git -C qa diff --name-status HEAD^ HEAD)
+          sha256sum --check --status <<'SUMS'
+          84ddbba14d8bcff80101eb52bb938a7183de4dfc793147d7fe97f66e1700554d  qa/tools/tf09_native_lane/boot-guest.sh
+          a9793ef2af8f960b5e6cab01835a2ef6415c208c9ff80643abbcd8f9865b1442  qa/tools/tf09_native_lane/run-guest.sh
+          75286a072833b768bb517438c21e95a0b5a8297bd3c8baff321e993d1d88418e  qa/tools/tf09_native_lane/run-offline.sh
+          cffd774be76952244db05c615b470d0740755d10af395fa3070b7be99d03cb8d  qa/.github/workflows/ci.yml
+          SUMS
+      - name: Install JDK 21 for Gradle
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK as ordinary CI does
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - name: Compile exact loopback app and QA APKs without device or export
+        shell: bash
+        working-directory: product
+        env:
+          YULDASH_NATIVE_QA_PINNED_API: 'true'
+          YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:8000
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          exec 3>&1
+          exec >/dev/null 2>&1
+          phase=toolchain
+          work=''
+          finish() {
+            local status=$?
+            trap - EXIT
+            if [[ -n $work ]]; then rm -rf -- "$work" || { status=1; phase=cleanup; }; fi
+            if [[ $status == 0 ]]; then
+              printf 'TF09 Android QA compile: both APKs built; no device tests\n' >&3
+            else
+              case "$phase" in
+                toolchain|app-assemble|qa-kotlin|qa-assemble|apk-integrity|cleanup) ;;
+                *) phase=unknown ;;
+              esac
+              printf '::error title=TF09 Android QA compile::%s\n' "$phase" >&3
+            fi
+            exit "$status"
+          }
+          trap finish EXIT
+          trap 'exit 1' HUP INT TERM
+          test -f "${ANDROID_HOME:?}/platforms/android-36/android.jar"
+          work=$(mktemp -d)
+          mkdir "$work/gradle-home"
+          export GRADLE_USER_HOME="$work/gradle-home"
+          curl --silent --show-error --fail --location --proto '=https' --proto-redir '=https' --max-redirs 4 \
+            --connect-timeout 15 --max-time 450 -o "$work/gradle.zip" https://services.gradle.org/distributions/gradle-8.13-bin.zip
+          printf '20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78  %s\n' "$work/gradle.zip" |
+            sha256sum --check --status
+          unzip -q "$work/gradle.zip" -d "$work"
+          cd android
+          gradle=("$work/gradle-8.13/bin/gradle" --no-daemon -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner)
+          "${gradle[@]}" --version
+          phase=app-assemble
+          "${gradle[@]}" :app:assembleDebug
+          phase=qa-kotlin
+          "${gradle[@]}" :app:compileDebugAndroidTestKotlin
+          phase=qa-assemble
+          "${gradle[@]}" :app:assembleDebugAndroidTest
+          phase=apk-integrity
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          git diff --quiet HEAD -- .
+      - name: Provision verified guest and execute from offline namespace
+        id: native
+        shell: bash
+        run: bash qa/tools/tf09_native_lane/run-offline.sh "$PWD/product" "$PWD/qa/tools/tf09_native_lane"
+      - name: Report if the trusted runner did not classify its failure
+        if: failure() && steps.native.outcome == 'failure' && steps.native.outputs.reported != 'true'
+        shell: bash
+        run: printf '%s\n' '::error title=TF09 Android acceptance::unclassified runner failure'
