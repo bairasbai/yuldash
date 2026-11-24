@@ -1,0 +1,100 @@
+name: TF09 Android QA APK compile
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [qa/tf09-integrated-client-tests-20261124]
+    paths: [.github/workflows/tf09-android-compile.yml]
+
+permissions:
+  contents: read
+
+jobs:
+  exact-compile:
+    if: >-
+      github.repository == 'bairasbai/yuldash' &&
+      github.actor == 'bairasbai' &&
+      github.event.pull_request.draft == true &&
+      github.event.pull_request.head.repo.full_name == github.repository &&
+      github.event.pull_request.base.repo.full_name == github.repository &&
+      github.event.pull_request.base.ref != github.event.repository.default_branch &&
+      github.event.pull_request.base.ref == 'qa/tf09-integrated-client-tests-20261124' &&
+      github.event.pull_request.base.sha == '402b4cd4efb6255070345ab6f8649264d0769448' &&
+      github.event.pull_request.head.ref == 'qa/tf09-android-compile-20261124'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout exact product and QA sources
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 402b4cd4efb6255070345ab6f8649264d0769448
+          persist-credentials: false
+      - name: Verify exact source tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 402b4cd4efb6255070345ab6f8649264d0769448
+          test "$(git rev-parse 'HEAD^{tree}')" = 0dc0d5e804001e87a950c644598fe6bd5e959693
+          git diff --quiet HEAD -- .
+          test -z "$(git ls-files --others --exclude-standard)"
+      - name: Install JDK 21 for Gradle
+        uses: actions/setup-java@c5195efecf7bdfc987ee8bae7a71cb8b11521c00
+        with:
+          distribution: temurin
+          java-version: '21'
+      - name: Set up Android SDK as ordinary CI does
+        uses: android-actions/setup-android@9fc6c4e9069bf8d3d10b2204b1fb8f6ef7065407
+        with:
+          packages: platform-tools
+      - name: Compile exact loopback app and QA APKs without device or export
+        shell: bash
+        env:
+          YULDASH_NATIVE_QA_PINNED_API: 'true'
+          YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:8000
+        run: |
+          set +x
+          set -euo pipefail
+          umask 077
+          exec 3>&1
+          exec >/dev/null 2>&1
+          phase=toolchain
+          work=''
+          finish() {
+            local status=$?
+            trap - EXIT
+            if [[ -n $work ]]; then rm -rf -- "$work" || { status=1; phase=cleanup; }; fi
+            if [[ $status == 0 ]]; then
+              printf 'TF09 Android QA compile: both APKs built; no device tests\n' >&3
+            else
+              case "$phase" in
+                toolchain|app-assemble|qa-kotlin|qa-assemble|apk-integrity|cleanup) ;;
+                *) phase=unknown ;;
+              esac
+              printf '::error title=TF09 Android QA compile::%s\n' "$phase" >&3
+            fi
+            exit "$status"
+          }
+          trap finish EXIT
+          trap 'exit 1' HUP INT TERM
+          test -f "${ANDROID_HOME:?}/platforms/android-36/android.jar"
+          work=$(mktemp -d)
+          mkdir "$work/gradle-home"
+          export GRADLE_USER_HOME="$work/gradle-home"
+          curl --silent --show-error --fail --location --proto '=https' --proto-redir '=https' --max-redirs 4 \
+            --connect-timeout 15 --max-time 450 -o "$work/gradle.zip" https://services.gradle.org/distributions/gradle-8.13-bin.zip
+          printf '20f1b1176237254a6fc204d8434196fa11a4cfb387567519c61556e8710aed78  %s\n' "$work/gradle.zip" |
+            sha256sum --check --status
+          unzip -q "$work/gradle.zip" -d "$work"
+          cd android
+          gradle=("$work/gradle-8.13/bin/gradle" --no-daemon -PstorageAuditRunner=com.yuldash.app.StorageAuditRunner)
+          "${gradle[@]}" --version
+          phase=app-assemble
+          "${gradle[@]}" :app:assembleDebug
+          phase=qa-kotlin
+          "${gradle[@]}" :app:compileDebugAndroidTestKotlin
+          phase=qa-assemble
+          "${gradle[@]}" :app:assembleDebugAndroidTest
+          phase=apk-integrity
+          test -s app/build/outputs/apk/debug/app-debug.apk
+          test -s app/build/outputs/apk/androidTest/debug/app-debug-androidTest.apk
+          git diff --quiet HEAD -- .
