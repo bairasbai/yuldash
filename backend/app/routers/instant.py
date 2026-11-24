@@ -5,7 +5,7 @@
 """
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Response
@@ -35,6 +35,7 @@ from .. import instant_service as isv
 from .. import pretrip as pretrip_mod
 from .. import promo_ride
 from .. import taxi_quote_consent as consent
+from .. import taxi_stop_control as stop_control
 from .. import quality as quality_mod
 from .. import taxi as taxi_mod
 from .. import workday as workday_mod
@@ -224,6 +225,35 @@ class WaypointsIn(BaseModel):
     спорить о том, что уже позади, не о чем.
     """
     waypoints: list[WaypointIn] = Field(default_factory=list, max_length=3)
+
+
+class StopStartPlannedIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["start_planned"]
+    wait_revision: UUID | None
+    route_revision: UUID
+    waypoint_id: UUID
+
+
+class StopStartUnplannedIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["start_unplanned"]
+    wait_revision: UUID | None
+
+
+class StopResumeIn(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["resume"]
+    wait_id: UUID
+
+
+StopCommandIn = Annotated[
+    StopStartPlannedIn | StopStartUnplannedIn | StopResumeIn,
+    Field(discriminator="action"),
+]
 
 
 class DestinationIn(BaseModel):
@@ -1312,8 +1342,8 @@ def decline_destination(order_id: int, body: DeclineDestinationIn | None = None,
     Если ждало согласия на крупную смену — адрес просто не меняется, поездка продолжается
     по старому. Отказ от НОВОГО маршрута не должен рвать тот, на который человек соглашался.
     """
-    order = session.get(InstantOrder, order_id)
-    if not order or order.driver_id != user.id:
+    order = stop_control.lock_order(session, order_id, InstantOrder.driver_id == user.id)
+    if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     reason = (body.reason if body else "other")
 
@@ -1354,12 +1384,23 @@ def set_waypoints(order_id: int, body: WaypointsIn,
     if blocked == "too_often":
         raise herr(429, "Слишком часто. Подожди пару секунд", "Бик йыш. Бер-ике секунд көт")
 
-    done = [w for w in isv.parse_waypoints(order.waypoints_json) if w.get("done")]
-    fresh = done + [{**w.model_dump(), "done": False} for w in body.waypoints]
+    marker = stop_control.change_marker(order)
+    previous = isv.parse_waypoints(order.waypoints_json)
+    done = [point for point in previous if point["done"]]
+    requested = done + [{**w.model_dump(), "done": False} for w in body.waypoints]
+    # Reject a known protected edit before running the existing legacy quote.
+    fresh = stop_control.retain_legacy_ids(order, previous, requested)
     quote = isv.destination_quote(session, order, (order.to_lat, order.to_lng),
                                   waypoints_override=fresh)
     if not quote.get("ok"):
         raise herr(503, "Не удалось посчитать цену", "Хаҡты иҫәпләп булманы")
+    # Do not hold a database lock across route calculation. Any intervening waypoint
+    # edit or wait transition invalidates this write; no stale quote is committed.
+    order = stop_control.lock_order(session, order_id, InstantOrder.passenger_id == user.id)
+    if order is None:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if stop_control.change_marker(order) != marker:
+        raise stop_control.stale_route()
     isv.apply_waypoints(session, order, fresh, quote)
     if order.driver_id:
         isv.notify_driver_destination(session, order, quote)
@@ -1375,14 +1416,78 @@ def toggle_stop(order_id: int, user: User = Depends(current_user),
     с остановкой, начала бы «зарабатывать» сама, а разбираться потом пришлось бы пассажиру.
     Нажал — оба видят, что счётчик пошёл: те же правила, что при подаче.
     """
-    order = session.get(InstantOrder, order_id)
-    if not order or order.driver_id != user.id:
+    order = _lock_driver_onboard(session, order_id, user.id)
+    # A delayed v0 toggle identifies no wait. It may not terminate a newer
+    # explicit episode, even with admission disabled.
+    if order.stop_started_at is not None and order.stop_wait_kind in ("planned", "unplanned"):
+        raise stop_control.explicit_wait_requires_command()
+    order = isv.toggle_stop(session, order)
+    return _stop_result(session, order, user)
+
+
+def _lock_driver_onboard(session: Session, order_id: int, driver_id: int) -> InstantOrder:
+    order = stop_control.lock_order(session, order_id, InstantOrder.driver_id == driver_id)
+    if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.status != S.onboard:
         raise herr(409, "Так можно только в поездке", "Былай тик сәфәр барышында була")
-    order = isv.toggle_stop(session, order)
+    return order
+
+
+def _stop_result(session: Session, order: InstantOrder, user: User) -> dict:
     return {"ok": True, "standing": order.stop_started_at is not None,
             "order": isv.order_payload(session, order, user)}
+
+
+@router.post("/instant/orders/{order_id}/waypoints/v1/prepare")
+def prepare_waypoint_ids(order_id: int, response: Response, user: User = Depends(current_user),
+                         session: Session = Depends(get_session)):
+    """Assign existing rows IDs; no route calculation, notifications or timer changes."""
+    if not app_settings.taxi_stop_control_enabled:
+        raise stop_control.opted_out()
+    response.headers["Cache-Control"] = "no-store"
+    order = _lock_driver_onboard(session, order_id, user.id)
+    if order.stop_route_revision is None:
+        order.waypoints_json = stop_control.prepare_raw_ids(order.waypoints_json)
+        order.stop_route_revision = stop_control.new_revision()
+        session.add(order)
+        session.commit()
+        session.refresh(order)
+    return _stop_result(session, order, user)
+
+
+@router.post("/instant/orders/{order_id}/stop/v1")
+def command_stop(order_id: int, body: StopCommandIn, response: Response,
+                 user: User = Depends(current_user), session: Session = Depends(get_session)):
+    """Explicit, generation-fenced start/resume; never infer a stop from the route."""
+    enabled = app_settings.taxi_stop_control_enabled
+    if not enabled and not isinstance(body, StopResumeIn):
+        raise stop_control.opted_out()
+    response.headers["Cache-Control"] = "no-store"
+    order = _lock_driver_onboard(session, order_id, user.id)
+    if isinstance(body, StopResumeIn):
+        if not enabled and not stop_control.explicit_wait_active(order):
+            raise stop_control.opted_out()
+        if order.stop_started_at is None:
+            return _stop_result(session, order, user)  # already stopped; never starts another wait
+        if order.stop_wait_kind not in ("planned", "unplanned") or str(body.wait_id) != order.stop_wait_revision:
+            raise stop_control.stale_wait()
+        order = isv.toggle_stop(session, order)
+        return _stop_result(session, order, user)
+
+    expected = str(body.wait_revision) if body.wait_revision is not None else None
+    if order.stop_started_at is not None or order.stop_wait_revision != expected:
+        raise stop_control.stale_wait()
+    if isinstance(body, StopStartPlannedIn):
+        selected = str(body.waypoint_id)
+        if (str(body.route_revision) != order.stop_route_revision or
+                sum(point.get("waypoint_id") == selected and not point["done"]
+                    for point in isv.parse_waypoints(order.waypoints_json)) != 1):
+            raise stop_control.stale_route()
+        order = isv.toggle_stop(session, order, kind="planned", waypoint_id=selected)
+    else:
+        order = isv.toggle_stop(session, order, kind="unplanned")
+    return _stop_result(session, order, user)
 
 
 @router.post("/instant/orders/{order_id}/cancel")

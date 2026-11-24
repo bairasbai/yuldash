@@ -1232,6 +1232,11 @@ class InstantOrder(SQLModel, table=True):
     # правилам. Кнопкой, а не автоматом: машина, застрявшая в пробке у светофора рядом
     # с остановкой, начала бы «зарабатывать» сама, а разбираться пришлось бы пассажиру.
     stop_started_at: Optional[datetime] = None
+    # Opt-in TF09 identity. Legacy timers have no kind; never infer a waypoint for them.
+    stop_route_revision: Optional[str] = Field(default=None, max_length=36)
+    stop_wait_revision: Optional[str] = Field(default=None, max_length=36)
+    stop_wait_kind: Optional[str] = Field(default=None, max_length=12)
+    stop_active_waypoint_id: Optional[str] = Field(default=None, max_length=36)
     # Водитель завершил поездку досрочно («Не смогу ехать по новому адресу») и почему:
     # shift_end | out_of_zone | no_fuel | other. Пустое = обычное завершение.
     # Пассажиру показываем причину словами: «просто завершено» посреди поездки звучит как

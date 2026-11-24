@@ -32,6 +32,7 @@ from . import class_rollout
 from . import pricing
 from .livepos import livepos_get
 from . import promo_ride
+from . import taxi_stop_control as stop_control
 from .models import (
     Booking, BookingStatus, DriverCancel, DriverProfile, InstantOrder,
     InstantOrderStatus as S, OfferDecline, Tariff, TripShare, TrustedContact, User,
@@ -1033,8 +1034,11 @@ def parse_waypoints(raw: str) -> list[dict]:
     out = []
     for w in data if isinstance(data, list) else []:
         try:
-            out.append({"lat": float(w["lat"]), "lng": float(w["lng"]),
-                        "text": str(w.get("text", ""))[:200], "done": bool(w.get("done"))})
+            point = {"lat": float(w["lat"]), "lng": float(w["lng"]),
+                     "text": str(w.get("text", ""))[:200], "done": bool(w.get("done"))}
+            if (identity := stop_control.waypoint_id(w.get("waypoint_id"))) is not None:
+                point["waypoint_id"] = identity
+            out.append(point)
         except (KeyError, TypeError, ValueError):
             continue        # одна кривая точка не должна ронять весь маршрут
     return out
@@ -1890,6 +1894,8 @@ def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
     """Записать новый набор остановок и пересчитанную цену."""
     now = now or utcnow()
     order.waypoints_json = dump_waypoints(points)
+    if order.stop_route_revision is not None:
+        order.stop_route_revision = stop_control.new_revision()
     set_ride_price(order, int(quote["price"]), quote.get("base_price"))
     order.distance_km = float(quote["distance_km"])
     order.eta_min = float(quote["eta_min"])
@@ -1906,7 +1912,8 @@ def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
 
 
 def toggle_stop(session: Session, order: InstantOrder,
-                now: Optional[datetime] = None) -> InstantOrder:
+                now: Optional[datetime] = None, *,
+                kind: str | None = None, waypoint_id: str | None = None) -> InstantOrder:
     """«Стоим» ↔ «Поехали». Ожидание на остановке считается по общим правилам подачи.
 
     Тронулись — накопленное за эту стоянку уходит в общий счётчик ожидания заказа. Так
@@ -1915,9 +1922,15 @@ def toggle_stop(session: Session, order: InstantOrder,
     now = now or utcnow()
     if order.stop_started_at is None:
         order.stop_started_at = now
+        order.stop_wait_kind = kind
+        order.stop_active_waypoint_id = waypoint_id
+        if kind is not None or settings.taxi_stop_control_enabled or order.stop_wait_revision is not None:
+            order.stop_wait_revision = stop_control.new_revision()
     else:
         add_waiting_fee(order, order.stop_started_at, now)
         order.stop_started_at = None
+        for key, value in stop_control.close_fields(order).items():
+            setattr(order, key, value)
     session.add(order)
     session.commit()
     session.refresh(order)
@@ -2087,6 +2100,8 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
     if order.stop_started_at is not None:
         add_waiting_fee(order, order.stop_started_at, now)
         order.stop_started_at = None
+        for key, value in stop_control.close_fields(order).items():
+            setattr(order, key, value)
 
     order.status = S.done
     order.done_at = now
@@ -2641,9 +2656,9 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
 
     accept НЕ идемпотентен (idempotent=False): два одновременных accept → второму 409.
     Остальные переходы идемпотентны (двойной тап не ломает)."""
-    order = session.exec(
+    order = (stop_control.lock_order(session, order_id) if target == S.done else session.exec(
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
-    ).first()
+    ).first())
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
 
@@ -2678,6 +2693,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
             ожидание_коп = capped_waiting_kop(ожидание_коп, order.stop_started_at, now)
             values["waiting_fee_kop"] = ожидание_коп
             values["stop_started_at"] = None
+            values.update(stop_control.close_fields(order))
         if order.price_final is None:
             # Сурж уже в price_estimate (зафиксирован при создании); ожидание — целыми ₽ сверху.
             values["price_final"] = order.price_estimate + ожидание_коп // 100
@@ -3898,6 +3914,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
                     round(offer_pickup_km / max(settings.instant_avg_speed_kmh, 1.0) * 60),
                 )
 
+    show_stop_control = order.status == S.onboard and (
+        settings.taxi_stop_control_enabled or stop_control.explicit_wait_active(order)
+    )
     return {
         "id": order.id,
         "status": order.status.value,
@@ -3969,8 +3988,12 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         # Поездку завершил водитель досрочно и почему — пассажир должен видеть причину словами.
         "early_finish_reason": order.early_finish_reason or "",
         # Остановки: пассажир видит свой маршрут, водитель — куда заезжать.
-        "stops": parse_waypoints(order.waypoints_json),
+        "stops": [point if show_stop_control else
+                  {key: value for key, value in point.items() if key != "waypoint_id"}
+                  for point in parse_waypoints(order.waypoints_json)],
         "standing": order.stop_started_at is not None,
+        **({"stop_control": stop_control.payload(order, admission_enabled=settings.taxi_stop_control_enabled)}
+           if show_stop_control else {}),
         # Промокод: скидку оплачивает платформа, но ЗНАТЬ о ней должны обе стороны — иначе
         # водитель попросит полную сумму, а пассажир будет уверен, что платит со скидкой.
         # passenger_price_kop — сколько человек реально отдаёт водителю (цена минус скидка).

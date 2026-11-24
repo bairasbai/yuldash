@@ -631,6 +631,8 @@ class Settings(BaseSettings):
     taxi_enabled: bool = False
     # New confirmed-now admissions only; result, close and committed dispatch keep draining.
     taxi_initial_consent_admission_enabled: bool = False
+    # Enable only on a fleet where every order writer understands waypoint identity.
+    taxi_stop_control_enabled: bool = False
     taxi_city_radius_km: float = 30.0      # ближе N км до известного города → считаем «в городе»
 
     # --- Профиль «Курьер» (C1). Мастер-флаг режима курьера (как taxi_enabled) ---
