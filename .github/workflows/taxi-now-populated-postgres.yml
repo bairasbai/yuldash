@@ -1,0 +1,103 @@
+name: Taxi Now populated PostgreSQL QA
+
+# Single separately authorized draft, not part of the shared acceptance gate.
+on:
+  pull_request:
+    types: [opened]
+    branches: [feat/taxi-now-android-integration-20261123]
+
+permissions:
+  contents: read
+
+jobs:
+  taxi-now-populated-postgres:
+    if: >-
+      github.repository == 'bairasbai/yuldash' &&
+      github.event.pull_request.base.repo.full_name == 'bairasbai/yuldash' &&
+      github.event.pull_request.head.repo.full_name == 'bairasbai/yuldash' &&
+      github.event.pull_request.base.ref == 'feat/taxi-now-android-integration-20261123' &&
+      github.event.pull_request.base.sha == 'f8410ad7a538be4fdd64c65e29a2af8e932501d2' &&
+      github.event.pull_request.head.ref == 'qa/taxi-now-postgres-populated-20261124' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      QA_HEAD: ${{ github.event.pull_request.head.sha }}
+      QA_BASE: f8410ad7a538be4fdd64c65e29a2af8e932501d2
+      QA_OLD: 662eed80295476e31c4c4d045b5ed1f2384c60dd
+      GIT_NO_LAZY_FETCH: "1"
+      GIT_NO_REPLACE_OBJECTS: "1"
+    services:
+      postgres:
+        # docker-library/repo-info d0792a986b5b7826ad47d6e64aef531a6eb277e9, postgres:16 linux/amd64.
+        image: postgres@sha256:72d22ce26d04fe56a5384e9f6b026152d1cf05db602a7a3524a3ed337d5f5752
+        env:
+          POSTGRES_USER: taxi_cross_version_qa
+          POSTGRES_DB: taxi_cross_version_qa
+          POSTGRES_PASSWORD: disposable_ci_socket_only
+          POSTGRES_INITDB_ARGS: --auth-local=trust --auth-host=scram-sha-256
+        volumes:
+          - /tmp/yuldash-taxi-cross-version-pg:/run/postgresql
+        # No TCP publishing. Only the local disposable socket directory is shared.
+        options: >-
+          --health-cmd "pg_isready -h /run/postgresql -U taxi_cross_version_qa -d taxi_cross_version_qa"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable source & scope
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          [[ "$QA_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-list --parents -n 1 HEAD)" == "$QA_HEAD $QA_BASE" ]]
+          expected=$'.github/workflows/taxi-now-populated-postgres.yml\ntools/taxi_consent_cross_version/README.md\ntools/taxi_consent_cross_version/sitecustomize.py\ntools/taxi_consent_cross_version/verify.py'
+          actual="$(git diff --name-only "$QA_BASE" "$QA_HEAD")"
+          statuses="$(git diff --name-status "$QA_BASE" "$QA_HEAD" | cut -f 1 | sort -u)"
+          [[ "$actual" == "$expected" && "$statuses" == A ]]
+          if ! git fetch --no-tags --depth=1 https://github.com/bairasbai/yuldash.git "$QA_OLD" >/dev/null 2>&1; then
+            printf '%s\n' 'pinned-source-fetch:fail'
+            exit 1
+          fi
+          [[ "$(git rev-parse --verify "$QA_OLD^{commit}")" == "$QA_OLD" ]]
+          for manifest in requirements.txt requirements-dev.txt; do
+            old_blob="$(git rev-parse "$QA_OLD:backend/$manifest")"
+            candidate_blob="$(git rev-parse "$QA_BASE:backend/$manifest")"
+            [[ "$old_blob" == "$candidate_blob" ]]
+          done
+          printf '%s\n' 'pinned-source:pass'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Install standard test dependencies in disposable venv
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          venv="$RUNNER_TEMP/taxi-cross-version-venv"
+          python -m venv "$venv"
+          if ! "$venv/bin/python" -m pip --disable-pip-version-check install -r backend/requirements-dev.txt >/dev/null 2>&1; then
+            printf '%s\n' 'test-dependencies:fail'
+            exit 1
+          fi
+          printf '%s\n' 'test-dependencies:pass'
+      - name: Verify old to integrated PostgreSQL and retained receipts
+        shell: bash
+        env:
+          QA_SERVICE_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -Eeuo pipefail
+          if ! work="$(mktemp -d "$RUNNER_TEMP/taxi-cross-version.XXXXXX" 2>/dev/null)"; then
+            printf '%s\n' 'temporary-workspace:fail'
+            exit 1
+          fi
+          TMPDIR="$work" "$RUNNER_TEMP/taxi-cross-version-venv/bin/python" \
+            tools/taxi_consent_cross_version/verify.py --readonly-objects "$PWD" postgresql
+          if ! rmdir "$work" 2>/dev/null; then
+            printf '%s\n' 'temporary-workspace-cleanup:fail'
+            exit 1
+          fi
