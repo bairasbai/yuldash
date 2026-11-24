@@ -1,0 +1,141 @@
+name: TF09 concurrent stop PostgreSQL QA
+
+on:
+  pull_request:
+    types: [opened]
+    branches: [qa/taxi-protected-wait-stage1-20261124]
+
+permissions:
+  contents: read
+
+jobs:
+  tf09-postgres-witness:
+    if: >-
+      github.repository == 'bairasbai/yuldash' &&
+      github.actor == 'bairasbai' &&
+      github.event.pull_request.base.repo.full_name == 'bairasbai/yuldash' &&
+      github.event.pull_request.head.repo.full_name == 'bairasbai/yuldash' &&
+      github.event.pull_request.base.ref == 'qa/taxi-protected-wait-stage1-20261124' &&
+      github.event.pull_request.base.sha == '466f3be12c6012189e0cc54917aae471116f5aa6' &&
+      github.event.pull_request.head.ref == 'qa/taxi-protected-wait-pg-20261124' &&
+      github.event.pull_request.draft == true
+    runs-on: ubuntu-24.04
+    timeout-minutes: 12
+    env:
+      QA_HEAD: ${{ github.event.pull_request.head.sha }}
+      QA_BASE: 466f3be12c6012189e0cc54917aae471116f5aa6
+      QA_BASE_TREE: 95206f9ee5d8eace35d34ac428d45e4b1f520cc4
+      QA_GUARD_REF: eeed56a2559bb31b991e6978eee99e44b980e07e
+      GIT_NO_LAZY_FETCH: "1"
+      GIT_NO_REPLACE_OBJECTS: "1"
+    services:
+      postgres:
+        # Exact job-owned PostgreSQL 16 (linux/amd64) and socket from #385.
+        image: postgres@sha256:72d22ce26d04fe56a5384e9f6b026152d1cf05db602a7a3524a3ed337d5f5752
+        env:
+          POSTGRES_USER: taxi_cross_version_qa
+          POSTGRES_DB: taxi_cross_version_qa
+          POSTGRES_PASSWORD: disposable_ci_socket_only
+          POSTGRES_INITDB_ARGS: --auth-local=trust --auth-host=scram-sha-256
+        volumes:
+          - /tmp/yuldash-taxi-cross-version-pg:/run/postgresql
+        options: >-
+          --health-cmd "pg_isready -h /run/postgresql -U taxi_cross_version_qa -d taxi_cross_version_qa"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 12
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable source and QA scope
+        shell: bash
+        run: |
+          set -Eeuo pipefail
+          trap 'printf "%s\n" "immutable-source:fail"' ERR
+          [[ "$QA_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-list --parents -n 1 HEAD)" == "$QA_HEAD $QA_BASE" ]]
+          [[ "$(git rev-parse "$QA_BASE^{tree}")" == "$QA_BASE_TREE" ]]
+          expected=$'A\t.github/workflows/taxi-tf09-postgres-witness.yml\nA\ttools/taxi_stop_postgres/README.md\nA\ttools/taxi_stop_postgres/witness.py'
+          [[ "$(git diff --no-renames --name-status "$QA_BASE" "$QA_HEAD")" == "$expected" ]]
+          sha256sum --check --status <<'SHA256'
+          240b3b5f093e0002870f7a4161f071e84958897cc52e4d3c27caa27ec9ccceb3  tools/taxi_stop_postgres/README.md
+          68437e029e3dea3eb33b41c61e17b64552ab0c2e4942b2bd405f7cb3717df8e1  tools/taxi_stop_postgres/witness.py
+          620f8e2e3681ba040a99b5ddc334e03aff651f10691ab3a07015ce1e02a62993  backend/requirements-dev.txt
+          14269ae8467496e8f0bb8523ec16f5dbd7c84c9a33e25d96ed83e21973cdb3a1  backend/requirements.txt
+          SHA256
+          git fetch --no-tags --depth=1 https://github.com/bairasbai/yuldash.git "$QA_GUARD_REF" >/dev/null 2>&1
+          [[ "$(git rev-parse --verify "$QA_GUARD_REF^{commit}")" == "$QA_GUARD_REF" ]]
+          printf '%s\n' 'immutable-source:pass'
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: "3.12"
+      - name: Run attested synthetic commit-order witness
+        shell: bash
+        env:
+          QA_SERVICE_CONTAINER: ${{ job.services.postgres.id }}
+        run: |
+          set -Eeuo pipefail
+          umask 077
+          phase=temporary-workspace
+          trap 'printf "%s:fail\n" "$phase"' ERR
+          root="$(mktemp -d "$(cd -P "$RUNNER_TEMP" && pwd)/disposable-XXXXXXXX" 2>/dev/null)"
+          trap 'rm -rf -- "$root"' EXIT
+          mkdir -- "$root/guards" "$root/candidate" "$root/temp" "$root/home"
+          phase=guard-source
+          for path in sitecustomize.py verify.py; do
+            git show "$QA_GUARD_REF:tools/taxi_consent_cross_version/$path" > "$root/guards/$path" 2>/dev/null
+          done
+          (
+            cd "$root/guards"
+            sha256sum --check --status <<'SHA256'
+          673b6f7393df981e2e17f3194888044cd98d5e449d74fceab4af0688845ddf69  sitecustomize.py
+          a9a84d1a70be93c20cff3dc5010f7c3752356a0bbaa99cc0aec460eff37705ab  verify.py
+          SHA256
+          )
+          phase=backend-source
+          git archive "$QA_BASE" backend/app/ backend/alembic/ backend/alembic.ini \
+            backend/requirements.txt backend/requirements-dev.txt | tar -xf - -C "$root/candidate"
+          backend="$root/candidate/backend"
+          [[ ! -e "$backend/.env" ]]
+          phase=dependencies
+          python -m venv "$root/venv" >/dev/null 2>&1
+          py="$root/venv/bin/python"
+          "$py" -m pip --disable-pip-version-check install -r "$backend/requirements-dev.txt" >/dev/null 2>&1
+          phase=service-provenance
+          inode="$(env -i PATH=/usr/bin:/bin HOME="$root/home" PYTHONPATH="$root/guards" \
+            GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" \
+            QA_SERVICE_CONTAINER="$QA_SERVICE_CONTAINER" "$py" \
+            -c 'from verify import service_provenance; print(service_provenance())' 2>/dev/null)"
+          [[ "$inode" =~ ^[0-9]+:[0-9]+$ ]]
+          printf '%s\n' 'service-provenance:pass'
+          cd "$backend"
+          guarded() {
+            env -i PATH=/usr/bin:/bin HOME="$root/home" TMPDIR="$root/temp" \
+              PYTHONPATH="$root/guards:$backend" PYTHONDONTWRITEBYTECODE=1 \
+              GITHUB_ACTIONS="$GITHUB_ACTIONS" RUNNER_OS="$RUNNER_OS" RUNNER_ARCH="$RUNNER_ARCH" \
+              QA_SERVICE_CONTAINER="$QA_SERVICE_CONTAINER" QA_SOCKET_ID="$inode" \
+              QA_DENIED="$root/denied" QA_DB=postgresql \
+              DATABASE_URL='postgresql+psycopg2://taxi_cross_version_qa@/taxi_cross_version_qa?host=/tmp/yuldash-taxi-cross-version-pg&port=5432&connect_timeout=5' \
+              ENV=dev SEED_DEMO=false RATE_LIMIT_ENABLED=false \
+              SMS_PROVIDER=mock PAYMENTS_PROVIDER=mock REDIS_URL='' DAILY_DIGEST_ENABLED=false \
+              TAXI_STOP_CONTROL_ENABLED=true TAXI_EXTERNAL_PRICING_ENABLED=false \
+              JWT_SECRET='synthetic-tf09-bounded-ci-signing-key-not-for-use' "$py" "$@"
+          }
+          phase=guard-negative
+          guarded "$root/guards/verify.py" negative >/dev/null 2>&1
+          [[ "$(cat "$root/denied")" == $'socket.connect\nlibpq.unapproved_dsn' ]]
+          rm "$root/denied"
+          phase=service-empty
+          guarded "$root/guards/verify.py" audit-empty >/dev/null 2>&1
+          phase=alembic
+          guarded -m alembic -c alembic.ini upgrade head >/dev/null 2>&1
+          [[ ! -e "$root/denied" ]]
+          printf '%s\n' 'alembic:pass'
+          phase=commit-races
+          guarded "$GITHUB_WORKSPACE/tools/taxi_stop_postgres/witness.py" >"$root/witness.log" 2>/dev/null
+          [[ ! -e "$root/denied" ]]
+          [[ "$(cat "$root/witness.log")" == $'passenger-first:pass\ndriver-first:pass\ntf09-postgresql-witness:pass' ]]
+          printf '%s\n' 'passenger-first:pass' 'driver-first:pass' 'tf09-postgresql-witness:pass'
