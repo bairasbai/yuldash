@@ -442,7 +442,9 @@ export default function TaxiConsentAction({ body, environment, onOrdered, onLock
           : activeReview.kind === "updated" ? appText("Сумма обновлена", "Сумма яңыртылды") : appText("Подтверди итог", "Йомғаҡты раҫла")}
         descriptionId="taxi-consent-description"
         text={activeReview.kind === "retry" ? appText("Результат предыдущего запроса неизвестен. Повторяем то же подтверждение. ",
-          "Элекке һорауҙың һөҙөмтәһе билдәһеҙ. Шул уҡ раҫлауҙы ҡабатлайбыҙ. ") + description : description + (expiredReview ? appText(" Срок истёк: сначала обновим сумму.", " Ваҡыт үтте: тәүҙә сумманы яңыртабыҙ.") : "")}
+          "Элекке һорауҙың һөҙөмтәһе билдәһеҙ. Шул уҡ раҫлауҙы ҡабатлайбыҙ. ") + description : description + (expiredReview ? appText(" Срок истёк: сначала обновим сумму.", " Ваҡыт үтте: тәүҙә сумманы яңыртабыҙ.")
+          : appText(" Если ожидание после подачи станет платным, его стоимость добавится к этой сумме.",
+            " Машина килеп еткәс көтөү түләүле булып китһә, уның хаҡы был суммаға өҫтәләсәк."))}
         onClose={() => { if (!sending.current) setReview(null); }}
         dismiss={{ label: appText("Назад", "Артҡа"), onClick: () => setReview(null), disabled: busy }}
         confirm={{ label: expiredReview ? appText("Обновить сумму", "Сумманы яңыртыу") : appText(`Подтвердить ${total}`, `${total} раҫлау`), busy,

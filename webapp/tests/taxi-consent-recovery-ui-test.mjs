@@ -25,17 +25,18 @@ const clientMock = `
   export const isAccountSession = owner => owner.userId === getAccountSession().userId && owner.generation === getSessionGeneration();
   export const apiCommand = (...args) => globalThis.__taxiRecovery.command(...args);
 `;
-const Component = await bundleComponent("src/components/TaxiConsentAction.tsx", {
+const buildAction = (lang) => bundleComponent("src/components/TaxiConsentAction.tsx", {
   real: ["../api/taxiConsent", "../utils/taxiConsent", "../utils/serverTime", "../utils/format"],
   define: { "import.meta.env.VITE_TAXI_QUOTE_CONSENT_LOCAL": '"1"' },
   mocks: {
     "../api/client": clientMock, "./client": clientMock,
     "../api/instant": "export const fetchInstantOrder=(...args)=>globalThis.__taxiRecovery.card(...args);",
     "../utils/sessionCredentials": "export const subscribeSessionChanges=()=>()=>{};",
-    "../i18n/lang": langMock(),
+    "../i18n/lang": langMock(lang),
     "react-dom": "export const createPortal = child => child;",
   },
 });
+const [Component, bashkirAction] = await Promise.all([buildAction("ru"), buildAction("ba")]);
 
 class MemoryStorage extends Map {
   get length() { return this.size; }
@@ -54,7 +55,7 @@ function addMarker(key, owner = account) {
 }
 function version(key) { return JSON.parse(localStorage.getItem(prefix + key))?.v; }
 
-async function setup(respond, { existing = true } = {}) {
+async function setup(respond, { existing = true, action = Component } = {}) {
   globalThis.localStorage = new MemoryStorage();
   globalThis.window = Object.assign(new EventTarget(), { location: new URL(origin), setInterval: () => 1, clearInterval() {} });
   globalThis.document = Object.assign(new EventTarget(), { body: {}, activeElement: null });
@@ -79,7 +80,7 @@ async function setup(respond, { existing = true } = {}) {
   };
   const props = { body: { category: "standard" }, environment, onOrdered: order => state.opened.push(order),
     onQuote() {}, onLockChange() {}, onSessionReset() {} };
-  const view = mount(Component, props);
+  const view = mount(action, props);
   await view.settle();
   return { state, view };
 }
@@ -198,16 +199,79 @@ await t.test("committed requires an authorized current card before navigating an
   view.unmount();
 });
 
+const freshQuote = () => ({
+  schema: "taxi-initial-consent-v1", quote_id: second, request_key: first,
+  expires_at: new Date(Date.now() + 120000).toISOString(),
+  snapshot_digest: "a".repeat(64), pricing_inputs_digest: "b".repeat(64),
+  price_kop: 45000, promo_discount_kop: 0, payable_kop: 45000,
+  breakdown: { ride_price_kop: 45000, pickup_fee_kop: 0, options_fee_kop: 0, weather_fee_kop: 0 },
+  distance_km: 8, eta_min: 12, round_trip: false,
+});
+const waitRu = "Если ожидание после подачи станет платным, его стоимость добавится к этой сумме.";
+const waitBa = "Машина килеп еткәс көтөү түләүле булып китһә, уның хаҡы был суммаға өҫтәләсәк.";
+
+for (const [label, action, disclosure, title] of [
+  ["Заказать за", Component, waitRu, "Подтверди итог"],
+  ["заказ итеү", bashkirAction, waitBa, "Йомғаҡты раҫла"],
+]) {
+  await t.test(title + ": initial amount describes paid waiting before confirmation", async () => {
+    const { state, view } = await setup(path => {
+      assert.equal(path, quote);
+      return freshQuote();
+    }, { existing: false, action });
+    button(view.tree, label).props.onClick();
+    await view.settle();
+    const { props } = ofType(view.tree, "AlertDialog")[0];
+    assert.equal(props.title, title);
+    assert.equal(props.descriptionId, "taxi-consent-description");
+    assert.ok(props.text.includes("450") && props.text.endsWith(disclosure));
+    assert.deepEqual(state.paths, [quote]);
+    assert.equal(version(first), undefined);
+    view.unmount();
+  });
+}
+
+await t.test("expired review hides waiting copy; a fresh refreshed review shows it without submitting", async () => {
+  const clock = Date.now;
+  try {
+    const { state, view } = await setup(path => {
+      assert.equal(path, quote);
+      return freshQuote();
+    }, { existing: false });
+    button(view.tree, "Заказать за").props.onClick();
+    await view.settle();
+    Date.now = () => clock() + 121000;
+    view.render();
+    const expired = ofType(view.tree, "AlertDialog")[0].props;
+    assert.equal(expired.confirm.label, "Обновить сумму");
+    assert.ok(!expired.text.includes(waitRu));
+    expired.confirm.onClick();
+    await view.settle();
+    const updated = ofType(view.tree, "AlertDialog")[0].props;
+    assert.equal(updated.title, "Сумма обновлена");
+    assert.ok(updated.text.endsWith(waitRu));
+    assert.deepEqual(state.paths, [quote, quote]);
+    assert.equal(version(first), undefined);
+    view.unmount();
+  } finally {
+    Date.now = clock;
+  }
+});
+
+await t.test("no disclosure or confirmation dialog on unavailable quote", async () => {
+  const { state, view } = await setup(path => {
+    assert.equal(path, quote);
+    throw Object.assign(new Error("synthetic unavailable quote"), { status: 503 });
+  }, { existing: false });
+  assert.deepEqual(state.paths, [quote]);
+  assert.equal(ofType(view.tree, "AlertDialog").length, 0);
+  assert.ok(!text(view.tree).includes(waitRu));
+  view.unmount();
+});
+
 async function startUnknownConfirmation(onRecovery) {
   const { state, view } = await setup((path, payload) => {
-    if (path === quote) return {
-      schema: "taxi-initial-consent-v1", quote_id: second, request_key: first,
-      expires_at: new Date(Date.now() + 120000).toISOString(),
-      snapshot_digest: "a".repeat(64), pricing_inputs_digest: "b".repeat(64),
-      price_kop: 45000, promo_discount_kop: 0, payable_kop: 45000,
-      breakdown: { ride_price_kop: 45000, pickup_fee_kop: 0, options_fee_kop: 0, weather_fee_kop: 0 },
-      distance_km: 8, eta_min: 12, round_trip: false,
-    };
+    if (path === quote) return freshQuote();
     if (path === confirmOrder) throw Error("synthetic lost confirmation");
     return onRecovery(path, payload);
   }, { existing: false });
@@ -224,7 +288,9 @@ await t.test("a stale retry dialog cannot confirm once another tab has begun clo
   const { state, view } = await startUnknownConfirmation(path => assert.fail("unexpected request: " + path));
   button(view.tree, "Повторить подтверждение").props.onClick();
   await view.settle();
-  const staleRetry = ofType(view.tree, "AlertDialog")[0].props.confirm;
+  const retryDialog = ofType(view.tree, "AlertDialog")[0].props;
+  assert.ok(!retryDialog.text.includes(waitRu), "replay does not propose new wait terms");
+  const staleRetry = retryDialog.confirm;
 
   const marker = JSON.parse(localStorage.getItem(prefix + first));
   localStorage.setItem(prefix + first, JSON.stringify({ ...marker, v: 3 }));

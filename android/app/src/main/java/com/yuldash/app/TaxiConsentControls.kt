@@ -281,6 +281,10 @@ internal fun TaxiConsentControls(
                 if (state.canReplay) Text(appText("Повторяем тот же запрос с прежними адресами и параметрами.",
                     "Элекке адрес һәм параметрҙар менән шул уҡ һорауҙы ҡабатлайбыҙ."), style = CanonBody, color = CanonText)
                 Text(appText(copy.ru, copy.ba), style = CanonBody, color = CanonText)
+                if (!locked && !state.expired) Text(appText(
+                    "Если ожидание после подачи станет платным, его стоимость добавится к этой сумме.",
+                    "Машина килеп еткәс көтөү түләүле булып китһә, уның хаҡы был суммаға өҫтәләсәк."),
+                    style = CanonBody, color = CanonText, modifier = Modifier.testTag("taxiConsentPaidWaitNote"))
                 if (state.expired && !state.canReplay) Text(appText("Сначала обновим сумму. Заказ ещё не отправляем.",
                     "Тәүҙә сумманы яңыртабыҙ. Заказды әлегә ебәрмәйбеҙ."), style = CanonCaption, color = CanonMuted)
             } },
