@@ -135,6 +135,7 @@ export interface InstantOrder {
   stops?: TaxiStop[];
   /** Водитель нажал «Стоим»: счётчик ожидания на остановке идёт. */
   standing?: boolean;
+  stop_control?: StopControl;
 
   /** Из чего сложилась бы платная отмена ПРЯМО СЕЙЧАС (показываем ДО тапа). */
   cancel_fee_parts?: Record<string, number>;
@@ -176,7 +177,26 @@ export interface InstantOrder {
 }
 
 /** Остановка по пути (waypoints_json на сервере). Координаты, а не название: по ним считают цену. */
+export type StopWait =
+  | { kind: "legacy_unknown"; wait_id: null; waypoint_id: null }
+  | { kind: "unplanned"; wait_id: string; waypoint_id: null }
+  | { kind: "planned"; wait_id: string; waypoint_id: string };
+
+export interface StopControl {
+  admission_enabled: boolean;
+  route_revision: string | null;
+  wait_revision: string | null;
+  active_wait: StopWait | null;
+  passenger_edit_v1?: boolean;
+}
+
+export type StopCommand =
+  | { action: "start_planned"; wait_revision: string | null; route_revision: string; waypoint_id: string }
+  | { action: "start_unplanned"; wait_revision: string | null }
+  | { action: "resume"; wait_id: string };
+
 export interface TaxiStop {
+  waypoint_id?: string;
   lat: number;
   lng: number;
   text: string;
@@ -964,15 +984,57 @@ export function declineDestination(
  */
 export function setWaypoints(
   orderId: number,
-  stops: { lat: number; lng: number; text?: string }[]
+  stops: { lat: number; lng: number; text?: string }[],
+  scope?: StopRequestScope,
 ): Promise<DestinationQuote> {
-  return apiPost<DestinationQuote>(`/instant/orders/${orderId}/waypoints`, {
+  const path = `/instant/orders/${orderId}/waypoints`;
+  const body = {
     waypoints: stops.slice(0, 3).map((s) => ({
       lat: s.lat,
       lng: s.lng,
       text: (s.text ?? "").slice(0, 200),
     })),
+  };
+  if (scope) return stopRequest<DestinationQuote>(path, scope, body);
+  return apiPost<DestinationQuote>(path, body);
+}
+
+export interface StopRequestScope {
+  owner: { userId: number; generation: string };
+  allowAttempt: () => Promise<boolean>;
+}
+
+export type WaypointEdit =
+  | { kind: "keep"; waypoint_id: string }
+  | { kind: "new"; lat: number; lng: number; text: string };
+
+export function editTaxiStops(orderId: number, body: {
+  route_revision: string;
+  wait_revision: string | null;
+  waypoints: WaypointEdit[];
+}, scope: StopRequestScope): Promise<DestinationQuote> {
+  return stopRequest(`/instant/orders/${orderId}/waypoints/v1`, scope, body);
+}
+
+interface StopCommandResult {
+  ok: true;
+  standing: boolean;
+  order: InstantOrder;
+}
+
+function stopRequest<T>(path: string, scope: StopRequestScope, body?: object): Promise<T> {
+  return apiCommand<T>(path, scope.owner, {
+    method: "POST", oneShot: true, allowAttempt: scope.allowAttempt,
+    ...(body === undefined ? {} : { body: JSON.stringify(body) }),
   });
+}
+
+export function prepareTaxiStops(orderId: number, scope: StopRequestScope): Promise<StopCommandResult> {
+  return stopRequest(`/instant/orders/${orderId}/waypoints/v1/prepare`, scope);
+}
+
+export function commandTaxiStop(orderId: number, command: StopCommand, scope: StopRequestScope): Promise<StopCommandResult> {
+  return stopRequest(`/instant/orders/${orderId}/stop/v1`, scope, command);
 }
 
 /**
