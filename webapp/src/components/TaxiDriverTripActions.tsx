@@ -17,12 +17,16 @@ import {
   ackDestination,
   declineDestination,
   toggleStop,
+  commandTaxiStop,
+  prepareTaxiStops,
+  type StopCommand,
   type DeclineDestinationReason,
   type InstantOrder,
 } from "../api/instant";
 import { IconCar, IconCheck, IconPin, IconClock, IconWallet } from "./Icons";
 import { RoadsideButton } from "./TaxiTripActions";
 import { PAY_METHODS_OPEN } from "./PayMethodPicker";
+import { activeWaypointIndex, stopId, taxiStopControl, useTaxiStopRequest, verifiedIdleAfterResume } from "../utils/taxiStopControl";
 import { useSheetExit } from "./useSheetExit";
 
 /** Почему не могу ехать дальше. Причина нужна пассажиру, а не отчётности. */
@@ -339,6 +343,105 @@ function StandingToggle({ order, onDone }: { order: InstantOrder; onDone: () => 
   );
 }
 
+function StopControlActions({ initial, onDone }: { initial: InstantOrder; onDone: () => void }) {
+  const { appText } = useLang();
+  const { order, busy, hold, problem, execute, retrySameDriverAction } = useTaxiStopRequest(initial);
+  const c = taxiStopControl(order);
+  const wait = c?.active_wait;
+  const [picker, setPicker] = useState(false);
+  if (order.status !== "onboard") return null;
+
+  const run = (command: StopCommand) => {
+    setPicker(false);
+    void execute(async scope => {
+      const result = await commandTaxiStop(order.id, command, scope);
+      const next = result?.order && taxiStopControl(result.order);
+      const active = next?.active_wait;
+      // A known-OFF drain drops the capability when idle; an ON or typed
+      // receipt must identify a *new* idle generation after closing the wait.
+      const resumeIdle = command.action === "resume" && (
+        (next === undefined && c?.admission_enabled === false) ||
+        verifiedIdleAfterResume(next, command.wait_id)
+      );
+      if (result?.ok !== true || result.standing !== result.order?.standing ||
+          (command.action === "resume" ? result.standing !== false || !resumeIdle
+            : !result.standing || (command.action === "start_unplanned" ? active?.kind !== "unplanned"
+              : active?.kind !== "planned" || active.waypoint_id !== command.waypoint_id))) {
+        throw Error("Unexpected stop response");
+      }
+      return result.order;
+    }, "driver-explicit", command.action === "resume" ? command.wait_id : undefined);
+  };
+
+  const reload = <button type="button" className="btn-soft trip-btn" disabled={busy}
+    onClick={() => void execute()}>{appText("Обновить поездку", "Сәфәрҙе яңыртыу")}</button>;
+  if (hold || c === null) return <>
+    <p className="act-card__text" role="status">{problem === "stale"
+      ? appText("Остановка или ожидание изменились. Проверяем поездку.", "Туҡталыш йәки көтөү үҙгәргән. Сәфәрҙе тикшерәбеҙ.")
+      : appText("Состояние ожидания не подтверждено. Обнови поездку.", "Көтөү хәле раҫланманы. Сәфәрҙе яңырт.")}</p>
+    {reload}
+    {retrySameDriverAction && <button type="button" className="btn-soft trip-btn" disabled={busy}
+      onClick={() => void retrySameDriverAction()}>
+      {appText("Повторить то же действие", "Шул уҡ ғәмәлде ҡабатлау")}
+    </button>}
+  </>;
+  if (c === undefined || wait?.kind === "legacy_unknown") {
+    return <StandingToggle order={order} onDone={onDone} />;
+  }
+
+  if (wait?.kind === "planned" || wait?.kind === "unplanned") {
+    const i = activeWaypointIndex(order, c);
+    const point = i === null ? null : (order.stops ?? []).filter(s => !s.done)[i];
+    return <>
+      <p className="act-card__text" role="status">{point
+        ? appText(`Ожидание на остановке № ${(i ?? 0) + 1}: ${point.text}`, `Туҡталыш № ${(i ?? 0) + 1}: ${point.text} (көтәбеҙ)`)
+        : wait.kind === "unplanned"
+          ? appText("Внеплановая пауза", "Пландан тыш туҡтау")
+          : appText("Ожидание на остановке", "Туҡталышта көтөү")}</p>
+      <button type="button" className="btn-primary trip-btn" disabled={busy}
+        onClick={() => run({ action: "resume", wait_id: wait.wait_id })}>
+        <IconClock size={18} /> {appText("Поехали", "Киттек")}
+      </button>
+    </>;
+  }
+
+  if (!c.admission_enabled) return null;
+  const pending = (order.stops ?? []).filter(s => !s.done);
+  if (!picker) return <>
+    {problem && <p className="act-card__text" role="status">{problem === "stale"
+      ? appText("Остановка или ожидание изменились. Поездка обновлена.", "Туҡталыш йәки көтөү үҙгәргән. Сәфәр яңыртылды.")
+      : appText("Проверь обновлённое состояние поездки.", "Сәфәрҙең яңыртылған хәлен тикшер.")}</p>}
+    <button type="button" className="btn-soft trip-btn" disabled={busy} onClick={() => {
+      setPicker(true);
+    }}><IconClock size={18} /> {appText("Отметить остановку", "Туҡталышты билдәләү")}</button>
+  </>;
+  return <div className="act-card">
+    <p className="act-card__text">{appText("Где остановились?", "Ҡайҙа туҡтанығыҙ?")}</p>
+    {pending.length > 0 && c.route_revision === null &&
+      <button type="button" className="btn-soft trip-btn" disabled={busy} onClick={() => void execute(async scope => {
+        const next = await prepareTaxiStops(order.id, scope);
+        if (next?.ok !== true || !next.order || !taxiStopControl(next.order)?.route_revision) throw Error("Unverified stop IDs");
+        return next.order;
+      }, "driver-explicit")}>{appText("Загрузить остановки", "Туҡталыштарҙы тейәү")}</button>}
+    {c.route_revision && pending.map((p, i) => {
+      const id = p.waypoint_id, revision = c.route_revision;
+      if (!revision || !stopId(id) || (order.stops ?? []).filter(x => x.waypoint_id === id).length !== 1) return null;
+      const name = p.text || appText("Точка на карте", "Картала нөктә");
+      return <button key={id} type="button" className="btn-soft trip-btn" disabled={busy}
+        onClick={() => run({ action: "start_planned", route_revision: revision, wait_revision: c.wait_revision, waypoint_id: id })}>
+        {appText(`Остановка № ${i + 1}: ${name}`, `Туҡталыш № ${i + 1}: ${name}`)}
+      </button>;
+    })}
+    <button type="button" className="btn-soft trip-btn" disabled={busy}
+      onClick={() => run({ action: "start_unplanned", wait_revision: c.wait_revision })}>
+      {appText("Внеплановая пауза", "Пландан тыш туҡтау")}
+    </button>
+    <button type="button" className="btn-ghost" disabled={busy} onClick={() => setPicker(false)}>
+      {appText("Назад", "Артҡа")}
+    </button>
+  </div>;
+}
+
 /**
  * Всё, что водителю нужно в пути, одним блоком.
  *
@@ -381,7 +484,7 @@ export default function TaxiDriverTripActions({
         </div>
       )}
 
-      {s === "onboard" && <StandingToggle order={order} onDone={onChanged} />}
+      {s === "onboard" && <StopControlActions key={order.id} initial={order} onDone={onChanged} />}
       {s === "onboard" && <RoadsideButton orderId={order.id} />}
     </div>
   );
