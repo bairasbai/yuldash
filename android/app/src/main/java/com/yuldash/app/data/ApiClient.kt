@@ -21,7 +21,6 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import org.json.JSONArray
 import org.json.JSONObject
-import okhttp3.Headers
 import okhttp3.Request
 import okhttp3.Response
 import java.io.IOException
@@ -1301,6 +1300,10 @@ object ApiClient {
         idempotencyKey: String? = null): Result<JSONObject> =
         call(method, path, body, auth = true, expectedGeneration = owner, idempotencyKey = idempotencyKey, singleAttemptMutation = oneShot)
 
+    internal suspend fun taxiStopRequest(path: String, owner: Long, post: Boolean, body: JSONObject? = null) =
+        call(if (post) "POST" else "GET", path, body, auth = true, expectedGeneration = owner,
+            singleAttemptMutation = post, retryOnNetwork = !post, freshRead = !post, withoutAuthReplay = post)
+
     /** Ключ повтора SOS/«застрял» ([SafetyApi]) — только во входе [owner]; null — вход сменился или его нет. */
     internal fun prepareSafetyIntent(owner: Long, body: JSONObject, scope: String): String? =
         synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.prepare(body, scope) else null }
@@ -2574,11 +2577,6 @@ object ApiClient {
     // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
     // стороны сервер отдаёт пустыми до accept. Координаты heartbeat НЕ логируем.
 
-    /** Остановки в тело запроса. Пустой список не шлём — лишний шум. */
-    private fun stopsArray(stops: List<TaxiStop>): JSONArray = JSONArray().apply {
-        stops.forEach { put(JSONObject().put("lat", it.lat).put("lng", it.lng).put("text", it.text)) }
-    }
-
     private fun instantBody(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String, toText: String, category: String,
@@ -2825,6 +2823,14 @@ object ApiClient {
             .map { it.optString("payment_method").ifBlank { "negotiate" } }
             .onSuccess { Analytics.log("instant_payment_$method") }
 
+    internal suspend fun taxiConsentRequest(request: TaxiConsentRequest, owner: TaxiConsentOwner, admit: () -> Boolean): Result<JSONObject> {
+        if (!TaxiQuoteConsentApi.current(owner)) return staleSession()
+        return call(request.method, request.path, null, auth = true, expectedGeneration = owner.generation,
+            retryOnNetwork = false, singleAttemptMutation = true, wireBody = request.body, expectedBase = owner.binding.origin,
+            freshRead = request.body == null, withoutAuthReplay = true, admitWire = { TaxiQuoteConsentApi.current(owner) && admit() })
+    }
+    internal fun parseTaxiConsentOrder(value: JSONObject): InstantOrderDto = value.toInstantOrderDto()
+
     suspend fun createInstantOrder(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String = "", toText: String = "", category: String = "standard",
@@ -2907,14 +2913,6 @@ object ApiClient {
                 waitingDriver = false,
             )
         }
-
-    /** Водитель отмечает «Стоим» на остановке и «Поехали», когда тронулся.
-     *
-     *  Кнопкой, а не автоматом по координатам: машина, застрявшая в пробке у светофора рядом
-     *  с остановкой, начала бы «зарабатывать» сама. */
-    suspend fun toggleStop(orderId: Int): Result<Boolean> =
-        call("POST", "/instant/orders/$orderId/stop", null, auth = true)
-            .map { it.optBoolean("standing", false) }
 
     /** Водитель: «Понял, вижу новый адрес». Снимает с пассажира тревогу «а он вообще знает?». */
     suspend fun ackDestination(orderId: Int): Result<InstantOrderDto> =
@@ -3636,20 +3634,13 @@ object ApiClient {
                 if (singleAttemptMutation || rideshareMutation(method, path)) {
                     val requestBody = if (idempotent) null else
                         oneShotBody(wireBody ?: body?.toString(), admitWire, claimBody)
-                    val headers = Headers.Builder().add("Accept", "application/json").apply {
-                        idempotencyKey?.let { add("Idempotency-Key", it) }
-                        deviceId?.let { add("X-Device-Id", it) }
-                        if (auth) usedToken?.let {
-                            val bearer = "Bearer $it"
-                            // Match the old transport's non-ASCII compatibility without allowing header injection.
-                            require(bearer.all { ch -> ch == '\t' || (ch.code >= 32 && ch.code != 127) })
-                            addUnsafeNonAscii("Authorization", bearer)
-                        }
-                    }.build()
+                    val headers = oneShotHeaders(freshRead, idempotencyKey, deviceId, usedToken)
                     val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     if (admitWire?.invoke() == false) return@withContext staleSession()
-                    mutationResponse = oneShotTransport(connectMs, readMs, mutationTimeoutMs).newCall(request).execute()
+                    val transport = oneShotTransport(connectMs, readMs, mutationTimeoutMs)
+                    val client = if (idempotent && withoutAuthReplay) transport.singleRead(admitWire) else transport
+                    mutationResponse = client.newCall(request).execute()
                     code = mutationResponse.code
                     snapshotRead?.status(code)
                     serverUnreachable.value = false
@@ -3688,6 +3679,7 @@ object ApiClient {
                 if (sessionBound && !sameSession(generation)) return@withContext staleSession()
                 return@withContext if (code in 200..299) {
                     val obj = when {
+                        path == "/instant/orders/result/v1" || path == "/instant/orders/close-attempt/v1" -> taxiRecoveryDocument(text)
                         text.isBlank() -> JSONObject()
                         text.trimStart().startsWith("[") -> JSONObject().put("items", JSONArray(text)).apply {
                             if (conn?.getHeaderField("X-Yuldash-Partial") == "1") put("_partial", true)
@@ -5680,7 +5672,7 @@ data class InstantEstimateDto(
  *  ждём слова водителя. `applied=false` без него — это превью, заказ не тронут. */
 /** Остановка по пути. С координатами: по ним строится маршрут и считается цена.
  *  `done` — уже проехали (её нельзя убрать, спорить не о чем). */
-data class TaxiStop(val lat: Double, val lng: Double, val text: String, val done: Boolean = false)
+data class TaxiStop(val lat: Double, val lng: Double, val text: String, val done: Boolean = false, val waypointId: String? = null)
 
 data class DestinationQuoteDto(
     val price: Int,
@@ -5897,6 +5889,7 @@ data class InstantOrderDto(
     // Остановки по пути и признак «сейчас стоим на остановке» (тикает ожидание).
     val stops: List<TaxiStop> = emptyList(),
     val standing: Boolean = false,
+    val stopControl: TaxiStopControl = TaxiStopControl.Legacy,
 ) {
     /** Полная цена поездки в копейках: фактическая, а до завершения — оценка. */
     val fullPriceKop: Int get() = (priceFinal ?: priceEstimate).coerceAtLeast(0) * 100
@@ -6034,11 +6027,12 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
         (0 until arr.length()).mapNotNull { i ->
             arr.optJSONObject(i)?.let {
                 TaxiStop(it.optDouble("lat"), it.optDouble("lng"),
-                         it.optString("text"), it.optBoolean("done", false))
+                         it.optString("text"), it.optBoolean("done", false), taxiStopId(it.opt("waypoint_id")))
             }
         }
     } ?: emptyList(),
     standing = optBoolean("standing", false),
+    stopControl = taxiStopControl(),
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */

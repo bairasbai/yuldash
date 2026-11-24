@@ -205,7 +205,7 @@ const Driver = await load(
     "components/TaxiDriverTripActions.tsx",
     [
       [/\/api\/client$/, `export class ApiError extends Error {}`],
-      [/\/api\/instant$/, `const call = (n) => (...a) => globalThis.__restExit.api(n, ...a); export const acceptDestination = call("accept"), ackPaymentMethod = call("ackPay"), ackDestination = call("ack"), declineDestination = call("decline"), toggleStop = call("stop");`],
+      [/\/api\/instant$/, `const call = (n) => (...a) => globalThis.__restExit.api(n, ...a); export const acceptDestination = call("accept"), ackPaymentMethod = call("ackPay"), ackDestination = call("ack"), declineDestination = call("decline"), toggleStop = call("stop"), commandTaxiStop = call("unexpectedStopCommand"), prepareTaxiStops = call("unexpectedStopPreparation");`],
       [/\/PayMethodPicker$/, `export const PAY_METHODS_OPEN = [{ code: "cash", ru: "Наличные", ba: "Наличный" }, { code: "sbp", ru: "СБП", ba: "СБП" }, { code: "negotiate", ru: "Договоримся", ba: "Килешәбеҙ" }];`],
     ],
     SHEET_EXIT
@@ -216,7 +216,7 @@ const Driver = await load(
 
 const Taxi = await load(
   "src/screens/InstantOrderScreen.tsx",
-  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {}`]], SHEET_EXIT)
+  autoStubs("screens/InstantOrderScreen.tsx", [[/\/api\/client$/, `export class ApiError extends Error {} export const getAccountSession=()=>null;`]], SHEET_EXIT)
 );
 
 // ---------------------------------------------------------------- 5. код вручения (посылки)

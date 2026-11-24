@@ -155,6 +155,25 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
 
 
 # ----------------------------- 3. Очередь «рядом никого» -----------------------------
+def recover_confirmed_dispatches(session: Session, dry_run: bool = False) -> list:
+    """Finish confirmed initial searches left pending by an interrupted API or worker."""
+    ids = session.exec(
+        select(InstantOrder.id).where(isv.pending_confirmed_dispatch())
+        .order_by(InstantOrder.created_at, InstantOrder.id).limit(200)
+    ).all()
+    if dry_run:
+        return list(ids)
+    finished = []
+    for order_id in ids:
+        try:
+            if isv.dispatch_confirmed_order(session, order_id):
+                finished.append(order_id)
+        except Exception as exc:
+            # dispatch_confirmed_order rolled back; a later pass can retry this row.
+            log.warning("[TAXI-WORKER] initial dispatch order=%s error=%s", order_id, type(exc).__name__)
+    return finished
+
+
 def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
     """Пассажир нажал «подождать» (wait_until в будущем) → тихо перезапускаем поиск.
 
@@ -413,6 +432,7 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
     # ---------- потом то, от чего зависит ЗАКАЗ ----------
     ("scheduled_activated", lambda s, d: activate_due_scheduled(s, d), []),
     ("stuck_closed", lambda s, d: close_stuck_orders(s, d), []),
+    ("consent_dispatches", lambda s, d: recover_confirmed_dispatches(s, d), []),
     ("waits_retried", lambda s, d: retry_waiting_orders(s, d), []),
     ("waits_finished", lambda s, d: finish_expired_waits(s, d), []),
     ("offers_advanced", lambda s, d: advance_stale_offers(s, d), []),
@@ -458,6 +478,7 @@ def main():
     labels = {
         "scheduled_activated": "предзаказов запущено",
         "stuck_closed": "зависших закрыто",
+        "consent_dispatches": "первых поисков обработано",
         "waits_retried": "поисков перезапущено",
         "waits_finished": "ожиданий завершено",
         "offers_advanced": "офферов сдвинуто",

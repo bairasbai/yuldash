@@ -19,7 +19,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 from typing import Optional
 
-from sqlalchemy import update
+from sqlalchemy import and_, update
 from sqlmodel import Session, select
 
 from sqlalchemy import func
@@ -32,6 +32,7 @@ from . import class_rollout
 from . import pricing
 from .livepos import livepos_get
 from . import promo_ride
+from . import taxi_stop_control as stop_control
 from .models import (
     Booking, BookingStatus, DriverCancel, DriverProfile, InstantOrder,
     InstantOrderStatus as S, OfferDecline, Tariff, TripShare, TrustedContact, User,
@@ -1033,8 +1034,11 @@ def parse_waypoints(raw: str) -> list[dict]:
     out = []
     for w in data if isinstance(data, list) else []:
         try:
-            out.append({"lat": float(w["lat"]), "lng": float(w["lng"]),
-                        "text": str(w.get("text", ""))[:200], "done": bool(w.get("done"))})
+            point = {"lat": float(w["lat"]), "lng": float(w["lng"]),
+                     "text": str(w.get("text", ""))[:200], "done": bool(w.get("done"))}
+            if (identity := stop_control.waypoint_id(w.get("waypoint_id"))) is not None:
+                point["waypoint_id"] = identity
+            out.append(point)
         except (KeyError, TypeError, ValueError):
             continue        # одна кривая точка не должна ронять весь маршрут
     return out
@@ -1890,6 +1894,8 @@ def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
     """Записать новый набор остановок и пересчитанную цену."""
     now = now or utcnow()
     order.waypoints_json = dump_waypoints(points)
+    if order.stop_route_revision is not None:
+        order.stop_route_revision = stop_control.new_revision()
     set_ride_price(order, int(quote["price"]), quote.get("base_price"))
     order.distance_km = float(quote["distance_km"])
     order.eta_min = float(quote["eta_min"])
@@ -1906,7 +1912,8 @@ def apply_waypoints(session: Session, order: InstantOrder, points: list[dict],
 
 
 def toggle_stop(session: Session, order: InstantOrder,
-                now: Optional[datetime] = None) -> InstantOrder:
+                now: Optional[datetime] = None, *,
+                kind: str | None = None, waypoint_id: str | None = None) -> InstantOrder:
     """«Стоим» ↔ «Поехали». Ожидание на остановке считается по общим правилам подачи.
 
     Тронулись — накопленное за эту стоянку уходит в общий счётчик ожидания заказа. Так
@@ -1915,9 +1922,15 @@ def toggle_stop(session: Session, order: InstantOrder,
     now = now or utcnow()
     if order.stop_started_at is None:
         order.stop_started_at = now
+        order.stop_wait_kind = kind
+        order.stop_active_waypoint_id = waypoint_id
+        if kind is not None or settings.taxi_stop_control_enabled or order.stop_wait_revision is not None:
+            order.stop_wait_revision = stop_control.new_revision()
     else:
         add_waiting_fee(order, order.stop_started_at, now)
         order.stop_started_at = None
+        for key, value in stop_control.close_fields(order).items():
+            setattr(order, key, value)
     session.add(order)
     session.commit()
     session.refresh(order)
@@ -2087,6 +2100,8 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
     if order.stop_started_at is not None:
         add_waiting_fee(order, order.stop_started_at, now)
         order.stop_started_at = None
+        for key, value in stop_control.close_fields(order).items():
+            setattr(order, key, value)
 
     order.status = S.done
     order.done_at = now
@@ -2641,9 +2656,9 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
 
     accept НЕ идемпотентен (idempotent=False): два одновременных accept → второму 409.
     Остальные переходы идемпотентны (двойной тап не ломает)."""
-    order = session.exec(
+    order = (stop_control.lock_order(session, order_id) if target == S.done else session.exec(
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
-    ).first()
+    ).first())
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
 
@@ -2678,6 +2693,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
             ожидание_коп = capped_waiting_kop(ожидание_коп, order.stop_started_at, now)
             values["waiting_fee_kop"] = ожидание_коп
             values["stop_started_at"] = None
+            values.update(stop_control.close_fields(order))
         if order.price_final is None:
             # Сурж уже в price_estimate (зафиксирован при создании); ожидание — целыми ₽ сверху.
             values["price_final"] = order.price_estimate + ожидание_коп // 100
@@ -3095,7 +3111,7 @@ def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = Tru
     return fresh
 
 
-def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> InstantOrder | None:
+def cancel_for_suspended_passenger(session: Session, order: InstantOrder, *, refresh_standing: bool = True) -> InstantOrder | None:
     """Пассажир на паузе (§2) → заказ не ищет машину. Отменяем и честно говорим почему.
     Не на паузе → None, вызывающий продолжает обычным путём.
 
@@ -3119,7 +3135,7 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
     """
     from .safety_logic import account_paused   # локальный импорт: safety_logic тянет services
     from . import quality as quality_mod
-    if account_paused(session, order.passenger_id):
+    if account_paused(session, order.passenger_id, refresh=refresh_standing):
         ru = ("Аккаунт на паузе до разбора — машину вызвать не получится. "
               "Причина и срок в Центре справедливости.")
         ba = ("Иҫәп тикшереүгә тиклем паузада — машина саҡырып булмай. "
@@ -3143,25 +3159,43 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
     return cancelled
 
 
-def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def _remember_offered_driver(r, order_id: int, driver_id: int) -> None:
+    try:
+        r.sadd(_tried_key(order_id), driver_id)
+        r.expire(_tried_key(order_id), 3600)
+    except Exception:  # Redis is only a cache of previously offered drivers.
+        pass
+
+
+def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *,
+                   first_deadline: datetime | None = None, previous_driver: int | None = None) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
-    stopped = cancel_for_suspended_passenger(session, order)
+    first_confirmed = first_deadline is not None
+    stopped = cancel_for_suspended_passenger(session, order, refresh_standing=not first_confirmed)
     if stopped is not None:
         return stopped
     r = _redis()
-    if r is None:
+    if r is None or order.search_round >= settings.instant_max_offers:
         return _expire_no_drivers(session, order, notify)
-    if order.search_round >= settings.instant_max_offers:
-        return _expire_no_drivers(session, order, notify)
-    cands = candidates(r, session, order, exclude=_tried_set(r, order.id))
+    # A historical process may have marked a driver before saving its first offer.
+    excluded = set() if first_confirmed else _tried_set(r, order.id)
+    if previous_driver is not None and previous_driver not in excluded:
+        # The first offer may have committed immediately before its Redis write.
+        _remember_offered_driver(r, order.id, previous_driver)
+        excluded.add(previous_driver)
+    cands = candidates(r, session, order, exclude=excluded)
     if not cands:
         return _expire_no_drivers(session, order, notify)
+    if first_confirmed:
+        from . import taxi as taxi_mod
+        # Candidate lookup can take time. Check the live gate before publishing,
+        # and base the deadline on admission, never on the time the worker woke.
+        if (not taxi_mod.availability(session, order.from_lat, order.from_lng)["enabled"]
+                or utcnow() >= first_deadline):
+            return _expire_no_drivers(session, order, notify)
     did = cands[0]
-    try:
-        r.sadd(_tried_key(order.id), did)
-        r.expire(_tried_key(order.id), 3600)
-    except Exception:  # noqa: BLE001
-        pass
+    if not first_confirmed:
+        _remember_offered_driver(r, order.id, did)
     now = utcnow()
     session.execute(
         update(InstantOrder)
@@ -3172,7 +3206,13 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
                 search_round=order.search_round + 1)
     )
     session.commit()
-    fresh = session.get(InstantOrder, order.id)
+    fresh = session.get(InstantOrder, order.id, populate_existing=True)
+    if first_confirmed:
+        # Only the winner publishes, after its offer is visible to driver polling.
+        if (fresh is None or fresh.status != S.offered or fresh.current_offer_driver_id != did
+                or fresh.offered_at != now or fresh.offer_expires_at <= utcnow()):
+            return fresh
+        _remember_offered_driver(r, fresh.id, did)
     _push_offer(session, fresh, did)
     return fresh
 
@@ -3283,6 +3323,45 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
 _MATCHABLE = (S.created, S.scheduled, S.searching, S.expired)
 
 
+def pending_confirmed_dispatch():
+    """A saved taxi-now order that has never reached a driver or a terminal outcome."""
+    return and_(
+        InstantOrder.consent_request_key.is_not(None),
+        InstantOrder.status.in_((S.created, S.searching)),
+        InstantOrder.scheduled_at.is_(None), InstantOrder.wait_until.is_(None),
+        InstantOrder.driver_id.is_(None), InstantOrder.current_offer_driver_id.is_(None),
+        InstantOrder.offered_at.is_(None), InstantOrder.offer_expires_at.is_(None),
+        InstantOrder.expired_at.is_(None), InstantOrder.cancelled_at.is_(None),
+        InstantOrder.search_round == 0, InstantOrder.retry_count == 0, InstantOrder.reassigns == 0,
+    )
+
+
+def dispatch_confirmed_order(session: Session, order_id: int) -> bool:
+    """Finish the first search once. A crash before its outcome releases the SQL claim."""
+
+    try:
+        claim = session.execute(
+            update(InstantOrder).where(InstantOrder.id == order_id, pending_confirmed_dispatch())
+            .values(status=S.searching, searching_at=func.coalesce(InstantOrder.searching_at, utcnow()))
+            .execution_options(synchronize_session=False)
+        )
+        if not claim.rowcount:
+            session.rollback()
+            return False
+        order = session.get(InstantOrder, order_id, populate_existing=True)
+        # A taxi requested "now" must not arrive hours after a server outage.
+        search_budget = timedelta(seconds=settings.instant_max_offers * settings.instant_offer_ttl_sec)
+        deadline = order.created_at + search_budget
+        if utcnow() >= deadline:
+            _expire_no_drivers(session, order)
+        else:
+            try_offer_next(session, order, first_deadline=deadline)
+        return True
+    except Exception:
+        session.rollback()
+        raise
+
+
 def start_matching(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """created → searching → (offered | expired). Зовётся при создании заказа и при
     перезапуске поиска из очереди «рядом никого» (там notify=False — см. _expire_no_drivers).
@@ -3309,22 +3388,26 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     return try_offer_next(session, order, notify)
 
 
-def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True, *,
+                            expected_offer: tuple[int | None, datetime | None] | None = None) -> InstantOrder:
     """Оффер отклонён/протух → назад в searching → следующий кандидат.
 
     Условие `status = offered` — то же CAS, что в `start_matching`: без него протухший оффер
     из фоновой пачки воскрешал заказ, который водитель уже принял (заказ отбирался у него
     посреди подачи) или который пассажир уже отменил."""
+    previous_driver, previous_expiry = expected_offer or (order.current_offer_driver_id, order.offer_expires_at)
     result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status == S.offered)
+        .where(InstantOrder.id == order.id, InstantOrder.status == S.offered,
+               InstantOrder.current_offer_driver_id == previous_driver,
+               InstantOrder.offer_expires_at == previous_expiry)
         .values(status=S.searching, current_offer_driver_id=None, offer_expires_at=None)
     )
     session.commit()
     order = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
         return order        # заказ уже не в оффере (принят/отменён/закрыт) — не трогаем
-    return try_offer_next(session, order, notify)
+    return try_offer_next(session, order, notify, previous_driver=previous_driver)
 
 
 def reconcile_offer(session: Session, order: InstantOrder) -> InstantOrder:
@@ -3343,6 +3426,7 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
     if order.status != S.offered or order.current_offer_driver_id != driver_id:
         # оффер уже не актуален (принят/протух/отдан другому) — не ошибка
         return order
+    expected_offer = (driver_id, order.offer_expires_at)
     if reason:
         # Журнал причин (разбор №2). Пишем ДО перехода, но отдельным try: сорвавшаяся запись
         # статистики не должна мешать водителю отказаться — отказ важнее аналитики.
@@ -3351,7 +3435,7 @@ def decline_offer(session: Session, order_id: int, driver_id: int, reason: str =
             session.commit()
         except Exception:  # noqa: BLE001
             session.rollback()
-    return advance_after_no_accept(session, order)
+    return advance_after_no_accept(session, order, expected_offer=expected_offer)
 
 
 # ============================ Push / приватность ============================
@@ -3830,6 +3914,9 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
                     round(offer_pickup_km / max(settings.instant_avg_speed_kmh, 1.0) * 60),
                 )
 
+    show_stop_control = order.status == S.onboard and (
+        settings.taxi_stop_control_enabled or stop_control.explicit_wait_active(order)
+    )
     return {
         "id": order.id,
         "status": order.status.value,
@@ -3901,8 +3988,12 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         # Поездку завершил водитель досрочно и почему — пассажир должен видеть причину словами.
         "early_finish_reason": order.early_finish_reason or "",
         # Остановки: пассажир видит свой маршрут, водитель — куда заезжать.
-        "stops": parse_waypoints(order.waypoints_json),
+        "stops": [point if show_stop_control else
+                  {key: value for key, value in point.items() if key != "waypoint_id"}
+                  for point in parse_waypoints(order.waypoints_json)],
         "standing": order.stop_started_at is not None,
+        **({"stop_control": stop_control.payload(order, admission_enabled=settings.taxi_stop_control_enabled)}
+           if show_stop_control else {}),
         # Промокод: скидку оплачивает платформа, но ЗНАТЬ о ней должны обе стороны — иначе
         # водитель попросит полную сумму, а пассажир будет уверен, что платит со скидкой.
         # passenger_price_kop — сколько человек реально отдаёт водителю (цена минус скидка).

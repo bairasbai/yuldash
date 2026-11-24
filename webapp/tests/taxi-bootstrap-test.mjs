@@ -19,7 +19,9 @@ mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(t
 mocks['../i18n/lang']=`export const useLang=()=>({lang:'ru',appText:globalThis.__taxiBoot.appText});`;
 mocks['../features']=`export const useFeatures=()=>({taxi:globalThis.__taxiBoot.taxi!==false,ready:true});`;
 mocks['react-router-dom']=`export const useNavigate=()=>()=>{};`;
-mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`;
+mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}} export const getAccountSession=()=>null;`;
+mocks['../api/taxiConsent']=`export const localTaxiConsentContext=()=>globalThis.__taxiBoot.consentContext;
+export const localTaxiConsentGeneration=()=>'';`;
 mocks['../api/instant']+=`
 export const fetchMyOrders=(...args)=>{const h=globalThis.__taxiBoot;h.orderCalls++;return h.orders();};
 export const fetchTaxiAvailability=()=>{const h=globalThis.__taxiBoot;h.availabilityCalls++;return h.availability();};`;
@@ -38,6 +40,15 @@ async function check(name,fn){total++;const h=globalThis.__taxiBoot={slots:[],cu
  Object.defineProperty(globalThis,'navigator',{configurable:true,value:{geolocation:{getCurrentPosition:(yes,no)=>{h.gps={yes,no};}}}});globalThis.window={setInterval:()=>1,clearInterval:()=>{}};
  try{await fn(h);console.log('PASS '+name);}catch(e){failed++;console.error('FAIL '+name+'\n'+e.stack);}}
 async function start(h,geo=false){await settle(h);geo?h.gps.yes({coords:{latitude:54,longitude:55}}):h.gps.no();await settle(h);}
+await check('invalid local pilot cannot read GPS or contact the configured taxi API', async h => {
+ h.consentContext = {requested:true, environment:null};
+ await settle(h);
+ assert.equal(h.gps, null);
+ assert.equal(h.orderCalls, 0);
+ assert.equal(h.availabilityCalls, 0);
+ assert.equal(screen(h, 'ComposeView'), undefined);
+ assert.match(text(h.tree), /Локальный режим/);
+});
 await check('orders outage does not offer a duplicate new order',async h=>{h.orders=async()=>{throw Error('offline');};await start(h);assert.equal(screen(h,'ComposeView'),undefined);assert.match(text(h.tree),/Не получилось/);assert.equal(h.availabilityCalls,0);});
 await check('availability outage is a retryable error, not a closed city',async h=>{h.availability=async()=>{throw Error('offline');};await start(h);assert.doesNotMatch(text(h.tree),/Такси скоро/);assert.match(text(h.tree),/Не получилось/);});
 await check('retry restores the existing trip instead of creating another',async h=>{h.orders=async()=>{throw Error('offline');};await start(h);h.orders=async()=>[{id:42,status:'accepted'}];const retry=nodes(h.tree).find(n=>n.type==='button'&&text(n)==='Повторить');assert.ok(retry);retry.props.onClick();await settle(h);h.gps.no();await settle(h);assert.equal(screen(h,'TrackingView')?.props.order.id,42);assert.equal(h.availabilityCalls,0);});

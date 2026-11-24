@@ -2,6 +2,7 @@ import { Suspense, useEffect, useState, type ReactNode } from "react";
 import { matchPath, Navigate, Outlet, Route, Routes, useLocation, useNavigate } from "react-router-dom";
 import BottomNav from "./components/BottomNav";
 import ActiveTaxiBar from "./components/ActiveTaxiBar";
+import { localTaxiConsentContext } from "./api/taxiConsent";
 import InstallPrompt from "./components/InstallPrompt";
 import OfflineBanner from "./components/OfflineBanner";
 import RequireAuth from "./components/RequireAuth";
@@ -147,6 +148,7 @@ const WalletScreen = lazyScreen(() => import("./screens/WalletScreen"));
 
 /** Оболочка с нижней навигацией — для «вкладочных» экранов. */
 function Shell() {
+  const pilot = localTaxiConsentContext();
   const taxiOrderOnScreen = useTaxiOrderOnScreen();
   const { pathname } = useLocation();
   const { status, user } = useAuth();
@@ -179,7 +181,10 @@ function Shell() {
       {/* Отметка из очереди («Выехал» без сети), которую сервер потом отклонил, — не молчим. */}
       <OutboxRefusalBanner />
       <main className="app-main">
-        <ActiveTaxiBar visible={onMainTab && !taxiOrderOnScreen} />
+        {/* На локальном экране такси историю читает сам экран после проверки сохранённой попытки. */}
+        {(!pilot.requested || (pilot.environment && !matchPath("/taxi", pathname))) && (
+          <ActiveTaxiBar visible={onMainTab && !taxiOrderOnScreen} />
+        )}
         {/* Экран из отдельного куска ещё летит — показываем скелетон,
             а навигация остаётся на месте: моргает только контент. */}
         <Suspense fallback={<LoadingList count={3} />}>
@@ -547,7 +552,7 @@ export default function App() {
           element={
             <TaxiGuestGate>
               <RequireAuth>
-                <InstantOrderScreen />
+                <InstantOrderScreen key={getSessionGeneration()} />
               </RequireAuth>
             </TaxiGuestGate>
           }
