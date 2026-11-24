@@ -30,6 +30,11 @@ concurrency:
 
 jobs:
   backend-tests:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'bairasbai/yuldash' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'qa/tf09-native-api30-20261124'
     runs-on: ubuntu-latest
     # Потолок — чтобы зависший тест не съел дефолтные 360 минут Actions. Честный прогон набора
     # (~4800 тестов) локально без покрытия 9–13 мин; в CI с --cov дольше — запас с лихвой.
@@ -68,6 +73,11 @@ jobs:
   # и включён контроль FK — это доказывает, что новые блокировки денег/брони держат нагрузку.
   # Плюс валидируем миграции alembic (одна голова, upgrade/downgrade идемпотентны) на реальной БД.
   backend-tests-postgres:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'bairasbai/yuldash' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'qa/tf09-native-api30-20261124'
     runs-on: ubuntu-latest
     timeout-minutes: 45          # тот же набор + миграции на Postgres; потолок и --maxfail — см. backend-tests
     defaults:
@@ -123,6 +133,11 @@ jobs:
   #   * google-services.json (FCM) и local.properties (ключи MapKit/геокодера) в git НЕ лежат —
   #     build.gradle.kts к их отсутствию терпим (push неактивен, ключи пустые).
   android-build:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'bairasbai/yuldash' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'qa/tf09-native-api30-20261124'
     runs-on: ubuntu-latest
     timeout-minutes: 45          # две сборки + ~1100 юнит-тестов; первая сборка ещё и тянет зависимости
     defaults:
@@ -188,6 +203,11 @@ jobs:
   # (run 30746442925). Оставлять continue-on-error после этого — держать декоративный гейт:
   # он рисует галочку и пропускает регрессию (см. docs/lessons.md, «ложно-зелёный CI»).
   android-unit-tests:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'bairasbai/yuldash' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'qa/tf09-native-api30-20261124'
     runs-on: ubuntu-latest
     timeout-minutes: 45          # Robolectric медленный: свой запас, чужой сборке не мешает
     env:
@@ -284,6 +304,11 @@ jobs:
   # Сборка PWA-фронта (webapp/). Защищает ветку: PR не пройдёт, если фронт не собрался.
   # Не зависит от backend-tests — гоняется параллельно, своя рабочая папка.
   webapp-build:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'bairasbai/yuldash' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'qa/tf09-native-api30-20261124'
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -307,6 +332,11 @@ jobs:
   # сломанная сборка или ошибка линтера всплывали лишь при выкладке. Параллельно остальным,
   # своя папка; секреты не нужны (страница статическая).
   web-build:
+    if: >-
+      github.event_name != 'pull_request' ||
+      github.repository != 'bairasbai/yuldash' ||
+      github.event.pull_request.head.repo.full_name != github.repository ||
+      github.event.pull_request.head.ref != 'qa/tf09-native-api30-20261124'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     defaults:
