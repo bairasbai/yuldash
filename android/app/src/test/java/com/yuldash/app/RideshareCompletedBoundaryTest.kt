@@ -317,6 +317,12 @@ class RideshareCompletedBoundaryTest {
         findWhenReady("Сумма к оплате")
         findWhenReady("Подтвердить оплату", actionable = true).performClick()
         findWhenReady("Проверяем, принято ли подтверждение.")
+        // Pending is rendered after durable reservation, before the transport records the request.
+        compose.waitUntil(12_000) {
+            compose.mainClock.advanceTimeBy(100)
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            posts() > 0
+        }
         assertEquals(1, posts())
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()

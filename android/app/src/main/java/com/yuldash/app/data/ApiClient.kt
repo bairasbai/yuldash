@@ -1300,6 +1300,10 @@ object ApiClient {
         idempotencyKey: String? = null): Result<JSONObject> =
         call(method, path, body, auth = true, expectedGeneration = owner, idempotencyKey = idempotencyKey, singleAttemptMutation = oneShot)
 
+    internal suspend fun taxiStopRequest(path: String, owner: Long, post: Boolean, body: JSONObject? = null) =
+        call(if (post) "POST" else "GET", path, body, auth = true, expectedGeneration = owner,
+            singleAttemptMutation = post, retryOnNetwork = !post, freshRead = !post, withoutAuthReplay = post)
+
     /** Ключ повтора SOS/«застрял» ([SafetyApi]) — только во входе [owner]; null — вход сменился или его нет. */
     internal fun prepareSafetyIntent(owner: Long, body: JSONObject, scope: String): String? =
         synchronized(sessionLock) { if (isCurrentSession(owner)) sosRetryIntent.prepare(body, scope) else null }
@@ -2573,11 +2577,6 @@ object ApiClient {
     // Отдельный поток от плановых поездок (Ride/Booking) — те не трогаем. Приватность: телефоны/имя
     // стороны сервер отдаёт пустыми до accept. Координаты heartbeat НЕ логируем.
 
-    /** Остановки в тело запроса. Пустой список не шлём — лишний шум. */
-    private fun stopsArray(stops: List<TaxiStop>): JSONArray = JSONArray().apply {
-        stops.forEach { put(JSONObject().put("lat", it.lat).put("lng", it.lng).put("text", it.text)) }
-    }
-
     private fun instantBody(
         fromLat: Double, fromLng: Double, toLat: Double, toLng: Double,
         fromText: String, toText: String, category: String,
@@ -2914,14 +2913,6 @@ object ApiClient {
                 waitingDriver = false,
             )
         }
-
-    /** Водитель отмечает «Стоим» на остановке и «Поехали», когда тронулся.
-     *
-     *  Кнопкой, а не автоматом по координатам: машина, застрявшая в пробке у светофора рядом
-     *  с остановкой, начала бы «зарабатывать» сама. */
-    suspend fun toggleStop(orderId: Int): Result<Boolean> =
-        call("POST", "/instant/orders/$orderId/stop", null, auth = true)
-            .map { it.optBoolean("standing", false) }
 
     /** Водитель: «Понял, вижу новый адрес». Снимает с пассажира тревогу «а он вообще знает?». */
     suspend fun ackDestination(orderId: Int): Result<InstantOrderDto> =
@@ -5681,7 +5672,7 @@ data class InstantEstimateDto(
  *  ждём слова водителя. `applied=false` без него — это превью, заказ не тронут. */
 /** Остановка по пути. С координатами: по ним строится маршрут и считается цена.
  *  `done` — уже проехали (её нельзя убрать, спорить не о чем). */
-data class TaxiStop(val lat: Double, val lng: Double, val text: String, val done: Boolean = false)
+data class TaxiStop(val lat: Double, val lng: Double, val text: String, val done: Boolean = false, val waypointId: String? = null)
 
 data class DestinationQuoteDto(
     val price: Int,
@@ -5898,6 +5889,7 @@ data class InstantOrderDto(
     // Остановки по пути и признак «сейчас стоим на остановке» (тикает ожидание).
     val stops: List<TaxiStop> = emptyList(),
     val standing: Boolean = false,
+    val stopControl: TaxiStopControl = TaxiStopControl.Legacy,
 ) {
     /** Полная цена поездки в копейках: фактическая, а до завершения — оценка. */
     val fullPriceKop: Int get() = (priceFinal ?: priceEstimate).coerceAtLeast(0) * 100
@@ -6035,11 +6027,12 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
         (0 until arr.length()).mapNotNull { i ->
             arr.optJSONObject(i)?.let {
                 TaxiStop(it.optDouble("lat"), it.optDouble("lng"),
-                         it.optString("text"), it.optBoolean("done", false))
+                         it.optString("text"), it.optBoolean("done", false), taxiStopId(it.opt("waypoint_id")))
             }
         }
     } ?: emptyList(),
     standing = optBoolean("standing", false),
+    stopControl = taxiStopControl(),
 )
 
 /** Мои предзаказы «на время»: ещё ждут (scheduled) + активированные ко времени (activated). */
