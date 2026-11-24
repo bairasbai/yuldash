@@ -11,6 +11,7 @@ import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.performScrollTo
 import com.yuldash.app.data.InstantOrderDto
 import com.yuldash.app.data.TaxiStop
+import com.yuldash.app.data.TripPassAuthorityFixture
 import com.yuldash.app.data.ApiClient
 import android.content.ContextWrapper
 import android.content.Intent
@@ -22,6 +23,7 @@ import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import java.util.concurrent.CopyOnWriteArrayList
+import java.util.concurrent.TimeUnit
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -166,15 +168,44 @@ class AuditDelta01OnboardControlsTest {
         assertReachable("Понял")
     }
 
+    private fun assertLegacyWaitAction(label: String, standingAfter: Boolean) {
+        server.enqueue(MockResponse().setBody("""{"ok":true}"""))
+        server.enqueue(MockResponse().setBody("""{
+            "id":7001,"role":"driver","status":"onboard","standing":$standingAfter,
+            "stops":[{"lat":54.05,"lng":55.05,"text":"Аптека","done":false}]
+        }""".trimIndent()))
+        assertReachable(label)
+        compose.onNodeWithText(label).performClick()
+        val updated = if (standingAfter) "Поехали" else "Стоим"
+        // Pump the paused main looper so the POST continuation can launch its owner GET.
+        compose.waitUntil(10_000) { compose.onAllNodesWithText(updated).fetchSemanticsNodes().isNotEmpty() }
+        assertReachable(updated)
+        val expectedBearer = "Bearer " + TripPassAuthorityFixture.jwt(2)
+        val write = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertEquals("POST", write.method)
+        assertEquals("/instant/orders/7001/stop", write.path)
+        assertEquals(0L, write.bodySize)
+        assertEquals(expectedBearer, write.getHeader("Authorization"))
+        val read = requireNotNull(server.takeRequest(1, TimeUnit.SECONDS))
+        assertEquals("GET", read.method)
+        assertEquals("/instant/orders/7001", read.path)
+        assertEquals(expectedBearer, read.getHeader("Authorization"))
+        assertEquals(2, server.requestCount)
+    }
+
     @Test
     fun `onboard stop can start waiting`() {
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build()
+            .toString().trimEnd('/'), userId = 2)
         show(order().copy(stops = listOf(TaxiStop(54.05, 55.05, "Аптека"))))
 
-        assertReachable("Стоим")
+        assertLegacyWaitAction("Стоим", standingAfter = true)
     }
 
     @Test
     fun `onboard stop can finish waiting`() {
+        TripPassAuthorityFixture.installSession(server.url("/").newBuilder().host("127.0.0.1").build()
+            .toString().trimEnd('/'), userId = 2)
         show(
             order().copy(
                 stops = listOf(TaxiStop(54.05, 55.05, "Аптека")),
@@ -182,6 +213,6 @@ class AuditDelta01OnboardControlsTest {
             ),
         )
 
-        assertReachable("Поехали")
+        assertLegacyWaitAction("Поехали", standingAfter = false)
     }
 }

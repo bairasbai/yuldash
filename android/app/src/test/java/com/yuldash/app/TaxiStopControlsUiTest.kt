@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
@@ -333,8 +334,10 @@ class TaxiStopControlsUiTest {
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
                 YuldashTheme {
-                    TaxiPassengerStopRows(order, "Туҡталышты алыу",
-                        onReplaceStop = { changes += "replace" to it }, onRemoveStop = { changes += "remove" to it })
+                    Column {
+                        TaxiPassengerStopRows(order, "Туҡталышты алыу",
+                            onReplaceStop = { changes += "replace" to it }, onRemoveStop = { changes += "remove" to it })
+                    }
                 }
             }
         }
@@ -352,7 +355,7 @@ class TaxiStopControlsUiTest {
         val removes = mutableListOf<Int>()
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                YuldashTheme { TaxiPassengerStopRows(order, "Убрать остановку") { removes += it } }
+                YuldashTheme { Column { TaxiPassengerStopRows(order, "Убрать остановку") { removes += it } } }
             }
         }
         compose.onNodeWithText("Водитель ждёт").assertIsDisplayed()

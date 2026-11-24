@@ -2914,14 +2914,6 @@ object ApiClient {
             )
         }
 
-    /** Водитель отмечает «Стоим» на остановке и «Поехали», когда тронулся.
-     *
-     *  Кнопкой, а не автоматом по координатам: машина, застрявшая в пробке у светофора рядом
-     *  с остановкой, начала бы «зарабатывать» сама. */
-    suspend fun toggleStop(orderId: Int): Result<Boolean> =
-        call("POST", "/instant/orders/$orderId/stop", null, auth = true)
-            .map { it.optBoolean("standing", false) }
-
     /** Водитель: «Понял, вижу новый адрес». Снимает с пассажира тревогу «а он вообще знает?». */
     suspend fun ackDestination(orderId: Int): Result<InstantOrderDto> =
         call("POST", "/instant/orders/$orderId/destination/ack", null, auth = true)
