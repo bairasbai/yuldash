@@ -193,11 +193,53 @@ jobs:
     env:
       # MockWebServer tests set their own origin. Any unbound call must fail on loopback.
       YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:1
+      TF09_QA_LANE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.ref == 'qa/tf09-android-diagnostic-20261124' }}
     defaults:
       run:
         working-directory: android
     steps:
       - uses: actions/checkout@v4
+        if: env.TF09_QA_LANE != 'true'
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2, same proof as #392
+        if: env.TF09_QA_LANE == 'true'
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 2
+          persist-credentials: false
+      - name: Verify immutable TF09 diagnostic source
+        if: env.TF09_QA_LANE == 'true'
+        working-directory: .
+        shell: bash
+        env:
+          QA_HEAD: ${{ github.event.pull_request.head.sha }}
+          QA_BASE: a11244a0ddfddaa8804bb03c209ab135a16b9a8d
+          QA_ALLOWED: >-
+            ${{ github.repository == 'bairasbai/yuldash' &&
+                github.actor == 'bairasbai' &&
+                github.event.action == 'opened' &&
+                github.event.pull_request.base.repo.full_name == 'bairasbai/yuldash' &&
+                github.event.pull_request.head.repo.full_name == 'bairasbai/yuldash' &&
+                github.event.pull_request.base.ref == 'qa/taxi-protected-wait-android-20261124' &&
+                github.event.pull_request.base.sha == 'a11244a0ddfddaa8804bb03c209ab135a16b9a8d' &&
+                github.event.repository.default_branch != 'qa/taxi-protected-wait-android-20261124' &&
+                github.event.pull_request.draft == true }}
+          GIT_NO_LAZY_FETCH: '1'
+          GIT_NO_REPLACE_OBJECTS: '1'
+        run: |
+          set -Eeuo pipefail
+          trap 'printf "%s\n" "::error title=TF09 Android diagnostic::immutable source preflight refused"' ERR
+          [[ "$QA_ALLOWED" == true && "$QA_HEAD" =~ ^[0-9a-f]{40}$ ]]
+          [[ "$(git rev-list --parents -n 1 HEAD)" == "$QA_HEAD $QA_BASE" ]]
+          [[ "$(git rev-parse "$QA_BASE^{tree}")" == 30336aca16cc2d7a0a1b9b819d883134ccd0e3ab ]]
+          expected=$'A\t.github/scripts/tf09_android_diagnostic.py\nM\t.github/workflows/ci.yml'
+          [[ "$(git diff --no-renames --name-status "$QA_BASE" "$QA_HEAD")" == "$expected" ]]
+          sha256sum --check --status <<'SHA256'
+          245222a4ee2aa5f9ddfd62d410ce9310321b2921c7fa4d59afba8e7ce6a2801b  .github/scripts/tf09_android_diagnostic.py
+          SHA256
+          for path in android/local.properties android/app/google-services.json; do
+            [[ ! -e "$path" && ! -L "$path" ]]
+          done
+          printf 'TF09_QA_VERIFIED=%s\n' "$QA_BASE" >> "$GITHUB_ENV"
       - uses: actions/setup-java@v4
         with:
           # ЗДЕСЬ 21, а в сборке APK — 17, и это не описка.
@@ -219,13 +261,17 @@ jobs:
       # build.gradle.kts, не проверялся вообще — то есть «храповик» держался только на том,
       # что кто-то вспомнит запустить его руками. Гейт, который никто не гоняет, не гейт.
       - name: Тесты экранов + порог покрытия (Robolectric + Compose + JaCoCo)
+        if: env.TF09_QA_LANE != 'true'
         run: chmod +x ./gradlew && ./gradlew :app:jacocoCoverageVerification --no-daemon --stacktrace
+      - name: TF09 Android diagnostic (same tests + coverage gate)
+        if: env.TF09_QA_LANE == 'true'
+        run: python3 -B ../.github/scripts/tf09_android_diagnostic.py
       # Имя упавшего теста — В ЛОГ, а не только в артефакт (аудит 2026-08-06).
       # Артефакт надо скачать и распаковать; при разборе из чата или CLI это недоступно, а Gradle
       # со --stacktrace печатает двести строк своих внутренностей и ни одного имени теста. Красный
       # шаг превращался в гадание: «упало что-то из полутора тысяч». Здесь — имя и сообщение.
       - name: Какие тесты упали (если упали)
-        if: failure()
+        if: failure() && env.TF09_QA_LANE != 'true'
         working-directory: android
         run: |
           python3 - <<'PY'
@@ -254,7 +300,7 @@ jobs:
           PY
       # Отчёт нужен именно при падении: по нему видно, какой тест и на чём упал.
       - name: Отчёт о тестах (даже если упали)
-        if: always()
+        if: always() && env.TF09_QA_LANE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-unit-test-report
@@ -263,7 +309,7 @@ jobs:
       # Отчёт о покрытии — чтобы при падении порога было видно, ЧТО именно перестало покрываться,
       # а не только «стало ниже планки».
       - name: Отчёт о покрытии (даже если упал порог)
-        if: always()
+        if: always() && env.TF09_QA_LANE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-coverage-report
@@ -273,7 +319,7 @@ jobs:
       # больше 45 минут без единого упавшего теста. Файл пишется по ходу прогона, поэтому
       # выкладывается и при обрыве по лимиту — по нему видно, не кончилась ли память.
       - name: Журнал сборщика мусора тестов (даже при обрыве)
-        if: always()
+        if: always() && env.TF09_QA_LANE != 'true'
         uses: actions/upload-artifact@v4
         with:
           name: android-test-gc-log
