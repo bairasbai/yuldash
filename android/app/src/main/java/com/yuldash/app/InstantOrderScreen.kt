@@ -6896,7 +6896,12 @@ internal fun InstantDriverTripScreen(
 ) {
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
+    val stopOwner = remember(orderId) { ApiClient.queueSessionGeneration() }
     var order by remember(orderId, initialOrder) { mutableStateOf(initialOrder) }
+    var stopReadEpoch by remember(orderId) { mutableIntStateOf(0) }
+    fun publishStopOrder(fresh: InstantOrderDto) {
+        if (order?.id == fresh.id && order?.status == "onboard") { stopReadEpoch++; order = fresh }
+    }
     var loading by remember(orderId, initialOrder) { mutableStateOf(initialOrder == null) }
     var busy by remember { mutableStateOf(false) }
     var confirmNoShow by remember { mutableStateOf(false) }
@@ -6918,8 +6923,9 @@ internal fun InstantDriverTripScreen(
             return@LaunchedEffect
         }
         loading = true; loadError = false
-        ApiClient.getInstantOrder(orderId)
-            .onSuccess { order = it }
+        val epoch = stopReadEpoch
+        ApiClient.getInstantOrder(orderId, expectedGeneration = stopOwner)
+            .onSuccess { if (epoch == stopReadEpoch) order = it }
             .onFailure { e -> loadError = (e as? ApiException)?.status?.let { it >= 500 } ?: true }
         loading = false
     }
@@ -6931,11 +6937,15 @@ internal fun InstantDriverTripScreen(
     // Первичная загрузка осталась выше отдельно: иначе при каждом возврате мигал бы спиннер.
     RepeatWhileVisible(orderId, reloadTick, observeRemote) {
         if (!observeRemote) return@RepeatWhileVisible
-        ApiClient.getInstantOrder(orderId).onSuccess { order = it }
+        suspend fun poll() {
+            val epoch = stopReadEpoch
+            ApiClient.getInstantOrder(orderId, expectedGeneration = stopOwner).onSuccess { if (epoch == stopReadEpoch) order = it }
+        }
+        poll()
         while (isActive) {
             if (order?.status == "done" || order?.status == "cancelled" || order?.status == "expired") break
             delay(5_000)
-            ApiClient.getInstantOrder(orderId).onSuccess { order = it }
+            poll()
         }
     }
 
@@ -7001,9 +7011,6 @@ internal fun InstantDriverTripScreen(
     }
     val acknowledgePayment: (InstantOrderDto) -> Unit = { ord ->
         scope.launch { ApiClient.ackPaymentMethod(ord.id) }
-    }
-    val toggleStop: (InstantOrderDto) -> Unit = { ord ->
-        scope.launch { ApiClient.toggleStop(ord.id) }
     }
 
     Scaffold(
@@ -7072,7 +7079,8 @@ internal fun InstantDriverTripScreen(
                             onDestinationAccept = { acceptDestination(current) },
                             onDestinationDecline = { reason -> declineDestination(current, reason) },
                             onPaymentAck = { acknowledgePayment(current) },
-                            onStopToggle = { toggleStop(current) },
+                            stopOwner = stopOwner,
+                            onStopOrder = ::publishStopOrder,
                         )
                     },
                     mapContent = mapContent,
@@ -7114,7 +7122,8 @@ internal fun InstantDriverTripScreen(
                                 onDestinationAccept = { acceptDestination(current) },
                                 onDestinationDecline = { reason -> declineDestination(current, reason) },
                                 onPaymentAck = { acknowledgePayment(current) },
-                                onStopToggle = { toggleStop(current) },
+                                stopOwner = stopOwner,
+                                onStopOrder = ::publishStopOrder,
                             )
                             // Пассажир + телефон (после accept)
                             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -7837,7 +7846,8 @@ private fun DriverMutableTripControls(
     onDestinationAccept: () -> Unit,
     onDestinationDecline: (String) -> Unit,
     onPaymentAck: () -> Unit,
-    onStopToggle: () -> Unit,
+    stopOwner: Long,
+    onStopOrder: (InstantOrderDto) -> Unit,
 ) {
     DriverDestinationCard(
         order = order,
@@ -7880,7 +7890,7 @@ private fun DriverMutableTripControls(
             }
         }
     }
-    DriverStopButton(order = order, onToggle = onStopToggle)
+    TaxiDriverStopControls(order, stopOwner, onStopOrder)
 }
 
 /** «Стоим» / «Поехали» — водитель отмечает стоянку на остановке.
@@ -7889,16 +7899,17 @@ private fun DriverMutableTripControls(
  *  с остановкой, начала бы «зарабатывать» сама, а разбираться пришлось бы пассажиру.
  *  Нажал — оба видят, что счётчик пошёл. Правила те же, что при подаче. */
 @Composable
-internal fun DriverStopButton(
+internal fun LegacyDriverStopButton(
     order: com.yuldash.app.data.InstantOrderDto,
     onToggle: () -> Unit,
+    enabled: Boolean,
 ) {
     if (order.status != "onboard" || order.stops.isEmpty()) return
     val standing = order.standing
     Surface(
         color = if (standing) CanonWarnBg else CanonMint,
         shape = CanonItemShape,
-        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(onClick = onToggle),
+        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(enabled = enabled, onClick = onToggle),
     ) {
         Row(
             Modifier.fillMaxWidth().padding(horizontal = CanonSpace.md),

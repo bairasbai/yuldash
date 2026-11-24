@@ -37,9 +37,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.DirectionsWalk
-import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.ChatBubble
-import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.DarkMode
 import androidx.compose.material.icons.filled.KeyboardArrowDown
 import androidx.compose.material.icons.filled.KeyboardArrowRight
@@ -48,7 +46,6 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Phone
 import androidx.compose.material.icons.filled.Place
 import androidx.compose.material.icons.filled.Shield
-import androidx.compose.material.icons.filled.SwapHoriz
 import androidx.compose.material.icons.filled.Verified
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -83,6 +80,16 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import com.yandex.mapkit.geometry.Point
+import com.yuldash.app.data.ApiException
+import com.yuldash.app.data.TaxiStopControl
+import com.yuldash.app.data.canEditTaxiStopsById
+import com.yuldash.app.data.canResolveTaxiStopEdit
+import com.yuldash.app.data.changeTaxiStopsOnce
+import com.yuldash.app.data.hasAdvancedTaxiStopEdit
+import com.yuldash.app.data.sameStopSnapshot
+import com.yuldash.app.data.taxiStopEditDefinitivelyRefused
+import com.yuldash.app.data.taxiStopEditReceipt
+import com.yuldash.app.data.readTaxiStopOrder
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.InstantOrderDto
 import kotlinx.coroutines.delay
@@ -178,20 +185,63 @@ private fun TaxiTripContent(
         ApiClient.runIfCurrentSession(generation) { if (isCurrentAction()) action() }
     }
     var routeBusy by remember { mutableStateOf(false) }
-    fun changeStops(stops: List<com.yuldash.app.data.TaxiStop>, expectedStops: List<com.yuldash.app.data.TaxiStop>) {
+    var routeConflict by remember { mutableStateOf<String?>(null) }
+    var unresolvedStopEdit by remember { mutableStateOf<Pair<InstantOrderDto, Boolean>?>(null) }
+    suspend fun refreshStopEdit(before: InstantOrderDto, mustAdvance: Boolean, code: String?, receipt: InstantOrderDto? = null) {
+        val fresh = readTaxiStopOrder(target, generation).getOrNull()
+        commit {
+            if (fresh != null && canResolveTaxiStopEdit(before, currentOrder, fresh, mustAdvance)) {
+                unresolvedStopEdit = null
+                if (currentOrder.sameStopSnapshot(before)) onOrderUpdated(fresh)
+            } else unresolvedStopEdit = before to mustAdvance
+            routeConflict = code ?: if (unresolvedStopEdit != null || receipt != null &&
+                (fresh == null || !receipt.sameStopSnapshot(fresh))) "" else null
+        }
+    }
+    fun changeStops(stops: List<com.yuldash.app.data.TaxiStop>, expected: InstantOrderDto) {
+        fun mayEdit() = isCurrentAction() && currentOrder.sameStopSnapshot(expected) && canEditTaxiStops(currentOrder, stops)
         var accepted = false
         commit {
-            if (!routeBusy && currentOrder.stops == expectedStops) { routeBusy = true; accepted = true }
+            if (!routeBusy && unresolvedStopEdit == null && mayEdit()) { routeBusy = true; routeConflict = null; accepted = true }
         }
-        if (!accepted) return
+        if (!accepted) {
+            if (!routeBusy && unresolvedStopEdit == null && expected.canEditTaxiStopsById()) commit {
+                routeBusy = true
+                scope.launch { try { refreshStopEdit(expected, false, "taxi_waypoints_stale") } finally { commit { routeBusy = false } } }
+            }
+            return
+        }
         scope.launch {
             try {
-                if (!isCurrentAction() || currentOrder.stops != expectedStops) return@launch
-                ApiClient.setWaypoints(target, stops, expectedGeneration = generation)
+                if (!mayEdit()) return@launch
+                val typed = expected.canEditTaxiStopsById()
+                if (typed) {
+                    val launch = readTaxiStopOrder(target, generation).getOrNull()
+                    if (launch == null || !expected.sameStopSnapshot(launch) || !mayEdit()) {
+                        commit {
+                            if (launch == null || !currentOrder.canEditTaxiStopsById() ||
+                                !expected.hasAdvancedTaxiStopEdit(launch)) unresolvedStopEdit = expected to false
+                            else if (currentOrder.sameStopSnapshot(expected)) onOrderUpdated(launch)
+                            routeConflict = "taxi_waypoints_stale"
+                        }
+                        return@launch
+                    }
+                }
+                val result = changeTaxiStopsOnce(expected, stops, generation)
+                val error = result.exceptionOrNull()
+                val code = (error as? ApiException)?.detailCode.orEmpty()
+                if (isCurrentAction() && typed) {
+                    val receipt = taxiStopEditReceipt(expected, stops, result.getOrNull())
+                    refreshStopEdit(expected, !taxiStopEditDefinitivelyRefused(error), if (receipt == null) code else null, receipt)
+                } else if (isCurrentAction() && error != null && (expected.stopControl is TaxiStopControl.V1 ||
+                    code == "taxi_active_waypoint_protected" || code == "taxi_waypoints_stale")) {
+                    commit { routeConflict = code }
+                    val fresh = readTaxiStopOrder(target, generation).getOrNull()
+                    commit { if (fresh != null && fresh.id == target && fresh.role == "passenger" && currentOrder.sameStopSnapshot(expected)) onOrderUpdated(fresh) }
+                }
             } finally { commit { routeBusy = false } }
         }
     }
-
     // Ночная поездка: после заката экран и карта приглушаются сами, даже если в телефоне
     // светлая тема. Такси нужнее всего ночью, и белый экран в лицо в половине первого —
     // это то, за что достаётся Яндексу. Считаем по солнцу в точке подачи, а не по часам:
@@ -204,8 +254,7 @@ private fun TaxiTripContent(
     var wantsLight by rememberSaveable(order.id) { mutableStateOf(false) }
     val nightRide = darkOutside && !wantsLight
 
-    // Карту можно увести пальцем — и потерять машину из кадра. Кнопка возвращает вид
-    // к маршруту: без неё человек оставался с пустым полем вместо своей поездки.
+    // Вернуть машину в кадр после ручного движения карты.
     var recenterTick by remember(order.id) { mutableStateOf(0) }
     var navigatorFollow by rememberSaveable(order.id) { mutableStateOf(order.status == "onboard") }
 
@@ -234,7 +283,7 @@ private fun TaxiTripContent(
     }
 
     var showChangeDestination by remember { mutableStateOf(false) }
-    var addingStop by remember { mutableStateOf(false) }
+    var stopPicker by remember { mutableStateOf<Pair<InstantOrderDto, Int?>?>(null) }
     var showSafety by remember { mutableStateOf(false) }
     var showShare by remember(order.id) { mutableStateOf(false) }
     var confirmPaidCancel by remember { mutableStateOf(false) }
@@ -327,14 +376,30 @@ private fun TaxiTripContent(
             extra = {
                 TripRouteBlock(
                     order = order,
+                    editStops = !routeBusy && unresolvedStopEdit == null,
                     onChangeDestination = { commit { if (!routeBusy) showChangeDestination = true } },
-                    onAddStop = { commit { if (!routeBusy) addingStop = true } },
+                    onAddStop = { commit { if (!routeBusy && order.stopControl != TaxiStopControl.Invalid) stopPicker = order to null } },
+                    onReplaceStop = { i -> commit {
+                        if (!routeBusy && order.canEditTaxiStopsById() && taxiStopRemovable(order, i)) {
+                            stopPicker = order to i
+                        }
+                    } },
                     onRemoveStop = { i ->
-                        if (order.stops.getOrNull(i)?.done == false) {
-                            changeStops(order.stops.filterIndexed { j, st -> !st.done && j != i }, order.stops)
+                        if (taxiStopRemovable(order, i)) {
+                            changeStops(order.stops.filterIndexed { j, st -> !st.done && j != i }, order)
                         }
                     },
                 )
+                routeConflict?.let { TaxiStopConflictNotice(it) }
+                unresolvedStopEdit?.let { (before, mustAdvance) ->
+                    AppButton(appText("Обновить остановки", "Туҡталыштарҙы яңыртыу"), enabled = !routeBusy,
+                        onClick = { commit {
+                            if (!routeBusy) {
+                                routeBusy = true
+                                scope.launch { try { refreshStopEdit(before, mustAdvance, null) } finally { commit { routeBusy = false } } }
+                            }
+                        } })
+                }
                 // Виден только ночью: днём переключать нечего.
                 if (darkOutside) {
                     TripLightSwitch(
@@ -418,17 +483,21 @@ private fun TaxiTripContent(
             onChanged = {},
         )
     }
-    if (addingStop) {
+    stopPicker?.let { picker ->
         PickStopSheet(
-            onDismiss = { commit { addingStop = false } },
+            onDismiss = { commit { if (stopPicker === picker) stopPicker = null } },
             ownerGeneration = generation,
-            isCurrentParent = { isCurrentAction() && addingStop },
+            isCurrentParent = { isCurrentAction() && stopPicker === picker },
             onPicked = { hit ->
                 commit {
-                    if (addingStop) {
-                        addingStop = false
-                        changeStops(order.stops.filter { !it.done } +
-                            com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title), order.stops)
+                    if (stopPicker === picker) {
+                        stopPicker = null
+                        val (expected, index) = picker
+                        val point = com.yuldash.app.data.TaxiStop(hit.lat, hit.lon, hit.title)
+                        val pending = expected.stops.mapIndexedNotNull { i, stop ->
+                            if (stop.done) null else if (i == index) point else stop
+                        }
+                        changeStops(if (index == null) pending + point else pending, expected)
                     }
                 }
             },
@@ -1031,84 +1100,6 @@ private fun TripImComingButton(orderId: Int, generation: Long, isCurrentParent: 
     )
 }
 
-/** Маршрут: откуда, остановки, куда. Отсюда же меняют адрес и добавляют остановку. */
-@Composable
-private fun TripRouteBlock(
-    order: InstantOrderDto,
-    onChangeDestination: () -> Unit,
-    onAddStop: () -> Unit,
-    onRemoveStop: (Int) -> Unit,
-) {
-    val active = order.status in setOf("accepted", "arriving", "onboard")
-    val removeLabel = appText("Убрать остановку", "Туҡталышты алыу")
-    val changeLabel = appText("Изменить адрес", "Адресты үҙгәртеү")
-    Surface(color = CanonBg, shape = CanonItemShape, modifier = Modifier.fillMaxWidth()) {
-        Column(
-            Modifier.fillMaxWidth().padding(CanonSpace.md),
-            verticalArrangement = Arrangement.spacedBy(CanonSpace.sm),
-        ) {
-            MobilityRouteTimeline(from = order.fromText, to = order.toText, compact = true)
-            // Проеденную остановку убрать нельзя — уже проехали, спорить не о чем.
-            order.stops.forEachIndexed { i, st ->
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(CanonSpace.sm),
-                ) {
-                    Icon(
-                        Icons.Default.Place,
-                        contentDescription = null,
-                        tint = if (st.done) CanonMuted else CanonGreen2,
-                        modifier = Modifier.size(18.dp),
-                    )
-                    Text(
-                        st.text,
-                        style = CanonBody,
-                        color = if (st.done) CanonMuted else CanonText,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f),
-                    )
-                    if (!st.done) {
-                        Surface(
-                            onClick = { onRemoveStop(i) },
-                            shape = CircleShape,
-                            color = CanonBg,
-                            modifier = Modifier.minimumInteractiveComponentSize(),
-                        ) {
-                            Icon(
-                                Icons.Default.Close,
-                                contentDescription = removeLabel,
-                                tint = CanonMuted,
-                                modifier = Modifier.padding(CanonSpace.md).size(18.dp),
-                            )
-                        }
-                    }
-                }
-            }
-            if (active) {
-                Column {
-                    TextButton(onClick = onAddStop, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Icon(Icons.Default.Add, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(CanonSpace.xs))
-                        Text(
-                            if (order.stops.isEmpty()) appText("Заехать по пути", "Юлда инеп сығыу")
-                            else appText("Ещё остановка", "Тағы туҡталыш"),
-                            style = CanonBody,
-                            color = CanonGreen2,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
-                    TextButton(onClick = onChangeDestination, modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) {
-                        Icon(Icons.Default.SwapHoriz, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(18.dp))
-                        Spacer(Modifier.width(CanonSpace.xs))
-                        Text(changeLabel, style = CanonBody, color = CanonGreen2, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    }
-                }
-            }
-        }
-    }
-}
 
 /** Отмена. Поздняя стоит денег — говорим это ДО тапа, а не после. */
 /**
