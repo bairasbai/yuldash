@@ -296,7 +296,7 @@ PHASES = (
 )
 
 
-def run_matrix(root, mode, socket_identity=None):
+def run_matrix(root, mode, socket_identity=None, active_drain=False):
     for p in ("temp", "home"):
         (root / p).mkdir()
     dsn = PG_URL if mode == "postgresql" else f"sqlite:///{root / 'case.sqlite3'}"
@@ -313,9 +313,9 @@ def run_matrix(root, mode, socket_identity=None):
         assert socket_identity
         env["QA_SOCKET_ID"] = socket_identity
 
-    def run(label, version, *args):
+    def run(label, version, *args, overrides=None):
         cwd = root / version / "backend"
-        guarded = env | {"PYTHONPATH": os.pathsep.join(map(str, (HERE, cwd)))}
+        guarded = env | {"PYTHONPATH": os.pathsep.join(map(str, (HERE, cwd)))} | (overrides or {})
         try:
             result = subprocess.run(
                 (sys.executable, *args), cwd=cwd, env=guarded, timeout=90,
@@ -339,6 +339,15 @@ def run_matrix(root, mode, socket_identity=None):
         if denied.exists():
             raise SystemExit(f"{label}:network-denied")
         print(f"{label}:pass", flush=True)
+    if active_drain:
+        for label, admission in (("active-admit", "true"), ("active-drain", "false")):
+            run(label, "next", __file__, label, overrides={
+                "TAXI_ENABLED": "true", "TAXI_WORKER_ENABLED": "true", "REDIS_URL": "redis://127.0.0.1:6379",
+                "TAXI_INITIAL_CONSENT_ADMISSION_ENABLED": admission,
+            })
+            if denied.exists():
+                raise SystemExit(f"{label}:network-denied")
+            print(f"{label}:pass", flush=True)
 
 
 def negative():
@@ -401,11 +410,15 @@ def main():
         elif action == "audit-empty":
             with closing(audit(initial=True)):
                 pass
+        elif action in {"active-admit", "active-drain"}:
+            import active_drain
+            active_drain.phase(action, sys.modules[__name__])
         else:
             phase(action)
         return
-    if len(sys.argv) != 4 or sys.argv[1] != "--readonly-objects" or sys.argv[3] not in {"sqlite", "postgresql"}:
-        raise SystemExit("usage: verify.py --readonly-objects LOCAL_GIT_ROOT sqlite|postgresql")
+    active_drain = len(sys.argv) == 5 and sys.argv[4] == "--active-drain"
+    if (len(sys.argv) != 4 and not active_drain) or sys.argv[1] != "--readonly-objects" or sys.argv[3] not in {"sqlite", "postgresql"}:
+        raise SystemExit("usage: verify.py --readonly-objects LOCAL_GIT_ROOT sqlite|postgresql [--active-drain]")
     mode = sys.argv[3]
     socket_identity = None
     if mode == "postgresql":
@@ -431,7 +444,7 @@ def main():
             except (subprocess.SubprocessError, OSError, AssertionError, tarfile.TarError):
                 raise SystemExit("immutable-source:fail") from None
             try:
-                run_matrix(root, mode, socket_identity)
+                run_matrix(root, mode, socket_identity, active_drain)
             except (OSError, AssertionError):
                 raise SystemExit("harness-guard:fail") from None
         assert not root.exists()
