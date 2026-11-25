@@ -5683,7 +5683,6 @@ internal fun InstantDriverOnlineController(
     // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
     // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
-    val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа йөрөтөүсе алды")
     val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
     val acceptUnavailableMsg = appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел")
     val checkingAcceptMsg = appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")
@@ -5850,7 +5849,7 @@ internal fun InstantDriverOnlineController(
                                 onOpenTrip(current.id)
                             }
                             st == 409 || st == 410 -> {
-                                Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show()
+                                Toast.makeText(ctx, serverText(error) ?: acceptUnavailableMsg, Toast.LENGTH_SHORT).show()
                                 offer = null
                             }
                             st == null || st <= 0 || st >= 500 -> {

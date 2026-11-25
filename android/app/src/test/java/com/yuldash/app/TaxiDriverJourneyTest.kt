@@ -36,7 +36,7 @@ class TaxiDriverJourneyTest {
     private val writes = CopyOnWriteArrayList<String>()
     private val reads = CopyOnWriteArrayList<String>()
     private var returnedToLine = 0
-    private enum class AcceptMode { Success, LostAfterCommit, LostBeforeExpiry }
+    private enum class AcceptMode { Success, LostAfterCommit, LostBeforeExpiry, AlreadyOnTrip }
     @Volatile private var acceptMode = AcceptMode.Success
     @Volatile private var status = "offered"
     @Volatile private var expiredReadAllowed = false
@@ -52,6 +52,7 @@ class TaxiDriverJourneyTest {
         ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
         ApiClient.saveToken(fixtureBearer)
         assertEquals(9, ApiClient.myUserId())
+        ApiClient.setUiLanguageBashkir(false)
         LocationPrefs.lastLat = null
         LocationPrefs.lastLng = null
         LocationPrefs.sharingEnabled = false
@@ -93,6 +94,9 @@ class TaxiDriverJourneyTest {
                             assertEquals("Bearer $fixtureBearer", request.getHeader("Authorization"))
                             val action = path.substringAfterLast('/')
                             writes.add(action)
+                            if (action == "accept" && acceptMode == AcceptMode.AlreadyOnTrip) {
+                                return json("""{"detail":{"ru":"У тебя уже есть активная поездка — заверши её сначала","ba":"Һинең актив сәфәрең бар — башта уны тамамла"}}""", 409)
+                            }
                             if (action == "accept" && acceptMode != AcceptMode.Success) {
                                 if (acceptMode == AcceptMode.LostAfterCommit) status = "accepted"
                                 posted.countDown()
@@ -175,6 +179,30 @@ class TaxiDriverJourneyTest {
         assertEquals(listOf("accept"), writes.toList())
     }
 
+    @Test fun anotherActiveTripShowsServerExplanationInRussian() {
+        assertAnotherActiveTrip(AppLanguage.Ru, "Принять", "У тебя уже есть активная поездка — заверши её сначала")
+    }
+
+    @Test fun anotherActiveTripShowsServerExplanationInBashkir() {
+        assertAnotherActiveTrip(AppLanguage.Ba, "Ҡабул итеү", "Һинең актив сәфәрең бар — башта уны тамамла")
+    }
+
+    private fun assertAnotherActiveTrip(language: AppLanguage, acceptLabel: String, expected: String) {
+        acceptMode = AcceptMode.AlreadyOnTrip
+        ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba)
+        mount(language)
+        waitForText(acceptLabel)
+        compose.onNodeWithText(acceptLabel).performClick()
+        compose.waitUntil(10_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            ShadowToast.getTextOfLatestToast() != null
+        }
+        assertEquals(expected, ShadowToast.getTextOfLatestToast())
+        assertEquals(listOf("accept"), writes.toList())
+        assertFalse(reads.contains("/instant/orders/71"))
+        compose.runOnIdle { assertNull(openedOrder.value) }
+    }
+
     private fun holdAcceptAcrossDeadline() {
         expiryMs = System.currentTimeMillis() + 6_000L
         mount()
@@ -187,9 +215,9 @@ class TaxiDriverJourneyTest {
         assertEquals(listOf("accept"), writes.toList())
     }
 
-    private fun mount() {
+    private fun mount(language: AppLanguage = AppLanguage.Ru) {
         compose.setContent {
-            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language) {
                 val id = openedOrder.value
                 if (id == null) {
                     InstantDriverOnlineController(online = online.value, mapContent = { Box(it) },

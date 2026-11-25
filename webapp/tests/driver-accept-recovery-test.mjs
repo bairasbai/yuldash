@@ -143,6 +143,23 @@ try {
   offlineCase.h.unmount();
   console.log("✓ leaving the line does not discard a committed acceptance");
 
+  for (const message of ["У тебя уже есть активная поездка — заверши её сначала",
+    "Һинең актив сәфәрең бар — башта уны тамамла"]) {
+    const conflictCase = startFixture(async () => { throw Error("unexpected reconciliation"); });
+    await conflictCase.h.settle();
+    const waiting = offerNode(conflictCase.h).props.onAccept();
+    state.offer = null;
+    conflictCase.fail(new state.Error(409, message));
+    assert.equal(await waiting, "closed");
+    await conflictCase.h.settle();
+    const screen = all(conflictCase.h.tree).find(n => n.type?.name === "DriverWaiting");
+    assert.equal(screen.props.acceptNote, message);
+    assert.equal(tripNode(conflictCase.h), undefined);
+    assert.deepEqual([state.posts, state.reads, state.declines, state.writes], [1, 0, 0, 0]);
+    conflictCase.h.unmount();
+  }
+  console.log("✓ another active trip preserves the localized server explanation without replay");
+
   const closedCase = startFixture(async () => {
     if (state.reads === 1) throw new state.Error(503, "temporarily unavailable");
     state.offer = { ...offer, id: id + 1 };

@@ -218,7 +218,7 @@ export default function InstantDriverTripScreen() {
     mounted.current = true;
     return () => { mounted.current = false; };
   }, []);
-  /** Почему не взяли: «уже взял другой» либо «проверь связь». Молчать тут нельзя. */
+  /** Причина отказа принять заказ, если сервер её сообщил. */
   const [acceptNote, setAcceptNote] = useState("");
   const [active, setActive] = useState<InstantOrder | null>(null);
   const activeIdRef = useRef<number | null>(null);
@@ -565,9 +565,10 @@ export default function InstantDriverTripScreen() {
         return "closed"; // outcome unknown: settle the timer without a decline
       }
       if (st === 409 || st === 410) {
-        // Гонку проиграли: заказ уже у другого. Говорим об этом и ждём следующий.
+        // Конфликт может означать, что своя поездка уже открыта на другом устройстве.
         setOffer(null);
-        setAcceptNote(appText("Заказ уже взял другой водитель", "Заказды башҡа йөрөтөүсе алды"));
+        setAcceptNote((e instanceof ApiError && e.message.trim()) ||
+          appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел"));
         return "closed";
       } else {
         // Связь оборвалась. Оффер НЕ убираем: раньше он молча исчезал, и водитель
