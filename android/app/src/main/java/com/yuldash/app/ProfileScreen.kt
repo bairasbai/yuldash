@@ -1402,7 +1402,8 @@ internal fun DriverCabinetScreen(
     LaunchedEffect(meetingSession, taxiLookupRetry) {
         val driverId = ApiClient.myUserId() ?: return@LaunchedEffect
         currentTaxiOrder = null
-        val found = ApiClient.readDriverCurrentOrder(meetingSession, driverId)
+        val found = if (ApiClient.readTaxiAcceptIntent(meetingSession) != null) DriverCurrentOrder.None
+            else ApiClient.readDriverCurrentOrder(meetingSession, driverId)
         if (ApiClient.isCurrentSession(meetingSession)) currentTaxiOrder = found
     }
     val recoveredTaxiOrder = (currentTaxiOrder as? DriverCurrentOrder.Active)

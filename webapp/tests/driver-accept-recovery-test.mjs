@@ -62,11 +62,21 @@ globalThis.window = {
   setTimeout: (fn, ms) => { timers.set(++serial, { fn, ms }); return serial; },
   clearTimeout: key => timers.delete(key),
 };
-globalThis.localStorage = { getItem: () => null, setItem: () => ++state.writes };
+const storage = new Map();
+globalThis.localStorage = {
+  getItem: key => storage.get(key) ?? null,
+  setItem: (key, value) => {
+    if (key === "yuldash.taxi.pendingAccept" && state.rejectIntentWrite) throw new Error("QuotaExceeded");
+    if (key === "yuldash.taxi.activeOrder") ++state.writes;
+    storage.set(key, value);
+  },
+  removeItem: key => storage.delete(key),
+};
+const markerKey = "yuldash.taxi.pendingAccept";
 const savedNow = Date.now;
 Date.now = () => now;
 const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", {
-  real: ["/driverAcceptRecovery"],
+  real: ["/driverAcceptRecovery", "/driverAcceptIntent"],
   mocks: {
     "i18n/lang": 'const appText=(ru,ba)=>ru; const lang={lang:"ru",appText}; export const useLang=()=>lang;',
     "react-router-dom": "export const useNavigate=()=>()=>{};",
@@ -74,7 +84,7 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
       return globalThis.__acceptFixture.lookup(owner,signal);
     }`,
     "api/driver": "export const fetchDriverStatus=async()=>({online:true}); export const setDriverOnline=async()=>{};",
-    "api/client": `const fixture=globalThis.__acceptFixture;
+    "api/client": `export const API_BASE="https://fixture.invalid"; const fixture=globalThis.__acceptFixture;
       export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}
       fixture.Error=ApiError;
       export const getAccountSession=()=>fixture.currentOwner;
@@ -105,6 +115,7 @@ function fireTimeout(ms) {
 
 function startFixture(read) {
   timers.clear();
+  storage.clear();
   now = 0;
   Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read, application: "approved", lookup: async () => ({state:"none"})});
   let fail;
@@ -221,6 +232,73 @@ try {
   state.currentOwner = original;
   unavailable.h.unmount();
   console.log("✓ failed lookup can be retried; a retained action cannot open a trip after re-login");
+  const denied = startFixture(async () => { throw Error("nothing to reconcile"); });
+  await denied.h.settle();
+  state.rejectIntentWrite = true;
+  assert.equal(await offerNode(denied.h).props.onAccept(), "retry");
+  assert.deepEqual([state.posts, state.reads, state.declines], [0, 0, 0]);
+  state.rejectIntentWrite = false;
+  denied.h.unmount();
+  console.log("✓ an unsaved intent never sends an untrackable Accept");
+
+  let committed = false;
+  let assignments = 0;
+  const interrupted = startFixture(async () => committed ? accepted : offer);
+  await interrupted.h.settle();
+  const post = offerNode(interrupted.h).props.onAccept();
+  assert.equal(state.posts, 1);
+  const saved = JSON.parse(storage.get(markerKey));
+  assert.deepEqual(Object.keys(saved).sort(), ["api", "attempt", "id", "login", "user"]);
+  assert.equal(saved.id, id);
+  interrupted.h.unmount();
+  state.lookup = async () => { ++assignments; return {state: "none"}; };
+
+  const firstRefresh = mount(Screen);
+  await firstRefresh.settle();
+  assert.equal(tripNode(firstRefresh), undefined);
+  assert.equal(state.reads, 1);
+  assert.equal(state.posts, 1);
+  assert.equal(storage.has(markerKey), true);
+  firstRefresh.unmount();
+
+  const secondRefresh = mount(Screen);
+  await secondRefresh.settle();
+  assert.equal(state.reads, 2);
+  assert.equal(assignments, 0); // pending same-order recovery takes precedence over a null assignment snapshot
+  committed = true;
+  fireTimeout(4_000);
+  await secondRefresh.settle();
+  assert.equal(tripNode(secondRefresh).props.order.id, id);
+  assert.deepEqual([state.posts, state.reads, state.declines], [1, 3, 0]);
+  assert.equal(storage.has(markerKey), false);
+  interrupted.fail(new state.Error(503, "late response"));
+  assert.equal(await post, "closed");
+  secondRefresh.unmount();
+  console.log("✓ two fresh mounts reconcile delayed commit from one saved Accept without replay or Decline");
+
+  const switched = startFixture(async () => { throw Error("old order cannot be queried"); });
+  await switched.h.settle();
+  const oldPost = offerNode(switched.h).props.onAccept();
+  switched.h.unmount();
+  const oldOwner = state.currentOwner;
+  state.currentOwner = { ...oldOwner, generation: "new login" };
+  const newLogin = mount(Screen);
+  await newLogin.settle();
+  assert.equal(tripNode(newLogin), undefined);
+  assert.equal(state.reads, 0);
+  const nextPost = offerNode(newLogin).props.onAccept();
+  const newMarker = storage.get(markerKey);
+  assert.equal(JSON.parse(newMarker).login, "new login");
+  switched.fail(new state.Error(503, "old late response"));
+  assert.equal(await oldPost, "closed");
+  assert.equal(storage.get(markerKey), newMarker);
+  newLogin.unmount();
+  assert.equal(state.posts, 2);
+  assert.equal(state.declines, 0);
+  state.currentOwner = oldOwner;
+  // The mock shares a pending Promise between its two calls; never retest that edge as a real transport.
+  assert.equal(await nextPost, "closed");
+  console.log("✓ same-user re-login ignores the old intent and a stale callback cannot clear the new one");
 } finally {
   Date.now = savedNow;
 }

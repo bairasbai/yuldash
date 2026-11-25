@@ -39,7 +39,7 @@ class TaxiDriverJourneyTest {
     private val writes = CopyOnWriteArrayList<String>()
     private val reads = CopyOnWriteArrayList<String>()
     private var returnedToLine = 0
-    private enum class AcceptMode { Success, LostAfterCommit, LostBeforeExpiry, AlreadyOnTrip }
+    private enum class AcceptMode { Success, LostAfterCommit, LostBeforeExpiry, AlreadyOnTrip, ShutdownBeforeCommit }
     @Volatile private var acceptMode = AcceptMode.Success
     @Volatile private var status = "offered"
     @Volatile private var currentLookup: MockResponse? = null
@@ -109,7 +109,8 @@ class TaxiDriverJourneyTest {
                             if (action == "accept" && acceptMode != AcceptMode.Success) {
                                 if (acceptMode == AcceptMode.LostAfterCommit) status = "accepted"
                                 posted.countDown()
-                                if (!deliverResponse.await(10, TimeUnit.SECONDS)) return json("{}", 598)
+                                if (!deliverResponse.await(20, TimeUnit.SECONDS)) return json("{}", 598)
+                                if (acceptMode == AcceptMode.ShutdownBeforeCommit) status = "accepted"
                                 return json("{}", 503)
                             }
                             val expected = mapOf("accept" to "offered", "arrived" to "accepted", "onboard" to "arriving", "done" to "onboard")
@@ -238,6 +239,53 @@ class TaxiDriverJourneyTest {
 
     @Test fun anotherActiveTripShowsServerExplanationInBashkir() {
         assertAnotherActiveTrip(AppLanguage.Ba, "Ҡабул итеү", "Һинең актив сәфәрең бар — башта уны тамамла")
+    }
+
+    @Test fun remountsBeforeCommitReconcileOriginalAcceptWithoutReplay() {
+        acceptMode = AcceptMode.ShutdownBeforeCommit
+        mount()
+        waitForText("Принять")
+        compose.onNodeWithText("Принять").performClick()
+        compose.waitUntil(10_000) { posted.count == 0L }
+        var owner = ApiClient.queueSessionGeneration()
+        assertEquals(71, ApiClient.readTaxiAcceptIntent(owner)?.orderId)
+
+        repeat(2) {
+            val prior = reads.count { it == "/instant/orders/71" }
+            compose.runOnIdle { mounted.value = false; online.value = false }
+            compose.waitForIdle()
+            ApiClient.init(ApplicationProvider.getApplicationContext<Context>())
+            val reloaded = ApiClient.queueSessionGeneration()
+            assertNotEquals(owner, reloaded)
+            assertNull(ApiClient.readTaxiAcceptIntent(owner))
+            owner = reloaded
+            assertEquals(71, ApiClient.readTaxiAcceptIntent(owner)?.orderId)
+            compose.runOnIdle { mounted.value = true }
+            waitForText("Проверяем, принят ли заказ")
+            compose.waitUntil(10_000) { reads.count { it == "/instant/orders/71" } > prior }
+            assertEquals("offered", status)
+            assertEquals(71, ApiClient.readTaxiAcceptIntent(owner)?.orderId)
+        }
+
+        deliverResponse.countDown()
+        waitForText("Я на месте")
+        assertNull(ApiClient.readTaxiAcceptIntent(owner))
+        assertEquals(listOf("accept"), writes.toList())
+    }
+
+    @Test fun sameUserNewLoginCannotRecoverOrClearPreviousAcceptIntent() {
+        val first = ApiClient.queueSessionGeneration()
+        val old = requireNotNull(ApiClient.beginTaxiAcceptIntent(71, first))
+        assertEquals(old, ApiClient.readTaxiAcceptIntent(first))
+        assertNull(ApiClient.beginTaxiAcceptIntent(72, first))
+        ApiClient.saveToken(fixtureBearer)
+        val next = ApiClient.queueSessionGeneration()
+        assertNull(ApiClient.readTaxiAcceptIntent(next))
+        val fresh = requireNotNull(ApiClient.beginTaxiAcceptIntent(71, next))
+        ApiClient.clearTaxiAcceptIntent(old)
+        assertEquals(fresh, ApiClient.readTaxiAcceptIntent(next))
+        ApiClient.clearTaxiAcceptIntent(fresh)
+        assertNull(ApiClient.readTaxiAcceptIntent(next))
     }
 
     private fun assertAnotherActiveTrip(language: AppLanguage, acceptLabel: String, expected: String) {

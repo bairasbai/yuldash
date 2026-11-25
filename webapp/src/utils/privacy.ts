@@ -24,6 +24,7 @@ const PERSONAL_KEYS = [
   SEARCH_HISTORY_KEY, // последние выбранные маршруты
   SCAM_TIP_SEEN_KEY, // отметка о подсказке перед бронью в текущей сессии
   "yuldash.filterPrefs", // маршруты, которые он ищет: куда ездит — личное
+  "yuldash.taxi.pendingAccept", // только номер и идентификатор попытки одного входа
   "yuldash.taxi.activeOrder", // номер его заказа такси
   "yuldash.push.web.enabled", // привязка уведомлений к его подписке
   "yuldash.cid", // его идентификатор в аналитике: иначе двое склеятся в одного

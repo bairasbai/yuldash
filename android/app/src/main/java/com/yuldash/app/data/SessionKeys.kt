@@ -19,6 +19,7 @@ internal object SessionKeys {
 
     /** Основной ящик настроек: там живёт сама сессия. */
     const val MAIN_PREFS = "yuldash"
+    const val TAXI_PENDING_ACCEPT = "taxi_pending_accept"
     const val BOOKING_SCAM_TIP_OWNER = "booking_scam_tip_owner"
 
     /** Ключи ОСНОВНОГО ящика, которые выход стирает. Это чужое — оно не должно пережить владельца. */
@@ -28,6 +29,7 @@ internal object SessionKeys {
         "refresh_rotation_id", // секрет одной попытки продления, не переживает смену аккаунта
         "refresh_rotation_token", // ключ, к которому привязана эта попытка
         SNAPSHOT_AUTH_SCOPE, // владелец кеша одного входа; повреждение отключает только необязательный снимок
+        TAXI_PENDING_ACCEPT, // только номер и идентификатор попытки одного входа
         "sos_pending_intent", // nonce/hash незавершённого SOS принадлежат этому входу
         BOOKING_SCAM_TIP_OWNER,
         "user_name",       // имя человека

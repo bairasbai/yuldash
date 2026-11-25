@@ -158,6 +158,7 @@ import com.yandex.mapkit.mapview.MapView
 import com.yandex.runtime.image.ImageProvider
 import com.yuldash.app.data.Analytics
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.TaxiAcceptIntent
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.GeocoderClient
 import com.yuldash.app.data.InstantAlternativeDto
@@ -5674,7 +5675,10 @@ internal fun InstantDriverOnlineController(
     val myPoint = locationFix?.point
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
     var accepting by remember { mutableStateOf(false) }
-    var pendingAccept by remember { mutableStateOf<Triple<Int, Long, Int>?>(null) }
+    val acceptSession by ApiClient.sessionChanges.collectAsState()
+    var pendingAccept by remember(acceptSession) {
+        mutableStateOf<TaxiAcceptIntent?>(ApiClient.readTaxiAcceptIntent(acceptSession))
+    }
     var presenceFails by remember { mutableIntStateOf(0) }   // подряд-неудачи heartbeat → «нет связи»
     var demandZones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
     var demandLoading by remember { mutableStateOf(false) }
@@ -5684,7 +5688,8 @@ internal fun InstantDriverOnlineController(
     // Заказ, от которого водитель ТОЛЬКО ЧТО отказался и по которому мы необязательным шагом
     // спрашиваем «почему». Отказ уже ушёл на сервер — тут остался один вопрос, не блокирующий.
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
-    val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
+    val acceptSaveMsg = appText("Не удалось сохранить принятие заказа. Попробуй снова.",
+        "Заказ ҡабул итеүҙе һаҡлап булманы. Ҡабатлап ҡара.")
     val acceptUnavailableMsg = appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел")
     val checkingAcceptMsg = appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")
 
@@ -5730,12 +5735,14 @@ internal fun InstantDriverOnlineController(
             when (classifyDriverAcceptRead(id, driverId, observed?.id, observed?.role,
                 observed?.driverId, observed?.status, failure?.status, failure?.message)) {
                 DriverAcceptRead.Active -> {
+                    ApiClient.clearTaxiAcceptIntent(pending)
                     pendingAccept = null
                     offer = null
                     openAcceptedTrip(id)
                     break
                 }
                 DriverAcceptRead.Closed -> {
+                    ApiClient.clearTaxiAcceptIntent(pending)
                     pendingAccept = null
                     offer = null
                     Toast.makeText(ctx, unavailableMessage, Toast.LENGTH_SHORT).show()
@@ -5788,20 +5795,27 @@ internal fun InstantDriverOnlineController(
     }
 
     val current = offer
+    if (pendingAccept != null && current == null) {
+        Surface(color = CanonSurface, shape = CanonCardShape, modifier = Modifier.statusBarsPadding().padding(CanonSpace.md)) {
+            Text(checkingAcceptMsg, color = CanonMuted, modifier = Modifier.padding(CanonSpace.md))
+        }
+    }
     if (online && current == null) {
-        InstantDriverWaitingScreen(
-            locationFix = locationFix,
-            demandZones = demandZones,
-            demandLoading = demandLoading,
-            demandError = demandError,
-            workday = workday,
-            zone = zone,
-            connectionLost = presenceFails >= 2,
-            blockedReason = offerBlocked,
-            onRetryTaxiLookup = onRetryTaxiLookup,
-            onGoOffline = onGoOffline,
-            mapContent = mapContent,
-        )
+        if (pendingAccept == null) {
+            InstantDriverWaitingScreen(
+                locationFix = locationFix,
+                demandZones = demandZones,
+                demandLoading = demandLoading,
+                demandError = demandError,
+                workday = workday,
+                zone = zone,
+                connectionLost = presenceFails >= 2,
+                blockedReason = offerBlocked,
+                onRetryTaxiLookup = onRetryTaxiLookup,
+                onGoOffline = onGoOffline,
+                mapContent = mapContent,
+            )
+        }
     }
     // Вопрос «почему не взял» рисуем ДО оверлея: сиблинги в Box накладываются по порядку, и
     // пришедший следом новый оффер обязан перекрыть панель целиком, а не наоборот — иначе она
@@ -5826,13 +5840,23 @@ internal fun InstantDriverOnlineController(
             mapContent = mapContent,
             onAccept = {
                 if (accepting || pendingAccept != null) return@InstantOfferOverlay
+                ApiClient.readTaxiAcceptIntent(ApiClient.queueSessionGeneration())?.let { saved ->
+                    pendingAccept = saved
+                    return@InstantOfferOverlay
+                }
                 if (instantOfferRemainingMillis(current.offerExpiresAt, System.currentTimeMillis()) <= 0L) {
                     scope.launch { ApiClient.instantDecline(current.id) }
                     offer = null
                     return@InstantOfferOverlay
                 }
                 val generation = ApiClient.queueSessionGeneration()
-                val driverId = ApiClient.myUserId() ?: return@InstantOfferOverlay
+                val intent = ApiClient.beginTaxiAcceptIntent(current.id, generation)
+                if (intent == null) {
+                    pendingAccept = ApiClient.readTaxiAcceptIntent(generation)
+                    if (pendingAccept == null) Toast.makeText(ctx, acceptSaveMsg, Toast.LENGTH_LONG).show()
+                    return@InstantOfferOverlay
+                }
+                val driverId = intent.driverId
                 accepting = true
                 scope.launch {
                     try {
@@ -5847,18 +5871,16 @@ internal fun InstantDriverOnlineController(
                         when {
                             accepted != null && classifyDriverAcceptRead(current.id, driverId, accepted.id,
                                 accepted.role, accepted.driverId, accepted.status) == DriverAcceptRead.Active -> {
+                                ApiClient.clearTaxiAcceptIntent(intent)
                                 offer = null
                                 onOpenTrip(current.id)
                             }
                             st == 409 || st == 410 -> {
+                                ApiClient.clearTaxiAcceptIntent(intent)
                                 Toast.makeText(ctx, serverText(error) ?: acceptUnavailableMsg, Toast.LENGTH_SHORT).show()
                                 offer = null
                             }
-                            st == null || st <= 0 || st >= 500 -> {
-                                pendingAccept = Triple(current.id, generation, driverId)
-                            }
-                            error != null -> Toast.makeText(ctx, serverSaid(error, acceptNetMsg), Toast.LENGTH_LONG).show()
-                            else -> Unit
+                            else -> pendingAccept = intent
                         }
                     } finally {
                         accepting = false
@@ -5868,6 +5890,10 @@ internal fun InstantDriverOnlineController(
             // Дедлайн оффера истёк — отказ без вопросов: водитель ничего не решал, спрашивать нечего.
             onDecline = {
                 if (accepting || pendingAccept != null) return@InstantOfferOverlay
+                ApiClient.readTaxiAcceptIntent(ApiClient.queueSessionGeneration())?.let { saved ->
+                    pendingAccept = saved
+                    return@InstantOfferOverlay
+                }
                 scope.launch { ApiClient.instantDecline(current.id) }
                 offer = null
             },
@@ -5875,6 +5901,10 @@ internal fun InstantDriverOnlineController(
             // и не ждёт, пока водитель за рулём выберет причину. Вопрос — уже вдогонку.
             onSkipTap = {
                 if (accepting || pendingAccept != null) return@InstantOfferOverlay
+                ApiClient.readTaxiAcceptIntent(ApiClient.queueSessionGeneration())?.let { saved ->
+                    pendingAccept = saved
+                    return@InstantOfferOverlay
+                }
                 val declinedId = current.id
                 scope.launch { ApiClient.instantDecline(declinedId) }
                 offer = null

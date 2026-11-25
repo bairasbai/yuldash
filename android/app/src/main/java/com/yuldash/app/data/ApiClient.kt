@@ -3053,6 +3053,48 @@ object ApiClient {
             withoutAuthReplay = true, mutationTimeoutMs = 15_000L).mapCatching { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_accept") }
 
+    internal fun readTaxiAcceptIntent(generation: Long): TaxiAcceptIntent? = synchronized(sessionLock) {
+        if (!isCurrentSession(generation)) return@synchronized null
+        runCatching {
+            val storage = prefs ?: return@synchronized null
+            val driverId = myUserId() ?: return@synchronized null
+            val login = storage.getString(SNAPSHOT_AUTH_SCOPE, null) ?: return@synchronized null
+            val raw = storage.getString(SessionKeys.TAXI_PENDING_ACCEPT, null) ?: return@synchronized null
+            val data = JSONObject(raw)
+            val id = data.get("order_id")
+            val attempt = data.getString("attempt")
+            if (data.getString("api") == apiBase() && data.getString("login") == login &&
+                data.get("driver") == driverId && id is Int && id > 0 &&
+                java.util.UUID.fromString(attempt).toString() == attempt) TaxiAcceptIntent(id, generation, driverId, attempt)
+            else null
+        }.getOrNull()
+    }
+
+    internal fun beginTaxiAcceptIntent(id: Int, generation: Long): TaxiAcceptIntent? = synchronized(sessionLock) {
+        if (id <= 0 || !isCurrentSession(generation) || readTaxiAcceptIntent(generation) != null) return@synchronized null
+        runCatching {
+            val storage = prefs ?: return@synchronized null
+            val login = storage.getString(SNAPSHOT_AUTH_SCOPE, null) ?: return@synchronized null
+            val driverId = myUserId() ?: return@synchronized null
+            val attempt = java.util.UUID.randomUUID().toString()
+            val value = JSONObject().put("api", apiBase()).put("login", login).put("driver", driverId)
+                .put("order_id", id).put("attempt", attempt).toString()
+            if (storage.edit().putString(SessionKeys.TAXI_PENDING_ACCEPT, value).commit()) {
+                TaxiAcceptIntent(id, generation, driverId, attempt)
+            } else {
+                // commit(false) may still update the in-memory map; do not reconcile a request never sent.
+                storage.edit().remove(SessionKeys.TAXI_PENDING_ACCEPT).commit()
+                null
+            }
+        }.getOrNull()
+    }
+
+    internal fun clearTaxiAcceptIntent(intent: TaxiAcceptIntent) = synchronized(sessionLock) {
+        if (readTaxiAcceptIntent(intent.generation) == intent) {
+            runCatching { prefs?.edit()?.remove(SessionKeys.TAXI_PENDING_ACCEPT)?.commit() }
+        }
+    }
+
     internal suspend fun readDriverCurrentOrderIdOnce(expectedGeneration: Long): Result<Int?> =
         call("GET", "/instant/driver/current-order", null, auth = true, expectedGeneration = expectedGeneration,
             retryOnNetwork = false, singleAttemptMutation = true, freshRead = true, withoutAuthReplay = true,

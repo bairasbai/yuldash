@@ -32,6 +32,7 @@ const personal = {
   "yuldash.searchHistory": '{"generation":"guest","entries":[]}',
   "yuldash.filterPrefs": '{"from":"Баймак","to":"Сибай"}',
   "yuldash.taxi.activeOrder": "8123",
+  "yuldash.taxi.pendingAccept": '{"id":8123,"login":"old"}',
   "yuldash.push.web.enabled": "1",
   "yuldash.cid": "cid-матери",
 };
