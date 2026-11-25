@@ -2813,6 +2813,8 @@ def _continue_after_driver_cancel(session: Session, order_id: int,
                                   cancelled_driver_id: int | None) -> InstantOrder:
     """Продолжить поиск того же заказа после фиксации ухода водителя."""
     order = session.get(InstantOrder, order_id)
+    if order.status != S.searching:
+        return order
     if cancelled_driver_id:
         try:
             r = _redis()
@@ -3050,20 +3052,32 @@ def candidates(r, session: Session, order: InstantOrder, exclude: set) -> list:
     return []
 
 
+def _same_search(order: InstantOrder):
+    """Финал подбора относится только к тому поиску, из которого выбирали водителя."""
+    return (
+        InstantOrder.id == order.id,
+        InstantOrder.status == S.searching,
+        InstantOrder.searching_at == order.searching_at,
+        InstantOrder.search_round == order.search_round,
+    )
+
+
 def _expire_no_drivers(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Никого рядом (или нет Redis) → заказ expired, пассажиру «рядом никого».
 
     notify=False — тихий прогон фонового воркера (очередь «рядом никого», taxi_worker):
     пассажир УЖЕ нажал «подождать», он в курсе; повторять ему «рядом никого» каждые
     две минуты — спам, из-за которого выключают уведомления."""
-    session.execute(
+    result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id)
+        .where(*_same_search(order))
         .values(status=S.expired, expired_at=utcnow(), current_offer_driver_id=None, offer_expires_at=None)
     )
     session.commit()
-    _cleanup_tried(order.id)
     fresh = session.get(InstantOrder, order.id)
+    if result.rowcount == 0 or fresh.status != S.expired:
+        return fresh
+    _cleanup_tried(order.id)
     if notify:
         push_bilingual(session, fresh.passenger_id,
                        "Рядом никого", "Яҡында водитель юҡ",
@@ -3123,6 +3137,8 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
 
 def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
+    if order.status != S.searching:
+        return order
     stopped = cancel_for_suspended_passenger(session, order)
     if stopped is not None:
         return stopped
@@ -3135,15 +3151,10 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     if not cands:
         return _expire_no_drivers(session, order, notify)
     did = cands[0]
-    try:
-        r.sadd(_tried_key(order.id), did)
-        r.expire(_tried_key(order.id), 3600)
-    except Exception:  # noqa: BLE001
-        pass
     now = utcnow()
-    session.execute(
+    result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id)
+        .where(*_same_search(order))
         .values(status=S.offered, offered_at=now,
                 current_offer_driver_id=did,
                 offer_expires_at=now + timedelta(seconds=settings.instant_offer_ttl_sec),
@@ -3151,6 +3162,13 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
     )
     session.commit()
     fresh = session.get(InstantOrder, order.id)
+    if result.rowcount == 0 or fresh.status != S.offered or fresh.current_offer_driver_id != did:
+        return fresh
+    try:
+        r.sadd(_tried_key(order.id), did)
+        r.expire(_tried_key(order.id), 3600)
+    except Exception:  # noqa: BLE001
+        pass
     _push_offer(session, fresh, did)
     return fresh
 

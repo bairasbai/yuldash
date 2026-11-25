@@ -135,6 +135,56 @@ def test_failed_strike_does_not_publish_reassignment(client, user_factory, fake_
     assert not _события(driver["id"])
 
 
+@pytest.mark.parametrize("candidate_available", [True, False])
+def test_passenger_can_cancel_while_replacement_is_selected(
+    client, user_factory, fake_redis, monkeypatch, candidate_available,
+):
+    driver, passenger, oid = _accepted(client, user_factory, "УшёлВодитель", "СамОтменилПассажир")
+    replacement = _driver_online(client, user_factory, "ПозднийВодитель")
+    _heartbeat(client, replacement)
+    effects = []
+
+    def select_candidate(*args, **kwargs):
+        with Session(engine) as writer:
+            cancelled = isv.cancel_order(writer, oid, isv.Actor.passenger, passenger["id"])
+            assert cancelled.status == S.cancelled
+        return [replacement["id"]] if candidate_available else []
+
+    monkeypatch.setattr(isv, "candidates", select_candidate)
+    monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
+    monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("expiry"))
+
+    assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
+
+    order = _db_order(oid)
+    assert order.status == S.cancelled and order.cancel_by == "passenger"
+    assert order.current_offer_driver_id is None and order.reassigns == 1
+    assert effects == []
+
+
+@pytest.mark.parametrize("candidate_available", [True, False])
+def test_previous_search_does_not_finish_a_new_search(
+    client, user_factory, fake_redis, monkeypatch, candidate_available,
+):
+    driver, _, oid = _accepted(client, user_factory, "ВодительСтарогоПоиска", "ПассажирНовогоПоиска")
+    replacement = _driver_online(client, user_factory, "КандидатСтарогоПоиска")
+    _heartbeat(client, replacement)
+
+    def restart_search(*args, **kwargs):
+        with Session(engine) as writer:
+            current = writer.get(InstantOrder, oid)
+            current.searching_at += timedelta(seconds=1)
+            writer.add(current)
+            writer.commit()
+        return [replacement["id"]] if candidate_available else []
+
+    monkeypatch.setattr(isv, "candidates", restart_search)
+
+    assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
+    current = _db_order(oid)
+    assert current.status == S.searching and current.current_offer_driver_id is None
+
+
 def test_with_nobody_left_the_order_waits_instead_of_dying(client, user_factory, fake_redis):
     """Свободных машин больше нет — заказ уходит в ожидание, а не в «отменён».
 
