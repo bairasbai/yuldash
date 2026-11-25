@@ -410,8 +410,10 @@ export default function InstantDriverTripScreen() {
           if (!alive || acceptInFlight.current) return;
           setOfferBlocked(r.blocked ?? null);
           setOffer((prev) => {
-            if (r.offer && (!prev || prev.id !== r.offer.id)) ringOffer();
-            return r.offer;
+            const next = r.offer && driverOfferRemaining(driverOfferDeadline(r.offer.offer_expires_at), Date.now()) > 0
+              ? r.offer : null;
+            if (next && (!prev || prev.id !== next.id)) ringOffer();
+            return next;
           });
         })
         .catch(() => {});
@@ -658,8 +660,14 @@ export default function InstantDriverTripScreen() {
    */
   const [askWhy, setAskWhy] = useState<number | null>(null);
 
-  async function skip(afterFailedAccept = false) {
-    if (!offer || pendingAccept || (accepting && !afterFailedAccept)) return;
+  function dismissExpiredOffer(id: number) {
+    // Истечение регулирует сервер. Таймер вкладки не выражает отказ водителя.
+    setOffer((current) => current?.id === id ? null : current);
+  }
+
+  async function skip() {
+    if (!offer || pendingAccept || acceptInFlight.current || accepting ||
+        driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) return;
     const owner = getAccountSession();
     const saved = owner && readDriverAcceptIntent(owner);
     if (saved) {
@@ -672,8 +680,7 @@ export default function InstantDriverTripScreen() {
     setOffer(null);
     try {
       await declineOrder(id);
-      // Дедлайн истёк сам — спрашивать нечего: водитель ничего не решал.
-      if (!afterFailedAccept) setAskWhy(id);
+      setAskWhy(id);
     } catch {
       /* уже ушёл дальше */
     }
@@ -915,6 +922,7 @@ export default function InstantDriverTripScreen() {
               : acceptNote}
             onAccept={accept}
             onSkip={skip}
+            onExpire={dismissExpiredOffer}
           />
         )}
       </>
@@ -1277,20 +1285,22 @@ function OfferOverlay({
   note,
   onAccept,
   onSkip,
+  onExpire,
 }: {
   order: InstantOrder;
   accepting: boolean;
   note: string;
   onAccept: () => Promise<"accepted" | "retry" | "closed">;
-  onSkip: (afterFailedAccept?: boolean) => void;
+  onSkip: () => void;
+  onExpire: (id: number) => void;
 }) {
   const { appText } = useLang();
   const expiryRef = useRef(new DriverOfferExpiry(order.id));
   if (expiryRef.current.orderId !== order.id) {
     expiryRef.current = new DriverOfferExpiry(order.id);
   }
-  const onSkipRef = useRef(onSkip);
-  onSkipRef.current = onSkip;
+  const onExpireRef = useRef(onExpire);
+  onExpireRef.current = onExpire;
   // Окно решения фиксируем при появлении карточки: по нему считается кольцо таймера.
   const expiresAt = driverOfferDeadline(order.offer_expires_at);
   const now = useNowMs();
@@ -1307,18 +1317,17 @@ function OfferOverlay({
     if (driverOfferRemaining(expiresAt, Date.now()) <= 0) return;
     if (!expiryRef.current.beginAccept(order.id)) return;
     void onAccept().then((result) => {
-      const declineAfterFailure = expiryRef.current.finishAccept(order.id, result !== "retry");
-      if (declineAfterFailure) onSkipRef.current(true);
+      const dismissAfterFailure = expiryRef.current.finishAccept(order.id, result !== "retry");
+      if (dismissAfterFailure) onExpireRef.current(order.id);
     });
   };
 
   const skipOnce = () => {
-    if (expiryRef.current.manualDecline(order.id)) onSkipRef.current();
+    if (driverOfferRemaining(expiresAt, Date.now()) > 0 && expiryRef.current.manualDecline(order.id)) onSkip();
   };
 
   useEffect(() => {
-    // Дедлайн истёк (или пришёл битым) — безопасно пропускаем без вопросов.
-    if (remaining <= 0 && expiryRef.current.expire(order.id)) onSkipRef.current(true);
+    if (remaining <= 0 && expiryRef.current.expire(order.id)) onExpireRef.current(order.id);
   }, [remaining <= 0, order.id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fromPt: GeoPoint | null = order.from_lat != null && (order.from_lat !== 0 || order.from_lng !== 0) ? { lat: order.from_lat, lng: order.from_lng ?? 0 } : null;
@@ -1454,7 +1463,7 @@ function OfferOverlay({
 
         {/* Решение закреплено вне прокрутки: отказ не выглядит опасным, принятие — самое заметное. */}
         <div className="toffer__actions">
-          <button type="button" className="btn-soft toffer__btn" onClick={skipOnce} disabled={accepting}>
+          <button type="button" className="btn-soft toffer__btn" onClick={skipOnce} disabled={accepting || !canAccept}>
             {appText("Пропустить", "Үткәреп ебәреү")}
           </button>
           <button type="button" className="btn-primary toffer__btn" onClick={beginAccept} disabled={accepting || !canAccept}>

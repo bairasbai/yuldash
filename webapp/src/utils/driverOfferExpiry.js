@@ -1,6 +1,6 @@
 /**
  * Один координатор для кнопки «Взять» и таймера одного предложения.
- * Он не даёт таймеру отправить decline, пока ответ accept ещё неизвестен.
+ * Истечение скрывает карточку, но не отменяет ещё не завершившийся accept.
  */
 export class DriverOfferExpiry {
   constructor(orderId) {
@@ -27,13 +27,13 @@ export class DriverOfferExpiry {
       this.settled = true;
       return false;
     }
-    return this.#takeExpiredDecline();
+    return this.#takeExpiredDismissal();
   }
 
   expire(orderId) {
     if (orderId !== this.orderId || this.settled) return false;
     this.expired = true;
-    return this.#takeExpiredDecline();
+    return this.#takeExpiredDismissal();
   }
 
   manualDecline(orderId) {
@@ -49,9 +49,9 @@ export class DriverOfferExpiry {
     return true;
   }
 
-  #takeExpiredDecline() {
+  #takeExpiredDismissal() {
     if (!this.expired || this.accepting || this.declineIssued) return false;
-    this.declineIssued = true;
+    this.settled = true;
     return true;
   }
 }

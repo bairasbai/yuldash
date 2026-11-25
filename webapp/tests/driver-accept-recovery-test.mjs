@@ -99,7 +99,7 @@ const storageHealthSource = fileURLToPath(new URL("../src/utils/storageHealth.ts
 const savedNow = Date.now;
 Date.now = () => now;
 const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", {
-  real: ["/driverAcceptRecovery", "/driverAcceptIntent", "/driverOfferDeadline"],
+  real: ["/driverAcceptRecovery", "/driverAcceptIntent", "/driverOfferDeadline", "/driverOfferExpiry", "/driverOfferMoney"],
   mocks: {
     "i18n/lang": 'const appText=(ru,ba)=>ru; const lang={lang:"ru",appText}; export const useLang=()=>lang;',
     "react-router-dom": "export const useNavigate=()=>()=>{};",
@@ -205,7 +205,7 @@ try {
 
   const closedCase = startFixture(async () => {
     if (state.reads === 1) throw new state.Error(503, "temporarily unavailable");
-    state.offer = { ...offer, id: id + 1 };
+    state.offer = { ...offer, id: id + 1, offer_expires_at: new Date(40_000).toISOString() };
     throw new state.Error(403, "Нет доступа к заказу");
   });
   await closedCase.h.settle();
@@ -218,7 +218,7 @@ try {
   assert.equal(offerNode(closedCase.h).props.accepting, true);
   assert.equal(offerNode(closedCase.h).props.note, "Проверяем, принят ли заказ");
   assert.equal(state.offers, 1);
-  await offerNode(closedCase.h).props.onSkip(true);
+  await offerNode(closedCase.h).props.onSkip();
   fireTimeout(4_000);
   await closedCase.h.settle();
   assert.equal(offerNode(closedCase.h).props.order.id, id + 1);
@@ -390,12 +390,29 @@ try {
   const unsupported = startFixture(async () => { throw Error("no pending request"); });
   await unsupported.h.settle();
   globalThis.navigator.locks = undefined;
-  assert.equal(await offerNode(unsupported.h).props.onAccept(), "retry");
+  const card = offerNode(unsupported.h);
+  const overlay = mount(card.type, card.props);
+  await overlay.settle();
+  const acceptButton = all(overlay.tree).find(n =>
+    n.type === "button" && n.props.className === "btn-primary toffer__btn");
+  assert.ok(acceptButton);
+  acceptButton.props.onClick();
+  await overlay.settle();
   assert.deepEqual([state.posts, state.declines], [0, 0]);
   assert.equal(storage.has(markerKey), false);
+  now = 21_000;
+  const tick = [...timers.values()].find(t => t.interval && t.ms === 1000);
+  assert.ok(tick);
+  tick.fn();
+  await overlay.settle();
+  overlay.unmount();
+  globalThis.__sh = unsupported.h.state;
+  await unsupported.h.settle();
+  assert.equal(offerNode(unsupported.h), undefined);
+  assert.deepEqual([state.posts, state.declines], [0, 0]);
   globalThis.navigator.locks = fakeLocks;
   unsupported.h.unmount();
-  console.log("✓ no Web Locks means no unsynchronized Accept or Decline");
+  console.log("✓ mounted offer button and timer do not send Accept or Decline without safe coordination");
 } finally {
   Date.now = savedNow;
   if (priorNavigator) Object.defineProperty(globalThis, "navigator", priorNavigator);
