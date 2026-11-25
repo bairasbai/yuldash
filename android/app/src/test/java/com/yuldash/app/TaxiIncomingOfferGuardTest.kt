@@ -41,6 +41,21 @@ class TaxiIncomingOfferGuardTest {
     }
 
     @Test
+    fun `offer accept checks the real clock even between timer ticks`() {
+        val screen = source("app/src/main/java/com/yuldash/app/InstantOrderScreen.kt")
+        assertTrue(screen.contains("instantOfferRemainingMillis(order.offerExpiresAt, System.currentTimeMillis()) > 0L"))
+    }
+
+    @Test
+    fun `driver offer preview supplies the money snapshot retained by copy`() {
+        val preview = source("app/src/debug/java/com/yuldash/app/MobilityUiPreview.kt")
+            .substringAfter("private fun previewDriverOfferOrder(")
+            .substringBefore("private fun previewDriverTripOrder(")
+        assertTrue(preview.contains("TaxiOfferMoneyDto(32_900, 31_913, 987, 3.0)"))
+        assertTrue(preview.contains("offerMoney = money"))
+    }
+
+    @Test
     fun `offer pickup distance comes from server payload`() {
         val api = source("app/src/main/java/com/yuldash/app/data/ApiClient.kt")
         assertTrue(api.contains("val offerPickupKm: Double? = null"))

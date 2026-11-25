@@ -6527,7 +6527,11 @@ internal fun InstantOfferOverlay(
                     )
                     AppButton(
                         text = appText("Принять", "Ҡабул итеү"),
-                        onClick = { if (canAccept) onAccept() },
+                        onClick = {
+                            if (instantOfferRemainingMillis(order.offerExpiresAt, System.currentTimeMillis()) > 0L) {
+                                onAccept()
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                         style = AppButtonStyle.Primary,
                         loading = accepting,

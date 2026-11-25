@@ -83,6 +83,7 @@ import {
   isReleasedDriverOrderStatus,
 } from "../utils/driverActiveOrder";
 import { DriverOfferExpiry } from "../utils/driverOfferExpiry";
+import { driverOfferDeadline, driverOfferRemaining } from "../utils/driverOfferDeadline";
 import { driverOfferMoney } from "../utils/driverOfferMoney";
 import { openNavigator } from "../utils/navigator";
 import TaxiDriverCompleted, { passengerPayKop } from "./TaxiDriverCompletedScreen";
@@ -1101,18 +1102,19 @@ function OfferOverlay({
   const onSkipRef = useRef(onSkip);
   onSkipRef.current = onSkip;
   // Окно решения фиксируем при появлении карточки: по нему считается кольцо таймера.
-  const expMs = serverMs(order.offer_expires_at);
-  const exp = Number.isNaN(expMs) ? Date.now() + 20000 : expMs;
-  const windowRef = useRef<{ id: number; ms: number }>({ id: order.id, ms: Math.max(1, exp - Date.now()) });
-  if (windowRef.current.id !== order.id) windowRef.current = { id: order.id, ms: Math.max(1, exp - Date.now()) };
+  const expiresAt = driverOfferDeadline(order.offer_expires_at);
   const now = useNowMs();
-  const remaining = Math.max(0, exp - now);
+  const remaining = driverOfferRemaining(expiresAt, now);
+  const windowRef = useRef({ id: order.id, expiresAt, ms: Math.max(1, driverOfferRemaining(expiresAt, Date.now())) });
+  if (windowRef.current.id !== order.id || windowRef.current.expiresAt !== expiresAt) {
+    windowRef.current = { id: order.id, expiresAt, ms: Math.max(1, driverOfferRemaining(expiresAt, Date.now())) };
+  }
   const secondsLeft = remaining <= 0 ? 0 : Math.ceil(remaining / 1000);
   const canAccept = remaining > 0;
   const progress = Math.min(1, Math.max(0, remaining / windowRef.current.ms));
 
   const beginAccept = () => {
-    if (!canAccept) return;
+    if (driverOfferRemaining(expiresAt, Date.now()) <= 0) return;
     if (!expiryRef.current.beginAccept(order.id)) return;
     void onAccept().then((result) => {
       const declineAfterFailure = expiryRef.current.finishAccept(order.id, result !== "retry");

@@ -30,6 +30,7 @@ import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.yuldash.app.data.InstantOrderDto
+import com.yuldash.app.data.TaxiOfferMoneyDto
 import com.yuldash.app.ui.theme.YuldashTheme
 
 /**
@@ -577,14 +578,18 @@ private fun previewPassengerActiveOrder() = previewInstantOrder(status = "arrivi
     driverPhone = "+70000000000",
 )
 
-private fun previewDriverOfferOrder() = previewInstantOrder(status = "offered").copy(
-    role = "driver",
-    offerExpiresAt = java.time.Instant.now().plusSeconds(45).toString(),
-    driverGrossKop = 32_900,
-    driverFeeKop = 987,
-    driverNetKop = 31_913,
-    driverFeePercent = 3.0,
-)
+private fun previewDriverOfferOrder(): InstantOrderDto {
+    val money = TaxiOfferMoneyDto(32_900, 31_913, 987, 3.0)
+    return previewInstantOrder(status = "offered").copy(
+        role = "driver",
+        offerExpiresAt = java.time.Instant.now().plusSeconds(45).toString(),
+        driverGrossKop = requireNotNull(money.grossKop),
+        driverFeeKop = requireNotNull(money.feeKop),
+        driverNetKop = requireNotNull(money.netKop),
+        driverFeePercent = requireNotNull(money.feePercent),
+        offerMoney = money,
+    )
+}
 
 private fun previewDriverTripOrder() = previewInstantOrder(status = "onboard").copy(
     role = "driver",
