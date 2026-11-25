@@ -108,6 +108,23 @@ const cases = [
     assert.deepEqual(changed[0].current, changed[1].current);
     assert.deepEqual(await api.readSessionRecord(), changed[0].current);
   }],
+  ["driver marker is committed with current login and physically removed at logout", async () => {
+    await boot();
+    const key = ["driver-accept", A.generation];
+    const item = { api: "https://fixture.invalid", user: 12, id: 42, attempt: "fixture" };
+    await api.editDriverAcceptRecord(A.generation, (saved, write) => {
+      assert.equal(saved, undefined);
+      write(item);
+    });
+    assert.deepEqual(await api.editDriverAcceptRecord(A.generation, saved => saved), item);
+    await api.replaceSessionRecord(A.generation, guest, allow);
+    const db = await request(indexedDB.open("yuldash-trip-passes-v1"));
+    try {
+      assert.equal(await request(db.transaction("credentials").objectStore("credentials").get(key)), undefined);
+    } finally { db.close(); }
+    await assert.rejects(api.editDriverAcceptRecord(A.generation, () => assert.fail("revoked scope opened")),
+      /driver session changed|aborted/i);
+  }],
   ["same-generation rotation requires the exact preceding pair and leaves the trip available", async () => {
     const trip = { ownerId: 12, trips: new Map(), closedRides: new Set() };
     await oldDatabase(trip);

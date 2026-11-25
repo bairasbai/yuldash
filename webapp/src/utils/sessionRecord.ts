@@ -14,6 +14,7 @@ export interface SessionRecord extends SessionCredentials {
 const CURRENT = "current";
 const REVISION = "revision";
 const WEB_PUSH = "web-push";
+const driverAcceptKey = (generation: string) => ["driver-accept", generation];
 export const SESSION_LOGOUT_TOKEN = /^[0-9a-f]{64}\.[0-9a-f]{64}$/;
 
 function savedRevision(value: unknown): number {
@@ -38,7 +39,8 @@ function parse(value: unknown): SessionRecord | undefined {
 async function transaction<T>(
   mode: "readonly" | "readwrite",
   work: (current: SessionRecord | undefined, revoked: boolean, put: (row: SessionRecord) => void,
-    revoke: (generation: string, ticket?: string) => void, candidate: SessionCredentials | undefined, revision: number) => T,
+    revoke: (generation: string, ticket?: string) => void, candidate: SessionCredentials | undefined,
+    revision: number, auth: IDBObjectStore) => T | Promise<T>,
   readLegacy?: () => SessionCredentials | undefined,
   repairInvalid = false,
 ): Promise<T> {
@@ -57,9 +59,10 @@ async function transaction<T>(
       };
       const revoke = (generation: string, ticket?: string) => {
         tx.objectStore(TRIP_STORE).put({ revoked: true }, generation);
+        auth.delete(driverAcceptKey(generation));
         if (ticket) auth.put({ generation, ticket }, ["logout", generation]);
       };
-      let result: T;
+      let result: T | Promise<T>;
       tx.oncomplete = () => resolve(result);
       tx.onabort = () => reject(tx.error ?? new Error("Session transaction aborted"));
       function check(run: () => void) {
@@ -76,25 +79,51 @@ async function transaction<T>(
           const clock = auth.get(REVISION);
           clock.onsuccess = () => check(() => {
             const revision = Math.max(savedRevision(clock.result), savedRevision(request.result?.revision));
-            result = work(undefined, false, put, revoke, undefined, revision);
+            result = work(undefined, false, put, revoke, undefined, revision, auth);
           });
           return;
         }
         const revision = current?.revision ?? 0;
         const candidate = current ?? readLegacy?.();
         if (mode === "readonly" || !candidate?.access) {
-          result = work(current, false, put, revoke, candidate, revision);
+          result = work(current, false, put, revoke, candidate, revision, auth);
           return;
         }
         const pass = tx.objectStore(TRIP_STORE).get(candidate.generation);
         pass.onsuccess = () => check(() => {
-          result = work(current, pass.result?.revoked === true, put, revoke, candidate, revision);
+          result = work(current, pass.result?.revoked === true, put, revoke, candidate, revision, auth);
         });
       });
     });
   } finally {
     db.close();
   }
+}
+
+/** Keep the driver's intent and the login which owns it in one transaction. */
+export function editDriverAcceptRecord<T>(
+  generation: string,
+  edit: (saved: unknown, replace: (record: unknown) => void, remove: () => void) => T,
+): Promise<T> {
+  return transaction<T>("readwrite", (current, revoked, _put, _revoke, _candidate, _revision, auth) => {
+    if (!current?.access || revoked || current.generation !== generation) throw new Error("Driver session changed");
+    const key = driverAcceptKey(generation);
+    const request = auth.get(key);
+    // The Promise is adopted by transaction() only after oncomplete, not after this read.
+    const result = new Promise<T>((resolve, reject) => {
+      request.onsuccess = () => {
+        try {
+          resolve(edit(request.result, record => { auth.put(record, key); }, () => { auth.delete(key); }));
+        } catch (error) {
+          auth.transaction.abort();
+          reject(error);
+        }
+      };
+      request.onerror = () => reject(request.error);
+    });
+    void result.catch(() => {}); // Transaction abort rejects the outer Promise independently.
+    return result;
+  });
 }
 
 export function initializeSessionRecord(

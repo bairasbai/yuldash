@@ -218,6 +218,8 @@ export default function InstantDriverTripScreen() {
   const [zone, setZone] = useState<WorkZone | null>(null);
 
   const [offer, setOffer] = useState<InstantOrder | null>(null);
+  const visibleOffer = useRef(offer);
+  visibleOffer.current = offer;
   /** Заказ берётся прямо сейчас — второй тап не должен слать второй запрос. */
   const [accepting, setAccepting] = useState(false);
   const acceptInFlight = useRef(false);
@@ -264,23 +266,26 @@ export default function InstantDriverTripScreen() {
     setRecoveryError(false);
     setCheckingRecovery(!!owner);
     if (!owner) return;
-    const savedIntent = readDriverAcceptIntent(owner);
-    if (savedIntent) {
-      acceptInFlight.current = true;
-      setPendingAccept(savedIntent); // A cold start does not resend the POST, regardless of the current-order snapshot.
-      setCheckingRecovery(false);
-      return;
-    }
     const attempt = new AbortController();
     recoveryAttempt.current = attempt;
     const timeout = window.setTimeout(() => attempt.abort(), 10_000);
     try {
+      const savedIntent = await readDriverAcceptIntent(owner);
+      if (recoveryAttempt.current !== attempt || !isAccountSession(owner)) return;
+      if (attempt.signal.aborted) { setRecoveryError(true); return; }
+      if (savedIntent) {
+        acceptInFlight.current = true;
+        setPendingAccept(savedIntent); // Cold starts read the original outcome; they never resend Accept.
+        return;
+      }
       const result = await readDriverCurrentOrder(owner, attempt.signal);
       if (recoveryAttempt.current !== attempt || !isAccountSession(owner)) return;
       if (attempt.signal.aborted || result.state === "unavailable") setRecoveryError(true);
       else if (result.state === "active" && activeIdRef.current === null) {
         setRecovery({ owner, order: result.order });
       }
+    } catch {
+      if (recoveryAttempt.current === attempt && isAccountSession(owner)) setRecoveryError(true);
     } finally {
       window.clearTimeout(timeout);
       if (recoveryAttempt.current === attempt) setCheckingRecovery(false);
@@ -577,28 +582,28 @@ export default function InstantDriverTripScreen() {
     if (!owner) return "closed";
     const id = offer.id;
     acceptInFlight.current = true; // the claim can await another tab
-    const intent = await beginDriverAcceptIntent(owner, id);
+    const claim = await beginDriverAcceptIntent(owner, id);
     if (!mounted.current || !isAccountSession(owner)) {
-      if (intent) void clearDriverAcceptIntent(intent);
+      if (claim.state === "claimed") void clearDriverAcceptIntent(claim.intent);
       acceptInFlight.current = false;
       return "closed";
     }
-    if (!intent) {
-      const existing = readDriverAcceptIntent(owner);
-      if (existing) {
-        acceptInFlight.current = true;
-        setPendingAccept(existing);
-        return "closed";
-      }
+    if (claim.state === "existing") {
+      setPendingAccept(claim.intent);
+      return "closed";
+    }
+    if (claim.state === "unavailable") {
       acceptInFlight.current = false;
-      setAcceptNote(appText("Не удалось безопасно сохранить принятие заказа. Проверь браузер или открой Юлдаш на Android.",
-        "Заказ ҡабул итеүҙе хәүефһеҙ һаҡлап булманы. Браузерҙы тикшер йәки Юлдашты Android-та ас."));
+      setAcceptNote(appText("Не удалось безопасно сохранить принятие заказа. Проверь, разрешено ли сайту сохранять данные.",
+        "Заказ ҡабул итеүҙе хәүефһеҙ һаҡлап булманы. Сайтҡа мәғлүмәт һаҡларға рөхсәт бармы икәнен тикшер."));
       return "retry";
     }
-    if (driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) {
+    const { intent } = claim;
+    if (visibleOffer.current?.id !== id ||
+        driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) {
       void clearDriverAcceptIntent(intent);
       acceptInFlight.current = false;
-      setOffer(null);
+      dismissExpiredOffer(id);
       return "closed";
     }
     setAcceptNote("");
@@ -669,7 +674,18 @@ export default function InstantDriverTripScreen() {
     if (!offer || pendingAccept || acceptInFlight.current || accepting ||
         driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) return;
     const owner = getAccountSession();
-    const saved = owner && readDriverAcceptIntent(owner);
+    if (!owner) return;
+    let saved: DriverAcceptIntent | null;
+    try { saved = await readDriverAcceptIntent(owner); }
+    catch {
+      if (mounted.current && isAccountSession(owner) && visibleOffer.current?.id === offer.id) {
+        setAcceptNote(appText("Не удалось проверить заказ. Проверь, разрешено ли сайту сохранять данные.",
+          "Заказды тикшереп булманы. Сайтҡа мәғлүмәт һаҡларға рөхсәт бармы икәнен тикшер."));
+      }
+      return;
+    }
+    if (!mounted.current || !isAccountSession(owner) || acceptInFlight.current || visibleOffer.current?.id !== offer.id ||
+        driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) return;
     if (saved) {
       acceptInFlight.current = true;
       setPendingAccept(saved);
