@@ -195,6 +195,11 @@ function useNowMs(active = true): number {
   return now;
 }
 
+type DriverCancelCheck = {
+  owner: NonNullable<ReturnType<typeof getAccountSession>>;
+  id: number;
+};
+
 export default function InstantDriverTripScreen() {
   const { appText, lang } = useLang();
   const ru = lang !== "ba";
@@ -233,6 +238,8 @@ export default function InstantDriverTripScreen() {
   const [active, setActive] = useState<InstantOrder | null>(null);
   const activeIdRef = useRef<number | null>(null);
   const cancelInFlight = useRef<AbortController | null>(null);
+  const pendingCancel = useRef<DriverCancelCheck | null>(null);
+  const [checkingCancel, setCheckingCancel] = useState(false);
   const activeReadEpoch = useRef(0);
   /** Почему прежний заказ исчез: сообщение остаётся на экране ожидания следующего. */
   const [endedNote, setEndedNote] = useState("");
@@ -255,7 +262,12 @@ export default function InstantDriverTripScreen() {
   const [demandError, setDemandError] = useState(false);
 
   const setCurrentActive = useCallback((order: InstantOrder | null) => {
-    activeIdRef.current = order?.id ?? null;
+    const id = order?.id ?? null;
+    if (pendingCancel.current && pendingCancel.current.id !== id) {
+      pendingCancel.current = null;
+      setCheckingCancel(false);
+    }
+    activeIdRef.current = id;
     setActive(order);
   }, []);
 
@@ -528,6 +540,11 @@ export default function InstantDriverTripScreen() {
     const orderId = active.id;
     const iv = window.setInterval(() => {
       if (cancelInFlight.current) return;
+      const pending = pendingCancel.current;
+      if (pending?.id === orderId) {
+        if (isAccountSession(pending.owner)) void resumeCancelCheck(pending);
+        return;
+      }
       const epoch = activeReadEpoch.current;
       fetchInstantOrder(orderId)
         .then((o) => {
@@ -771,6 +788,11 @@ export default function InstantDriverTripScreen() {
    */
   function refreshActive() {
     if (!active || cancelInFlight.current) return;
+    const pending = pendingCancel.current;
+    if (pending?.id === active.id) {
+      if (isAccountSession(pending.owner)) void resumeCancelCheck(pending);
+      return;
+    }
     const orderId = active.id;
     const epoch = activeReadEpoch.current;
     fetchInstantOrder(orderId)
@@ -781,7 +803,7 @@ export default function InstantDriverTripScreen() {
   }
 
   async function advance(next: "arrived" | "onboard" | "done") {
-    if (!active || tripBusy || cancelInFlight.current) return;
+    if (!active || tripBusy || cancelInFlight.current || pendingCancel.current) return;
     setTripBusy(true);
     try {
       const fn = next === "arrived" ? arrivedOrder : next === "onboard" ? onboardOrder : doneOrder;
@@ -806,30 +828,83 @@ export default function InstantDriverTripScreen() {
     }
   }
 
+  function ownsCancelSnapshot(check: DriverCancelCheck, order: InstantOrder) {
+    return order?.id === check.id && order.role === "driver" && order.driver_id === check.owner.userId;
+  }
+
+  async function readCancelOutcome(check: DriverCancelCheck, signal: AbortSignal) {
+    const { id, owner } = check;
+    try {
+      const order = await apiCommand<InstantOrder>(`/instant/orders/${id}`, owner, {
+        method: "GET", oneShot: true, signal,
+      });
+      if (!ownsCancelSnapshot(check, order)) return { kind: "unknown" } as const;
+      if (["cancelled", "done", "expired"].includes(order.status)) {
+        return { kind: "terminal", order: order.status === "expired" ? null : order } as const;
+      }
+      if (classifyDriverAcceptRead(id, owner.userId, order) === "active") {
+        return { kind: "still-active", order } as const;
+      }
+    } catch (error) {
+      if (!signal.aborted && isAccountSession(owner)
+          && error instanceof ApiError && [403, 404].includes(error.status)) {
+        const assignment = await readDriverCurrentOrder(owner, signal);
+        if (assignment.state === "none") return { kind: "released", replacement: null } as const;
+        if (assignment.state === "active" && assignment.order.id !== id) {
+          return { kind: "released", replacement: assignment.order } as const;
+        }
+      }
+    }
+    return { kind: "unknown" } as const;
+  }
+
+  async function resumeCancelCheck(check: DriverCancelCheck) {
+    if (cancelInFlight.current || pendingCancel.current !== check || !isAccountSession(check.owner)) return;
+    const attempt = new AbortController();
+    cancelInFlight.current = attempt;
+    const timeout = window.setTimeout(() => attempt.abort(), 10_000);
+    try {
+      const outcome = await readCancelOutcome(check, attempt.signal);
+      if (attempt.signal.aborted || !mounted.current || pendingCancel.current !== check
+          || !isAccountSession(check.owner) || activeIdRef.current !== check.id) return;
+      if (outcome.kind === "unknown") return;
+      pendingCancel.current = null;
+      setCheckingCancel(false);
+      setTripNote("");
+      if (outcome.kind === "still-active") {
+        setCurrentActive(outcome.order);
+        return;
+      }
+      clearStoredDriverOrder(localStorage, ACTIVE_KEY, check.id);
+      setCurrentActive(outcome.kind === "terminal" ? outcome.order : null);
+      if (outcome.kind === "released" && outcome.replacement) {
+        setRecovery({ owner: check.owner, order: outcome.replacement });
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (cancelInFlight.current === attempt) cancelInFlight.current = null;
+    }
+  }
+
   async function cancelActive(reason: "driver_cancel" | "no_show") {
     const owner = getAccountSession();
-    if (!owner || !active || tripBusy || cancelInFlight.current) return;
+    if (!owner || !active || tripBusy || cancelInFlight.current || pendingCancel.current) return;
     const id = active.id;
+    const check: DriverCancelCheck = { owner, id };
     const attempt = new AbortController();
     cancelInFlight.current = attempt;
     activeReadEpoch.current += 1;
     const current = () => mounted.current && isAccountSession(owner)
       && cancelInFlight.current === attempt && activeIdRef.current === id;
     const path = `/instant/orders/${id}`;
-    const terminal = (order: InstantOrder) => order?.id === id && order.role === "driver"
-      && order.driver_id === owner.userId && ["cancelled", "done", "expired"].includes(order.status);
+    const terminal = (order: InstantOrder) => ownsCancelSnapshot(check, order)
+      && ["cancelled", "done", "expired"].includes(order.status);
     const apply = (order: InstantOrder | null, confirmed: boolean) => {
       if (!current()) return;
       if (confirmed) track("instant_order_cancel");
       clearStoredDriverOrder(localStorage, ACTIVE_KEY, id);
       setTripNote("");
       setCurrentActive(order);
-    };
-    const unknown = () => {
-      if (current()) setTripNote(appText(
-        "Не удалось подтвердить отмену. Статус поездки пока неизвестен.",
-        "Кире алыуҙы раҫлап булманы. Сәфәр торошо әлегә билдәһеҙ."
-      ));
     };
     setTripNote("");
     setTripBusy(true);
@@ -856,30 +931,26 @@ export default function InstantDriverTripScreen() {
         }
       }
       // Ответ мог потеряться после отмены. Проверяем состояние, не повторяя POST.
-      const check = new AbortController();
-      const readTimeout = window.setTimeout(() => check.abort(), 10_000);
+      const reader = new AbortController();
+      const readTimeout = window.setTimeout(() => reader.abort(), 10_000);
       try {
-        const order = await apiCommand<InstantOrder>(path, owner, {
-          method: "GET", oneShot: true, signal: check.signal,
-        });
+        const outcome = await readCancelOutcome(check, reader.signal);
         if (!current()) return;
-        if (terminal(order)) {
-          apply(order.status === "expired" ? null : order, false);
+        if (!reader.signal.aborted && outcome.kind === "terminal") {
+          apply(outcome.order, false);
           return;
         }
-        unknown();
-      } catch (error) {
-        if (!current()) return;
-        if (error instanceof ApiError && [403, 404].includes(error.status)) {
-          const assignment = await readDriverCurrentOrder(owner, check.signal);
-          if (!current()) return;
-          if (assignment.state === "none" || (assignment.state === "active" && assignment.order.id !== id)) {
-            apply(null, false);
-            if (assignment.state === "active") setRecovery({ owner, order: assignment.order });
-            return;
-          }
+        if (!reader.signal.aborted && outcome.kind === "released") {
+          apply(null, false);
+          if (outcome.replacement) setRecovery({ owner, order: outcome.replacement });
+          return;
         }
-        unknown();
+        pendingCancel.current = check;
+        setCheckingCancel(true);
+        setTripNote(appText(
+          "Не удалось подтвердить отмену. Статус поездки пока неизвестен.",
+          "Кире алыуҙы раҫлап булманы. Сәфәр торошо әлегә билдәһеҙ."
+        ));
       } finally {
         window.clearTimeout(readTimeout);
       }
@@ -913,7 +984,7 @@ export default function InstantDriverTripScreen() {
         order={active}
         pos={pos}
         note={tripNote}
-        busy={tripBusy}
+        busy={tripBusy || checkingCancel}
         onAdvance={advance}
         onCancel={() => void cancelActive("driver_cancel")}
         onNoShow={() => void cancelActive("no_show")}

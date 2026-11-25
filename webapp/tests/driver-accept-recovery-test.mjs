@@ -213,6 +213,56 @@ try {
     console.log("✓ driver cancellation does not replay the write: " + mode);
   }
 
+  for (const reconnection of ["none", "replacement", "same"]) {
+    const f = await startFixture(async () => accepted);
+    await f.h.settle();
+    state.post = Promise.resolve(accepted);
+    await offerNode(f.h).props.onAccept();
+    await f.h.settle();
+    state.cancels = 0;
+    state.checkCancel = opts => assert.equal(opts.oneShot, true);
+    state.cancel = async () => { throw new state.Error(0, "reply lost"); };
+    state.read = async () => { throw new state.Error(0, "first read lost"); };
+    const beforeReads = state.reads;
+    tripNode(f.h).props.onCancel();
+    await f.h.settle();
+    const waitingTrip = tripNode(f.h);
+    assert.equal(waitingTrip.props.busy, true);
+    waitingTrip.props.onCancel();
+    await f.h.settle();
+    assert.equal(state.cancels, 1, "unknown status blocks a second cancellation");
+
+    const replacement = {...accepted, id: id + 1};
+    let assignmentReads = 0;
+    state.read = async () => {
+      if (reconnection === "same") return accepted;
+      throw new state.Error(403, "not assigned");
+    };
+    state.lookup = async () => {
+      assignmentReads++;
+      return reconnection === "replacement" ? {state: "active", order: replacement} : {state: "none"};
+    };
+    for (const tick of [...timers.values()].filter(t => t.interval && t.ms === 3000)) tick.fn();
+    await f.h.settle();
+    assert.deepEqual([state.cancels, state.reads - beforeReads, assignmentReads],
+      [1, 2, reconnection === "same" ? 0 : 1]);
+    if (reconnection === "same") {
+      assert.equal(tripNode(f.h).props.busy, false);
+      assert.equal(tripNode(f.h).props.order.id, id);
+    } else {
+      assert.equal(tripNode(f.h), undefined);
+      if (reconnection === "replacement") {
+        const button = all(f.h.tree).find(n => n.type === "button" && JSON.stringify(n.props.children).includes("Вернуться в поездку"));
+        assert.ok(button);
+        button.props.onClick();
+        await f.h.settle();
+        assert.equal(tripNode(f.h).props.order.id, replacement.id);
+      }
+    }
+    f.h.unmount();
+    console.log("✓ driver cancellation reconnect restores current assignment without a second POST: " + reconnection);
+  }
+
   const offlineCase = await startFixture(async () => accepted);
   await offlineCase.h.settle();
   const pending = offerNode(offlineCase.h).props.onAccept();
