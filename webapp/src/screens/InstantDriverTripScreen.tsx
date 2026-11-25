@@ -471,7 +471,7 @@ export default function InstantDriverTripScreen() {
       } else {
         setAcceptNote(appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел"));
       }
-      clearDriverAcceptIntent(intent);
+      void clearDriverAcceptIntent(intent);
       acceptInFlight.current = false;
       setOffer(null);
       setPendingAccept(null);
@@ -574,7 +574,13 @@ export default function InstantDriverTripScreen() {
     const owner = getAccountSession();
     if (!owner) return "closed";
     const id = offer.id;
-    const intent = beginDriverAcceptIntent(owner, id);
+    acceptInFlight.current = true; // the claim can await another tab
+    const intent = await beginDriverAcceptIntent(owner, id);
+    if (!mounted.current || !isAccountSession(owner)) {
+      if (intent) void clearDriverAcceptIntent(intent);
+      acceptInFlight.current = false;
+      return "closed";
+    }
     if (!intent) {
       const existing = readDriverAcceptIntent(owner);
       if (existing) {
@@ -582,11 +588,17 @@ export default function InstantDriverTripScreen() {
         setPendingAccept(existing);
         return "closed";
       }
-      setAcceptNote(appText("Не удалось сохранить принятие заказа. Попробуй снова.",
-        "Заказ ҡабул итеүҙе һаҡлап булманы. Ҡабатлап ҡара."));
+      acceptInFlight.current = false;
+      setAcceptNote(appText("Не удалось безопасно сохранить принятие заказа. Проверь браузер или открой Юлдаш на Android.",
+        "Заказ ҡабул итеүҙе хәүефһеҙ һаҡлап булманы. Браузерҙы тикшер йәки Юлдашты Android-та ас."));
       return "retry";
     }
-    acceptInFlight.current = true;
+    if (driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) {
+      void clearDriverAcceptIntent(intent);
+      acceptInFlight.current = false;
+      setOffer(null);
+      return "closed";
+    }
     setAcceptNote("");
     setEndedNote("");
     setAccepting(true);
@@ -603,7 +615,7 @@ export default function InstantDriverTripScreen() {
         setPendingAccept(intent);
         return "closed";
       }
-      clearDriverAcceptIntent(intent);
+      void clearDriverAcceptIntent(intent);
       setCurrentActive(o);
       setOffer(null);
       try { localStorage.setItem(ACTIVE_KEY, String(o.id)); } catch { /* Active trip is already shown. */ }
@@ -617,7 +629,7 @@ export default function InstantDriverTripScreen() {
         return "closed"; // outcome unknown: settle the timer without a decline
       }
       if (st === 409 || st === 410) {
-        clearDriverAcceptIntent(intent);
+        void clearDriverAcceptIntent(intent);
         // Конфликт может означать, что своя поездка уже открыта на другом устройстве.
         setOffer(null);
         setAcceptNote((e instanceof ApiError && e.message.trim()) ||
