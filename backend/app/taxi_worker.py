@@ -39,7 +39,7 @@ from . import ads_expire, promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
 from .logs import log
-from .models import InstantOrder, InstantOrderStatus as S, ParcelDelivery
+from .models import DriverCancel, InstantOrder, InstantOrderStatus as S, ParcelDelivery
 from .services import push_notification
 from .timeutil import utcnow
 
@@ -155,6 +155,44 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
 
 
 # ----------------------------- 3. Очередь «рядом никого» -----------------------------
+def resume_driver_reassignments(session: Session, dry_run: bool = False) -> list[int]:
+    """Продолжить подбор, прерванный после фиксации ухода водителя.
+
+    При переназначении метка нового поиска и запись ухода фиксируются вместе с одним временем.
+    Очередь «подожду», обычный поиск и новые раунды без этой пары в восстановление не попадают.
+    """
+    rows = session.exec(
+        select(InstantOrder.id, InstantOrder.searching_at, DriverCancel.driver_id)
+        .join(DriverCancel, (DriverCancel.order_id == InstantOrder.id)
+              & (DriverCancel.at == InstantOrder.searching_at))
+        .where(InstantOrder.status == S.searching, InstantOrder.reassigns > 0,
+               InstantOrder.search_round == 0, InstantOrder.wait_until.is_(None),
+               InstantOrder.driver_id.is_(None), InstantOrder.current_offer_driver_id.is_(None),
+               DriverCancel.no_show.is_(False))
+        .order_by(InstantOrder.searching_at, InstantOrder.id)
+        .limit(200)
+    ).all()
+    moved = []
+    for order_id, search_at, driver_id in rows:
+        order = session.get(InstantOrder, order_id, populate_existing=True)
+        if (not order or order.status != S.searching or order.searching_at != search_at
+                or order.search_round != 0 or order.wait_until is not None
+                or order.driver_id is not None or order.current_offer_driver_id is not None):
+            continue
+        if dry_run:
+            moved.append(order_id)
+            continue
+        try:
+            # Уведомление о самом уходе не повторяем; реальный результат отправит победитель CAS.
+            fresh = isv.resume_driver_reassignment(session, order, driver_id)
+            if fresh.status in (S.offered, S.expired):
+                moved.append(order_id)
+        except Exception as error:  # noqa: BLE001 — ошибка одной записи не блокирует очередь
+            session.rollback()
+            log.warning("[TAXI-WORKER] восстановление переназначения #%s: %s", order_id, type(error).__name__)
+    return moved
+
+
 def retry_waiting_orders(session: Session, dry_run: bool = False) -> list:
     """Пассажир нажал «подождать» (wait_until в будущем) → тихо перезапускаем поиск.
 
@@ -412,6 +450,7 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
     ("people_waiting", lambda s, d: waiting_on_us.remind_waiting_people(s, d), []),
     # ---------- потом то, от чего зависит ЗАКАЗ ----------
     ("scheduled_activated", lambda s, d: activate_due_scheduled(s, d), []),
+    ("reassignments_resumed", lambda s, d: resume_driver_reassignments(s, d), []),
     ("stuck_closed", lambda s, d: close_stuck_orders(s, d), []),
     ("waits_retried", lambda s, d: retry_waiting_orders(s, d), []),
     ("waits_finished", lambda s, d: finish_expired_waits(s, d), []),
@@ -457,6 +496,7 @@ def main():
         res = run_once(session, dry_run=dry)
     labels = {
         "scheduled_activated": "предзаказов запущено",
+        "reassignments_resumed": "поисков замены продолжено",
         "stuck_closed": "зависших закрыто",
         "waits_retried": "поисков перезапущено",
         "waits_finished": "ожиданий завершено",

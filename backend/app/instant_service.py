@@ -2815,14 +2815,21 @@ def _continue_after_driver_cancel(session: Session, order_id: int,
     order = session.get(InstantOrder, order_id)
     if order.status != S.searching:
         return order
-    if cancelled_driver_id:
+    return resume_driver_reassignment(session, order, cancelled_driver_id, announce=True)
+
+
+def resume_driver_reassignment(session: Session, order: InstantOrder, departing_driver_id: int | None,
+                               *, announce: bool = False) -> InstantOrder:
+    """Продолжить текущий круг; повторный запуск не дублирует результат подбора."""
+    if departing_driver_id:
         try:
             r = _redis()
-            r.sadd(_tried_key(order_id), int(cancelled_driver_id))
-            r.expire(_tried_key(order_id), 3600)
-        except Exception:  # noqa: BLE001 — Redis лёг: хуже, чем «повторно предложим», не будет
+            r.sadd(_tried_key(order.id), int(departing_driver_id))
+            r.expire(_tried_key(order.id), 3600)
+        except Exception:  # noqa: BLE001 — прежний режим работы подбора без Redis
             pass
-    _notify_reassign(session, order)
+    if announce:
+        _notify_reassign(session, order)
     return try_offer_next(session, order)
 
 

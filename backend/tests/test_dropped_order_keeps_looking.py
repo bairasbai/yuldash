@@ -27,7 +27,7 @@ import pytest
 from sqlalchemy import event
 from sqlmodel import Session, select
 
-from app import instant_service as isv
+from app import instant_service as isv, taxi_worker as tw
 from app.config import settings
 from app.db import engine
 from app.models import DriverCancel, InstantOrder, InstantOrderStatus as S
@@ -183,6 +183,52 @@ def test_previous_search_does_not_finish_a_new_search(
     assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
     current = _db_order(oid)
     assert current.status == S.searching and current.current_offer_driver_id is None
+
+
+@pytest.mark.parametrize("outcome", ["offer", "expiry", "passenger_cancel"])
+def test_worker_recovers_interrupted_driver_reassignment(
+    client, user_factory, fake_redis, monkeypatch, outcome,
+):
+    driver, passenger, oid = _accepted(client, user_factory, "УшёлПередСбоем", "ОсталсяПриСбое")
+    if outcome == "offer":
+        replacement = _driver_online(client, user_factory, "ЗаменаПослеСбоя")
+        _heartbeat(client, replacement)
+
+    def stop_after_commit(*args):
+        raise RuntimeError("synthetic interruption after commit")
+
+    effects = []
+    monkeypatch.setattr(isv, "_continue_after_driver_cancel", stop_after_commit)
+    monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
+    monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("expiry"))
+
+    with Session(engine) as original:
+        with pytest.raises(RuntimeError, match="synthetic interruption"):
+            isv.cancel_order(original, oid, isv.Actor.driver, driver["id"])
+    assert _db_order(oid).status == S.searching and len(_события(driver["id"])) == 1
+    if outcome == "passenger_cancel":
+        with Session(engine) as later:
+            isv.cancel_order(later, oid, isv.Actor.passenger, passenger["id"])
+
+    with Session(engine) as worker:
+        dry = tw.resume_driver_reassignments(worker, dry_run=True)
+    assert (oid in dry) == (outcome != "passenger_cancel")
+    assert effects == []
+    with Session(engine) as worker:
+        completed = tw.resume_driver_reassignments(worker)
+    with Session(engine) as repeated_worker:
+        assert oid not in tw.resume_driver_reassignments(repeated_worker)
+
+    current = _db_order(oid)
+    if outcome == "offer":
+        assert current.status == S.offered and current.current_offer_driver_id == replacement["id"]
+        assert oid in completed and effects == ["offer"]
+    elif outcome == "expiry":
+        assert current.status == S.expired and oid in completed and effects == ["expiry"]
+    else:
+        assert current.status == S.cancelled and current.cancel_by == "passenger"
+        assert oid not in completed and effects == []
+    assert len(_события(driver["id"])) == 1
 
 
 def test_with_nobody_left_the_order_waits_instead_of_dying(client, user_factory, fake_redis):
