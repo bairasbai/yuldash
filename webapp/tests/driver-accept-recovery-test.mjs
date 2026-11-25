@@ -125,6 +125,24 @@ try {
   activeCase.h.unmount();
   console.log("✓ mounted driver screen recovers a committed order after a late 503 without repeating Accept");
 
+  const offlineCase = startFixture(async () => accepted);
+  await offlineCase.h.settle();
+  const pending = offerNode(offlineCase.h).props.onAccept();
+  const waitScreen = all(offlineCase.h.tree).find(n => n.type?.name === "DriverWaiting");
+  assert.ok(waitScreen);
+  waitScreen.props.onGoOffline();
+  await offlineCase.h.settle();
+  assert.equal(offerNode(offlineCase.h), undefined);
+  const offerReads = state.offers;
+  offlineCase.fail(new state.Error(503, "delayed response"));
+  assert.equal(await pending, "closed");
+  await offlineCase.h.settle();
+  assert.equal(tripNode(offlineCase.h).props.order.id, id);
+  assert.equal(state.offers, offerReads);
+  assert.deepEqual([state.posts, state.reads, state.declines, state.writes], [1, 1, 0, 1]);
+  offlineCase.h.unmount();
+  console.log("✓ leaving the line does not discard a committed acceptance");
+
   const closedCase = startFixture(async () => {
     if (state.reads === 1) throw new state.Error(503, "temporarily unavailable");
     state.offer = { ...offer, id: id + 1 };

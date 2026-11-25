@@ -31,6 +31,7 @@ class TaxiDriverJourneyTest {
     @get:Rule val compose = createComposeRule()
     private lateinit var server: MockWebServer
     private val mounted = mutableStateOf(true)
+    private val online = mutableStateOf(true)
     private val openedOrder = mutableStateOf<Int?>(null)
     private val writes = CopyOnWriteArrayList<String>()
     private val reads = CopyOnWriteArrayList<String>()
@@ -140,6 +141,19 @@ class TaxiDriverJourneyTest {
         assertTrue(reads.count { it == "/instant/orders/71" } >= 2)
     }
 
+    @Test fun acceptedOrderRecoversEvenWhenDriverLeavesLineBeforeReply() {
+        acceptMode = AcceptMode.LostAfterCommit
+        holdAcceptAcrossDeadline()
+        compose.runOnIdle { online.value = false }
+        compose.waitForIdle()
+        val offerReads = reads.count { it == "/instant/driver/offer" }
+        deliverResponse.countDown()
+
+        finishTrip()
+        assertEquals(offerReads, reads.count { it == "/instant/driver/offer" })
+        assertEquals(listOf("accept", "arrived", "onboard", "done"), writes.toList())
+    }
+
     @Test fun late503WhileUnassignedKeepsCheckingThenOffersNextOrder() {
         acceptMode = AcceptMode.LostBeforeExpiry
         holdAcceptAcrossDeadline()
@@ -178,7 +192,7 @@ class TaxiDriverJourneyTest {
             if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
                 val id = openedOrder.value
                 if (id == null) {
-                    InstantDriverOnlineController(online = true, mapContent = { Box(it) },
+                    InstantDriverOnlineController(online = online.value, mapContent = { Box(it) },
                         onOpenTrip = { openedOrder.value = it })
                 } else {
                     InstantDriverTripScreen(orderId = id, onBack = {},

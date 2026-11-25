@@ -5708,38 +5708,48 @@ internal fun InstantDriverOnlineController(
             delay(12_000)
         }
     }
-    // Поллинг входящего оффера (пока нет активного на экране) — только пока экран перед глазами.
-    // Со свёрнутым приложением офферы ловит фоновый сервис линии и показывает полноэкранное
-    // уведомление: это водителю полезнее, чем обновлённый экран, которого он не видит.
+    // Проверяем уже отправленное принятие даже вне линии. Тумблер управляет только новыми заказами.
+    val openAcceptedTrip by rememberUpdatedState(onOpenTrip)
+    val unavailableMessage by rememberUpdatedState(acceptUnavailableMsg)
+    val pending = pendingAccept
+    RepeatWhileVisible(pending) {
+        if (pending == null) return@RepeatWhileVisible
+        val (id, generation, driverId) = pending
+        while (isActive && pendingAccept == pending) {
+            val answer = if (ApiClient.isCurrentSession(generation)) {
+                withTimeoutOrNull(5_000) { ApiClient.readDriverAcceptOnce(id, generation) }
+            } else null
+            if (pendingAccept != pending) break
+            if (!ApiClient.isCurrentSession(generation)) {
+                pendingAccept = null
+                offer = null
+                break
+            }
+            val observed = answer?.getOrNull()
+            val failure = answer?.exceptionOrNull() as? ApiException
+            when (classifyDriverAcceptRead(id, driverId, observed?.id, observed?.role,
+                observed?.driverId, observed?.status, failure?.status, failure?.message)) {
+                DriverAcceptRead.Active -> {
+                    pendingAccept = null
+                    offer = null
+                    openAcceptedTrip(id)
+                    break
+                }
+                DriverAcceptRead.Closed -> {
+                    pendingAccept = null
+                    offer = null
+                    Toast.makeText(ctx, unavailableMessage, Toast.LENGTH_SHORT).show()
+                    break
+                }
+                DriverAcceptRead.Unknown -> delay(4_000)
+            }
+        }
+    }
+    // Входящие офферы принимаем только на линии; фоновый сервис ведёт свой опрос.
     RepeatWhileVisible(online) {
         if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
-            val pending = pendingAccept
-            if (pending != null) {
-                val (id, generation, driverId) = pending
-                val answer = if (ApiClient.isCurrentSession(generation)) {
-                    withTimeoutOrNull(5_000) { ApiClient.readDriverAcceptOnce(id, generation) }
-                } else null
-                if (pendingAccept == pending) {
-                    if (!ApiClient.isCurrentSession(generation)) {
-                        pendingAccept = null
-                        offer = null
-                    } else {
-                        val observed = answer?.getOrNull()
-                        val failure = answer?.exceptionOrNull() as? ApiException
-                        when (classifyDriverAcceptRead(id, driverId, observed?.id, observed?.role,
-                            observed?.driverId, observed?.status, failure?.status, failure?.message)) {
-                            DriverAcceptRead.Active -> { pendingAccept = null; offer = null; onOpenTrip(id) }
-                            DriverAcceptRead.Closed -> {
-                                pendingAccept = null
-                                offer = null
-                                Toast.makeText(ctx, acceptUnavailableMsg, Toast.LENGTH_SHORT).show()
-                            }
-                            DriverAcceptRead.Unknown -> Unit
-                        }
-                    }
-                }
-            } else if (offer == null && !accepting) {
+            if (pendingAccept == null && offer == null && !accepting) {
                 // Спрашиваем СОСТОЯНИЕ, а не только оффер: в том же ответе приходит
                 // причина, почему заказов не будет. Без неё полоса-объяснение молчит
                 // и экран снова обещает заказ, которого не дождаться.
