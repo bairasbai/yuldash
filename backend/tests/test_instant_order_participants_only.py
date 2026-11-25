@@ -130,7 +130,23 @@ def test_offered_driver_sees_the_offer(client, user_factory):
     assert r.json()["from_lat"] == round(ORIG[0], 2)
 
     # А отказаться от предложенного — по-прежнему можно.
-    assert client.post(f"/instant/orders/{oid}/decline", headers=drv["auth"]).status_code == 200
+    response = client.post(f"/instant/orders/{oid}/decline", headers=drv["auth"])
+    assert response.status_code == 200
+    assert response.json() == {"id": oid, "released": True}
+
+
+def test_decline_of_accepted_order_does_not_report_release(client, accepted_order):
+    oid = accepted_order["id"]
+    auth = accepted_order["drv"]["auth"]
+
+    response = client.post(f"/instant/orders/{oid}/decline", headers=auth)
+
+    assert response.status_code == 200
+    assert response.json() == {"id": oid, "released": False}
+    with Session(engine) as session:
+        order = session.get(InstantOrder, oid)
+        assert order.status == S.accepted
+        assert order.driver_id == accepted_order["drv"]["id"]
 
 
 def test_admin_also_goes_through_admin_handles(client, user_factory, accepted_order):

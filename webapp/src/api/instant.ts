@@ -444,8 +444,10 @@ export function acceptOrder(id: number): Promise<InstantOrder> {
  */
 export type DeclineReason = "far" | "cheap" | "direction" | "busy" | "break" | "other";
 
-export function declineOrder(id: number, reason?: DeclineReason): Promise<InstantOrder> {
-  return apiPost<InstantOrder>(
+export type DeclineOrderResult = InstantOrder | { id: number; released: boolean };
+
+export function declineOrder(id: number, reason?: DeclineReason): Promise<DeclineOrderResult> {
+  return apiPost<DeclineOrderResult>(
     `/instant/orders/${id}/decline`,
     reason ? { reason } : undefined
   );

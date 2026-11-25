@@ -351,6 +351,7 @@ try {
   const waitingTab = mount(Screen);
   await waitingTab.settle();
   const stale = offerNode(waitingTab).props;
+  state.decline = async () => ({id, released: true});
   const skipping = offerNode(skipFirst.h).props.onSkip();
   const trying = stale.onAccept();
   globalThis.__sh = skipFirst.h.state;
@@ -387,6 +388,27 @@ try {
   skipTab.unmount();
   takeFirst.h.unmount();
   console.log("✓ Accept first produces one command and late Skip cannot change the confirmed order");
+
+  const released = await startFixture(async () => { throw Error("unexpected read"); });
+  await released.h.settle();
+  state.decline = async () => ({id, released: true});
+  await offerNode(released.h).props.onSkip();
+  await released.h.settle();
+  assert.deepEqual([state.declines, state.posts, state.reads], [1, 0, 0]);
+  assert.equal(offerNode(released.h), undefined);
+  assert.equal((await marker())?.pending, undefined);
+  released.h.unmount();
+  console.log("✓ a release acknowledgement closes the offer without a follow-up GET");
+
+  const stillOwns = await startFixture(async () => accepted);
+  await stillOwns.h.settle();
+  state.decline = async () => ({id, released: false});
+  await offerNode(stillOwns.h).props.onSkip();
+  await stillOwns.h.settle();
+  assert.deepEqual([state.declines, state.posts, state.reads], [1, 0, 1]);
+  assert.equal(state.writes, 1, "only the authenticated read opens the accepted order");
+  stillOwns.h.unmount();
+  console.log("✓ a non-release acknowledgement reconciles without repeating Skip");
 
   const lostSkip = await startFixture(async () => ({...offer, status:"expired"}));
   await lostSkip.h.settle();

@@ -32,6 +32,7 @@ import {
   fetchInstantOrder,
   DECLINE_REASONS,
   type DeclineReason,
+  type DeclineOrderResult,
   arrivedOrder,
   onboardOrder,
   doneOrder,
@@ -711,22 +712,25 @@ export default function InstantDriverTripScreen() {
     const timeout = window.setTimeout(() => abort.abort(), 15_000);
     let handedOff = false;
     try {
-      const result = await apiCommand<InstantOrder>(`/instant/orders/${id}/decline`, owner, {
+      const result = await apiCommand<DeclineOrderResult>(`/instant/orders/${id}/decline`, owner, {
         method: "POST", body: "{}", oneShot: true, signal: abort.signal,
       });
       if (!mounted.current || !isAccountSession(owner)) return "closed";
-      if (result?.id !== id ||
-          !["driver", "passenger"].includes(result.role) ||
-          !["searching", "offered", "accepted", "arriving", "onboard", "done", "cancelled", "expired"].includes(result.status) ||
-          (result.status === "offered" && result.role === "driver")) {
+      const acknowledgement = result && typeof result === "object" && "released" in result;
+      const released = acknowledgement && result.released === true;
+      const snapshot = result && typeof result === "object" && !("released" in result) ? result : null;
+      if (result?.id !== id || (!released && (!snapshot ||
+          !["driver", "passenger"].includes(snapshot.role) ||
+          !["searching", "offered", "accepted", "arriving", "onboard", "done", "cancelled", "expired"].includes(snapshot.status) ||
+          (snapshot.status === "offered" && snapshot.role === "driver")))) {
         handedOff = true;
         setPendingAccept(intent);
         return "closed";
       }
-      const active = classifyDriverAcceptRead(id, owner.userId, result) === "active";
+      const active = snapshot && classifyDriverAcceptRead(id, owner.userId, snapshot) === "active";
       await clearDriverAcceptIntent(intent, true);
       if (!mounted.current || !isAccountSession(owner)) return "closed";
-      if (active) setCurrentActive(result);
+      if (active) setCurrentActive(snapshot);
       else setAskWhy(intent);
       dismissExpiredOffer(id);
     } catch {
@@ -746,7 +750,7 @@ export default function InstantDriverTripScreen() {
     setAskWhy(null);
     if (!decision || !isAccountSession(decision.owner)) return;
     try {
-      await apiCommand<InstantOrder>(`/instant/orders/${decision.id}/decline`, decision.owner, {
+      await apiCommand<DeclineOrderResult>(`/instant/orders/${decision.id}/decline`, decision.owner, {
         method: "POST", body: JSON.stringify({ reason }), oneShot: true,
       });
     } catch {

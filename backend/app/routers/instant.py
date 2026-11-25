@@ -820,22 +820,21 @@ class DeclineIn(BaseModel):
 _DECLINE_REASONS = {"far", "cheap", "direction", "busy", "break", "other"}
 
 
+class DeclineOut(BaseModel):
+    id: int
+    released: bool
+
+
 @router.post("/instant/orders/{order_id}/decline")
 def decline(order_id: int, body: DeclineIn | None = None,
-            user: User = Depends(current_user), session: Session = Depends(get_session)):
-    """Водитель отклоняет оффер → matcher предлагает следующему. Идемпотентно.
-
-    Права проверяем ДО отказа: ручка идемпотентна и постороннему ничего не меняла, но
-    исправно возвращала витрину чужого заказа — с точкой подачи и телефоном водителя
-    (аудит 2026-08-07). После отказа заказ уходит следующему кандидату, и отказавшийся
-    перестаёт быть участником — поэтому витрину отдаём с `actor_authorized`.
-    """
-    order = _order_for_view(session, order_id, user)
+            user: User = Depends(current_user), session: Session = Depends(get_session)) -> DeclineOut:
+    """Подтверждает выход из заказа; детали доступны только через отдельное чтение."""
+    _order_for_view(session, order_id, user)
     reason = ((body.reason if body else "") or "").strip().lower()
     if reason and reason not in _DECLINE_REASONS:
         reason = "other"      # незнакомое значение не роняет отказ: отказаться важнее, чем классифицировать
     order = isv.decline_offer(session, order_id, user.id, reason=reason)
-    return isv.order_payload(session, order, user, actor_authorized=True)
+    return DeclineOut(id=order_id, released=not isv.is_order_participant(order, user.id))
 
 
 class ArrivedIn(BaseModel):
@@ -1243,7 +1242,7 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
     # Права проверены выше, ДО отмены. Водитель, бросивший заказ, может перестать быть его
     # участником прямо в этом вызове: заказ возвращается в поиск и уходит следующему
     # (`_reassign_after_driver_cancel`). Ответ на собственный запрос он получить обязан —
-    # тот же случай, что у отказа от оффера, ради которого флаг и заведён.
+    # здесь сохраняется прежний контракт отмены активной поездки.
     return isv.order_payload(session, order, user, actor_authorized=True)
 
 
