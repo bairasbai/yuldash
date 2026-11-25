@@ -6563,19 +6563,8 @@ private fun InstantOfferTimer(secondsLeft: Int, progress: Float, active: Boolean
 
 @Composable
 private fun InstantOfferRouteCard(order: InstantOrderDto) {
-    val km = order.offerPickupKm
-    val eta = order.offerPickupEtaMin
-    val pickupLine = when {
-        km != null && eta != null -> appText(
-            "${formatOfferKm(km)} км · $eta мин до пассажира",
-            "Пассажирға тиклем ${formatOfferKm(km)} км · $eta мин",
-        )
-        km != null -> appText(
-            "${formatOfferKm(km)} км до пассажира · время уточняется",
-            "Пассажирға тиклем ${formatOfferKm(km)} км · ваҡыт асыҡлана",
-        )
-        else -> appText("Время подачи уточняется", "Килеп етеү ваҡыты асыҡлана")
-    }
+    // Старый оффер содержит только эвристику по прямой, не время по дорожному маршруту.
+    val pickupLine = appText("Время подачи уточняется", "Килеп етеү ваҡыты асыҡлана")
     Surface(
         color = CanonSurface,
         shape = CanonItemShape,
@@ -6617,8 +6606,7 @@ private fun InstantOfferRouteCard(order: InstantOrderDto) {
 
 @Composable
 private fun InstantOfferMoneyAndClass(order: InstantOrderDto) {
-    val hasServerNet = order.driverGrossKop > 0
-    val income = if (hasServerNet) formatTaxiKop(order.driverNetKop) else "${order.priceEstimate} ₽"
+    val money = taxiOfferMoneyCopy(order.offerMoney, LocalAppLanguage.current)
     val category = InstantClasses.firstOrNull { it.category == order.category }
     val categoryName = category?.let { appText(it.titleRu, it.titleBa) }
         ?: appText("Эконом", "Эконом")
@@ -6637,7 +6625,11 @@ private fun InstantOfferMoneyAndClass(order: InstantOrderDto) {
                 verticalArrangement = Arrangement.Center,
             ) {
                 Text(appText("Предполагаемый доход", "Көтөлгән килем"), style = CanonMicro, color = CanonMutedStrong)
-                Text(income, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                if (money.incomeKnown) {
+                    Text(money.income, fontSize = 34.sp, lineHeight = 40.sp, fontWeight = FontWeight.Bold, color = CanonText)
+                } else {
+                    Text(money.income, style = CanonBodyStrong, color = CanonText)
+                }
                 // Доход посчитан с ПОЛНОЙ цены — скидку пассажира оплачивает Юлдаш. Но наличными
                 // человек даст меньше, и узнать об этом водитель должен ДО того, как возьмёт
                 // заказ, а не в машине, где это выглядит как обман.
@@ -6732,13 +6724,9 @@ private fun InstantOfferPassengerTrust(order: InstantOrderDto) {
 
 @Composable
 private fun InstantOfferHonestDetails(order: InstantOrderDto) {
+    val breakdown = taxiOfferMoneyCopy(order.offerMoney, LocalAppLanguage.current).breakdown
     val notes = buildList {
-        if (order.driverGrossKop > 0) add(
-            appText(
-                "Пассажир платит ${formatTaxiKop(order.driverGrossKop)} · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
-                "Пассажир ${formatTaxiKop(order.driverGrossKop)} түләй · комиссия ${formatTaxiKop(order.driverFeeKop)} (${formatTaxiMultiplier(order.driverFeePercent)}%)",
-            )
-        )
+        if (breakdown != null) add(breakdown)
         if (order.pickupFeeKop > 0) add(
             appText(
                 "Подача: ${formatTaxiKop(order.pickupFeeKop)} тебе сверху, без комиссии",

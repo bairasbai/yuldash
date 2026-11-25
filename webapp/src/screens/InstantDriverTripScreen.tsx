@@ -1132,14 +1132,8 @@ function OfferOverlay({
   const fromPt: GeoPoint | null = order.from_lat != null && (order.from_lat !== 0 || order.from_lng !== 0) ? { lat: order.from_lat, lng: order.from_lng ?? 0 } : null;
   const toPt: GeoPoint | null = order.to_lat != null && (order.to_lat !== 0 || order.to_lng !== 0) ? { lat: order.to_lat, lng: order.to_lng ?? 0 } : null;
 
-  const km = order.offer_pickup_km ?? null;
-  const eta = order.offer_pickup_eta_min ?? null;
-  const pickupLine =
-    km != null && eta != null
-      ? appText(`${km1(km)} км · ${eta} мин до пассажира`, `Пассажирға тиклем ${km1(km)} км · ${eta} мин`)
-      : km != null
-        ? appText(`${km1(km)} км до пассажира · время уточняется`, `Пассажирға тиклем ${km1(km)} км · ваҡыт асыҡлана`)
-        : appText("Время подачи уточняется", "Килеп етеү ваҡыты асыҡлана");
+  // Старый оффер содержит только эвристику по прямой, не время по дорожному маршруту.
+  const pickupLine = appText("Время подачи уточняется", "Килеп етеү ваҡыты асыҡлана");
   const tripMeta = [
     order.distance_km > 0 ? appText(`${km1(order.distance_km)} км поездка`, `${km1(order.distance_km)} км сәфәр`) : "",
     order.eta_min > 0 ? appText(`≈ ${Math.trunc(order.eta_min)} мин в пути`, `Юлда ≈ ${Math.trunc(order.eta_min)} мин`) : "",
@@ -1147,7 +1141,7 @@ function OfferOverlay({
     .filter(Boolean)
     .join("  ·  ");
 
-  const { income, breakdown } = driverOfferMoney(order, appText);
+  const { income, breakdown, incomeKnown } = driverOfferMoney(order, appText);
   const rating = order.passenger_rating;
   const trustHead = rating != null ? appText(`Пассажир ★ ${rating.toFixed(1).replace(".", ",")}`, `Пассажир ★ ${rating.toFixed(1).replace(".", ",")}`) : appText("Пассажир · новичок", "Пассажир · яңы юлсы");
   const trustDetail = order.passenger_trips > 0 ? appText(`${order.passenger_trips} завершённых поездок`, `${order.passenger_trips} тамамланған сәфәр`) : appText("Первая поездка в Юлдаш", "Юлдашта тәүге сәфәр");
@@ -1221,7 +1215,7 @@ function OfferOverlay({
           <div className="toffer-money">
             <div className="toffer-money__income">
               <small>{appText("Предполагаемый доход", "Көтөлгән килем")}</small>
-              <b>{income}</b>
+              <b className={incomeKnown ? undefined : "toffer-income--pending"}>{income}</b>
               {order.promo_discount_kop > 0 && (
                 <span>
                   {appText(

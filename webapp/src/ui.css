@@ -18157,6 +18157,12 @@ button.settings-row:active {
   line-height: var(--line-display);
   font-weight: var(--weight-bold);
 }
+/* Text status should fit the same narrow tile as an amount. */
+.toffer-money__income b.toffer-income--pending {
+  font-size: var(--font-body);
+  line-height: var(--line-body);
+  font-weight: var(--weight-semibold);
+}
 .toffer-money__income span {
   color: var(--green2);
   font-size: var(--font-micro);

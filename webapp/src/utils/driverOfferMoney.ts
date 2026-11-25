@@ -6,7 +6,7 @@ type OfferMoney = Pick<InstantOrder,
 type AppText = (ru: string, ba: string) => string;
 
 function isAmount(value: number | undefined): value is number {
-  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0;
+  return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2_147_483_647;
 }
 
 export function driverOfferMoney(order: OfferMoney, appText: AppText) {
@@ -16,7 +16,8 @@ export function driverOfferMoney(order: OfferMoney, appText: AppText) {
   const percent = order.driver_fee_percent;
   // Legacy/passenger payloads can carry zero-initialized driver fields.
   const grossKnown = isAmount(gross) && gross > 0;
-  const income = grossKnown && isAmount(net) && net <= gross
+  const incomeKnown = grossKnown && isAmount(net) && net <= gross;
+  const income = incomeKnown
     ? kopExactLabel(net)
     : appText("Уточняется", "Асыҡлана");
   const feeLabel = typeof percent === "number" && Number.isFinite(percent) && percent >= 0 && percent <= 100
@@ -28,5 +29,5 @@ export function driverOfferMoney(order: OfferMoney, appText: AppText) {
       `Пассажир ${kopExactLabel(gross)} түләй · комиссия ${kopExactLabel(fee)}${feeLabel}`,
     )
     : null;
-  return { income, breakdown };
+  return { income, breakdown, incomeKnown };
 }

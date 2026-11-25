@@ -5897,6 +5897,7 @@ data class InstantOrderDto(
     // Остановки по пути и признак «сейчас стоим на остановке» (тикает ожидание).
     val stops: List<TaxiStop> = emptyList(),
     val standing: Boolean = false,
+    val offerMoney: TaxiOfferMoneyDto = TaxiOfferMoneyDto(driverGrossKop, driverNetKop, driverFeeKop, driverFeePercent),
 ) {
     /** Полная цена поездки в копейках: фактическая, а до завершения — оценка. */
     val fullPriceKop: Int get() = (priceFinal ?: priceEstimate).coerceAtLeast(0) * 100
@@ -6016,6 +6017,7 @@ private fun JSONObject.toInstantOrderDto() = InstantOrderDto(
     driverGrossKop = optInt("driver_gross_kop"),
     driverFeeKop = optInt("driver_fee_kop"),
     driverNetKop = optInt("driver_net_kop"),
+    offerMoney = toTaxiOfferMoneyDto(),
     driverFeePercent = optDouble("driver_fee_percent", 0.0),
     createdAt = if (isNull("created_at")) null else optString("created_at").ifBlank { null },
     searchingAt = if (isNull("searching_at")) null else optString("searching_at").ifBlank { null },

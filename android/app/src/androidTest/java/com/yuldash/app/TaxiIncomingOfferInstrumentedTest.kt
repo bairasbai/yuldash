@@ -34,7 +34,8 @@ class TaxiIncomingOfferInstrumentedTest {
         }
 
         composeRule.onNodeWithText("Входящий заказ").assertIsDisplayed()
-        composeRule.onNodeWithText("2,4 км · 6 мин до пассажира").assertIsDisplayed()
+        composeRule.onNodeWithText("Время подачи уточняется").assertIsDisplayed()
+        composeRule.onNodeWithText("2,4 км · 6 мин до пассажира").assertDoesNotExist()
         composeRule.onNodeWithText("620 ₽").assertIsDisplayed()
         composeRule.onNodeWithText("Пассажир ★ 4,9").assertIsDisplayed()
         composeRule.onNodeWithText("Пропустить").assertIsDisplayed()

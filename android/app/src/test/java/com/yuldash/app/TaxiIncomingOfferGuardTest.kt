@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -25,8 +26,12 @@ class TaxiIncomingOfferGuardTest {
         assertTrue(screen.contains("InstantRouteMap("))
         assertTrue(screen.contains("interactive = false"))
         assertTrue(screen.contains("Входящий заказ"))
-        assertTrue(screen.contains("order.offerPickupKm"))
-        assertTrue(screen.contains("order.offerPickupEtaMin"))
+        val routeCard = screen.substringAfter("private fun InstantOfferRouteCard(")
+            .substringBefore("private fun InstantOfferMoneyAndClass(")
+        assertTrue(routeCard.contains("Время подачи уточняется"))
+        assertTrue(routeCard.contains("Килеп етеү ваҡыты асыҡлана"))
+        assertFalse(routeCard.contains("order.offerPickupKm"))
+        assertFalse(routeCard.contains("order.offerPickupEtaMin"))
         assertTrue(screen.contains("InstantOfferPassengerTrust(order)"))
         assertTrue(screen.contains("InstantOfferTimer(secondsLeft, timerProgress, canAccept)"))
         assertTrue(screen.contains("text = appText(\"Пропустить\""))
