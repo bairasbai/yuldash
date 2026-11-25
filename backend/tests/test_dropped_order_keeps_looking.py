@@ -24,6 +24,7 @@
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import event
 from sqlmodel import Session, select
 
 from app import instant_service as isv
@@ -90,6 +91,48 @@ def test_a_dropped_order_goes_to_the_next_driver(client, user_factory, fake_redi
     assert o.current_offer_driver_id == сосед["id"], "предложили не тому, кто рядом"
     assert o.driver_id is None, "бросивший всё ещё числится водителем заказа"
     assert o.reassigns == 1
+
+
+def test_reassignment_has_no_committed_cancelled_snapshot(client, user_factory, fake_redis):
+    """Чтение из отдельной сессии на каждой фиксации перехода."""
+    driver, _, oid = _accepted(client, user_factory, "АтомВодитель", "АтомПассажир")
+    replacement = _driver_online(client, user_factory, "АтомЗапасной")
+    _heartbeat(client, replacement)
+    seen = []
+
+    def record(_):
+        with Session(engine) as reader:
+            order = reader.get(InstantOrder, oid)
+            strike = reader.exec(select(DriverCancel).where(DriverCancel.order_id == oid)).first()
+            seen.append((order.status, order.driver_id, strike is not None))
+
+    event.listen(Session, "after_commit", record)
+    try:
+        assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
+    finally:
+        event.remove(Session, "after_commit", record)
+
+    assert seen[0] == (S.searching, None, True)
+    assert all(status != S.cancelled and assigned is None and strike for status, assigned, strike in seen)
+    assert _db_order(oid).current_offer_driver_id == replacement["id"]
+
+
+def test_failed_strike_does_not_publish_reassignment(client, user_factory, fake_redis):
+    driver, _, oid = _accepted(client, user_factory, "ОшибкаСобытияВод", "ОшибкаСобытияПасс")
+
+    def fail_strike(session, *_):
+        if any(isinstance(row, DriverCancel) for row in session.new):
+            raise RuntimeError("synthetic strike storage failure")
+
+    with Session(engine) as writer:
+        event.listen(writer, "before_flush", fail_strike)
+        with pytest.raises(RuntimeError, match="synthetic strike storage failure"):
+            isv.cancel_order(writer, oid, isv.Actor.driver, driver["id"])
+        writer.rollback()
+
+    order = _db_order(oid)
+    assert order.status == S.accepted and order.driver_id == driver["id"] and order.reassigns == 0
+    assert not _события(driver["id"])
 
 
 def test_with_nobody_left_the_order_waits_instead_of_dying(client, user_factory, fake_redis):
