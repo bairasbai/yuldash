@@ -30,7 +30,6 @@ import {
   sendPresence,
   fetchDriverOffer,
   fetchInstantOrder,
-  declineOrder,
   DECLINE_REASONS,
   type DeclineReason,
   arrivedOrder,
@@ -478,7 +477,7 @@ export default function InstantDriverTripScreen() {
       } else {
         setAcceptNote(appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел"));
       }
-      void clearDriverAcceptIntent(intent);
+      void clearDriverAcceptIntent(intent, true);
       acceptInFlight.current = false;
       setOffer(null);
       setPendingAccept(null);
@@ -582,7 +581,7 @@ export default function InstantDriverTripScreen() {
     if (!owner) return "closed";
     const id = offer.id;
     acceptInFlight.current = true; // the claim can await another tab
-    const claim = await beginDriverAcceptIntent(owner, id);
+    const claim = await beginDriverAcceptIntent(owner, id, "accept", driverOfferDeadline(offer.offer_expires_at) ?? 0);
     if (!mounted.current || !isAccountSession(owner)) {
       if (claim.state === "claimed") void clearDriverAcceptIntent(claim.intent);
       acceptInFlight.current = false;
@@ -590,6 +589,11 @@ export default function InstantDriverTripScreen() {
     }
     if (claim.state === "existing") {
       setPendingAccept(claim.intent);
+      return "closed";
+    }
+    if (claim.state === "closed") {
+      acceptInFlight.current = false;
+      dismissExpiredOffer(id);
       return "closed";
     }
     if (claim.state === "unavailable") {
@@ -622,7 +626,7 @@ export default function InstantDriverTripScreen() {
         setPendingAccept(intent);
         return "closed";
       }
-      void clearDriverAcceptIntent(intent);
+      void clearDriverAcceptIntent(intent, true);
       setCurrentActive(o);
       setOffer(null);
       try { localStorage.setItem(ACTIVE_KEY, String(o.id)); } catch { /* Active trip is already shown. */ }
@@ -636,7 +640,7 @@ export default function InstantDriverTripScreen() {
         return "closed"; // outcome unknown: settle the timer without a decline
       }
       if (st === 409 || st === 410) {
-        void clearDriverAcceptIntent(intent);
+        void clearDriverAcceptIntent(intent, true);
         // Конфликт может означать, что своя поездка уже открыта на другом устройстве.
         setOffer(null);
         setAcceptNote((e instanceof ApiError && e.message.trim()) ||
@@ -663,7 +667,7 @@ export default function InstantDriverTripScreen() {
    * Без причин платформа видит только «не берут» и продолжает слать те же
    * заказы тем же людям.
    */
-  const [askWhy, setAskWhy] = useState<number | null>(null);
+  const [askWhy, setAskWhy] = useState<DriverAcceptIntent | null>(null);
 
   function dismissExpiredOffer(id: number) {
     // Истечение регулирует сервер. Таймер вкладки не выражает отказ водителя.
@@ -671,43 +675,77 @@ export default function InstantDriverTripScreen() {
   }
 
   async function skip() {
-    if (!offer || pendingAccept || acceptInFlight.current || accepting ||
-        driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) return;
+    if (!offer || pendingAccept || acceptInFlight.current || accepting) return;
     const owner = getAccountSession();
-    if (!owner) return;
-    let saved: DriverAcceptIntent | null;
-    try { saved = await readDriverAcceptIntent(owner); }
-    catch {
-      if (mounted.current && isAccountSession(owner) && visibleOffer.current?.id === offer.id) {
-        setAcceptNote(appText("Не удалось проверить заказ. Проверь, разрешено ли сайту сохранять данные.",
-          "Заказды тикшереп булманы. Сайтҡа мәғлүмәт һаҡларға рөхсәт бармы икәнен тикшер."));
-      }
-      return;
-    }
-    if (!mounted.current || !isAccountSession(owner) || acceptInFlight.current || visibleOffer.current?.id !== offer.id ||
-        driverOfferRemaining(driverOfferDeadline(offer.offer_expires_at), Date.now()) <= 0) return;
-    if (saved) {
-      acceptInFlight.current = true;
-      setPendingAccept(saved);
-      return;
-    }
     const id = offer.id;
+    const until = driverOfferDeadline(offer.offer_expires_at) ?? 0;
+    if (!owner || until <= Date.now()) return;
+    acceptInFlight.current = true;
+    const claim = await beginDriverAcceptIntent(owner, id, "decline", until);
+    if (!mounted.current || !isAccountSession(owner) || visibleOffer.current?.id !== id || until <= Date.now()) {
+      if (claim.state === "claimed") void clearDriverAcceptIntent(claim.intent);
+      acceptInFlight.current = false;
+      return;
+    }
+    if (claim.state === "existing") {
+      setPendingAccept(claim.intent);
+      return;
+    }
+    if (claim.state === "unavailable") {
+      acceptInFlight.current = false;
+      setAcceptNote(appText("Не удалось сохранить решение по заказу. Проверь настройки хранения сайта.",
+        "Заказ буйынса ҡарарҙы һаҡлап булманы. Сайттың һаҡлау көйләүҙәрен тикшер."));
+      return;
+    }
+    if (claim.state === "closed") {
+      acceptInFlight.current = false;
+      dismissExpiredOffer(id);
+      return;
+    }
+    const { intent } = claim;
+    setAccepting(true);
     setAcceptNote("");
-    setOffer(null);
+    const abort = new AbortController();
+    const timeout = window.setTimeout(() => abort.abort(), 15_000);
+    let handedOff = false;
     try {
-      await declineOrder(id);
-      setAskWhy(id);
+      const result = await apiCommand<InstantOrder>(`/instant/orders/${id}/decline`, owner, {
+        method: "POST", body: "{}", oneShot: true, signal: abort.signal,
+      });
+      if (!mounted.current || !isAccountSession(owner)) return;
+      if (result?.id !== id ||
+          !["driver", "passenger"].includes(result.role) ||
+          !["searching", "offered", "accepted", "arriving", "onboard", "done", "cancelled", "expired"].includes(result.status) ||
+          (result.status === "offered" && result.role === "driver")) {
+        handedOff = true;
+        setPendingAccept(intent);
+        return;
+      }
+      const active = classifyDriverAcceptRead(id, owner.userId, result) === "active";
+      await clearDriverAcceptIntent(intent, true);
+      if (!mounted.current || !isAccountSession(owner)) return;
+      if (active) setCurrentActive(result);
+      else setAskWhy(intent);
+      dismissExpiredOffer(id);
     } catch {
-      /* уже ушёл дальше */
+      if (!mounted.current || !isAccountSession(owner)) return;
+      handedOff = true;
+      setPendingAccept(intent); // A lost response is resolved by GET, never by another decision.
+    } finally {
+      window.clearTimeout(timeout);
+      if (!handedOff) acceptInFlight.current = false;
+      if (mounted.current) setAccepting(false);
     }
   }
 
   async function sendWhy(reason: DeclineReason) {
-    const id = askWhy;
+    const decision = askWhy;
     setAskWhy(null);
-    if (!id) return;
+    if (!decision || !isAccountSession(decision.owner)) return;
     try {
-      await declineOrder(id, reason);
+      await apiCommand<InstantOrder>(`/instant/orders/${decision.id}/decline`, decision.owner, {
+        method: "POST", body: JSON.stringify({ reason }), oneShot: true,
+      });
     } catch {
       /* причина — не критично: отказ уже прошёл */
     }
@@ -826,7 +864,9 @@ export default function InstantDriverTripScreen() {
       <>
         <SubHeader title={appText("Активная поездка", "Әүҙем сәфәр")} onBack={() => navigate(-1)} />
         <div className="notice" role="status">
-          {appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")}
+          {pendingAccept.action === "decline"
+            ? appText("Проверяем состояние заказа", "Заказдың торошон тикшерәбеҙ")
+            : appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")}
         </div>
       </>
     );
@@ -922,7 +962,7 @@ export default function InstantDriverTripScreen() {
           declinePanel={<>
             {recoveryRetry}
             <DeclineReasonPanel
-              orderId={!offer ? askWhy : null}
+              orderId={!offer ? askWhy?.id ?? null : null}
               onPick={(reason) => void sendWhy(reason)}
               onDismiss={() => setAskWhy(null)}
             />
@@ -934,7 +974,9 @@ export default function InstantDriverTripScreen() {
             order={offer}
             accepting={accepting || !!pendingAccept}
             note={pendingAccept
-              ? appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")
+              ? (pendingAccept.action === "decline"
+                ? appText("Проверяем состояние заказа", "Заказдың торошон тикшерәбеҙ")
+                : appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ"))
               : acceptNote}
             onAccept={accept}
             onSkip={skip}

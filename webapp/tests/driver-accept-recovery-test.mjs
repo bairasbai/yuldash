@@ -106,7 +106,10 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
       export const isAccountSession=owner=>owner===fixture.currentOwner;
       export async function apiCommand(path,owner,opt) {
         fixture.lastOwner=owner;
-        if (opt.method==="POST") {fixture.posts++; return fixture.post;}
+        if (opt.method==="POST") {
+          if (path.endsWith("/decline")) { fixture.declines++; return fixture.decline(); }
+          fixture.posts++; return fixture.post;
+        }
         fixture.reads++; return fixture.read(path,opt);
       }`,
     "api/instant": `const s=globalThis.__acceptFixture;
@@ -114,7 +117,7 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
       export const fetchPretrip=async()=>null, fetchWorkday=async()=>null, fetchWorkZone=async()=>null;
       export const fetchDemand=async()=>({zones:[]});
       export const fetchDriverOffer=async()=>{s.offers++;return {offer:s.offer};};
-      export const declineOrder=async()=>{s.declines++;};
+      export const declineOrder=async()=>{s.declines++; return s.decline();};
       export const fetchInstantOrder=async()=>null, sendPresence=async()=>null;
       export const arrivedOrder=async()=>null, onboardOrder=async()=>null, doneOrder=async()=>null, cancelInstantOrder=async()=>null;
       export const DECLINE_REASONS=[];`,
@@ -134,7 +137,7 @@ async function startFixture(read) {
   globalThis.indexedDB = new IDBFactory();
   await auth.initializeSessionRecord("guest", () => credentials(state.currentOwner.generation));
   now = 0;
-  Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read, application: "approved", lookup: async () => ({state:"none"})});
+  Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read, decline: async()=>({...offer,status:"expired"}), application: "approved", lookup: async () => ({state:"none"})});
   let fail;
   state.post = new Promise((_, reject) => { fail = reject; });
   return { h: mount(Screen), fail };
@@ -270,8 +273,9 @@ try {
   await interrupted.h.settle();
   assert.equal(state.posts, 1);
   const saved = await marker();
-  assert.deepEqual(Object.keys(saved).sort(), ["api", "attempt", "id", "user"]);
-  assert.equal(saved.id, id);
+  assert.deepEqual(Object.keys(saved).sort(), ["api", "closed", "pending", "user"]);
+  assert.deepEqual(Object.keys(saved.pending).sort(), ["action", "attempt", "id", "until"]);
+  assert.equal(saved.pending.id, id);
   interrupted.h.unmount();
   state.lookup = async () => { ++assignments; return {state: "none"}; };
 
@@ -292,7 +296,7 @@ try {
   await secondRefresh.settle();
   assert.equal(tripNode(secondRefresh).props.order.id, id);
   assert.deepEqual([state.posts, state.reads, state.declines], [1, 3, 0]);
-  assert.equal(await marker(), undefined);
+  assert.deepEqual((await marker())?.closed, [{ id, until: 20_000 }]);
   interrupted.fail(new state.Error(503, "late response"));
   assert.equal(await post, "closed");
   secondRefresh.unmount();
@@ -341,6 +345,59 @@ try {
   twoTabs.fail(new state.Error(503, "late original response"));
   assert.equal(await firstClick, "closed");
   console.log("✓ concurrent same-offer clicks reserve one IndexedDB slot even without Web Locks");
+
+  const skipFirst = await startFixture(async () => ({...offer, status:"expired"}));
+  await skipFirst.h.settle();
+  const waitingTab = mount(Screen);
+  await waitingTab.settle();
+  const stale = offerNode(waitingTab).props;
+  const skipping = offerNode(skipFirst.h).props.onSkip();
+  const trying = stale.onAccept();
+  globalThis.__sh = skipFirst.h.state;
+  await skipFirst.h.settle();
+  globalThis.__sh = waitingTab.state;
+  await waitingTab.settle();
+  assert.deepEqual([state.declines, state.posts], [1, 0], "one confirmed decision, not two contradictory requests");
+  await skipping;
+  assert.equal(await trying, "closed");
+  await stale.onSkip();
+  assert.equal(await stale.onAccept(), "closed");
+  assert.deepEqual([state.declines, state.posts], [1, 0], "a stale tab cannot post again after confirmation");
+  waitingTab.unmount();
+  skipFirst.h.unmount();
+  console.log("✓ concurrent Skip wins its atomic claim and stale post-confirmation clicks send nothing");
+
+  const takeFirst = await startFixture(async () => accepted);
+  await takeFirst.h.settle();
+  const skipTab = mount(Screen);
+  await skipTab.settle();
+  const late = offerNode(skipTab).props;
+  state.post = Promise.resolve(accepted);
+  const taking = offerNode(takeFirst.h).props.onAccept();
+  const secondSkip = late.onSkip();
+  globalThis.__sh = takeFirst.h.state;
+  await takeFirst.h.settle();
+  globalThis.__sh = skipTab.state;
+  await skipTab.settle();
+  await secondSkip;
+  assert.equal(await taking, "accepted");
+  await late.onSkip();
+  assert.equal(await late.onAccept(), "closed");
+  assert.deepEqual([state.posts, state.declines], [1, 0]);
+  skipTab.unmount();
+  takeFirst.h.unmount();
+  console.log("✓ Accept first produces one command and late Skip cannot change the confirmed order");
+
+  const lostSkip = await startFixture(async () => ({...offer, status:"expired"}));
+  await lostSkip.h.settle();
+  state.decline = async () => { throw new state.Error(503, "response lost"); };
+  await offerNode(lostSkip.h).props.onSkip();
+  await lostSkip.h.settle();
+  assert.deepEqual([state.declines, state.posts, state.reads], [1, 0, 1]);
+  assert.equal((await marker())?.pending, undefined);
+  assert.deepEqual((await marker())?.closed, [{ id, until: 20_000 }]);
+  lostSkip.h.unmount();
+  console.log("✓ a lost Skip response is resolved through GET and never repeated");
 
   const expireWhileQueued = await startFixture(async () => { throw Error("nothing to reconcile"); });
   await expireWhileQueued.h.settle();
