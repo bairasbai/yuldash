@@ -3053,6 +3053,18 @@ object ApiClient {
             withoutAuthReplay = true, mutationTimeoutMs = 15_000L).mapCatching { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_accept") }
 
+    internal suspend fun readDriverCurrentOrderIdOnce(expectedGeneration: Long): Result<Int?> =
+        call("GET", "/instant/driver/current-order", null, auth = true, expectedGeneration = expectedGeneration,
+            retryOnNetwork = false, singleAttemptMutation = true, freshRead = true, withoutAuthReplay = true,
+            mutationTimeoutMs = 5_000L).mapCatching { payload ->
+            val value = payload.get("order_id")
+            if (value === JSONObject.NULL) null
+            else {
+                require(value is Int && value > 0) { "Invalid current driver order id" }
+                value
+            }
+        }
+
     internal suspend fun readDriverAcceptOnce(id: Int, expectedGeneration: Long): Result<InstantOrderDto> =
         call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration,
             retryOnNetwork = false, singleAttemptMutation = true, freshRead = true, withoutAuthReplay = true,

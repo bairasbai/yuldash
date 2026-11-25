@@ -70,6 +70,9 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
   mocks: {
     "i18n/lang": 'const appText=(ru,ba)=>ru; const lang={lang:"ru",appText}; export const useLang=()=>lang;',
     "react-router-dom": "export const useNavigate=()=>()=>{};",
+    "api/driverCurrentOrder": `export async function readDriverCurrentOrder(owner, signal) {
+      return globalThis.__acceptFixture.lookup(owner,signal);
+    }`,
     "api/driver": "export const fetchDriverStatus=async()=>({online:true}); export const setDriverOnline=async()=>{};",
     "api/client": `const fixture=globalThis.__acceptFixture;
       export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}
@@ -82,7 +85,7 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
         fixture.reads++; return fixture.read(path,opt);
       }`,
     "api/instant": `const s=globalThis.__acceptFixture;
-      export const fetchTaxiApplication=async()=>({status:"approved"});
+      export const fetchTaxiApplication=async()=>({status:s.application});
       export const fetchPretrip=async()=>null, fetchWorkday=async()=>null, fetchWorkZone=async()=>null;
       export const fetchDemand=async()=>({zones:[]});
       export const fetchDriverOffer=async()=>{s.offers++;return {offer:s.offer};};
@@ -103,7 +106,7 @@ function fireTimeout(ms) {
 function startFixture(read) {
   timers.clear();
   now = 0;
-  Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read});
+  Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read, application: "approved", lookup: async () => ({state:"none"})});
   let fail;
   state.post = new Promise((_, reject) => { fail = reject; });
   return { h: mount(Screen), fail };
@@ -181,6 +184,43 @@ try {
   assert.deepEqual([state.posts, state.reads, state.declines, state.writes], [1, 2, 0, 0]);
   closedCase.h.unmount();
   console.log("✓ mounted screen holds an unknown result, then resumes normal polling on confirmed unavailability");
+  const restart = startFixture(async () => { throw Error("unexpected reconciliation"); });
+  state.application = "pending";
+  state.lookup = async () => ({state: "active", order: accepted});
+  await restart.h.settle();
+  const resume = all(restart.h.tree).find(n =>
+    n.type === "button" && n.props.children === "Вернуться в поездку");
+  assert.ok(resume, "already assigned ride can be opened even before approval or going online");
+  assert.equal(tripNode(restart.h), undefined);
+  resume.props.onClick();
+  await restart.h.settle();
+  assert.equal(tripNode(restart.h).props.order.id, id);
+  assert.deepEqual([state.posts, state.reads, state.offers, state.declines], [0, 0, 0, 0]);
+  restart.h.unmount();
+  console.log("✓ mounted cold boot exposes return to owned ride without a new acceptance or going online");
+
+  const unavailable = startFixture(async () => { throw Error("unexpected reconciliation"); });
+  state.application = "pending";
+  state.lookup = async () => ({state: "unavailable"});
+  await unavailable.h.settle();
+  const retry = all(unavailable.h.tree).find(n =>
+    n.type === "button" && n.props.children === "Повторить");
+  assert.ok(retry, "lookup error must remain retryable, not look like absence");
+  state.lookup = async () => ({state: "active", order: accepted});
+  retry.props.onClick();
+  await unavailable.h.settle();
+  const suspendedResume = all(unavailable.h.tree).find(n =>
+    n.type === "button" && n.props.children === "Вернуться в поездку");
+  assert.ok(suspendedResume);
+  const original = state.currentOwner;
+  state.currentOwner = { ...original, generation: "new login" };
+  suspendedResume.props.onClick();
+  await unavailable.h.settle();
+  assert.equal(tripNode(unavailable.h), undefined);
+  assert.deepEqual([state.posts, state.declines], [0, 0]);
+  state.currentOwner = original;
+  unavailable.h.unmount();
+  console.log("✓ failed lookup can be retried; a retained action cannot open a trip after re-login");
 } finally {
   Date.now = savedNow;
 }

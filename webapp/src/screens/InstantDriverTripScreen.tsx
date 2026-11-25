@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, apiCommand, getAccountSession, isAccountSession } from "../api/client";
+import { readDriverCurrentOrder } from "../api/driverCurrentOrder";
 import { classifyDriverAcceptRead } from "../utils/driverAcceptRecovery";
 import { fetchDriverStatus, setDriverOnline, type DriverStatus } from "../api/driver";
 import { commissionLabel } from "../utils/commissionLabel";
@@ -77,7 +78,6 @@ import TaxiDriverTripActions from "../components/TaxiDriverTripActions";
 import { serverMs } from "../utils/serverTime";
 import { track } from "../analytics";
 import {
-  canRestoreDriverOrder,
   clearStoredDriverOrder,
   isCurrentDriverOrderPoll,
   isReleasedDriverOrderStatus,
@@ -199,6 +199,13 @@ export default function InstantDriverTripScreen() {
   const ru = lang !== "ba";
   const navigate = useNavigate();
   const [boot, setBoot] = useState<Boot>("loading");
+  const [recovery, setRecovery] = useState<{
+    owner: NonNullable<ReturnType<typeof getAccountSession>>;
+    order: InstantOrder;
+  } | null>(null);
+  const [recoveryError, setRecoveryError] = useState(false);
+  const [checkingRecovery, setCheckingRecovery] = useState(false);
+  const recoveryAttempt = useRef<AbortController | null>(null);
   const [driver, setDriver] = useState<DriverStatus | null>(null);
   const [onlineBusy, setOnlineBusy] = useState(false);
   // Предрейсовая готовность на сегодня (580-ФЗ). null = сервер о ней не знает → блок скрыт.
@@ -247,45 +254,65 @@ export default function InstantDriverTripScreen() {
     setActive(order);
   }, []);
 
-  // ---------------- Загрузка: заявка таксиста + статус водителя + активная поездка ----------------
+  // Активная поездка уже назначена: линия и заявка не должны скрывать её.
+  const lookupRecovery = useCallback(async () => {
+    recoveryAttempt.current?.abort();
+    const owner = getAccountSession();
+    setRecovery(null);
+    setRecoveryError(false);
+    setCheckingRecovery(!!owner);
+    if (!owner) return;
+    const attempt = new AbortController();
+    recoveryAttempt.current = attempt;
+    const timeout = window.setTimeout(() => attempt.abort(), 10_000);
+    try {
+      const result = await readDriverCurrentOrder(owner, attempt.signal);
+      if (recoveryAttempt.current !== attempt || !isAccountSession(owner)) return;
+      if (attempt.signal.aborted || result.state === "unavailable") setRecoveryError(true);
+      else if (result.state === "active" && activeIdRef.current === null) {
+        setRecovery({ owner, order: result.order });
+      }
+    } finally {
+      window.clearTimeout(timeout);
+      if (recoveryAttempt.current === attempt) setCheckingRecovery(false);
+    }
+  }, []);
+
   const load = useCallback((signal?: AbortSignal) => {
     setBoot("loading");
     fetchTaxiApplication(signal)
       .then((app) => {
+        if (signal?.aborted) return;
         if (app.status !== "approved") {
           setBoot("need-approval");
           return;
         }
         return fetchDriverStatus(signal).then((st) => {
+          if (signal?.aborted) return;
           setDriver(st);
           setBoot("ready");
-          // Восстановление активной поездки (id в localStorage — у водителя нет /mine).
-          const saved = Number(localStorage.getItem(ACTIVE_KEY) || 0);
-          if (saved) {
-            fetchInstantOrder(saved)
-              .then((o) => {
-                if (!canRestoreDriverOrder(activeIdRef.current, saved)) return;
-                if (["accepted", "arriving", "onboard"].includes(o.status)) setCurrentActive(o);
-                else clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved);
-              })
-              .catch(() => clearStoredDriverOrder(localStorage, ACTIVE_KEY, saved));
-          }
         });
       })
       .catch((e) => {
         if (signal?.aborted || e?.name === "AbortError") return;
-        // 404 = заявка не подана → онбординг; иначе ошибка.
         if (e instanceof ApiError && e.status === 404) setBoot("need-approval");
         else setBoot("error");
       });
-  }, [setCurrentActive]);
+  }, []);
 
   useEffect(() => {
     const ac = new AbortController();
     load(ac.signal);
-    return () => ac.abort();
-  }, [load]);
+    void lookupRecovery();
+    return () => {
+      ac.abort();
+      const pending = recoveryAttempt.current;
+      recoveryAttempt.current = null;
+      pending?.abort();
+    };
+  }, [load, lookupRecovery]);
 
+  const recoverableOrder = recovery && isAccountSession(recovery.owner) ? recovery : null;
   // Готовность на сегодня, смена и зона — отдельными запросами: их отсутствие не должно ломать экран.
   useEffect(() => {
     if (boot !== "ready") return;
@@ -366,6 +393,7 @@ export default function InstantDriverTripScreen() {
       setOfferBlocked(null);
       return;
     }
+    if (checkingRecovery || recoverableOrder) return;
     let alive = true;
     const tick = () => {
       fetchDriverOffer()
@@ -385,7 +413,7 @@ export default function InstantDriverTripScreen() {
       alive = false;
       window.clearInterval(iv);
     };
-  }, [online, active, accepting, pendingAccept]);
+  }, [online, active, accepting, pendingAccept, checkingRecovery, recoverableOrder]);
 
   useEffect(() => {
     if (!pendingAccept) return;
@@ -714,51 +742,6 @@ export default function InstantDriverTripScreen() {
   }
 
   // ---------------- Рендер ----------------
-  if (boot === "loading") {
-    return (
-      <>
-        <SubHeader title={appText("Я на линии", "Мин линияла")} onBack={() => navigate(-1)} />
-        <LoadingList count={2} />
-      </>
-    );
-  }
-
-  if (boot === "error") {
-    return (
-      <>
-        <SubHeader title={appText("Я на линии", "Мин линияла")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
-          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
-          <button type="button" className="btn-primary" onClick={() => load()}>
-            {appText("Повторить", "Ҡабатлау")}
-          </button>
-        </div>
-      </>
-    );
-  }
-
-  if (boot === "need-approval") {
-    return (
-      <>
-        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
-        <div className="state" style={{ paddingTop: 40 }}>
-          <div className="state__icon"><IconCar size={34} /></div>
-          <h2>{appText("Сначала стань таксистом", "Башта таксист бул")}</h2>
-          <p>
-            {appText(
-              "Чтобы возить пассажиров такси, нужна одобренная заявка (по 580-ФЗ). Это займёт пару минут.",
-              "Такси юлаусыларын йөрөтөр өсөн хупланған ғариза кәрәк (580-ФЗ буйынса). Был бер-ике минут."
-            )}
-          </p>
-          <button type="button" className="btn-primary" onClick={() => navigate("/taxi-onboarding")}>
-            {appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")}
-          </button>
-        </div>
-      </>
-    );
-  }
-
   // Активная поездка перекрывает всё.
   if (active) {
     return (
@@ -775,6 +758,77 @@ export default function InstantDriverTripScreen() {
         onReturnToLine={releaseActive}
         onShiftFinished={shiftFinished}
       />
+    );
+  }
+
+  if (recoverableOrder && !active) {
+    return (
+      <>
+        <SubHeader title={appText("Активная поездка", "Әүҙем сәфәр")} onBack={() => navigate(-1)} />
+        <div className="state">
+          <button type="button" className="btn-primary" onClick={() => {
+            if (!isAccountSession(recoverableOrder.owner) || activeIdRef.current !== null) return;
+            setRecovery(null);
+            setOffer(null);
+            setCurrentActive(recoverableOrder.order);
+          }}>
+            {appText("Вернуться в поездку", "Сәфәргә ҡайтыу")}
+          </button>
+        </div>
+      </>
+    );
+  }
+  const recoveryRetry = recoveryError ? (
+    <div className="notice" role="status">
+      {appText("Не удалось проверить активную поездку", "Әүҙем сәфәрҙе тикшереп булманы")}
+      <button type="button" className="btn-soft" onClick={() => void lookupRecovery()}>
+        {appText("Повторить", "Ҡабатлау")}
+      </button>
+    </div>
+  ) : null;
+  if (boot === "loading") {
+    return (
+      <>
+        <SubHeader title={appText("Я на линии", "Мин линияла")} onBack={() => navigate(-1)} />
+        <LoadingList count={2} />
+      </>
+    );
+  }
+
+  if (boot === "error") {
+    return (
+      <>
+        <SubHeader title={appText("Я на линии", "Мин линияла")} onBack={() => navigate(-1)} />
+        <div className="state" style={{ paddingTop: 40 }}>
+          <div className="state__icon state__icon--warn"><IconWarn size={34} /></div>
+          <h2>{appText("Не получилось загрузить", "Йөкләргә булманы")}</h2>
+          <button type="button" className="btn-primary" onClick={() => { load(); void lookupRecovery(); }}>
+            {appText("Повторить", "Ҡабатлау")}
+          </button>
+        </div>
+      </>
+    );
+  }
+
+  if (boot === "need-approval") {
+    return (
+      <>
+        <SubHeader title={appText("Такси Юлдаш", "Юлдаш такси")} onBack={() => navigate(-1)} />
+        <div className="state" style={{ paddingTop: 40 }}>
+          <div className="state__icon"><IconCar size={34} /></div>
+          {recoveryRetry}
+          <h2>{appText("Сначала стань таксистом", "Башта таксист бул")}</h2>
+          <p>
+            {appText(
+              "Чтобы возить пассажиров такси, нужна одобренная заявка (по 580-ФЗ). Это займёт пару минут.",
+              "Такси юлаусыларын йөрөтөр өсөн хупланған ғариза кәрәк (580-ФЗ буйынса). Был бер-ике минут."
+            )}
+          </p>
+          <button type="button" className="btn-primary" onClick={() => navigate("/taxi-onboarding")}>
+            {appText("Стать таксистом Юлдаша", "Юлдаш таксисы булыу")}
+          </button>
+        </div>
+      </>
     );
   }
 
@@ -795,13 +849,14 @@ export default function InstantDriverTripScreen() {
           endedNote={endedNote}
           acceptNote={!offer ? acceptNote : ""}
           onGoOffline={() => void toggleOnline()}
-          declinePanel={
+          declinePanel={<>
+            {recoveryRetry}
             <DeclineReasonPanel
               orderId={!offer ? askWhy : null}
               onPick={(reason) => void sendWhy(reason)}
               onDismiss={() => setAskWhy(null)}
             />
-          }
+          </>}
         />
         {/* Оффер — поверх всего: маршрут первым слоем решения, шторка с деньгами и кнопками. */}
         {offer && (
@@ -824,6 +879,7 @@ export default function InstantDriverTripScreen() {
     <>
       <SubHeader title={appText("Я на линии (такси)", "Мин линияла (такси)")} onBack={() => navigate(-1)} />
 
+      {recoveryRetry}
       {endedNote && (
         <div className="notice" role="status">
           {endedNote}

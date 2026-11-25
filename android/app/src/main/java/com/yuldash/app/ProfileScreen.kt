@@ -261,6 +261,8 @@ import androidx.compose.material.icons.filled.LocalOffer
 import androidx.compose.material.icons.filled.Redeem
 import androidx.compose.material.icons.filled.Storefront
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.DriverCurrentOrder
+import com.yuldash.app.data.readDriverCurrentOrder
 import com.yuldash.app.data.ApiException
 import com.yuldash.app.data.BoardingResult
 import com.yuldash.app.data.applyBoardingResult
@@ -1395,6 +1397,20 @@ internal fun DriverCabinetScreen(
     val ctx = LocalContext.current
     val rateScope = rememberCoroutineScope()
     val meetingSession by ApiClient.sessionChanges.collectAsState()
+    var currentTaxiOrder by remember(meetingSession) { mutableStateOf<DriverCurrentOrder?>(null) }
+    var taxiLookupRetry by remember(meetingSession) { mutableIntStateOf(0) }
+    LaunchedEffect(meetingSession, taxiLookupRetry) {
+        val driverId = ApiClient.myUserId() ?: return@LaunchedEffect
+        currentTaxiOrder = null
+        val found = ApiClient.readDriverCurrentOrder(meetingSession, driverId)
+        if (ApiClient.isCurrentSession(meetingSession)) currentTaxiOrder = found
+    }
+    val recoveredTaxiOrder = (currentTaxiOrder as? DriverCurrentOrder.Active)
+        ?.takeIf { ApiClient.isCurrentSession(meetingSession) }
+    val retryTaxiLookup: (() -> Unit)? = if (currentTaxiOrder == DriverCurrentOrder.Unavailable) {
+        { taxiLookupRetry++ }
+    } else null
+
     val returnRide = if (onReturnRide != null) rememberRideReturnActions(onReturnRide) else null
     val meetingAnswers = remember(meetingSession) { DriverMeetingAnswerState { meetingSession == ApiClient.queueSessionGeneration() } }
     val meetingAnswerFailed = appText("Не получилось отправить ответ. Повтори попытку.", "Яуапты ебәреп булманы. Ҡабатлап ҡара.")
@@ -1815,6 +1831,7 @@ internal fun DriverCabinetScreen(
             onPretrip = onPretrip,
             pretripNeeded = pretripNeeded,
             taxiOn = taxiOn, onOpenTrip = onOpenTrip, focusRiding = focusRiding, onFocusRidingDone = onFocusRidingDone,
+            onRetryTaxiLookup = retryTaxiLookup,
             onOpenCompletedTrip = onOpenCompletedTrip,
         )
         }
@@ -1831,12 +1848,28 @@ internal fun DriverCabinetScreen(
     // Гейт (580-ФЗ): точно знаем, что заявки-approved нет → зря сервер не дёргаем (там всё равно 403).
     val taxiAllowed = taxiOn && (!taxiAppLoaded || taxiApp?.status == "approved")
     InstantDriverOnlineController(
-        online = online && taxiAllowed,
+        online = online && taxiAllowed && recoveredTaxiOrder == null && currentTaxiOrder != null,
+        onRetryTaxiLookup = retryTaxiLookup,
         workday = workday,
         zone = zone,
         onGoOffline = { goOffline() },
         onOpenTrip = onInstantTrip,
     )
+    if (recoveredTaxiOrder != null) {
+        Scaffold(
+            modifier = Modifier.fillMaxSize(),
+            containerColor = CanonBg,
+            topBar = { ScreenTopBar(appText("Активная поездка", "Әүҙем сәфәр"), onBack) },
+        ) { padding ->
+            Column(Modifier.padding(padding).padding(CanonSpace.lg)) {
+                AppButton(text = appText("Вернуться в поездку", "Сәфәргә ҡайтыу"), onClick = {
+                    if (ApiClient.isCurrentSession(meetingSession)) {
+                        onInstantTrip(recoveredTaxiOrder.order.id)
+                    }
+                })
+            }
+        }
+    }
     // Фоновый режим линии (B7a-1): экран погас/приложение свёрнуто → TaxiLineService держит
     // presence (~15с) и ловит офферы (~5с). Синкаем ТОЛЬКО после ответа сервера (onlineLoaded),
     // чтобы не глушить живой сервис из-за ещё не загрузившегося статуса. Тумблер выключен /
@@ -2973,6 +3006,7 @@ internal fun DriverCabinetContent(
     onOpenTrip: (Int) -> Unit = {},  // «Едут с тобой»: открыть экран поездки этой брони (id брони)
     focusRiding: Boolean = false, onFocusRidingDone: () -> Unit = {},
     onOpenCompletedTrip: (Int) -> Unit = {},
+    onRetryTaxiLookup: (() -> Unit)? = null,
 ) {
     // Счётчики архива: рейсов сделано = завершённые; пассажиров отвезено = сумма занятых мест по завершённым.
     // RS-02 А: занятое считаем из серверного seatsBooked (правда живых броней), а не «всего − остаток».
@@ -3016,6 +3050,7 @@ internal fun DriverCabinetContent(
             Text(appText("Маршруты и проверка", "Маршруттар һәм тикшереү"), color = CanonGreen, fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold)
             Text(appText("Публикуй поездки, проходи проверку и поднимай маршрут выше.", "Сәфәр баҫтыр, тикшереү үт һәм маршрутты өҫкә күтәр."), color = CanonMuted, fontSize = 14.sp, lineHeight = 20.sp)
         }
+        onRetryTaxiLookup?.let { retry -> item(key = "current-taxi-lookup-error") { DriverCurrentTaxiLookupError(retry) } }
         driverPaySettings?.let { settings -> item(key = "rideshare-pay-settings") { settings() } }
         // Долг по комиссии за такси (Модель А «на доверии»): баннер только если есть что платить/подтверждать.
         if (debt != null && (debt.unpaidKop > 0 || debt.pendingKop > 0)) {

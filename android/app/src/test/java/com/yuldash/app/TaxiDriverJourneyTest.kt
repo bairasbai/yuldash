@@ -10,6 +10,9 @@ import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.DriverCurrentOrder
+import com.yuldash.app.data.readDriverCurrentOrder
+import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.*
 import org.junit.*
 import org.junit.Assert.*
@@ -39,6 +42,7 @@ class TaxiDriverJourneyTest {
     private enum class AcceptMode { Success, LostAfterCommit, LostBeforeExpiry, AlreadyOnTrip }
     @Volatile private var acceptMode = AcceptMode.Success
     @Volatile private var status = "offered"
+    @Volatile private var currentLookup: MockResponse? = null
     @Volatile private var expiredReadAllowed = false
     @Volatile private var nextExpiry: String? = null
     private val posted = CountDownLatch(1)
@@ -64,6 +68,11 @@ class TaxiDriverJourneyTest {
                     val path = request.requestUrl!!.encodedPath
                     if (request.method == "GET") reads.add(path)
                     return when {
+                        path == "/instant/driver/current-order" -> {
+                            assertEquals("GET", request.method)
+                            assertEquals("Bearer $fixtureBearer", request.getHeader("Authorization"))
+                            currentLookup ?: json("""{"order_id":null}""")
+                        }
                         path == "/instant/driver/offer" -> {
                             val next = nextExpiry
                             val offered = when {
@@ -126,6 +135,50 @@ class TaxiDriverJourneyTest {
         ApiClient.resetForTest()
         ApiClient.testTimeoutMs = null
         server.shutdown()
+    }
+
+    @Test fun startupLookupReadsCommittedOrderWithoutMutatingIt() = runBlocking {
+        val owner = ApiClient.queueSessionGeneration()
+        assertEquals(DriverCurrentOrder.None, ApiClient.readDriverCurrentOrder(owner, 9))
+        status = "accepted"
+        currentLookup = json("""{"order_id":71}""")
+        val current = ApiClient.readDriverCurrentOrder(owner, 9) as DriverCurrentOrder.Active
+        assertEquals(71, current.order.id)
+        assertEquals(listOf("/instant/driver/current-order", "/instant/driver/current-order", "/instant/orders/71"), reads.toList())
+        assertTrue(writes.isEmpty())
+    }
+
+    @Test fun startupLookupDistinguishesUnavailableAndRejectsANewLogin() = runBlocking {
+        val owner = ApiClient.queueSessionGeneration()
+        currentLookup = json("""{"order_id":"71"}""")
+        assertEquals(DriverCurrentOrder.Unavailable, ApiClient.readDriverCurrentOrder(owner, 9))
+        currentLookup = json("{}", 503)
+        assertEquals(DriverCurrentOrder.Unavailable, ApiClient.readDriverCurrentOrder(owner, 9))
+        assertTrue(reads.none { it == "/instant/orders/71" })
+        ApiClient.saveToken(fixtureBearer)
+        assertEquals(DriverCurrentOrder.SessionChanged, ApiClient.readDriverCurrentOrder(owner, 9))
+        assertEquals(2, reads.size)
+        assertTrue(writes.isEmpty())
+    }
+
+    @Test fun offlineDriverCabinetReturnsToCommittedRideWithoutAccept() {
+        status = "accepted"
+        currentLookup = json("""{"order_id":71}""")
+        compose.setContent {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ba) {
+                DriverCabinetScreen(
+                    rides = emptyList(), onBack = {}, onCreateRide = {}, onVerifyDriver = {}, onBoost = {},
+                    onInstantTrip = { openedOrder.value = it },
+                )
+            }
+        }
+        val label = "Сәфәргә ҡайтыу"
+        waitForText(label)
+        compose.onNodeWithText(label).assertIsDisplayed().performClick()
+        compose.runOnIdle { assertEquals(71, openedOrder.value) }
+        assertTrue(reads.containsAll(listOf("/instant/driver/current-order", "/instant/orders/71")))
+        assertFalse(reads.contains("/instant/driver/offer"))
+        assertTrue(writes.isEmpty())
     }
 
     @Test fun driverAcceptsArrivesBoardsAndFinishesThroughRealButtons() {

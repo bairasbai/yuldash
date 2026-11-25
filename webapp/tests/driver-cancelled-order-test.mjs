@@ -34,7 +34,7 @@ check(
   "запоздалый poll старого заказа не меняет новый active"
 );
 check(
-  screen.includes("canRestoreDriverOrder(activeIdRef.current, saved)"),
+  screen.includes('result.state === "active" && activeIdRef.current === null'),
   "запоздалое восстановление сохранённого заказа не меняет новый active"
 );
 check(

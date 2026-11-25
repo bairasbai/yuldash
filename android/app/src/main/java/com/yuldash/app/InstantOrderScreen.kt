@@ -5665,6 +5665,7 @@ internal fun InstantDriverOnlineController(
     zone: com.yuldash.app.data.InstantZoneDto? = null,
     onGoOffline: () -> Unit = {},
     mapContent: (@Composable (Modifier) -> Unit)? = null,
+    onRetryTaxiLookup: (() -> Unit)? = null,
     onOpenTrip: (Int) -> Unit,
 ) {
     val scope = rememberCoroutineScope()
@@ -5797,6 +5798,7 @@ internal fun InstantDriverOnlineController(
             zone = zone,
             connectionLost = presenceFails >= 2,
             blockedReason = offerBlocked,
+            onRetryTaxiLookup = onRetryTaxiLookup,
             onGoOffline = onGoOffline,
             mapContent = mapContent,
         )
@@ -5903,6 +5905,7 @@ internal fun InstantDriverWaitingScreen(
     blockedReason: String? = null,
     onGoOffline: () -> Unit,
     initialStop: TaxiSheetStop = TaxiSheetStop.Peek,
+    onRetryTaxiLookup: (() -> Unit)? = null,
     mapContent: (@Composable (Modifier) -> Unit)? = null,
 ) {
     var stop by remember { mutableStateOf(initialStop) }
@@ -5966,6 +5969,7 @@ internal fun InstantDriverWaitingScreen(
             InstantWaitingZoneRow(zone)
         },
         footer = {
+            onRetryTaxiLookup?.let { DriverCurrentTaxiLookupError(it) }
             AppButton(
                 text = appText("Уйти с линии", "Линиянан сығыу"),
                 onClick = onGoOffline,

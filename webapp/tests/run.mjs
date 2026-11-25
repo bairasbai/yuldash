@@ -165,6 +165,7 @@ const ALL_SUITES = [
   { test: "driver-offer-money-test", src: "src/utils/driverOfferMoney.ts", out: "driver-offer-money.mjs", bundle: true },
   { test: "driver-offer-deadline-test", src: "src/utils/driverOfferDeadline.ts", out: "driver-offer-deadline.mjs", bundle: true },
   { test: "driver-accept-recovery-test", src: "src/utils/driverAcceptRecovery.ts", out: "driver-accept-recovery.mjs", bundle: true },
+  { test: "driver-current-order-test", src: null, out: null, bundle: false },
   // Чат поездки — отдельная страница: непрочитанные, «лента внизу», клавиатура (логика)…
   { test: "trip-chat-test", src: null, out: null, bundle: false },
   // …и структура: строка ввода прибита к низу экрана, входы из поездки и списка чатов.
