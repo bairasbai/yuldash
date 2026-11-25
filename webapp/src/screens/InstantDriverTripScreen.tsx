@@ -83,6 +83,7 @@ import {
   isReleasedDriverOrderStatus,
 } from "../utils/driverActiveOrder";
 import { DriverOfferExpiry } from "../utils/driverOfferExpiry";
+import { driverOfferMoney } from "../utils/driverOfferMoney";
 import { openNavigator } from "../utils/navigator";
 import TaxiDriverCompleted, { passengerPayKop } from "./TaxiDriverCompletedScreen";
 import TaxiDriverCancelled, { PayMethodIcon } from "./TaxiDriverCancelledScreen";
@@ -1146,22 +1147,12 @@ function OfferOverlay({
     .filter(Boolean)
     .join("  ·  ");
 
-  const gross = order.driver_gross_kop ?? 0;
-  const hasServerNet = gross > 0;
-  const income = hasServerNet ? kopExactLabel(order.driver_net_kop ?? 0) : `${order.price_estimate} ₽`;
-  const feePct = order.driver_fee_percent ?? 0;
-  const feePctLabel = String(Math.round(feePct * 100) / 100).replace(".", ",");
+  const { income, breakdown } = driverOfferMoney(order, appText);
   const rating = order.passenger_rating;
   const trustHead = rating != null ? appText(`Пассажир ★ ${rating.toFixed(1).replace(".", ",")}`, `Пассажир ★ ${rating.toFixed(1).replace(".", ",")}`) : appText("Пассажир · новичок", "Пассажир · яңы юлсы");
   const trustDetail = order.passenger_trips > 0 ? appText(`${order.passenger_trips} завершённых поездок`, `${order.passenger_trips} тамамланған сәфәр`) : appText("Первая поездка в Юлдаш", "Юлдашта тәүге сәфәр");
   const notes: string[] = [];
-  if (hasServerNet)
-    notes.push(
-      appText(
-        `Пассажир платит ${kopExactLabel(gross)} · комиссия ${kopExactLabel(order.driver_fee_kop ?? 0)} (${feePctLabel}%)`,
-        `Пассажир ${kopExactLabel(gross)} түләй · комиссия ${kopExactLabel(order.driver_fee_kop ?? 0)} (${feePctLabel}%)`
-      )
-    );
+  if (breakdown) notes.push(breakdown);
   if ((order.pickup_fee_kop ?? 0) > 0)
     notes.push(appText(`Подача: ${kopExactLabel(order.pickup_fee_kop ?? 0)} тебе сверху, без комиссии`, `Килеп алыу: ${kopExactLabel(order.pickup_fee_kop ?? 0)} һиңә өҫтәмә, комиссияһыҙ`));
   if (order.pickup_enroute) notes.push(appText("Тебе по пути — надбавка за подачу половинная", "Юл ыңғайы — килеп алыу өҫтәмәһе яртылаш"));
