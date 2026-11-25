@@ -161,7 +161,8 @@ private fun TaxiDriverOfferProductionPreview() {
         InstantOfferOverlay(
             order = previewDriverOfferOrder(),
             onAccept = {},
-            onDecline = {},
+            onExpire = {},
+            onSkipTap = {},
         )
     }
 }

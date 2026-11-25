@@ -5763,13 +5763,10 @@ internal fun InstantDriverOnlineController(
                 val состояние = ApiClient.getDriverOfferState().getOrNull()
                 offerBlocked = состояние?.blocked
                 val incoming = состояние?.offer
-                if (incoming != null && incoming.status == "offered") {
-                    if (instantOfferRemainingMillis(incoming.offerExpiresAt, System.currentTimeMillis()) > 0L) {
-                        offer = incoming
-                    } else {
-                        // Битый или уже истёкший дедлайн не показываем и не даём принять.
-                        ApiClient.instantDecline(incoming.id)
-                    }
+                // Локальный дедлайн управляет карточкой, а судьбой предложения — сервер.
+                if (incoming != null && incoming.status == "offered" &&
+                    instantOfferRemainingMillis(incoming.offerExpiresAt, System.currentTimeMillis()) > 0L) {
+                    offer = incoming
                 }
             }
             delay(4_000)
@@ -5845,8 +5842,7 @@ internal fun InstantDriverOnlineController(
                     return@InstantOfferOverlay
                 }
                 if (instantOfferRemainingMillis(current.offerExpiresAt, System.currentTimeMillis()) <= 0L) {
-                    scope.launch { ApiClient.instantDecline(current.id) }
-                    offer = null
+                    if (offer?.id == current.id) offer = null
                     return@InstantOfferOverlay
                 }
                 val generation = ApiClient.queueSessionGeneration()
@@ -5887,20 +5883,16 @@ internal fun InstantDriverOnlineController(
                     }
                 }
             },
-            // Дедлайн оффера истёк — отказ без вопросов: водитель ничего не решал, спрашивать нечего.
-            onDecline = {
-                if (accepting || pendingAccept != null) return@InstantOfferOverlay
-                ApiClient.readTaxiAcceptIntent(ApiClient.queueSessionGeneration())?.let { saved ->
-                    pendingAccept = saved
-                    return@InstantOfferOverlay
-                }
-                scope.launch { ApiClient.instantDecline(current.id) }
-                offer = null
+            // Таймер сам не отправляет отказ: этот же заказ может приниматься на другом устройстве.
+            onExpire = {
+                if (!accepting && pendingAccept == null && offer?.id == current.id) offer = null
             },
             // Водитель сам нажал «Пропустить». Сначала ОТКАЗ — заказ мгновенно уходит следующему
             // и не ждёт, пока водитель за рулём выберет причину. Вопрос — уже вдогонку.
             onSkipTap = {
-                if (accepting || pendingAccept != null) return@InstantOfferOverlay
+                if (accepting || pendingAccept != null || offer?.id != current.id ||
+                    instantOfferRemainingMillis(current.offerExpiresAt, System.currentTimeMillis()) <= 0L
+                ) return@InstantOfferOverlay
                 ApiClient.readTaxiAcceptIntent(ApiClient.queueSessionGeneration())?.let { saved ->
                     pendingAccept = saved
                     return@InstantOfferOverlay
@@ -6465,10 +6457,8 @@ private fun InstantDeclineReasonPanel(
 
 // ------------------------------ Полноэкранный входящий оффер ------------------------------
 /**
- * @param onDecline отказ БЕЗ участия водителя: серверный дедлайн истёк или пришёл битым.
- * @param onSkipTap водитель сам нажал «Пропустить». Отделено от [onDecline] специально: спросить
- *   «почему не взял?» осмысленно только у того, кто действительно решал, а не у того, кто просто
- *   не успел ответить. Не задан → кнопка работает как раньше, через [onDecline].
+ * @param onExpire закрывает карточку без сетевого отказа.
+ * @param onSkipTap явный отказ водителя до дедлайна; только после него спрашиваем причину.
  */
 @Composable
 internal fun InstantOfferOverlay(
@@ -6476,8 +6466,8 @@ internal fun InstantOfferOverlay(
     accepting: Boolean = false,
     mapContent: (@Composable (Modifier) -> Unit)? = null,
     onAccept: () -> Unit,
-    onDecline: () -> Unit,
-    onSkipTap: (() -> Unit)? = null,
+    onExpire: () -> Unit,
+    onSkipTap: () -> Unit,
     statusNote: String? = null,
 ) {
     // Водитель за рулём смотрит на дорогу, а не в телефон: у оффера в приложении не было
@@ -6496,7 +6486,7 @@ internal fun InstantOfferOverlay(
     LaunchedEffect(canAccept, accepting, order.id, order.offerExpiresAt) {
         if (!canAccept && !accepting && !expiryHandled) {
             expiryHandled = true
-            onDecline() // серверный дедлайн истёк (или был некорректным) — безопасно пропускаем
+            onExpire()
         }
     }
     val timerProgress = (remainingMillis.toDouble() / initialWindowMillis.toDouble())
@@ -6605,10 +6595,14 @@ internal fun InstantOfferOverlay(
                 ) {
                     AppButton(
                         text = appText("Пропустить", "Үткәреп ебәреү"),
-                        onClick = { if (onSkipTap != null) onSkipTap() else onDecline() },
+                        onClick = {
+                            if (instantOfferRemainingMillis(order.offerExpiresAt, System.currentTimeMillis()) > 0L) {
+                                onSkipTap()
+                            }
+                        },
                         modifier = Modifier.weight(1f),
                         style = AppButtonStyle.Secondary,
-                        enabled = !accepting,
+                        enabled = !accepting && canAccept,
                         fillWidth = false,
                         height = 56.dp,
                     )

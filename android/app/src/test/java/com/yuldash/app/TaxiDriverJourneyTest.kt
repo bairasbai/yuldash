@@ -44,6 +44,7 @@ class TaxiDriverJourneyTest {
     @Volatile private var status = "offered"
     @Volatile private var currentLookup: MockResponse? = null
     @Volatile private var expiredReadAllowed = false
+    @Volatile private var advanceOnDecline = false
     @Volatile private var nextExpiry: String? = null
     private val posted = CountDownLatch(1)
     private val deliverResponse = CountDownLatch(1)
@@ -97,6 +98,7 @@ class TaxiDriverJourneyTest {
                         }
                         request.method == "POST" && path.endsWith("/decline") -> {
                             writes.add("decline")
+                            if (advanceOnDecline) status = "expired"
                             json(order())
                         }
                         request.method == "POST" && path in listOf("/instant/orders/71/accept", "/instant/orders/71/arrived", "/instant/orders/71/onboard", "/instant/orders/71/done") -> {
@@ -231,6 +233,53 @@ class TaxiDriverJourneyTest {
         assertTrue(reads.count { it == "/instant/orders/71" } >= 2)
         assertTrue(reads.count { it == "/instant/driver/offer" } >= 2)
         assertEquals(listOf("accept"), writes.toList())
+    }
+
+    @Test fun androidClockAheadDoesNotPreemptAnotherClientsTimelyAccept() {
+        advanceOnDecline = true
+        // Mock server keeps the offer valid. Only the Android clock sees it as expired.
+        expiryMs = System.currentTimeMillis() - 60_000L
+        mount()
+        compose.waitUntil(15_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.mainClock.advanceTimeBy(100)
+            reads.count { it == "/instant/driver/offer" } >= 2
+        }
+        compose.onNodeWithText("Принять").assertDoesNotExist()
+        assertEquals(emptyList<String>(), writes.toList())
+        assertEquals("offered", status)
+        // A second client, standing in for web, accepts while the server still sees a valid offer.
+        val request = okhttp3.Request.Builder().url(server.url("/instant/orders/71/accept"))
+            .header("Authorization", "Bearer $fixtureBearer")
+            .post(okhttp3.RequestBody.create(null, "{}"))
+            .build()
+        okhttp3.OkHttpClient().newCall(request).execute().use { assertEquals(200, it.code) }
+        assertEquals("accepted", status)
+        assertEquals(listOf("accept"), writes.toList())
+    }
+
+    @Test fun offerTimerDismissesVisibleOfferWithoutSendingDecline() {
+        expiryMs = System.currentTimeMillis() + 6_000L
+        mount()
+        waitForText("Принять")
+        compose.waitUntil(10_000) { System.currentTimeMillis() > expiryMs }
+        compose.waitUntil(15_000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            compose.mainClock.advanceTimeBy(100)
+            compose.onAllNodesWithText("Принять").fetchSemanticsNodes().isEmpty() &&
+                reads.count { it == "/instant/driver/offer" } >= 2
+        }
+        assertEquals(emptyList<String>(), writes.toList())
+    }
+
+    @Test fun manualSkipStillSendsDecline() {
+        advanceOnDecline = true
+        mount()
+        waitForText("Пропустить")
+        compose.onNodeWithText("Пропустить").performClick()
+        compose.waitUntil(10_000) { writes.isNotEmpty() }
+        assertEquals(listOf("decline"), writes.toList())
+        assertEquals("expired", status)
     }
 
     @Test fun anotherActiveTripShowsServerExplanationInRussian() {

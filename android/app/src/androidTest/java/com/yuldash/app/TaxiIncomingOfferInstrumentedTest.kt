@@ -27,7 +27,7 @@ class TaxiIncomingOfferInstrumentedTest {
                 InstantOfferOverlay(
                     order = previewOffer(),
                     onAccept = {},
-                    onDecline = {},
+                    onExpire = {},
                     onSkipTap = {},
                 )
             }
