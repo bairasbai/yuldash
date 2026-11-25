@@ -5,6 +5,7 @@
 presence/заказ без Redis не падает.
 """
 import threading
+from concurrent.futures import ThreadPoolExecutor
 
 import fakeredis
 import pytest
@@ -240,6 +241,49 @@ def test_state_machine_full_path(client, user_factory, fake_redis):
     with Session(engine) as s:
         o = s.get(InstantOrder, oid)
         assert o.driver_id == d["id"] and o.accepted_at and o.done_at
+
+
+def test_driver_current_order_is_snapshot_while_accept_waits(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    """A cold start may see null while its earlier request is still being processed."""
+    driver, _, order = _offered_order(client, user_factory, fake_redis)
+    order_id = order["id"]
+    entered = threading.Event()
+    finish = threading.Event()
+    transition = isv.transition
+
+    def hold_accept(session, candidate_id, actor, target, user_id, **kwargs):
+        if candidate_id == order_id and target == S.accepted:
+            entered.set()
+            if not finish.wait(timeout=10):
+                raise TimeoutError("test did not release held Accept")
+        return transition(session, candidate_id, actor, target, user_id, **kwargs)
+
+    monkeypatch.setattr(isv, "transition", hold_accept)
+    path = "/instant/driver/current-order"
+    headers = driver["auth"]
+    with ThreadPoolExecutor(max_workers=1) as pool:
+        accept = pool.submit(client.post, f"/instant/orders/{order_id}/accept", headers=headers)
+        try:
+            assert entered.wait(timeout=5), "Accept never reached the transition"
+            before = client.get(path, headers=headers)
+            assert before.status_code == 200
+            assert before.json() == {"order_id": None}
+            assert before.headers["Cache-Control"] == "no-store"
+        finally:
+            finish.set()
+        assert accept.result(timeout=10).status_code == 200
+
+    after = client.get(path, headers=headers)
+    assert after.status_code == 200
+    assert after.json() == {"order_id": order_id}
+    detail = client.get(f"/instant/orders/{order_id}", headers=headers)
+    assert detail.status_code == 200
+    assert detail.json()["id"] == order_id
+    assert detail.json()["status"] == "accepted"
+    assert detail.json()["driver_id"] == driver["id"]
+    assert detail.json()["role"] == "driver"
 
 
 def test_invalid_transition_rejected(client, user_factory, fake_redis):
