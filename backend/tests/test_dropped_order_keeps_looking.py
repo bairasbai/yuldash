@@ -82,7 +82,7 @@ def test_a_dropped_order_goes_to_the_next_driver(client, user_factory, fake_redi
     сосед = _driver_online(client, user_factory, "СоседнийВодитель")
     _heartbeat(client, сосед)
 
-    _отменил_водитель(client, d, oid)
+    assert _отменил_водитель(client, d, oid) == {"id": oid, "released": True}
 
     o = _db_order(oid)
     assert o.status != S.cancelled, "заказ похоронили — человек начинает всё заново"
@@ -203,6 +203,11 @@ def test_no_show_does_not_send_anyone_to_an_empty_porch(client, user_factory, fa
     r = client.post(f"/instant/orders/{oid}/cancel", headers=d["auth"],
                     json={"reason": isv.NO_SHOW_REASON})
     assert r.status_code == 200, r.text
+    result = r.json()
+    assert result["id"] == oid and result["status"] == "cancelled"
+    assert result["role"] == "driver" and result["no_show"] is True
+    assert result["cancel_fee_kop"] > 0 and "released" not in result
+
 
     o = _db_order(oid)
     assert o.status == S.cancelled and o.no_show is True

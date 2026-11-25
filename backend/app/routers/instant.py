@@ -1222,9 +1222,14 @@ def toggle_stop(order_id: int, user: User = Depends(current_user),
             "order": isv.order_payload(session, order, user)}
 
 
+class DriverCancelRelease(BaseModel):
+    id: int
+    released: Literal[True]
+
+
 @router.post("/instant/orders/{order_id}/cancel")
 def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(current_user),
-           session: Session = Depends(get_session)):
+           session: Session = Depends(get_session)) -> DriverCancelRelease | dict:
     """Отмена заказа. Пассажир — до посадки; водитель — после accept. Причина опциональна.
     Водитель с reason="no_show" («пассажир не вышел») — только после «Я на месте» +
     бесплатное ожидание + запас; фиксирует no_show и штраф-подачу (Модель А, денег не двигаем)."""
@@ -1239,11 +1244,9 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
         raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     reason = body.reason if body else ""
     order = isv.cancel_order(session, order_id, actor, user.id, reason)
-    # Права проверены выше, ДО отмены. Водитель, бросивший заказ, может перестать быть его
-    # участником прямо в этом вызове: заказ возвращается в поиск и уходит следующему
-    # (`_reassign_after_driver_cancel`). Ответ на собственный запрос он получить обязан —
-    # здесь сохраняется прежний контракт отмены активной поездки.
-    return isv.order_payload(session, order, user, actor_authorized=True)
+    if actor == isv.Actor.driver and order.driver_id != user.id:
+        return DriverCancelRelease(id=order_id, released=True)
+    return isv.order_payload(session, order, user)
 
 
 @router.post("/instant/orders/{order_id}/passenger-done")

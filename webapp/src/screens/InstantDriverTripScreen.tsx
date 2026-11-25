@@ -36,7 +36,6 @@ import {
   arrivedOrder,
   onboardOrder,
   doneOrder,
-  cancelInstantOrder,
   fetchDemand,
   fetchPretrip,
   fetchWorkday,
@@ -233,6 +232,8 @@ export default function InstantDriverTripScreen() {
   const [acceptNote, setAcceptNote] = useState("");
   const [active, setActive] = useState<InstantOrder | null>(null);
   const activeIdRef = useRef<number | null>(null);
+  const cancelInFlight = useRef<AbortController | null>(null);
+  const activeReadEpoch = useRef(0);
   /** Почему прежний заказ исчез: сообщение остаётся на экране ожидания следующего. */
   const [endedNote, setEndedNote] = useState("");
   /** Действие по активной поездке не прошло — сказать словами, а не ждать поллинга. */
@@ -526,9 +527,11 @@ export default function InstantDriverTripScreen() {
     let alive = true;
     const orderId = active.id;
     const iv = window.setInterval(() => {
+      if (cancelInFlight.current) return;
+      const epoch = activeReadEpoch.current;
       fetchInstantOrder(orderId)
         .then((o) => {
-          if (!alive || !isCurrentDriverOrderPoll(activeIdRef.current, orderId)) return;
+          if (!alive || epoch !== activeReadEpoch.current || !isCurrentDriverOrderPoll(activeIdRef.current, orderId)) return;
           if (isReleasedDriverOrderStatus(o.status)) {
             clearStoredDriverOrder(localStorage, ACTIVE_KEY, orderId);
             setTripNote("");
@@ -767,17 +770,18 @@ export default function InstantDriverTripScreen() {
    * следующий круг поллинга подтянет её сам.
    */
   function refreshActive() {
-    if (!active) return;
+    if (!active || cancelInFlight.current) return;
     const orderId = active.id;
+    const epoch = activeReadEpoch.current;
     fetchInstantOrder(orderId)
       .then((o) => {
-        if (isCurrentDriverOrderPoll(activeIdRef.current, orderId)) setCurrentActive(o);
+        if (epoch === activeReadEpoch.current && isCurrentDriverOrderPoll(activeIdRef.current, orderId)) setCurrentActive(o);
       })
       .catch(() => {});
   }
 
   async function advance(next: "arrived" | "onboard" | "done") {
-    if (!active || tripBusy) return;
+    if (!active || tripBusy || cancelInFlight.current) return;
     setTripBusy(true);
     try {
       const fn = next === "arrived" ? arrivedOrder : next === "onboard" ? onboardOrder : doneOrder;
@@ -802,34 +806,89 @@ export default function InstantDriverTripScreen() {
     }
   }
 
-  async function cancelActive(reason: "driver_cancel" | "no_show" = "driver_cancel") {
-    if (!active || tripBusy) return;
+  async function cancelActive(reason: "driver_cancel" | "no_show") {
+    const owner = getAccountSession();
+    if (!owner || !active || tripBusy || cancelInFlight.current) return;
+    const id = active.id;
+    const attempt = new AbortController();
+    cancelInFlight.current = attempt;
+    activeReadEpoch.current += 1;
+    const current = () => mounted.current && isAccountSession(owner)
+      && cancelInFlight.current === attempt && activeIdRef.current === id;
+    const path = `/instant/orders/${id}`;
+    const terminal = (order: InstantOrder) => order?.id === id && order.role === "driver"
+      && order.driver_id === owner.userId && ["cancelled", "done", "expired"].includes(order.status);
+    const apply = (order: InstantOrder | null, confirmed: boolean) => {
+      if (!current()) return;
+      if (confirmed) track("instant_order_cancel");
+      clearStoredDriverOrder(localStorage, ACTIVE_KEY, id);
+      setTripNote("");
+      setCurrentActive(order);
+    };
+    const unknown = () => {
+      if (current()) setTripNote(appText(
+        "Не удалось подтвердить отмену. Статус поездки пока неизвестен.",
+        "Кире алыуҙы раҫлап булманы. Сәфәр торошо әлегә билдәһеҙ."
+      ));
+    };
     setTripNote("");
     setTripBusy(true);
+    const timeout = window.setTimeout(() => attempt.abort(), 15_000);
     try {
-      const o = await cancelInstantOrder(active.id, reason);
-      track("instant_order_cancel");
-      clearStoredDriverOrder(localStorage, ACTIVE_KEY, active.id);
-      // Заказ закрыт (не вышел / пассажир уже в машине) — экран «Заказ отменён», как в приложении.
-      // До посадки сервер отдаёт заказ следующему водителю и возвращает его в поиске — нам он
-      // больше не принадлежит, возвращаемся на линию.
-      if (o.status === "cancelled") setCurrentActive(o);
-      else setCurrentActive(null);
-    } catch (e) {
-      // Обрыв связи: выходить НЕЛЬЗЯ. Раньше экран закрывался в любом случае —
-      // заказ оставался живым, а пассажир ждал машину, которая не приедет.
-      setTripNote(
-        e instanceof ApiError && e.status === 0
-          ? appText(
-              "Не получилось отменить — нет связи. Поездка ещё активна, попробуй ещё раз.",
-              "Кире алып булманы — бәйләнеш юҡ. Сәфәр әле әүҙем, тағы ҡабатла."
-            )
-          : e instanceof ApiError && e.message
-            ? e.message
-            : appText("Не получилось отменить. Проверь сеть и повтори.", "Кире алып булманы. Селтәрҙе тикшереп ҡабатла.")
-      );
+      try {
+        const result = await apiCommand<InstantOrder | { id: number; released: true }>(`${path}/cancel`, owner, {
+          method: "POST", body: JSON.stringify({ reason }), oneShot: true, signal: attempt.signal,
+        });
+        if (!current()) return;
+        if (result?.id === id && "released" in result && result.released === true) {
+          apply(null, true);
+          return;
+        }
+        if (result && !("released" in result) && terminal(result)) {
+          apply(result.status === "expired" ? null : result, true);
+          return;
+        }
+      } catch (error) {
+        if (!current()) return;
+        if (error instanceof ApiError && [400, 401, 409, 422].includes(error.status)) {
+          setTripNote(error.message || appText("Не получилось отменить поездку.", "Сәфәрҙе кире алып булманы."));
+          return;
+        }
+      }
+      // Ответ мог потеряться после отмены. Проверяем состояние, не повторяя POST.
+      const check = new AbortController();
+      const readTimeout = window.setTimeout(() => check.abort(), 10_000);
+      try {
+        const order = await apiCommand<InstantOrder>(path, owner, {
+          method: "GET", oneShot: true, signal: check.signal,
+        });
+        if (!current()) return;
+        if (terminal(order)) {
+          apply(order.status === "expired" ? null : order, false);
+          return;
+        }
+        unknown();
+      } catch (error) {
+        if (!current()) return;
+        if (error instanceof ApiError && [403, 404].includes(error.status)) {
+          const assignment = await readDriverCurrentOrder(owner, check.signal);
+          if (!current()) return;
+          if (assignment.state === "none" || (assignment.state === "active" && assignment.order.id !== id)) {
+            apply(null, false);
+            if (assignment.state === "active") setRecovery({ owner, order: assignment.order });
+            return;
+          }
+        }
+        unknown();
+      } finally {
+        window.clearTimeout(readTimeout);
+      }
     } finally {
-      setTripBusy(false);
+      window.clearTimeout(timeout);
+      if (cancelInFlight.current === attempt) {
+        cancelInFlight.current = null;
+        if (mounted.current && isAccountSession(owner)) setTripBusy(false);
+      }
     }
   }
 

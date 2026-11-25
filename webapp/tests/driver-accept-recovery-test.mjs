@@ -108,6 +108,11 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
         fixture.lastOwner=owner;
         if (opt.method==="POST") {
           if (path.endsWith("/decline")) { fixture.declines++; return fixture.decline(); }
+          if (path.endsWith("/cancel")) {
+            fixture.cancels++;
+            fixture.checkCancel(opt);
+            return fixture.cancel();
+          }
           fixture.posts++; return fixture.post;
         }
         fixture.reads++; return fixture.read(path,opt);
@@ -159,6 +164,54 @@ try {
   assert.deepEqual([state.posts, state.reads, state.declines, state.writes], [1, 1, 0, 1]);
   activeCase.h.unmount();
   console.log("✓ mounted driver screen recovers a committed order after a late 503 without repeating Accept");
+
+  for (const mode of ["release", "lost-release", "no-show", "unknown", "changed-session"]) {
+    const f = await startFixture(async () => accepted);
+    await f.h.settle();
+    state.post = Promise.resolve(accepted);
+    await offerNode(f.h).props.onAccept();
+    await f.h.settle();
+    state.cancels = 0;
+    const beforeReads = state.reads;
+    let assignments = 0;
+    const receipt = {...accepted, status: "cancelled", no_show: true, cancel_fee_kop: 2500};
+    state.checkCancel = opts => assert.equal(opts.oneShot, true);
+    let complete;
+    state.cancel = () => mode === "changed-session" ? new Promise(resolve => { complete = resolve; })
+      : mode === "release" ? Promise.resolve({ id, released: true })
+      : Promise.reject(new state.Error(0, "response lost"));
+    state.read = async () => {
+      if (mode === "lost-release") throw new state.Error(403, "not assigned");
+      if (mode === "no-show") return receipt;
+      throw new state.Error(0, "still offline");
+    };
+    state.lookup = async () => { assignments++; return {state: "none"}; };
+    const trip = tripNode(f.h);
+    assert.ok(trip);
+    const originalOwner = state.currentOwner;
+    const click = mode === "no-show" ? trip.props.onNoShow : trip.props.onCancel;
+    click();
+    if (mode === "changed-session") {
+      state.currentOwner = {...originalOwner, generation: "different-login"};
+      complete({ id, released: true });
+    } else {
+      click(); // a second callback before React rerenders must not send another request
+    }
+    await f.h.settle();
+    assert.equal(state.cancels, 1);
+    assert.equal(state.reads - beforeReads, ["release", "changed-session"].includes(mode) ? 0 : 1);
+    assert.equal(assignments, mode === "lost-release" ? 1 : 0);
+    const result = tripNode(f.h);
+    if (mode === "release" || mode === "lost-release") assert.equal(result, undefined);
+    else if (mode === "no-show") assert.deepEqual(result.props.order, receipt);
+    else {
+      assert.equal(result.props.order.id, id);
+      if (mode === "unknown") assert.match(result.props.note, /статус поездки пока неизвестен/i);
+    }
+    f.h.unmount();
+    state.currentOwner = originalOwner;
+    console.log("✓ driver cancellation does not replay the write: " + mode);
+  }
 
   const offlineCase = await startFixture(async () => accepted);
   await offlineCase.h.settle();

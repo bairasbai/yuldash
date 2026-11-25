@@ -3746,8 +3746,7 @@ def street_only(text: str) -> str:
     return cut if cut else t
 
 
-def order_payload(session: Session, order: InstantOrder, viewer: User, *,
-                  actor_authorized: bool = False) -> dict:
+def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
     """Витрина заказа. Приватность: телефоны и контакты сторон — ТОЛЬКО после accept.
 
     Проверка «а ты вообще участник?» стоит ЗДЕСЬ, а не в каждой из 17 ручек такси,
@@ -3756,11 +3755,8 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
     получал пассажирскую витрину чужого заказа: точную точку подачи (обычно — домашний адрес)
     и телефон водителя. Вход был через идемпотентный `/decline`, который чужому ничего не
     меняет, но исправно возвращает заказ (аудит 2026-08-07).
-
-    `actor_authorized=True` пока используется только при отмене активной поездки.
-    Отказ от оффера после прекращения участия не возвращает витрину заказа.
     """
-    if not (actor_authorized or is_order_participant(order, viewer.id)):
+    if not is_order_participant(order, viewer.id):
         raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     role = "driver" if (order.driver_id == viewer.id
                         or order.current_offer_driver_id == viewer.id) else "passenger"
