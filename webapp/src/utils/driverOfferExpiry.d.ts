@@ -5,4 +5,5 @@ export class DriverOfferExpiry {
   finishAccept(orderId: number, accepted: boolean): boolean;
   expire(orderId: number): boolean;
   manualDecline(orderId: number): boolean;
+  finishManualDecline(orderId: number, terminal: boolean): boolean;
 }

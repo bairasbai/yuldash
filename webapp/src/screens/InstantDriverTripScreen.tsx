@@ -674,33 +674,35 @@ export default function InstantDriverTripScreen() {
     setOffer((current) => current?.id === id ? null : current);
   }
 
-  async function skip() {
-    if (!offer || pendingAccept || acceptInFlight.current || accepting) return;
+  async function skip(): Promise<"retry" | "closed"> {
+    if (!offer || pendingAccept || acceptInFlight.current || accepting) return "closed";
     const owner = getAccountSession();
     const id = offer.id;
     const until = driverOfferDeadline(offer.offer_expires_at) ?? 0;
-    if (!owner || until <= Date.now()) return;
+    if (!owner || until <= Date.now()) return "closed";
     acceptInFlight.current = true;
     const claim = await beginDriverAcceptIntent(owner, id, "decline", until);
-    if (!mounted.current || !isAccountSession(owner) || visibleOffer.current?.id !== id || until <= Date.now()) {
+    const stillShowing = mounted.current && isAccountSession(owner) && visibleOffer.current?.id === id;
+    if (!stillShowing || until <= Date.now()) {
       if (claim.state === "claimed") void clearDriverAcceptIntent(claim.intent);
       acceptInFlight.current = false;
-      return;
+      if (stillShowing) dismissExpiredOffer(id);
+      return "closed";
     }
     if (claim.state === "existing") {
       setPendingAccept(claim.intent);
-      return;
+      return "closed";
     }
     if (claim.state === "unavailable") {
       acceptInFlight.current = false;
       setAcceptNote(appText("Не удалось сохранить решение по заказу. Проверь настройки хранения сайта.",
         "Заказ буйынса ҡарарҙы һаҡлап булманы. Сайттың һаҡлау көйләүҙәрен тикшер."));
-      return;
+      return "retry";
     }
     if (claim.state === "closed") {
       acceptInFlight.current = false;
       dismissExpiredOffer(id);
-      return;
+      return "closed";
     }
     const { intent } = claim;
     setAccepting(true);
@@ -712,23 +714,23 @@ export default function InstantDriverTripScreen() {
       const result = await apiCommand<InstantOrder>(`/instant/orders/${id}/decline`, owner, {
         method: "POST", body: "{}", oneShot: true, signal: abort.signal,
       });
-      if (!mounted.current || !isAccountSession(owner)) return;
+      if (!mounted.current || !isAccountSession(owner)) return "closed";
       if (result?.id !== id ||
           !["driver", "passenger"].includes(result.role) ||
           !["searching", "offered", "accepted", "arriving", "onboard", "done", "cancelled", "expired"].includes(result.status) ||
           (result.status === "offered" && result.role === "driver")) {
         handedOff = true;
         setPendingAccept(intent);
-        return;
+        return "closed";
       }
       const active = classifyDriverAcceptRead(id, owner.userId, result) === "active";
       await clearDriverAcceptIntent(intent, true);
-      if (!mounted.current || !isAccountSession(owner)) return;
+      if (!mounted.current || !isAccountSession(owner)) return "closed";
       if (active) setCurrentActive(result);
       else setAskWhy(intent);
       dismissExpiredOffer(id);
     } catch {
-      if (!mounted.current || !isAccountSession(owner)) return;
+      if (!mounted.current || !isAccountSession(owner)) return "closed";
       handedOff = true;
       setPendingAccept(intent); // A lost response is resolved by GET, never by another decision.
     } finally {
@@ -736,6 +738,7 @@ export default function InstantDriverTripScreen() {
       if (!handedOff) acceptInFlight.current = false;
       if (mounted.current) setAccepting(false);
     }
+    return "closed";
   }
 
   async function sendWhy(reason: DeclineReason) {
@@ -1349,7 +1352,7 @@ function OfferOverlay({
   accepting: boolean;
   note: string;
   onAccept: () => Promise<"accepted" | "retry" | "closed">;
-  onSkip: () => void;
+  onSkip: () => Promise<"retry" | "closed">;
   onExpire: (id: number) => void;
 }) {
   const { appText } = useLang();
@@ -1381,7 +1384,12 @@ function OfferOverlay({
   };
 
   const skipOnce = () => {
-    if (driverOfferRemaining(expiresAt, Date.now()) > 0 && expiryRef.current.manualDecline(order.id)) onSkip();
+    const decision = expiryRef.current;
+    if (driverOfferRemaining(expiresAt, Date.now()) <= 0 || !decision.manualDecline(order.id)) return;
+    void onSkip().then((result) => {
+      const dismiss = decision.finishManualDecline(order.id, result !== "retry");
+      if (dismiss && expiryRef.current === decision) onExpireRef.current(order.id);
+    });
   };
 
   useEffect(() => {

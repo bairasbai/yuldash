@@ -424,6 +424,45 @@ try {
   accountWhileQueued.h.unmount();
   console.log("✓ an older tab cannot claim or send on replaced durable login");
 
+  for (const recover of ["manual", "accept", "expiry"]) {
+    const scenario = await startFixture(async () => ({...offer, status:"expired"}));
+    await scenario.h.settle();
+    const savedCard = offerNode(scenario.h);
+    const actualOverlay = mount(savedCard.type, savedCard.props);
+    await actualOverlay.settle();
+    const button = css => all(actualOverlay.tree).find(n => n.type === "button" && n.props.className === css);
+    const skipButton = () => button("btn-soft toffer__btn");
+    state.rejectIntentWrite = true;
+    skipButton().props.onClick();
+    await actualOverlay.settle();
+    await marker();
+    assert.deepEqual([state.declines, state.posts], [0, 0]);
+    state.rejectIntentWrite = false;
+    if (recover === "manual") {
+      skipButton().props.onClick();
+      await actualOverlay.settle();
+      await marker();
+      assert.deepEqual([state.declines, state.posts], [1, 0]);
+    } else if (recover === "accept") {
+      state.post = Promise.resolve(accepted);
+      button("btn-primary toffer__btn").props.onClick();
+      await actualOverlay.settle();
+      await marker();
+      assert.deepEqual([state.declines, state.posts], [0, 1]);
+    } else {
+      now = 21_000;
+      [...timers.values()].find(t => t.interval && t.ms === 1000).fn();
+      await actualOverlay.settle();
+      globalThis.__sh = scenario.h.state;
+      await scenario.h.settle();
+      assert.equal(offerNode(scenario.h), undefined, "failed local Skip cannot trap an expired card");
+      assert.deepEqual([state.declines, state.posts], [0, 0]);
+    }
+    actualOverlay.unmount();
+    scenario.h.unmount();
+  }
+  console.log("✓ actual Skip recovers from a definite no-send and the local timer still dismisses");
+
   const unsupported = await startFixture(async () => { throw Error("no pending request"); });
   await unsupported.h.settle();
   state.rejectIntentWrite = true;

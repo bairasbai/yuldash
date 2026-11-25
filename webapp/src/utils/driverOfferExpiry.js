@@ -49,6 +49,16 @@ export class DriverOfferExpiry {
     return true;
   }
 
+  finishManualDecline(orderId, terminal) {
+    if (orderId !== this.orderId || !this.declineIssued || this.settled) return false;
+    this.declineIssued = false;
+    if (terminal) {
+      this.settled = true;
+      return false;
+    }
+    return this.#takeExpiredDismissal();
+  }
+
   #takeExpiredDismissal() {
     if (!this.expired || this.accepting || this.declineIssued) return false;
     this.settled = true;
