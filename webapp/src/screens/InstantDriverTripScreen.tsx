@@ -198,6 +198,7 @@ function useNowMs(active = true): number {
 type DriverCancelCheck = {
   owner: NonNullable<ReturnType<typeof getAccountSession>>;
   id: number;
+  activeConfirmed: boolean;
 };
 
 export default function InstantDriverTripScreen() {
@@ -239,6 +240,7 @@ export default function InstantDriverTripScreen() {
   const activeIdRef = useRef<number | null>(null);
   const cancelInFlight = useRef<AbortController | null>(null);
   const pendingCancel = useRef<DriverCancelCheck | null>(null);
+  const advanceInFlight = useRef(false);
   const [checkingCancel, setCheckingCancel] = useState(false);
   const activeReadEpoch = useRef(0);
   /** Почему прежний заказ исчез: сообщение остаётся на экране ожидания следующего. */
@@ -803,7 +805,10 @@ export default function InstantDriverTripScreen() {
   }
 
   async function advance(next: "arrived" | "onboard" | "done") {
-    if (!active || tripBusy || cancelInFlight.current || pendingCancel.current) return;
+    const pending = pendingCancel.current;
+    if (!active || tripBusy || cancelInFlight.current || advanceInFlight.current
+        || (pending && (!isAccountSession(pending.owner) || !pending.activeConfirmed))) return;
+    advanceInFlight.current = true;
     setTripBusy(true);
     try {
       const fn = next === "arrived" ? arrivedOrder : next === "onboard" ? onboardOrder : doneOrder;
@@ -811,7 +816,11 @@ export default function InstantDriverTripScreen() {
       setCurrentActive(o);
       setTripNote("");
       // «Готово» — экран финала (доход, оценка пассажира); чек — кнопкой с него.
-      if (o.status === "done") clearStoredDriverOrder(localStorage, ACTIVE_KEY, o.id);
+      if (o.status === "done") {
+        pendingCancel.current = null;
+        setCheckingCancel(false);
+        clearStoredDriverOrder(localStorage, ACTIVE_KEY, o.id);
+      }
     } catch (e) {
       // Молчать нельзя, особенно на «Завершить»: водитель уверен, что закрыл
       // поездку, убирает телефон и уезжает — а заказ висит открытым.
@@ -824,6 +833,7 @@ export default function InstantDriverTripScreen() {
             )
       );
     } finally {
+      advanceInFlight.current = false;
       setTripBusy(false);
     }
   }
@@ -858,8 +868,20 @@ export default function InstantDriverTripScreen() {
     return { kind: "unknown" } as const;
   }
 
+  function showOwnedOrderWhileChecking(check: DriverCancelCheck, order: InstantOrder) {
+    // Снимок подтверждает активность сейчас, но не исход уже отправленной команды.
+    if (!check.activeConfirmed) {
+      check.activeConfirmed = true;
+      setCheckingCancel(false);
+      setTripNote(appText("Поездка пока активна. Продолжаем проверять отмену.",
+        "Сәфәр әлегә әүҙем. Кире алыуҙы тикшереүҙе дауам итәбеҙ."));
+    }
+    setCurrentActive(order);
+  }
+
   async function resumeCancelCheck(check: DriverCancelCheck) {
-    if (cancelInFlight.current || pendingCancel.current !== check || !isAccountSession(check.owner)) return;
+    if (cancelInFlight.current || advanceInFlight.current
+        || pendingCancel.current !== check || !isAccountSession(check.owner)) return;
     const attempt = new AbortController();
     cancelInFlight.current = attempt;
     const timeout = window.setTimeout(() => attempt.abort(), 10_000);
@@ -868,13 +890,13 @@ export default function InstantDriverTripScreen() {
       if (attempt.signal.aborted || !mounted.current || pendingCancel.current !== check
           || !isAccountSession(check.owner) || activeIdRef.current !== check.id) return;
       if (outcome.kind === "unknown") return;
+      if (outcome.kind === "still-active") {
+        showOwnedOrderWhileChecking(check, outcome.order);
+        return;
+      }
       pendingCancel.current = null;
       setCheckingCancel(false);
       setTripNote("");
-      if (outcome.kind === "still-active") {
-        setCurrentActive(outcome.order);
-        return;
-      }
       clearStoredDriverOrder(localStorage, ACTIVE_KEY, check.id);
       setCurrentActive(outcome.kind === "terminal" ? outcome.order : null);
       if (outcome.kind === "released" && outcome.replacement) {
@@ -888,9 +910,11 @@ export default function InstantDriverTripScreen() {
 
   async function cancelActive(reason: "driver_cancel" | "no_show") {
     const owner = getAccountSession();
-    if (!owner || !active || tripBusy || cancelInFlight.current || pendingCancel.current) return;
+    const pending = pendingCancel.current;
+    if (!owner || !active || tripBusy || cancelInFlight.current || advanceInFlight.current
+        || (pending && (!isAccountSession(pending.owner) || !pending.activeConfirmed))) return;
     const id = active.id;
-    const check: DriverCancelCheck = { owner, id };
+    const check: DriverCancelCheck = { owner, id, activeConfirmed: false };
     const attempt = new AbortController();
     cancelInFlight.current = attempt;
     activeReadEpoch.current += 1;
@@ -902,6 +926,8 @@ export default function InstantDriverTripScreen() {
     const apply = (order: InstantOrder | null, confirmed: boolean) => {
       if (!current()) return;
       if (confirmed) track("instant_order_cancel");
+      pendingCancel.current = null;
+      setCheckingCancel(false);
       clearStoredDriverOrder(localStorage, ACTIVE_KEY, id);
       setTripNote("");
       setCurrentActive(order);
@@ -946,6 +972,10 @@ export default function InstantDriverTripScreen() {
           return;
         }
         pendingCancel.current = check;
+        if (!reader.signal.aborted && outcome.kind === "still-active") {
+          showOwnedOrderWhileChecking(check, outcome.order);
+          return;
+        }
         setCheckingCancel(true);
         setTripNote(appText(
           "Не удалось подтвердить отмену. Статус поездки пока неизвестен.",

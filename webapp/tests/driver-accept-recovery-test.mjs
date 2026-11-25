@@ -249,6 +249,19 @@ try {
     if (reconnection === "same") {
       assert.equal(tripNode(f.h).props.busy, false);
       assert.equal(tripNode(f.h).props.order.id, id);
+      assert.match(tripNode(f.h).props.note, /Поездка пока активна/);
+      // The first successful read preceded the commit. The next poll must still resolve the old cancellation.
+      state.read = async () => { throw new state.Error(403, "no longer assigned"); };
+      state.lookup = async () => { assignmentReads++; return {state: "active", order: replacement}; };
+      for (const tick of [...timers.values()].filter(t => t.interval && t.ms === 3000)) tick.fn();
+      await f.h.settle();
+      assert.deepEqual([state.cancels, state.reads - beforeReads, assignmentReads], [1, 3, 1]);
+      assert.equal(tripNode(f.h), undefined);
+      const button = all(f.h.tree).find(n => n.type === "button" && JSON.stringify(n.props.children).includes("Вернуться в поездку"));
+      assert.ok(button);
+      button.props.onClick();
+      await f.h.settle();
+      assert.equal(tripNode(f.h).props.order.id, replacement.id);
     } else {
       assert.equal(tripNode(f.h), undefined);
       if (reconnection === "replacement") {
