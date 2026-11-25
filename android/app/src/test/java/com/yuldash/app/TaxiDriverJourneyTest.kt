@@ -43,6 +43,7 @@ class TaxiDriverJourneyTest {
     @Volatile private var acceptMode = AcceptMode.Success
     @Volatile private var status = "offered"
     @Volatile private var currentLookup: MockResponse? = null
+    @Volatile private var finalMoney = ""
     @Volatile private var expiredReadAllowed = false
     @Volatile private var nextExpiry: String? = null
     private val posted = CountDownLatch(1)
@@ -288,6 +289,44 @@ class TaxiDriverJourneyTest {
         assertNull(ApiClient.readTaxiAcceptIntent(next))
     }
 
+    @Test fun completedDriverMoneyDistinguishesUnknownFromZeroInBothLanguages() {
+        status = "done"
+        val owner = ApiClient.queueSessionGeneration()
+        fun payload(extra: String) = runBlocking {
+            finalMoney = ""","passenger_price_kop":32145""" + extra
+            ApiClient.readDriverAcceptOnce(71, owner).getOrThrow()
+        }
+        val oldPayload = payload("")
+        val missingNet = payload(""","driver_gross_kop":35000""")
+        val zero = payload(""","driver_gross_kop":0,"driver_net_kop":0,"driver_fee_kop":0""")
+        val kopecks = payload(""","driver_gross_kop":35000,"driver_net_kop":29123,"driver_fee_kop":5877""")
+        val malformed = payload(""","driver_gross_kop":35000,"driver_net_kop":"123","driver_fee_kop":-1""")
+        val inconsistent = payload(""","driver_gross_kop":200,"driver_net_kop":201,"driver_fee_kop":201""")
+        val order = mutableStateOf(oldPayload)
+        val language = mutableStateOf(AppLanguage.Ru)
+        compose.setContent {
+            if (mounted.value) CompositionLocalProvider(LocalAppLanguage provides language.value) {
+                TaxiDriverCompletedScreen(order.value, onReturnToLine = {}, onShiftFinished = {}, onOpenReceipt = {})
+            }
+        }
+        for ((lang, title, missing) in listOf(
+            Triple(AppLanguage.Ru, "Чистыми за поездку", "Уточняется"),
+            Triple(AppLanguage.Ba, "Сәфәрҙән таҙа килем", "Асыҡлана"),
+        )) {
+            for ((value, expected) in listOf(oldPayload to missing, missingNet to missing,
+                zero to "0 ₽", kopecks to "291,23 ₽", malformed to missing, inconsistent to missing)) {
+                compose.runOnIdle { language.value = lang; order.value = value }
+                compose.onNodeWithText(title).assertIsDisplayed()
+                compose.onAllNodesWithText(expected).fetchSemanticsNodes().also { assertTrue(expected, it.isNotEmpty()) }
+                assertEquals(1, compose.onAllNodesWithText("321,45 ₽").fetchSemanticsNodes().size)
+                val shownZeros = compose.onAllNodesWithText("0 ₽").fetchSemanticsNodes().size
+                assertEquals(if (value == zero) 2 else 0, shownZeros)
+                assertEquals(if (value == kopecks) 1 else 0, compose.onAllNodesWithText("58,77 ₽").fetchSemanticsNodes().size)
+            }
+        }
+        assertTrue(writes.isEmpty())
+    }
+
     private fun assertAnotherActiveTrip(language: AppLanguage, acceptLabel: String, expected: String) {
         acceptMode = AcceptMode.AlreadyOnTrip
         ApiClient.setUiLanguageBashkir(language == AppLanguage.Ba)
@@ -354,7 +393,7 @@ class TaxiDriverJourneyTest {
         }
     }
     private fun order(id: Int = 71, stage: String = status, deadline: String = Instant.ofEpochMilli(expiryMs).toString()) =
-        """{"id":$id,"status":"$stage","role":"driver","offer_expires_at":"$deadline","from_lat":54.735,"from_lng":55.958,"to_lat":54.751,"to_lng":56.001,"from_text":"Пункт А","to_text":"Пункт Б","category":"standard","payment_method":"cash","price_estimate":250,"price_final":250,"passenger_name":"Тестовый пассажир","driver_id":9}"""
+        """{"id":$id,"status":"$stage","role":"driver","offer_expires_at":"$deadline","from_lat":54.735,"from_lng":55.958,"to_lat":54.751,"to_lng":56.001,"from_text":"Пункт А","to_text":"Пункт Б","category":"standard","payment_method":"cash","price_estimate":250,"price_final":250,"passenger_name":"Тестовый пассажир","driver_id":9$finalMoney}"""
     private fun json(body: String, code: Int = 200) = MockResponse().setResponseCode(code)
         .setHeader("Content-Type", "application/json").setBody(body)
 }

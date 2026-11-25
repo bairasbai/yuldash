@@ -8,7 +8,10 @@ data class TaxiOfferMoneyDto(
     val netKop: Int?,
     val feeKop: Int?,
     val feePercent: Double?,
-)
+) {
+    internal fun finalPartKop(value: Int?): Int? =
+        value?.takeIf { it >= 0 && (grossKop == null || it <= grossKop) }
+}
 
 internal fun JSONObject.toTaxiOfferMoneyDto(): TaxiOfferMoneyDto {
     fun amount(key: String): Int? {

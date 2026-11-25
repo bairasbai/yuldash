@@ -32,6 +32,11 @@ export function payMethodShortLabel(method: string | undefined, appText: (ru: st
       return appText("По договору", "Килешеү буйынса");
   }
 }
+function driverMoneyPart(value: unknown, gross: unknown): number | null {
+  const validKop = (n: unknown): n is number =>
+    typeof n === "number" && Number.isInteger(n) && n >= 0 && n <= 2_147_483_647;
+  return validKop(value) && (!validKop(gross) || value <= gross) ? value : null;
+}
 function serverSaid(e: unknown, fallback: string): string {
   return e instanceof ApiError && e.message ? e.message : fallback;
 }
@@ -62,8 +67,8 @@ function TaxiDriverCompletedState({
   const [shiftEnding, setShiftEnding] = useState(false);
   const [error, setError] = useState("");
 
-  const hasBreakdown = (order.driver_gross_kop ?? 0) > 0;
-  const income = hasBreakdown ? order.driver_net_kop ?? 0 : passengerPayKop(order);
+  const income = order.role === "driver" ? driverMoneyPart(order.driver_net_kop, order.driver_gross_kop) : null;
+  const fee = order.role === "driver" ? driverMoneyPart(order.driver_fee_kop, order.driver_gross_kop) : null;
   const name = order.passenger_name.trim() || appText("Пассажир", "Пассажир");
   const initial = name.charAt(0).toUpperCase() || "•";
   const trips = Math.max(0, order.passenger_trips);
@@ -113,9 +118,9 @@ function TaxiDriverCompletedState({
         <section className="tdc-hero appear" style={{ "--i": 1 } as React.CSSProperties}>
           <span className="tdc-hero__icon" aria-hidden><IconCheck size={28} /></span>
           <span className="tdc-hero__label">
-            {hasBreakdown ? appText("Чистыми за поездку", "Сәфәрҙән таҙа килем") : appText("Получено за поездку", "Сәфәр өсөн алынды")}
+            {appText("Чистыми за поездку", "Сәфәрҙән таҙа килем")}
           </span>
-          <span className="tdc-hero__amount">{kopExactLabel(income)}</span>
+          <span className="tdc-hero__amount">{income === null ? appText("Уточняется", "Асыҡлана") : kopExactLabel(income)}</span>
         </section>
 
         {/* TaxiDriverMoneySummary: три ячейки через вертикальные разделители 1×64. */}
@@ -127,7 +132,7 @@ function TaxiDriverCompletedState({
           <span className="tdc-money__div" aria-hidden />
           <div className="tdc-money__cell">
             <small>{appText("Комиссия", "Комиссия")}</small>
-            <strong>{hasBreakdown ? kopExactLabel(order.driver_fee_kop ?? 0) : "—"}</strong>
+            <strong>{fee === null ? "—" : kopExactLabel(fee)}</strong>
           </div>
           <span className="tdc-money__div" aria-hidden />
           <div className="tdc-money__cell">

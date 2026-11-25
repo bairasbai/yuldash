@@ -255,8 +255,8 @@ internal fun TaxiDriverCompletedScreen(
 
 @Composable
 private fun TaxiDriverIncomeHero(order: InstantOrderDto, modifier: Modifier = Modifier) {
-    val hasBreakdown = order.driverGrossKop > 0
-    val amount = if (hasBreakdown) order.driverNetKop else order.passengerPayKop
+    val money = order.offerMoney.takeIf { order.role == "driver" }
+    val amount = money?.finalPartKop(money.netKop)
     Surface(
         color = CanonMint,
         shape = CanonCardShape,
@@ -279,14 +279,13 @@ private fun TaxiDriverIncomeHero(order: InstantOrderDto, modifier: Modifier = Mo
                 }
             }
             Text(
-                if (hasBreakdown) appText("Чистыми за поездку", "Сәфәрҙән таҙа килем")
-                else appText("Получено за поездку", "Сәфәр өсөн алынды"),
+                appText("Чистыми за поездку", "Сәфәрҙән таҙа килем"),
                 style = CanonBodyStrong,
                 color = CanonGreen2,
                 textAlign = TextAlign.Center,
             )
             Text(
-                formatTaxiKop(amount),
+                amount?.let(::formatTaxiKop) ?: appText("Уточняется", "Асыҡлана"),
                 style = CanonDisplay,
                 color = CanonText,
                 textAlign = TextAlign.Center,
@@ -297,7 +296,7 @@ private fun TaxiDriverIncomeHero(order: InstantOrderDto, modifier: Modifier = Mo
 
 @Composable
 private fun TaxiDriverMoneySummary(order: InstantOrderDto, modifier: Modifier = Modifier) {
-    val hasBreakdown = order.driverGrossKop > 0
+    val money = order.offerMoney.takeIf { order.role == "driver" }
     Surface(
         color = CanonSurface,
         shape = CanonCardShape,
@@ -316,7 +315,7 @@ private fun TaxiDriverMoneySummary(order: InstantOrderDto, modifier: Modifier = 
             TaxiDriverMoneyDivider()
             TaxiDriverMoneyCell(
                 label = appText("Комиссия", "Комиссия"),
-                value = if (hasBreakdown) formatTaxiKop(order.driverFeeKop) else "—",
+                value = money?.finalPartKop(money.feeKop)?.let(::formatTaxiKop) ?: "—",
                 modifier = Modifier.weight(1f),
             )
             TaxiDriverMoneyDivider()

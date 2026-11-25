@@ -17,7 +17,7 @@ export const useEffect=(fn,deps)=>{const x=h.current,i=x.i++,old=x.values[i];if(
  mocks['../i18n/lang']=`export const useLang=()=>({lang:'ru',appText:globalThis.__taxiRating.appText});`;
  mocks['../api/client']=`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__taxiRating.generation;`;
  mocks['../api/instant']=`export const rateInstantOrder=(...args)=>{const h=globalThis.__taxiRating;h.posts.push(args);return h.send(...args);};export const fetchInstantOrder=id=>globalThis.__taxiRating.read(id);export const reportLostItem=async()=>({});`;
- mocks['../utils/format']=`export const kopExactLabel=()=>'';export const payMethodLabel=()=>'';export const pluralRu=(n,one)=>one;`;
+ delete mocks['../utils/format'];
  const result=await build({entryPoints:[entry],bundle:true,write:false,platform:'node',format:'esm',jsx:'automatic',plugins:[{name:'fixtures',setup(b){b.onResolve({filter:/.*/},a=>a.path.endsWith('/useTaxiRating')?undefined:a.path in mocks?{path:a.path,namespace:'fixture'}:undefined);b.onLoad({filter:/.*/,namespace:'fixture'},a=>({contents:mocks[a.path],loader:'js'}));}}]});
  return (await import('data:text/javascript;base64,'+Buffer.from(result.outputFiles[0].text).toString('base64'))).default;
 }
@@ -38,8 +38,32 @@ for(const [label,Screen]of screens){
  await test(Screen,label+' recovers saved score after lost response',async()=>{h.send=async()=>{throw Error('lost');};h.read=async()=>({...h.order,my_stars:5});await settle();radios()[4].props.onClick();await settle();submit().props.onClick();await settle();assert.match(text(h.tree),/Спасибо за оценку/);assert.equal(h.posts.length,1);});
  await test(Screen,label+' unknown result requires read retry before another send',async()=>{h.send=async()=>{throw Error('lost');};h.read=async()=>{throw Error('offline');};await settle();radios()[4].props.onClick();await settle();submit().props.onClick();await settle();assert.ok(!submit()||submit().props.disabled);assert.ok(nodes(h.tree).some(n=>n.type==='button'&&text(n)==='Повторить'));});
  await test(Screen,label+' does not carry confirmation into next order',async()=>{await settle();radios()[4].props.onClick();await settle();submit().props.onClick();await settle();h.order={...h.order,id:42,my_stars:0};h.dirty=true;await settle();assert.equal(radios().length,5);assert.doesNotMatch(text(h.tree),/Спасибо за оценку/);});
- await test(Screen,label+' ignores late previous-account send',async()=>{const pending=deferred();h.send=()=>pending.promise;await settle();radios()[4].props.onClick();await settle();submit().props.onClick();await settle();h.generation='B';h.order={...h.order,my_stars:2};h.dirty=true;await settle();pending.resolve({});await settle();assert.match(text(h.tree),/2 звезда/);assert.doesNotMatch(text(h.tree),/5 звезда/);});
+ await test(Screen,label+' ignores late previous-account send',async()=>{const pending=deferred();h.send=()=>pending.promise;await settle();radios()[4].props.onClick();await settle();submit().props.onClick();await settle();h.generation='B';h.order={...h.order,my_stars:2};h.dirty=true;await settle();pending.resolve({});await settle();assert.match(text(h.tree),/2 звезды/);assert.doesNotMatch(text(h.tree),/5 звёзд/);});
  await test(Screen,label+' validates missing server metadata before allowing a rating',async()=>{delete h.order.my_stars;delete h.order.can_rate;h.read=async()=>{throw Error('offline');};await settle();assert.equal(radios().length,0);assert.ok(nodes(h.tree).some(n=>n.type==='button'&&text(n)==='Повторить'));});
  await test(Screen,label+' unsaved failure preserves selected score for retry',async()=>{h.send=async()=>{throw Error('offline');};await settle();radios()[3].props.onClick();await settle();submit().props.onClick();await settle();assert.equal(radios()[3].props['aria-checked'],true);assert.match(text(h.tree),/Не получилось отправить/);assert.equal(submit().props.disabled,false);});
+}
+const completed = screens.find(([label]) => label === "driver")[1];
+const moneyValue = () => text(nodes(h.tree).find(n => n.props.className === "tdc-hero__amount"));
+const feeValue = () => text(nodes(h.tree).filter(n => n.props.className === "tdc-money__cell")[1].props.children[1]);
+for (const [language, missing] of [["ru", "Уточняется"], ["ba", "Асыҡлана"]]) {
+  for (const [label, fields, expected, fee] of [
+    ["absent", {}, missing, "—"],
+    ["missing net and fee", {driver_gross_kop: 35_000}, missing, "—"],
+    ["explicit zero", {driver_gross_kop: 0, driver_net_kop: 0, driver_fee_kop: 0}, "0 ₽", "0 ₽"],
+    ["kopecks", {driver_gross_kop: 35_000, driver_net_kop: 29_123, driver_fee_kop: 5877}, "291,23 ₽", "58,77 ₽"],
+    ["malformed", {driver_gross_kop: 35000, driver_net_kop: "123", driver_fee_kop: -1}, missing, "—"],
+    ["inconsistent", {driver_gross_kop: 200, driver_net_kop: 201, driver_fee_kop: 201}, missing, "—"],
+  ]) {
+    await test(completed, `driver completion ${language} ${label}`, async () => {
+      h.appText = (ru, ba) => language === "ba" ? ba : ru;
+      h.order = {...h.order, role:"driver", passenger_price_kop:32145, ...fields};
+      await settle();
+      assert.equal(moneyValue(), expected);
+      assert.equal(feeValue(), fee);
+      assert.equal(text(nodes(h.tree).find(n => n.props.className === "tdc-hero__label")),
+        language === "ba" ? "Сәфәрҙән таҙа килем" : "Чистыми за поездку");
+      assert.match(text(h.tree), /321,45 ₽/);
+    });
+  }
 }
 console.log(`Taxi rating recovery: ${total-failed}/${total} passed`);if(failed)process.exitCode=1;

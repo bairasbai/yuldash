@@ -1,5 +1,6 @@
 package com.yuldash.app
 
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -26,9 +27,11 @@ class TaxiDriverCompletedGuardTest {
         assertTrue(host.contains("current.status == \"done\" -> TaxiDriverCompletedScreen("))
         assertTrue(host.contains("onOpenReceipt = { NavSignals.openTaxiReceipt.value = current.id }"))
         assertTrue(completed.contains("Чистыми за поездку"))
-        assertTrue(completed.contains("order.driverNetKop"))
+        val income = completed.substringAfter("private fun TaxiDriverIncomeHero").substringBefore("private fun TaxiDriverMoneySummary")
+        assertTrue(income.contains("money?.finalPartKop(money.netKop)"))
+        assertFalse(income.contains("passengerPayKop"))
         assertTrue(completed.contains("order.passengerPayKop"))
-        assertTrue(completed.contains("order.driverFeeKop"))
+        assertTrue(completed.contains("money?.finalPartKop(money.feeKop)"))
         assertTrue(completed.contains("taxiDriverPayMethodShortLabel(order.paymentMethod)"))
     }
 
