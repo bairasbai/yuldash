@@ -3047,6 +3047,17 @@ object ApiClient {
         call("POST", "/instant/orders/$id/accept", JSONObject(), auth = true).map { it.toInstantOrderDto() }
             .onSuccess { Analytics.log("instant_order_accept") }
 
+    internal suspend fun instantAcceptOnce(id: Int, expectedGeneration: Long): Result<InstantOrderDto> =
+        call("POST", "/instant/orders/$id/accept", JSONObject(), auth = true,
+            expectedGeneration = expectedGeneration, retryOnNetwork = false, singleAttemptMutation = true,
+            withoutAuthReplay = true, mutationTimeoutMs = 15_000L).mapCatching { it.toInstantOrderDto() }
+            .onSuccess { Analytics.log("instant_order_accept") }
+
+    internal suspend fun readDriverAcceptOnce(id: Int, expectedGeneration: Long): Result<InstantOrderDto> =
+        call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration,
+            retryOnNetwork = false, singleAttemptMutation = true, freshRead = true, withoutAuthReplay = true,
+            mutationTimeoutMs = 5_000L).mapCatching { it.toInstantOrderDto() }
+
     /** Водитель пропускает оффер → matcher предлагает следующему. */
     /** Водитель не берёт заказ. `reason` (far|cheap|direction|busy|break|other) — не наказание,
      *  а диагностика: без причины видно только «не берут», и матчинг продолжает слать те же
@@ -3637,6 +3648,7 @@ object ApiClient {
                     val requestBody = if (idempotent) null else
                         oneShotBody(wireBody ?: body?.toString(), admitWire, claimBody)
                     val headers = Headers.Builder().add("Accept", "application/json").apply {
+                        if (freshRead) add("Cache-Control", "no-cache, no-store")
                         idempotencyKey?.let { add("Idempotency-Key", it) }
                         deviceId?.let { add("X-Device-Id", it) }
                         if (auth) usedToken?.let {

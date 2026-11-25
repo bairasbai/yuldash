@@ -49,7 +49,7 @@ check(
 check(
   // Ранний выход из эффекта опроса: одной строкой или блоком со сбросом причины блокировки —
   // важно, что при сбросе active тот же эффект перезапускается и снова опрашивает предложения.
-  /if \(!online \|\| active\) \{?\s*(setOfferBlocked\(null\);\s*)?return;/.test(screen) &&
+  /if \(!online \|\| active(?: \|\| accepting \|\| pendingAccept)?\) \{?\s*(setOfferBlocked\(null\);\s*)?return;/.test(screen) &&
     screen.includes("setCurrentActive(null)"),
   "после сброса active существующий poll снова запрашивает предложения"
 );

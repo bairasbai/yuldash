@@ -5673,6 +5673,7 @@ internal fun InstantDriverOnlineController(
     val myPoint = locationFix?.point
     var offer by remember { mutableStateOf<InstantOrderDto?>(null) }
     var accepting by remember { mutableStateOf(false) }
+    var pendingAccept by remember { mutableStateOf<Triple<Int, Long, Int>?>(null) }
     var presenceFails by remember { mutableIntStateOf(0) }   // подряд-неудачи heartbeat → «нет связи»
     var demandZones by remember { mutableStateOf<List<com.yuldash.app.data.DemandZoneDto>>(emptyList()) }
     var demandLoading by remember { mutableStateOf(false) }
@@ -5684,6 +5685,8 @@ internal fun InstantDriverOnlineController(
     var declineAskFor by remember { mutableStateOf<Int?>(null) }
     val acceptTakenMsg = appText("Заказ уже взял другой водитель", "Заказды башҡа йөрөтөүсе алды")
     val acceptNetMsg = appText("Не удалось взять заказ. Проверь связь и попробуй снова.", "Заказды алып булманы. Бәйләнеште тикшереп ҡабатла.")
+    val acceptUnavailableMsg = appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел")
+    val checkingAcceptMsg = appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")
 
     // Presence-heartbeat (координаты не логируем). Следим за связью: если heartbeat не долетает,
     // водитель невидим серверу — честно показываем это чипом, а не делаем вид, что он «на линии».
@@ -5711,7 +5714,32 @@ internal fun InstantDriverOnlineController(
     RepeatWhileVisible(online) {
         if (!online) { offer = null; return@RepeatWhileVisible }
         while (isActive) {
-            if (offer == null) {
+            val pending = pendingAccept
+            if (pending != null) {
+                val (id, generation, driverId) = pending
+                val answer = if (ApiClient.isCurrentSession(generation)) {
+                    withTimeoutOrNull(5_000) { ApiClient.readDriverAcceptOnce(id, generation) }
+                } else null
+                if (pendingAccept == pending) {
+                    if (!ApiClient.isCurrentSession(generation)) {
+                        pendingAccept = null
+                        offer = null
+                    } else {
+                        val observed = answer?.getOrNull()
+                        val failure = answer?.exceptionOrNull() as? ApiException
+                        when (classifyDriverAcceptRead(id, driverId, observed?.id, observed?.role,
+                            observed?.driverId, observed?.status, failure?.status, failure?.message)) {
+                            DriverAcceptRead.Active -> { pendingAccept = null; offer = null; onOpenTrip(id) }
+                            DriverAcceptRead.Closed -> {
+                                pendingAccept = null
+                                offer = null
+                                Toast.makeText(ctx, acceptUnavailableMsg, Toast.LENGTH_SHORT).show()
+                            }
+                            DriverAcceptRead.Unknown -> Unit
+                        }
+                    }
+                }
+            } else if (offer == null && !accepting) {
                 // Спрашиваем СОСТОЯНИЕ, а не только оффер: в том же ответе приходит
                 // причина, почему заказов не будет. Без неё полоса-объяснение молчит
                 // и экран снова обещает заказ, которого не дождаться.
@@ -5782,45 +5810,60 @@ internal fun InstantDriverOnlineController(
     if (online && current != null) {
         InstantOfferOverlay(
             order = current,
-            accepting = accepting,
+            accepting = accepting || pendingAccept != null,
+            statusNote = checkingAcceptMsg.takeIf { pendingAccept != null },
             mapContent = mapContent,
             onAccept = {
-                if (accepting) return@InstantOfferOverlay
+                if (accepting || pendingAccept != null) return@InstantOfferOverlay
                 if (instantOfferRemainingMillis(current.offerExpiresAt, System.currentTimeMillis()) <= 0L) {
                     scope.launch { ApiClient.instantDecline(current.id) }
                     offer = null
                     return@InstantOfferOverlay
                 }
+                val generation = ApiClient.queueSessionGeneration()
+                val driverId = ApiClient.myUserId() ?: return@InstantOfferOverlay
                 accepting = true
                 scope.launch {
-                    ApiClient.instantAccept(current.id)
-                        .onSuccess { offer = null; onOpenTrip(it.id) }
-                        .onFailure { e ->
-                            // 409 (гонку проиграли/оффер протух) — заказ ушёл, закрываем и ждём следующий.
-                            // Сеть/5xx — не молчим: говорим, что не взяли, оффер оставляем на повтор.
-                            val st = (e as? ApiException)?.status
-                            if (st == 409 || st == 410) {
-                                Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show(); offer = null
-                            } else {
-                                // Сервер уже объяснил отказ на двух языках — своё
-                                // «проверь связь» здесь бывает прямой неправдой.
-                                Toast.makeText(ctx, serverSaid(e, acceptNetMsg),
-                                               Toast.LENGTH_LONG).show()
-                            }
+                    try {
+                        val result = ApiClient.instantAcceptOnce(current.id, generation)
+                        if (!ApiClient.isCurrentSession(generation)) {
+                            offer = null
+                            return@launch
                         }
-                    accepting = false
+                        val accepted = result.getOrNull()
+                        val error = result.exceptionOrNull()
+                        val st = (error as? ApiException)?.status
+                        when {
+                            accepted != null && classifyDriverAcceptRead(current.id, driverId, accepted.id,
+                                accepted.role, accepted.driverId, accepted.status) == DriverAcceptRead.Active -> {
+                                offer = null
+                                onOpenTrip(current.id)
+                            }
+                            st == 409 || st == 410 -> {
+                                Toast.makeText(ctx, acceptTakenMsg, Toast.LENGTH_SHORT).show()
+                                offer = null
+                            }
+                            st == null || st <= 0 || st >= 500 -> {
+                                pendingAccept = Triple(current.id, generation, driverId)
+                            }
+                            error != null -> Toast.makeText(ctx, serverSaid(error, acceptNetMsg), Toast.LENGTH_LONG).show()
+                            else -> Unit
+                        }
+                    } finally {
+                        accepting = false
+                    }
                 }
             },
             // Дедлайн оффера истёк — отказ без вопросов: водитель ничего не решал, спрашивать нечего.
             onDecline = {
-                if (accepting) return@InstantOfferOverlay
+                if (accepting || pendingAccept != null) return@InstantOfferOverlay
                 scope.launch { ApiClient.instantDecline(current.id) }
                 offer = null
             },
             // Водитель сам нажал «Пропустить». Сначала ОТКАЗ — заказ мгновенно уходит следующему
             // и не ждёт, пока водитель за рулём выберет причину. Вопрос — уже вдогонку.
             onSkipTap = {
-                if (accepting) return@InstantOfferOverlay
+                if (accepting || pendingAccept != null) return@InstantOfferOverlay
                 val declinedId = current.id
                 scope.launch { ApiClient.instantDecline(declinedId) }
                 offer = null
@@ -6392,6 +6435,7 @@ internal fun InstantOfferOverlay(
     onAccept: () -> Unit,
     onDecline: () -> Unit,
     onSkipTap: (() -> Unit)? = null,
+    statusNote: String? = null,
 ) {
     // Водитель за рулём смотрит на дорогу, а не в телефон: у оффера в приложении не было
     // ни звука, ни вибрации — заказ можно было просто не заметить (аудит P1-10).
@@ -6406,8 +6450,8 @@ internal fun InstantOfferOverlay(
     val secondsLeft = instantOfferSecondsLeft(order.offerExpiresAt, nowMillis)
     val canAccept = remainingMillis > 0L
     var expiryHandled by remember(order.id, order.offerExpiresAt) { mutableStateOf(false) }
-    LaunchedEffect(canAccept, order.id, order.offerExpiresAt) {
-        if (!canAccept && !expiryHandled) {
+    LaunchedEffect(canAccept, accepting, order.id, order.offerExpiresAt) {
+        if (!canAccept && !accepting && !expiryHandled) {
             expiryHandled = true
             onDecline() // серверный дедлайн истёк (или был некорректным) — безопасно пропускаем
         }
@@ -6490,7 +6534,7 @@ internal fun InstantOfferOverlay(
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(appText("Входящий заказ", "Яңы заказ"), style = CanonTitle, color = CanonText)
                         Text(
-                            if (canAccept) appText("Решение за $secondsLeft сек", "$secondsLeft секундта хәл ит")
+                            statusNote ?: if (canAccept) appText("Решение за $secondsLeft сек", "$secondsLeft секундта хәл ит")
                             else appText("Время вышло", "Ваҡыт үтте"),
                             style = CanonCaption,
                             color = if (canAccept) CanonMutedStrong else CanonRed,

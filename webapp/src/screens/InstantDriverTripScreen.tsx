@@ -18,7 +18,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useLang } from "../i18n/lang";
-import { ApiError } from "../api/client";
+import { ApiError, apiCommand, getAccountSession, isAccountSession } from "../api/client";
+import { classifyDriverAcceptRead } from "../utils/driverAcceptRecovery";
 import { fetchDriverStatus, setDriverOnline, type DriverStatus } from "../api/driver";
 import { commissionLabel } from "../utils/commissionLabel";
 import {
@@ -26,7 +27,6 @@ import {
   sendPresence,
   fetchDriverOffer,
   fetchInstantOrder,
-  acceptOrder,
   declineOrder,
   DECLINE_REASONS,
   type DeclineReason,
@@ -211,6 +211,13 @@ export default function InstantDriverTripScreen() {
   const [offer, setOffer] = useState<InstantOrder | null>(null);
   /** Заказ берётся прямо сейчас — второй тап не должен слать второй запрос. */
   const [accepting, setAccepting] = useState(false);
+  const acceptInFlight = useRef(false);
+  const [pendingAccept, setPendingAccept] = useState<{ id: number; owner: NonNullable<ReturnType<typeof getAccountSession>> } | null>(null);
+  const mounted = useRef(false);
+  useEffect(() => {
+    mounted.current = true;
+    return () => { mounted.current = false; };
+  }, []);
   /** Почему не взяли: «уже взял другой» либо «проверь связь». Молчать тут нельзя. */
   const [acceptNote, setAcceptNote] = useState("");
   const [active, setActive] = useState<InstantOrder | null>(null);
@@ -355,7 +362,7 @@ export default function InstantDriverTripScreen() {
 
   // ---------------- Опрос оффера (пока на линии и нет активной поездки) ----------------
   useEffect(() => {
-    if (!online || active) {
+    if (!online || active || accepting || pendingAccept) {
       setOfferBlocked(null);
       return;
     }
@@ -363,7 +370,7 @@ export default function InstantDriverTripScreen() {
     const tick = () => {
       fetchDriverOffer()
         .then((r) => {
-          if (!alive) return;
+          if (!alive || acceptInFlight.current) return;
           setOfferBlocked(r.blocked ?? null);
           setOffer((prev) => {
             if (r.offer && (!prev || prev.id !== r.offer.id)) ringOffer();
@@ -378,7 +385,61 @@ export default function InstantDriverTripScreen() {
       alive = false;
       window.clearInterval(iv);
     };
-  }, [online, active]);
+  }, [online, active, accepting, pendingAccept]);
+
+  useEffect(() => {
+    if (!pendingAccept) return;
+    const { id, owner } = pendingAccept;
+    const abort = new AbortController();
+    let timer: number | undefined;
+    async function reconcile() {
+      if (abort.signal.aborted) return;
+      if (!isAccountSession(owner)) {
+        acceptInFlight.current = false;
+        setPendingAccept(null);
+        setOffer(null);
+        return;
+      }
+      let result: InstantOrder | undefined;
+      let failure: ApiError | undefined;
+      const attempt = new AbortController();
+      const cancelAttempt = () => attempt.abort();
+      abort.signal.addEventListener("abort", cancelAttempt, { once: true });
+      const timeout = window.setTimeout(cancelAttempt, 5_000);
+      try {
+        result = await apiCommand<InstantOrder>(`/instant/orders/${id}`, owner, {
+          method: "GET", oneShot: true, signal: attempt.signal,
+        });
+      } catch (e) {
+        if (e instanceof ApiError) failure = e;
+      } finally {
+        window.clearTimeout(timeout);
+        abort.signal.removeEventListener("abort", cancelAttempt);
+      }
+      if (abort.signal.aborted) return;
+      if (!isAccountSession(owner)) {
+        acceptInFlight.current = false;
+        setPendingAccept(null);
+        setOffer(null);
+        return;
+      }
+      const outcome = classifyDriverAcceptRead(id, owner.userId, result, failure);
+      if (outcome === "active" && result) {
+        setCurrentActive(result);
+        try { localStorage.setItem(ACTIVE_KEY, String(result.id)); } catch { /* Active trip is already shown. */ }
+      } else if (outcome === "unknown") {
+        timer = window.setTimeout(() => void reconcile(), 4_000);
+        return;
+      } else {
+        setAcceptNote(appText("Заказ больше недоступен", "Заказ хәҙер асыҡ түгел"));
+      }
+      acceptInFlight.current = false;
+      setOffer(null);
+      setPendingAccept(null);
+    }
+    void reconcile();
+    return () => { abort.abort(); window.clearTimeout(timer); };
+  }, [pendingAccept, appText, setCurrentActive]);
 
   // ---------------- Спрос рядом: раз в минуту, пока на линии без поездки ----------------
   useEffect(() => {
@@ -470,18 +531,39 @@ export default function InstantDriverTripScreen() {
   }
 
   async function accept(): Promise<"accepted" | "retry" | "closed"> {
-    if (!offer || accepting) return "closed"; // второй тап на медленной сети — не второй заказ
+    if (!offer || acceptInFlight.current || pendingAccept) return "closed";
+    const owner = getAccountSession();
+    if (!owner) return "closed";
+    const id = offer.id;
+    acceptInFlight.current = true;
     setAcceptNote("");
     setEndedNote("");
     setAccepting(true);
+    const abort = new AbortController();
+    const timeout = window.setTimeout(() => abort.abort(), 15_000);
+    let handedOff = false;
     try {
-      const o = await acceptOrder(offer.id);
+      const o = await apiCommand<InstantOrder>(`/instant/orders/${id}/accept`, owner, {
+        method: "POST", body: "{}", oneShot: true, signal: abort.signal,
+      });
+      if (!mounted.current || !isAccountSession(owner)) return "closed";
+      if (classifyDriverAcceptRead(id, owner.userId, o) !== "active") {
+        handedOff = true;
+        setPendingAccept({ id, owner });
+        return "closed";
+      }
       setCurrentActive(o);
       setOffer(null);
-      localStorage.setItem(ACTIVE_KEY, String(o.id));
+      try { localStorage.setItem(ACTIVE_KEY, String(o.id)); } catch { /* Active trip is already shown. */ }
       return "accepted";
     } catch (e) {
+      if (!mounted.current || !isAccountSession(owner)) return "closed";
       const st = e instanceof ApiError ? e.status : -1;
+      if (st <= 0 || st >= 500) {
+        handedOff = true;
+        setPendingAccept({ id, owner });
+        return "closed"; // outcome unknown: settle the timer without a decline
+      }
       if (st === 409 || st === 410) {
         // Гонку проиграли: заказ уже у другого. Говорим об этом и ждём следующий.
         setOffer(null);
@@ -499,7 +581,9 @@ export default function InstantDriverTripScreen() {
         return "retry";
       }
     } finally {
-      setAccepting(false);
+      window.clearTimeout(timeout);
+      if (!handedOff) acceptInFlight.current = false;
+      if (mounted.current) setAccepting(false);
     }
   }
 
@@ -516,7 +600,7 @@ export default function InstantDriverTripScreen() {
   const [askWhy, setAskWhy] = useState<number | null>(null);
 
   async function skip(afterFailedAccept = false) {
-    if (!offer || (accepting && !afterFailedAccept)) return;
+    if (!offer || pendingAccept || (accepting && !afterFailedAccept)) return;
     const id = offer.id;
     setAcceptNote("");
     setOffer(null);
@@ -722,8 +806,10 @@ export default function InstantDriverTripScreen() {
         {offer && (
           <OfferOverlay
             order={offer}
-            accepting={accepting}
-            note={acceptNote}
+            accepting={accepting || !!pendingAccept}
+            note={pendingAccept
+              ? appText("Проверяем, принят ли заказ", "Заказ ҡабул ителгәнме икәнен тикшерәбеҙ")
+              : acceptNote}
             onAccept={accept}
             onSkip={skip}
           />
