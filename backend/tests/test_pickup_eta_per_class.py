@@ -1,17 +1,4 @@
-"""У каждого тарифа своё время подачи — иначе витрина обещает то, чего нет.
-
-История. Экран заказа показывает четыре тарифа в ряд: Эконом, Комфорт, Бизнес, Минивэн.
-Человек выбирает между ними по двум числам — сколько стоит и через сколько приедет. Второе
-число сервер знал только одно на всех: «ближайшая машина за N минут», без разбора класса.
-
-Поставить эту цифру на все четыре карточки — значит пообещать подачу за тот класс, машин
-которого рядом может не быть вовсе: бизнес-седан один на район, а карточка обещает те же
-две минуты, что и эконом. Человек выбирает Бизнес, ждёт, и заказ истекает «рядом никого».
-
-Правило: минуты класса считаются по машинам ЭТОГО класса, и класс берётся тот же, по
-которому работает подбор (доступные машине ∩ включённые водителем). Нет таких машин рядом —
-поле пустое, и клиент молчит, а не показывает чужое число.
-"""
+"""Подача по классу и опциям: стоимость отдельно от неподтверждённого времени."""
 from __future__ import annotations
 
 import fakeredis
@@ -73,18 +60,19 @@ def _estimate(client, pax):
     return {o["category"]: o for o in _quote(client, pax)["options"]}
 
 
-def test_эконом_рядом_бизнес_далеко_минуты_разные(client, user_factory, fake_redis):
-    """Ровно та ситуация, ради которой всё делалось: рядом эконом, бизнес — за городом."""
+def test_pickup_does_not_publish_a_straight_line_eta(client, user_factory, fake_redis):
+    """Даже когда кандидаты видны, GEO-расстояние не подтверждает время подачи."""
     _online_at(client, user_factory, ORIG, available="economy", enabled="economy", name="Рядом")
-    _online_at(client, user_factory, FAR10, available="economy,business",
-               enabled="business", name="Далеко")
+    _online_at(client, user_factory, FAR10, available="business", enabled="business", name="Далеко")
     pax = user_factory("PaxEta")
 
-    opts = _estimate(client, pax)
-    близко = opts["standard"]["pickup_eta_min"]
-    далеко = opts["business"]["pickup_eta_min"]
-    assert близко is not None and далеко is not None, opts
-    assert близко < далеко, f"эконом рядом должен подъехать раньше бизнеса за городом: {opts}"
+    quote = _quote(client, pax)
+    opts = {o["category"]: o for o in quote["options"]}
+    assert quote["pickup_eta_min"] is None
+    for category in ("standard", "business"):
+        assert opts[category]["pickup_eta_min"] is None
+        assert opts[category]["pickup_pending"] is False
+    assert quote["eta_min"] > 0
 
 
 def test_pickup_fee_quote_uses_the_selected_class(client, user_factory, fake_redis, monkeypatch):
@@ -99,7 +87,7 @@ def test_pickup_fee_quote_uses_the_selected_class(client, user_factory, fake_red
     assert opts["standard"]["pickup_fee"] == 0
     assert opts["business"]["pickup_fee"] == business["pickup_fee"] > 0
     assert business["pickup_pending"] is False
-    assert business["pickup_eta_min"] == opts["business"]["pickup_eta_min"]
+    assert business["pickup_eta_min"] is opts["business"]["pickup_eta_min"] is None
 
 
 def test_missing_required_options_leave_pickup_pending(client, user_factory, fake_redis):
@@ -119,7 +107,7 @@ def test_missing_required_options_leave_pickup_pending(client, user_factory, fak
         s.commit()
     q = _quote(client, pax, category="business", options=[cc.OPT_SEAT_1_4])
     assert q["pickup_pending"] is False and q["pickup_fee"] == 0
-    assert q["pickup_eta_min"] is not None
+    assert q["pickup_eta_min"] is None
 
 
 def test_pickup_discount_is_not_borrowed_from_another_class(client, user_factory, fake_redis, monkeypatch):
@@ -136,32 +124,16 @@ def test_pickup_discount_is_not_borrowed_from_another_class(client, user_factory
     assert business_quote["pickup_enroute"] is False
 
 
-def test_класса_рядом_нет_минут_не_выдумываем(client, user_factory, fake_redis):
-    """Пустое поле честнее чужого числа: иначе человек ждёт машину, которой нет."""
-    _online_at(client, user_factory, ORIG, available="economy", enabled="economy", name="ТолькоЭконом")
-    pax = user_factory("PaxNoMinivan")
-
-    opts = _estimate(client, pax)
-    assert opts["standard"]["pickup_eta_min"] is not None
-    assert opts["minivan"]["pickup_eta_min"] is None, "минивэна рядом нет — минут быть не должно"
-    assert opts["business"]["pickup_eta_min"] is None, "бизнеса рядом нет — минут быть не должно"
-
-
-def test_выключенный_класс_минут_не_даёт(client, user_factory, fake_redis):
-    """Водитель может возить Комфорт, но выключил его у себя — офферы по нему не придут.
-
-    Значит и обещать подачу по этому классу нельзя: витрина обязана показывать ту же
-    картину мира, что и подбор, иначе человек ждёт машину, которой заказ не отправят.
-    """
+def test_disabled_class_has_no_pickup_candidate(client, user_factory, fake_redis):
     _online_at(client, user_factory, ORIG, available="economy,comfort",
                enabled="economy", name="КомфортВыключен")
     pax = user_factory("PaxOff")
 
     opts = _estimate(client, pax)
-    assert opts["standard"]["pickup_eta_min"] is not None
-    assert opts["comfort"]["pickup_eta_min"] is None, (
-        "класс выключен водителем — подбор его не берёт, витрина обещать не может"
-    )
+    assert opts["standard"]["pickup_pending"] is False
+    assert opts["comfort"]["pickup_pending"] is True
+    assert opts["minivan"]["pickup_pending"] is True
+    assert all(opt["pickup_eta_min"] is None for opt in opts.values())
 
 
 def test_без_редиса_поле_просто_пустое(client, user_factory):

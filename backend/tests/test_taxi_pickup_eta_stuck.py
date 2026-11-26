@@ -36,8 +36,8 @@ def _order(passenger_id: int, driver_id: int, status=S.onboard) -> int:
 
 # ============================== время подачи ==============================
 
-def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatch):
-    """«Через сколько приедет» и «сколько ехать» — разные числа, и оба честные."""
+def test_estimate_does_not_confuse_trip_duration_with_pickup(client, user_factory, monkeypatch):
+    """Не подставляем время поездки или минуты по прямой вместо времени подачи."""
     km_for_four_minutes = isv.settings.instant_avg_speed_kmh * 4 / 60
     monkeypatch.setattr(isv, "_pickup_candidates_by_category",
                         lambda *_: {"standard": (100, km_for_four_minutes)})
@@ -56,7 +56,7 @@ def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatc
     })
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["pickup_eta_min"] == 4
+    assert body["pickup_eta_min"] is None
     assert body["eta_min"] == 13.7
 
 

@@ -1265,12 +1265,13 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     surge = surge_k_for(session, frm[0], frm[1])
     options_csv = cc.dump_options(options or [])
     candidates = _pickup_candidates_by_category(session, frm[0], frm[1], options_csv)
-    pickup_eta_by_cat = {
+    pickup_pricing_proxy_by_cat = {
         cat: max(1, round(km / settings.instant_avg_speed_kmh * 60))
         for cat, (_, km) in candidates.items()
     }
-    pickup_eta = pickup_eta_by_cat.get(category)
-    pickup = pricing.pickup_k_for(pickup_eta)
+    # Оценка по прямой остаётся только входом существующего тарифа. Она не учитывает
+    # дорожный маршрут, пробки и объезд платных дорог, поэтому на экране минут нет.
+    pickup = pricing.pickup_k_for(pickup_pricing_proxy_by_cat.get(category))
     weather = pricing.weather_metrics(frm[0], frm[1])
     nk = night_k_for(t, now)
     dynamic = total_k(t, surge, now, pickup=pickup, weather=weather.k)
@@ -1344,7 +1345,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     for cat in cc.ORDER_CATEGORIES:
         ct = tariffs.get(cat)
         if ct:
-            cat_pickup_k = pricing.pickup_k_for(pickup_eta_by_cat.get(cat))
+            cat_pickup_k = pricing.pickup_k_for(pickup_pricing_proxy_by_cat.get(cat))
             ct_dynamic = total_k(ct, surge, now, pickup=cat_pickup_k, weather=weather.k)
             cat_ride = _tariff_price(ct, dist_km, eta_min, ct_dynamic)
             # Подача у каждого класса своя: у Бизнеса и километр дороже, и порожняк дороже.
@@ -1367,7 +1368,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
                 "dynamic_k": ct_dynamic,
                 "open": cat in opened,
                 # Через сколько подъедет машина ИМЕННО этого класса. None → рядом таких нет.
-                "pickup_eta_min": pickup_eta_by_cat.get(cat),
+                "pickup_eta_min": None,
             })
 
     return {
@@ -1417,7 +1418,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         "waypoints_count": len(stops),
         "distance_km": round(dist_km, 2),
         "eta_min": round(eta_min, 1),
-        "pickup_eta_min": pickup_eta,
+        "pickup_eta_min": None,
         "zone": zone,
         "category": category,
         "tariff_id": t.id,
