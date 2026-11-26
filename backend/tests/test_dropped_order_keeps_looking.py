@@ -420,6 +420,48 @@ def test_no_show_does_not_send_anyone_to_an_empty_porch(client, user_factory, fa
         assert isv.driver_cancel_times(s, d["id"], utcnow() - timedelta(days=7)) == []
 
 
+@pytest.mark.parametrize("first_reason,second_reason", [
+    ("driver_cancel", isv.NO_SHOW_REASON),
+    (isv.NO_SHOW_REASON, "driver_cancel"),
+])
+def test_second_cancel_reason_cannot_change_the_already_committed_driver_decision(
+    client, user_factory, fake_redis, first_reason, second_reason,
+):
+    old, pax, oid = _accepted(client, user_factory, "FirstCancelDriver", "CancelChoicePassenger")
+    replacement = _driver_online(client, user_factory, "ReplacementCancelDriver")
+    _heartbeat(client, replacement)
+    assert client.post(f"/instant/orders/{oid}/arrived", headers=old["auth"]).status_code == 200
+    _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=30),
+           arriving_at=utcnow() - timedelta(minutes=30))
+    first = _отменил_водитель(client, old, oid, first_reason)
+
+    if first_reason == "driver_cancel":
+        assert first["released"] is True
+        accepted = client.post(f"/instant/orders/{oid}/accept", headers=replacement["auth"])
+        assert accepted.status_code == 200, accepted.text
+    else:
+        assert first["no_show"] is True and first["cancel_fee_kop"] > 0
+    before = _db_order(oid)
+
+    # Model a second tab's different click after the first request committed. This
+    # is not a network/genuine concurrency test; it checks the persisted effects.
+    other = client.post(f"/instant/orders/{oid}/cancel", headers=old["auth"],
+                        json={"reason": second_reason})
+    after = _db_order(oid)
+    events = _события(old["id"])
+    assert len(events) == 1 and events[0].order_id == oid and events[0].reason == first_reason
+    assert after.status == before.status and after.driver_id == before.driver_id
+    assert after.cancel_fee_kop == before.cancel_fee_kop and after.no_show == before.no_show
+    assert after.reassigns == before.reassigns
+    if first_reason == "driver_cancel":
+        assert other.status_code == 403
+        assert after.driver_id == replacement["id"] and after.cancel_fee_kop == 0
+    else:
+        assert other.status_code == 200, other.text
+        assert other.json()["no_show"] is True
+        assert other.json()["cancel_fee_kop"] == first["cancel_fee_kop"]
+
+
 def test_an_order_does_not_bounce_forever(client, user_factory, fake_redis):
     """Круги переназначения кончаются: заказ честнее закрыть, чем держать в поиске час."""
     d, pax, oid = _accepted(client, user_factory, "КругПервый", "КругПассажир")
