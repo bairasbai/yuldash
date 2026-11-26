@@ -231,6 +231,57 @@ def test_worker_recovers_interrupted_driver_reassignment(
     assert len(_события(driver["id"])) == 1
 
 
+def test_full_worker_recovers_fresh_reassignment_but_closes_expired_one(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    old_driver, _, old_id = _accepted(client, user_factory, "ЗависшийСтарыйВод", "ЗависшийСтарыйПасс")
+    fresh_driver, _, fresh_id = _accepted(client, user_factory, "СвежийВод", "СвежийПасс")
+    replacement = _driver_online(client, user_factory, "ГотоваяЗамена")
+    _heartbeat(client, replacement)
+
+    def stop_after_commit(*args):
+        raise RuntimeError("synthetic interruption")
+
+    monkeypatch.setattr(isv, "_continue_after_driver_cancel", stop_after_commit)
+    for driver, oid in ((old_driver, old_id), (fresh_driver, fresh_id)):
+        with Session(engine) as incoming:
+            with pytest.raises(RuntimeError, match="synthetic interruption"):
+                isv.cancel_order(incoming, oid, isv.Actor.driver, driver["id"])
+
+    worker_time = utcnow() + timedelta(seconds=1)
+    cutoff = worker_time - timedelta(hours=settings.order_stuck_hours)
+    with Session(engine) as writer:
+        old = writer.get(InstantOrder, old_id)
+        old.created_at = old.offered_at = old.searching_at = cutoff
+        strike = writer.exec(select(DriverCancel).where(DriverCancel.order_id == old_id)).one()
+        strike.at = cutoff
+        writer.add(old)
+        writer.add(strike)
+        writer.commit()
+
+    sent = []
+    monkeypatch.setattr(tw, "utcnow", lambda: worker_time)
+    monkeypatch.setattr(isv, "candidates", lambda *args, **kwargs: [replacement["id"]])
+    monkeypatch.setattr(isv, "_push_offer", lambda session, order, driver_id: sent.append((order.id, driver_id)))
+    monkeypatch.setattr(tw, "push_notification", lambda *args, **kwargs: None)
+    monkeypatch.setattr(isv, "_notify_order_shares", lambda *args, **kwargs: None)
+
+    with Session(engine) as worker:
+        preview = tw.run_once(worker, dry_run=True)
+    assert old_id in preview["stuck_closed"] and old_id not in preview["reassignments_resumed"]
+    assert fresh_id in preview["reassignments_resumed"]
+    assert sent == []
+
+    with Session(engine) as worker:
+        result = tw.run_once(worker)
+    assert old_id in result["stuck_closed"] and old_id not in result["reassignments_resumed"]
+    old = _db_order(old_id)
+    assert old.status == S.expired and old.cancel_reason == "stuck_timeout"
+    assert fresh_id in result["reassignments_resumed"]
+    assert _db_order(fresh_id).current_offer_driver_id == replacement["id"]
+    assert sent == [(fresh_id, replacement["id"])]
+
+
 def test_with_nobody_left_the_order_waits_instead_of_dying(client, user_factory, fake_redis):
     """Свободных машин больше нет — заказ уходит в ожидание, а не в «отменён».
 

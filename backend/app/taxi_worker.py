@@ -84,12 +84,16 @@ def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
 
 
 # ----------------------------- 2. Зависшие заказы -----------------------------
+def _stuck_cutoff():
+    return utcnow() - timedelta(hours=settings.order_stuck_hours)
+
+
 def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
     """Заказы в живых статусах без движения дольше order_stuck_hours → закрываем системно.
 
     Пассажир и водитель получают честный пуш: «заказ закрыт автоматически». Деньги не двигаем
     (Модель А — платформа их не касается), штрафов не ставим: виноватых тут нет, связь пропала."""
-    cutoff = utcnow() - timedelta(hours=settings.order_stuck_hours)
+    cutoff = _stuck_cutoff()
     rows = session.exec(
         select(InstantOrder).where(
             InstantOrder.status.in_(_ALIVE),
@@ -161,11 +165,13 @@ def resume_driver_reassignments(session: Session, dry_run: bool = False) -> list
     При переназначении метка нового поиска и запись ухода фиксируются вместе с одним временем.
     Очередь «подожду», обычный поиск и новые раунды без этой пары в восстановление не попадают.
     """
+    cutoff = _stuck_cutoff()
     rows = session.exec(
         select(InstantOrder.id, InstantOrder.searching_at, DriverCancel.driver_id)
         .join(DriverCancel, (DriverCancel.order_id == InstantOrder.id)
               & (DriverCancel.at == InstantOrder.searching_at))
         .where(InstantOrder.status == S.searching, InstantOrder.reassigns > 0,
+               InstantOrder.searching_at > cutoff,
                InstantOrder.search_round == 0, InstantOrder.wait_until.is_(None),
                InstantOrder.driver_id.is_(None), InstantOrder.current_offer_driver_id.is_(None),
                DriverCancel.no_show.is_(False))
@@ -176,6 +182,7 @@ def resume_driver_reassignments(session: Session, dry_run: bool = False) -> list
     for order_id, search_at, driver_id in rows:
         order = session.get(InstantOrder, order_id, populate_existing=True)
         if (not order or order.status != S.searching or order.searching_at != search_at
+                or search_at <= _stuck_cutoff()
                 or order.search_round != 0 or order.wait_until is not None
                 or order.driver_id is not None or order.current_offer_driver_id is not None):
             continue
