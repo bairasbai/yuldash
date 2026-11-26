@@ -22,7 +22,11 @@ const pending = [
 
 async function withQuote(language, check) {
   const calls = [];
-  globalThis.taxiPickupQuoteFixture = (input) => new Promise((resolve) => calls.push({ input, resolve }));
+  const orders = [];
+  const scheduled = [];
+  globalThis.taxiPickupQuoteFixture = (input) => new Promise((resolve, reject) => calls.push({ input, resolve, reject }));
+  globalThis.taxiPickupOrderFixture = async (body) => { orders.push(body); return { id: 81 }; };
+  globalThis.taxiPickupScheduledFixture = async (body) => { scheduled.push(body); return { id: 82 }; };
   let view;
   try {
     const screen = await bundleComponent("src/screens/InstantOrderScreen.tsx", {
@@ -30,12 +34,15 @@ async function withQuote(language, check) {
       real: ["/utils/format"],
       mocks: {
         "/i18n/lang": langMock(language),
+        "/api/client": "export class ApiError extends Error {}",
         "react-router-dom": "export const useNavigate = () => () => {};",
         "/api/instant": [
           "export const instantEstimate = (input) => globalThis.taxiPickupQuoteFixture(input);",
           "export const fetchNearbyDrivers = async () => ({ drivers: [] });",
           "export const ACTIVE_PASSENGER_STATUSES = new Set();",
-          ...["fetchTaxiAvailability", "createInstantOrder", "createScheduledOrder", "fetchMyOrders",
+          "export const createInstantOrder = (body) => globalThis.taxiPickupOrderFixture(body);",
+          "export const createScheduledOrder = (body) => globalThis.taxiPickupScheduledFixture(body);",
+          ...["fetchTaxiAvailability", "fetchMyOrders",
             "fetchInstantOrder", "cancelInstantOrder", "isUnlocked", "fetchAlternatives", "addAlternative"]
             .map((name) => `export const ${name} = () => { throw Error("Unexpected API call: ${name}"); };`),
         ].join("\n"),
@@ -52,10 +59,12 @@ async function withQuote(language, check) {
       setFrom() {}, setTo() {}, onOrdered() {}, onScheduled() {},
     });
     await view.settle();
-    await check(view, calls);
+    await check(view, calls, orders, scheduled);
   } finally {
     view?.unmount();
     delete globalThis.taxiPickupQuoteFixture;
+    delete globalThis.taxiPickupOrderFixture;
+    delete globalThis.taxiPickupScheduledFixture;
   }
 }
 
@@ -67,6 +76,9 @@ function cards(view) {
 }
 function part(card, name) {
   return text(ofType(card, "span").find((node) => node.props.className === "taxi-class__" + name));
+}
+function orderButton(view) {
+  return ofType(sheet(view).footer, "button").find((node) => node.props.className.includes("__cta"));
 }
 function optionControl(view) {
   return ofType(sheet(view).extra, "TaxiOptions")[0].props;
@@ -102,7 +114,8 @@ for (const [language, waiting] of [
       calls[2].resolve(response("comfort", pending, { pickup_pending: true, pickup_max_rub: 250 }));
       await view.settle();
       assert.equal(part(cards(view)[1], "pickup"), waiting);
-      const cta = ofType(sheet(view).footer, "button").find((c) => c.props.className.includes("__cta"));
+      const cta = orderButton(view);
+      assert.equal(cta.props.disabled, false, "Disclosed pending pickup is a valid quote");
       assert.equal(text(cta), language === "ru" ? "Заказать" : "Заказ итеү");
     }));
 }
@@ -132,6 +145,64 @@ await checks.test("Старый формат не переносит общее 
     await view.settle();
     assert.deepEqual(cards(view).map((c) => part(c, "eta")), ["", ""]);
     assert.deepEqual(cards(view).map((c) => part(c, "pickup")), ["Подача уточняется", ""]);
+  }));
+
+await checks.test("Заказ требует свежую цену: не отправляется во время расчёта и после ошибки", () =>
+  withQuote("ru", async (view, calls, orders) => {
+    calls[0].resolve(response("standard", base));
+    await view.settle();
+    assert.equal(orderButton(view).props.disabled, false);
+
+    cards(view)[1].props.onClick();
+    view.render();
+    optionControl(view).onToggle("seat_1_4");
+    view.render();
+    await orderButton(view).props.onClick();
+    assert.equal(orders.length, 0, "A direct click must also be guarded without a fresh quote");
+    assert.equal(orderButton(view).props.disabled, true);
+
+    calls[2].reject(new Error("Quote unavailable"));
+    await view.settle();
+    await orderButton(view).props.onClick();
+    assert.equal(orders.length, 0, "A failed quote must not allow ordering");
+    assert.equal(orderButton(view).props.disabled, true);
+
+    const retry = ofType(sheet(view).extra, "button").find((node) => text(node) === "Повторить расчёт");
+    assert.ok(retry, "The passenger can retry without changing their order");
+    retry.props.onClick();
+    view.render();
+    assert.deepEqual(calls[3].input, calls[2].input);
+    calls[3].resolve(response("comfort", base));
+    await view.settle();
+    assert.equal(text(orderButton(view)), "Заказать за 400 ₽");
+    assert.equal(orderButton(view).props.disabled, false);
+    await orderButton(view).props.onClick();
+    assert.deepEqual(orders.map(({ category, options }) => ({ category, options })), [
+      { category: "comfort", options: ["seat_1_4"] },
+    ]);
+  }));
+
+await checks.test("Предзаказ ждёт цену на выбранное время, а не использует расчёт «Сейчас»", () =>
+  withQuote("ru", async (view, calls, orders, scheduled) => {
+    calls[0].resolve(response("standard", base));
+    await view.settle();
+    ofType(sheet(view).extra, "button").find((node) => text(node).trim() === "На время").props.onClick();
+    view.render();
+    assert.equal(orderButton(view).props.disabled, true);
+    ofType(sheet(view).extra, "input").find((node) => node.props.type === "datetime-local")
+      .props.onChange({ target: { value: "2030-03-01T18:30" } });
+    view.render();
+    await orderButton(view).props.onClick();
+    assert.equal(scheduled.length, 0);
+    const quoteCall = calls.at(-1);
+    assert.equal(quoteCall.input.scheduled_at, new Date("2030-03-01T18:30").toISOString());
+    quoteCall.resolve(response("standard", base));
+    await view.settle();
+    assert.equal(orderButton(view).props.disabled, false);
+    await orderButton(view).props.onClick();
+    assert.equal(orders.length, 0);
+    assert.equal(scheduled.length, 1);
+    assert.equal(scheduled[0].scheduled_at, quoteCall.input.scheduled_at);
   }));
 
 checks.done();

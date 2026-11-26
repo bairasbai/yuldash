@@ -374,6 +374,7 @@ export function ComposeView({
   const [geoNote, setGeoNote] = useState("");
   const [category, setCategory] = useState<TaxiCategory>("standard");
   const [quote, setQuote] = useState<{ input: EstimateInput; result: EstimateResult | null } | null>(null);
+  const [quoteRetry, setQuoteRetry] = useState(0);
   // Положение шторки: пока нет назначения — развёрнута (адреса и подсказки), после выбора —
   // наполовину: карта важнее длинной формы. Тронул руками — больше не переключаем сами.
   const [sheetStop, setSheetStop] = useState<TaxiSheetStop>("full");
@@ -467,7 +468,7 @@ export function ComposeView({
     return () => {
       alive = false;
     };
-  }, [quoteInput]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quoteInput, quoteRetry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
   const weather = useRouteWeather({
@@ -478,8 +479,12 @@ export function ComposeView({
     at: when === "later" && schedAt ? new Date(schedAt).toISOString() : undefined,
   });
 
+  // A pending pickup can be disclosed by a successful quote. A missing or
+  // failed quote cannot tell the passenger the price for the current choices.
+  const canOrder = !!estimate && !busy && (when === "now" || !!schedAt);
+
   async function order() {
-    if (!from || !to || busy) return;
+    if (!canOrder || !from || !to) return;
     setBusy(true);
     setError(null);
     // Начало заказа такси — без координат/адресов, только безопасный контекст.
@@ -533,8 +538,6 @@ export function ComposeView({
       setBusy(false);
     }
   }
-
-  const canOrder = !!from && !!to && !busy && (when === "now" || !!schedAt);
 
   /* Как в Android: форма заказа живёт в шторке над картой (TaxiSheetScaffold, halfBodyFraction 0.32).
      Пока нет назначения — шторка развёрнута, после выбора — наполовину, карта важнее длинной формы. */
@@ -1033,6 +1036,14 @@ export function ComposeView({
       )}
 
       {error && <div className="auth__error">{error}</div>}
+      {quoteInput && quote?.input === quoteInput && quote.result === null && (
+        <button type="button" className="btn-soft" onClick={() => {
+          setQuote(null);
+          setQuoteRetry((attempt) => attempt + 1);
+        }}>
+          {appText("Повторить расчёт", "Ҡабат иҫәпләү")}
+        </button>
+      )}
 
       {estimate && (
         <div className="taxi-estimate-hint">
