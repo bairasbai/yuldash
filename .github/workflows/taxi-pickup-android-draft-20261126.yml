@@ -25,7 +25,11 @@ jobs:
         shell: bash
         run: |
           test -x "${JAVA_HOME_21_X64:?JDK 21 is required}/bin/java"
-          test -d "${ANDROID_HOME:?Android SDK is required}/platforms/android-36"
+          : "${ANDROID_HOME:?Android SDK is required}"
+          if [[ ! -d "$ANDROID_HOME/platforms/android-36" ]]; then
+            sdkmanager --install "platforms;android-36"
+          fi
+          test -d "$ANDROID_HOME/platforms/android-36"
           echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
       - name: Build debug APK
