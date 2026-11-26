@@ -64,6 +64,24 @@ def test_future_scheduled_order_untouched(client, user_factory):
     assert _get(oid).status == S.scheduled
 
 
+def test_due_order_for_busy_passenger_is_not_reported_as_started(client, user_factory):
+    pax = user_factory("SchedBusyWorker")
+    active = _order(pax["id"], status=S.onboard)
+    oid = _order(pax["id"], status=S.scheduled, scheduled_at=utcnow() - timedelta(minutes=1))
+
+    with Session(engine) as s:
+        assert oid not in tw.activate_due_scheduled(s)
+    waiting = _get(oid)
+    assert waiting.status == S.scheduled and waiting.searching_at is None
+
+    with Session(engine) as s:
+        trip = s.get(M.InstantOrder, active)
+        trip.status = S.done
+        s.commit()
+        assert oid in tw.activate_due_scheduled(s)
+    assert _get(oid).searching_at is not None
+
+
 # ============================ 2. Зависшие заказы ============================
 def test_stuck_order_is_closed_and_unblocks_both(client, user_factory):
     """У водителя сел телефон: заказ «в пути» 7 часов. Раньше висел вечно — отменить мог

@@ -623,8 +623,8 @@ def my_scheduled(user: User = Depends(current_user), session: Session = Depends(
 @router.post("/instant/scheduled/{order_id}/activate")
 def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
                           session: Session = Depends(get_session)):
-    """Активировать предзаказ ко времени (клиент вызывает, когда время подошло): scheduled →
-    поиск водителя. Только СВОЙ предзаказ. Не-scheduled (уже активирован/отменён) → 409."""
+    """Ручное «Начать поиск сейчас», в том числе до времени подачи. Только свой предзаказ.
+    Уже активирован/отменён или ещё ждёт завершения другой поездки → 409."""
     order = session.get(InstantOrder, order_id)
     if not order or order.passenger_id != user.id:
         raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
@@ -632,6 +632,9 @@ def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
         raise herr(409, "Предзаказ уже активирован или отменён",
                    "Алдан заказ инде әүҙемләштерелгән йәки кире алынған")
     order = isv.activate_scheduled(session, order)
+    if order.status == S.scheduled:
+        raise herr(409, "Сначала завершите текущую поездку. Предзаказ сохранён.",
+                   "Башта ағымдағы сәфәрҙе тамамлағыҙ. Алдан заказ һаҡланды.")
     return isv.order_payload(session, order, user)
 
 

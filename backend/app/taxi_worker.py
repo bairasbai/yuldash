@@ -76,8 +76,9 @@ def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
             done.append(o.id)
             continue
         try:
-            isv.activate_scheduled(session, o)
-            done.append(o.id)
+            started = isv.activate_scheduled(session, o)
+            if started.searching_at is not None:
+                done.append(started.id)
         except Exception as e:  # noqa: BLE001 — один заказ не должен ронять прогон
             log.warning(f"[TAXI-WORKER] активация предзаказа #{o.id}: {type(e).__name__}: {e}")
     return done
