@@ -33,10 +33,15 @@ jobs:
           echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
       - name: Build debug APK
+        id: apk
         run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
       - name: Run focused quote API tests
+        env:
+          # Only this JVM test step uses the canonical Maven Central endpoint.
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
         run: bash ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.data.ApiClientTaxiCourierTest' --no-daemon --stacktrace
       - name: Keep debug APK for isolated acceptance
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: taxi-pickup-qa-debug-only
