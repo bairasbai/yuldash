@@ -461,7 +461,11 @@ def test_driver_normal_cancel_no_penalty(client, user_factory, fake_redis):
     client.post(f"/instant/orders/{oid}/accept", headers=d["auth"])
     r = client.post(f"/instant/orders/{oid}/cancel", headers=d["auth"], json={"reason": "поломка"})
     assert r.status_code == 200
-    assert r.json()["cancel_fee_kop"] == 0 and r.json()["no_show"] is False
+    response = r.json()
+    assert response["released"] is True
+    assert "cancel_fee_kop" not in response and "no_show" not in response
+    persisted = _db_order(oid)
+    assert persisted.cancel_fee_kop == 0 and persisted.no_show is False
     with Session(engine) as s:
         assert isv.strike_pause_until(s, pax["id"]) is None
 

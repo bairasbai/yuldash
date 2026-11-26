@@ -83,7 +83,9 @@ def test_a_dropped_order_goes_to_the_next_driver(client, user_factory, fake_redi
     сосед = _driver_online(client, user_factory, "СоседнийВодитель")
     _heartbeat(client, сосед)
 
-    assert _отменил_водитель(client, d, oid) == {"id": oid, "released": True}
+    assert _отменил_водитель(client, d, oid) == {
+        "id": oid, "released": True, "status": "cancelled", "role": "driver", "cancel_by": "driver",
+    }
 
     o = _db_order(oid)
     assert o.status != S.cancelled, "заказ похоронили — человек начинает всё заново"
@@ -91,6 +93,11 @@ def test_a_dropped_order_goes_to_the_next_driver(client, user_factory, fake_redi
     assert o.current_offer_driver_id == сосед["id"], "предложили не тому, кто рядом"
     assert o.driver_id is None, "бросивший всё ещё числится водителем заказа"
     assert o.reassigns == 1
+
+    passenger_view = client.get(f"/instant/orders/{oid}", headers=pax["auth"])
+    assert passenger_view.status_code == 200
+    assert passenger_view.json()["id"] == oid
+    assert passenger_view.json()["status"] in {"searching", "offered"}
 
 
 def test_reassignment_has_no_committed_cancelled_snapshot(client, user_factory, fake_redis):
@@ -108,7 +115,9 @@ def test_reassignment_has_no_committed_cancelled_snapshot(client, user_factory, 
 
     event.listen(Session, "after_commit", record)
     try:
-        assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
+        assert _отменил_водитель(client, driver, oid) == {
+            "id": oid, "released": True, "status": "cancelled", "role": "driver", "cancel_by": "driver",
+        }
     finally:
         event.remove(Session, "after_commit", record)
 
@@ -154,7 +163,9 @@ def test_passenger_can_cancel_while_replacement_is_selected(
     monkeypatch.setattr(isv, "_push_offer", lambda *args: effects.append("offer"))
     monkeypatch.setattr(isv, "push_bilingual", lambda *args, **kwargs: effects.append("expiry"))
 
-    assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
+    assert _отменил_водитель(client, driver, oid) == {
+        "id": oid, "released": True, "status": "cancelled", "role": "driver", "cancel_by": "driver",
+    }
 
     order = _db_order(oid)
     assert order.status == S.cancelled and order.cancel_by == "passenger"
@@ -180,7 +191,9 @@ def test_previous_search_does_not_finish_a_new_search(
 
     monkeypatch.setattr(isv, "candidates", restart_search)
 
-    assert _отменил_водитель(client, driver, oid) == {"id": oid, "released": True}
+    assert _отменил_водитель(client, driver, oid) == {
+        "id": oid, "released": True, "status": "cancelled", "role": "driver", "cancel_by": "driver",
+    }
     current = _db_order(oid)
     assert current.status == S.searching and current.current_offer_driver_id is None
 

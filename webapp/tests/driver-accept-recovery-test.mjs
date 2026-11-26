@@ -178,7 +178,7 @@ try {
     state.checkCancel = opts => assert.equal(opts.oneShot, true);
     let complete;
     state.cancel = () => mode === "changed-session" ? new Promise(resolve => { complete = resolve; })
-      : mode === "release" ? Promise.resolve({ id, released: true })
+      : mode === "release" ? Promise.resolve({ id, released: true, status: "cancelled", role: "driver", cancel_by: "driver" })
       : Promise.reject(new state.Error(0, "response lost"));
     state.read = async () => {
       if (mode === "lost-release") throw new state.Error(403, "not assigned");

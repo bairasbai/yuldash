@@ -400,7 +400,9 @@ def test_driver_cancel_after_accept(client, user_factory, fake_redis):
     client.post(f"/instant/orders/{oid}/accept", headers=d["auth"])
     r = client.post(f"/instant/orders/{oid}/cancel", headers=d["auth"], json={"reason": "поломка"})
     assert r.status_code == 200, r.text
-    assert r.json() == {"id": oid, "released": True}
+    assert r.json() == {
+        "id": oid, "released": True, "status": "cancelled", "role": "driver", "cancel_by": "driver",
+    }
     with Session(engine) as s:
         o = s.get(InstantOrder, oid)
     assert o.status != S.cancelled, "заказ похоронили вместе с отменой водителя"

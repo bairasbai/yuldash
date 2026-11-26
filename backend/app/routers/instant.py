@@ -1225,6 +1225,11 @@ def toggle_stop(order_id: int, user: User = Depends(current_user),
 class DriverCancelRelease(BaseModel):
     id: int
     released: Literal[True]
+    # Presentation for installed Android: the driver's assignment ended, not the passenger's order.
+    # Never serialize the live order here: the caller is no longer a participant.
+    status: Literal["cancelled"] = "cancelled"
+    role: Literal["driver"] = "driver"
+    cancel_by: Literal["driver"] = "driver"
 
 
 @router.post("/instant/orders/{order_id}/cancel")
