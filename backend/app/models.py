@@ -1457,6 +1457,30 @@ class DriverCancel(SQLModel, table=True):
     reason: str = Field(default="", max_length=200)
 
 
+class TaxiDriverCancelReceipt(SQLModel, table=True):
+    """Подтверждение одной выполненной команды; маршрута и контактов здесь нет."""
+
+    __tablename__ = "taxidrivercancelreceipt"
+    __table_args__ = (
+        CheckConstraint(
+            "outcome IN ('released', 'cancelled', 'no_show') AND cancel_fee_kop >= 0 "
+            "AND (outcome = 'no_show' OR cancel_fee_kop = 0)",
+            name="ck_taxi_driver_cancel_receipt_outcome",
+        ),
+    )
+    order_id: int = Field(sa_column=Column(
+        Integer, ForeignKey("instantorder.id", ondelete="CASCADE"), primary_key=True,
+    ))
+    driver_id: int = Field(sa_column=Column(
+        Integer, ForeignKey("user.id", ondelete="CASCADE"), primary_key=True, index=True,
+    ))
+    command_id: str = Field(primary_key=True, max_length=32)
+    assignment_revision: str = Field(max_length=64)
+    reason: str = Field(max_length=16)
+    outcome: str = Field(max_length=12)
+    cancel_fee_kop: int = 0
+
+
 class DebtStatus(str, Enum):
     """Статус долга водителя по комиссии за такси-заказы (Модель А «на доверии»)."""
     unpaid = "unpaid"      # начислен, водитель ещё не переводил

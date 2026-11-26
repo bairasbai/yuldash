@@ -35,7 +35,7 @@ from .livepos import livepos_get
 from . import promo_ride
 from .models import (
     Booking, BookingStatus, DriverCancel, DriverProfile, InstantOrder,
-    InstantOrderStatus as S, OfferDecline, Tariff, TripShare, TrustedContact, User,
+    InstantOrderStatus as S, OfferDecline, Tariff, TaxiDriverCancelReceipt, TripShare, TrustedContact, User,
 )
 from .services import (member_since, pick_lang, sms_lang_of,
     blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
@@ -2713,6 +2713,38 @@ def driver_assignment_revision(order: InstantOrder) -> str | None:
     return sha256(json.dumps(identity, separators=(",", ":")).encode("ascii")).hexdigest()
 
 
+def _lock_order_for_cancel(session: Session, order_id: int) -> InstantOrder:
+    order = session.exec(select(InstantOrder).where(InstantOrder.id == order_id)
+                         .with_for_update().execution_options(populate_existing=True)).first()
+    if order is None:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    return order
+
+
+def apply_driver_cancel_command(
+    session: Session, order_id: int, driver_id: int, command_id: str, assignment_revision: str, reason: str,
+) -> TaxiDriverCancelReceipt:
+    # Заказ — общий замок для старой и новой отмены. Читаем квитанцию ПОСЛЕ взятия
+    # замка: предыдущая команда могла зафиксироваться пока мы ждали.
+    order = _lock_order_for_cancel(session, order_id)
+    saved = session.get(TaxiDriverCancelReceipt, (order_id, driver_id, command_id))
+    if saved is not None:
+        if saved.assignment_revision != assignment_revision or saved.reason != reason:
+            raise herr(409, "Ключ уже использован для другой отмены",
+                       "Асҡыс башҡа заказды кире алыу өсөн ҡулланылған",
+                       code="taxi_driver_cancel_command_conflict")
+        return saved
+    _guard_owns(order, Actor.driver, driver_id)
+    if order.status not in DRIVER_CANCELLABLE:
+        raise herr(409, "Сейчас отменить нельзя", "Хәҙер кире алып булмай")
+    receipt = TaxiDriverCancelReceipt(
+        order_id=order_id, driver_id=driver_id, command_id=command_id,
+        assignment_revision=assignment_revision, reason=reason, outcome="cancelled",
+    )
+    _cancel_locked_order(session, order, Actor.driver, driver_id, reason, assignment_revision, receipt)
+    return receipt
+
+
 def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "",
                  *, assignment_revision: str | None = None) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
@@ -2723,12 +2755,15 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     — водитель отменяет с reason="no_show" (пассажир не вышел, тайминг честно выдержан)
       → no_show=true + cancel_fee_kop = подача; это страйк пассажира;
     — обычная отмена водителем штрафа пассажиру НЕ даёт."""
-    order = session.exec(
-        select(InstantOrder).where(InstantOrder.id == order_id)
-        .with_for_update().execution_options(populate_existing=True)
-    ).first()
-    if not order:
-        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    order = _lock_order_for_cancel(session, order_id)
+    return _cancel_locked_order(session, order, actor, user_id, reason, assignment_revision)
+
+
+def _cancel_locked_order(
+    session: Session, order: InstantOrder, actor: Actor, user_id: int, reason: str,
+    assignment_revision: str | None, receipt: TaxiDriverCancelReceipt | None = None,
+) -> InstantOrder:
+    order_id = order.id
     _guard_owns(order, actor, user_id)
     if (actor == Actor.driver and assignment_revision is not None
             and assignment_revision != driver_assignment_revision(order)):
@@ -2796,6 +2831,10 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
         session.add(DriverCancel(
             driver_id=driver_id, order_id=order_id, at=now, no_show=no_show, reason=(reason or "")[:200],
         ))
+    if receipt is not None:
+        receipt.outcome = "released" if reassign else ("no_show" if no_show else "cancelled")
+        receipt.cancel_fee_kop = int(values.get("cancel_fee_kop", 0))
+        session.add(receipt)
     session.commit()
     if reassign:
         return _continue_after_driver_cancel(session, order_id, driver_id)

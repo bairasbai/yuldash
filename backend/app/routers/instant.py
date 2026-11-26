@@ -5,9 +5,9 @@
 """
 import json
 from datetime import datetime, timedelta, timezone
-from typing import Literal, Optional
+from typing import Annotated, Literal, Optional
 
-from fastapi import APIRouter, Depends, Response
+from fastapi import APIRouter, Depends, Path, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -18,7 +18,7 @@ from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
 from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
-                      Rating, Settlement, User)
+                      Rating, Settlement, TaxiDriverCancelReceipt, User)
 from ..safety_logic import account_paused, ensure_active
 from ..security import current_user, require_telegram_admin
 from ..timeutil import utcnow
@@ -1256,6 +1256,44 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
     if actor == isv.Actor.driver and order.driver_id != user.id:
         return DriverCancelRelease(id=order_id, released=True)
     return isv.order_payload(session, order, user)
+
+
+class TaxiDriverCancelCommandIn(BaseModel):
+    command_id: str = Field(strict=True, pattern=r"^[0-9a-f]{32}$")
+    assignment_revision: str = Field(strict=True, pattern=r"^[0-9a-f]{64}$")
+    reason: Literal["driver_cancel", "no_show"]
+
+
+def _cancel_receipt_payload(receipt: TaxiDriverCancelReceipt) -> dict:
+    return {
+        "state": "applied",
+        "order_id": receipt.order_id,
+        "command_id": receipt.command_id,
+        "assignment_revision": receipt.assignment_revision,
+        "outcome": receipt.outcome,
+        "cancel_fee_kop": receipt.cancel_fee_kop,
+    }
+
+
+@router.post("/instant/orders/{order_id}/driver-cancel-command")
+def driver_cancel_command(order_id: int, body: TaxiDriverCancelCommandIn, response: Response,
+                          user: User = Depends(current_user), session: Session = Depends(get_session)):
+    receipt = isv.apply_driver_cancel_command(
+        session, order_id, user.id, body.command_id, body.assignment_revision, body.reason,
+    )
+    response.headers["Cache-Control"] = "no-store"
+    return _cancel_receipt_payload(receipt)
+
+
+@router.get("/instant/orders/{order_id}/cancel-receipts/{command_id}")
+def driver_cancel_receipt(order_id: int, command_id: Annotated[str, Path(pattern=r"^[0-9a-f]{32}$")],
+                          response: Response, user: User = Depends(current_user),
+                          session: Session = Depends(get_session)):
+    # Только своя запись. Не читать заказ: обычный GET сдвигает просроченный оффер.
+    # Отсутствующая запись НЕ доказывает, что задержанная команда уже не придёт.
+    receipt = session.get(TaxiDriverCancelReceipt, (order_id, user.id, command_id))
+    response.headers["Cache-Control"] = "no-store"
+    return _cancel_receipt_payload(receipt) if receipt else {"state": "unconfirmed"}
 
 
 @router.post("/instant/orders/{order_id}/passenger-done")
