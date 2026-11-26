@@ -238,21 +238,13 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8,
     return out
 
 
-def nearby_pickup_eta_by_category(session: Session, lat: float, lng: float,
-                                  limit: int = 40) -> dict[str, int]:
-    """Через сколько подъедет ближайшая машина КАЖДОГО класса — минуты по категориям заказа.
+def _pickup_candidates_by_category(
+    session: Session, lat: float, lng: float, options_csv: str, limit: int = 40,
+) -> dict[str, tuple[int, float]]:
+    """Ближайшая машина (id, км по прямой) с нужными классом и опциями.
 
-    Зачем отдельно от `nearby_drivers`. Тот отвечает на вопрос «есть ли вообще кто-то рядом»
-    и не смотрит на классы. Витрина же ставит четыре тарифа в ряд, и одна общая цифра на
-    всех четырёх — это обещание подачи за тот класс, машин которого рядом может не быть
-    вовсе: бизнес-седан один на город, а карточка обещает те же две минуты, что и эконом.
-
-    Класс берём ТОТ ЖЕ, по которому работает подбор: доступные машине ∩ включённые
-    водителем (`cc.effective_classes`). Иначе витрина обещала бы подачу от машины, которой
-    оффер по этому классу даже не придёт.
-
-    Личность не раскрываем: наружу уходит только «в этом классе ближайшая за N минут» —
-    ни id, ни имени, ни координат конкретного водителя.
+    Только для оценки: id не выходит за пределы сервера, а подбор проверяет дополнительные
+    ограничения в момент оффера. Нет подходящей машины в выборке → не обещаем подачу.
     """
     r = _redis()
     if r is None:
@@ -285,16 +277,15 @@ def nearby_pickup_eta_by_category(session: Session, lat: float, lng: float,
             select(DriverProfile).where(DriverProfile.user_id.in_([d for d, _ in pairs]))
         ).all()
     }
-    out: dict[str, int] = {}
+    out: dict[str, tuple[int, float]] = {}
     for did, dist_km in pairs:
         p = profiles.get(did)
-        if p is None:
+        if p is None or not p.online or not cc.covers_options(p.car_options, options_csv):
             continue
         avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
         for cls in cc.effective_classes(avail, getattr(p, "car_classes_enabled", "")):
             cat = cc.class_to_category(cls)
-            if cat not in out:
-                out[cat] = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
+            out.setdefault(cat, (did, dist_km))
     return out
 
 
@@ -624,29 +615,6 @@ def pickup_fee_rub(t: Optional[Tariff], straight_km: Optional[float]) -> int:
     return min(round_to_10(billable * per_km), max_rub)
 
 
-def _nearest_straight_km(nearest: list) -> Optional[float]:
-    """Расстояние до ближайшей машины по прямой, км. None = машин рядом нет.
-
-    Читаем `dist_km`, а если его нет — восстанавливаем из ETA. Так сделано не для красоты:
-    ETA и так считается ИЗ этого расстояния, а список машин приходит из разных мест (Redis,
-    подменённая в тестах функция, будущий источник). Падать на отсутствующем поле в ручке,
-    которая пересчитывается на каждое движение пальца по карте, нельзя.
-    """
-    if not nearest:
-        return None
-    row = nearest[0] or {}
-    raw = row.get("dist_km")
-    if raw is None:
-        eta = row.get("eta_min")
-        if eta is None:
-            return None
-        raw = float(eta) / 60.0 * max(settings.instant_avg_speed_kmh, 1.0)
-    try:
-        return max(float(raw), 0.0)
-    except (TypeError, ValueError):
-        return None
-
-
 def pickup_enabled(t: Optional[Tariff]) -> bool:
     """Настроена ли строка подачи в этом тарифе. Не настроена — ведём себя как раньше."""
     return bool(t is not None
@@ -723,34 +691,6 @@ def driver_straight_km(driver_id: int, lat: float, lng: float) -> Optional[float
     if pos is None:
         return None
     return haversine_km(lat, lng, pos[0], pos[1])
-
-
-def nearest_driver_for_pricing(lat: float, lng: float) -> Optional[tuple[int, float]]:
-    """(id ближайшего живого водителя, расстояние по прямой) — ТОЛЬКО для расчёта цены.
-
-    Зачем отдельно от `nearby_drivers`. Тот сознательно не отдаёт личность: карта машин
-    анонимна, чтобы по ней нельзя было следить за конкретным человеком. Цене же нужен именно
-    id — по нему проверяется, не по пути ли водителю (его зона работы, его прошлая точка).
-    Результат никогда не сериализуется в ответ: наружу уходят только рубли и километры.
-    """
-    r = _redis()
-    if r is None:
-        return None
-    try:
-        found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
-                            radius=float(max(RADII_KM)), unit="km",
-                            withdist=True, sort="ASC", count=8)
-    except Exception:  # noqa: BLE001 — сбой GEO → считаем как «рядом никого»
-        return None
-    for row in found:
-        try:
-            member, dist_km = (row[0], float(row[1])) if isinstance(row, (list, tuple)) else (row, 0.0)
-            did = _member_driver_id(member)
-        except (ValueError, IndexError, TypeError, AttributeError):
-            continue
-        if presence_alive(r, did):
-            return did, max(dist_km, 0.0)
-    return None
 
 
 def _approaching(driver_id: int, lat: float, lng: float,
@@ -1323,11 +1263,13 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
 
     now = when or utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
-    # Ищем в том же круге, до какого matcher рассылает офферы: если ближе никого нет, поедет
-    # именно эта машина, и её дорога — часть настоящей цены. Круг карты (7 км) тут занизил бы
-    # и подачу, и ETA, а пассажир увидел бы «рядом никого» там, где машина на самом деле есть.
-    nearest = nearby_drivers(frm[0], frm[1], limit=1, radius_km=max(RADII_KM))
-    pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
+    options_csv = cc.dump_options(options or [])
+    candidates = _pickup_candidates_by_category(session, frm[0], frm[1], options_csv)
+    pickup_eta_by_cat = {
+        cat: max(1, round(km / settings.instant_avg_speed_kmh * 60))
+        for cat, (_, km) in candidates.items()
+    }
+    pickup_eta = pickup_eta_by_cat.get(category)
     pickup = pricing.pickup_k_for(pickup_eta)
     weather = pricing.weather_metrics(frm[0], frm[1])
     nk = night_k_for(t, now)
@@ -1352,24 +1294,25 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     # Считаем ПОСЛЕ всего, что относится к поездке (пол зоны, круговой рейс): это не часть
     # тарифа за дорогу пассажира, а компенсация бензина водителя. Ни скидка за круговой рейс,
     # ни наценка за спрос её не касаются — 20 км порожняка стоят одинаково в любую погоду.
-    pickup_straight_km = _nearest_straight_km(nearest)
-    pickup_full = pickup_fee_rub(t, pickup_straight_km)
-    # Проверку «по пути» делаем ТОЛЬКО когда подача вообще чего-то стоит: она лезет в
-    # справочник населённых пунктов, а оценка пересчитывается на каждое движение пальца
-    # по карте. Машина рядом → строки нет → и спрашивать нечего.
-    enroute = False
-    if pickup_full > 0:
-        found = nearest_driver_for_pricing(frm[0], frm[1])
-        if found is not None:
-            enroute = pickup_enroute(session, found[0], frm[0], frm[1])
-    pickup_fee = pickup_fee_after_enroute(pickup_full, enroute)
-    pickup_pending = bool(pickup_enabled(t) and pickup_straight_km is None)
+    enroute_by_driver: dict[int, bool] = {}
+
+    def pickup_line(tariff: Tariff, cat: str) -> tuple[int, int, bool, float | None]:
+        found = candidates.get(cat)
+        straight_km = found[1] if found is not None else None
+        full = pickup_fee_rub(tariff, straight_km)
+        enroute = False
+        if found is not None and full > 0:
+            did = found[0]
+            if did not in enroute_by_driver:
+                enroute_by_driver[did] = pickup_enroute(session, did, frm[0], frm[1])
+            enroute = enroute_by_driver[did]
+        return pickup_fee_after_enroute(full, enroute), full, enroute, straight_km
+
+    pickup_fee, pickup_full, enroute, pickup_straight_km = pickup_line(t, category)
+    pickup_pending = pickup_enabled(t) and pickup_straight_km is None
     pickup_road = round(pickup_road_km(pickup_straight_km), 2) if pickup_straight_km is not None else 0.0
 
-    # --- Опции салона: детское кресло, животное, большой багаж ---
-    # Тоже компенсация, а не наценка: водитель купил кресло, возит его и ставит. Цена одна
-    # для всех классов — кресло в Бизнесе не дороже, чем в Экономе, это то же самое кресло.
-    options_csv = cc.dump_options(options or [])
+    # Опции салона — компенсация, а не наценка (кресло не зависит от класса машины).
     options_fee = cc.options_fee_rub(options_csv)
 
     ride_price = price
@@ -1384,9 +1327,6 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     # Так мы ещё и меряем спрос до того, как искать машины.
     place = class_rollout.place_at(session, frm[0], frm[1])
     opened = class_rollout.open_categories(session, place)
-    # Подача считается по классам: у каждой карточки в витрине своё число минут.
-    # Пусто для класса = машин этого класса рядом нет; клиент тогда молчит, а не выдумывает.
-    pickup_eta_by_cat = nearby_pickup_eta_by_category(session, frm[0], frm[1])
     options_out = []          # витрина классов (имя `options` занято параметром — опциями салона)
     # Тарифы забираем ОДНИМ запросом, а не по одному на класс.
     #
@@ -1404,12 +1344,13 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     for cat in cc.ORDER_CATEGORIES:
         ct = tariffs.get(cat)
         if ct:
-            ct_dynamic = total_k(ct, surge, now, pickup=pickup, weather=weather.k)
+            cat_pickup_k = pricing.pickup_k_for(pickup_eta_by_cat.get(cat))
+            ct_dynamic = total_k(ct, surge, now, pickup=cat_pickup_k, weather=weather.k)
             cat_ride = _tariff_price(ct, dist_km, eta_min, ct_dynamic)
             # Подача у каждого класса своя: у Бизнеса и километр дороже, и порожняк дороже.
             # Считать её один раз по выбранному классу значит показать в витрине цену, которой
             # при переключении класса не будет.
-            cat_pickup = pickup_fee_after_enroute(pickup_fee_rub(ct, pickup_straight_km), enroute)
+            cat_pickup, _, _, cat_straight_km = pickup_line(ct, cat)
             cat_winter = winter_road_fee_rub(dist_km, cat_ride, winter_kind)
             options_out.append({
                 "category": cat,
@@ -1418,6 +1359,8 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
                 "one_way_price": cat_ride + cat_pickup + options_fee + cat_winter,
                 "ride_price": cat_ride,
                 "pickup_fee": cat_pickup,
+                "pickup_pending": pickup_enabled(ct) and cat_straight_km is None,
+                "pickup_max_rub": int(ct.pickup_max_rub or 0),
                 "options_fee": options_fee,
                 "weather_fee": cat_winter,
                 "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),

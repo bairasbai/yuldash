@@ -18,6 +18,7 @@ import fakeredis
 import pytest
 from sqlmodel import Session, select
 
+from app import car_class as cc
 from app import instant_service as isv
 from app.db import engine
 from app.models import DriverProfile, UserRole
@@ -57,14 +58,19 @@ def _online_at(client, user_factory, coord, *, available: str, enabled: str, nam
     return d
 
 
-def _estimate(client, pax):
+def _quote(client, pax, **extra):
     r = client.post("/instant/estimate", headers=pax["auth"], json={
         "from_lat": ORIG[0], "from_lng": ORIG[1],
         "to_lat": DEST[0], "to_lng": DEST[1],
         "from_text": "Баймак", "to_text": "Сибай",
+        **extra,
     })
     assert r.status_code == 200, r.text
-    return {o["category"]: o for o in r.json()["options"]}
+    return r.json()
+
+
+def _estimate(client, pax):
+    return {o["category"]: o for o in _quote(client, pax)["options"]}
 
 
 def test_эконом_рядом_бизнес_далеко_минуты_разные(client, user_factory, fake_redis):
@@ -79,6 +85,55 @@ def test_эконом_рядом_бизнес_далеко_минуты_разн
     далеко = opts["business"]["pickup_eta_min"]
     assert близко is not None and далеко is not None, opts
     assert близко < далеко, f"эконом рядом должен подъехать раньше бизнеса за городом: {opts}"
+
+
+def test_pickup_fee_quote_uses_the_selected_class(client, user_factory, fake_redis, monkeypatch):
+    monkeypatch.setattr(isv, "pickup_enroute", lambda *_: False)
+    _online_at(client, user_factory, ORIG, available="economy", enabled="economy", name="NearEconomy")
+    _online_at(client, user_factory, FAR10, available="economy,business",
+               enabled="business", name="FarBusiness")
+    pax = user_factory("PickupQuotePax")
+
+    opts = _estimate(client, pax)
+    business = _quote(client, pax, category="business")
+    assert opts["standard"]["pickup_fee"] == 0
+    assert opts["business"]["pickup_fee"] == business["pickup_fee"] > 0
+    assert business["pickup_pending"] is False
+    assert business["pickup_eta_min"] == opts["business"]["pickup_eta_min"]
+
+
+def test_missing_required_options_leave_pickup_pending(client, user_factory, fake_redis):
+    driver = _online_at(client, user_factory, ORIG, available="business", enabled="business", name="NoSeat")
+    pax = user_factory("PickupSeatPax")
+
+    q = _quote(client, pax, category="business", options=[cc.OPT_SEAT_1_4])
+    assert q["pickup_pending"] is True
+    assert q["pickup_fee"] == 0 and q["pickup_max_rub"] > 0
+    assert q["pickup_eta_min"] is None
+    opt = next(o for o in q["options"] if o["category"] == "business")
+    assert opt["pickup_eta_min"] is None and opt["pickup_pending"] is True
+    with Session(engine) as s:
+        profile = s.exec(select(DriverProfile).where(DriverProfile.user_id == driver["id"])).one()
+        profile.car_options = cc.dump_options([cc.OPT_SEAT_1_4])
+        s.add(profile)
+        s.commit()
+    q = _quote(client, pax, category="business", options=[cc.OPT_SEAT_1_4])
+    assert q["pickup_pending"] is False and q["pickup_fee"] == 0
+    assert q["pickup_eta_min"] is not None
+
+
+def test_pickup_discount_is_not_borrowed_from_another_class(client, user_factory, fake_redis, monkeypatch):
+    economy = _online_at(client, user_factory, (52.65, 58.317), available="economy",
+                         enabled="economy", name="OnTheWayEconomy")
+    _online_at(client, user_factory, FAR10, available="business", enabled="business", name="NotOnWayBusiness")
+    monkeypatch.setattr(isv, "pickup_enroute", lambda _s, did, *_: did == economy["id"])
+    pax = user_factory("PickupDiscountPax")
+    economy_quote = _quote(client, pax)
+    business_quote = _quote(client, pax, category="business")
+    assert 0 < economy_quote["pickup_fee"] < economy_quote["pickup_full_fee"]
+    assert economy_quote["pickup_enroute"] is True
+    assert business_quote["pickup_fee"] == business_quote["pickup_full_fee"] > 0
+    assert business_quote["pickup_enroute"] is False
 
 
 def test_класса_рядом_нет_минут_не_выдумываем(client, user_factory, fake_redis):

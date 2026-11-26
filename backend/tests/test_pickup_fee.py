@@ -182,7 +182,12 @@ def test_no_cars_nearby_promises_a_ceiling_instead_of_inventing_a_price(client, 
 def test_every_class_shows_its_own_pickup(client, user_factory, fake_redis):
     """Витрина классов: у каждого своя подача. Считать её по выбранному классу значит
     показать в списке цену, которой при переключении не будет."""
-    _driver_at(client, user_factory, _north_of(ORIG, 8.0), "ClassPickupDrv")
+    driver = _driver_at(client, user_factory, _north_of(ORIG, 8.0), "ClassPickupDrv")
+    with Session(engine) as s:
+        profile = s.exec(select(DriverProfile).where(DriverProfile.user_id == driver["id"])).one()
+        profile.car_classes_available = "economy,comfort,business,minivan"
+        s.add(profile)
+        s.commit()
     pax = user_factory("ClassPickupPax")
     body = _estimate(client, pax)
 
