@@ -130,12 +130,16 @@ def _remember_track_point(r, driver_id: int) -> None:
         return
 
 
-def presence_alive(r, driver_id: int) -> bool:
-    """heartbeat ещё жив? (защита от «залипших» в GEO координат без свежего пинга)."""
+def _presence_state(r, driver_id: int) -> bool | None:
     try:
         return bool(r.exists(f"presence:hb:{driver_id}"))
-    except Exception:  # noqa: BLE001
-        return False
+    except Exception:  # noqa: BLE001 — сбой чтения не равен истёкшему heartbeat
+        return None
+
+
+def presence_alive(r, driver_id: int) -> bool:
+    """heartbeat ещё жив? (защита от «залипших» в GEO координат без свежего пинга)."""
+    return _presence_state(r, driver_id) is True
 
 
 def presence_offline(driver_id: int) -> None:
@@ -333,20 +337,23 @@ def pay_method_label(method: str) -> tuple[str, str]:
 SURGE_STEPS = ((3.0, 1.5), (2.0, 1.3), (1.5, 1.2), (1.0, 1.1))
 
 
-def _surge_supply(r, lat: float, lng: float) -> int:
-    """Живые водители «на линии» в радиусе города заказа (Redis GEO + heartbeat)."""
+def _surge_supply(r, lat: float, lng: float) -> int | None:
+    """Живые водители «на линии» в радиусе заказа; None — не удалось измерить."""
     try:
         found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
                             radius=settings.surge_radius_km, unit="km")
     except Exception:  # noqa: BLE001 — сбой GEO → предложение неизвестно
-        return 0
+        return None
     alive = 0
     for member in found:
         try:
             did = _member_driver_id(member)
         except (ValueError, IndexError, AttributeError):
             continue
-        if presence_alive(r, did):
+        state = _presence_state(r, did)
+        if state is None:
+            return None
+        if state:
             alive += 1
     return alive
 
@@ -378,7 +385,10 @@ def surge_k_for(session: Session, lat: float, lng: float) -> float:
     demand = _surge_demand(session, lat, lng)
     if demand <= 0:
         return 1.0
-    ratio = demand / max(_surge_supply(r, lat, lng), 1)
+    supply = _surge_supply(r, lat, lng)
+    if supply is None:
+        return 1.0
+    ratio = demand / max(supply, 1)
     for threshold, k in SURGE_STEPS:
         if ratio >= threshold:
             return min(k, settings.surge_max_k)

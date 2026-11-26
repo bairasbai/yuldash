@@ -272,6 +272,44 @@ def test_surge_no_redis_is_one(client, surge_demand):
         assert isv.surge_k_for(s, UFA[0], UFA[1]) == 1.0
 
 
+@pytest.mark.parametrize("state,expected_k", [
+    ("empty", 1.5),
+    ("expired_heartbeat", 1.5),
+    ("geo_error", 1.0),
+    ("heartbeat_error", 1.0),
+])
+def test_estimate_distinguishes_empty_from_unknown_supply(
+    client, user_factory, fake_redis, surge_demand, monkeypatch, state, expected_k,
+):
+    monkeypatch.setattr(settings, "surge_max_k", 1.5)
+    surge_demand(3)
+    if state in ("expired_heartbeat", "heartbeat_error"):
+        _presence(fake_redis, UFA, 2)
+        fake_redis.delete("presence:hb:90001")
+        if state == "expired_heartbeat":
+            fake_redis.delete("presence:hb:90000")
+    if state == "geo_error":
+        def fail_geo(*args, **kwargs):
+            raise ConnectionError("Test GEO unavailable")
+        monkeypatch.setattr(fake_redis, "geosearch", fail_geo)
+    if state == "heartbeat_error":
+        exists = fake_redis.exists
+
+        def fail_one_heartbeat(*keys):
+            if keys == ("presence:hb:90001",):
+                raise ConnectionError("Test heartbeat unavailable")
+            return exists(*keys)
+        monkeypatch.setattr(fake_redis, "exists", fail_one_heartbeat)
+
+    pax = user_factory("UnknownSupplyEstimate")
+    response = client.post("/instant/estimate", headers=pax["auth"],
+                           json=_order_body(frm=UFA, to=(UFA[0] + 0.09, UFA[1])))
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["surge_k"] == expected_k
+    assert bool(body["surge_note"]) == (expected_k > 1.0)
+
+
 def test_surge_far_demand_ignored(client, fake_redis, surge_demand):
     """Спрос в другом городе (за пределами surge_radius_km) не поднимает k здесь."""
     surge_demand(6, coord=UFA)
