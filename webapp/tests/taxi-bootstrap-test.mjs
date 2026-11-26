@@ -13,6 +13,7 @@ mocks.react=`const h=()=>globalThis.__taxiBoot;
 export const useState=initial=>{const s=h(),i=s.cursor++;if(!(i in s.slots))s.slots[i]=typeof initial==='function'?initial():initial;return[s.slots[i],v=>{s.slots[i]=typeof v==='function'?v(s.slots[i]):v;s.dirty=true;}];};
 export const useRef=v=>{const s=h(),i=s.cursor++;return s.slots[i]??={current:v};};
 const same=(a,b)=>a&&b&&a.length===b.length&&a.every((v,i)=>Object.is(v,b[i]));
+export const useMemo=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps))s.slots[i]={value:fn(),deps};return s.slots[i].value;};
 export const useCallback=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps))s.slots[i]={fn,deps};return s.slots[i].fn;};
 export const useEffect=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps)){s.effects.push(()=>{old?.cleanup?.();s.slots[i]={deps,cleanup:fn()};});}};`;
 mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(type,props)=>({type,props});export const jsxs=jsx;`;

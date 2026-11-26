@@ -16,6 +16,7 @@ const h=globalThis.__taxiOriginTest;
 const __jsx=(type,props,...children)=>({type,props:{...props,children}}), __fragment='fragment';
 const useState=initial=>{const b=h.bucket,i=b.si++;if(!(i in b.states))b.states[i]=typeof initial==='function'?initial():initial;return [b.states[i],v=>b.states[i]=typeof v==='function'?v(b.states[i]):v]};
 const useRef=initial=>{const b=h.bucket,i=b.ri++;return b.refs[i]??={current:initial}};
+const useMemo=(fn,deps)=>{const b=h.bucket,i=b.ri++,old=b.refs[i];if(!old||!deps.every((v,j)=>Object.is(v,old.deps[j])))b.refs[i]={value:fn(),deps};return b.refs[i].value};
 const useEffect=fn=>h.bucket.effects.push(fn);
 const useLang=()=>({lang:'ru',appText:(ru,ba)=>ru}), useNavigate=()=>()=>{};
 const rememberedPayMethod=()=>'cash',useRouteWeather=()=>null,track=()=>{};
@@ -30,7 +31,7 @@ const fetchSavedPlaces=async()=>h.places,fetchRecentPlaces=async()=>[];
 const markSavedPlaceUsed=async id=>h.used.push(id),addRecentPlace=async p=>h.recent.push(p),geocode=async()=>({items:[]});
 `;
 const tags = [...new Set([...views.matchAll(/<([A-Z][A-Za-z0-9]*)\b/g)].map(m=>m[1]))]
-  .filter(name=>!["PlacePicker","Point","EstimateResult","NearbyDriver","TaxiCategory","OrderStop","PaymentMethod"].includes(name));
+  .filter(name=>!["PlacePicker","Point","EstimateInput","EstimateResult","NearbyDriver","TaxiCategory","OrderStop","PaymentMethod"].includes(name));
 const tagStubs = tags.map(name=>`const ${name}='${name}';`).join('\n');
 async function compile(text) {
   const result=await transform(prelude+tagStubs+'\n'+text+'\nexport {ComposeView,PlacePicker};',{

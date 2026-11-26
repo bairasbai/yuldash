@@ -245,7 +245,7 @@ export interface EstimateResult {
   base_price: number;
   distance_km: number;
   eta_min: number;
-  pickup_eta_min?: number;
+  pickup_eta_min?: number | null;
   zone: string;
   category: TaxiCategory | string;
   tariff_id: number;
@@ -320,8 +320,15 @@ export interface EstimateResult {
   dynamic_k?: number;
   /** Потолок наценки: выше него цена не поднимется ни при каком спросе. */
   pricing_cap_k?: number;
-  /** Цены обоих классов одним запросом — пассажир выбирает с открытыми глазами. */
-  options: { category: TaxiCategory | string; price: number; base_price?: number }[];
+  /** Цена и подача каждого класса — тот же ответ оценки, а не данные выбранного класса. */
+  options: {
+    category: TaxiCategory | string;
+    price: number;
+    base_price?: number;
+    pickup_eta_min?: number | null;
+    pickup_pending?: boolean;
+    pickup_max_rub?: number;
+  }[];
   /**
    * Скидка по промокоду. Сервер применяет её сам — вводить ничего не нужно,
    * поля приходят всегда (ноль = скидки нет, а не «не пришло»).
