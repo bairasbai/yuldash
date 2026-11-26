@@ -3184,14 +3184,13 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     #
     # Не отменяем — откладываем: заказ человек сделал сам, и он актуален. Освободится (доехал
     # или отменил) — активируется следующим проходом. Заказы уходят по одному, а не пачкой.
-    busy = session.exec(
-        select(InstantOrder).where(
-            InstantOrder.passenger_id == order.passenger_id,
-            InstantOrder.id != order.id,
-            InstantOrder.status.in_(LIVE_ORDER_STATUSES),
-        ).limit(1)
-    ).first()
-    if busy is not None:
+    order_id, passenger_id = order.id, order.passenger_id
+    active_order = select(InstantOrder.id).where(
+        InstantOrder.passenger_id == passenger_id,
+        InstantOrder.id != order_id,
+        InstantOrder.status.in_(LIVE_ORDER_STATUSES),
+    ).limit(1)
+    if session.exec(active_order).first() is not None:
         return order   # остаётся scheduled — ждёт своей очереди
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard",
@@ -3199,6 +3198,13 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
                    round_trip=bool(order.round_trip),
                    waypoints=parse_waypoints(order.waypoints_json),
                    options=cc.parse_options(order.options))
+    # Тот же lock пассажира, что при обычном заказе. Дорогой расчёт маршрута — до lock,
+    # проверка активной поездки — ещё раз под lock вплоть до перехода в searching.
+    session.exec(select(User.id).where(User.id == passenger_id).with_for_update()).first()
+    order = session.get(InstantOrder, order_id, populate_existing=True)
+    if order.status != S.scheduled or session.exec(active_order).first() is not None:
+        session.rollback()  # Нечего сохранять; не держим lock до следующего заказа воркера.
+        return order
     # Обещание потолка (по умолчанию выключено, см. scheduled_price_cap_rub). Урезаем ТОЛЬКО
     # цену самой поездки: компенсации — бензин водителя, и платформа не вправе их резать.
     потолок = scheduled_price_cap_rub(int(order.price_estimate or 0))
@@ -3208,7 +3214,7 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
         est = dict(est)
         est["ride_price"] = max(потолок - компенсации, 0)
         est["price"] = est["ride_price"] + компенсации
-    session.execute(
+    changed = session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id, InstantOrder.status == S.scheduled)
         .values(price_estimate=est["price"], ride_price=est.get("ride_price", est["price"]),
                 ride_base_price=est.get("base_price", 0) or est.get("ride_price", est["price"]),
@@ -3222,14 +3228,13 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
                 eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
                 pricing_k=est.get("pricing_k", est["surge_k"]))
     )
-    session.commit()
-    order = session.get(InstantOrder, order.id)
-    if order.status != S.scheduled:
-        return order   # гонку проиграли (кто-то активировал/отменил параллельно) — не дублируем поиск
-    # Цена пересчитана заново → скидка по промокоду могла превысить допустимую долю подешевевшей
-    # поездки. Ужимаем (только вниз), чтобы потолок кампании не обходился через предзаказ.
-    promo_ride.reclamp(session, order)
-    order = session.get(InstantOrder, order.id)
+    if changed.rowcount == 0:
+        session.rollback()  # Параллельная отмена: обновление не произошло.
+        return order
+    session.refresh(order)
+    # Сохраняем цену и уменьшенную скидку вместе со статусом searching. Если прерваться
+    # до commit, предзаказ сохранит исходную цену, от которой считается потолок.
+    promo_ride.reclamp(session, order, commit=False)
     return start_matching(session, order)
 
 

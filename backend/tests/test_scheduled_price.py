@@ -12,7 +12,9 @@
 Плюс здесь же — обещание потолка («больше 420 ₽ не возьмём»), которое написано и ВЫКЛЮЧЕНО
 до запуска: пока нет данных, как часто цена ночью в метель улетает, обещать доплату нельзя.
 """
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Barrier
 
 import pytest
 from sqlmodel import Session
@@ -196,3 +198,63 @@ def test_activation_reprices_the_booked_route(
         after = session.get(InstantOrder, booked["id"])
         assert (after.waypoints_json, after.round_trip, after.return_wait_min) == saved_route
     assert actual["price_estimate"] == expected["price"]
+
+
+def test_interrupted_activation_keeps_original_cap(client, user_factory, fake_redis, monkeypatch):
+    pax = user_factory("SyntheticScheduledCap")
+    monkeypatch.setattr(settings, "scheduled_price_guarantee_percent", 20.0)
+    booked = client.post("/instant/schedule", headers=pax["auth"],
+                         json=_order_body(scheduled_at=_через(2))).json()
+    order_id = booked["id"]
+    with Session(engine) as session:
+        order = session.get(InstantOrder, order_id)
+        order.price_estimate = 350
+        session.commit()
+
+    market = {"price": 900, "ride_price": 900, "distance_km": 37.0, "eta_min": 45,
+              "tariff_id": None, "surge_k": 1.0}
+    monkeypatch.setattr(isv, "estimate", lambda *args, **kwargs: market)
+    start = isv.start_matching
+
+    def interrupted(*_):
+        raise RuntimeError("synthetic interruption before marking order searching")
+
+    monkeypatch.setattr(isv, "start_matching", interrupted)
+    with Session(engine) as session:
+        with pytest.raises(RuntimeError, match="synthetic interruption"):
+            isv.activate_scheduled(session, session.get(InstantOrder, order_id))
+
+    monkeypatch.setattr(isv, "start_matching", start)
+    with Session(engine) as session:
+        row = session.get(InstantOrder, order_id)
+        assert row.status.value == "scheduled" and row.price_estimate == 350
+        retried = isv.activate_scheduled(session, row)
+        assert retried.price_estimate == 420
+
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="PostgreSQL row locks")
+def test_two_preorders_for_one_passenger_only_start_one(client, user_factory, monkeypatch):
+    pax = user_factory("SyntheticConcurrentSchedule")
+    ids = [
+        client.post("/instant/schedule", headers=pax["auth"],
+                    json=_order_body(scheduled_at=_через(2))).json()["id"]
+        for _ in range(2)
+    ]
+    together = Barrier(2, timeout=8)
+
+    def estimate_together(*_args, **_kwargs):
+        together.wait()  # Оба запроса прошли первую проверку активной поездки.
+        return {"price": 900, "ride_price": 900, "distance_km": 37.0, "eta_min": 45,
+                "tariff_id": None, "surge_k": 1.0}
+
+    monkeypatch.setattr(isv, "estimate", estimate_together)
+    monkeypatch.setattr(isv, "try_offer_next", lambda _session, order, *_: order)
+
+    def start(order_id):
+        with Session(engine) as session:
+            return isv.activate_scheduled(session, session.get(InstantOrder, order_id)).status.value
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        outcomes = sorted(pool.map(start, ids))
+    assert outcomes == ["scheduled", "searching"]
+    with Session(engine) as session:
+        assert sorted(session.get(InstantOrder, oid).status.value for oid in ids) == outcomes
