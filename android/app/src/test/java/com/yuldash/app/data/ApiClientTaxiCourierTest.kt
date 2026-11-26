@@ -3,6 +3,7 @@ package com.yuldash.app.data
 import kotlinx.coroutines.runBlocking
 import okhttp3.mockwebserver.MockResponse
 import okhttp3.mockwebserver.MockWebServer
+import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
@@ -106,6 +107,58 @@ class ApiClientTaxiCourierTest {
         server.enqueue(json("""{"price":200,"distance_km":5.0,"eta_min":9.0,"pickup_eta_min":null}"""))
         val est = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
         assertNull(est.pickupEtaMin)
+    }
+
+    @Test
+    fun instantEstimate_keepsPerClassPickupAndSendsChangedOptions() = runBlocking {
+        server.enqueue(json("""{
+            "category":"standard","price":320,"pickup_eta_min":3,
+            "options":[
+                {"category":"standard","price":320,"pickup_eta_min":3,"pickup_pending":false},
+                {"category":"comfort","price":390,"pickup_eta_min":11,"pickup_pending":false},
+                {"category":"business","price":600,"pickup_eta_min":null,"pickup_pending":true,"pickup_max_rub":200},
+                {"category":"minivan","price":750}
+            ]
+        }"""))
+        val initial = ApiClient.instantEstimate(52.5, 58.3, 52.6, 58.4).getOrThrow()
+        val byClass = initial.options.associateBy { it.category }
+        assertEquals(3, byClass.getValue("standard").pickupEtaMin)
+        assertEquals(11, byClass.getValue("comfort").pickupEtaMin)
+        with(byClass.getValue("business")) {
+            assertEquals(600, price)
+            assertNull(pickupEtaMin)
+            assertTrue(pickupPending)
+            assertEquals(200, pickupMaxRub)
+        }
+        with(byClass.getValue("minivan")) {
+            assertNull(pickupEtaMin)
+            assertEquals(false, pickupPending)
+            assertNull(pickupMaxRub)
+        }
+        assertTrue(!JSONObject(server.takeRequest().body.readUtf8()).has("options"))
+
+        server.enqueue(json("""{
+            "category":"comfort","price":530,"pickup_eta_min":null,
+            "options":[
+                {"category":"comfort","price":530,"pickup_eta_min":null,"pickup_pending":true,"pickup_max_rub":0},
+                {"category":"business","price":780,"pickup_pending":true,"pickup_max_rub":4294967596},
+                {"category":"minivan","price":950,"pickup_pending":"true"}
+            ]
+        }"""))
+        val changed = ApiClient.instantEstimate(
+            52.5, 58.3, 52.6, 58.4, category = "comfort", options = listOf("seat_1_4"),
+        ).getOrThrow()
+        val secondBody = JSONObject(server.takeRequest().body.readUtf8())
+        assertEquals("comfort", secondBody.getString("category"))
+        assertEquals("seat_1_4", secondBody.getJSONArray("options").getString(0))
+        with(changed.options.first()) {
+            assertEquals(530, price)
+            assertNull(pickupEtaMin)
+            assertTrue(pickupPending)
+            assertNull(pickupMaxRub)
+        }
+        assertNull(changed.options[1].pickupMaxRub)
+        assertEquals(false, changed.options[2].pickupPending)
     }
 
     // ---------------------------- Такси: заказ ----------------------------

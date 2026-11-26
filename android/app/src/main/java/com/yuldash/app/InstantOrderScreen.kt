@@ -2335,9 +2335,11 @@ private fun InstantDestinationPicker(
 
     // Ответ разрешает заказ только для тех параметров, для которых он рассчитан.
     // Сравнение в композиции закрывает и окно до старта LaunchedEffect/дебаунса.
+    val estimateCategory = category
+    val estimateOptions = orderOptions.sorted()
     val estimateInputs = listOf(
         effFrom?.latitude, effFrom?.longitude, toPoint?.latitude, toPoint?.longitude,
-        category, estimateTick, roundTrip, returnWaitMin, stops, scheduledAtMs,
+        estimateCategory, estimateTick, roundTrip, returnWaitMin, stops, scheduledAtMs, estimateOptions,
     )
     var acceptedEstimateInputs by remember { mutableStateOf<List<Any?>?>(null) }
     val estimateCurrent = estimate != null && acceptedEstimateInputs == estimateInputs
@@ -2347,10 +2349,11 @@ private fun InstantDestinationPicker(
         if (f == null || t == null) { estimate = null; return@LaunchedEffect }
         estimating = true; errorText = null
         delay(350)   // дебаунс: позиция уточняется GPS-фиксами — не дёргаем /estimate на каждый
-        ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, category,
+        val result = ApiClient.instantEstimate(f.latitude, f.longitude, t.latitude, t.longitude, fromText, toText, estimateCategory,
             roundTrip = roundTrip, returnWaitMin = returnWaitMin, stops = stops,
-            scheduledAtIso = scheduledAtMs?.let(::isoFromMillis))
-            .onSuccess { estimate = it; acceptedEstimateInputs = estimateInputs }
+            scheduledAtIso = scheduledAtMs?.let(::isoFromMillis), options = estimateOptions)
+        if (!isActive) return@LaunchedEffect
+        result.onSuccess { estimate = it; acceptedEstimateInputs = estimateInputs }
             .onFailure {
                 estimate = null   // сбрасываем устаревшую цену → кнопка «Вызвать» гаснет, не заказываем по старой оценке
                 errorText = (it as? ApiException)?.message ?: estimateFailMsg
@@ -2674,6 +2677,8 @@ private fun InstantDestinationPicker(
                                 // Минуты — только для открытого класса и только когда машины
                                 // этого класса реально рядом: иначе цифра станет обещанием.
                                 pickupEtaMin = if (isOpen) opt?.pickupEtaMin else null,
+                                pickupPending = isOpen && opt?.pickupPending == true,
+                                pickupMaxRub = opt?.pickupMaxRub,
                                 onClick = {
                                     if (isOpen) {
                                         category = cls.category
@@ -3608,6 +3613,8 @@ private fun InstantClassCard(
     iconRes: Int? = null,
     iconNightRes: Int? = null,
     pickupEtaMin: Int? = null,
+    pickupPending: Boolean = false,
+    pickupMaxRub: Int? = null,
 ) {
     // Выбор показывают шампань и зелёный кант. Масштаб карточки не меняем: иначе выбранный
     // Эконом кажется физически крупнее соседних машин, хотя размеры плиток одинаковы.
@@ -3624,6 +3631,8 @@ private fun InstantClassCard(
         iconRes = iconRes,
         iconNightRes = iconNightRes,
         pickupEtaMin = pickupEtaMin,
+        pickupPending = pickupPending,
+        pickupMaxRub = pickupMaxRub,
     )
 }
 

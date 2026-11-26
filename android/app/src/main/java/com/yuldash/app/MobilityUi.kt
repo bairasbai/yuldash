@@ -247,6 +247,8 @@ internal fun TaxiServiceClassTile(
     /** Через сколько подъедет машина ИМЕННО этого класса. null → минут не пишем:
      *  выдуманное «2 мин» на классе, которого рядом нет, — это обещание, а не подсказка. */
     pickupEtaMin: Int? = null,
+    pickupPending: Boolean = false,
+    pickupMaxRub: Int? = null,
 ) {
     // Спокойная шампань отделяет выбранный тариф, а тонкий зелёный кант связывает выбор
     // с главной кнопкой. У остальных карточек кант нейтральный и почти растворяется.
@@ -364,6 +366,17 @@ internal fun TaxiServiceClassTile(
             // Цена — самое крупное число на карточке: «что» уже сказала картинка.
             if (price != null) {
                 Text("$price ₽", color = CanonText, style = CanonBodyStrong, maxLines = 1)
+                if (pickupPending) {
+                    val pending = appText("Подача уточняется", "Килеү хаҡы асыҡлана")
+                    val ceiling = pickupMaxRub?.takeIf { it > 0 }?.let {
+                        appText("до $it ₽", "$it ₽-ға тиклем")
+                    }
+                    Text(
+                        if (ceiling != null) "$pending\n$ceiling" else pending,
+                        color = CanonMutedStrong,
+                        style = CanonMicro,
+                    )
+                }
             } else if (subtitle.isNotBlank()) {
                 // Подпись остаётся ровно для одного случая — «скоро», когда цены ещё нет.
                 Text(subtitle, color = CanonMutedStrong, style = CanonMicro,

@@ -2681,10 +2681,13 @@ object ApiClient {
         stops: List<TaxiStop> = emptyList(),
         /** Время подачи предзаказа (ISO-UTC). Пусто = цена «на сейчас». */
         scheduledAtIso: String? = null,
+        options: List<String> = emptyList(),
     ): Result<InstantEstimateDto> =
         call("POST", "/instant/estimate",
             instantBody(fromLat, fromLng, toLat, toLng, fromText, toText, category,
-                roundTrip, returnWaitMin, stops, scheduledAtIso), auth = true).map { o ->
+                roundTrip, returnWaitMin, stops, scheduledAtIso)
+                .also { if (options.isNotEmpty()) it.put("options", JSONArray(options)) },
+            auth = true).map { o ->
             val note = o.optJSONObject("surge_note")
             val nightNote = o.optJSONObject("night_note")   // null, когда сейчас день/ночной тариф не настроен
             val promoNote = o.optJSONObject("promo_note")   // null, когда скидки нет
@@ -2719,6 +2722,9 @@ object ApiClient {
                         open = c.optBoolean("open", true),
                         pickupEtaMin = if (c.isNull("pickup_eta_min")) null
                         else c.optInt("pickup_eta_min").takeIf { it > 0 },
+                        pickupPending = c.opt("pickup_pending") == true,
+                        pickupMaxRub = (c.opt("pickup_max_rub") as? Number)?.toDouble()
+                            ?.takeIf { it in 1.0..Int.MAX_VALUE.toDouble() && it % 1.0 == 0.0 }?.toInt(),
                     )
                 },
                 basePrice = o.optInt("base_price"),
@@ -5538,6 +5544,9 @@ data class InstantClassOption(
     /** Через сколько подъедет машина ИМЕННО этого класса. null = таких рядом нет либо
      *  сервер старый — тогда на карточке минут не пишем вовсе, а не показываем чужие. */
     val pickupEtaMin: Int? = null,
+    /** Только подтверждённое сервером ожидание расчёта, не «бесплатная подача». */
+    val pickupPending: Boolean = false,
+    val pickupMaxRub: Int? = null,
 )
 
 /** Что предложить, когда в выбранном классе никого. Цена — уже пересчитанная под этот класс. */
