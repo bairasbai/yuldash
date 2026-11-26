@@ -910,9 +910,9 @@ export default function InstantDriverTripScreen() {
 
   async function cancelActive(reason: "driver_cancel" | "no_show") {
     const owner = getAccountSession();
-    const pending = pendingCancel.current;
+    // A fresh active snapshot is not proof that the previous cancellation failed.
     if (!owner || !active || tripBusy || cancelInFlight.current || advanceInFlight.current
-        || (pending && (!isAccountSession(pending.owner) || !pending.activeConfirmed))) return;
+        || pendingCancel.current) return;
     const id = active.id;
     const check: DriverCancelCheck = { owner, id, activeConfirmed: false };
     const attempt = new AbortController();
@@ -1015,6 +1015,7 @@ export default function InstantDriverTripScreen() {
         pos={pos}
         note={tripNote}
         busy={tripBusy || checkingCancel}
+        cancelPending={pendingCancel.current !== null}
         onAdvance={advance}
         onCancel={() => void cancelActive("driver_cancel")}
         onNoShow={() => void cancelActive("no_show")}
@@ -1716,6 +1717,7 @@ function DriverTrip({
   pos,
   note,
   busy,
+  cancelPending,
   onAdvance,
   onCancel,
   onNoShow,
@@ -1729,6 +1731,7 @@ function DriverTrip({
   /** Действие не прошло — показываем прямо у кнопок, а не где-то в стороне. */
   note: string;
   busy: boolean;
+  cancelPending: boolean;
   onAdvance: (n: "arrived" | "onboard" | "done") => void;
   onCancel: () => void;
   onNoShow: () => void;
@@ -1742,6 +1745,7 @@ function DriverTrip({
   const navigate = useNavigate();
   const [confirmCancel, setConfirmCancel] = useState(false);
   const [confirmNoShow, setConfirmNoShow] = useState(false);
+  const cancelDisabled = busy || cancelPending;
   const s = order.status;
   const now = useNowMs(s === "arriving");
 
@@ -1882,7 +1886,7 @@ function DriverTrip({
 
             {/* «Пассажир не вышел» — по честному таймингу сервера (5 бесплатных минут + 3 сверх). */}
             {noShowReady && (
-              <button type="button" className="ttrip-noshow" onClick={() => setConfirmNoShow(true)}>
+              <button type="button" className="ttrip-noshow" disabled={cancelDisabled} onClick={() => !cancelDisabled && setConfirmNoShow(true)}>
                 {appText("Пассажир не вышел", "Пассажир сыҡманы")}
               </button>
             )}
@@ -1898,7 +1902,7 @@ function DriverTrip({
               <IconWarn size={18} /> {appText("SOS", "SOS")}
             </button>
 
-            <button type="button" className="ttrip-cancel" onClick={() => !busy && setConfirmCancel(true)} disabled={busy}>
+            <button type="button" className="ttrip-cancel" onClick={() => !cancelDisabled && setConfirmCancel(true)} disabled={cancelDisabled}>
               {appText("Отменить заказ", "Заказды кире алыу")}
             </button>
           </div>
@@ -1928,8 +1932,9 @@ function DriverTrip({
           confirm={{
             label: appText("Отменить поездку", "Сәфәрҙе кире алыу"),
             tone: "danger",
-            disabled: busy,
+            disabled: cancelDisabled,
             onClick: () => {
+              if (cancelDisabled) return;
               setConfirmCancel(false);
               onCancel();
             },
@@ -1948,7 +1953,9 @@ function DriverTrip({
           confirm={{
             label: appText("Да, не вышел", "Эйе, сыҡманы"),
             tone: "danger",
+            disabled: cancelDisabled,
             onClick: () => {
+              if (cancelDisabled) return;
               setConfirmNoShow(false);
               onNoShow();
             },

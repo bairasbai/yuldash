@@ -250,6 +250,13 @@ try {
       assert.equal(tripNode(f.h).props.busy, false);
       assert.equal(tripNode(f.h).props.order.id, id);
       assert.match(tripNode(f.h).props.note, /Поездка пока активна/);
+      assert.equal(tripNode(f.h).props.cancelPending, true);
+      // Even an old callback (e.g., an already-open confirmation) must not write.
+      const resumed = tripNode(f.h);
+      resumed.props.onCancel();
+      resumed.props.onNoShow();
+      await f.h.settle();
+      assert.deepEqual([state.cancels, state.reads - beforeReads], [1, 2]);
       // The first successful read preceded the commit. The next poll must still resolve the old cancellation.
       state.read = async () => { throw new state.Error(403, "no longer assigned"); };
       state.lookup = async () => { assignmentReads++; return {state: "active", order: replacement}; };
@@ -274,6 +281,68 @@ try {
     }
     f.h.unmount();
     console.log("✓ driver cancellation reconnect restores current assignment without a second POST: " + reconnection);
+  }
+
+  {
+    const arriving = {...accepted, status: "arriving", no_show_at: new Date(0).toISOString()};
+    const f = await startFixture(async () => arriving);
+    await f.h.settle();
+    state.post = Promise.resolve(arriving);
+    await offerNode(f.h).props.onAccept();
+    await f.h.settle();
+    state.cancels = 0;
+    state.checkCancel = opts => {
+      assert.equal(opts.oneShot, true);
+      assert.equal(JSON.parse(opts.body).reason, "no_show");
+    };
+    state.cancel = async () => { throw new state.Error(0, "no-show reply lost"); };
+    state.read = async () => arriving;
+    tripNode(f.h).props.onNoShow();
+    await f.h.settle();
+    assert.equal(tripNode(f.h).props.cancelPending, true);
+    tripNode(f.h).props.onNoShow();
+    tripNode(f.h).props.onCancel();
+    await f.h.settle();
+    const receipt = {...arriving, status: "cancelled", no_show: true, cancel_fee_kop: 2500};
+    state.read = async () => receipt;
+    for (const tick of [...timers.values()].filter(t => t.interval && t.ms === 3000)) tick.fn();
+    await f.h.settle();
+    assert.equal(state.cancels, 1);
+    assert.deepEqual(tripNode(f.h).props.order, receipt);
+    f.h.unmount();
+    console.log("✓ delayed no-show receipt preserves its fee without either kind of replay");
+  }
+
+  for (const action of ["onCancel", "onNoShow"]) {
+    const f = await startFixture(async () => accepted);
+    await f.h.settle();
+    state.post = Promise.resolve(accepted);
+    await offerNode(f.h).props.onAccept();
+    await f.h.settle();
+    state.cancels = 0;
+    const expectedReason = action === "onNoShow" ? "no_show" : "driver_cancel";
+    state.checkCancel = opts => {
+      assert.equal(opts.oneShot, true);
+      assert.equal(JSON.parse(opts.body).reason, expectedReason);
+    };
+    const rejected = "Сервер явно отклонил отмену";
+    state.cancel = async () => { throw new state.Error(409, rejected); };
+    const beforeReads = state.reads;
+    tripNode(f.h).props[action]();
+    await f.h.settle();
+    assert.equal(tripNode(f.h).props.cancelPending, false);
+    assert.equal(tripNode(f.h).props.note, rejected);
+    assert.equal(state.reads, beforeReads, "definitive rejection does not start ambiguous recovery");
+
+    const receipt = {...accepted, status: "cancelled", no_show: true, cancel_fee_kop: 2500};
+    state.cancel = async () => action === "onNoShow" ? receipt : { id, released: true };
+    tripNode(f.h).props[action]();
+    await f.h.settle();
+    assert.equal(state.cancels, 2, "explicit new attempt is allowed after rejection");
+    if (action === "onNoShow") assert.deepEqual(tripNode(f.h).props.order, receipt);
+    else assert.equal(tripNode(f.h), undefined);
+    f.h.unmount();
+    console.log("✓ definitive rejection allows an explicit new cancellation: " + expectedReason);
   }
 
   const offlineCase = await startFixture(async () => accepted);
