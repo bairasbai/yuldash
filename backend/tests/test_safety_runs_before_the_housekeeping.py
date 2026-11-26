@@ -25,7 +25,8 @@ from app.db import engine
 # Задачи, от которых зависит жизнь и справедливость человека.
 ПРО_ЧЕЛОВЕКА = ("sos_escalated", "winter_escalated", "incidents_escalated")
 # Хозяйственные задачи: заказы, посылки, офферы, реклама.
-ПРО_ХОЗЯЙСТВО = ("scheduled_activated", "reassignments_resumed", "stuck_closed", "waits_retried",
+ПРО_ХОЗЯЙСТВО = ("scheduled_activated", "reassignments_resumed", "cancel_promos_released",
+                 "stuck_closed", "waits_retried",
                  "waits_finished", "offers_advanced", "parcels_handled", "ads_expired")
 
 

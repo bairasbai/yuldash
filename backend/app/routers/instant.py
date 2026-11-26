@@ -1259,8 +1259,8 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
 
 
 class TaxiDriverCancelCommandIn(BaseModel):
-    command_id: str = Field(strict=True, pattern=r"^[0-9a-f]{32}$")
-    assignment_revision: str = Field(strict=True, pattern=r"^[0-9a-f]{64}$")
+    command_id: str = Field(strict=True, min_length=32, max_length=32, pattern=r"^[0-9a-f]{32}$")
+    assignment_revision: str = Field(strict=True, min_length=64, max_length=64, pattern=r"^[0-9a-f]{64}$")
     reason: Literal["driver_cancel", "no_show"]
 
 
