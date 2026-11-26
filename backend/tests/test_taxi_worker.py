@@ -11,6 +11,7 @@
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from app import models as M
@@ -80,6 +81,60 @@ def test_due_order_for_busy_passenger_is_not_reported_as_started(client, user_fa
         s.commit()
         assert oid in tw.activate_due_scheduled(s)
     assert _get(oid).searching_at is not None
+
+
+def test_ready_preorder_is_not_hidden_behind_a_full_batch_of_busy_bookings(client, user_factory):
+    busy = user_factory("SchedBatchBusy")
+    ready = user_factory("SchedBatchReady")
+    _order(busy["id"], status=S.onboard)
+    now = utcnow()
+    with Session(engine) as s:
+        for _ in range(200):
+            s.add(M.InstantOrder(
+                passenger_id=busy["id"], status=S.scheduled, price_estimate=200,
+                scheduled_at=now - timedelta(minutes=2),
+                from_lat=52.59, from_lng=58.31, to_lat=52.60, to_lng=58.32,
+            ))
+        s.commit()
+    ready_id = _order(ready["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=1))
+
+    try:
+        with Session(engine) as s:
+            assert ready_id in tw.activate_due_scheduled(s)
+            held = s.exec(select(M.InstantOrder).where(
+                M.InstantOrder.passenger_id == busy["id"], M.InstantOrder.status == S.scheduled,
+            )).all()
+            assert len(held) == 200
+        assert _get(ready_id).searching_at is not None
+    finally:
+        with Session(engine) as s:
+            s.execute(delete(M.InstantOrder).where(M.InstantOrder.passenger_id == busy["id"]))
+            s.commit()
+
+
+def test_failed_booking_flush_does_not_block_the_next_booking(client, user_factory, monkeypatch):
+    first = user_factory("SchedFlushFirst")
+    second = user_factory("SchedFlushSecond")
+    now = utcnow()
+    bad_id = _order(first["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=2))
+    good_id = _order(second["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=1))
+    activate = tw.isv.activate_scheduled
+    attempted = []
+
+    def with_failed_flush(session, order):
+        attempted.append(order.id)
+        if order.id == bad_id:
+            session.add(M.InstantOrder(from_lat=52.59, from_lng=58.31, to_lat=52.60, to_lng=58.32))
+            session.flush()  # NOT NULL: SQLAlchemy требует rollback перед дальнейшей работой.
+        return activate(session, order)
+
+    monkeypatch.setattr(tw.isv, "activate_scheduled", with_failed_flush)
+    with Session(engine) as s:
+        activated = tw.activate_due_scheduled(s)
+    assert attempted.index(bad_id) < attempted.index(good_id)
+    assert bad_id not in activated and good_id in activated
+    assert _get(bad_id).status == S.scheduled
+    assert _get(good_id).searching_at is not None
 
 
 # ============================ 2. Зависшие заказы ============================

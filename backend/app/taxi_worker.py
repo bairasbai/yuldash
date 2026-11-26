@@ -32,6 +32,7 @@
 import sys
 from datetime import timedelta
 
+from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from . import declare_remind, incident_escalate, instant_service as isv, waiting_on_us
@@ -61,26 +62,38 @@ def _last_move_at(o: InstantOrder):
 
 # ----------------------------- 1. Предзаказы -----------------------------
 def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
-    """scheduled с наступившим временем → запускаем поиск. Возврат: id активированных."""
+    """Запускает наступившие предзаказы; dry_run возвращает кандидатов без изменений."""
     now = utcnow()
-    rows = session.exec(
-        select(InstantOrder).where(
+    live = aliased(InstantOrder)
+    busy = (
+        select(live.id).where(
+            live.passenger_id == InstantOrder.passenger_id,
+            live.status.in_(_ALIVE),
+        ).correlate(InstantOrder).exists()
+    )
+    # Занятые не вытесняют готовые заявки из лимита. Если есть место, откладываемые
+    # всё равно проходят через общий сервис: он сначала проверяет паузу пассажира.
+    ids = session.exec(
+        select(InstantOrder.id).where(
             InstantOrder.status == S.scheduled,
-            InstantOrder.scheduled_at != None,          # noqa: E711 — SQL IS NOT NULL
             InstantOrder.scheduled_at <= now,
-        ).limit(200)
+        ).order_by(busy.asc(), InstantOrder.scheduled_at, InstantOrder.id).limit(200)
     ).all()
+    if dry_run:
+        return list(ids)
     done = []
-    for o in rows:
-        if dry_run:
-            done.append(o.id)
-            continue
+    for order_id in ids:
         try:
-            started = isv.activate_scheduled(session, o)
+            order = session.get(InstantOrder, order_id, populate_existing=True)
+            if (order is None or order.status != S.scheduled
+                    or order.scheduled_at is None or order.scheduled_at > now):
+                continue
+            started = isv.activate_scheduled(session, order)
             if started.searching_at is not None:
-                done.append(started.id)
+                done.append(order_id)
         except Exception as e:  # noqa: BLE001 — один заказ не должен ронять прогон
-            log.warning(f"[TAXI-WORKER] активация предзаказа #{o.id}: {type(e).__name__}: {e}")
+            log.warning(f"[TAXI-WORKER] активация предзаказа #{order_id}: {type(e).__name__}: {e}")
+            session.rollback()
     return done
 
 
