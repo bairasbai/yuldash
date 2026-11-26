@@ -474,6 +474,60 @@ def test_pending_pickup_is_settled_by_the_driver_who_actually_agreed(client, use
     assert str(settings.cancel_free_minutes) in money_notes[0].body_ru
 
 
+def test_completed_receipt_keeps_the_pickup_price_agreed_before_reassignment(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    # The redis fixture isolates driver locations. The first acceptance fixes the
+    # quote at a synthetic nine kilometers; the replacement is one kilometer away.
+    first = _driver_at(client, user_factory, _north_of(ORIG, 9.0), "ReceiptFirstDriver")
+    pax = user_factory("ReceiptReassignedPassenger")
+    created = client.post("/instant/orders", headers=pax["auth"], json=_order_body())
+    assert created.status_code == 200, created.text
+    initial = created.json()
+    oid = initial["id"]
+    with Session(engine) as session:
+        order = session.get(InstantOrder, oid)
+        order.pickup_fee_kop = 0
+        order.pickup_km = 0.0
+        order.pickup_pending = True
+        order.price_estimate = initial["ride_price"]
+        session.add(order)
+        session.commit()
+
+    enroute_checks = []
+    def discounted_for_first(session, driver_id, lat, lng):
+        enroute_checks.append(driver_id)
+        return driver_id == first["id"]
+    monkeypatch.setattr(isv, "pickup_enroute", discounted_for_first)
+
+    accepted = client.post(f"/instant/orders/{oid}/accept", headers=first["auth"])
+    assert accepted.status_code == 200, accepted.text
+    agreed = accepted.json()
+    assert agreed["pickup_fee_kop"] > 0
+    assert agreed["pickup_enroute"] is True
+    assert agreed["pickup_km"] == pytest.approx(9.0 * settings.instant_road_k, rel=0.05)
+
+    second = _driver_at(client, user_factory, _north_of(ORIG, 1.0), "ReceiptReplacement")
+    assert isv.driver_straight_km(second["id"], *ORIG) == pytest.approx(1.0, rel=0.05)
+    dropped = client.post(f"/instant/orders/{oid}/cancel", headers=first["auth"])
+    assert dropped.status_code == 200 and dropped.json()["released"] is True
+    for action in ("accept", "arrived", "onboard", "done"):
+        response = client.post(f"/instant/orders/{oid}/{action}", headers=second["auth"])
+        assert response.status_code == 200, response.text
+
+    assert enroute_checks == [first["id"]]
+    for role, owner in (("passenger", pax), ("driver", second)):
+        response = client.get(f"/instant/orders/{oid}/receipt", headers=owner["auth"])
+        assert response.status_code == 200, response.text
+        receipt = response.json()
+        assert receipt["order_id"] == oid and receipt["role"] == role
+        assert receipt["driver_name"] == "ReceiptReplacement"
+        assert receipt["amount_kop"] == agreed["price_estimate"] * 100
+        assert receipt["pickup_fee_kop"] == agreed["pickup_fee_kop"]
+        assert receipt["pickup_km"] == agreed["pickup_km"]
+        assert receipt["pickup_enroute"] is True
+
+
 def test_old_order_without_the_new_fields_still_prices_correctly():
     """Заказы, созданные до этой правки, полей не имеют. Там вся сумма — это поездка,
     и пересчёт цены не должен придумывать им компенсацию из воздуха."""
