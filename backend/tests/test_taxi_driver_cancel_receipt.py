@@ -2,14 +2,16 @@
 from datetime import timedelta
 
 import pytest
-from sqlmodel import Session
+from sqlmodel import Session, select
 
 from app import instant_service as isv
 from app.db import engine
-from app.models import TaxiDriverCancelReceipt
+from app.models import Notification, TaxiDriverCancelReceipt, UserRole
 from app.timeutil import utcnow
 from test_dropped_order_keeps_looking import _accepted, _события
 from test_money_rules import _db_order, _driver_online, _heartbeat, _shift, fake_redis  # noqa: F401
+
+pytestmark = pytest.mark.usefixtures("fake_redis")
 
 COMMAND = "a" * 32
 
@@ -38,8 +40,16 @@ def _read(client, user, order_id):
     return res.json()
 
 
+def _no_show_notices(passenger_id, order_id):
+    with Session(engine) as session:
+        return session.exec(select(Notification).where(
+            Notification.user_id == passenger_id, Notification.ref_kind == "instant",
+            Notification.ref_id == order_id, Notification.title_ru == "Поездка не состоялась",
+        )).all()
+
+
 def test_lost_response_can_be_recovered_after_commit_without_resending(
-    client, user_factory, fake_redis, monkeypatch,
+    client, user_factory, monkeypatch,
 ):
     driver, pax, oid = _accepted(client, user_factory, "ReceiptDriver", "ReceiptPassenger")
     body = _body(client, driver, oid)
@@ -66,7 +76,7 @@ def test_lost_response_can_be_recovered_after_commit_without_resending(
     assert _db_order(oid).status == isv.S.searching
 
 
-def test_read_does_not_mutate_expired_replacement_offer(client, user_factory, fake_redis, monkeypatch):
+def test_read_does_not_mutate_expired_replacement_offer(client, user_factory, monkeypatch):
     first, pax, oid = _accepted(client, user_factory, "FirstReceiptDriver", "ReturningPassenger")
     second = _driver_online(client, user_factory, "SecondReceiptDriver")
     _heartbeat(client, second)
@@ -90,7 +100,7 @@ def test_read_does_not_mutate_expired_replacement_offer(client, user_factory, fa
     )
 
 
-def test_pending_read_never_claims_passenger_cancel_as_driver_action(client, user_factory, fake_redis):
+def test_pending_read_never_claims_passenger_cancel_as_driver_action(client, user_factory):
     driver, pax, oid = _accepted(client, user_factory, "NoSendDriver", "CancellingPassenger")
     assert _read(client, driver, oid) == {"state": "unconfirmed"}
     body = _body(client, driver, oid)
@@ -100,7 +110,7 @@ def test_pending_read_never_claims_passenger_cancel_as_driver_action(client, use
     assert not _события(driver["id"])
 
 
-def test_no_show_receipt_keeps_original_fee_and_survives_repeated_reads(client, user_factory, fake_redis):
+def test_no_show_receipt_keeps_original_fee_and_survives_repeated_reads(client, user_factory):
     driver, pax, oid = _accepted(client, user_factory, "NoShowReceiptDriver", "NoShowReceiptPassenger")
     assert client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"]).status_code == 200
     _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=30),
@@ -115,29 +125,38 @@ def test_no_show_receipt_keeps_original_fee_and_survives_repeated_reads(client, 
     assert _submit(client, driver, oid, body).json() == expected
     assert _read(client, pax, oid) == {"state": "unconfirmed"}
     assert len(_события(driver["id"])) == 1
+    assert len(_no_show_notices(pax["id"], oid)) == 1
 
 
-def test_cancel_receipt_and_strike_rollback_with_order(client, user_factory, fake_redis, monkeypatch):
-    driver, _, oid = _accepted(client, user_factory, "AtomicReceiptDriver", "AtomicReceiptPassenger")
-    body = _body(client, driver, oid)
+@pytest.mark.parametrize("failed_model", [TaxiDriverCancelReceipt, Notification])
+def test_cancel_receipt_and_strike_rollback_with_order(
+    client, user_factory, monkeypatch, failed_model,
+):
+    driver, pax, oid = _accepted(client, user_factory, "AtomicReceiptDriver", "AtomicReceiptPassenger")
+    assert client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"]).status_code == 200
+    _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=30),
+           arriving_at=utcnow() - timedelta(minutes=30))
+    body = _body(client, driver, oid, "no_show")
     original = Session.add
 
-    def fail_receipt(self, item, *args, **kwargs):
-        if isinstance(item, TaxiDriverCancelReceipt):
-            raise RuntimeError("Fixture: receipt insert cannot run")
+    def fail_insert(self, item, *args, **kwargs):
+        if isinstance(item, failed_model):
+            raise RuntimeError("Fixture: terminal cancel insert cannot run")
         return original(self, item, *args, **kwargs)
 
     with monkeypatch.context() as m:
-        m.setattr(Session, "add", fail_receipt)
-        with pytest.raises(RuntimeError, match="receipt insert"):
+        m.setattr(Session, "add", fail_insert)
+        with pytest.raises(RuntimeError, match="terminal cancel insert"):
             _submit(client, driver, oid, body)
     assert _read(client, driver, oid) == {"state": "unconfirmed"}
-    assert _db_order(oid).status == isv.S.accepted
+    assert _db_order(oid).status == isv.S.arriving
+    assert _db_order(oid).cancel_fee_kop == 0
     assert not _события(driver["id"])
+    assert not _no_show_notices(pax["id"], oid)
 
 
 @pytest.mark.parametrize("deleted", ["driver", "passenger"])
-def test_cancel_receipt_deleted_with_either_party(client, user_factory, fake_redis, deleted):
+def test_cancel_receipt_deleted_with_either_party(client, user_factory, deleted):
     from app.account import delete_user_account
     from app.models import User
 
@@ -183,7 +202,7 @@ def test_cancel_receipt_migration_round_trip(tmp_path, monkeypatch):
 
 @pytest.mark.skipif(engine.dialect.name != "postgresql", reason="Требуются блокировки PostgreSQL")
 @pytest.mark.timeout(60)
-def test_pg_two_posts_for_same_command_get_one_effect(client, user_factory, fake_redis):
+def test_pg_two_posts_for_same_command_get_one_effect(client, user_factory):
     from concurrent.futures import ThreadPoolExecutor
     from threading import Barrier
 
@@ -204,3 +223,52 @@ def test_pg_two_posts_for_same_command_get_one_effect(client, user_factory, fake
     assert all(reply.status_code == 200 for reply in replies), [reply.text for reply in replies]
     assert replies[0].json() == replies[1].json() == _read(client, driver, oid)
     assert len(_события(driver["id"])) == 1
+
+
+def test_terminal_no_show_survives_interruption_after_commit(
+    client, user_factory, monkeypatch,
+):
+    from app.taxi_worker import release_interrupted_cancel_promos
+    from test_promo_taxi import _order_body, _pax_with_discount, _redemption
+
+    admin = user_factory("CancelPromoAdmin", role=UserRole.admin)
+    pax = _pax_with_discount(client, user_factory, admin, "CRASHNOSHOW")
+    driver = _driver_online(client, user_factory, "CrashNoShowDriver")
+    _heartbeat(client, driver)
+    created = client.post("/instant/orders", headers=pax["auth"], json=_order_body())
+    assert created.status_code == 200, created.text
+    assert created.json()["promo_discount_kop"] > 0
+    oid = created.json()["id"]
+    assert client.post(f"/instant/orders/{oid}/accept", headers=driver["auth"]).status_code == 200
+    assert client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"]).status_code == 200
+    _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=30),
+           arriving_at=utcnow() - timedelta(minutes=30))
+    body = _body(client, driver, oid, "no_show")
+
+    def interrupted(*_):
+        raise ConnectionError("Fixture: terminal cancel interrupted after commit")
+
+    with monkeypatch.context() as m:
+        m.setattr(isv, "_cleanup_tried", interrupted)
+        with pytest.raises(ConnectionError, match="interrupted after commit"):
+            _submit(client, driver, oid, body)
+
+    receipt = _read(client, driver, oid)
+    assert receipt["outcome"] == "no_show"
+    assert receipt["cancel_fee_kop"] == _db_order(oid).cancel_fee_kop > 0
+    assert _submit(client, driver, oid, body).json() == receipt
+    assert len(_события(driver["id"])) == 1
+    notices = _no_show_notices(pax["id"], oid)
+    assert len(notices) == 1
+    assert notices[0].body_ru and notices[0].body_ba
+
+    assert _redemption(pax["id"]).used_order_id == oid
+    with Session(engine) as s:
+        assert release_interrupted_cancel_promos(s, dry_run=True) == [oid]
+        assert _redemption(pax["id"]).used_order_id == oid
+        assert release_interrupted_cancel_promos(s) == [oid]
+        assert release_interrupted_cancel_promos(s) == []
+    assert _read(client, driver, oid) == receipt
+    red = _redemption(pax["id"])
+    assert red.used_order_id is None and red.used_at is None
+    assert _db_order(oid).promo_discount_kop == 0

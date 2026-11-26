@@ -136,6 +136,12 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # держит внешний ключ на заказ, который сейчас удалится.
         s.add(M.DriverCancel(order_id=order.id, driver_id=uid, reason="сломался"))
         s.add(M.DriverCancel(order_id=order.id, driver_id=oid, reason="далеко"))
+        cancel_order_id = order.id
+        for driver_id in (uid, oid):
+            s.add(M.TaxiDriverCancelReceipt(
+                order_id=cancel_order_id, driver_id=driver_id, command_id="a" * 32,
+                assignment_revision="b" * 64, reason="driver_cancel", outcome="released",
+            ))
         # --- посылка + рейтинг курьера по parcel_id + чат отправитель ↔ курьер ---
         parcel = M.ParcelDelivery(sender_id=uid, from_city="A", to_city="B", courier_id=oid)
         s.add(parcel); s.commit(); s.refresh(parcel)
@@ -344,6 +350,9 @@ def test_delete_account_leaves_no_residual_anywhere(client, user_factory):
         # посылку они держат — на Postgres это ровно то, что роняло /me/delete.
         pm = s.exec(select(M.Message).where(M.Message.parcel_id == parcel_id)).all()
         assert pm == []
+        assert s.exec(select(M.TaxiDriverCancelReceipt).where(
+            M.TaxiDriverCancelReceipt.order_id == cancel_order_id,
+        )).all() == []
         assert s.exec(select(ChatMessageReceipt).where(
             ChatMessageReceipt.message_id.in_(receipt_message_ids),
         )).all() == []

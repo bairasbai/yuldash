@@ -39,7 +39,7 @@ from . import ads_expire, promo_ride, sos_escalate, winter_escalate
 from .config import settings
 from .db import engine
 from .logs import log
-from .models import DriverCancel, InstantOrder, InstantOrderStatus as S, ParcelDelivery
+from .models import DriverCancel, InstantOrder, InstantOrderStatus as S, ParcelDelivery, TaxiDriverCancelReceipt
 from .services import push_notification
 from .timeutil import utcnow
 
@@ -159,6 +159,27 @@ def close_stuck_orders(session: Session, dry_run: bool = False) -> list:
 
 
 # ----------------------------- 3. Очередь «рядом никого» -----------------------------
+def release_interrupted_cancel_promos(session: Session, dry_run: bool = False) -> list[int]:
+    """Вернуть скидки после сбоя между фиксацией отмены и штатным возвратом."""
+    has_terminal_receipt = select(TaxiDriverCancelReceipt.order_id).where(
+        TaxiDriverCancelReceipt.order_id == InstantOrder.id,
+        TaxiDriverCancelReceipt.outcome.in_(("cancelled", "no_show")),
+    ).exists()
+    ids = session.exec(select(InstantOrder.id).where(
+        InstantOrder.status == S.cancelled, InstantOrder.promo_discount_kop > 0,
+        has_terminal_receipt,
+    ).order_by(InstantOrder.id).limit(100)).all()
+    if dry_run:
+        return list(ids)
+    released = []
+    for oid in ids:
+        # release берёт замки в прежнем порядке: промокод → заказ. Не держим замок
+        # заказа из отмены; inline-возврат и новый заказ могут выиграть без двойной записи.
+        if promo_ride.release(session, session.get(InstantOrder, oid)):
+            released.append(oid)
+    return released
+
+
 def resume_driver_reassignments(session: Session, dry_run: bool = False) -> list[int]:
     """Продолжить подбор, прерванный после фиксации ухода водителя.
 
@@ -458,6 +479,7 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
     # ---------- потом то, от чего зависит ЗАКАЗ ----------
     ("scheduled_activated", lambda s, d: activate_due_scheduled(s, d), []),
     ("reassignments_resumed", lambda s, d: resume_driver_reassignments(s, d), []),
+    ("cancel_promos_released", lambda s, d: release_interrupted_cancel_promos(s, d), []),
     ("stuck_closed", lambda s, d: close_stuck_orders(s, d), []),
     ("waits_retried", lambda s, d: retry_waiting_orders(s, d), []),
     ("waits_finished", lambda s, d: finish_expired_waits(s, d), []),
@@ -504,6 +526,7 @@ def main():
     labels = {
         "scheduled_activated": "предзаказов запущено",
         "reassignments_resumed": "поисков замены продолжено",
+        "cancel_promos_released": "скидок после отмены возвращено",
         "stuck_closed": "зависших закрыто",
         "waits_retried": "поисков перезапущено",
         "waits_finished": "ожиданий завершено",

@@ -174,7 +174,9 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
     # sos_escalated — повтор по непринятому сигналу SOS: он живёт здесь же, потому что этот
     # воркер крутится чаще всех, а отдельная запись в cron — ещё одно место, где её могут
     # забыть включить (волна 82; сама ветка — в test_unanswered_sos_calls_again.py).
-    assert set(res2) == {"scheduled_activated", "reassignments_resumed", "stuck_closed", "waits_retried",
+    assert res2["cancel_promos_released"] == []
+    assert set(res2) == {"scheduled_activated", "reassignments_resumed", "cancel_promos_released",
+                         "stuck_closed", "waits_retried",
                          "waits_finished", "offers_advanced", "parcels_handled",
                          # Зимний протокол переехал в робота (волна 114): помощь молчащему
                          # человеку больше не зависит от того, открыл ли он приложение.

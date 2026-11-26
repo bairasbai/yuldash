@@ -58,6 +58,13 @@ def test_rule_guards_every_foreign_key(table: str):
     where = " ".join(r[2] for r in rules)
     missing = []
     for ref_table, ref_col in sorted(_referencing_columns(table)):
+        if (table, ref_table, ref_col) == ("instantorder", "taxidrivercancelreceipt", "order_id"):
+            # Это подтверждение не имеет отдельного срока хранения: оно уходит с заказом.
+            # Исключение только для этого FK и только при CASCADE; ниже есть отдельный
+            # прогон реального правила чистки с заполненной квитанцией.
+            fk = next(iter(SQLModel.metadata.tables[ref_table].c[ref_col].foreign_keys))
+            assert fk.ondelete == "CASCADE"
+            continue
         # Ищем упоминание пары «таблица.колонка» в любом NOT EXISTS этого правила:
         # алиас произвольный, поэтому цепляемся за FROM <таблица> и за <алиас>.<колонка>.
         pattern = rf"FROM\s+{ref_table}\s+(\w+)\s+WHERE\s+\1\.{ref_col}\s*="
@@ -92,3 +99,41 @@ def test_children_are_cleaned_before_parents():
                     f"«{child_table}» чистится ПОСЛЕ «{parent}» — удаление родителя упадёт "
                     f"на внешнем ключе живого ребёнка"
                 )
+
+
+def test_cleanup_removes_cancel_receipt_only_with_its_old_order(client, user_factory):
+    from datetime import timedelta
+
+    from sqlmodel import Session
+
+    from app.cleanup import _delete_batched
+    from app.db import engine
+    from app.models import InstantOrder, InstantOrderStatus, TaxiDriverCancelReceipt
+
+    passenger = user_factory("CleanupReceiptPassenger")["id"]
+    driver = user_factory("CleanupReceiptDriver")["id"]
+    now = utcnow()
+    ids = []
+    with Session(engine) as s:
+        for age in (400, 1):
+            order = InstantOrder(
+                passenger_id=passenger, driver_id=driver,
+                from_lat=54.0, from_lng=55.0, to_lat=54.1, to_lng=55.1,
+                status=InstantOrderStatus.cancelled, created_at=now - timedelta(days=age),
+            )
+            s.add(order)
+            s.flush()
+            ids.append(order.id)
+            s.add(TaxiDriverCancelReceipt(
+                order_id=order.id, driver_id=driver, command_id="a" * 32,
+                assignment_revision="b" * 64, reason="driver_cancel", outcome="cancelled",
+            ))
+        s.commit()
+    _, table, where, params = next(rule for rule in _rules(now) if rule[1] == "instantorder")
+    assert [_delete_batched(table, f"({where}) AND id = :oid", {**params, "oid": oid})
+            for oid in ids] == [1, 0]
+    with Session(engine) as s:
+        assert s.get(InstantOrder, ids[0]) is None
+        assert s.get(TaxiDriverCancelReceipt, (ids[0], driver, "a" * 32)) is None
+        assert s.get(InstantOrder, ids[1]) is not None
+        assert s.get(TaxiDriverCancelReceipt, (ids[1], driver, "a" * 32)) is not None

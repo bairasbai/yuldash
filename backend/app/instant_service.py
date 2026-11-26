@@ -35,7 +35,7 @@ from .livepos import livepos_get
 from . import promo_ride
 from .models import (
     Booking, BookingStatus, DriverCancel, DriverProfile, InstantOrder,
-    InstantOrderStatus as S, OfferDecline, Tariff, TaxiDriverCancelReceipt, TripShare, TrustedContact, User,
+    InstantOrderStatus as S, Notification, OfferDecline, Tariff, TaxiDriverCancelReceipt, TripShare, TrustedContact, User,
 )
 from .services import (member_since, pick_lang, sms_lang_of,
     blocked_user_ids, haversine_km, may_send_family_sms, push_bilingual, send_push,
@@ -2831,10 +2831,20 @@ def _cancel_locked_order(
         session.add(DriverCancel(
             driver_id=driver_id, order_id=order_id, at=now, no_show=no_show, reason=(reason or "")[:200],
         ))
+    terminal_notice = None
     if receipt is not None:
         receipt.outcome = "released" if reassign else ("no_show" if no_show else "cancelled")
         receipt.cancel_fee_kop = int(values.get("cancel_fee_kop", 0))
         session.add(receipt)
+        if not reassign and order.passenger_id:
+            # Объяснение для пассажира фиксируем вместе с платой и квитанцией водителя.
+            # Внешние push/SMS не входят в транзакцию; повтор команды не пишет вторую строку.
+            terminal_notice = _driver_cancel_notice(no_show)
+            session.add(Notification(
+                user_id=order.passenger_id, type="ride", ref_kind="instant", ref_id=order_id,
+                title_ru=terminal_notice[0], title_ba=terminal_notice[1],
+                body_ru=terminal_notice[2], body_ba=terminal_notice[3],
+            ))
     session.commit()
     if reassign:
         return _continue_after_driver_cancel(session, order_id, driver_id)
@@ -2844,7 +2854,16 @@ def _cancel_locked_order(
     # аккаунта, и сжечь его из-за того, что водитель не приехал, было бы нечестно.
     promo_ride.release(session, fresh)
     fresh = session.get(InstantOrder, order_id)
-    _notify_cancel(session, fresh, actor)
+    if terminal_notice is None:
+        _notify_cancel(session, fresh, actor)
+    else:
+        from .services import send_notification_push
+
+        send_notification_push(
+            session, fresh.passenger_id, "ride", *terminal_notice, ref_kind="instant",
+            ref_id=order_id, data=_status_data(fresh, "cancelled"),
+        )
+        _notify_order_shares(session, fresh, "cancelled")
     return fresh
 
 
@@ -3607,6 +3626,21 @@ def _notify_reassign(session: Session, order: InstantOrder) -> None:
         pass
 
 
+def _driver_cancel_notice(no_show: bool) -> tuple[str, str, str, str]:
+    if no_show:
+        return (
+            "Поездка не состоялась", "Сәфәр булманы",
+            "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу",
+            "Водитель көттө, ләкин көтөп ала алманы. Йыш ҡабатланһа — такси паузаға ҡуйыла",
+        )
+    # Терминальная отмена не обещает новый поиск.
+    return (
+        "Заказ отменён", "Заказ кире алынды",
+        "Водитель отменил заказ. Другую машину найти не вышло — попробуй заказать снова.",
+        "Водитель заказды кире алды. Машина табылманы — ҡабаттан заказ итеп ҡара.",
+    )
+
+
 def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
     """Отмена (B9b-2): водитель отменил → пассажиру; пассажир отменил → водителю.
 
@@ -3620,23 +3654,10 @@ def _notify_cancel(session: Session, order: InstantOrder, actor: Actor) -> None:
     from .services import push_notification
 
     if actor == Actor.driver and order.passenger_id:
-        if order.no_show:
-            push_notification(
-                session, order.passenger_id, "ride",
-                "Поездка не состоялась", "Сәфәр булманы",
-                "Водитель ждал, но не дождался. Частые несостоявшиеся поездки ставят такси на паузу",
-                "Водитель көттө, ләкин көтөп ала алманы. Йыш ҡабатланһа — такси паузаға ҡуйыла",
-                ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"))
-        else:
-            push_notification(
-                session, order.passenger_id, "ride",
-                "Заказ отменён", "Заказ кире алынды",
-                # Сюда доходят только те случаи, где заказ уже не вернуть в поиск: пассажир
-                # был в машине, либо круги переназначения кончились. Обещать поиск нельзя —
-                # ровно этим старый текст («Ищем другого?») и врал.
-                "Водитель отменил заказ. Другую машину найти не вышло — попробуй заказать снова.",
-                "Водитель заказды кире алды. Машина табылманы — ҡабаттан заказ итеп ҡара.",
-                ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"))
+        push_notification(
+            session, order.passenger_id, "ride", *_driver_cancel_notice(order.no_show),
+            ref_kind="instant", ref_id=order.id, data=_status_data(order, "cancelled"),
+        )
     elif actor == Actor.passenger and order.driver_id:
         push_notification(
             session, order.driver_id, "ride",

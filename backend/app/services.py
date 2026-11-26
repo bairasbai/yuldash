@@ -813,10 +813,6 @@ def push_notification(
     на ЯЗЫКЕ ПОЛУЧАТЕЛЯ (User.language, порт из notification-fixes): правило «любая надпись —
     на двух языках» действует и для уведомлений; в ленте оба текста хранятся всегда.
     """
-    # Ночью не звоним по несрочному: запись в Центре уведомлений остаётся, человек увидит её
-    # утром, а телефон молчит (волна 105). Беда, идущая поездка и чужое сообщение проходят.
-    if push and not urgent and ntype not in _LOUD_AT_NIGHT and _is_quiet_hour():
-        push = False
     try:
         with Session(engine) as s:
             if record_if is not None and not record_if(s):
@@ -840,39 +836,53 @@ def push_notification(
             return
         log.warning(f"[NOTIFY] db error: {e}")
     if push:
-        # Язык получателя: BA-пользователю пуш уходит на башкирском (клиент пишет выбор
-        # языка в /me/update). Пустой BA-текст → фолбэк на RU (никогда не шлём пустоту).
-        recipient = session.get(User, user_id)
-        if recipient and recipient.language == "ba" and (title_ba or body_ba):
-            title, body = (title_ba or title_ru), (body_ba or body_ru)
-        else:
-            title, body = title_ru, body_ru
-        # data — payload для клиентского роутинга: по нему приложение открывает НУЖНЫЙ экран.
-        #
-        # Раньше его передавали руками, и передавали не везде: из 37 уведомлений с известным
-        # адресатом (`ref_kind` + `ref_id`) адрес несли 18, а 34 приходили пустыми. Тап по
-        # такому пушу открывал просто приложение. «Поддержка Юлдаш ответила» — и ищи свой
-        # тикет сам; «Заявку приняли» — и ищи поездку сам. Для посылок и такси это уже чинили
-        # отдельными заходами (см. комментарии в FcmService.kt), для попуток, поддержки,
-        # споров и долга — нет.
-        #
-        # Чинить 34 места по одному незачем: сервер УЖЕ знает и вид, и номер — он кладёт их
-        # в ленту уведомлений строкой выше. Значит адрес можно собрать здесь, один раз.
-        # Явный `data` (чаты) по-прежнему главнее: там свой тип канала.
-        if not data and ref_kind and ref_id:
-            data = {"type": ref_kind, "id": str(ref_id)}
-        # Чувствительное просим не показывать на заблокированном экране: жалобы, паузы, долги
-        # и документы — не то, что человек хочет читать чужими глазами (волна 110). Флаг идёт
-        # ПОВЕРХ адреса выше: тап по уведомлению должен вести туда же, куда и раньше.
-        if ntype in _PRIVATE_ON_LOCKSCREEN:
-            data = {**(data or {}), "private": "1"}
-        # `data` передаём ПО ИМЕНИ, а не пятым позиционным: тест-двойники и старые обёртки
-        # объявлены как `lambda s, uid, title, body, **kw` — лишний позиционный их ломает.
-        # (Сломал и починил тут же: полный прогон поймал `test_confirm_only_by_driver`.)
-        if data:
-            send_push(session, user_id, title, body, data=data)
-        else:
-            send_push(session, user_id, title, body)
+        send_notification_push(
+            session, user_id, ntype, title_ru, title_ba, body_ru, body_ba,
+            ref_kind=ref_kind, ref_id=ref_id, data=data, urgent=urgent,
+        )
+
+
+def send_notification_push(
+    session: Session, user_id: int, ntype: str, title_ru: str, title_ba: str,
+    body_ru: str, body_ba: str, *, ref_kind: str = "", ref_id: int | None = None,
+    data: dict | None = None, urgent: bool = False,
+) -> None:
+    """Только доставка, когда запись Центра уведомлений уже сохранена."""
+    if not urgent and ntype not in _LOUD_AT_NIGHT and _is_quiet_hour():
+        return
+    # Язык получателя: BA-пользователю пуш уходит на башкирском (клиент пишет выбор
+    # языка в /me/update). Пустой BA-текст → фолбэк на RU (никогда не шлём пустоту).
+    recipient = session.get(User, user_id)
+    if recipient and recipient.language == "ba" and (title_ba or body_ba):
+        title, body = (title_ba or title_ru), (body_ba or body_ru)
+    else:
+        title, body = title_ru, body_ru
+    # data — payload для клиентского роутинга: по нему приложение открывает НУЖНЫЙ экран.
+    #
+    # Раньше его передавали руками, и передавали не везде: из 37 уведомлений с известным
+    # адресатом (`ref_kind` + `ref_id`) адрес несли 18, а 34 приходили пустыми. Тап по
+    # такому пушу открывал просто приложение. «Поддержка Юлдаш ответила» — и ищи свой
+    # тикет сам; «Заявку приняли» — и ищи поездку сам. Для посылок и такси это уже чинили
+    # отдельными заходами (см. комментарии в FcmService.kt), для попуток, поддержки,
+    # споров и долга — нет.
+    #
+    # Чинить 34 места по одному незачем: сервер УЖЕ знает и вид, и номер — он кладёт их
+    # в ленту уведомлений строкой выше. Значит адрес можно собрать здесь, один раз.
+    # Явный `data` (чаты) по-прежнему главнее: там свой тип канала.
+    if not data and ref_kind and ref_id:
+        data = {"type": ref_kind, "id": str(ref_id)}
+    # Чувствительное просим не показывать на заблокированном экране: жалобы, паузы, долги
+    # и документы — не то, что человек хочет читать чужими глазами (волна 110). Флаг идёт
+    # ПОВЕРХ адреса выше: тап по уведомлению должен вести туда же, куда и раньше.
+    if ntype in _PRIVATE_ON_LOCKSCREEN:
+        data = {**(data or {}), "private": "1"}
+    # `data` передаём ПО ИМЕНИ, а не пятым позиционным: тест-двойники и старые обёртки
+    # объявлены как `lambda s, uid, title, body, **kw` — лишний позиционный их ломает.
+    # (Сломал и починил тут же: полный прогон поймал `test_confirm_only_by_driver`.)
+    if data:
+        send_push(session, user_id, title, body, data=data)
+    else:
+        send_push(session, user_id, title, body)
 
 
 # ----------------------------- Подписка на маршрут (RouteWatch) -----------------------------
