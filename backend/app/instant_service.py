@@ -17,6 +17,7 @@ import re
 import json
 from datetime import datetime, timedelta
 from enum import Enum
+from hashlib import sha256
 from typing import Optional
 
 from sqlalchemy import update
@@ -2701,7 +2702,19 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     return fresh
 
 
-def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "") -> InstantOrder:
+def driver_assignment_revision(order: InstantOrder) -> str | None:
+    """Маркер назначения, не учетные данные. Не меняется при «Я на месте» и «Поехали»."""
+    if order.driver_id is None or order.accepted_at is None:
+        return None
+    identity = (
+        order.id, order.created_at.isoformat() if order.created_at else None,
+        order.driver_id, order.reassigns, order.accepted_at.isoformat(),
+    )
+    return sha256(json.dumps(identity, separators=(",", ":")).encode("ascii")).hexdigest()
+
+
+def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, reason: str = "",
+                 *, assignment_revision: str | None = None) -> InstantOrder:
     """Отмена заказа пассажиром или водителем. Идемпотентна, под замком.
 
     Деньги (Модель А — только фиксируем, ничего не списываем):
@@ -2717,6 +2730,11 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     _guard_owns(order, actor, user_id)
+    if (actor == Actor.driver and assignment_revision is not None
+            and assignment_revision != driver_assignment_revision(order)):
+        raise herr(409, "Назначение изменилось. Обнови заказ",
+                   "Тәғәйенләү үҙгәрҙе. Заказды яңырт",
+                   code="taxi_driver_assignment_changed")
     # Очередь «подожду машину» держит заказ в `expired` с проставленным `wait_until`: статус
     # терминальный только на словах — фоновый воркер каждые пару минут перезапускает по нему
     # поиск (taxi_worker.retry_waiting_orders). Из-за раннего выхода ниже отмена такого заказа
@@ -2762,11 +2780,14 @@ def cancel_order(session: Session, order_id: int, actor: Actor, user_id: int, re
                       driver_id=None, accepted_at=None, arriving_at=None,
                       waiting_started_at=None, cancel_by="", cancel_reason="",
                       cancelled_at=None, cancel_fee_kop=0)
-    result = session.execute(
-        update(InstantOrder)
-        .where(InstantOrder.id == order_id, InstantOrder.status == prev_status)
-        .values(**values)
-    )
+    conditions = [InstantOrder.id == order_id, InstantOrder.status == prev_status]
+    if actor == Actor.driver and assignment_revision is not None:
+        # Защита условного UPDATE и на SQLite, где FOR UPDATE не блокирует строку.
+        conditions.extend((InstantOrder.driver_id == driver_id,
+                           InstantOrder.reassigns == order.reassigns,
+                           InstantOrder.created_at == order.created_at,
+                           InstantOrder.accepted_at == order.accepted_at))
+    result = session.execute(update(InstantOrder).where(*conditions).values(**values))
     if result.rowcount == 0:
         session.rollback()
         raise herr(409, "Заказ уже изменился", "Заказ үҙгәргән инде")
@@ -3844,6 +3865,8 @@ def order_payload(session: Session, order: InstantOrder, viewer: User) -> dict:
         # и решит, что приложение сбросилось. Одна строка «первый водитель отменил» снимает
         # вопрос и объясняет, почему он снова в очереди.
         "reassigns": int(getattr(order, "reassigns", 0) or 0),
+        **({"driver_assignment_revision": driver_assignment_revision(order)}
+           if order.driver_id == viewer.id else {}),
         "from_lat": from_lat, "from_lng": from_lng,
         "to_lat": to_lat, "to_lng": to_lng,
         "from_text": order.from_text,

@@ -433,7 +433,13 @@ def test_second_cancel_reason_cannot_change_the_already_committed_driver_decisio
     assert client.post(f"/instant/orders/{oid}/arrived", headers=old["auth"]).status_code == 200
     _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=30),
            arriving_at=utcnow() - timedelta(minutes=30))
-    first = _отменил_водитель(client, old, oid, first_reason)
+    initial = client.get(f"/instant/orders/{oid}", headers=old["auth"]).json()
+    first_result = client.post(
+        f"/instant/orders/{oid}/cancel", headers=old["auth"],
+        json={"reason": first_reason, "assignment_revision": initial["driver_assignment_revision"]},
+    )
+    assert first_result.status_code == 200, first_result.text
+    first = first_result.json()
 
     if first_reason == "driver_cancel":
         assert first["released"] is True
@@ -482,3 +488,52 @@ def test_a_passenger_cancel_is_still_just_a_cancel(client, user_factory, fake_re
     o = _db_order(oid)
     assert o.status == S.cancelled and o.reassigns == 0
     assert _события(d["id"]) == [], "пассажирскую отмену записали как поступок водителя"
+
+
+def test_delayed_cancel_cannot_modify_a_new_assignment_of_the_same_order(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    monkeypatch.setattr(settings, "taxi_reassign_limit", 2)
+    first, pax, oid = _accepted(client, user_factory, "ReturningDriver", "SameOrderPassenger")
+    second = _driver_online(client, user_factory, "InterimDriver")
+    _heartbeat(client, second)
+    url = f"/instant/orders/{oid}"
+
+    def driver_revision(driver):
+        res = client.get(url, headers=driver["auth"])
+        assert res.status_code == 200, res.text
+        return res.json()["driver_assignment_revision"]
+
+    previous = driver_revision(first)
+    assert len(previous) == 64
+    assert "driver_assignment_revision" not in client.get(url, headers=pax["auth"]).json()
+    assert _отменил_водитель(client, first, oid)["released"] is True
+    assert "driver_assignment_revision" not in client.get(url, headers=second["auth"]).json()
+    accept = client.post(f"{url}/accept", headers=second["auth"])
+    assert accept.status_code == 200, accept.text
+    assert driver_revision(second) != previous
+    assert _отменил_водитель(client, second, oid)["released"] is True
+    accept = client.post(f"{url}/accept", headers=first["auth"])
+    assert accept.status_code == 200, accept.text
+    current = driver_revision(first)
+    assert current != previous
+    assert client.post(f"{url}/arrived", headers=first["auth"]).status_code == 200
+    assert driver_revision(first) == current
+    _shift(oid, waiting_started_at=utcnow() - timedelta(minutes=30),
+           arriving_at=utcnow() - timedelta(minutes=30))
+
+    for reason in ("driver_cancel", "no_show"):
+        rejection = client.post(f"{url}/cancel", headers=first["auth"],
+                                json={"reason": reason, "assignment_revision": previous})
+        assert rejection.status_code == 409, rejection.text
+        assert rejection.json()["detail"]["code"] == "taxi_driver_assignment_changed"
+    snapshot = _db_order(oid)
+    assert snapshot.status == S.arriving and snapshot.driver_id == first["id"]
+    assert snapshot.cancel_fee_kop == 0 and not snapshot.no_show
+    assert len(_события(first["id"])) == 1
+
+    fresh = client.post(f"{url}/cancel", headers=first["auth"],
+                        json={"reason": "driver_cancel", "assignment_revision": current})
+    assert fresh.status_code == 200, fresh.text
+    assert fresh.json()["status"] == "cancelled"
+    assert len(_события(first["id"])) == 2

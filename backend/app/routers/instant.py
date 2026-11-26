@@ -206,6 +206,7 @@ class PresenceIn(BaseModel):
 
 class CancelIn(BaseModel):
     reason: str = Field("", max_length=200)
+    assignment_revision: str | None = Field(None, strict=True, pattern=r"^[0-9a-f]{64}$")
 
 
 class ZoneIn(BaseModel):
@@ -1248,7 +1249,10 @@ def cancel(order_id: int, body: CancelIn | None = None, user: User = Depends(cur
     else:
         raise herr(403, "Нет доступа к заказу", "Заказға рөхсәт юҡ")
     reason = body.reason if body else ""
-    order = isv.cancel_order(session, order_id, actor, user.id, reason)
+    order = isv.cancel_order(
+        session, order_id, actor, user.id, reason,
+        assignment_revision=body.assignment_revision if body else None,
+    )
     if actor == isv.Actor.driver and order.driver_id != user.id:
         return DriverCancelRelease(id=order_id, released=True)
     return isv.order_payload(session, order, user)
