@@ -17,7 +17,7 @@ export const useMemo=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old
 export const useCallback=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps))s.slots[i]={fn,deps};return s.slots[i].fn;};
 export const useEffect=(fn,deps)=>{const s=h(),i=s.cursor++,old=s.slots[i];if(!old||!same(old.deps,deps)){s.effects.push(()=>{old?.cleanup?.();s.slots[i]={deps,cleanup:fn()};});}};`;
 mocks['react/jsx-runtime']=`export const Fragment='fragment';export const jsx=(type,props)=>({type,props});export const jsxs=jsx;`;
-mocks['../i18n/lang']=`export const useLang=()=>({lang:'ru',appText:globalThis.__taxiBoot.appText});`;
+mocks['../i18n/lang']=`export const useLang=()=>({lang:globalThis.__taxiBoot.language??'ru',appText:globalThis.__taxiBoot.appText});`;
 mocks['../features']=`export const useFeatures=()=>({taxi:globalThis.__taxiBoot.taxi!==false,ready:true});`;
 mocks['react-router-dom']=`export const useNavigate=()=>()=>{};`;
 mocks['../api/client']=`export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}`;
@@ -49,4 +49,29 @@ await check('geocoder updates the unchanged GPS pickup',async h=>{await start(h,
 await check('late geocoder cannot replace manually chosen pickup',async h=>{await start(h,true);const chosen={lat:56,lng:57,text:'Другой адрес'};screen(h,'ComposeView').props.setFrom(chosen);await settle(h);h.address.resolve({title:'Старый GPS-адрес'});await settle(h);assert.deepEqual(screen(h,'ComposeView').props.from,chosen);});
 await check('global off closes a previously enabled city form',async h=>{await start(h);assert.ok(screen(h,'ComposeView'));h.taxi=false;h.dirty=true;await settle(h);assert.equal(screen(h,'ComposeView'),undefined);assert.match(text(h.tree),/Такси скоро/);});
 await check('global off keeps the active trip visible',async h=>{h.taxi=false;h.orders=async()=>[{id:42,status:'onboard'}];await start(h);assert.equal(screen(h,'TrackingView')?.props.order.id,42);});
+for (const [language, titles, onboardSubtitle] of [
+  ['ru', ['Водитель едет к тебе', 'Машина на месте', 'В пути'], 'Хорошей дороги 🌿'],
+  ['ba', ['Йөрөтөүсе һиңә килә', 'Машина урынында', 'Юлда'], 'Юлың уң булһын 🌿'],
+]) {
+  await check(`tracking phases and no A→B pickup estimate in ${language}`, async h => {
+    h.language = language;
+    h.appText = (ru, ba) => language === 'ba' ? ba : ru;
+    h.orders = async () => [{id: 42, status: 'accepted', eta_min: 37, offer_pickup_eta_min: 3}];
+    await start(h);
+    const view = screen(h, 'TrackingView');
+    assert.ok(view);
+    for (const [i, status] of ['accepted', 'arriving', 'onboard'].entries()) {
+      h.cursor = 0;
+      const tree = view.type({...view.props, order: {...view.props.order, status}});
+      const sheet = nodes(tree).find(n => n.props?.header?.props?.className === 'taxi-trip-head');
+      assert.ok(sheet);
+      const header = sheet.props.header;
+      const title = nodes(header).find(n => n.props?.className === 'taxi-trip-head__title');
+      const subtitle = nodes(header).find(n => n.props?.className === 'taxi-trip-head__sub');
+      assert.equal(text(title), titles[i]);
+      assert.equal(text(subtitle), status === 'onboard' ? onboardSubtitle : '');
+      assert.doesNotMatch(text(header), /(?:37|3)\s*мин/);
+    }
+  });
+}
 console.log(`Taxi bootstrap: ${total-failed}/${total} passed`);if(failed)process.exitCode=1;

@@ -1575,9 +1575,11 @@ function TrackingView({
   }
 
   // --- Водитель едет / в пути ---
-  const phaseTitle = enRoute
-    ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
-    : appText("В пути", "Юлда");
+  const phaseTitle = s === "arriving"
+    ? appText("Машина на месте", "Машина урынында")
+    : enRoute
+      ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
+      : appText("В пути", "Юлда");
 
   /* TaxiTripScreen Android: карта во весь экран, шторка с положениями. Шапка — статус и рельса;
      тело — водитель и маршрут с ценой; развёрнутая — «поделиться», ожидание, действия в пути;
@@ -1600,11 +1602,9 @@ function TrackingView({
         header={
           <div className="taxi-trip-head">
             <h1 className="taxi-trip-head__title">{phaseTitle}</h1>
-            <p className="taxi-trip-head__sub">
-              {enRoute
-                ? appText(`≈ ${Math.round(order.eta_min)} мин до подачи`, `≈ ${Math.round(order.eta_min)} мин килеүгә`)
-                : appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")}
-            </p>
+            {!enRoute && (
+              <p className="taxi-trip-head__sub">{appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")}</p>
+            )}
             {/* Рельса прогресса — как TaxiTripProgress в шапке поездки Android. */}
             <TaxiTripProgress status={order.status} />
           </div>
