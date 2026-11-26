@@ -3195,8 +3195,9 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
         return order   # остаётся scheduled — ждёт своей очереди
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard",
-                   # Опции заказа несут деньги (кресло 150 ₽). Пересчёт без них обнулил бы
-                   # кресло у предзаказа: человек выбрал его вечером, а к утру оно исчезло.
+                   # Меняем текущую оценку, а не заказанный маршрут и комплектацию.
+                   round_trip=bool(order.round_trip),
+                   waypoints=parse_waypoints(order.waypoints_json),
                    options=cc.parse_options(order.options))
     # Обещание потолка (по умолчанию выключено, см. scheduled_price_cap_rub). Урезаем ТОЛЬКО
     # цену самой поездки: компенсации — бензин водителя, и платформа не вправе их резать.
