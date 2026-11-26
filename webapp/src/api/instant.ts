@@ -76,6 +76,7 @@ export interface InstantOrder {
    *  Экрану поиска это нужно, чтобы объяснить, куда делась принятая машина: без строки
    *  человек видит просто «ищем машину» и решает, что приложение сбросило заказ. */
   reassigns?: number;
+  driver_assignment_revision?: string | null;
   cancel_reason: string | null;
   contact_then_cancel: boolean;
   waiting_started_at: string | null;

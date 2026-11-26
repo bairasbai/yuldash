@@ -8,7 +8,7 @@ import { classifyDriverAcceptRead } from "./.bundles/driver-accept-recovery.mjs"
 
 const id = 81;
 const owner = 17;
-const accepted = { id, status: "accepted", role: "driver", driver_id: owner };
+const accepted = { id, status: "accepted", role: "driver", driver_id: owner, driver_assignment_revision: "a".repeat(64) };
 
 const expiry = new DriverOfferExpiry(id);
 assert.equal(expiry.beginAccept(id), true);
@@ -44,7 +44,7 @@ assert.match(screen, /if \(!online \|\| active \|\| accepting \|\| pendingAccept
 assert.match(screen, /!isAccountSession\(owner\)/);
 console.log("✓ real screen guards polling and decline and uses a same-owner one-shot status read");
 
-const { all, bundleComponent, mount } = await import("./shallow-harness.mjs");
+const { all, button, bundleComponent, mount } = await import("./shallow-harness.mjs");
 let now = 0;
 const offer = { id, status: "offered", role: "driver", offer_expires_at: new Date(20_000).toISOString() };
 const state = globalThis.__acceptFixture = {
@@ -91,7 +91,7 @@ const marker = generation => auth.editDriverAcceptRecord(generation ?? state.cur
 const savedNow = Date.now;
 Date.now = () => now;
 const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", {
-  real: ["/driverAcceptRecovery", "/driverAcceptIntent", "/driverOfferDeadline", "/driverOfferExpiry", "/driverOfferMoney"],
+  real: ["/driverActiveOrder", "/serverTime", "/driverAcceptRecovery", "/driverAcceptIntent", "/driverOfferDeadline", "/driverOfferExpiry", "/driverOfferMoney"],
   mocks: {
     "i18n/lang": 'const appText=(ru,ba)=>ru; const lang={lang:"ru",appText}; export const useLang=()=>lang;',
     "react-router-dom": "export const useNavigate=()=>()=>{};",
@@ -100,7 +100,7 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
     }`,
     "api/driver": "export const fetchDriverStatus=async()=>({online:true}); export const setDriverOnline=async()=>{};",
     "api/client": `export const API_BASE="https://fixture.invalid"; const fixture=globalThis.__acceptFixture;
-      export class ApiError extends Error{constructor(status,message){super(message);this.status=status;}}
+      export class ApiError extends Error{constructor(status,message,code=""){super(message);this.status=status;this.code=code;}}
       fixture.Error=ApiError;
       export const getAccountSession=()=>fixture.currentOwner;
       export const isAccountSession=owner=>owner===fixture.currentOwner;
@@ -123,7 +123,7 @@ const Screen = await bundleComponent("src/screens/InstantDriverTripScreen.tsx", 
       export const fetchDemand=async()=>({zones:[]});
       export const fetchDriverOffer=async()=>{s.offers++;return {offer:s.offer};};
       export const declineOrder=async()=>{s.declines++; return s.decline();};
-      export const fetchInstantOrder=async()=>null, sendPresence=async()=>null;
+      export const fetchInstantOrder=async()=>s.poll?.() ?? null, sendPresence=async()=>null;
       export const arrivedOrder=async()=>null, onboardOrder=async()=>null, doneOrder=async()=>null, cancelInstantOrder=async()=>null;
       export const DECLINE_REASONS=[];`,
   },
@@ -142,7 +142,7 @@ async function startFixture(read) {
   globalThis.indexedDB = new IDBFactory();
   await auth.initializeSessionRecord("guest", () => credentials(state.currentOwner.generation));
   now = 0;
-  Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read, decline: async()=>({...offer,status:"expired"}), application: "approved", lookup: async () => ({state:"none"})});
+  Object.assign(state, {posts: 0, reads: 0, offers: 0, declines: 0, writes: 0, offer, read, decline: async()=>({...offer,status:"expired"}), application: "approved", poll: undefined, lookup: async () => ({state:"none"})});
   let fail;
   state.post = new Promise((_, reject) => { fail = reject; });
   return { h: mount(Screen), fail };
@@ -150,6 +150,7 @@ async function startFixture(read) {
 
 const offerNode = h => all(h.tree).find(n => n.type?.name === "OfferOverlay");
 const tripNode = h => all(h.tree).find(n => n.type?.name === "DriverTrip");
+const confirmFrom = (props, action) => props[action](props.captureCancellation());
 
 try {
   const activeCase = await startFixture(async () => accepted);
@@ -190,12 +191,12 @@ try {
     assert.ok(trip);
     const originalOwner = state.currentOwner;
     const click = mode === "no-show" ? trip.props.onNoShow : trip.props.onCancel;
-    click();
+    click(trip.props.captureCancellation());
     if (mode === "changed-session") {
       state.currentOwner = {...originalOwner, generation: "different-login"};
       complete({ id, released: true });
     } else {
-      click(); // a second callback before React rerenders must not send another request
+      click(trip.props.captureCancellation()); // a second callback before React rerenders must not send another request
     }
     await f.h.settle();
     assert.equal(state.cancels, 1);
@@ -224,11 +225,11 @@ try {
     state.cancel = async () => { throw new state.Error(0, "reply lost"); };
     state.read = async () => { throw new state.Error(0, "first read lost"); };
     const beforeReads = state.reads;
-    tripNode(f.h).props.onCancel();
+    confirmFrom(tripNode(f.h).props, "onCancel");
     await f.h.settle();
     const waitingTrip = tripNode(f.h);
     assert.equal(waitingTrip.props.busy, true);
-    waitingTrip.props.onCancel();
+    confirmFrom(waitingTrip.props, "onCancel");
     await f.h.settle();
     assert.equal(state.cancels, 1, "unknown status blocks a second cancellation");
 
@@ -253,8 +254,8 @@ try {
       assert.equal(tripNode(f.h).props.cancelPending, true);
       // Even an old callback (e.g., an already-open confirmation) must not write.
       const resumed = tripNode(f.h);
-      resumed.props.onCancel();
-      resumed.props.onNoShow();
+      confirmFrom(resumed.props, "onCancel");
+      confirmFrom(resumed.props, "onNoShow");
       await f.h.settle();
       assert.deepEqual([state.cancels, state.reads - beforeReads], [1, 2]);
       // The first successful read preceded the commit. The next poll must still resolve the old cancellation.
@@ -297,11 +298,11 @@ try {
     };
     state.cancel = async () => { throw new state.Error(0, "no-show reply lost"); };
     state.read = async () => arriving;
-    tripNode(f.h).props.onNoShow();
+    confirmFrom(tripNode(f.h).props, "onNoShow");
     await f.h.settle();
     assert.equal(tripNode(f.h).props.cancelPending, true);
-    tripNode(f.h).props.onNoShow();
-    tripNode(f.h).props.onCancel();
+    confirmFrom(tripNode(f.h).props, "onNoShow");
+    confirmFrom(tripNode(f.h).props, "onCancel");
     await f.h.settle();
     const receipt = {...arriving, status: "cancelled", no_show: true, cancel_fee_kop: 2500};
     state.read = async () => receipt;
@@ -328,7 +329,7 @@ try {
     const rejected = "Сервер явно отклонил отмену";
     state.cancel = async () => { throw new state.Error(409, rejected); };
     const beforeReads = state.reads;
-    tripNode(f.h).props[action]();
+    confirmFrom(tripNode(f.h).props, action);
     await f.h.settle();
     assert.equal(tripNode(f.h).props.cancelPending, false);
     assert.equal(tripNode(f.h).props.note, rejected);
@@ -336,13 +337,74 @@ try {
 
     const receipt = {...accepted, status: "cancelled", no_show: true, cancel_fee_kop: 2500};
     state.cancel = async () => action === "onNoShow" ? receipt : { id, released: true };
-    tripNode(f.h).props[action]();
+    confirmFrom(tripNode(f.h).props, action);
     await f.h.settle();
     assert.equal(state.cancels, 2, "explicit new attempt is allowed after rejection");
     if (action === "onNoShow") assert.deepEqual(tripNode(f.h).props.order, receipt);
     else assert.equal(tripNode(f.h), undefined);
     f.h.unmount();
     console.log("✓ definitive rejection allows an explicit new cancellation: " + expectedReason);
+  }
+
+  for (const reason of ["driver_cancel", "no_show"]) {
+    const old = {...accepted, driver_gross_kop: 10000, passenger_name: "", from_text: "", to_text: "", status: "arriving", no_show_at: new Date(0).toISOString()};
+    const newer = {...old, driver_assignment_revision: "b".repeat(64)};
+    const f = await startFixture(async () => old);
+    await f.h.settle();
+    state.post = Promise.resolve(old);
+    await offerNode(f.h).props.onAccept();
+    await f.h.settle();
+    const trip = tripNode(f.h);
+    const dialog = () => all(child.tree).find(n => n.type === "AlertDialog");
+    const label = reason === "no_show" ? "Пассажир не вышел" : "Отменить заказ";
+    const child = mount(trip.type, trip.props);
+    child.render();
+    button(child.tree, label).props.onClick();
+    child.render();
+    const stale = dialog().props.confirm.onClick;
+    state.cancels = 0;
+    state.poll = () => newer;
+    trip.props.onRefresh();
+    await new Promise(r => setImmediate(r));
+    // The parent has received the new revision before React delivered new child props.
+    stale();
+    assert.equal(state.cancels, 0, "old dialogue must not send a POST");
+    globalThis.__sh = f.h.state;
+    await f.h.settle();
+    child.props = tripNode(f.h).props;
+    globalThis.__sh = child.state;
+    child.render();
+    assert.equal(dialog(), undefined);
+    state.checkCancel = opts => assert.deepEqual(JSON.parse(opts.body),
+      { reason, assignment_revision: newer.driver_assignment_revision });
+    state.cancel = async () => ({ id, released: true });
+    button(child.tree, label).props.onClick();
+    child.render();
+    dialog().props.confirm.onClick();
+    assert.equal(state.cancels, 1, "fresh confirmation uses the replacement revision");
+    child.unmount();
+    f.h.unmount();
+    console.log("✓ old confirmation cannot submit on the replacement assignment: " + reason);
+  }
+
+  {
+    const newer = {...accepted, driver_assignment_revision: "b".repeat(64)};
+    const f = await startFixture(async () => accepted);
+    await f.h.settle();
+    state.post = Promise.resolve(accepted);
+    await offerNode(f.h).props.onAccept();
+    await f.h.settle();
+    state.cancels = 0;
+    state.checkCancel = opts => assert.equal(JSON.parse(opts.body).assignment_revision, accepted.driver_assignment_revision);
+    state.cancel = async () => { throw new state.Error(409, "назначение изменилось", "taxi_driver_assignment_changed"); };
+    state.read = async () => newer;
+    confirmFrom(tripNode(f.h).props, "onCancel");
+    await f.h.settle();
+    assert.equal(state.cancels, 1);
+    assert.equal(tripNode(f.h).props.order.driver_assignment_revision, newer.driver_assignment_revision);
+    assert.equal(storage.get("yuldash.taxi.activeOrder"), String(id));
+    f.h.unmount();
+    console.log("✓ typed assignment conflict refreshes the ride without repeating the cancellation");
   }
 
   const offlineCase = await startFixture(async () => accepted);

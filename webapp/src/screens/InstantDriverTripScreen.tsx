@@ -195,11 +195,18 @@ function useNowMs(active = true): number {
   return now;
 }
 
-type DriverCancelCheck = {
+type DriverCancelIdentity = {
   owner: NonNullable<ReturnType<typeof getAccountSession>>;
   id: number;
-  activeConfirmed: boolean;
+  revision: string;
 };
+type DriverCancelCheck = DriverCancelIdentity & { activeConfirmed: boolean };
+
+function ownsDriverAssignment(identity: DriverCancelIdentity, order: InstantOrder | null) {
+  return order?.id === identity.id && order.role === "driver"
+    && order.driver_id === identity.owner.userId
+    && order.driver_assignment_revision === identity.revision;
+}
 
 export default function InstantDriverTripScreen() {
   const { appText, lang } = useLang();
@@ -238,6 +245,7 @@ export default function InstantDriverTripScreen() {
   const [acceptNote, setAcceptNote] = useState("");
   const [active, setActive] = useState<InstantOrder | null>(null);
   const activeIdRef = useRef<number | null>(null);
+  const activeSnapshot = useRef<InstantOrder | null>(null);
   const cancelInFlight = useRef<AbortController | null>(null);
   const pendingCancel = useRef<DriverCancelCheck | null>(null);
   const advanceInFlight = useRef(false);
@@ -265,7 +273,12 @@ export default function InstantDriverTripScreen() {
 
   const setCurrentActive = useCallback((order: InstantOrder | null) => {
     const id = order?.id ?? null;
-    if (pendingCancel.current && pendingCancel.current.id !== id) {
+    const previous = activeSnapshot.current;
+    if (previous?.id !== order?.id || previous?.driver_assignment_revision !== order?.driver_assignment_revision) {
+      activeReadEpoch.current += 1;
+    }
+    activeSnapshot.current = order;
+    if (pendingCancel.current && !ownsDriverAssignment(pendingCancel.current, order)) {
       pendingCancel.current = null;
       setCheckingCancel(false);
     }
@@ -838,8 +851,19 @@ export default function InstantDriverTripScreen() {
     }
   }
 
-  function ownsCancelSnapshot(check: DriverCancelCheck, order: InstantOrder) {
-    return order?.id === check.id && order.role === "driver" && order.driver_id === check.owner.userId;
+  function captureCancellation(): DriverCancelIdentity | null {
+    const owner = getAccountSession();
+    const revision = active?.driver_assignment_revision;
+    if (!owner || !active || !revision || !/^[0-9a-f]{64}$/.test(revision)) return null;
+    const identity = { owner, id: active.id, revision };
+    return canUseCancellation(identity) ? identity : null;
+  }
+
+  function canUseCancellation(identity: DriverCancelIdentity) {
+    const snapshot = activeSnapshot.current;
+    return mounted.current && isAccountSession(identity.owner)
+      && ownsDriverAssignment(identity, snapshot)
+      && classifyDriverAcceptRead(identity.id, identity.owner.userId, snapshot ?? undefined) === "active";
   }
 
   async function readCancelOutcome(check: DriverCancelCheck, signal: AbortSignal) {
@@ -848,7 +872,13 @@ export default function InstantDriverTripScreen() {
       const order = await apiCommand<InstantOrder>(`/instant/orders/${id}`, owner, {
         method: "GET", oneShot: true, signal,
       });
-      if (!ownsCancelSnapshot(check, order)) return { kind: "unknown" } as const;
+      if (!ownsDriverAssignment(check, order)) {
+        if (classifyDriverAcceptRead(id, owner.userId, order) === "active"
+            && order.driver_assignment_revision && order.driver_assignment_revision !== check.revision) {
+          return { kind: "new-assignment", order } as const;
+        }
+        return { kind: "unknown" } as const;
+      }
       if (["cancelled", "done", "expired"].includes(order.status)) {
         return { kind: "terminal", order: order.status === "expired" ? null : order } as const;
       }
@@ -862,6 +892,11 @@ export default function InstantDriverTripScreen() {
         if (assignment.state === "none") return { kind: "released", replacement: null } as const;
         if (assignment.state === "active" && assignment.order.id !== id) {
           return { kind: "released", replacement: assignment.order } as const;
+        }
+        if (assignment.state === "active" && assignment.order.id === id
+            && assignment.order.driver_assignment_revision
+            && assignment.order.driver_assignment_revision !== check.revision) {
+          return { kind: "new-assignment", order: assignment.order } as const;
         }
       }
     }
@@ -888,7 +923,7 @@ export default function InstantDriverTripScreen() {
     try {
       const outcome = await readCancelOutcome(check, attempt.signal);
       if (attempt.signal.aborted || !mounted.current || pendingCancel.current !== check
-          || !isAccountSession(check.owner) || activeIdRef.current !== check.id) return;
+          || !canUseCancellation(check)) return;
       if (outcome.kind === "unknown") return;
       if (outcome.kind === "still-active") {
         showOwnedOrderWhileChecking(check, outcome.order);
@@ -897,6 +932,10 @@ export default function InstantDriverTripScreen() {
       pendingCancel.current = null;
       setCheckingCancel(false);
       setTripNote("");
+      if (outcome.kind === "new-assignment") {
+        setCurrentActive(outcome.order);
+        return;
+      }
       clearStoredDriverOrder(localStorage, ACTIVE_KEY, check.id);
       setCurrentActive(outcome.kind === "terminal" ? outcome.order : null);
       if (outcome.kind === "released" && outcome.replacement) {
@@ -908,20 +947,18 @@ export default function InstantDriverTripScreen() {
     }
   }
 
-  async function cancelActive(reason: "driver_cancel" | "no_show") {
-    const owner = getAccountSession();
-    // A fresh active snapshot is not proof that the previous cancellation failed.
-    if (!owner || !active || tripBusy || cancelInFlight.current || advanceInFlight.current
-        || pendingCancel.current) return;
-    const id = active.id;
-    const check: DriverCancelCheck = { owner, id, activeConfirmed: false };
+  async function cancelActive(reason: "driver_cancel" | "no_show", identity: DriverCancelIdentity) {
+    // A new assignment is not permission to replay a previous confirmation.
+    if (!identity || !canUseCancellation(identity) || tripBusy || cancelInFlight.current
+        || advanceInFlight.current || pendingCancel.current) return;
+    const { owner, id, revision } = identity;
+    const check: DriverCancelCheck = { ...identity, activeConfirmed: false };
     const attempt = new AbortController();
     cancelInFlight.current = attempt;
     activeReadEpoch.current += 1;
-    const current = () => mounted.current && isAccountSession(owner)
-      && cancelInFlight.current === attempt && activeIdRef.current === id;
+    const current = () => mounted.current && cancelInFlight.current === attempt && canUseCancellation(identity);
     const path = `/instant/orders/${id}`;
-    const terminal = (order: InstantOrder) => ownsCancelSnapshot(check, order)
+    const terminal = (order: InstantOrder) => ownsDriverAssignment(check, order)
       && ["cancelled", "done", "expired"].includes(order.status);
     const apply = (order: InstantOrder | null, confirmed: boolean) => {
       if (!current()) return;
@@ -938,7 +975,8 @@ export default function InstantDriverTripScreen() {
     try {
       try {
         const result = await apiCommand<InstantOrder | { id: number; released: true }>(`${path}/cancel`, owner, {
-          method: "POST", body: JSON.stringify({ reason }), oneShot: true, signal: attempt.signal,
+          method: "POST", body: JSON.stringify({ reason, assignment_revision: revision }),
+          oneShot: true, signal: attempt.signal,
         });
         if (!current()) return;
         if (result?.id === id && "released" in result && result.released === true) {
@@ -951,7 +989,8 @@ export default function InstantDriverTripScreen() {
         }
       } catch (error) {
         if (!current()) return;
-        if (error instanceof ApiError && [400, 401, 409, 422].includes(error.status)) {
+        if (error instanceof ApiError && [400, 401, 409, 422].includes(error.status)
+            && !(error.status === 409 && error.code === "taxi_driver_assignment_changed")) {
           setTripNote(error.message || appText("Не получилось отменить поездку.", "Сәфәрҙе кире алып булманы."));
           return;
         }
@@ -962,6 +1001,10 @@ export default function InstantDriverTripScreen() {
       try {
         const outcome = await readCancelOutcome(check, reader.signal);
         if (!current()) return;
+        if (!reader.signal.aborted && outcome.kind === "new-assignment") {
+          setCurrentActive(outcome.order);
+          return;
+        }
         if (!reader.signal.aborted && outcome.kind === "terminal") {
           apply(outcome.order, false);
           return;
@@ -1017,8 +1060,10 @@ export default function InstantDriverTripScreen() {
         busy={tripBusy || checkingCancel}
         cancelPending={pendingCancel.current !== null}
         onAdvance={advance}
-        onCancel={() => void cancelActive("driver_cancel")}
-        onNoShow={() => void cancelActive("no_show")}
+        captureCancellation={captureCancellation}
+        canUseCancellation={canUseCancellation}
+        onCancel={(identity) => void cancelActive("driver_cancel", identity)}
+        onNoShow={(identity) => void cancelActive("no_show", identity)}
         onRefresh={refreshActive}
         onChat={() => navigate(`/taxi-chat/${active.id}`)}
         onReturnToLine={releaseActive}
@@ -1719,6 +1764,8 @@ function DriverTrip({
   busy,
   cancelPending,
   onAdvance,
+  captureCancellation,
+  canUseCancellation,
   onCancel,
   onNoShow,
   onRefresh,
@@ -1733,8 +1780,10 @@ function DriverTrip({
   busy: boolean;
   cancelPending: boolean;
   onAdvance: (n: "arrived" | "onboard" | "done") => void;
-  onCancel: () => void;
-  onNoShow: () => void;
+  captureCancellation: () => DriverCancelIdentity | null;
+  canUseCancellation: (identity: DriverCancelIdentity) => boolean;
+  onCancel: (identity: DriverCancelIdentity) => void;
+  onNoShow: (identity: DriverCancelIdentity) => void;
   /** Перечитать заказ сразу после ответа на смену адреса или «Стоим». */
   onRefresh: () => void;
   onChat: () => void;
@@ -1743,9 +1792,14 @@ function DriverTrip({
 }) {
   const { appText } = useLang();
   const navigate = useNavigate();
-  const [confirmCancel, setConfirmCancel] = useState(false);
-  const [confirmNoShow, setConfirmNoShow] = useState(false);
-  const cancelDisabled = busy || cancelPending;
+  const [confirmCancel, setConfirmCancel] = useState<DriverCancelIdentity | null>(null);
+  const [confirmNoShow, setConfirmNoShow] = useState<DriverCancelIdentity | null>(null);
+  const assignmentAvailable = captureCancellation() !== null;
+  const cancelDisabled = busy || cancelPending || !assignmentAvailable;
+  useEffect(() => {
+    if (confirmCancel && !canUseCancellation(confirmCancel)) setConfirmCancel(null);
+    if (confirmNoShow && !canUseCancellation(confirmNoShow)) setConfirmNoShow(null);
+  }, [confirmCancel, confirmNoShow, canUseCancellation]);
   const s = order.status;
   const now = useNowMs(s === "arriving");
 
@@ -1886,9 +1940,15 @@ function DriverTrip({
 
             {/* «Пассажир не вышел» — по честному таймингу сервера (5 бесплатных минут + 3 сверх). */}
             {noShowReady && (
-              <button type="button" className="ttrip-noshow" disabled={cancelDisabled} onClick={() => !cancelDisabled && setConfirmNoShow(true)}>
+              <button type="button" className="ttrip-noshow" disabled={cancelDisabled} onClick={() => !cancelDisabled && setConfirmNoShow(captureCancellation())}>
                 {appText("Пассажир не вышел", "Пассажир сыҡманы")}
               </button>
+            )}
+
+            {!assignmentAvailable && !note && (
+              <p className="ttrip__err" role="status">
+                {appText("Отмена пока недоступна. Обновляем заказ.", "Заказды әлегә кире алып булмай. Заказды яңыртабыҙ.")}
+              </p>
             )}
 
             {note && (
@@ -1902,7 +1962,7 @@ function DriverTrip({
               <IconWarn size={18} /> {appText("SOS", "SOS")}
             </button>
 
-            <button type="button" className="ttrip-cancel" onClick={() => !cancelDisabled && setConfirmCancel(true)} disabled={cancelDisabled}>
+            <button type="button" className="ttrip-cancel" onClick={() => !cancelDisabled && setConfirmCancel(captureCancellation())} disabled={cancelDisabled}>
               {appText("Отменить заказ", "Заказды кире алыу")}
             </button>
           </div>
@@ -1921,46 +1981,46 @@ function DriverTrip({
         </div>
       </div>
 
-      {confirmCancel && (
+      {confirmCancel && canUseCancellation(confirmCancel) && (
         <AlertDialog
           title={appText("Отменить поездку?", "Сәфәрҙе кире алаһыңмы?")}
           text={appText(
             "Пассажир получит уведомление, заказ закроется. Это действие нельзя отменить. Один раз — ничего страшного, но если отменять принятые заказы часто, новые заказы какое-то время приходить не будут.",
             "Пассажирға хәбәр бара, заказ ябыла. Был эште кире ҡайтарып булмай. Бер тапҡыр — бер ни ҙә булмай, әммә ҡабул ителгән заказдарҙы йыш кире алһаң, яңы заказдар бер аҙ ваҡыт килмәйәсәк."
           )}
-          onClose={() => !busy && setConfirmCancel(false)}
+          onClose={() => !busy && setConfirmCancel(null)}
           confirm={{
             label: appText("Отменить поездку", "Сәфәрҙе кире алыу"),
             tone: "danger",
             disabled: cancelDisabled,
             onClick: () => {
-              if (cancelDisabled) return;
-              setConfirmCancel(false);
-              onCancel();
+              if (cancelDisabled || !canUseCancellation(confirmCancel)) return;
+              setConfirmCancel(null);
+              onCancel(confirmCancel);
             },
           }}
-          dismiss={{ label: appText("Продолжить поездку", "Сәфәрҙе дауам итеү"), onClick: () => setConfirmCancel(false), disabled: busy }}
+          dismiss={{ label: appText("Продолжить поездку", "Сәфәрҙе дауам итеү"), onClick: () => setConfirmCancel(null), disabled: busy }}
         />
       )}
-      {confirmNoShow && (
+      {confirmNoShow && canUseCancellation(confirmNoShow) && (
         <AlertDialog
           title={appText("Пассажир не вышел?", "Пассажир сыҡманымы?")}
           text={appText(
             "Заказ закроется, пассажиру зафиксируется плата за подачу. Позвони ему перед этим — вдруг уже бежит.",
             "Заказ ябыла, пассажирға килеү хаҡы яҙыла. Тәүҙә шылтыратып ҡара — бәлки, йүгереп килә лә."
           )}
-          onClose={() => setConfirmNoShow(false)}
+          onClose={() => setConfirmNoShow(null)}
           confirm={{
             label: appText("Да, не вышел", "Эйе, сыҡманы"),
             tone: "danger",
             disabled: cancelDisabled,
             onClick: () => {
-              if (cancelDisabled) return;
-              setConfirmNoShow(false);
-              onNoShow();
+              if (cancelDisabled || !canUseCancellation(confirmNoShow)) return;
+              setConfirmNoShow(null);
+              onNoShow(confirmNoShow);
             },
           }}
-          dismiss={{ label: appText("Ещё подожду", "Тағы көтәм"), onClick: () => setConfirmNoShow(false) }}
+          dismiss={{ label: appText("Ещё подожду", "Тағы көтәм"), onClick: () => setConfirmNoShow(null) }}
         />
       )}
     </>
