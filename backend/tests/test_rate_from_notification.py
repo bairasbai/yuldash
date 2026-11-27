@@ -1,5 +1,6 @@
 from datetime import timedelta, timezone
 import json
+from types import SimpleNamespace
 
 import pywebpush
 import pytest
@@ -9,7 +10,7 @@ from sqlmodel import Session, select
 
 from app import rate_reminder, services
 from app.db import engine
-from app.models import AuthSession, Booking, BookingStatus, Rating, Ride, SafetyProfile, User, UserRole, WebPushSubscription
+from app.models import AuthSession, Booking, BookingStatus, InstantOrder, InstantOrderStatus, Rating, Ride, SafetyProfile, User, UserRole, WebPushSubscription
 from app.rating_service import apply_rating, guard_rating_on_pause, guard_rating_window
 from app.services import _rating_web_push
 from app.timeutil import utcnow
@@ -181,6 +182,68 @@ def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_
     assert payload["url"] == "/taxi-drive"
     assert payload["offer_expires_at_ms"] == int(expiry.replace(tzinfo=timezone.utc).timestamp() * 1000)
     assert deliveries[0]["ttl"] == 2
+
+
+@pytest.mark.parametrize("change, expected", [
+    ("unchanged", 2), ("accepted", 0), ("cancelled", 0),
+    ("driver_changed", 0), ("new_offer_same_driver", 0), ("accepted_after_first", 1),
+])
+def test_queued_web_push_checks_current_offer(monkeypatch, user_factory, change, expected):
+    driver = user_factory("QueuedWebDriver", role=UserRole.driver)
+    passenger = user_factory("QueuedWebPassenger")
+    another_driver = user_factory("OtherQueuedWebDriver", role=UserRole.driver)
+    now = utcnow()
+    expiry = now + timedelta(seconds=20)
+    with Session(engine) as session:
+        order = InstantOrder(passenger_id=passenger["id"], status=InstantOrderStatus.offered,
+                             current_offer_driver_id=driver["id"], offer_expires_at=expiry)
+        session.add(order)
+        for i in range(2):
+            sid = f"queued-web-{driver['id']}-{i}"
+            session.add(AuthSession(id=sid, user_id=driver["id"], access_expires_at=expiry))
+            session.flush()
+            session.add(WebPushSubscription(
+                user_id=driver["id"], endpoint=f"https://push.invalid/{sid}",
+                auth_session_id=sid, binding_id=str(i) * 32,
+            ))
+        session.commit()
+        order_id = order.id
+
+    def change_offer():
+        with Session(engine) as session:
+            order = session.get(InstantOrder, order_id)
+            if change in ("accepted", "accepted_after_first", "cancelled"):
+                order.status = (InstantOrderStatus.cancelled if change == "cancelled"
+                                else InstantOrderStatus.accepted)
+                order.current_offer_driver_id = None
+                order.offer_expires_at = None
+            elif change == "driver_changed":
+                order.current_offer_driver_id = another_driver["id"]
+            else:
+                order.offer_expires_at = expiry + timedelta(seconds=1)
+            session.commit()
+
+    jobs, deliveries = [], []
+    def transport(**kwargs):
+        deliveries.append(kwargs)
+        if change == "accepted_after_first" and len(deliveries) == 1:
+            change_offer()
+
+    monkeypatch.setattr(services.settings, "vapid_public_key", "fixture-public")
+    monkeypatch.setattr(services.settings, "vapid_private_key", "fixture-private")
+    monkeypatch.setattr(services.settings, "firebase_credentials", "")
+    monkeypatch.setattr(services, "utcnow", lambda: now)
+    monkeypatch.setattr(services, "_offer_web_push_pool", SimpleNamespace(submit=jobs.append))
+    monkeypatch.setattr(pywebpush, "webpush", transport)
+    with Session(engine) as session:
+        services.send_push(session, driver["id"], "New offer", "Fixture", {
+            "type": "instant_offer", "order_id": str(order_id), "offer_expires_at": expiry.isoformat(),
+        })
+    assert len(jobs) == 1
+    if change not in ("unchanged", "accepted_after_first"):
+        change_offer()
+    jobs[0]()
+    assert len(deliveries) == expected
 
 
 def test_rideshare_reminder_waits_until_morning_and_builds_bound_actions(client, user_factory, monkeypatch):

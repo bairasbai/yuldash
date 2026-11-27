@@ -33,7 +33,7 @@ from .imagemeta import shrink_image, strip_audio_metadata, strip_image_metadata
 from .logs import log
 from .observability import scrub_text
 from .models import (
-    AppSetting, AuthSession, Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder,
+    AppSetting, AuthSession, Block, Booking, BookingStatus, DeviceToken, DriverProfile, FamilySmsLog, InstantOrder, InstantOrderStatus,
     Notification, PickupPoint, Rating, RefreshToken, Ride, RideCategory, RideRequest, RouteWatch, UploadEvent,
     User, UserRole, WebPushSubscription,
 )
@@ -486,12 +486,27 @@ def _queue_taxi_offer_web_push(user_id: int, title: str, body: str, data: dict, 
         log.warning("[WEBPUSH] очередь офферов занята; клиент может получить заказ опросом")
         return
 
+    def offer_is_current() -> bool:
+        # Отдельное короткое чтение перед каждым браузером; между ними оффер может закрыться.
+        order_id = str(data.get("order_id", ""))
+        if not order_id.isascii() or not order_id.isdecimal() or len(order_id) > 19 or int(order_id) >= 2**63:
+            return False
+        with Session(engine) as read_session:
+            return read_session.exec(select(InstantOrder.id).where(
+                InstantOrder.id == int(order_id),
+                InstantOrder.status == InstantOrderStatus.offered,
+                InstantOrder.current_offer_driver_id == user_id,
+                InstantOrder.offer_expires_at == expiry,
+                InstantOrder.offer_expires_at > utcnow(),
+            )).first() is not None
+
     def send() -> None:
         try:
             if expiry > utcnow():
                 # ORM-сессию обработчика нельзя передавать фоновому потоку.
                 with Session(engine) as web_session:
-                    _send_web_push(web_session, user_id, title, body, data, own_read_session=True)
+                    _send_web_push(web_session, user_id, title, body, data,
+                                   before_send=offer_is_current, own_read_session=True)
         except Exception as e:  # noqa: BLE001
             log.warning(f"[WEBPUSH] отправка оффера не прошла: {type(e).__name__}")
         finally:
