@@ -23,9 +23,11 @@ export function DriverStageRecovery({ stages, onChanged }: {
         const age = Date.now() - command.createdAt;
         return (
           <section key={command.key} className="act-card">
-            <p>{command.stage === "boarded"
-              ? appText("Отметка о посадке", "Ултырыу билдәһе")
-              : appText("Отметка о завершении", "Тамамлау билдәһе")} №{command.bookingId}</p>
+            <p>{command.stage === "no_show"
+              ? appText("Отметка о неявке", "Килмәү билдәһе")
+              : command.stage === "boarded"
+                ? appText("Отметка о посадке", "Ултырыу билдәһе")
+                : appText("Отметка о завершении", "Тамамлау билдәһе")} №{command.bookingId}</p>
             <div className="act-card__actions">
               <button type="button" className="btn-ghost" disabled={stages.busy} onClick={async () => {
                 const result = await stages.check(command, false);

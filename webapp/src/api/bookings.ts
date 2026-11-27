@@ -8,7 +8,7 @@
 import { apiGet, apiPost, getAccountSession, isAccountSession } from "./client";
 import { observeTripPass, observeTripPassList, readTripPassRevision, readTripPassRevisions, saveTripPassCode, saveTripPassPayment } from "../utils/offlineTripPass";
 import type { TripPassOwner } from "../utils/tripPass";
-import { driverStep, emitDriverAction } from "../utils/driverActions";
+import { emitDriverAction } from "../utils/driverActions";
 import { readContactClock, setCompletedContactDeadline, type CompletedContactWindow } from "../utils/completedBookingPrivacy";
 
 export type BookingStatus =
@@ -583,26 +583,6 @@ export function withdrawMeetingPoint(
 ): Promise<BookingRow & { already?: boolean }> {
   return apiPost(`/bookings/${bookingId}/meeting-point/withdraw`, {
     proposal_id: proposalId, base_version: baseVersion,
-  });
-}
-
-/**
- * «Пассажир не вышел» — бронь отменяется, места возвращаются в поездку.
- *
- * Отдельно от обычной отмены намеренно: это сигнал доверия «между своими», и водитель
- * не должен выбирать между «соврать, что отменил сам» и «промолчать».
- *
- * Не раньше чем через 15 минут после времени выезда или «Подъезжаю» — что позже (решения
- * 18.10.2026, образец BlaBlaCar): раньше сервер отвечает 409 `no_show_too_early`, а клиент до
- * этого момента (`no_show_at` в строке брони) держит кнопку неактивной с подписью и спрашивает
- * «Точно?» перед отправкой. Поездка с остановками без «Подъезжаю» — 409 `no_show_needs_arriving`.
- */
-export function markNoShow(id: number): Promise<BookingRow> {
-  const owner = getAccountSession();
-  return driverStep(id, true, async () => {
-    const result = await apiPost<BookingRow>(`/bookings/${id}/no-show`, undefined, { _generation: owner?.generation });
-    if (result.id === id) await observeTripPass(owner, id, result, undefined);
-    return result;
   });
 }
 

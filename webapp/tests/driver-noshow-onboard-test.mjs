@@ -11,15 +11,22 @@ import { build } from "esbuild";
 import { fileURLToPath } from "node:url";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const h = (globalThis.__drvPax = { states: [], si: 0, refs: [], ri: 0, effects: [], fetches: 0, noShows: [], arrivings: [] });
+const h = (globalThis.__drvPax = { states: [], si: 0, refs: [], ri: 0, effects: [], fetches: 0, noShows: [], arrivings: [], gpsDone: [], pendingStages: [] });
 const modules = {
   react: `const h=globalThis.__drvPax; export function useState(v){const i=h.si++; if(!(i in h.states))h.states[i]=typeof v==='function'?v():v; return [h.states[i],x=>h.states[i]=typeof x==='function'?x(h.states[i]):x]}; export function useRef(v){const i=h.ri++;return h.refs[i]??=( {current:v} )}; export const useEffect=fn=>{h.effects.push(fn)}; export const useCallback=fn=>fn;`,
   "react/jsx-runtime": `export const Fragment='fragment'; export const jsx=(type,props,key)=>({type,props:props??{},key}); export const jsxs=jsx;`,
   lang: `export const useLang=()=>({lang:'ru',appText:(ru,ba)=>{if(!ba||!ba.trim())throw new Error('одноязычная строка: '+ru);return ru},t:k=>k});`,
-  stageRecovery: `export const DriverStageRecovery=()=>null;`,
-  stageHook: `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
+  stageRecovery: `export const DriverStageRecovery="DriverStageRecovery";`,
+  stageHook: `const h=globalThis.__drvPax; export const useDriverStages=()=>({
+    ready:true,busy:false,pending:h.pendingStages,
+    advance: async (id,stage)=>{h.noShows.push([id,stage]); return h.noShowResult();},
+  });`,
+  driverActions: `const h=globalThis.__drvPax;
+    export const beginDriverClick=(id,rideId,closing)=>({id,rideId,closing});
+    export const finishDriverClick=(ticket,accepted)=>{if(ticket)h.gpsDone.push({ticket,accepted});};
+    export const emitDriverAction=()=>{}, onDriverAction=()=>()=>{}, onDriverRideTerminal=()=>()=>{}, installDriverClickHandler=()=>{};`,
   client: `export class ApiError extends Error { constructor(status,message){super(message);this.status=status;} }; globalThis.__drvPax.ApiError=ApiError; export const getSessionGeneration=()=>"fixture";`,
-  bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markNoShow=id=>{h.noShows.push(id);return h.noShowResult()}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve(); export const answerMeetingPoint=async()=>({});`,
+  bookings: `const h=globalThis.__drvPax; export const fetchDriverBookings=()=>{h.fetches++;return Promise.resolve(h.rows)}; export const markArriving=id=>{h.arrivings.push(id);return Promise.resolve({ok:true,driver_phase:'arriving'})}; export const rateBooking=()=>Promise.resolve(); export const answerMeetingPoint=async()=>({});`,
   states: `export const LoadingList='loading';`,
   icons: `export const IconProfile='icon'; export const IconStar='icon';`,
   card: `export default 'FileIncidentCard';`,
@@ -41,6 +48,7 @@ const result = await build({
           : p.endsWith("/i18n/lang") ? "lang"
           : p.endsWith("/api/client") ? "client"
           : p.endsWith("/utils/useDriverStages") ? "stageHook"
+          : p.endsWith("/driverActions") ? "driverActions"
           : p.endsWith("/DriverStageRecovery") ? "stageRecovery"
           : p.endsWith("/api/bookings") ? "bookings"
           : p.endsWith("/States") ? "states"
@@ -119,13 +127,30 @@ assert.match(text(rowOf(tree, 2)), /Разбор открыт/, "после от
 assert.equal(buttonIn(rowOf(tree, 2), "Сообщить о проблеме"), undefined);
 
 // Гонка: список старый, а посадку уже отметили (второй телефон) — сервер отвечает 409, список перечитываем.
-h.noShowResult = () => Promise.reject(new ApiError(409, "Пассажир уже отмечен в машине — неявку не отметить."));
+h.noShowResult = () => Promise.resolve({ state: "rejected", refusal: new ApiError(409, "Пассажир уже отмечен в машине — неявку не отметить.") });
 const before = h.fetches;
 noShowOf(rowOf(tree, 1)).props.onConfirm();
 await tick(); await tick();
-assert.deepEqual(h.noShows, [1]);
-assert.equal(h.states[4], "Пассажир уже отмечен в машине — неявку не отметить.", "показан ответ сервера");
+assert.deepEqual(h.noShows, [[1, "no_show"]]);
+assert.equal(h.gpsDone.at(-1).accepted, false, "окончательный отказ не завершает GPS-ticket как успех");
 assert.equal(h.fetches, before + 1, "после 409 список перечитан — кнопка сменится на разбор");
+
+h.noShowResult = () => Promise.resolve(undefined);
+noShowOf(rowOf(render(), 1)).props.onConfirm();
+await tick();
+assert.equal(h.gpsDone.at(-1).accepted, false, "при неизвестном исходе текущий GPS-ticket освобождается");
+h.pendingStages = [{ stage: "no_show", bookingId: 1, key: "synthetic", state: "unknown" }];
+const recover = render();
+assert.equal(noShowOf(rowOf(recover, 1)).props.busy, true);
+assert.equal(boardingOf(rowOf(recover, 1)).props.boardingBlocked, true);
+noShowOf(rowOf(recover, 1)).props.onConfirm();
+assert.equal(h.noShows.length, 2, "нерешённый запрос блокирует новое действие");
+h.pendingStages = [];
+h.noShowResult = () => Promise.resolve({ state: "applied", trip: { status: "cancelled" } });
+noShowOf(rowOf(render(), 1)).props.onConfirm();
+await tick();
+assert.equal(h.gpsDone.at(-1).accepted, true, "подтверждённая отмена завершает текущий GPS-ticket");
+tree = render();
 
 // «Сел» / «Отменить» прошли — DriverBoarding просит перечитать: без аргументов (ответ действия —
 // не сигнал отмены запроса) и с показом ошибок в общем месте экрана.
@@ -151,7 +176,7 @@ await tick(); await tick();
 assert.deepEqual(h.arrivings, [4], "«Подъезжаю» ушла по этой брони");
 assert.equal(h.fetches, beforeArriving + 1, "после «Подъезжаю» список перечитан");
 assert.equal(h.states[4], "Пассажир уведомлён", "как тост в приложении: водитель видит, что уведомление ушло");
-assert.deepEqual(h.noShows, [1], "неявка не отправлялась");
+assert.deepEqual(h.noShows, [[1, "no_show"], [1, "no_show"], [1, "no_show"]], "«Подъезжаю» не отправляет неявку");
 
 // Старый сервер без passenger_id и без boarding_undo_sec: объяснение есть, «Не пришёл» по-прежнему нет.
 h.states = ["ready", { session: "fixture", rows: [{ ...rows[1], booking_id: 3, passenger_id: undefined, boarding_undo_sec: undefined }] }, 0, null, "", null, []];
@@ -159,6 +184,11 @@ tree = render();
 assert.equal(noShowOf(rowOf(tree, 3)), undefined);
 assert.equal(boardingOf(rowOf(tree, 3)).props.undoSec, 0, "старый сервер — отменять нечего");
 assert.match(text(rowOf(tree, 3)), DISPUTE);
+
+h.states = ["hidden", { session: "fixture", rows: [] }, 0, null, "", null, []];
+h.pendingStages = [{ stage: "no_show", bookingId: 1, key: "synthetic", state: "unknown" }];
+const hiddenRecovery = all(render()).find(node => node.type === "DriverStageRecovery");
+assert.equal(hiddenRecovery?.props.stages.pending[0].bookingId, 1, "сверка доступна без ответа списка броней");
 
 console.log("✓ подтверждённый пассажир: «Сел» перед «Не пришёл», срок «Не пришёл» — из строки брони");
 console.log("✓ «в пути»: «Не пришёл» спрятан, отметка с окном отмены, разбор внутри неё");

@@ -8,7 +8,11 @@ import {
   type BookingCommandOwner, type DriverStage, type DriverStageCommand,
 } from "../utils/bookingCommandStore";
 
-const scope = "booking.driver_status";
+function stageRequest(stage: DriverStage) {
+  return stage === "no_show"
+    ? { scope: "booking.no_show", endpoint: "no-show", body: undefined }
+    : { scope: "booking.driver_status", endpoint: "driver-status", body: { status: stage } };
+}
 
 export class DriverStageProblem extends Error {
   constructor(readonly kind: "storage" | "expired" | "unknown" | "stale" | "refresh",
@@ -69,6 +73,7 @@ export async function checkDriverStage(
   active(owner, signal);
   const saved = await savedCommand(owner, command.bookingId);
   if (!saved || saved.key !== command.key || (close && saved.state !== "unknown")) throw new DriverStageProblem("stale");
+  const { scope } = stageRequest(saved.stage);
   const path = "/command-intents/" + encodeURIComponent(saved.key);
   const result = await apiCommand<Receipt>(path + (close ? "/close" : ""), owner, close ? {
     method: "POST", signal, body: JSON.stringify({ scope, target_id: saved.bookingId, payload_hash: saved.hash }),
@@ -96,15 +101,19 @@ export async function checkDriverStage(
 }
 
 async function send(owner: BookingCommandOwner, command: DriverStageCommand, signal: AbortSignal): Promise<Result> {
-  const request = await commandFingerprint(scope, command.bookingId, { status: command.stage });
+  const { scope, endpoint, body } = stageRequest(command.stage);
+  const request = await commandFingerprint(scope, command.bookingId, body);
   if (request.payloadHash !== command.hash) throw new DriverStageProblem("storage");
   active(owner, signal);
   try {
-    const result = await apiCommand<{ ok?: boolean; id?: number }>(
-      "/bookings/" + command.bookingId + "/commands/v1/driver-status", owner,
+    const result = await apiCommand<{ ok?: boolean; id?: number; status?: string; no_show?: boolean }>(
+      "/bookings/" + command.bookingId + "/commands/v1/" + endpoint, owner,
       { method: "POST", signal, key: command.key, body: request.wireBody },
     );
-    if (result.ok !== true || result.id !== command.bookingId) throw new DriverStageProblem("unknown");
+    const confirmed = command.stage === "no_show"
+      ? result.status === "cancelled" && result.no_show === true
+      : result.ok === true;
+    if (!confirmed || result.id !== command.bookingId) throw new DriverStageProblem("unknown");
     active(owner, signal);
   } catch (error) {
     active(owner, signal);
@@ -148,9 +157,10 @@ export async function advanceDriverStage(
         (stage === "boarded" && trip.status === "onboard")) {
       return { state: "applied", trip };
     }
-    if (stage === "done" || trip.status !== "confirmed") throw new DriverStageProblem("stale");
+    if (stage !== "boarded" || trip.status !== "confirmed") throw new DriverStageProblem("stale");
   }
-  const request = await commandFingerprint(scope, bookingId, { status: stage });
+  const { scope, body } = stageRequest(stage);
+  const request = await commandFingerprint(scope, bookingId, body);
   active(owner, signal);
   const command = await reserveDriverStageCommand(owner, bookingId, stage, request.payloadHash, prior?.key)
     .catch(() => { throw new DriverStageProblem("storage"); });
