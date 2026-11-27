@@ -10,6 +10,7 @@ import androidx.test.platform.app.InstrumentationRegistry
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.FcmService
 import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.getBookingChatReceipts
 import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.Assert.*

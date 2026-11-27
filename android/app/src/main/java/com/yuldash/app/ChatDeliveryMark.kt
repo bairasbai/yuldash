@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Done
@@ -18,9 +19,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.text.font.FontWeight
 import com.yuldash.app.data.MessageDto
 
 internal enum class ChatDeliveryMark { None, Queued, Failed, Sending, Sent, Delivered, Read }
+
+@Composable
+internal fun ChatSendFailureLabel(rideshare: Boolean, onRetry: () -> Unit) {
+    Text(
+        if (rideshare) appText("Не отправилось · Повторить", "Ебәрелмәне · Ҡабатлау")
+        else appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатлау"),
+        color = CanonRed,
+        fontSize = CanonMicro.fontSize,
+        fontWeight = FontWeight.Bold,
+        modifier = Modifier.padding(top = CanonSpace.xs, end = CanonSpace.xs).bounceClick(onRetry),
+    )
+}
 
 internal fun deliveryMark(
     message: MessageDto, owner: Int, failed: Boolean, queued: Boolean, view: TripChatReceiptView,

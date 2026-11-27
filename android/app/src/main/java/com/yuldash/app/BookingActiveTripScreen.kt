@@ -3376,14 +3376,7 @@ internal fun MessageBubble(
             )
         }
         if (failed) {
-            Text(
-                if (rideshare) appText("Не отправилось · Повторить", "Ебәрелмәне · Ҡабатлау")
-                else appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатлау"),
-                color = CanonRed,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 4.dp, end = 4.dp).bounceClick { onRetry() }
-            )
+            ChatSendFailureLabel(rideshare, onRetry)
         } else if (queued) {
             // F11: сообщение в очереди — уйдёт само, когда вернётся сеть.
             Row(

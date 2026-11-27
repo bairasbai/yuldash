@@ -13,6 +13,8 @@ import com.yuldash.app.data.CHAT_RECEIPT_BATCH_SIZE
 import com.yuldash.app.data.CHAT_RECEIPT_INTERVAL_MS
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.canAcknowledge
+import com.yuldash.app.data.confirmBookingChatReceipts
+import com.yuldash.app.data.getBookingChatReceipts
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers

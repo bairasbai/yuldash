@@ -21,6 +21,7 @@ internal class ChatSocketReceiptTest : SnapshotWiringFixture() {
         val authed = CompletableDeferred<Unit>()
         val sent = CompletableDeferred<JSONObject>()
         val changes = CompletableDeferred<List<ChatSocket.ReceiptEvent>>()
+        val closed = CompletableDeferred<Unit>()
         handler = {
             MockResponse().withWebSocketUpgrade(object : WebSocketListener() {
                 override fun onMessage(webSocket: WebSocket, text: String) {
@@ -33,6 +34,14 @@ internal class ChatSocketReceiptTest : SnapshotWiringFixture() {
                             webSocket.send("""{"type":"receipt_ack","open":true,"receipts_since":"2026-11-21T10:00:00Z","items":[{"message_id":120,"peer_delivered":false,"peer_read":false,"my_delivered":true,"my_read":false}],"next_after_message_id":null,"unread":2}""")
                         }
                     }
+                }
+
+                override fun onClosing(webSocket: WebSocket, code: Int, reason: String) {
+                    webSocket.close(code, null)
+                }
+
+                override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    closed.complete(Unit)
                 }
             })
         }
@@ -49,6 +58,7 @@ internal class ChatSocketReceiptTest : SnapshotWiringFixture() {
             assertEquals(listOf(ChatSocket.ReceiptEvent(110, 8, true, false)), withTimeout(5_000) { changes.await() })
         } finally {
             socket.close()
+            if (authed.isCompleted) withTimeout(5_000) { closed.await() }
         }
     }
 }

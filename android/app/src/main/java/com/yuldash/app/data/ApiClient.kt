@@ -1761,7 +1761,7 @@ object ApiClient {
     suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
         readBookingMessages(bookingId, expectedGeneration = null)
 
-    private suspend fun readBookingMessages(bookingId: Int, expectedGeneration: Long?): Result<List<MessageDto>> =
+    internal suspend fun readBookingMessages(bookingId: Int, expectedGeneration: Long?): Result<List<MessageDto>> =
         call("GET", "/bookings/$bookingId/messages", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
@@ -1769,56 +1769,9 @@ object ApiClient {
             }
         }
 
-    internal suspend fun getBookingChatMessagePage(
-        bookingId: Int, beforeId: Int?, generation: Long,
-    ): Result<BookingChatMessagePage> {
-        val cursor = beforeId?.let { "&before_id=$it" }.orEmpty()
-        val result = call("GET", "/bookings/$bookingId/message-page?limit=100$cursor", null,
-            auth = true, expectedGeneration = generation)
-        if (beforeId == null && (result.exceptionOrNull() as? ApiException)?.status == 404) {
-            return readBookingMessages(bookingId, generation).map { BookingChatMessagePage(it, null, false) }
-        }
-        return result.mapCatching(::parseBookingChatMessagePage)
-    }
-
-    internal suspend fun getBookingChatReceipts(
-        bookingId: Int, afterId: Int?, generation: Long, limit: Int = 500,
-    ): Result<BookingChatReceiptPage> {
-        val cursor = afterId?.let { "&after_message_id=$it" }.orEmpty()
-        val result = call("GET", "/bookings/$bookingId/receipts?limit=$limit$cursor", null,
-            auth = true, expectedGeneration = generation)
-        if (afterId == null && (result.exceptionOrNull() as? ApiException)?.status == 404) {
-            return Result.success(BookingChatReceiptPage(null))
-        }
-        return result.mapCatching(::parseBookingChatReceiptPage)
-    }
-
-    internal suspend fun confirmBookingChatReceipts(
-        bookingId: Int, delivered: Set<Int>, read: Set<Int>, generation: Long,
-    ): Result<BookingChatReceiptPage> = call(
-        "POST", "/bookings/$bookingId/receipts", bookingChatReceiptBody(delivered, read),
-        auth = true, expectedGeneration = generation,
-    ).mapCatching(::parseBookingChatReceiptPage)
-
     internal fun fireBookingChatReceiptHint(bookingId: Int, messageId: Int, recipient: Int, generation: Long) {
         val owner = bookingChatReceiptOwner(generation)?.takeIf { it.userId == recipient } ?: return
-        bg.launch {
-            val page = getBookingChatReceipts(bookingId, null, generation, limit = 1).getOrNull() ?: return@launch
-            val since = page.since ?: return@launch
-            val message = getBookingChatMessagePage(bookingId, null, generation).getOrNull()?.messages
-                ?.firstOrNull { it.id == messageId && it.canAcknowledge(recipient, since) } ?: return@launch
-            val storage = BookingChatReceiptStore(owner, bookingId)
-            if (runCatching { storage.save(listOf(message), read = false) }.isFailure) return@launch
-            val wait = runCatching { storage.claim(System.currentTimeMillis()) }.getOrNull() ?: return@launch
-            // If foreground or another hint has just sent a batch, the durable queue waits for reconnection/opening.
-            if (wait > 0) return@launch
-            val ids = setOf(messageId)
-            val reply = confirmBookingChatReceipts(bookingId, ids, emptySet(), generation).getOrNull() ?: return@launch
-            runCatching {
-                if (reply.since == since) storage.settle(ids, reply.items)
-                else if (reply.since == null) storage.clear()
-            }
-        }
+        bg.launch { deliverBookingChatReceiptHint(bookingId, messageId, owner) }
     }
 
     // ---------- Чат такси-заказа (B7b-1): та же механика, привязка к order_id ----------
@@ -6800,21 +6753,6 @@ data class TripShareDto(
     val link: String? = null,
 )
 
-/** Сообщение чата с сервера. */
-data class MessageDto(
-    val id: Int,
-    val text: String,
-    val senderId: Int,
-    val voiceUrl: String? = null,
-    val deleted: Boolean = false,
-    val edited: Boolean = false,
-    val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка-предупреждение получателю
-    val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
-    val hiddenForMe: Boolean = false,
-    val requestId: String = "",
-    val createdAt: String? = null,
-)
-
 /** Диалог в инбоксе: бронь, с кем и последнее сообщение. */
 
 
@@ -6989,22 +6927,7 @@ internal fun parseAdminAdDto(a: JSONObject): AdminAdDto {
             )
 }
 
-internal fun parseMessageDto(o: JSONObject): MessageDto =
-    MessageDto(
-        id = o.optInt("id"),
-        text = o.optString("text"),
-        senderId = o.optInt("sender_id"),
-        voiceUrl = o.optNullableString("voice_url"),
-        deleted = o.optBoolean("deleted"),
-        edited = o.optBoolean("edited"),
-        flag = o.optString("flag"),
-        fromAdmin = o.optBoolean("from_admin"),
-        hiddenForMe = o.optBoolean("hidden_for_me"),
-        requestId = o.optString("request_id"),
-        createdAt = o.optNullableString("created_at") ?: o.optNullableString("timestamp"),
-    )
-
-private fun JSONObject.optNullableString(key: String): String? {
+internal fun JSONObject.optNullableString(key: String): String? {
     return normalizeOptionalJsonString(
         hasValue = has(key),
         isJsonNull = isNull(key),
