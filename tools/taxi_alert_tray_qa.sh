@@ -15,6 +15,11 @@ timeout 75 adb shell am instrument -w \
     -e taxiAlertTray isolated \
     -e class com.yuldash.app.TaxiAlertTrayInstrumentedTest \
     com.yuldash.app.test/androidx.test.runner.AndroidJUnitRunner | tr -d '\r' | tee "$result"
-grep -Fxq "INSTRUMENTATION_STATUS: taxi_tray_result=verified" "$result"
-grep -Eq '^OK \(1 test\)[[:space:]]*$' "$result"
-! grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|shortMsg=' "$result"
+# Android's pretty instrumentation output may prepend the current class without a newline.
+marker='^(com\.yuldash\.app\.TaxiAlertTrayInstrumentedTest:)?INSTRUMENTATION_STATUS: taxi_tray_result=verified$'
+if [[ $(grep -Ec "$marker" "$result") != 1 ]] ||
+   [[ $(grep -Ec '^OK \(1 test\)[[:space:]]*$' "$result") != 1 ]] ||
+   grep -Eq 'FAILURES|INSTRUMENTATION_FAILED|shortMsg=' "$result"; then
+    echo "Android tray result missing, duplicated or failed" >&2
+    exit 1
+fi
