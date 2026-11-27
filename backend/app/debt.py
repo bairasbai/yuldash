@@ -461,7 +461,7 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
         select(CommissionDebt).where(CommissionDebt.order_id.in_(order_ids))
     ).all() if d.order_id is not None}
     online_fees = _online_order_fees(
-        session, driver_id, [o.id for o in orders if o.paid and not o.promo_discount_kop],
+        session, driver_id, [o.id for o in orders if o.paid],
     )
     # Компенсации промокодов по этим заказам (обычно пусто — лишний запрос не делаем).
     comps: dict = {}
@@ -549,17 +549,23 @@ def effective_order_fee_percent(order: InstantOrder, fee_kop: int) -> float:
     return round(100 * fee_kop / base_kop, 2) if base_kop else 0.0
 
 
-def driver_order_fee(session: Session, order: InstantOrder, driver_id: int) -> tuple[float, int]:
-    """В завершённом заказе без промокода показываем записанную сумму, а не новую ставку."""
-    if (order.status == InstantOrderStatus.done and not order.promo_discount_kop
-            and order.driver_id == driver_id):
+def driver_order_income(session: Session, order: InstantOrder, driver_id: int, gross_kop: int
+                        ) -> tuple[float, int, int, int]:
+    """Ставка, удержание, доплата промо и чистый доход. В активном заказе — ориентир."""
+    if order.status == InstantOrderStatus.done and order.driver_id == driver_id:
+        discount = max(int(order.promo_discount_kop or 0), 0)
+        comp = _promo_comp_kop(session, [order.id]) if discount else 0
         fee_kop = _online_order_fees(session, driver_id, [order.id]).get(order.id) if order.paid else None
         if fee_kop is None and order.payment_method == "cash":
             fee_kop = recorded_order_debt(session, order.id, driver_id)
+            if fee_kop is None and comp > 0:
+                fee_kop = 0
         if fee_kop is not None:
-            return effective_order_fee_percent(order, fee_kop), fee_kop
+            net = max(gross_kop - discount - fee_kop + comp, 0)
+            return effective_order_fee_percent(order, fee_kop), fee_kop, comp, net
     percent = driver_fee_percent(session, driver_id, order.created_at or utcnow())
-    return percent, order_commission_kop(order, percent)
+    fee_kop = order_commission_kop(order, percent)
+    return percent, fee_kop, 0, max(gross_kop - fee_kop, 0)
 
 
 def _clock_starts(now: datetime) -> datetime:

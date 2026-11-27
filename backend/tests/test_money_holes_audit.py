@@ -246,6 +246,20 @@ def test_card_and_completion_preserve_platform_promo(
         rows = session.exec(select(LedgerEntry).where(LedgerEntry.order_id == oid)).all()
         assert [row.amount_kop for row in rows if row.kind == LedgerKind.earn] == [charged]
         assert [row.amount_kop for row in rows if row.kind == LedgerKind.fee] == ([-fee] if fee else [])
+    order_path = f"/instant/orders/{oid}"
+    history = client.get("/driver/taxi-rides", headers=driver["auth"]).json()
+    record = next(ride for ride in history["rides"] if ride["order_id"] == oid)
+    assert (record["fee_kop"], record["net_kop"], record["promo_comp_kop"]) == (fee, 58200, credit)
+    for endpoint in (order_path, f"{order_path}/receipt"):
+        resp = client.get(endpoint, headers=driver["auth"])
+        assert resp.status_code == 200, resp.text
+        view = resp.json()
+        assert (view["driver_fee_kop"], view["driver_net_kop"], view["driver_promo_comp_kop"]) == (
+            fee, 58200, credit,
+        )
+    receipt = client.get(f"{order_path}/receipt", headers=passenger["auth"]).json()
+    assert receipt["amount_kop"] == charged
+    assert not {"driver_fee_kop", "driver_net_kop", "driver_promo_comp_kop"} & receipt.keys()
 
 
 # ============ 2. «Не нажал Завершил» больше не бесплатно ============

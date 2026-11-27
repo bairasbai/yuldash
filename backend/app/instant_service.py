@@ -3812,15 +3812,16 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
 
     # Водителю — серверный upfront net, тем же Decimal-расчётом, что фактический долг.
     # Пассажиру комиссию водителя не раскрываем: его источник правды — итоговая цена поездки.
-    driver_gross_kop = driver_fee_kop = driver_net_kop = 0
+    driver_gross_kop = driver_fee_kop = driver_promo_comp_kop = driver_net_kop = 0
     driver_fee_percent = 0.0
     offer_pickup_km = offer_pickup_eta_min = None
     if role == "driver":
         from . import debt as debt_mod
         price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
         driver_gross_kop = max(price_rub, 0) * 100
-        driver_fee_percent, driver_fee_kop = debt_mod.driver_order_fee(session, order, viewer.id)
-        driver_net_kop = max(driver_gross_kop - driver_fee_kop, 0)
+        driver_fee_percent, driver_fee_kop, driver_promo_comp_kop, driver_net_kop = debt_mod.driver_order_income(
+            session, order, viewer.id, driver_gross_kop,
+        )
         # Оффер должен отвечать на главный вопрос водителя: сколько ехать ДО пассажира.
         # `pickup_km` в заказе относится к цене и мог быть рассчитан по другой ближайшей
         # машине при создании. Здесь берём живую presence-точку именно текущего кандидата.
@@ -3920,6 +3921,7 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         "driver_gross_kop": driver_gross_kop,
         "driver_fee_kop": driver_fee_kop,
         "driver_net_kop": driver_net_kop,
+        **({"driver_promo_comp_kop": driver_promo_comp_kop} if role == "driver" else {}),
         "driver_fee_percent": driver_fee_percent,
         # Предзаказ «на время»: null у обычного заказа; iso-время подачи у scheduled.
         "scheduled_at": order.scheduled_at.isoformat() if order.scheduled_at else None,

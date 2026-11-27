@@ -1386,15 +1386,18 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
     # в Модели А он платит водителю напрямую, наши 15% через него не проходят, и строка
     # «комиссия платформы 45 ₽» была бы неправдой о его собственных деньгах.
     if role == "driver":
-        fee_percent, fee_kop = debt_mod.driver_order_fee(session, order, user.id)
         gross_kop = max(int(order.price_final if order.price_final is not None
                             else order.price_estimate), 0) * 100
+        fee_percent, fee_kop, promo_comp_kop, net_kop = debt_mod.driver_order_income(
+            session, order, user.id, gross_kop,
+        )
         commission_free_kop = isv.order_compensation_rub(order) * 100
         body.update({
             "driver_fee_percent": fee_percent,
             "driver_fee_kop": fee_kop,
             "driver_gross_kop": gross_kop,
-            "driver_net_kop": max(gross_kop - fee_kop, 0),
+            "driver_net_kop": net_kop,
+            "driver_promo_comp_kop": promo_comp_kop,
             # С компенсаций комиссия не берётся — водителю важно видеть это отдельной цифрой,
             # иначе процент на экране не сходится с вычетом, и он считает нас лгунами.
             "commission_free_kop": commission_free_kop,
