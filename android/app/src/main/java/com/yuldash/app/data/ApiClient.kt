@@ -5169,6 +5169,11 @@ object ApiClient {
         call("POST", "/instant/orders/$orderId/cash-received", JSONObject(), auth = true, expectedGeneration = expectedGeneration)
             .map { it.optString("status") }
 
+    /** Водитель подтверждает перевод напрямую, без списания через Юлдаш. */
+    suspend fun instantDirectSbpReceived(orderId: Int, expectedGeneration: Long? = null): Result<String> =
+        call("POST", "/instant/orders/$orderId/direct-sbp-received", JSONObject(), auth = true,
+            expectedGeneration = expectedGeneration).map { it.optString("status") }
+
     /** «Я забыл вещь в машине» → чат заказа снова открыт на запись 48 часов (обеим сторонам). */
     suspend fun instantLostItem(orderId: Int, expectedGeneration: Long? = null): Result<String> =
         call("POST", "/instant/orders/$orderId/lost-item", JSONObject(), auth = true, expectedGeneration = expectedGeneration)

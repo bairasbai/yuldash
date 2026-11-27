@@ -23,7 +23,7 @@ from app.config import settings
 from app.db import engine
 from app.models import (
     CommissionDebt, DebtStatus, InstantOrder, InstantOrderStatus as S,
-    LedgerEntry, LedgerKind, UserRole,
+    LedgerEntry, LedgerKind, Payment, UserRole,
 )
 from app.timeutil import utcnow
 
@@ -260,6 +260,62 @@ def test_card_and_completion_preserve_platform_promo(
     receipt = client.get(f"{order_path}/receipt", headers=passenger["auth"]).json()
     assert receipt["amount_kop"] == charged
     assert not {"driver_fee_kop", "driver_net_kop", "driver_promo_comp_kop"} & receipt.keys()
+
+
+def test_direct_sbp_confirmation_preserves_method_and_recorded_fee(
+    client, user_factory, monkeypatch,
+):
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    d = user_factory("DirectSbpDriver", role=UserRole.driver)
+    p = user_factory("DirectSbpPassenger")
+    oid = _order(p["id"], d["id"], status=S.done, price=600, payment_method="sbp")
+    root = f"/instant/orders/{oid}"
+    assert client.post(f"{root}/done", headers=d["auth"]).status_code == 200
+    assert _debt_row(oid).amount_kop == 1800
+    monkeypatch.setattr(settings, "fee_tier1_percent", 8.0)
+
+    before = client.get(f"{root}/receipt", headers=d["auth"]).json()
+    assert not before["paid"] and before["driver_fee_kop"] == 1800
+    assert client.post(f"{root}/cash-received", headers=d["auth"]).status_code == 409
+    direct = f"{root}/direct-sbp-received"
+    assert client.post(direct, headers=p["auth"]).status_code == 403
+    with Session(engine) as session:
+        checkout = Payment(user_id=p["id"], purpose="ride", order_id=oid, method="yookassa", amount_kop=60000)
+        session.add(checkout)
+        session.commit()
+        checkout_id = checkout.id
+    assert client.post(direct, headers=d["auth"]).status_code == 409
+    with Session(engine) as session:
+        assert not session.get(InstantOrder, oid).paid
+        checkout = session.get(Payment, checkout_id)
+        assert checkout.status == "pending"
+        checkout.status = "canceled"
+        session.commit()
+    first = client.post(direct, headers=d["auth"])
+    assert first.status_code == 200, first.text
+    assert first.json() == {"status": "paid", "method": "sbp", "amount_kop": 60000}
+    assert client.post(direct, headers=d["auth"]).json() == {"status": "already_paid", "method": "sbp"}
+    for owner in (d, p):
+        receipt = client.get(f"{root}/receipt", headers=owner["auth"]).json()
+        assert receipt["paid"] and receipt["payment_method"] == "sbp"
+        assert receipt["amount_kop"] == 60000
+        if owner == d:
+            assert (receipt["driver_fee_kop"], receipt["driver_net_kop"]) == (1800, 58200)
+        else:
+            assert "driver_fee_kop" not in receipt
+    with Session(engine) as session:
+        assert not session.exec(select(LedgerEntry).where(LedgerEntry.order_id == oid)).all()
+        assert _debt_row(oid).amount_kop == 1800
+
+
+def test_provider_sbp_continues_to_post_wallet_earnings(user_factory, monkeypatch):
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    d = user_factory("ProviderSbpDriver", role=UserRole.driver)
+    p = user_factory("ProviderSbpPassenger")
+    oid = _order(p["id"], d["id"], status=S.done, price=600, payment_method="sbp")
+    with Session(engine) as session:
+        assert ledger.settle_instant_order(session, oid, "sbp", 60000) == "settled"
+        assert ledger.driver_balance(session, d["id"]) == 58200
 
 
 # ============ 2. «Не нажал Завершил» больше не бесплатно ============

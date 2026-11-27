@@ -428,6 +428,7 @@ class ApiClientEndpointContractTest {
         Ep("waitForDriver", "POST", "/instant/orders/1/wait") { ApiClient.waitForDriver(orderId = 1) },
         Ep("getInstantReceipt", "GET", "/instant/orders/1/receipt") { ApiClient.getInstantReceipt(orderId = 1) },
         Ep("instantCashReceived", "POST", "/instant/orders/1/cash-received") { ApiClient.instantCashReceived(orderId = 1) },
+        Ep("instantDirectSbpReceived", "POST", "/instant/orders/1/direct-sbp-received") { ApiClient.instantDirectSbpReceived(orderId = 1) },
         Ep("instantLostItem", "POST", "/instant/orders/1/lost-item") { ApiClient.instantLostItem(orderId = 1) },
         Ep("getInstantTipInfo", "GET", "/instant/orders/1/tip") { ApiClient.getInstantTipInfo(orderId = 1) },
         Ep("sayInstantThanks", "POST", "/instant/orders/1/thanks") { ApiClient.sayInstantThanks(orderId = 1) },

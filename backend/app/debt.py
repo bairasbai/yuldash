@@ -556,7 +556,7 @@ def driver_order_income(session: Session, order: InstantOrder, driver_id: int, g
         discount = max(int(order.promo_discount_kop or 0), 0)
         comp = _promo_comp_kop(session, [order.id]) if discount else 0
         fee_kop = _online_order_fees(session, driver_id, [order.id]).get(order.id) if order.paid else None
-        if fee_kop is None and order.payment_method == "cash":
+        if fee_kop is None and order.payment_method in {"cash", "sbp"}:
             fee_kop = recorded_order_debt(session, order.id, driver_id)
             if fee_kop is None and comp > 0:
                 fee_kop = 0

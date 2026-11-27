@@ -17,7 +17,7 @@ from ..config import settings as app_settings
 from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
-from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
+from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, Payment, PriceComplaint,
                       Rating, Settlement, User)
 from ..safety_logic import account_paused, ensure_active
 from ..security import current_user, require_telegram_admin
@@ -1573,15 +1573,11 @@ def ack_payment_method(order_id: int, user: User = Depends(current_user),
     return {"payment_method": order.payment_method or isv.PAY_NEGOTIATE, "acked": True}
 
 
-@router.post("/instant/orders/{order_id}/cash-received")
-def cash_received(order_id: int, user: User = Depends(current_user),
-                  session: Session = Depends(get_session)):
-    """Водитель подтверждает, что получил НАЛИЧНЫЕ за поездку.
-
-    Раньше отметить оплату мог ТОЛЬКО пассажир: он вышел из машины и закрыл приложение —
-    и заказ навсегда оставался «не оплачен», а в отчётах зияла дыра (аудит 2026-07-26).
-    Деньги при этом мимо платформы (Модель А) — ledger не двигаем, только фиксируем факт."""
-    order = session.get(InstantOrder, order_id)
+def _confirm_direct_order_payment(
+    order_id: int, user: User, session: Session, method: str,
+):
+    """Подтверждаем деньги, полученные водителем напрямую, без проводок провайдера."""
+    order = session.get(InstantOrder, order_id, with_for_update=True, populate_existing=True)
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     if order.driver_id != user.id:
@@ -1591,10 +1587,41 @@ def cash_received(order_id: int, user: User = Depends(current_user),
                    "Түләүҙе сәфәр тамамланғандан һуң билдәләп була")
     if order.paid:
         return {"status": "already_paid", "method": order.payment_method}
-    from .. import ledger
-    amount_kop = promo_ride.payable_kop(order)   # наличными водитель берёт цену МИНУС скидку
-    ledger.settle_instant_order(session, order.id, "cash", amount_kop)
-    return {"status": "paid", "method": "cash", "amount_kop": amount_kop}
+    expected = ({None, "", isv.PAY_CASH, isv.PAY_NEGOTIATE}
+                if method == isv.PAY_CASH else {isv.PAY_SBP})
+    if order.payment_method not in expected:
+        raise herr(409, "Способ оплаты не совпадает с заказом", "Түләү ысулы заказға тап килмәй")
+    amount_kop = promo_ride.payable_kop(order)
+    if method == isv.PAY_SBP:
+        if amount_kop <= 0:
+            raise herr(409, "У заказа нет суммы к оплате", "Заказда түләргә сумма юҡ")
+        # Читаем без блокировки Payment: обработчик банка берёт её до блокировки заказа.
+        # Новый банковский счёт создаётся под той же блокировкой заказа.
+        pending = session.exec(select(Payment.id).where(
+            Payment.order_id == order.id, Payment.user_id == order.passenger_id,
+            Payment.purpose == "ride", Payment.status == "pending",
+        ).limit(1)).first()
+        if pending is not None:
+            raise herr(409, "Онлайн-оплата ещё проверяется", "Онлайн түләү әле тикшерелә")
+    order.paid = True
+    order.payment_method = method
+    session.add(order)
+    session.commit()
+    return {"status": "paid", "method": method, "amount_kop": amount_kop}
+
+
+@router.post("/instant/orders/{order_id}/cash-received")
+def cash_received(order_id: int, user: User = Depends(current_user),
+                  session: Session = Depends(get_session)):
+    """Водитель подтверждает получение наличных или выбрал их на месте."""
+    return _confirm_direct_order_payment(order_id, user, session, isv.PAY_CASH)
+
+
+@router.post("/instant/orders/{order_id}/direct-sbp-received")
+def direct_sbp_received(order_id: int, user: User = Depends(current_user),
+                        session: Session = Depends(get_session)):
+    """Водитель подтверждает перевод по СБП напрямую, не оплату через Юлдаш."""
+    return _confirm_direct_order_payment(order_id, user, session, isv.PAY_SBP)
 
 
 @router.post("/instant/orders/{order_id}/lost-item")

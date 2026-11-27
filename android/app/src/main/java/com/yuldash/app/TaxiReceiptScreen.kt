@@ -760,7 +760,9 @@ private fun TaxiAfterRideActions(
 
         // Водитель: отметить наличные. Без этой кнопки заказ навсегда «не оплачен», если
         // пассажир вышел и закрыл приложение (аудит 2026-07-26).
-        if (isDriver && !r.paid && !cashMarked) {
+        val directSbp = r.paymentMethod == "sbp"
+        val canConfirmDirect = directSbp || r.paymentMethod in setOf("", "cash", "negotiate")
+        if (isDriver && !r.paid && !cashMarked && canConfirmDirect) {
             AppCard(modifier = Modifier.appearIn(4)) {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     TaxiActionHead(
@@ -768,20 +770,27 @@ private fun TaxiAfterRideActions(
                         iconBg = CanonWarnBg,
                         iconTint = CanonWarn,
                         title = appText("Оплата не отмечена", "Түләү билдәләнмәгән"),
-                        text = appText(
-                            "Если деньги на руках — отметь. Так поездка закроется честно, а в отчёте не будет дыры.",
-                            "Аҡса ҡулда булһа — билдәлә. Шунда сәфәр намыҫлы ябыла, отчётта тишек ҡалмай.",
+                        text = if (directSbp) appText(
+                            "Отметь, только когда перевод поступит на твой счёт.",
+                            "Күсереү һинең иҫәпкә килгәс кенә билдәлә.",
+                        ) else appText(
+                            "Если получил наличные, отметь оплату.", "Ҡулаҡса алһаң, түләүҙе билдәлә.",
                         ),
                     )
                     AppButton(
-                        text = appText("Наличные получил", "Аҡсаны алдым"),
+                        text = if (directSbp) appText("Перевод по СБП получил", "СБП аша күсереүҙе алдым")
+                        else appText("Наличные получил", "Аҡсаны алдым"),
                         onClick = {
                             if (!isCurrent() || cashBusy || cashMarked || r.paid) return@AppButton
                             cashBusy = true
                             scope.launch {
                                 if (!isCurrent()) return@launch
-                                ApiClient.instantCashReceived(r.orderId, expectedGeneration = paymentOwner)
-                                    .onSuccess { status -> commit {
+                                val result = if (directSbp) {
+                                    ApiClient.instantDirectSbpReceived(r.orderId, expectedGeneration = paymentOwner)
+                                } else {
+                                    ApiClient.instantCashReceived(r.orderId, expectedGeneration = paymentOwner)
+                                }
+                                result.onSuccess { status -> commit {
                                         if (status == "paid" || status == "already_paid") {
                                             cashMarked = true; errText = null; onPaidLocally()
                                         } else errText = errFallback

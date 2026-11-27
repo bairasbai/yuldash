@@ -754,6 +754,11 @@ export function markCashReceived(
   return apiPost(`/instant/orders/${orderId}/cash-received`);
 }
 
+/** Водитель подтверждает перевод на свой счёт, не оплату через Юлдаш. */
+export function markDirectSbpReceived(orderId: number): ReturnType<typeof markCashReceived> {
+  return apiPost(`/instant/orders/${orderId}/direct-sbp-received`);
+}
+
 /** «Забыл вещь в машине» — открывает чат заказа на запись ещё на 48 часов (обе стороны). */
 export function reportLostItem(orderId: number): Promise<{ ok?: boolean; until?: string }> {
   return apiPost(`/instant/orders/${orderId}/lost-item`);

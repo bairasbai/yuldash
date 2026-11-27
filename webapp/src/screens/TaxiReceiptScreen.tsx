@@ -15,6 +15,7 @@ import { ApiError } from "../api/client";
 import {
   fetchTaxiReceipt,
   markCashReceived,
+  markDirectSbpReceived,
   rateInstantOrder,
   reportLostItem,
   type TaxiReceipt,
@@ -183,11 +184,11 @@ export default function TaxiReceiptScreen() {
     }
   }
 
-  async function cashReceived() {
+  async function cashReceived(method: "cash" | "sbp") {
     if (busy) return;
     setBusy("cash");
     try {
-      await markCashReceived(id);
+      await (method === "sbp" ? markDirectSbpReceived(id) : markCashReceived(id));
       setErrText("");
       load(); // перечитываем — статус оплаты меняет весь блок
     } catch (e) {
@@ -257,6 +258,8 @@ export default function TaxiReceiptScreen() {
 
   const r = state.kind === "ready" ? state.r : null;
   const isDriver = r?.role === "driver";
+  const directSbp = r?.payment_method === "sbp";
+  const canConfirmDirect = directSbp || ["", "cash", "negotiate"].includes(r?.payment_method ?? "");
   const driverMoney = r ? taxiReceiptDriverMoney(r) : null;
   const distanceText = r && r.distance_km != null && r.distance_km > 0 ? `${r.distance_km.toFixed(1).replace(".", ",")} ${appText("км", "км")}` : "";
   const meta = r ? [r.done_at ? formatWhen(r.done_at, ru) : "", distanceText].filter(Boolean).join("  ·  ") : "";
@@ -453,7 +456,7 @@ export default function TaxiReceiptScreen() {
               </div>
             )}
 
-            {isDriver && !r.paid && (
+            {isDriver && !r.paid && canConfirmDirect && (
               /* Без этой кнопки заказ навсегда «не оплачен», если пассажир вышел и закрыл приложение. */
               <div className="pcard">
                 <div className="rcpt-cash__head">
@@ -461,15 +464,15 @@ export default function TaxiReceiptScreen() {
                   <span className="acard__stack acard__grow">
                     <strong className="pcab__name">{appText("Оплата не отмечена", "Түләү билдәләнмәгән")}</strong>
                     <span className="acard__sub">
-                      {appText(
-                        "Если деньги на руках — отметь. Так поездка закроется честно, а в отчёте не будет дыры.",
-                        "Аҡса ҡулда булһа — билдәлә. Шунда сәфәр намыҫлы ябыла, отчётта тишек ҡалмай."
-                      )}
+                      {directSbp
+                        ? appText("Отметь, только когда перевод поступит на твой счёт.", "Күсереү һинең иҫәпкә килгәс кенә билдәлә.")
+                        : appText("Если получил наличные, отметь оплату.", "Ҡулаҡса алһаң, түләүҙе билдәлә.")}
                     </span>
                   </span>
                 </div>
-                <button type="button" className="btn-primary pform__submit" onClick={cashReceived} disabled={busy === "cash"}>
-                  <IconWallet size={20} /> {busy === "cash" ? appText("Отмечаем…", "Билдәләйбеҙ…") : appText("Наличные получил", "Аҡсаны алдым")}
+                <button type="button" className="btn-primary pform__submit" onClick={() => void cashReceived(directSbp ? "sbp" : "cash")} disabled={busy === "cash"}>
+                  <IconWallet size={20} /> {busy === "cash" ? appText("Отмечаем…", "Билдәләйбеҙ…")
+                    : directSbp ? appText("Перевод по СБП получил", "СБП аша күсереүҙе алдым") : appText("Наличные получил", "Аҡсаны алдым")}
                 </button>
               </div>
             )}

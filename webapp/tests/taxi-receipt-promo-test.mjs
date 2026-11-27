@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { all, bundleComponent, checker, langMock, mount } from "./shallow-harness.mjs";
+import { all, bundleComponent, button, checker, langMock, mount } from "./shallow-harness.mjs";
 
 const money = await bundleComponent("src/utils/taxiReceiptDriverMoney.ts", { exportName: "taxiReceiptDriverMoney" });
 const t = checker();
@@ -37,7 +37,7 @@ for (const lang of ["ru", "ba"]) {
       "/i18n/lang": langMock(lang),
       "react-router-dom": 'export const useNavigate=()=>()=>{},useParams=()=>({orderId:"42"});',
       "/api/client": "export class ApiError extends Error {}",
-      "/api/instant": "export const fetchTaxiReceipt=async()=>globalThis.__promoReceipt; export const markCashReceived=()=>{},rateInstantOrder=()=>{},reportLostItem=()=>{};",
+      "/api/instant": "export const fetchTaxiReceipt=async()=>globalThis.__promoReceipt; export const markCashReceived=async id=>globalThis.__directCalls.push([\"cash\",id]),markDirectSbpReceived=async id=>globalThis.__directCalls.push([\"sbp\",id]),rateInstantOrder=()=>{},reportLostItem=()=>{};",
       "/api/family": "export const fetchOrderTip=async()=>({}),thankOrder=async()=>({});",
       "/utils/format": "export const kopExactLabel=k=>String(k/100)+' ₽',formatWhen=()=>'',payMethodLabel=()=>'';",
     },
@@ -48,14 +48,35 @@ for (const lang of ["ru", "ba"]) {
     net: local("Чистыми тебе", "Һиңә таҙа килем"),
     pending: local("Расчёт для водителя", "Йөрөтөүсе өсөн иҫәп"),
   };
-  async function rows(extra = {}) {
+  async function open(extra = {}) {
     globalThis.__promoReceipt = { ...promo, order_id: 42, ride_price: 600, paid: true, ...extra };
     const screen = mount(Screen, {});
     screen.render();
     await screen.settle();
+    return screen;
+  }
+  async function rows(extra = {}) {
+    const screen = await open(extra);
     return new Map(all(screen.tree).filter(n => "label" in n.props && "value" in n.props)
       .map(n => [n.props.label, n.props.value]));
   }
+  await t.test(lang + " sends direct SBP to its own action and keeps cash distinct", async () => {
+    globalThis.__directCalls = [];
+    const sbp = local("Перевод по СБП получил", "СБП аша күсереүҙе алдым");
+    const cash = local("Наличные получил", "Аҡсаны алдым");
+    const driver = await open({ paid: false, payment_method: "sbp" });
+    assert.ok(!button(driver.tree, cash));
+    button(driver.tree, sbp).props.onClick();
+    await driver.settle();
+    const cashDriver = await open({ paid: false, payment_method: "cash" });
+    button(cashDriver.tree, cash).props.onClick();
+    await cashDriver.settle();
+    const online = await open({ paid: false, payment_method: "yookassa" });
+    assert.ok(!button(online.tree, cash) && !button(online.tree, sbp));
+    const passenger = await open({ paid: false, role: "passenger", payment_method: "sbp" });
+    assert.ok(!button(passenger.tree, sbp));
+    assert.deepEqual(globalThis.__directCalls, [["sbp", 42], ["cash", 42]]);
+  });
   await t.test(lang + " renders reconciled driver breakdown and keeps it off passenger receipt", async () => {
     const r = await rows();
     assert.equal(r.get(labels.passenger), "570 ₽");
