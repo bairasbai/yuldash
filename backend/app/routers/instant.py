@@ -668,6 +668,20 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
     return [isv.order_payload(session, o, user) for o in rows]
 
 
+def _driver_offer_block_reason(session: Session, user: User, *, refresh_safety: bool = True) -> str | None:
+    if not taxi_mod.is_approved_taxi_driver(session, user.id):
+        return "not_approved"
+    if debt_mod.taxi_block_reason(session, user.id) is not None:
+        return "debt"
+    if workday_mod.blocking_workday(session, user.id) is not None:
+        return "rest"
+    if quality_mod.taxi_pause_until(session, user.id) is not None:
+        return "quality_pause"
+    if account_paused(session, user.id, refresh=refresh_safety):
+        return "review_pause"
+    return None
+
+
 @router.get("/instant/driver/offer-notification/v1")
 def driver_offer_notification(
     response: Response,
@@ -687,13 +701,17 @@ def driver_offer_notification(
     if expiry <= utcnow():
         return {"current": False}
     current = session.exec(
-        select(InstantOrder.id, InstantOrder.offer_expires_at).where(
+        select(InstantOrder.id, InstantOrder.offer_expires_at, InstantOrder.from_lat, InstantOrder.from_lng).where(
             InstantOrder.current_offer_driver_id == user.id,
             InstantOrder.status == S.offered,
             InstantOrder.offer_expires_at > utcnow(),
         ).order_by(InstantOrder.id.desc()).limit(1)
     ).first()
-    return {"current": current == (order_id, expiry) and expiry > utcnow()}
+    if current is None or current[:2] != (order_id, expiry):
+        return {"current": False}
+    if _driver_offer_block_reason(session, user, refresh_safety=False) is not None:
+        return {"current": False}
+    return {"current": taxi_mod.availability(session, current[2], current[3])["enabled"] and expiry > utcnow()}
 
 
 @router.get("/instant/driver/offer")
@@ -707,16 +725,9 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
 
     Коды, а не текст: подписи живут в клиенте на двух языках, как везде в проекте.
     """
-    if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        return {"offer": None, "blocked": "not_approved"}
-    if debt_mod.taxi_block_reason(session, user.id) is not None:
-        return {"offer": None, "blocked": "debt"}
-    if workday_mod.blocking_workday(session, user.id) is not None:
-        return {"offer": None, "blocked": "rest"}
-    if quality_mod.taxi_pause_until(session, user.id) is not None:
-        return {"offer": None, "blocked": "quality_pause"}
-    if account_paused(session, user.id):
-        return {"offer": None, "blocked": "review_pause"}
+    blocked = _driver_offer_block_reason(session, user)
+    if blocked is not None:
+        return {"offer": None, "blocked": blocked}
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,

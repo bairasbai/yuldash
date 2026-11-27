@@ -76,3 +76,29 @@ def test_replaced_push_is_not_current_and_matcher_does_not_advance(client, offer
     with Session(engine) as session:
         order = session.get(InstantOrder, order_id)
         assert (order.status, order.current_offer_driver_id, order.offer_expires_at, order.search_round) == snapshot
+
+
+@pytest.mark.parametrize("gate", ["documents", "debt", "rest", "quality_pause", "review_pause", "pickup"])
+def test_push_confirmation_respects_live_driver_offer_gates(client, offers, monkeypatch, gate):
+    order_id, _, driver, _ = offers
+    assert check(client, order_id, driver["auth"]) == {"current": True}
+    if gate == "documents":
+        monkeypatch.setattr(instant.taxi_mod, "is_approved_taxi_driver", lambda *_: False)
+    elif gate == "debt":
+        monkeypatch.setattr(instant.debt_mod, "taxi_block_reason", lambda *_: "debt")
+    elif gate == "rest":
+        monkeypatch.setattr(instant.workday_mod, "blocking_workday", lambda *_: True)
+    elif gate == "quality_pause":
+        monkeypatch.setattr(instant.quality_mod, "taxi_pause_until", lambda *_: DEADLINE)
+    elif gate == "review_pause":
+        def paused(*_, refresh=True):
+            assert not refresh, "push verification must not refresh or write safety state"
+            return True
+
+        monkeypatch.setattr(instant, "account_paused", paused)
+    else:
+        monkeypatch.setattr(instant.taxi_mod, "availability", lambda *_: {"enabled": False})
+    assert check(client, order_id, driver["auth"]) == {"current": False}
+    with Session(engine) as session:
+        order = session.get(InstantOrder, order_id)
+        assert (order.status, order.current_offer_driver_id, order.offer_expires_at) == (S.offered, driver["id"], DEADLINE)
