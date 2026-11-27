@@ -3265,6 +3265,7 @@ internal fun MessageBubble(
     onRetry: () -> Unit = {},
     onEdit: () -> Unit = {},
     onDelete: (String) -> Unit = {},
+    rideshare: Boolean = false,
 ) {
     var playing by remember { mutableStateOf(false) }
     val player = remember { mutableStateOf<MediaPlayer?>(null) }
@@ -3375,13 +3376,7 @@ internal fun MessageBubble(
             )
         }
         if (failed) {
-            Text(
-                appText("Не доставлено · Повторить", "Ебәрелмәне · Ҡабатлау"),
-                color = CanonRed,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
-                modifier = Modifier.padding(top = 4.dp, end = 4.dp).bounceClick { onRetry() }
-            )
+            ChatSendFailureLabel(rideshare, onRetry)
         } else if (queued) {
             // F11: сообщение в очереди — уйдёт само, когда вернётся сеть.
             Row(

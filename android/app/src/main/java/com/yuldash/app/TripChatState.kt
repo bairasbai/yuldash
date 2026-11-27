@@ -26,6 +26,7 @@ import com.yuldash.app.data.ChatSocket
 import com.yuldash.app.data.MessageDto
 import com.yuldash.app.data.Outbox
 import com.yuldash.app.data.OutboxAction
+import com.yuldash.app.data.getBookingChatMessagePage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -74,6 +75,19 @@ internal class TripChatState(
     private var wasEverConnected = false
     // Был разрыв или неудачная попытка подключиться: историю дотягиваем один раз, когда канал жив (refreshAfterReconnect).
     private var resyncPending = false
+    private val receiptOwner = ApiClient.bookingChatReceiptOwner(tripSession)
+    private val receiptSync = bookingId?.let { id ->
+        receiptOwner?.let { owner -> TripChatReceiptSync(id, owner, scope, isActive, { messages }, { socket }) }
+    }
+    val receiptView: TripChatReceiptView get() = receiptSync?.view ?: TripChatReceiptView()
+    val hasOlderMessages: Boolean get() = history.hasOlder
+
+    fun loadOlderMessages() = history.loadOlder()
+
+    fun markVisible(ids: Set<Int>) {
+        if (ids.isNotEmpty() && !historyLoading) receiptSync?.stage(visibleMessages.filter { it.id in ids }, read = true)
+    }
+
     // Состояние первой загрузки истории: спиннер, ошибка (с «Повторить»), пусто.
     private val history = TripChatHistoryPump(bookingId, scope, isActive, isHistoryParentCurrent,
         currentEpoch = { continuityEpoch.get() },
@@ -82,6 +96,10 @@ internal class TripChatState(
             hiddenMessageIds += previousIds - server.map { it.id }.toSet()
             applyServer(server)
             seen.baseline(server)
+            receiptSync?.refresh()
+        },
+        page = receiptOwner?.let {
+            { id, before -> ApiClient.getBookingChatMessagePage(id, before, tripSession) }
         })
     var historyLoading: Boolean by history::loading
     var historyError: Boolean by history::error
@@ -128,6 +146,7 @@ internal class TripChatState(
     private fun historyChanged() {
         if (!isActive()) return
         authoritativeHistory = true
+        receiptSync?.invalidate()
         snapshotChanged()
         requestHistoryRefresh()
     }
@@ -139,7 +158,7 @@ internal class TripChatState(
     fun continuityLost() {
         if (!isActive()) return
         continuityEpoch.incrementAndGet()
-        scope.launch { if (isActive()) { snapshotChanged(); resyncPending = true } }
+        scope.launch { if (isActive()) { snapshotChanged(); receiptSync?.invalidate(); resyncPending = true } }
     }
 
     /** Вернулись в приложение: пока оно было в фоне, кадры могли потеряться — один раз перечитать. */
@@ -161,6 +180,7 @@ internal class TripChatState(
             expectedGeneration = tripSession,
             onHistoryChanged = { scope.launch { historyChanged() } },
             onContinuityLost = { continuityLost() },
+            onReceipt = { changes -> scope.launch { receiptSync?.receive(changes) } },
             onMessage = { inc ->
                 // Граница непрерывности на момент приёма кадра: кадр, «переживший» обрыв, — задержанный.
                 val receivedEpoch = continuityEpoch.get()
@@ -180,7 +200,7 @@ internal class TripChatState(
                     }
                     val optIdx = pending?.let { entry -> messages.indexOfFirst { it.id == entry.key } } ?: -1
                     val dto = MessageDto(inc.id, inc.text, inc.senderId, voiceUrl = inc.voiceUrl, deleted = inc.deleted,
-                        edited = inc.edited, flag = inc.flag, fromAdmin = inc.fromAdmin)
+                        edited = inc.edited, flag = inc.flag, fromAdmin = inc.fromAdmin, createdAt = inc.timestamp)
                     if (inc.hiddenForMe) {
                         hiddenMessageIds += inc.id
                         snapshotChanged()
@@ -199,6 +219,7 @@ internal class TripChatState(
                     if (pending != null) withContext(Dispatchers.IO) {
                         Outbox.acknowledge(context, pending.value, tripSession)
                     }
+                    receiptSync?.refresh()
                 }
             },
             onConnected = { connected ->

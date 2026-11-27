@@ -117,6 +117,19 @@ object ApiClient {
     private data class RequestSession(val generation: Long, val bearer: String?)
     private fun requestSession() = synchronized(sessionLock) { RequestSession(sessionGeneration, token) }
     internal fun queueSessionGeneration(): Long = sessionGeneration
+    internal fun bookingChatReceiptOwner(generation: Long): BookingChatReceiptOwner? = synchronized(sessionLock) {
+        if (!isCurrentSession(generation) || secureAuthPrefs == null) return@synchronized null
+        val userId = myUserId() ?: return@synchronized null
+        val sessionId = token?.let(::parseJwtAuthSessionId) ?: return@synchronized null
+        BookingChatReceiptOwner(userId, generation, apiBase(), sessionId)
+    }
+
+    internal fun <T> bookingChatReceiptStorage(
+        owner: BookingChatReceiptOwner, action: (android.content.SharedPreferences) -> T,
+    ): T? = synchronized(sessionLock) {
+        if (bookingChatReceiptOwner(owner.generation) != owner) return@synchronized null
+        secureAuthPrefs?.let(action)
+    }
     private fun sameSession(generation: Long) = sessionGeneration == generation
     internal fun isCurrentSession(generation: Long): Boolean = sameSession(generation) && !token.isNullOrBlank()
     /** Only short publication actions; never put the export file I/O under this monitor. */
@@ -566,6 +579,7 @@ object ApiClient {
             runCatching { PersonalDataExports.clear(ctx) }
         }
         TripPassStore.clearAll()
+        secureAuthPrefs?.let(BookingChatReceiptStore::clearAll)
         if (snapshotReset) OfflineTripSnapshots.logoutCleanup()
         Outbox.clearAll()
         clearVoiceCache()
@@ -1745,12 +1759,20 @@ object ApiClient {
             .onSuccess { invalidate("referral") }.map { it.optInt("credits") }   // потратили бонус → сбросить кеш
 
     suspend fun getMessages(bookingId: Int): Result<List<MessageDto>> =
-        call("GET", "/bookings/$bookingId/messages", null, auth = true).map { obj ->
+        readBookingMessages(bookingId, expectedGeneration = null)
+
+    internal suspend fun readBookingMessages(bookingId: Int, expectedGeneration: Long?): Result<List<MessageDto>> =
+        call("GET", "/bookings/$bookingId/messages", null, auth = true, expectedGeneration = expectedGeneration).map { obj ->
             val arr = obj.optJSONArray("items") ?: JSONArray()
             (0 until arr.length()).map { i ->
                 parseMessageDto(arr.getJSONObject(i))
             }
         }
+
+    internal fun fireBookingChatReceiptHint(bookingId: Int, messageId: Int, recipient: Int, generation: Long) {
+        val owner = bookingChatReceiptOwner(generation)?.takeIf { it.userId == recipient } ?: return
+        bg.launch { deliverBookingChatReceiptHint(bookingId, messageId, owner) }
+    }
 
     // ---------- Чат такси-заказа (B7b-1): та же механика, привязка к order_id ----------
     /** История чата заказа. После done/отмены сервер отдаёт read-only историю. */
@@ -6731,20 +6753,6 @@ data class TripShareDto(
     val link: String? = null,
 )
 
-/** Сообщение чата с сервера. */
-data class MessageDto(
-    val id: Int,
-    val text: String,
-    val senderId: Int,
-    val voiceUrl: String? = null,
-    val deleted: Boolean = false,
-    val edited: Boolean = false,
-    val flag: String = "",           // анти-фишинг (B8-6): "warn" → плашка-предупреждение получателю
-    val fromAdmin: Boolean = false,  // официальность (B8-9): бейдж «Юлдаш ✓» у сообщений админа/системы
-    val hiddenForMe: Boolean = false,
-    val requestId: String = "",
-)
-
 /** Диалог в инбоксе: бронь, с кем и последнее сообщение. */
 
 
@@ -6919,21 +6927,7 @@ internal fun parseAdminAdDto(a: JSONObject): AdminAdDto {
             )
 }
 
-internal fun parseMessageDto(o: JSONObject): MessageDto =
-    MessageDto(
-        id = o.optInt("id"),
-        text = o.optString("text"),
-        senderId = o.optInt("sender_id"),
-        voiceUrl = o.optNullableString("voice_url"),
-        deleted = o.optBoolean("deleted"),
-        edited = o.optBoolean("edited"),
-        flag = o.optString("flag"),
-        fromAdmin = o.optBoolean("from_admin"),
-        hiddenForMe = o.optBoolean("hidden_for_me"),
-        requestId = o.optString("request_id"),
-    )
-
-private fun JSONObject.optNullableString(key: String): String? {
+internal fun JSONObject.optNullableString(key: String): String? {
     return normalizeOptionalJsonString(
         hasValue = has(key),
         isJsonNull = isNull(key),

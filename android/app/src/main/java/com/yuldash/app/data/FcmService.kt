@@ -27,6 +27,7 @@ class FcmService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(msg: RemoteMessage) {
+        val generation = ApiClient.queueSessionGeneration()
         // Сессия загружена Application до запуска сервиса. Сообщение могло быть в пути при выходе.
         if (!ApiClient.isLoggedIn()) return
         // Токен устройства переживает смену аккаунта; адресат проверяется до показа, включая оффер.
@@ -34,6 +35,13 @@ class FcmService : FirebaseMessagingService() {
         if (recipient <= 0 || recipient != ApiClient.myUserId()) return
         // Тумблер «Уведомления» (Настройки) выключен → не показываем пуш (клиентское заглушение).
         if (!AppPrefs.notifications(this)) return
+        if (msg.data["type"] == "chat") {
+            val bookingId = msg.data["id"]?.toIntOrNull()?.takeIf { it > 0 }
+            val messageId = msg.data["mid"]?.toIntOrNull()?.takeIf { it > 0 }
+            if (bookingId != null && messageId != null) {
+                ApiClient.fireBookingChatReceiptHint(bookingId, messageId, recipient, generation)
+            }
+        }
         // Оффер такси (B7a-2): data-only пуш от matcher'а → полноэкранная карточка «Новый заказ 🚕»
         // (канал «Заказы такси», важность MAX, звук+вибро, full-screen intent → кабинет водителя).
         if (msg.data["type"] == "instant_offer") {

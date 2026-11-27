@@ -73,6 +73,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -253,6 +254,17 @@ internal fun TripChatScreen(
     LaunchedEffect(atBottom, newest?.id, resumed, chat.historyLoading) {
         if (atBottom && resumed && !chat.historyLoading) chat.markSeen()
     }
+    val receipts = chat.receiptView
+    LaunchedEffect(chat, listState, resumed, receipts.revision, chat.historyLoading) {
+        if (!resumed || chat.historyLoading || receipts.since == null) return@LaunchedEffect
+        snapshotFlow {
+            val layout = listState.layoutInfo
+            layout.visibleItemsInfo.filter {
+                it.size > 0 && it.offset < layout.viewportEndOffset && it.offset + it.size > layout.viewportStartOffset
+            }.mapNotNull { it.key as? Int }.toSet()
+        }.collect { ids -> chat.markVisible(ids) }
+    }
+    val newestMarked = visible.lastOrNull { it.senderId == chat.myId && !it.deleted && it.id in receipts.items }?.id
     // WS лежит → сообщения уходят по REST. Пока грузится история, сокет ещё только подключается — не пугаем.
     val reconnecting = chat.bookingId != null && !chat.wsConnected && !chat.historyLoading
     val editing = chat.editingId != null
@@ -307,7 +319,7 @@ internal fun TripChatScreen(
         items(visible.asReversed(), key = { it.id }) { m ->
             val saved = m.id > 0   // оптимистичные (id<0) ещё не на сервере — без меню
             val mine = m.senderId == chat.myId
-            Box(Modifier.fillMaxWidth().animateItem()) {   // плавное появление/перестановка пузыря в списке
+            Column(Modifier.fillMaxWidth().animateItem(), horizontalAlignment = Alignment.End) {
                 MessageBubble(
                     text = m.text,
                     voiceUrl = m.voiceUrl,
@@ -324,7 +336,20 @@ internal fun TripChatScreen(
                     onRetry = { chat.retry(m.id, m.text) },
                     onEdit = { chat.startEdit(m) },
                     onDelete = { who -> chat.delete(m.id, who) },
+                    rideshare = true,
                 )
+                MessageDeliveryMark(
+                    deliveryMark(m, chat.myId, m.id in chat.failedIds, m.id in chat.queuedIds, receipts),
+                    showLabel = m.id == newestMarked,
+                )
+            }
+        }
+        if (chat.hasOlderMessages) item(key = "chat-older") {
+            OutlinedButton(
+                onClick = chat::loadOlderMessages, enabled = !chat.historyLoading,
+                modifier = Modifier.minimumInteractiveComponentSize(),
+            ) {
+                Text(appText("Загрузить ранние сообщения", "Элекке хәбәрҙәрҙе йөкләргә"))
             }
         }
         // Лента пуста: загрузка / ошибка с «Повторить» / «напиши первым» — там, где появится
