@@ -9,11 +9,22 @@ interface CommandSlot {
   createdAt: number;
   state: State;
 }
+export interface PublicBookingSelection {
+  version: 1;
+  pickup: string;
+  dropoff: string;
+  seats: number;
+  price?: number;
+  payMethod?: "cash" | "sbp" | "negotiate";
+  payAmount?: number;
+  frontSeat?: boolean;
+}
 export interface BookingCommand extends CommandSlot {
   rideId: number;
   /** Missing on old rows. Null means the original request omitted the version. */
   expectedTermsVersion?: number | null;
   forAnother?: true;
+  publicSelection?: PublicBookingSelection;
 }
 export interface RidePublication extends CommandSlot {
   draftHash: string;
@@ -94,7 +105,7 @@ export function readPendingBookingCommands(owner: BookingCommandOwner): Promise<
 type Reservation = { status: "reserved" | "existing"; command: BookingCommand } | { status: "full" };
 export function reserveBookingCommand(
   owner: BookingCommandOwner, rideId: number, hash: string, replaceKey?: string, expectedTermsVersion?: number | null,
-  forAnother = false,
+  forAnother = false, publicSelection?: PublicBookingSelection,
 ): Promise<Reservation> {
   return transaction<Reservation>(owner, rows => {
     const prior = rows.find(row => row.rideId === rideId);
@@ -111,6 +122,7 @@ export function reserveBookingCommand(
       rideId, key: COMMAND_KEY_PREFIX + crypto.randomUUID(), hash, createdAt: Date.now(), state: "unknown",
       ...(expectedTermsVersion !== undefined ? { expectedTermsVersion } : {}),
       ...(forAnother ? { forAnother: true as const } : {}),
+      ...(publicSelection ? { publicSelection } : {}),
     };
     updated.push(command);
     return { result: { status: "reserved", command }, updated };
@@ -123,8 +135,10 @@ export function resolveBookingCommand(
   return transaction(owner, rows => {
     const current = rows.find(row => row.rideId === command.rideId);
     if (current?.key !== command.key) return { result: false };
-    if (current.state !== "unknown") return { result: current.state === state };
-    return { result: true, updated: rows.map(row => row === current ? { ...row, state } : row) };
+    if (current.state !== "unknown" && current.state !== state) return { result: false };
+    if (current.state === state && !current.publicSelection) return { result: true };
+    const { publicSelection: _selection, ...metadata } = current;
+    return { result: true, updated: rows.map(row => row === current ? { ...metadata, state } : row) };
   });
 }
 

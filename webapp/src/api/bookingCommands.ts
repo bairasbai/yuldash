@@ -1,12 +1,55 @@
 import { ApiError, apiCommand } from "./client";
 import type { BookingRow, CreateBookingInput } from "./bookings";
 import { commandFingerprint } from "../utils/commandFingerprint";
-import { readBookingCommand, reserveBookingCommand, resolveBookingCommand, type BookingCommand, type BookingCommandOwner } from "../utils/bookingCommandStore";
+import { readBookingCommand, reserveBookingCommand, resolveBookingCommand, type BookingCommand, type BookingCommandOwner, type PublicBookingSelection } from "../utils/bookingCommandStore";
 
 export { bookingCommandOwner, readBookingCommand } from "../utils/bookingCommandStore";
 export type { BookingCommand } from "../utils/bookingCommandStore";
 export const BOOKING_COMMAND_SCOPE = "booking.create";
 export const BOOKING_RETRY_WINDOW = 24 * 60 * 60 * 1000;
+
+const publicBookingFields = new Set([
+  "ride_id", "pickup_stop", "dropoff_stop", "seats", "expected_price", "expected_terms_version",
+  "pay_method", "pay_amount", "front_seat",
+]);
+
+function optionalUnsignedInteger(value: number | undefined): boolean {
+  return value === undefined || (Number.isSafeInteger(value) && value >= 0);
+}
+
+function publicBookingSelection(body: CreateBookingInput): PublicBookingSelection | undefined {
+  if (Object.entries(body).some(([field, value]) => value !== undefined && !publicBookingFields.has(field))) return;
+  const { pickup_stop: pickup, dropoff_stop: dropoff, seats, expected_price: price,
+    pay_method: payMethod, pay_amount: payAmount, front_seat: frontSeat } = body;
+  const place = (value: unknown) => typeof value === "string" && value.length <= 120 && /\p{L}/u.test(value) &&
+    /^[\p{L} .()\-]+$/u.test(value);
+  if (!pickup || !dropoff || pickup === dropoff || !place(pickup) || !place(dropoff) ||
+      seats === undefined || !Number.isSafeInteger(seats) || seats < 1 || seats > 8 ||
+      !optionalUnsignedInteger(price) || !optionalUnsignedInteger(payAmount) ||
+      !optionalUnsignedInteger(body.expected_terms_version) ||
+      (payMethod !== undefined && !["cash", "sbp", "negotiate"].includes(payMethod)) ||
+      (frontSeat !== undefined && typeof frontSeat !== "boolean")) return;
+  return { version: 1, pickup, dropoff, seats, price, payMethod, payAmount, frontSeat };
+}
+
+const publicSelectionFields = new Set(["version", "pickup", "dropoff", "seats", "price", "payMethod", "payAmount", "frontSeat"]);
+
+export async function restorePublicBookingInput(command: BookingCommand): Promise<CreateBookingInput | undefined> {
+  const selection = command.publicSelection;
+  const age = Date.now() - command.createdAt;
+  if (selection?.version !== 1 || command.forAnother || command.state !== "unknown" ||
+      !Number.isSafeInteger(command.rideId) || command.rideId < 1 ||
+      Object.keys(selection).some(field => !publicSelectionFields.has(field)) ||
+      !Number.isSafeInteger(command.createdAt) || age < 0 || age >= BOOKING_RETRY_WINDOW) return;
+  const body: CreateBookingInput = {
+    ride_id: command.rideId, seats: selection.seats, pay_method: selection.payMethod, pay_amount: selection.payAmount,
+    front_seat: selection.frontSeat, pickup_stop: selection.pickup, dropoff_stop: selection.dropoff,
+    expected_price: selection.price, expected_terms_version: command.expectedTermsVersion ?? undefined,
+  };
+  if (!publicBookingSelection(body)) return;
+  const { payloadHash } = await commandFingerprint(BOOKING_COMMAND_SCOPE, command.rideId, body);
+  return payloadHash === command.hash ? body : undefined;
+}
 
 type Outcome =
   | { state: "unseen" | "closed_no_effect"; booking: null }
@@ -49,6 +92,7 @@ export async function createBooking(
   body: CreateBookingInput, signal: AbortSignal,
   owner: BookingCommandOwner | null, prior?: BookingCommand, retry = false,
   onPrepared?: (key: string, input: CreateBookingInput) => void,
+  publishedRoute?: readonly string[],
 ): Promise<BookingRow> {
   if (!owner) throw new BookingCommandProblem("storage");
   const forAnother = body.traveler_name !== undefined;
@@ -87,8 +131,12 @@ export async function createBooking(
       if (age < 0 || age >= BOOKING_RETRY_WINDOW) throw new BookingCommandProblem("expired", current);
       command = current;
     } else {
+      const selection = publishedRoute && publicBookingSelection(preparedInput);
+      const start = selection ? publishedRoute?.indexOf(selection.pickup) ?? -1 : -1;
+      const publicSelection = selection && start >= 0 && (publishedRoute?.indexOf(selection.dropoff) ?? -1) > start
+        ? selection : undefined;
       const reservation = await reserveBookingCommand(owner, body.ride_id, snapshot.payloadHash,
-        prior && prior.state !== "unknown" ? prior.key : undefined, body.expected_terms_version ?? null, forAnother);
+        prior && prior.state !== "unknown" ? prior.key : undefined, body.expected_terms_version ?? null, forAnother, publicSelection);
       if (reservation.status === "full") throw new BookingCommandProblem("full");
       if (reservation.status === "existing") throw new BookingCommandProblem("unknown", reservation.command);
       command = reservation.command;

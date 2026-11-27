@@ -16,7 +16,7 @@ import { ApiError, getSessionGeneration } from "../api/client";
 import { useOwnBooking, useRefreshOwnBookings } from "../booking/OwnBookingsProvider";
 import type { BookingRow, CreateBookingInput, MeetingPointInput, PayMethod } from "../api/bookings";
 import { BookingCommandProblem, bookingCommandOwner, createBooking, readBookingCommand,
-  reconcileBookingCommand, type BookingCommand } from "../api/bookingCommands";
+  reconcileBookingCommand, restorePublicBookingInput, type BookingCommand } from "../api/bookingCommands";
 import { bookingRefusalMessage } from "../utils/bookingCommandLabels";
 import { rememberGuestBookingDraft, type GuestBookingOptions, type GuestBookingSelection } from "../utils/guestBookingDraft";
 import { track } from "../analytics";
@@ -159,6 +159,11 @@ export default function RideSheet({
     setRestoringCommand(true);
     void readBookingCommand(owner, ride.id).then(async value => {
       if (!active() || !value) return;
+      if (value.state === "unknown") {
+        const input = await restorePublicBookingInput(value).catch(() => undefined);
+        if (!active()) return;
+        if (input) setOriginalRequest(current => current ?? { key: value.key, input, generation: ownerGeneration });
+      }
       setCommand(current => current ?? value);
       if (value.state === "closed_no_effect") return;
       const result = await reconcileBookingCommand(owner, value, false, ac.signal);
@@ -338,7 +343,7 @@ export default function RideSheet({
         // RS-02 А/Б: цена участка и версия условий, которые человек видел на экране.
         expected_price: perSeat,
         expected_terms_version: eff.terms_version,
-      }, ac.signal, owner, command, retry, (key, input) => { prepared = { key, input }; });
+      }, ac.signal, owner, command, retry, (key, input) => { prepared = { key, input }; }, parcelCategory ? undefined : routePlaces(eff));
       if (!mounted.current || ac.signal.aborted || ownerGeneration !== getSessionGeneration()) return;
       setOriginalRequest(null);
       setTravelerName("");

@@ -156,6 +156,56 @@ const lostConflict = await restarted.readBookingCommand(ownerA(), body.ride_id);
 assert.equal((await restarted.reconcileBookingCommand(ownerA(), lostConflict, false, signal())).conflictBookingId, booking.id);
 console.log("PASS lost conflict response recovers the existing booking without resending the name");
 
+await restore();
+const publicSegment = {
+  ride_id: body.ride_id, pickup_stop: "Баймак", dropoff_stop: "Ургаза", seats: 2,
+  expected_price: 300, expected_terms_version: 0, pay_method: "cash", pay_amount: 600, front_seat: false,
+};
+const publicRoute = ["Сибай", "Баймак", "Ургаза", "Акъяр"];
+const publicPosts = [];
+globalThis.fetch = async (url, options) => {
+  assert.equal(new URL(url).pathname, "/bookings/commands/v1");
+  publicPosts.push({ parsed: JSON.parse(options.body), key: options.headers["Idempotency-Key"] });
+  if (publicPosts.length === 1) throw new TypeError("cut before forward");
+  return reply(booking);
+};
+await assert.rejects(api.createBooking(publicSegment, signal(), ownerA(), undefined, false, undefined, publicRoute), problem("unknown"));
+const savedPublic = await restarted.readBookingCommand(ownerA(), body.ride_id);
+assert.deepEqual(savedPublic.publicSelection, {
+  version: 1, pickup: "Баймак", dropoff: "Ургаза", seats: 2, price: 300,
+  payMethod: "cash", payAmount: 600, frontSeat: false,
+});
+assert.equal(await restarted.restorePublicBookingInput({ ...savedPublic, hash: "changed" }), undefined);
+assert.equal(await restarted.restorePublicBookingInput({ ...savedPublic, createdAt: Date.now() - 86_400_000 }), undefined);
+assert.equal(await restarted.restorePublicBookingInput({ ...savedPublic, publicSelection: { ...savedPublic.publicSelection, price: 301 } }), undefined);
+assert.equal(await restarted.restorePublicBookingInput({ ...savedPublic, publicSelection: undefined }), undefined);
+assert.equal(await restarted.restorePublicBookingInput({ ...savedPublic, publicSelection: { ...savedPublic.publicSelection, future: true } }), undefined);
+const restoredPublic = await restarted.restorePublicBookingInput(savedPublic);
+assert.deepEqual(restoredPublic, publicSegment);
+assert.equal((await restarted.createBooking(restoredPublic, signal(), ownerA(), savedPublic, true)).id, booking.id);
+assert.deepEqual(publicPosts[0], publicPosts[1]);
+assert.equal((await restarted.readBookingCommand(ownerA(), body.ride_id)).publicSelection, undefined);
+console.log("PASS public booking replays its saved segment and never replaces the confirmed terms");
+
+for (const [privateInput, route] of [
+  [{ meeting: { lat: 52.3, lng: 58.6, note: "test point" } }, publicRoute],
+  [{ alighting: { note: "test dropoff" } }, publicRoute],
+  [{ minor_passenger: true, minor_guardian_name: "Test adult", minor_guardian_phone: "+79990300000" }, publicRoute],
+  [{ future_field: null }, publicRoute],
+  [{}, ["Сибай", "Ургаза", "Баймак", "Акъяр"]],
+  [{}, undefined],
+]) {
+  await restore();
+  globalThis.fetch = async () => { throw new TypeError("cut before forward"); };
+  await assert.rejects(api.createBooking({ ...publicSegment, ...privateInput }, signal(), ownerA(),
+    undefined, false, undefined, route), problem("unknown"));
+  const saved = await restarted.readBookingCommand(ownerA(), body.ride_id);
+  assert.equal(saved.publicSelection, undefined);
+  assert.equal(await restarted.restorePublicBookingInput(saved), undefined);
+  assert.doesNotMatch(JSON.stringify(saved), /meeting|alighting|future_field|Test adult|79990300000/);
+}
+console.log("PASS private fields, unknown fields and unverified route selections are kept out of recovery storage");
+
 for (const originalVersion of [0, undefined]) {
   await restore();
   const requests = [];
