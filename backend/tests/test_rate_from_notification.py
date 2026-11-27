@@ -1,5 +1,6 @@
 from datetime import timedelta, timezone
 import json
+from types import SimpleNamespace
 
 import pywebpush
 import pytest
@@ -9,7 +10,7 @@ from sqlmodel import Session, select
 
 from app import rate_reminder, services
 from app.db import engine
-from app.models import AuthSession, Booking, BookingStatus, Rating, Ride, SafetyProfile, User, UserRole, WebPushSubscription
+from app.models import AuthSession, Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus, Rating, Ride, SafetyProfile, User, UserRole, WebPushSubscription
 from app.rating_service import apply_rating, guard_rating_on_pause, guard_rating_window
 from app.services import _rating_web_push
 from app.timeutil import utcnow
@@ -147,6 +148,122 @@ def test_web_push_delivers_rating_buttons_only_to_a_current_bound_login(client, 
     assert deliveries["live"]["rate"]["recipient_user_id"] == owner["id"]
     assert deliveries["live"]["url"] == f"/trip/{bid}"
     assert [item["action"] for item in deliveries["live"]["actions"]] == ["rate_five", "rate_details"]
+
+
+def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_factory, monkeypatch):
+    driver = user_factory("WebOfferDeadline", role=UserRole.driver)
+    now = utcnow()
+    expiry = now + timedelta(seconds=2, milliseconds=500)
+    issued = now.replace(microsecond=123456) - timedelta(seconds=1)
+    sid = f"taxi-web-offer-{driver['id']}"
+    with Session(engine) as session:
+        session.add(AuthSession(id=sid, user_id=driver["id"], access_expires_at=now + timedelta(hours=1)))
+        session.flush()
+        for auth_session_id in (sid, None):
+            session.add(WebPushSubscription(
+                user_id=driver["id"], endpoint=f"https://push.invalid/{driver['id']}/{auth_session_id}",
+                auth_session_id=auth_session_id, binding_id="a" * 32 if auth_session_id else None,
+            ))
+        session.commit()
+    deliveries = []
+    monkeypatch.setattr(services.settings, "vapid_public_key", "fixture-public")
+    monkeypatch.setattr(services.settings, "vapid_private_key", "fixture-private")
+    monkeypatch.setattr(pywebpush, "webpush", lambda **kw: deliveries.append(kw))
+    monkeypatch.setattr(services, "utcnow", lambda: now)
+    data = {"type": "instant_offer", "order_id": "42", "offer_expires_at": expiry.isoformat(),
+            "offer_issued_at": issued.isoformat()}
+    with Session(engine) as session:
+        services._send_web_push(session, driver["id"], "New offer", "Fixture", data, own_read_session=True)
+        now = expiry
+        services._send_web_push(session, driver["id"], "Expired offer", "Fixture", data)
+        services._send_web_push(session, driver["id"], "Missing deadline", "Fixture",
+                                {"type": "instant_offer", "order_id": "42"})
+    assert len(deliveries) == 1
+    payload = json.loads(deliveries[0]["data"])
+    assert payload["session_id"] == sid
+    assert payload["url"] == "/taxi-drive"
+    assert payload["offer_expires_at_ms"] == int(expiry.replace(tzinfo=timezone.utc).timestamp() * 1000)
+    whole_seconds = int(issued.replace(tzinfo=timezone.utc, microsecond=0).timestamp())
+    assert payload["offer_issued_at_us"] == whole_seconds * 1_000_000 + 123456
+    assert deliveries[0]["ttl"] == 2
+
+
+@pytest.mark.parametrize("change, expected", [
+    ("unchanged", 2), ("accepted", 0), ("cancelled", 0),
+    ("driver_changed", 0), ("new_offer_same_driver", 0), ("accepted_after_first", 1),
+    ("offline", 0), ("offline_after_first", 1), ("missing_driver_profile", 0),
+])
+def test_queued_web_push_checks_current_offer(monkeypatch, client, user_factory, change, expected):
+    driver = user_factory("QueuedWebDriver", role=UserRole.driver)
+    passenger = user_factory("QueuedWebPassenger")
+    another_driver = user_factory("OtherQueuedWebDriver", role=UserRole.driver)
+    now = utcnow()
+    expiry = now + timedelta(seconds=20)
+    with Session(engine) as session:
+        order = InstantOrder(passenger_id=passenger["id"], status=InstantOrderStatus.offered,
+                             current_offer_driver_id=driver["id"], offer_expires_at=expiry)
+        session.add(order)
+        if change != "missing_driver_profile":
+            session.add(DriverProfile(user_id=driver["id"], online=True))
+        for i in range(2):
+            sid = f"queued-web-{driver['id']}-{i}"
+            session.add(AuthSession(id=sid, user_id=driver["id"], access_expires_at=expiry))
+            session.flush()
+            session.add(WebPushSubscription(
+                user_id=driver["id"], endpoint=f"https://push.invalid/{sid}",
+                auth_session_id=sid, binding_id=str(i) * 32,
+            ))
+        session.commit()
+        order_id = order.id
+
+    def change_offer():
+        if change in ("offline", "offline_after_first"):
+            response = client.post("/driver/online", json={"online": False}, headers=driver["auth"])
+            assert response.status_code == 200
+            assert response.json()["online"] is False
+            return
+        with Session(engine) as session:
+            order = session.get(InstantOrder, order_id)
+            if change in ("accepted", "accepted_after_first", "cancelled"):
+                order.status = (InstantOrderStatus.cancelled if change == "cancelled"
+                                else InstantOrderStatus.accepted)
+                order.current_offer_driver_id = None
+                order.offer_expires_at = None
+            elif change == "driver_changed":
+                order.current_offer_driver_id = another_driver["id"]
+            else:
+                order.offer_expires_at = expiry + timedelta(seconds=1)
+            session.commit()
+
+    jobs, deliveries = [], []
+    def transport(**kwargs):
+        deliveries.append(kwargs)
+        if change in ("accepted_after_first", "offline_after_first") and len(deliveries) == 1:
+            change_offer()
+
+    monkeypatch.setattr(services.settings, "vapid_public_key", "fixture-public")
+    monkeypatch.setattr(services.settings, "vapid_private_key", "fixture-private")
+    monkeypatch.setattr(services.settings, "firebase_credentials", "")
+    monkeypatch.setattr(services, "utcnow", lambda: now)
+    monkeypatch.setattr(services, "_offer_web_push_pool", SimpleNamespace(submit=jobs.append))
+    monkeypatch.setattr(pywebpush, "webpush", transport)
+    with Session(engine) as session:
+        services.send_push(session, driver["id"], "New offer", "Fixture", {
+            "type": "instant_offer", "order_id": str(order_id), "offer_expires_at": expiry.isoformat(),
+        })
+    assert len(jobs) == 1
+    if change not in ("unchanged", "accepted_after_first", "offline_after_first", "missing_driver_profile"):
+        change_offer()
+    jobs[0]()
+    assert len(deliveries) == expected
+    if change in ("offline", "offline_after_first"):
+        with Session(engine) as session:
+            order = session.get(InstantOrder, order_id)
+            assert order.status == InstantOrderStatus.offered
+            assert order.current_offer_driver_id == driver["id"]
+            assert order.offer_expires_at == expiry
+            profile = session.exec(select(DriverProfile).where(DriverProfile.user_id == driver["id"])).one()
+            assert profile.online is False
 
 
 def test_rideshare_reminder_waits_until_morning_and_builds_bound_actions(client, user_factory, monkeypatch):

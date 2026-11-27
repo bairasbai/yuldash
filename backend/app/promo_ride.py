@@ -321,7 +321,7 @@ def release_ids(order_ids) -> int:
     return freed
 
 
-def reclamp(session: Session, order: InstantOrder) -> int:
+def reclamp(session: Session, order: InstantOrder, *, commit: bool = True) -> int:
     """Пересчитать потолок «доля от цены» после того, как цена заказа изменилась.
 
     Нужен предзаказу «на время»: цена пересчитывается заново в момент активации, и скидка,
@@ -338,5 +338,6 @@ def reclamp(session: Session, order: InstantOrder) -> int:
     session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id).values(promo_discount_kop=capped)
     )
-    session.commit()
+    if commit:
+        session.commit()
     return capped

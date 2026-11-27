@@ -3,14 +3,18 @@ const PUSH_DATABASE = "yuldash-trip-passes-v1";
 const PUSH_CREDENTIALS = "credentials";
 const RATE_DATABASE = "yuldash-rate-draft";
 
+function openPushDatabase() {
+  return new Promise((resolve, reject) => {
+    const open = indexedDB.open(PUSH_DATABASE);
+    open.onupgradeneeded = () => open.transaction.abort();
+    open.onerror = () => reject(open.error);
+    open.onsuccess = () => resolve(open.result);
+  });
+}
+
 async function currentPushBinding() {
   try {
-    const db = await new Promise((resolve, reject) => {
-      const open = indexedDB.open(PUSH_DATABASE);
-      open.onupgradeneeded = () => open.transaction.abort();
-      open.onerror = () => reject(open.error);
-      open.onsuccess = () => resolve(open.result);
-    });
+    const db = await openPushDatabase();
     try {
       return await new Promise((resolve, reject) => {
         const tx = db.transaction(PUSH_CREDENTIALS, "readonly");
@@ -38,6 +42,33 @@ async function currentPushBinding() {
 
 function matchesPushBinding(data, binding) {
   return !!binding && data?.session_id === binding.sessionId && data.binding_id === binding.bindingId;
+}
+
+// Сохраняем только порядковую отметку, не адрес и не сумму. Перезапуск воркера её не сбрасывает.
+async function reserveOfferDisplay(data, binding) {
+  const issued = data.offer_issued_at_us;
+  if (!Number.isSafeInteger(issued) || issued <= 0 || issued / 1000 >= data.offer_expires_at_ms) return false;
+  try {
+    const db = await openPushDatabase();
+    try {
+      return await new Promise((resolve, reject) => {
+        const tx = db.transaction(PUSH_CREDENTIALS, "readwrite");
+        const store = tx.objectStore(PUSH_CREDENTIALS);
+        const previous = store.get("taxi-offer-display");
+        let reserved = false;
+        tx.onabort = () => reject(tx.error);
+        tx.oncomplete = () => resolve(reserved);
+        previous.onsuccess = () => {
+          const last = previous.result;
+          if (last?.generation === binding.generation && matchesPushBinding(last, binding) &&
+              last.issued >= issued) return;
+          store.put({ generation: binding.generation, session_id: binding.sessionId,
+            binding_id: binding.bindingId, issued }, "taxi-offer-display");
+          reserved = true;
+        };
+      });
+    } finally { db.close(); }
+  } catch { return false; }
 }
 
 function localNotificationTarget(url) {
@@ -98,9 +129,17 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(withSessionLock(async guarded => {
     const binding = guarded ? await currentPushBinding() : undefined;
-    const showDetails = matchesPushBinding(data, binding);
-    const tag = showDetails && data.tag ? binding.bindingId + ":" + data.tag : "yuldash";
-    const rate = notificationRating(data, binding);
+    // tag also recognizes offers queued by the server before it sent the explicit kind.
+    const offer = data?.kind === "instant_offer" || /^instant_offer(?:-[0-9]+)?$/.test(data?.tag ?? "");
+    const bound = matchesPushBinding(data, binding);
+    const staleOffer = offer && (!bound || !Number.isSafeInteger(data.offer_expires_at_ms) ||
+      data.offer_expires_at_ms <= Date.now() || !await reserveOfferDisplay(data, binding) ||
+      data.offer_expires_at_ms <= Date.now());
+    // This subscription requires a visible notification. If an offer arrives too late,
+    // show the neutral fallback, not a "new order" or any route/address from the stale push.
+    const showDetails = !staleOffer && bound;
+    const tag = showDetails && (offer || data.tag) ? binding.bindingId + ":" + (offer ? "instant_offer" : data.tag) : "yuldash";
+    const rate = showDetails && !offer ? notificationRating(data, binding) : undefined;
     const maxActions = typeof Notification === "undefined" ? 0 : Notification.maxActions;
     const payloadActions = Array.isArray(data?.actions) ? data.actions : [];
     const detailsAction = payloadActions.find(action => action?.action === "rate_details");
@@ -115,6 +154,7 @@ self.addEventListener("push", (event) => {
       badge: "/icon-192.png",
       tag,
       renotify: showDetails && Boolean(data.tag),
+      ...(staleOffer ? { silent: true } : {}),
       ...(actions.length ? { actions } : {}),
       data: showDetails ? {
         session_id: binding.sessionId, binding_id: binding.bindingId, url: localNotificationTarget(data.url),

@@ -87,6 +87,7 @@ const ALL_SUITES = [
   { test: "notification-destinations-test", src: null, out: null, bundle: false },
   { test: "taxi-wait-cancel-test", src: null, out: null, bundle: false },
   { test: "taxi-origin-picker-test", src: null, out: null, bundle: false },
+  { test: "taxi-quote-pickup-card-test", src: null, out: null, bundle: false },
   { test: "ride-booking-path-test", src: null, out: null, bundle: false },
   { test: "command-fingerprint-test", src: null, out: null, bundle: false },
   { test: "booking-command-retry-test", src: null, out: null, bundle: false },

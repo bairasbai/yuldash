@@ -22,6 +22,7 @@ import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ApiException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.delay
@@ -43,16 +44,16 @@ import kotlinx.coroutines.launch
  * Приватность: координаты не логируем, сервер держит их только в Redis с TTL.
  */
 class TaxiLineService : Service() {
-    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private var lm: LocationManager? = null
     private var listener: LocationListener? = null
     @Volatile private var lastLat: Double? = null
     @Volatile private var lastLng: Double? = null
     private var currentLang = AppLanguage.Ru
-    private var loopsStarted = false
+    private val lineRun = TaxiLineRun()
+    private var loopScope: CoroutineScope? = null
     private var misses = 0          // сколько heartbeat'ов подряд не дошло
     private var lineLost = false    // сервер нас уже не видит → уведомление говорит об этом честно
-    @Volatile private var lastNotifiedOrderId = -1   // не дребезжим: одно уведомление на оффер
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -67,11 +68,18 @@ class TaxiLineService : Service() {
         // а машина на карте стояла бы не там. Честнее один раз попросить точную, чем тихо
         // работать «как получится». Поэтому ProfileScreen НЕ включает тумблер без FINE — здесь
         // это только страховка (разрешение могли отозвать в настройках, пока сервис жил).
-        if (!ApiClient.isLoggedIn() ||
+        val owner = ApiClient.queueSessionGeneration()
+        if (!ApiClient.isCurrentSession(owner) ||
             ContextCompat.checkSelfPermission(this, android.Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED
         ) {
-            stopSelf(); return START_NOT_STICKY
+            stopSelf(startId)
+            return START_NOT_STICKY
         }
+        if (lineRun.current?.owner != owner) {
+            misses = 0
+            lineLost = false
+        }
+        lineRun.started(owner, startId)
         ServiceCompat.startForeground(
             this, NOTIF_ID, buildNotification(),
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) ServiceInfo.FOREGROUND_SERVICE_TYPE_LOCATION else 0,
@@ -80,7 +88,11 @@ class TaxiLineService : Service() {
         // чтобы первый heartbeat ушёл сразу, не дожидаясь свежего GPS-фикса.
         if (lastLat == null) { lastLat = LocationPrefs.lastLat; lastLng = LocationPrefs.lastLng }
         if (listener == null) startLocationUpdates()
-        if (!loopsStarted) { loopsStarted = true; startLoops() }
+        if (loopScope == null) {
+            val loops = CoroutineScope(scope.coroutineContext + SupervisorJob(scope.coroutineContext[Job]))
+            loopScope = loops
+            startLoops(loops)
+        }
         return START_STICKY
     }
 
@@ -110,14 +122,27 @@ class TaxiLineService : Service() {
         }
     }
 
-    private fun startLoops() {
+    private fun startLoops(loops: CoroutineScope) {
         // ① Presence ~15с. Сервер отверг (401/403/409) → линия закончилась (выход, долг,
         // 8-часовой лимит, пауза качества, «Я на линии» снят) → сервис больше не нужен.
-        scope.launch {
+        loops.launch {
             while (isActive) {
                 val la = lastLat; val lo = lastLng
+                val start = lineRun.current ?: return@launch
+                if (!ApiClient.isCurrentSession(start.owner)) {
+                    if (stopRun(start)) return@launch
+                    delay(PRESENCE_INTERVAL_MS)
+                    continue
+                }
                 if (la != null && lo != null) {
-                    val res = ApiClient.instantPresence(la, lo)
+                    val res = ApiClient.instantPresence(la, lo, expectedGeneration = start.owner)
+                    // HTTP suspends; a fresh onStartCommand can arrive before this response.
+                    if (!lineRun.isCurrent(start)) continue
+                    if (!ApiClient.isCurrentSession(start.owner)) {
+                        if (stopRun(start)) return@launch
+                        delay(PRESENCE_INTERVAL_MS)
+                        continue
+                    }
                     val отказ = res.exceptionOrNull() as? ApiException
                     val status = отказ?.status
                     if (status == 401 || status == 403 || status == 409) {
@@ -126,9 +151,9 @@ class TaxiLineService : Service() {
                         // Водитель стоял и ждал заказы, которых не будет (аудит сценариев
                         // 30.08, P0). Причина уходит в то же уведомление, которое человек и так
                         // держит перед глазами всю смену.
-                        tellLineClosed(отказ?.message?.takeIf { it.isNotBlank() })
-                        stopSelf()
-                        return@launch
+                        if (stopRun(start, отказ?.message?.takeIf { it.isNotBlank() })) return@launch
+                        delay(PRESENCE_INTERVAL_MS)
+                        continue
                     }
                     // Сетевая ошибка — сама по себе не страшна: следующий тик через 15с, а сервер
                     // держит presence ~45с. Но если тиков не проходит ПОДРЯД больше этого запаса,
@@ -148,14 +173,29 @@ class TaxiLineService : Service() {
             }
         }
         // ② Опрос оффера ~5с — страховка к push (B7a-2): нашли новый → полноэкранное уведомление.
-        scope.launch {
+        loops.launch {
             while (isActive) {
-                ApiClient.getDriverOffer().onSuccess { o ->
-                    if (o != null && o.status == "offered" && o.id != lastNotifiedOrderId) {
-                        lastNotifiedOrderId = o.id
-                        TaxiOfferNotifier.show(
-                            this@TaxiLineService, o.id, o.fromText, o.toText, o.priceEstimate, currentLang,
-                        )
+                val start = lineRun.current ?: return@launch
+                val owner = start.owner
+                var snapshot: TaxiOfferPublication.Ticket? = null
+                ApiClient.runIfCurrentSession(owner) { snapshot = TaxiOfferNotifier.publication.snapshot(owner) }
+                val ticket = snapshot
+                if (ticket != null) ApiClient.getDriverOffer(expectedGeneration = owner).onSuccess { o ->
+                    if (!lineRun.isCurrent(start)) return@onSuccess
+                    ApiClient.runIfCurrentSession(owner) {
+                        val expiry = o?.offerExpiresAt
+                        if (o == null || o.status != "offered" || expiry == null) {
+                            TaxiOfferNotifier.publication.observe(ticket, null, clear = {
+                                TaxiOfferNotifier.cancel(this@TaxiLineService)
+                            })
+                        } else {
+                            TaxiOfferNotifier.publication.observe(ticket, TaxiOfferPublication.Offer(o.id, expiry)) {
+                                TaxiOfferNotifier.show(
+                                    this@TaxiLineService, o.id, o.fromText, o.toText, o.priceEstimate, currentLang,
+                                    offerExpiresAt = expiry,
+                                )
+                            }
+                        }
                     }
                 }
                 delay(OFFER_POLL_MS)
@@ -163,7 +203,27 @@ class TaxiLineService : Service() {
         }
         // ③ Сторож (паттерн TripLocationService): если ProfileScreen крашнулся и не позвал stop(),
         // не висим вечно. Смена ограничена 8ч на сервере (presence → 403), это второй пояс.
-        scope.launch { delay(MAX_LIFETIME_MS); stopSelf() }
+        loops.launch { delay(MAX_LIFETIME_MS); lineRun.current?.let { stopRun(it) } }
+    }
+
+    /** Serialized with onStartCommand. A stale rejection must not stop a new start. */
+    private fun stopRun(start: TaxiLineRun.Start, reason: String? = null): Boolean {
+        if (!lineRun.isCurrent(start) || !stopSelfResult(start.startId)) return false
+        lineRun.close(start)
+        loopScope?.cancel()
+        loopScope = null
+        clearOffer(start)
+        ApiClient.runIfCurrentSession(start.owner) { tellLineClosed(reason) }
+        return true
+    }
+
+    private fun clearOffer(start: TaxiLineRun.Start) {
+        val generation = ApiClient.queueSessionGeneration()
+        ApiClient.runIfUnchangedSession(generation) {
+            TaxiOfferNotifier.publication.invalidate(
+                start.owner, allowUntracked = generation == start.owner,
+            ) { TaxiOfferNotifier.cancel(this) }
+        }
     }
 
     /**
@@ -189,7 +249,7 @@ class TaxiLineService : Service() {
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build()
-            getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID_CLOSED, n)
+            getSystemService(NotificationManager::class.java)?.notify(NOTIF_TAG_CLOSED, NOTIF_ID_CLOSED, n)
         }
     }
 
@@ -243,6 +303,10 @@ class TaxiLineService : Service() {
         listener?.let { runCatching { lm?.removeUpdates(it) } }
         listener = null
         scope.cancel()   // глушим оба цикла (presence + опрос оффера)
+        lineRun.current?.let { start ->
+            lineRun.close(start)
+            clearOffer(start)
+        }
         super.onDestroy()
     }
 
@@ -252,7 +316,8 @@ class TaxiLineService : Service() {
         private const val NOTIF_ID = 4712
         // Отдельное уведомление «линию закрыли и вот почему»: постоянное гаснет вместе
         // с сервисом, а причина должна остаться на экране.
-        private const val NOTIF_ID_CLOSED = 4713
+        internal const val NOTIF_TAG_CLOSED = "taxi-line-closed"
+        internal const val NOTIF_ID_CLOSED = 4713
         private const val PRESENCE_INTERVAL_MS = 15_000L
         /** Сколько тиков подряд должно не пройти, чтобы честно сказать «сервер тебя не видит».
          *  Три тика ≈ 45с — ровно столько сервер помнит presence. Меньше — паника на пустом

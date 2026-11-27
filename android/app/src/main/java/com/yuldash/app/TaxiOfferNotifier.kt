@@ -27,11 +27,13 @@ import androidx.core.app.NotificationCompat
  * говорит об этом предупреждение (DriverOnlineHint в ProfileScreen).
  */
 internal object TaxiOfferNotifier {
+    val publication = TaxiOfferPublication()
     const val CHANNEL_ID = "taxi_offers"
     const val EXTRA_OPEN_OFFER = "yuldash_open_instant_offer"
     // B9b-2: тап по пушу о ходе заказа (instant_status) → открыть экран заказа пассажира.
     const val EXTRA_OPEN_ORDER = "yuldash_open_instant_order"
-    private const val NOTIF_ID = 4713   // фиксированный: новый оффер заменяет прошлое уведомление
+    internal const val NOTIF_TAG = "taxi-driver-offer"
+    internal const val NOTIF_ID = 4713   // фиксированный: новый оффер заменяет прошлое уведомление
 
     /**
      * Канал. Важность MAX + звук/вибрация — оффер живёт ~20с, его нельзя проспать.
@@ -68,8 +70,8 @@ internal object TaxiOfferNotifier {
     }
 
     /**
-     * Показать оффер. ttlSec — сколько живёт оффер на сервере: по истечении уведомление
-     * само исчезает (setTimeoutAfter), чтобы водитель не тапал протухший заказ.
+     * Показать оффер только на остаток серверного окна, не начиная таймер заново.
+     * Возвращает true, только если системное уведомление было запрошено.
      */
     fun show(
         ctx: Context,
@@ -78,18 +80,21 @@ internal object TaxiOfferNotifier {
         toText: String,
         priceRub: Int,
         lang: AppLanguage,
-        ttlSec: Int = 20,
+        offerExpiresAt: String?,
         recipientUserId: Int? = com.yuldash.app.data.ApiClient.myUserId(),
-    ) {
+    ): Boolean {
+        if (orderId <= 0 || instantOfferRemainingMillis(offerExpiresAt, System.currentTimeMillis()) <= 0L) {
+            return false
+        }
         // Тумблер приложения и системное разрешение — обе причины внутри notificationsAllowed
         // (волна 117): раньше тумблер проверялся здесь отдельно, и экран линии про него не знал.
         // Разрешения нет → notify() молча ничего не сделает. Раньше мы этого даже не замечали:
         // на погасшем экране уведомление — единственный способ доставить оффер, и водитель мог
         // час «работать» без единого заказа (аудит такси, P0-2). Теперь выходим честно, а на
         // экране линии человек видит предупреждение и кнопку «Включить».
-        if (!notificationsAllowed(ctx)) return
+        if (!notificationsAllowed(ctx)) return false
         ensureChannel(ctx, lang)
-        val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return
+        val mgr = ctx.getSystemService(NotificationManager::class.java) ?: return false
         val open = Intent(ctx, MainActivity::class.java).apply {
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
             putExtra(MainActivity.EXTRA_NAVIGATION_DELIVERY_ID, java.util.UUID.randomUUID().toString())
@@ -118,14 +123,15 @@ internal object TaxiOfferNotifier {
             .setSilent(silent)
             .setContentIntent(pi)
             .apply { if (fullScreen) setFullScreenIntent(pi, true) }   // погасший экран → карточка на весь экран
-            .setTimeoutAfter(ttlSec.coerceAtLeast(5) * 1000L)
-            .build()
-        mgr.notify(NOTIF_ID, notif)
+        val remainingMs = instantOfferRemainingMillis(offerExpiresAt, System.currentTimeMillis())
+        if (remainingMs <= 0L) return false
+        mgr.notify(NOTIF_TAG, NOTIF_ID, notif.setTimeoutAfter(remainingMs).build())
+        return true
     }
 
     /** Убрать уведомление (оффер принят/протух/сошёл с линии). */
     fun cancel(ctx: Context) {
-        ctx.getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
+        ctx.getSystemService(NotificationManager::class.java)?.cancel(NOTIF_TAG, NOTIF_ID)
     }
 }
 

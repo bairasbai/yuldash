@@ -1,5 +1,8 @@
 package com.yuldash.app
 
+import android.app.Notification
+import android.app.NotificationChannel
+import android.app.NotificationManager
 import android.content.Context
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiException
@@ -135,6 +138,25 @@ class SmallLogicTest {
     @Test
     fun `карточку заказа можно убрать, даже если её не показывали`() {
         TaxiOfferNotifier.cancel(ctx)   // оффер протух до показа — снятие не должно падать
+    }
+
+    @Test
+    fun `снятие оффера сохраняет уведомления о закрытии линии и доставке`() {
+        val manager = ctx.getSystemService(NotificationManager::class.java)
+        val channel = "test-notification-identity"
+        manager.createNotificationChannel(NotificationChannel(channel, channel, NotificationManager.IMPORTANCE_LOW))
+        val notification = Notification.Builder(ctx, channel)
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
+            .build()
+        val offer = TaxiOfferNotifier.NOTIF_TAG to TaxiOfferNotifier.NOTIF_ID
+        val closed = TaxiLineService.NOTIF_TAG_CLOSED to TaxiLineService.NOTIF_ID_CLOSED
+        val courier = null to 4713
+        for ((tag, id) in listOf(offer, closed, courier)) manager.notify(tag, id, notification)
+
+        fun active() = manager.activeNotifications.map { it.tag to it.id }.toSet()
+        assertEquals(setOf(offer, closed, courier), active())
+        TaxiOfferNotifier.cancel(ctx)
+        assertEquals(setOf(closed, courier), active())
     }
 
     // ---- Что человек читает, когда действие не прошло ----

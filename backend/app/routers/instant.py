@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -623,8 +623,8 @@ def my_scheduled(user: User = Depends(current_user), session: Session = Depends(
 @router.post("/instant/scheduled/{order_id}/activate")
 def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
                           session: Session = Depends(get_session)):
-    """Активировать предзаказ ко времени (клиент вызывает, когда время подошло): scheduled →
-    поиск водителя. Только СВОЙ предзаказ. Не-scheduled (уже активирован/отменён) → 409."""
+    """Ручное «Начать поиск сейчас», в том числе до времени подачи. Только свой предзаказ.
+    Уже активирован/отменён или ещё ждёт завершения другой поездки → 409."""
     order = session.get(InstantOrder, order_id)
     if not order or order.passenger_id != user.id:
         raise herr(404, "Предзаказ не найден", "Алдан заказ табылманы")
@@ -632,6 +632,9 @@ def activate_scheduled_ep(order_id: int, user: User = Depends(current_user),
         raise herr(409, "Предзаказ уже активирован или отменён",
                    "Алдан заказ инде әүҙемләштерелгән йәки кире алынған")
     order = isv.activate_scheduled(session, order)
+    if order.status == S.scheduled:
+        raise herr(409, "Сначала завершите текущую поездку. Предзаказ сохранён.",
+                   "Башта ағымдағы сәфәрҙе тамамлағыҙ. Алдан заказ һаҡланды.")
     return isv.order_payload(session, order, user)
 
 
@@ -665,6 +668,59 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
     return [isv.order_payload(session, o, user) for o in rows]
 
 
+def _driver_offer_line_online(session: Session, user_id: int) -> bool:
+    # Use the database flag, not a presence TTL: voluntary sign-off is immediate.
+    return session.exec(select(DriverProfile.online).where(DriverProfile.user_id == user_id)).first() is True
+
+
+def _driver_offer_block_reason(session: Session, user: User, *, refresh_safety: bool = True) -> str | None:
+    if not taxi_mod.is_approved_taxi_driver(session, user.id):
+        return "not_approved"
+    if debt_mod.taxi_block_reason(session, user.id) is not None:
+        return "debt"
+    if workday_mod.blocking_workday(session, user.id) is not None:
+        return "rest"
+    if quality_mod.taxi_pause_until(session, user.id) is not None:
+        return "quality_pause"
+    if account_paused(session, user.id, refresh=refresh_safety):
+        return "review_pause"
+    return None
+
+
+@router.get("/instant/driver/offer-notification/v1")
+def driver_offer_notification(
+    response: Response,
+    order_id: int = Query(gt=0, le=2**31 - 1),
+    offer_expires_at: str = Query(min_length=1, max_length=40),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, bool]:
+    """Сверка адресного push: не меняет поиск и не отдаёт данные заказа."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        expiry = datetime.fromisoformat(offer_expires_at)
+        if expiry.tzinfo is not None:
+            expiry = expiry.astimezone(timezone.utc).replace(tzinfo=None)
+    except (ValueError, OverflowError):
+        return {"current": False}
+    if expiry <= utcnow():
+        return {"current": False}
+    current = session.exec(
+        select(InstantOrder.id, InstantOrder.offer_expires_at, InstantOrder.from_lat, InstantOrder.from_lng).where(
+            InstantOrder.current_offer_driver_id == user.id,
+            InstantOrder.status == S.offered,
+            InstantOrder.offer_expires_at > utcnow(),
+        ).order_by(InstantOrder.id.desc()).limit(1)
+    ).first()
+    if current is None or current[:2] != (order_id, expiry):
+        return {"current": False}
+    if _driver_offer_block_reason(session, user, refresh_safety=False) is not None:
+        return {"current": False}
+    if not taxi_mod.availability(session, current[2], current[3])["enabled"]:
+        return {"current": False}
+    return {"current": _driver_offer_line_online(session, user.id) and expiry > utcnow()}
+
+
 @router.get("/instant/driver/offer")
 def driver_offer(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше.
@@ -676,16 +732,11 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
 
     Коды, а не текст: подписи живут в клиенте на двух языках, как везде в проекте.
     """
-    if not taxi_mod.is_approved_taxi_driver(session, user.id):
-        return {"offer": None, "blocked": "not_approved"}
-    if debt_mod.taxi_block_reason(session, user.id) is not None:
-        return {"offer": None, "blocked": "debt"}
-    if workday_mod.blocking_workday(session, user.id) is not None:
-        return {"offer": None, "blocked": "rest"}
-    if quality_mod.taxi_pause_until(session, user.id) is not None:
-        return {"offer": None, "blocked": "quality_pause"}
-    if account_paused(session, user.id):
-        return {"offer": None, "blocked": "review_pause"}
+    blocked = _driver_offer_block_reason(session, user)
+    if blocked is not None:
+        return {"offer": None, "blocked": blocked}
+    if not _driver_offer_line_online(session, user.id):
+        return {"offer": None}
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,

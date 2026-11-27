@@ -32,6 +32,7 @@
 import sys
 from datetime import timedelta
 
+from sqlalchemy.orm import aliased
 from sqlmodel import Session, select
 
 from . import declare_remind, incident_escalate, instant_service as isv, waiting_on_us
@@ -60,26 +61,65 @@ def _last_move_at(o: InstantOrder):
 
 
 # ----------------------------- 1. Предзаказы -----------------------------
-def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
-    """scheduled с наступившим временем → запускаем поиск. Возврат: id активированных."""
-    now = utcnow()
-    rows = session.exec(
-        select(InstantOrder).where(
-            InstantOrder.status == S.scheduled,
-            InstantOrder.scheduled_at != None,          # noqa: E711 — SQL IS NOT NULL
-            InstantOrder.scheduled_at <= now,
-        ).limit(200)
+def _resume_scheduled_first_searches(session: Session, now, dry_run: bool) -> list[int]:
+    """Подхватываем прерванный первый подбор, не пересчитывая уже сохранённую цену."""
+    retry_before = now - timedelta(minutes=settings.order_retry_every_min)
+    cutoff = now - timedelta(hours=settings.order_stuck_hours)
+    pending = session.exec(
+        select(InstantOrder.id, InstantOrder.searching_at).where(
+            *isv.pending_scheduled_first_search(),
+            InstantOrder.searching_at > cutoff, InstantOrder.searching_at <= retry_before,
+        ).order_by(InstantOrder.searching_at, InstantOrder.id).limit(50)
     ).all()
-    done = []
-    for o in rows:
+    resumed = []
+    for order_id, started_at in pending:
         if dry_run:
-            done.append(o.id)
+            resumed.append(order_id)
             continue
         try:
-            isv.activate_scheduled(session, o)
-            done.append(o.id)
+            fresh = isv.finish_scheduled_first_search(session, order_id, started_at, skip_locked=True)
+            if fresh is not None:
+                resumed.append(order_id)
+        except Exception as e:  # noqa: BLE001 — продолжаем работу с остальными заказами
+            log.warning(f"[TAXI-WORKER] восстановление предзаказа #{order_id}: {type(e).__name__}")
+            session.rollback()
+    return resumed
+
+
+def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
+    """Запускает наступившие предзаказы; dry_run возвращает кандидатов без изменений."""
+    now = utcnow()
+    resumed = _resume_scheduled_first_searches(session, now, dry_run)
+    live = aliased(InstantOrder)
+    busy = (
+        select(live.id).where(
+            live.passenger_id == InstantOrder.passenger_id,
+            live.status.in_(_ALIVE),
+        ).correlate(InstantOrder).exists()
+    )
+    # Занятые не вытесняют готовые заявки из лимита. Если есть место, откладываемые
+    # всё равно проходят через общий сервис: он сначала проверяет паузу пассажира.
+    ids = session.exec(
+        select(InstantOrder.id).where(
+            InstantOrder.status == S.scheduled,
+            InstantOrder.scheduled_at <= now,
+        ).order_by(busy.asc(), InstantOrder.scheduled_at, InstantOrder.id).limit(200)
+    ).all()
+    if dry_run:
+        return resumed + list(ids)
+    done = resumed
+    for order_id in ids:
+        try:
+            order = session.get(InstantOrder, order_id, populate_existing=True)
+            if (order is None or order.status != S.scheduled
+                    or order.scheduled_at is None or order.scheduled_at > now):
+                continue
+            started = isv.activate_scheduled(session, order)
+            if started.searching_at is not None:
+                done.append(order_id)
         except Exception as e:  # noqa: BLE001 — один заказ не должен ронять прогон
-            log.warning(f"[TAXI-WORKER] активация предзаказа #{o.id}: {type(e).__name__}: {e}")
+            log.warning(f"[TAXI-WORKER] активация предзаказа #{order_id}: {type(e).__name__}: {e}")
+            session.rollback()
     return done
 
 

@@ -36,9 +36,11 @@ def _order(passenger_id: int, driver_id: int, status=S.onboard) -> int:
 
 # ============================== время подачи ==============================
 
-def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatch):
-    """«Через сколько приедет» и «сколько ехать» — разные числа, и оба честные."""
-    monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8, **kw: [{"lat": lat, "lng": lng, "eta_min": 4}])
+def test_estimate_does_not_confuse_trip_duration_with_pickup(client, user_factory, monkeypatch):
+    """Не подставляем время поездки или минуты по прямой вместо времени подачи."""
+    km_for_four_minutes = isv.settings.instant_avg_speed_kmh * 4 / 60
+    monkeypatch.setattr(isv, "_pickup_candidates_by_category",
+                        lambda *_: {"standard": (100, km_for_four_minutes)})
     monkeypatch.setattr(
         pricing,
         "route_metrics",
@@ -54,13 +56,13 @@ def test_estimate_reports_pickup_eta_separately(client, user_factory, monkeypatc
     })
     assert r.status_code == 200, r.text
     body = r.json()
-    assert body["pickup_eta_min"] == 4
+    assert body["pickup_eta_min"] is None
     assert body["eta_min"] == 13.7
 
 
 def test_estimate_pickup_eta_is_null_when_no_cars(client, user_factory, monkeypatch):
     """Рядом никого → честное «не знаю», а не выдуманное число."""
-    monkeypatch.setattr(isv, "nearby_drivers", lambda lat, lng, limit=8, **kw: [])
+    monkeypatch.setattr(isv, "_pickup_candidates_by_category", lambda *_: {})
     u = user_factory("Юлаусы2")
     r = client.post("/instant/estimate", headers=u["auth"], json={
         "from_lat": 52.59, "from_lng": 58.31, "to_lat": 52.70, "to_lng": 58.40,

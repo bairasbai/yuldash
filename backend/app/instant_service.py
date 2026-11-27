@@ -130,12 +130,16 @@ def _remember_track_point(r, driver_id: int) -> None:
         return
 
 
-def presence_alive(r, driver_id: int) -> bool:
-    """heartbeat ещё жив? (защита от «залипших» в GEO координат без свежего пинга)."""
+def _presence_state(r, driver_id: int) -> bool | None:
     try:
         return bool(r.exists(f"presence:hb:{driver_id}"))
-    except Exception:  # noqa: BLE001
-        return False
+    except Exception:  # noqa: BLE001 — сбой чтения не равен истёкшему heartbeat
+        return None
+
+
+def presence_alive(r, driver_id: int) -> bool:
+    """heartbeat ещё жив? (защита от «залипших» в GEO координат без свежего пинга)."""
+    return _presence_state(r, driver_id) is True
 
 
 def presence_offline(driver_id: int) -> None:
@@ -234,21 +238,13 @@ def nearby_drivers(lat: float, lng: float, limit: int = 8,
     return out
 
 
-def nearby_pickup_eta_by_category(session: Session, lat: float, lng: float,
-                                  limit: int = 40) -> dict[str, int]:
-    """Через сколько подъедет ближайшая машина КАЖДОГО класса — минуты по категориям заказа.
+def _pickup_candidates_by_category(
+    session: Session, lat: float, lng: float, options_csv: str, limit: int = 40,
+) -> dict[str, tuple[int, float]]:
+    """Ближайшая машина (id, км по прямой) с нужными классом и опциями.
 
-    Зачем отдельно от `nearby_drivers`. Тот отвечает на вопрос «есть ли вообще кто-то рядом»
-    и не смотрит на классы. Витрина же ставит четыре тарифа в ряд, и одна общая цифра на
-    всех четырёх — это обещание подачи за тот класс, машин которого рядом может не быть
-    вовсе: бизнес-седан один на город, а карточка обещает те же две минуты, что и эконом.
-
-    Класс берём ТОТ ЖЕ, по которому работает подбор: доступные машине ∩ включённые
-    водителем (`cc.effective_classes`). Иначе витрина обещала бы подачу от машины, которой
-    оффер по этому классу даже не придёт.
-
-    Личность не раскрываем: наружу уходит только «в этом классе ближайшая за N минут» —
-    ни id, ни имени, ни координат конкретного водителя.
+    Только для оценки: id не выходит за пределы сервера, а подбор проверяет дополнительные
+    ограничения в момент оффера. Нет подходящей машины в выборке → не обещаем подачу.
     """
     r = _redis()
     if r is None:
@@ -281,16 +277,15 @@ def nearby_pickup_eta_by_category(session: Session, lat: float, lng: float,
             select(DriverProfile).where(DriverProfile.user_id.in_([d for d, _ in pairs]))
         ).all()
     }
-    out: dict[str, int] = {}
+    out: dict[str, tuple[int, float]] = {}
     for did, dist_km in pairs:
         p = profiles.get(did)
-        if p is None:
+        if p is None or not p.online or not cc.covers_options(p.car_options, options_csv):
             continue
         avail = cc.available_or_legacy(getattr(p, "car_classes_available", ""), p.car_class)
         for cls in cc.effective_classes(avail, getattr(p, "car_classes_enabled", "")):
             cat = cc.class_to_category(cls)
-            if cat not in out:
-                out[cat] = max(1, round(dist_km / settings.instant_avg_speed_kmh * 60))
+            out.setdefault(cat, (did, dist_km))
     return out
 
 
@@ -333,20 +328,23 @@ def pay_method_label(method: str) -> tuple[str, str]:
 SURGE_STEPS = ((3.0, 1.5), (2.0, 1.3), (1.5, 1.2), (1.0, 1.1))
 
 
-def _surge_supply(r, lat: float, lng: float) -> int:
-    """Живые водители «на линии» в радиусе города заказа (Redis GEO + heartbeat)."""
+def _surge_supply(r, lat: float, lng: float) -> int | None:
+    """Живые водители «на линии» в радиусе заказа; None — не удалось измерить."""
     try:
         found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
                             radius=settings.surge_radius_km, unit="km")
     except Exception:  # noqa: BLE001 — сбой GEO → предложение неизвестно
-        return 0
+        return None
     alive = 0
     for member in found:
         try:
             did = _member_driver_id(member)
         except (ValueError, IndexError, AttributeError):
             continue
-        if presence_alive(r, did):
+        state = _presence_state(r, did)
+        if state is None:
+            return None
+        if state:
             alive += 1
     return alive
 
@@ -378,7 +376,10 @@ def surge_k_for(session: Session, lat: float, lng: float) -> float:
     demand = _surge_demand(session, lat, lng)
     if demand <= 0:
         return 1.0
-    ratio = demand / max(_surge_supply(r, lat, lng), 1)
+    supply = _surge_supply(r, lat, lng)
+    if supply is None:
+        return 1.0
+    ratio = demand / max(supply, 1)
     for threshold, k in SURGE_STEPS:
         if ratio >= threshold:
             return min(k, settings.surge_max_k)
@@ -614,29 +615,6 @@ def pickup_fee_rub(t: Optional[Tariff], straight_km: Optional[float]) -> int:
     return min(round_to_10(billable * per_km), max_rub)
 
 
-def _nearest_straight_km(nearest: list) -> Optional[float]:
-    """Расстояние до ближайшей машины по прямой, км. None = машин рядом нет.
-
-    Читаем `dist_km`, а если его нет — восстанавливаем из ETA. Так сделано не для красоты:
-    ETA и так считается ИЗ этого расстояния, а список машин приходит из разных мест (Redis,
-    подменённая в тестах функция, будущий источник). Падать на отсутствующем поле в ручке,
-    которая пересчитывается на каждое движение пальца по карте, нельзя.
-    """
-    if not nearest:
-        return None
-    row = nearest[0] or {}
-    raw = row.get("dist_km")
-    if raw is None:
-        eta = row.get("eta_min")
-        if eta is None:
-            return None
-        raw = float(eta) / 60.0 * max(settings.instant_avg_speed_kmh, 1.0)
-    try:
-        return max(float(raw), 0.0)
-    except (TypeError, ValueError):
-        return None
-
-
 def pickup_enabled(t: Optional[Tariff]) -> bool:
     """Настроена ли строка подачи в этом тарифе. Не настроена — ведём себя как раньше."""
     return bool(t is not None
@@ -713,34 +691,6 @@ def driver_straight_km(driver_id: int, lat: float, lng: float) -> Optional[float
     if pos is None:
         return None
     return haversine_km(lat, lng, pos[0], pos[1])
-
-
-def nearest_driver_for_pricing(lat: float, lng: float) -> Optional[tuple[int, float]]:
-    """(id ближайшего живого водителя, расстояние по прямой) — ТОЛЬКО для расчёта цены.
-
-    Зачем отдельно от `nearby_drivers`. Тот сознательно не отдаёт личность: карта машин
-    анонимна, чтобы по ней нельзя было следить за конкретным человеком. Цене же нужен именно
-    id — по нему проверяется, не по пути ли водителю (его зона работы, его прошлая точка).
-    Результат никогда не сериализуется в ответ: наружу уходят только рубли и километры.
-    """
-    r = _redis()
-    if r is None:
-        return None
-    try:
-        found = r.geosearch(PRESENCE_KEY, longitude=lng, latitude=lat,
-                            radius=float(max(RADII_KM)), unit="km",
-                            withdist=True, sort="ASC", count=8)
-    except Exception:  # noqa: BLE001 — сбой GEO → считаем как «рядом никого»
-        return None
-    for row in found:
-        try:
-            member, dist_km = (row[0], float(row[1])) if isinstance(row, (list, tuple)) else (row, 0.0)
-            did = _member_driver_id(member)
-        except (ValueError, IndexError, TypeError, AttributeError):
-            continue
-        if presence_alive(r, did):
-            return did, max(dist_km, 0.0)
-    return None
 
 
 def _approaching(driver_id: int, lat: float, lng: float,
@@ -1313,12 +1263,15 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
 
     now = when or utcnow()
     surge = surge_k_for(session, frm[0], frm[1])
-    # Ищем в том же круге, до какого matcher рассылает офферы: если ближе никого нет, поедет
-    # именно эта машина, и её дорога — часть настоящей цены. Круг карты (7 км) тут занизил бы
-    # и подачу, и ETA, а пассажир увидел бы «рядом никого» там, где машина на самом деле есть.
-    nearest = nearby_drivers(frm[0], frm[1], limit=1, radius_km=max(RADII_KM))
-    pickup_eta = int(nearest[0]["eta_min"]) if nearest else None
-    pickup = pricing.pickup_k_for(pickup_eta)
+    options_csv = cc.dump_options(options or [])
+    candidates = _pickup_candidates_by_category(session, frm[0], frm[1], options_csv)
+    pickup_pricing_proxy_by_cat = {
+        cat: max(1, round(km / settings.instant_avg_speed_kmh * 60))
+        for cat, (_, km) in candidates.items()
+    }
+    # Оценка по прямой остаётся только входом существующего тарифа. Она не учитывает
+    # дорожный маршрут, пробки и объезд платных дорог, поэтому на экране минут нет.
+    pickup = pricing.pickup_k_for(pickup_pricing_proxy_by_cat.get(category))
     weather = pricing.weather_metrics(frm[0], frm[1])
     nk = night_k_for(t, now)
     dynamic = total_k(t, surge, now, pickup=pickup, weather=weather.k)
@@ -1342,24 +1295,25 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     # Считаем ПОСЛЕ всего, что относится к поездке (пол зоны, круговой рейс): это не часть
     # тарифа за дорогу пассажира, а компенсация бензина водителя. Ни скидка за круговой рейс,
     # ни наценка за спрос её не касаются — 20 км порожняка стоят одинаково в любую погоду.
-    pickup_straight_km = _nearest_straight_km(nearest)
-    pickup_full = pickup_fee_rub(t, pickup_straight_km)
-    # Проверку «по пути» делаем ТОЛЬКО когда подача вообще чего-то стоит: она лезет в
-    # справочник населённых пунктов, а оценка пересчитывается на каждое движение пальца
-    # по карте. Машина рядом → строки нет → и спрашивать нечего.
-    enroute = False
-    if pickup_full > 0:
-        found = nearest_driver_for_pricing(frm[0], frm[1])
-        if found is not None:
-            enroute = pickup_enroute(session, found[0], frm[0], frm[1])
-    pickup_fee = pickup_fee_after_enroute(pickup_full, enroute)
-    pickup_pending = bool(pickup_enabled(t) and pickup_straight_km is None)
+    enroute_by_driver: dict[int, bool] = {}
+
+    def pickup_line(tariff: Tariff, cat: str) -> tuple[int, int, bool, float | None]:
+        found = candidates.get(cat)
+        straight_km = found[1] if found is not None else None
+        full = pickup_fee_rub(tariff, straight_km)
+        enroute = False
+        if found is not None and full > 0:
+            did = found[0]
+            if did not in enroute_by_driver:
+                enroute_by_driver[did] = pickup_enroute(session, did, frm[0], frm[1])
+            enroute = enroute_by_driver[did]
+        return pickup_fee_after_enroute(full, enroute), full, enroute, straight_km
+
+    pickup_fee, pickup_full, enroute, pickup_straight_km = pickup_line(t, category)
+    pickup_pending = pickup_enabled(t) and pickup_straight_km is None
     pickup_road = round(pickup_road_km(pickup_straight_km), 2) if pickup_straight_km is not None else 0.0
 
-    # --- Опции салона: детское кресло, животное, большой багаж ---
-    # Тоже компенсация, а не наценка: водитель купил кресло, возит его и ставит. Цена одна
-    # для всех классов — кресло в Бизнесе не дороже, чем в Экономе, это то же самое кресло.
-    options_csv = cc.dump_options(options or [])
+    # Опции салона — компенсация, а не наценка (кресло не зависит от класса машины).
     options_fee = cc.options_fee_rub(options_csv)
 
     ride_price = price
@@ -1374,9 +1328,6 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     # Так мы ещё и меряем спрос до того, как искать машины.
     place = class_rollout.place_at(session, frm[0], frm[1])
     opened = class_rollout.open_categories(session, place)
-    # Подача считается по классам: у каждой карточки в витрине своё число минут.
-    # Пусто для класса = машин этого класса рядом нет; клиент тогда молчит, а не выдумывает.
-    pickup_eta_by_cat = nearby_pickup_eta_by_category(session, frm[0], frm[1])
     options_out = []          # витрина классов (имя `options` занято параметром — опциями салона)
     # Тарифы забираем ОДНИМ запросом, а не по одному на класс.
     #
@@ -1394,12 +1345,13 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
     for cat in cc.ORDER_CATEGORIES:
         ct = tariffs.get(cat)
         if ct:
-            ct_dynamic = total_k(ct, surge, now, pickup=pickup, weather=weather.k)
+            cat_pickup_k = pricing.pickup_k_for(pickup_pricing_proxy_by_cat.get(cat))
+            ct_dynamic = total_k(ct, surge, now, pickup=cat_pickup_k, weather=weather.k)
             cat_ride = _tariff_price(ct, dist_km, eta_min, ct_dynamic)
             # Подача у каждого класса своя: у Бизнеса и километр дороже, и порожняк дороже.
             # Считать её один раз по выбранному классу значит показать в витрине цену, которой
             # при переключении класса не будет.
-            cat_pickup = pickup_fee_after_enroute(pickup_fee_rub(ct, pickup_straight_km), enroute)
+            cat_pickup, _, _, cat_straight_km = pickup_line(ct, cat)
             cat_winter = winter_road_fee_rub(dist_km, cat_ride, winter_kind)
             options_out.append({
                 "category": cat,
@@ -1408,13 +1360,15 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
                 "one_way_price": cat_ride + cat_pickup + options_fee + cat_winter,
                 "ride_price": cat_ride,
                 "pickup_fee": cat_pickup,
+                "pickup_pending": pickup_enabled(ct) and cat_straight_km is None,
+                "pickup_max_rub": int(ct.pickup_max_rub or 0),
                 "options_fee": options_fee,
                 "weather_fee": cat_winter,
                 "base_price": _tariff_price(ct, dist_km, eta_min, 1.0),
                 "dynamic_k": ct_dynamic,
                 "open": cat in opened,
                 # Через сколько подъедет машина ИМЕННО этого класса. None → рядом таких нет.
-                "pickup_eta_min": pickup_eta_by_cat.get(cat),
+                "pickup_eta_min": None,
             })
 
     return {
@@ -1464,7 +1418,7 @@ def estimate(session: Session, frm: tuple, to: tuple, category: str = "standard"
         "waypoints_count": len(stops),
         "distance_km": round(dist_km, 2),
         "eta_min": round(eta_min, 1),
-        "pickup_eta_min": pickup_eta,
+        "pickup_eta_min": None,
         "zone": zone,
         "category": category,
         "tariff_id": t.id,
@@ -3143,7 +3097,8 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
     return cancelled
 
 
-def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *,
+                   first_scheduled_search: bool = False) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     stopped = cancel_for_suspended_passenger(session, order)
     if stopped is not None:
@@ -3153,7 +3108,15 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
         return _expire_no_drivers(session, order, notify)
     if order.search_round >= settings.instant_max_offers:
         return _expire_no_drivers(session, order, notify)
-    cands = candidates(r, session, order, exclude=_tried_set(r, order.id))
+    if first_scheduled_search:
+        # Вызывающий держит блокировку и проверил отсутствие сохранённых офферов.
+        # Redis мог запомнить водителя до прерванного commit. Отбрасываем такой след,
+        # даже если Redis не подтвердил удаление. Последующие попытки не сбрасываем.
+        _cleanup_tried(order.id)
+        excluded = set()
+    else:
+        excluded = _tried_set(r, order.id)
+    cands = candidates(r, session, order, exclude=excluded)
     if not cands:
         return _expire_no_drivers(session, order, notify)
     did = cands[0]
@@ -3205,8 +3168,8 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     """Активация предзаказа «на время»: scheduled → обычный поиск водителя.
     Цену/сурж пересчитываем ЗАНОВО на момент активации (не фиксируем при бронировании —
     честно: рынок мог измениться), затем стандартный matcher (searching → offered|expired).
-    Зовётся вручную (клиент по таймеру) или лениво при GET /instant/scheduled, когда время
-    подошло. Идемпотентно: не-scheduled заказ возвращаем как есть."""
+    Пассажир может начать поиск явно и досрочно. Автоматические вызовы (список и воркер)
+    выбирают только наступившие предзаказы. Не-scheduled заказ возвращаем как есть."""
     if order.status != S.scheduled:
         return order
     # ⬇️ Пауза «Справедливости» (§2) на ПАССАЖИРЕ. Гейт стоит на создании предзаказа, но между
@@ -3230,20 +3193,27 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     #
     # Не отменяем — откладываем: заказ человек сделал сам, и он актуален. Освободится (доехал
     # или отменил) — активируется следующим проходом. Заказы уходят по одному, а не пачкой.
-    busy = session.exec(
-        select(InstantOrder).where(
-            InstantOrder.passenger_id == order.passenger_id,
-            InstantOrder.id != order.id,
-            InstantOrder.status.in_(LIVE_ORDER_STATUSES),
-        ).limit(1)
-    ).first()
-    if busy is not None:
+    order_id, passenger_id = order.id, order.passenger_id
+    active_order = select(InstantOrder.id).where(
+        InstantOrder.passenger_id == passenger_id,
+        InstantOrder.id != order_id,
+        InstantOrder.status.in_(LIVE_ORDER_STATUSES),
+    ).limit(1)
+    if session.exec(active_order).first() is not None:
         return order   # остаётся scheduled — ждёт своей очереди
     est = estimate(session, (order.from_lat, order.from_lng),
                    (order.to_lat, order.to_lng), order.category or "standard",
-                   # Опции заказа несут деньги (кресло 150 ₽). Пересчёт без них обнулил бы
-                   # кресло у предзаказа: человек выбрал его вечером, а к утру оно исчезло.
+                   # Меняем текущую оценку, а не заказанный маршрут и комплектацию.
+                   round_trip=bool(order.round_trip),
+                   waypoints=parse_waypoints(order.waypoints_json),
                    options=cc.parse_options(order.options))
+    # Тот же lock пассажира, что при обычном заказе. Дорогой расчёт маршрута — до lock,
+    # проверка активной поездки — ещё раз под lock вплоть до перехода в searching.
+    session.exec(select(User.id).where(User.id == passenger_id).with_for_update()).first()
+    order = session.get(InstantOrder, order_id, populate_existing=True)
+    if order.status != S.scheduled or session.exec(active_order).first() is not None:
+        session.rollback()  # Нечего сохранять; не держим lock до следующего заказа воркера.
+        return order
     # Обещание потолка (по умолчанию выключено, см. scheduled_price_cap_rub). Урезаем ТОЛЬКО
     # цену самой поездки: компенсации — бензин водителя, и платформа не вправе их резать.
     потолок = scheduled_price_cap_rub(int(order.price_estimate or 0))
@@ -3253,7 +3223,7 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
         est = dict(est)
         est["ride_price"] = max(потолок - компенсации, 0)
         est["price"] = est["ride_price"] + компенсации
-    session.execute(
+    changed = session.execute(
         update(InstantOrder).where(InstantOrder.id == order.id, InstantOrder.status == S.scheduled)
         .values(price_estimate=est["price"], ride_price=est.get("ride_price", est["price"]),
                 ride_base_price=est.get("base_price", 0) or est.get("ride_price", est["price"]),
@@ -3267,15 +3237,43 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
                 eta_min=est["eta_min"], tariff_id=est["tariff_id"], surge_k=est["surge_k"],
                 pricing_k=est.get("pricing_k", est["surge_k"]))
     )
-    session.commit()
-    order = session.get(InstantOrder, order.id)
-    if order.status != S.scheduled:
-        return order   # гонку проиграли (кто-то активировал/отменил параллельно) — не дублируем поиск
-    # Цена пересчитана заново → скидка по промокоду могла превысить допустимую долю подешевевшей
-    # поездки. Ужимаем (только вниз), чтобы потолок кампании не обходился через предзаказ.
-    promo_ride.reclamp(session, order)
-    order = session.get(InstantOrder, order.id)
+    if changed.rowcount == 0:
+        session.rollback()  # Параллельная отмена: обновление не произошло.
+        return order
+    session.refresh(order)
+    # Сохраняем цену и уменьшенную скидку вместе со статусом searching. Если прерваться
+    # до commit, предзаказ сохранит исходную цену, от которой считается потолок.
+    promo_ride.reclamp(session, order, commit=False)
     return start_matching(session, order)
+
+
+def pending_scheduled_first_search():
+    """Только первый подбор предзаказа, ещё без попытки предложения и отдельной очереди."""
+    return (
+        InstantOrder.scheduled_at.is_not(None),
+        InstantOrder.status == S.searching,
+        InstantOrder.searching_at.is_not(None),
+        InstantOrder.search_round == 0,
+        InstantOrder.offered_at.is_(None),
+        InstantOrder.offer_expires_at.is_(None),
+        InstantOrder.current_offer_driver_id.is_(None),
+        InstantOrder.driver_id.is_(None),
+        InstantOrder.wait_until.is_(None),
+    )
+
+
+def finish_scheduled_first_search(session: Session, order_id: int, started_at: datetime, *,
+                                  notify: bool = True, skip_locked: bool = False) -> InstantOrder | None:
+    """Обычный запуск и восстановление одного круга используют одну блокировку заказа."""
+    order = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.id == order_id, InstantOrder.searching_at == started_at,
+            *pending_scheduled_first_search(),
+        ).with_for_update(skip_locked=skip_locked).execution_options(populate_existing=True)
+    ).first()
+    if order is None:
+        return None  # Уже отменён, предложен или обработан другим исполнителем.
+    return try_offer_next(session, order, notify, first_scheduled_search=True)
 
 
 # Из каких статусов поиск можно (пере)запустить: свежесозданный заказ, предзаказ в момент
@@ -3297,16 +3295,23 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     раз предлагать заказ ЗА КРУГ». Он копился за всю жизнь заказа, и очередь «подожду машину»
     после 8 суммарных офферов замолкала навсегда — полоска «ищем машину» живая, а сервер уже
     никому не предлагает, даже если свободный водитель стоит в ста метрах."""
+    order_id = order.id
+    scheduled = order.status == S.scheduled and order.scheduled_at is not None
+    started_at = utcnow()
     result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE))
-        .values(status=S.searching, searching_at=utcnow(), search_round=0)
+        .where(InstantOrder.id == order_id, InstantOrder.status.in_(_MATCHABLE))
+        .values(status=S.searching, searching_at=started_at, search_round=0)
     )
     session.commit()
-    order = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
-        return order        # заказ успели закрыть/принять — поиск не начинаем
-    return try_offer_next(session, order, notify)
+        return session.get(InstantOrder, order_id)  # заказ успели закрыть или принять
+    if scheduled:
+        fresh = finish_scheduled_first_search(session, order_id, started_at, notify=notify)
+        if fresh is not None:
+            return fresh
+        return session.get(InstantOrder, order_id, populate_existing=True)
+    return try_offer_next(session, session.get(InstantOrder, order_id), notify)
 
 
 def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
@@ -3428,6 +3433,9 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
             "from": from_shown,      # без номера дома и квартиры — см. выше
             "to": to_shown,          # без номера дома — см. выше
             "ttl_sec": str(settings.instant_offer_ttl_sec),
+            # Клиент не должен начинать новые 20 секунд, если пуш пришёл с задержкой.
+            "offer_issued_at": order.offered_at.isoformat() if order.offered_at else "",
+            "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else "",
             # Рейтинг/опыт пассажира (B7a-4): "" = новичок без оценок.
             "passenger_rating": "" if p_rating is None else str(p_rating),
             "passenger_trips": str(p_trips),

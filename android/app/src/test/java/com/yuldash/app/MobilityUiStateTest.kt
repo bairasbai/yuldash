@@ -24,6 +24,15 @@ class MobilityUiStateTest {
     }
 
     @Test
+    fun delayedOfferNeverStartsAFreshTimer() {
+        val sent = java.time.Instant.parse("2026-08-02T12:00:00Z").toEpochMilli()
+        val deadline = "2026-08-02T12:00:20"
+        assertEquals(2_000L, instantOfferRemainingMillis(deadline, sent + 18_000L))
+        assertEquals(0L, instantOfferRemainingMillis(deadline, sent + 20_000L))
+        assertEquals(0L, instantOfferRemainingMillis(deadline, sent + 21_000L))
+    }
+
+    @Test
     fun taxiProgressCoversEveryTripPhase() {
         assertEquals(0, taxiProgressIndex("created"))
         assertEquals(0, taxiProgressIndex("searching"))

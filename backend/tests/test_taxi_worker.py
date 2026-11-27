@@ -11,6 +11,7 @@
 from datetime import timedelta
 
 import pytest
+from sqlalchemy import delete
 from sqlmodel import Session, select
 
 from app import models as M
@@ -18,6 +19,8 @@ from app import taxi_worker as tw
 from app.db import engine
 from app.models import InstantOrderStatus as S
 from app.timeutil import utcnow
+
+from test_instant import ORIG, _driver_online, _heartbeat, fake_redis  # noqa: F401
 
 
 @pytest.fixture(autouse=True)
@@ -62,6 +65,212 @@ def test_future_scheduled_order_untouched(client, user_factory):
     with Session(engine) as s:
         assert oid not in tw.activate_due_scheduled(s)
     assert _get(oid).status == S.scheduled
+
+
+def test_due_order_for_busy_passenger_is_not_reported_as_started(client, user_factory):
+    pax = user_factory("SchedBusyWorker")
+    active = _order(pax["id"], status=S.onboard)
+    oid = _order(pax["id"], status=S.scheduled, scheduled_at=utcnow() - timedelta(minutes=1))
+
+    with Session(engine) as s:
+        assert oid not in tw.activate_due_scheduled(s)
+    waiting = _get(oid)
+    assert waiting.status == S.scheduled and waiting.searching_at is None
+
+    with Session(engine) as s:
+        trip = s.get(M.InstantOrder, active)
+        trip.status = S.done
+        s.commit()
+        assert oid in tw.activate_due_scheduled(s)
+    assert _get(oid).searching_at is not None
+
+
+def test_ready_preorder_is_not_hidden_behind_a_full_batch_of_busy_bookings(client, user_factory):
+    busy = user_factory("SchedBatchBusy")
+    ready = user_factory("SchedBatchReady")
+    _order(busy["id"], status=S.onboard)
+    now = utcnow()
+    with Session(engine) as s:
+        for _ in range(200):
+            s.add(M.InstantOrder(
+                passenger_id=busy["id"], status=S.scheduled, price_estimate=200,
+                scheduled_at=now - timedelta(minutes=2),
+                from_lat=52.59, from_lng=58.31, to_lat=52.60, to_lng=58.32,
+            ))
+        s.commit()
+    ready_id = _order(ready["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=1))
+
+    try:
+        with Session(engine) as s:
+            assert ready_id in tw.activate_due_scheduled(s)
+            held = s.exec(select(M.InstantOrder).where(
+                M.InstantOrder.passenger_id == busy["id"], M.InstantOrder.status == S.scheduled,
+            )).all()
+            assert len(held) == 200
+        assert _get(ready_id).searching_at is not None
+    finally:
+        with Session(engine) as s:
+            s.execute(delete(M.InstantOrder).where(M.InstantOrder.passenger_id == busy["id"]))
+            s.commit()
+
+
+def test_failed_booking_flush_does_not_block_the_next_booking(client, user_factory, monkeypatch):
+    first = user_factory("SchedFlushFirst")
+    second = user_factory("SchedFlushSecond")
+    now = utcnow()
+    bad_id = _order(first["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=2))
+    good_id = _order(second["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=1))
+    activate = tw.isv.activate_scheduled
+    attempted = []
+
+    def with_failed_flush(session, order):
+        attempted.append(order.id)
+        if order.id == bad_id:
+            session.add(M.InstantOrder(from_lat=52.59, from_lng=58.31, to_lat=52.60, to_lng=58.32))
+            session.flush()  # NOT NULL: SQLAlchemy требует rollback перед дальнейшей работой.
+        return activate(session, order)
+
+    monkeypatch.setattr(tw.isv, "activate_scheduled", with_failed_flush)
+    with Session(engine) as s:
+        activated = tw.activate_due_scheduled(s)
+    assert attempted.index(bad_id) < attempted.index(good_id)
+    assert bad_id not in activated and good_id in activated
+    assert _get(bad_id).status == S.scheduled
+    assert _get(good_id).searching_at is not None
+
+
+def test_preorder_search_resumes_after_commit_without_repricing(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    pax = user_factory("SchedResumePax")
+    driver = _driver_online(client, user_factory, "SchedResumeDriver")
+    _heartbeat(client, driver, ORIG)
+    now = utcnow()
+    oid = _order(pax["id"], status=S.scheduled, scheduled_at=now - timedelta(minutes=1),
+                 from_lat=ORIG[0], from_lng=ORIG[1])
+    matching = tw.isv.try_offer_next
+
+    def interrupted(*_args, **_kwargs):
+        raise RuntimeError("synthetic process interruption after commit")
+
+    monkeypatch.setattr(tw.isv, "try_offer_next", interrupted)
+    with Session(engine) as s:
+        with pytest.raises(RuntimeError, match="synthetic process interruption"):
+            tw.isv.activate_scheduled(s, s.get(M.InstantOrder, oid))
+    pending = _get(oid)
+    assert pending.status == S.searching and pending.current_offer_driver_id is None
+    assert pending.search_round == 0
+    price = pending.price_estimate
+
+    monkeypatch.setattr(tw.isv, "try_offer_next", matching)
+    activate = tw.isv.activate_scheduled
+
+    def reject_reactivation(session, order):
+        assert order.id != oid, "recovery entered the repricing path"
+        return activate(session, order)
+
+    monkeypatch.setattr(tw.isv, "activate_scheduled", reject_reactivation)
+    monkeypatch.setattr(tw, "utcnow", lambda: now + timedelta(minutes=3))
+    offers = []
+
+    def capture_offer(_session, order, did):
+        if order.id == oid:
+            offers.append((order.id, did))
+
+    monkeypatch.setattr(tw.isv, "_push_offer", capture_offer)
+    with Session(engine) as s:
+        assert oid in tw.activate_due_scheduled(s)
+        assert oid not in tw.activate_due_scheduled(s)
+
+    result = _get(oid)
+    assert result.price_estimate == price
+    assert result.search_round == 1 and result.status == S.offered
+    assert offers == [(oid, driver["id"])]
+
+
+def test_preorder_recovery_ignores_unsaved_offer_but_not_committed_offer(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    pax = user_factory("SchedTriedPax")
+    driver = _driver_online(client, user_factory, "SchedTriedDriver")
+    _heartbeat(client, driver, ORIG)
+    now = utcnow()
+    started = now - timedelta(minutes=5)
+    oid = _order(pax["id"], status=S.searching, scheduled_at=started, searching_at=started,
+                 from_lat=ORIG[0], from_lng=ORIG[1], price_estimate=420)
+    # Остаток прерванной попытки: Redis записан, SQL-оффера ещё нет.
+    key = tw.isv._tried_key(oid)
+    fake_redis.sadd(key, driver["id"], driver["id"] + 1000000)
+    pushed = []
+
+    def capture_offer(_session, order, did):
+        if order.id == oid:
+            pushed.append(did)
+
+    monkeypatch.setattr(tw.isv, "_push_offer", capture_offer)
+    with Session(engine) as s:
+        assert oid in tw.activate_due_scheduled(s)
+        assert oid not in tw.activate_due_scheduled(s)
+        order = s.get(M.InstantOrder, oid, populate_existing=True)
+        assert (order.status, order.current_offer_driver_id, order.search_round) == (S.offered, driver["id"], 1)
+        assert order.price_estimate == 420
+        assert tw.isv._tried_set(fake_redis, oid) == {driver["id"]}
+        assert tw.isv.advance_after_no_accept(s, order, notify=False).status == S.expired
+    assert pushed == [driver["id"]]
+
+
+@pytest.mark.parametrize("new_status", [S.cancelled, S.offered])
+def test_preorder_recovery_rechecks_status_after_selecting_id(client, user_factory, monkeypatch, new_status):
+    pax = user_factory("SchedResumeStale")
+    driver = user_factory("SchedResumeAlreadyOffered", role=M.UserRole.driver)
+    started = utcnow() - timedelta(minutes=5)
+    oid = _order(pax["id"], status=S.searching, scheduled_at=started, searching_at=started)
+    finish = tw.isv.finish_scheduled_first_search
+
+    def changed_before_lock(session, order_id, stamp, **kwargs):
+        if order_id == oid:
+            row = session.get(M.InstantOrder, oid)
+            row.status = new_status
+            if new_status == S.offered:
+                row.current_offer_driver_id = driver["id"]
+                row.offered_at = utcnow()
+                row.offer_expires_at = utcnow() + timedelta(seconds=20)
+                row.search_round = 1
+            session.commit()
+        return finish(session, order_id, stamp, **kwargs)
+
+    def unexpected_match(_session, order, *_args, **_kwargs):
+        if order.id == oid:
+            pytest.fail("recovery must not run matching after cancellation or a newer offer")
+        return order
+
+    monkeypatch.setattr(tw.isv, "finish_scheduled_first_search", changed_before_lock)
+    monkeypatch.setattr(tw.isv, "try_offer_next", unexpected_match)
+    with Session(engine) as s:
+        assert oid not in tw.activate_due_scheduled(s)
+    fresh = _get(oid)
+    assert fresh.status == new_status
+    if new_status == S.offered:
+        assert fresh.current_offer_driver_id == driver["id"] and fresh.search_round == 1
+
+
+def test_preorder_recovery_ignores_fresh_and_stuck_searches(client, user_factory):
+    pax = user_factory("SchedResumeBounds")
+    now = utcnow()
+    old = now - timedelta(hours=tw.settings.order_stuck_hours + 1)
+    stale = _order(pax["id"], status=S.searching, scheduled_at=old, searching_at=old, created_at=old)
+    fresh = _order(pax["id"], status=S.searching, scheduled_at=now, searching_at=now)
+    try:
+        with Session(engine) as s:
+            selected = tw.activate_due_scheduled(s, dry_run=True)
+            assert stale not in selected and fresh not in selected
+            assert stale in tw.close_stuck_orders(s, dry_run=True)
+    finally:
+        # The shared test DB otherwise counts the fresh synthetic order as live demand.
+        with Session(engine) as s:
+            for order_id in (stale, fresh):
+                s.delete(s.get(M.InstantOrder, order_id))
+            s.commit()
 
 
 # ============================ 2. Зависшие заказы ============================

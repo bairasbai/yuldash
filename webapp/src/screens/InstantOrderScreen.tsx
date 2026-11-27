@@ -11,7 +11,7 @@
 //  Мягкая деградация: instant/* появятся на проде после мержа
 //  release-2026-07 → до этого 404/405 → «Такси скоро».
 // ================================================================
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, type NavigateFunction } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError } from "../api/client";
@@ -30,6 +30,7 @@ import {
   fetchAlternatives,
   addAlternative,
   type InstantOrder,
+  type EstimateInput,
   type EstimateResult,
   type TaxiCategory,
   type NearbyDriver,
@@ -350,7 +351,7 @@ export default function InstantOrderScreen() {
 // ================================================================
 //  Составление заказа: точка Б, оценка, класс, «Сейчас/На время».
 // ================================================================
-function ComposeView({
+export function ComposeView({
   from,
   to,
   setFrom,
@@ -372,7 +373,8 @@ function ComposeView({
   /** Место не дали — без точки А машину не вызвать, и это надо сказать словами. */
   const [geoNote, setGeoNote] = useState("");
   const [category, setCategory] = useState<TaxiCategory>("standard");
-  const [estimate, setEstimate] = useState<EstimateResult | null>(null);
+  const [quote, setQuote] = useState<{ input: EstimateInput; result: EstimateResult | null } | null>(null);
+  const [quoteRetry, setQuoteRetry] = useState(0);
   // Положение шторки: пока нет назначения — развёрнута (адреса и подсказки), после выбора —
   // наполовину: карта важнее длинной формы. Тронул руками — больше не переключаем сами.
   const [sheetStop, setSheetStop] = useState<TaxiSheetStop>("full");
@@ -380,7 +382,6 @@ function ComposeView({
   useEffect(() => {
     if (!sheetTouched.current) setSheetStop(to ? "half" : "full");
   }, [to]);
-  const [estimating, setEstimating] = useState(false);
   const [when, setWhen] = useState<"now" | "later">("now");
   const [schedAt, setSchedAt] = useState("");
   const [busy, setBusy] = useState(false);
@@ -421,16 +422,9 @@ function ComposeView({
     };
   }, [from?.lat, from?.lng]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Оценка, как только есть обе точки (и при смене класса).
-  useEffect(() => {
-    if (!from || !to) {
-      setEstimate(null);
-      return;
-    }
-    let alive = true;
-    setEstimating(true);
-    setError(null);
-    instantEstimate({
+  // Храним ответ вместе с запросом: уже первый рендер после смены класса/опций
+  // не показывает ни старое время, ни цену, ни неопределённую подачу другой конфигурации.
+  const quoteInput = useMemo<EstimateInput | null>(() => from && to ? ({
       from_lat: from.lat,
       from_lng: from.lng,
       to_lat: to.lat,
@@ -449,11 +443,20 @@ function ComposeView({
       ...(when === "later" && schedAt
         ? { scheduled_at: new Date(schedAt).toISOString() }
         : {}),
-    })
-      .then((e) => alive && setEstimate(e))
+  }) : null, [from?.lat, from?.lng, from?.text, to?.lat, to?.lng, to?.text,
+    category, when, schedAt, options, stops, roundTrip, returnWaitMin]); // eslint-disable-line react-hooks/exhaustive-deps
+  const estimate = quoteInput !== null && quote?.input === quoteInput ? quote.result : null;
+  const estimating = quoteInput !== null && quote?.input !== quoteInput;
+
+  useEffect(() => {
+    if (!quoteInput) return;
+    let alive = true;
+    setError(null);
+    instantEstimate(quoteInput)
+      .then((result) => alive && setQuote({ input: quoteInput, result }))
       .catch((e) => {
         if (!alive) return;
-        setEstimate(null);
+        setQuote({ input: quoteInput, result: null });
         setError(
           e instanceof ApiError && e.status === 404
             ? appText("Оценка появится после обновления сервиса.", "Баһалау яңыртыуҙан һуң күренәсәк.")
@@ -461,12 +464,11 @@ function ComposeView({
               ? e.message
               : appText("Не получилось оценить поездку.", "Сәфәрҙе баһаларға булманы.")
         );
-      })
-      .finally(() => alive && setEstimating(false));
+      });
     return () => {
       alive = false;
     };
-  }, [from?.lat, from?.lng, to?.lat, to?.lng, category, when, schedAt, options, stops, roundTrip, returnWaitMin]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [quoteInput, quoteRetry]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ❄️ Погода на маршруте заказа — по координатам точек (сервер округляет их до ~5 км).
   const weather = useRouteWeather({
@@ -477,13 +479,12 @@ function ComposeView({
     at: when === "later" && schedAt ? new Date(schedAt).toISOString() : undefined,
   });
 
-  function priceFor(cat: TaxiCategory): number | null {
-    const opt = estimate?.options?.find((o) => o.category === cat);
-    return opt ? opt.price : cat === category ? estimate?.price ?? null : null;
-  }
+  // A pending pickup can be disclosed by a successful quote. A missing or
+  // failed quote cannot tell the passenger the price for the current choices.
+  const canOrder = !!estimate && !busy && (when === "now" || !!schedAt);
 
   async function order() {
-    if (!from || !to || busy) return;
+    if (!canOrder || !from || !to) return;
     setBusy(true);
     setError(null);
     // Начало заказа такси — без координат/адресов, только безопасный контекст.
@@ -537,8 +538,6 @@ function ComposeView({
       setBusy(false);
     }
   }
-
-  const canOrder = !!from && !!to && !busy && (when === "now" || !!schedAt);
 
   /* Как в Android: форма заказа живёт в шторке над картой (TaxiSheetScaffold, halfBodyFraction 0.32).
      Пока нет назначения — шторка развёрнута, после выбора — наполовину, карта важнее длинной формы. */
@@ -619,20 +618,25 @@ function ComposeView({
       {to && (
         <div className="taxi-classes">
           {(["standard", "comfort"] as TaxiCategory[]).map((cat) => {
-            const price = priceFor(cat);
+            const option = estimate?.options?.find((o) => o.category === cat);
             const active = category === cat;
+            const price = option?.price ?? (active ? estimate?.price ?? null : null);
+            const eta = option?.pickup_eta_min;
+            const pickupPending = option?.pickup_pending ?? (active && estimate?.pickup_pending === true);
+            const pickupCeiling = option?.pickup_max_rub ?? (active ? estimate?.pickup_max_rub : undefined);
             return (
               <button
                 key={cat}
                 type="button"
                 className={"taxi-class" + (active ? " is-active" : "")}
                 onClick={() => setCategory(cat)}
+                aria-pressed={active}
               >
                 {/* TaxiServiceClassTile: та же картинка тарифа, что в Android (res/drawable), чип «N мин» на ней. */}
-                <span className="taxi-class__car" aria-hidden>
+                <span className="taxi-class__car">
                   <img src={cat === "standard" ? "/tariffs/economy.webp" : "/tariffs/comfort.webp"} alt="" />
-                  {estimate?.pickup_eta_min != null && (
-                    <span className="taxi-class__eta">{appText(`${estimate.pickup_eta_min} мин`, `${estimate.pickup_eta_min} мин`)}</span>
+                  {typeof eta === "number" && Number.isFinite(eta) && eta > 0 && (
+                    <span className="taxi-class__eta">{appText(`${eta} мин`, `${eta} мин`)}</span>
                   )}
                 </span>
                 <span className="taxi-class__name">
@@ -653,6 +657,16 @@ function ComposeView({
                       : appText("новее и просторнее", "яңыраҡ һәм киңерәк")}
                   </span>
                 </span>
+                {pickupPending && (
+                  <span className="taxi-class__pickup">
+                    {typeof pickupCeiling === "number" && Number.isFinite(pickupCeiling) && pickupCeiling > 0
+                      ? appText(
+                          `Подача уточняется · до ${priceLabel(pickupCeiling, true)}`,
+                          `Килеү хаҡы асыҡлана · ${priceLabel(pickupCeiling, false)}-ға тиклем`
+                        )
+                      : appText("Подача уточняется", "Килеү хаҡы асыҡлана")}
+                  </span>
+                )}
               </button>
             );
           })}
@@ -1022,6 +1036,14 @@ function ComposeView({
       )}
 
       {error && <div className="auth__error">{error}</div>}
+      {quoteInput && quote?.input === quoteInput && quote.result === null && (
+        <button type="button" className="btn-soft" onClick={() => {
+          setQuote(null);
+          setQuoteRetry((attempt) => attempt + 1);
+        }}>
+          {appText("Повторить расчёт", "Ҡабат иҫәпләү")}
+        </button>
+      )}
 
       {estimate && (
         <div className="taxi-estimate-hint">
@@ -1056,7 +1078,7 @@ function ComposeView({
                   ? appText("Отправляем…", "Ебәрәбеҙ…")
                   : when === "later"
                     ? appText("Заказать на время", "Ваҡытҡа заказ итеү")
-                    : estimate
+                    : estimate && estimate.pickup_pending !== true
                       ? appText(`Заказать за ${priceLabel(estimate.price, ru)}`, `${priceLabel(estimate.price, ru)} — заказ итеү`)
                       : appText("Заказать", "Заказ итеү")}
               </button>
@@ -1553,9 +1575,11 @@ function TrackingView({
   }
 
   // --- Водитель едет / в пути ---
-  const phaseTitle = enRoute
-    ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
-    : appText("В пути", "Юлда");
+  const phaseTitle = s === "arriving"
+    ? appText("Машина на месте", "Машина урынында")
+    : enRoute
+      ? appText("Водитель едет к тебе", "Йөрөтөүсе һиңә килә")
+      : appText("В пути", "Юлда");
 
   /* TaxiTripScreen Android: карта во весь экран, шторка с положениями. Шапка — статус и рельса;
      тело — водитель и маршрут с ценой; развёрнутая — «поделиться», ожидание, действия в пути;
@@ -1578,11 +1602,9 @@ function TrackingView({
         header={
           <div className="taxi-trip-head">
             <h1 className="taxi-trip-head__title">{phaseTitle}</h1>
-            <p className="taxi-trip-head__sub">
-              {enRoute
-                ? appText(`≈ ${Math.round(order.eta_min)} мин до подачи`, `≈ ${Math.round(order.eta_min)} мин килеүгә`)
-                : appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")}
-            </p>
+            {!enRoute && (
+              <p className="taxi-trip-head__sub">{appText("Хорошей дороги 🌿", "Юлың уң булһын 🌿")}</p>
+            )}
             {/* Рельса прогресса — как TaxiTripProgress в шапке поездки Android. */}
             <TaxiTripProgress status={order.status} />
           </div>

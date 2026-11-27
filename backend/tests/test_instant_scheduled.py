@@ -69,7 +69,7 @@ def test_cancel_scheduled(client, user_factory):
     assert o["id"] not in [x["id"] for x in mine["scheduled"]]
 
 
-def test_manual_activate(client, user_factory):
+def test_manual_activate_future_order_starts_now(client, user_factory):
     pax = user_factory("SchedActivate")
     o = _schedule(client, pax, utcnow() + timedelta(hours=1)).json()
     r = client.post(f"/instant/scheduled/{o['id']}/activate", headers=pax["auth"])
@@ -78,6 +78,23 @@ def test_manual_activate(client, user_factory):
     assert r.json()["status"] != "scheduled"
     # повторная активация — уже не scheduled → 409
     assert client.post(f"/instant/scheduled/{o['id']}/activate", headers=pax["auth"]).status_code == 409
+
+
+def test_manual_activate_reports_busy_without_leaving_schedule(client, user_factory):
+    pax = user_factory("SchedBusyManual")
+    o = _schedule(client, pax, utcnow() + timedelta(hours=1)).json()
+    with Session(engine) as s:
+        s.add(InstantOrder(
+            passenger_id=pax["id"], status=S.onboard, price_estimate=200,
+            from_lat=ORIG[0], from_lng=ORIG[1], to_lat=DEST[0], to_lng=DEST[1],
+        ))
+        s.commit()
+
+    resp = client.post(f"/instant/scheduled/{o['id']}/activate", headers=pax["auth"])
+    assert resp.status_code == 409, resp.text
+    with Session(engine) as s:
+        waiting = s.get(InstantOrder, o["id"])
+        assert waiting.status == S.scheduled and waiting.searching_at is None
 
 
 def test_lazy_activation_when_due(client, user_factory):
