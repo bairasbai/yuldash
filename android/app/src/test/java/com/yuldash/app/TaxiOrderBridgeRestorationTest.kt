@@ -15,6 +15,9 @@ import androidx.lifecycle.ViewModelProvider
 import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import androidx.test.core.app.ApplicationProvider
 import com.yuldash.app.data.ApiClient
+import com.yuldash.app.data.OfflineTripSnapshots
+import com.yuldash.app.data.Outbox
+import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -165,6 +168,10 @@ class TaxiOrderBridgeRestorationTest {
         val state = tapAndSave(); assertPending()
         compose.runOnIdle { ApiClient.logout(); restore(state) }
         assertNull(vm.pendingScreenNavigation.value); assertFalse(NavSignals.openInstantOrder.value)
+        await {
+            TripPassStore.ensureResetCommitted() && Outbox.ensureResetCommitted() &&
+                OfflineTripSnapshots.ensureResetCommitted()
+        }
         compose.runOnIdle { ApiClient.saveToken(tokenA) }; pump()
         assertNull(vm.pendingScreenNavigation.value)
     }

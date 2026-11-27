@@ -247,7 +247,9 @@ class HomeBookingNavigationTest {
                 actor.destroy()
             }
             if (::vm.isInitialized) vm.clearUserData()
-            requestJobs.awaitCompleted(if (serverStarted) server.port else null)
+            requestJobs.awaitCompleted(if (serverStarted) server.port else null) {
+                compose.mainClock.advanceTimeByFrame()
+            }
             if (sessionInstalled) ApiClient.logout()
             finishOfflineWriteFixture02(cleanupGuard) {
                 check(ApiClient.testTrace == null || ApiClient.testTrace === ownTrace)
@@ -648,7 +650,7 @@ class HomeBookingNavigationTest {
             }
         }
 
-        fun awaitCompleted(port: Int?) = runBlocking {
+        fun awaitCompleted(port: Int?, advanceFrame: () -> Unit) = runBlocking {
             withTimeout(5_000) {
                 check(!missingParent) { "Owned caller completion unavailable" }
                 val field = ChatSocket::class.java.getDeclaredField("client\$delegate")
@@ -658,6 +660,8 @@ class HomeBookingNavigationTest {
                 while (started.any { !it.isCompleted } || client?.dispatcher?.let {
                         it.runningCalls() + it.queuedCalls()
                     }.orEmpty().any { it.request().url.host == "127.0.0.1" && it.request().url.port == port }) {
+                    Snapshot.sendApplyNotifications()
+                    advanceFrame()
                     org.robolectric.Shadows.shadowOf(android.os.Looper.getMainLooper()).idle()
                     delay(10)
                 }

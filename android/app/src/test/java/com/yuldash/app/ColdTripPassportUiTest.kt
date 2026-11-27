@@ -96,12 +96,19 @@ internal class ColdTripPassportUiTest : SnapshotWiringFixture() {
     }
 
     private fun show(text: String) {
-        compose.waitForIdle()
-        runCatching {
-            compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-                .performScrollToNode(hasText(text))
+        val target = compose.onNodeWithText(text, useUnmergedTree = true)
+        compose.waitUntil(5000) {
+            if (runCatching { target.assertIsDisplayed() }.isSuccess) {
+                true
+            } else {
+                runCatching {
+                    compose.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+                        .performScrollToNode(hasText(text))
+                    target.assertIsDisplayed()
+                }.isSuccess
+            }
         }
-        compose.onNodeWithText(text, useUnmergedTree = true).assertIsDisplayed()
+        target.assertIsDisplayed()
     }
 
     @Test fun cardDisplaysAllPrivateFields() {
