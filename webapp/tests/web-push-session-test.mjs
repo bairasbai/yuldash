@@ -462,6 +462,47 @@ await check("manual retry reports the existing stars and a malformed receipt can
   })));
 });
 
+await check("rating timeout and throttling leave the write outcome unconfirmed", async env => {
+  const { sw, notification } = await ratingNotification(env);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  const draft = await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration());
+  const signal = new AbortController().signal;
+  const outcomes = [];
+  for (const status of [408, 429]) {
+    env.reply = async () => new Response(null, { status });
+    outcomes.push(await env.api.rateBookingFromNotification(draft, signal).catch(error => error.status));
+  }
+  assert.deepEqual(outcomes, [undefined, undefined]);
+  env.reply = async () => new Response(null, { status: 403 });
+  await assert.rejects(() => env.api.rateBookingFromNotification(draft, signal), { status: 403 });
+  assert.equal(env.calls.filter(call => call.path === "/bookings/17/rate").length, 3);
+});
+
+await check("only a complete rating read can confirm zero stars or a refusal", async env => {
+  const { sw, notification } = await ratingNotification(env);
+  await sw.dispatch("notificationclick", { notification, action: "rate_five" });
+  const draft = await env.api.takeRatingDraft(17, 42, env.api.getSessionGeneration());
+  const signal = new AbortController().signal;
+  const valid = { booking_id: 17, role: "passenger", status: "done", can_rate: true, my_stars: 0 };
+  const rows = [
+    {}, null, { ...valid, booking_id: 18 }, { ...valid, role: "other" },
+    { ...valid, status: "other" }, { ...valid, can_rate: undefined },
+    { ...valid, can_rate: "false" }, { ...valid, my_stars: undefined }, { ...valid, my_stars: null },
+    { ...valid, my_stars: "3" }, { ...valid, my_stars: 3.5 }, { ...valid, my_stars: 6 },
+  ];
+  const errors = [];
+  for (const row of rows) {
+    env.reply = async () => Response.json(row);
+    errors.push(await env.api.fetchNotificationRatingState(17, draft, signal).then(() => false, error =>
+      error instanceof SyntaxError));
+  }
+  assert.deepEqual(errors, rows.map(() => true));
+  env.reply = async () => Response.json(valid);
+  assert.deepEqual(await env.api.fetchNotificationRatingState(17, draft, signal), { allowed: true, stars: 0 });
+  env.reply = async () => Response.json({ ...valid, can_rate: false, my_stars: 3 });
+  assert.deepEqual(await env.api.fetchNotificationRatingState(17, draft, signal), { allowed: false, stars: 3 });
+});
+
 await check("replacing the browser binding during auth refresh blocks the second rating POST", async env => {
   const { sw, notification } = await ratingNotification(env);
   await sw.dispatch("notificationclick", { notification, action: "rate_five" });

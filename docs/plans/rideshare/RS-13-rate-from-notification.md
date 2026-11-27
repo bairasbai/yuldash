@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Статус | не начато |
+| Статус | Сервер и PWA в `main` через [#250](https://github.com/bairasbai/yuldash/pull/250). Android в `main` через [#276](https://github.com/bairasbai/yuldash/pull/276). Проверка действий Android на эмуляторе прошла. Улучшение сверки результата PWA `24a4313c` принято локально на Chromium и SQLite. Живая доставка FCM и полный W1-E2E-01 остаются открыты. |
 | Ждёт «да» Александра | нет (миграций нет, денег нет; выкладка — по общему правилу §8) |
 | Зависит от | RS-01 (`herr(code=)`) |
 | Не параллельно с | RS-02, 03, 04 (`AndroidManifest.xml`, §12), 05, 06, 14: общие `services.py`, `bookings.py`, `ApiClient.kt`, `TripPass.kt`, `FcmService.kt`, `ActiveTripScreen.tsx` |
@@ -11,7 +11,7 @@
 | Двигает сценарии приёмки | W1-E2E-01 (две оценки); косвенно E2E-04 (очередь без сети), E2E-05 (аккаунт) |
 | Зона файлов | `backend/app/`: `rate_reminder.py`, `rating_service.py`, `routers/{family,bookings,instant}.py`, `services.py` (`_send_web_push`); `android/app/src/main/`: `java/com/yuldash/app/data/{FcmService,TripPass,ApiClient}.kt`, `data/RateNotificationAction.kt` (новый), `AndroidManifest.xml`; `webapp/`: `public/push-sw.js`, `src/push/rateDraft.ts` (новый), `src/auth/AuthProvider.tsx`, `src/api/bookings.ts`, `src/screens/ActiveTripScreen.tsx`, `tests/run.mjs`; новые тесты; `docs/{decisions,tasks,lessons,architecture}.md` |
 | Источник | исследование `c5be55a:docs/research/apps/continuation/part-019.md:15,77`, `part-018.md:77` (идея); Q17; «оценка в два шага» W1-FIN-27 (`docs/audit-blocks.md:2971`) |
-| Сверено с кодом | `main` `0ef03f4`, 24.10.2026 |
+| Исходный срез для плана | `main` `0ef03f4`, 24.10.2026 |
 
 ## 1. Что получит человек
 Гульнара доехала из Сибая в Акъяр, пришло «Оцени поездку». **Было:** искать поездку и листать до звёзд — многие смахивали уведомление. **Стало:** две кнопки. «5 ★» не ставит сразу: уведомление спрашивает «Поставить 5 ★?» — «Да» / «Отмена» (случайное касание ничего не меняет). «Есть замечания» открывает поездку, где звёзды не выбраны и есть метки («опоздал», «грубил»). После «Да»: «Отправляем…», затем сохранённое сервером значение: «Оценка 5 ★ принята» только для новой пятёрки либо «Оценка уже стоит: {my_stars} ★», «Изменить». Нет связи — «Сохранили. Отправим, когда откроешь приложение со связью» и «Отменить». Засчитано только после ответа сервера.
