@@ -78,7 +78,11 @@ class ActiveTripBoardingCodeSaveTest {
         ApiClient.testTimeoutMs = 1000
         ApiClient.testTrace = ::traceOwnedTransport
         TripPassStore.initStores(plain, secure)
-        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234").put("pay_method", "negotiate"))
+        // CODE may finish before the first ROLE refresh. The prepared DETAILS must
+        // already describe a complete trip so that failWriteOf reaches the secure write.
+        val pass = TripPass.fromJson(JSONObject().put("booking_id", 42).put("boarding_code", "1234")
+            .put("pay_method", "negotiate").put("from_city", "Город А").put("to_city", "Город Б")
+            .put("depart_at", "2031-02-03T09:00:00"))
         preparePositive(pass)
         assertTrue(TripPassStore.save(context, pass))
         assertEquals("1234", diskCode())
