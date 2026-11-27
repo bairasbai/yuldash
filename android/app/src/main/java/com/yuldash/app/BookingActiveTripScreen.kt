@@ -757,7 +757,7 @@ internal fun BookingScreen(
             // RS-03 Б: смена/предложение места и отзыв — у живой брони пассажира.
             if (details != null && bookingId != null) {
                 item(key = "booking-meeting-$bookingId") {
-                    PassengerMeetingPoints(currentOwnBookingDetails(details), isCurrentParent = ::isBookingDisplayCurrent) { detailsReload++ }
+                    PassengerMeetingPoints(currentOwnBookingDetails(details), isCurrentParent = ::isBookingDisplayCurrent, completionScope = bookingScope) { detailsReload++ }
                 }
             }
             if (bookingTraveler != null) item { BookingTravelerText(bookingTraveler) }
@@ -1392,7 +1392,8 @@ internal fun ActiveTripContent(
     fun isTripReceiptSessionCurrent() = ApiClient.isCurrentSession(tripSession) &&
         OfflineTripSnapshots.currentOwner() == tripOwner &&
         (isCurrentReceiptParent?.invoke() ?: (voiceScope.isActive && isCurrentParent?.invoke() != false))
-    val offlinePassState = rememberActiveTripOfflinePass(bookingId, tripSession, boardingCode, bookingStatus.takeIf { it in setOf("done", "cancelled") }, role, pickupDetails, bookingStatus) { isTripSessionCurrent() && bookingId?.let(OfflineTripSnapshots::allowsLive) == true }
+    val codeRevision = bookingId?.let { OfflineTripSnapshots.projection(it)?.codeProof?.request?.ticket?.sequence }
+    val offlinePassState = rememberActiveTripOfflinePass(bookingId, tripSession, boardingCode, bookingStatus.takeIf { it in setOf("done", "cancelled") }, role, pickupDetails, bookingStatus, codeRevision) { isTripSessionCurrent() && bookingId?.let(OfflineTripSnapshots::allowsLive) == true }
     var tripPass by offlinePassState::pass
     fun isTripDetailsCurrent() = voiceScope.isActive && isTripSessionCurrent() && bookingStatus != "done" && bookingStatus != "cancelled"
     fun isTripChatActive() = isTripDetailsCurrent() && (bookingId == null || OfflineTripSnapshots.allowsLive(bookingId))
@@ -1940,7 +1941,7 @@ internal fun ActiveTripContent(
             }
             item(key = "trip-meeting-points") {
                     val meetingDetails = currentTripPrivateDetails(bookingId)
-                PassengerMeetingPoints(meetingDetails, isCurrentParent = ::isTripChatActive) { voiceScope.launch { loadTripDetails() } }
+                PassengerMeetingPoints(meetingDetails, isCurrentParent = ::isTripChatActive, completionScope = voiceScope) { voiceScope.launch { loadTripDetails() } }
             }
             // F11: офлайн-режим — сервер недоступен, но паспорт поездки сохранён локально.
             if (offline && tripPass != null) {
@@ -2989,7 +2990,7 @@ internal fun TripPassCard(pass: com.yuldash.app.data.TripPass, modifier: Modifie
 }
 
 @Composable
-private fun TripPassRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
+internal fun TripPassRow(icon: androidx.compose.ui.graphics.vector.ImageVector, label: String, value: String, modifier: Modifier = Modifier) {
     Row(modifier = modifier, verticalAlignment = Alignment.CenterVertically) {
         Icon(icon, contentDescription = null, tint = CanonGreen2, modifier = Modifier.size(20.dp))
         Spacer(Modifier.width(12.dp))

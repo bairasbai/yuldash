@@ -19,13 +19,12 @@ import com.yuldash.app.data.*
 /** Extracted passport effect. A failed write cannot substitute a previous private blob. */
 @Composable internal fun rememberActiveTripOfflinePass(
     bookingId: Int?, session: Long, code: String, terminal: String?, role: String,
-    details: BookingDetailsDto?, status: String, isCurrent: () -> Boolean,
+    details: BookingDetailsDto?, status: String, codeRevision: Long?, isCurrent: () -> Boolean,
 ): ActiveTripOfflinePassState {
     val context = LocalContext.current
     val state = remember(bookingId, session) { ActiveTripOfflinePassState() }
-    val version by OfflineTripSnapshots.version.collectAsState()
     val current by rememberUpdatedState(isCurrent)
-    LaunchedEffect(bookingId, code, state.retry, terminal, role, details, status, version) {
+    LaunchedEffect(bookingId, code, state.retry, terminal, role, details, status, codeRevision) {
         val id = bookingId ?: return@LaunchedEffect
         state.pass = TripPassStore.load(context, id)
         val actual = OfflineTripSnapshots.projection(id)?.details

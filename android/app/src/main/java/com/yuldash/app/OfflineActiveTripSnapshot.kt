@@ -15,8 +15,17 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.*
 import kotlinx.coroutines.delay
 
-internal data class OfflineTripSnapshotMode(val snapshot: OfflineTripSnapshot, val revision: Long)
-internal data class BookingNavigationRead(val live: Result<TripStateDto>, val saved: OfflineTripSnapshot?, val fallbackAllowed: Boolean)
+internal data class OfflineTripSnapshotMode(
+    val snapshot: OfflineTripSnapshot,
+    val revision: Long,
+    val cold: ColdTripPassport? = null,
+)
+internal data class BookingNavigationRead(
+    val live: Result<TripStateDto>,
+    val saved: OfflineTripSnapshot?,
+    val fallbackAllowed: Boolean,
+    val cold: ColdTripPassport? = null,
+)
 
 /** Cache failure is separate from a successful server action and never retries its POST. */
 @Composable internal fun OfflineSnapshotSaveNotice() {
@@ -30,46 +39,70 @@ internal data class BookingNavigationRead(val live: Result<TripStateDto>, val sa
 
 internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRead {
     val read = ApiClient.getTripStateForNavigation(bookingId)
-    val saved = if (read.result.isFailure && read.fallbackAllowed) read.ticket?.let { OfflineTripSnapshots.load(it.owner, bookingId) } else null
-    return BookingNavigationRead(read.result, saved, read.fallbackAllowed)
+    val owner = read.ticket?.owner
+    val saved = if (read.result.isFailure && read.fallbackAllowed && owner != null) OfflineTripSnapshots.load(owner, bookingId) else null
+    val cold = if (read.result.isFailure && read.fallbackAllowed && saved == null && owner != null) {
+        OfflineTripSnapshots.loadColdPassport(owner, bookingId)
+    } else null
+    return BookingNavigationRead(read.result, saved ?: cold?.snapshot, read.fallbackAllowed, cold)
 }
 
-/** Read-only warm fallback: never mounts ActiveTripScreen or its chat/action/location effects. */
+/** Read-only offline fallback: never mounts ActiveTripScreen or its chat/action/location effects. */
 @Composable internal fun OfflineActiveTripSnapshot(mode: OfflineTripSnapshotMode, isCurrent: () -> Boolean, onRetry: () -> Unit, onBack: () -> Unit) {
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val current by rememberUpdatedState(isCurrent)
     val version by OfflineTripSnapshots.version.collectAsState()
     var resumed by remember(lifecycle) { mutableStateOf(lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) }
     var displayed by remember(mode) { mutableStateOf<OfflineTripSnapshot?>(null) }
+    var displayedCold by remember(mode) { mutableStateOf<ColdTripPassport?>(null) }
     var loading by remember(mode) { mutableStateOf(true) }
     DisposableEffect(lifecycle, mode) {
         val observer = LifecycleEventObserver { _, _ ->
             resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
-            if (!resumed) displayed = null
+            if (!resumed) { displayed = null; displayedCold = null }
         }
         lifecycle.addObserver(observer)
-        onDispose { lifecycle.removeObserver(observer); displayed = null }
+        onDispose { lifecycle.removeObserver(observer); displayed = null; displayedCold = null }
     }
     LaunchedEffect(mode, version, resumed) {
-        displayed = null; loading = true
+        displayed = null; displayedCold = null; loading = true
         if (resumed && current()) {
             val value = OfflineTripSnapshots.load(mode.snapshot.owner, mode.snapshot.bookingId)
-            if (resumed && current()) displayed = value
+            if (value != null) {
+                if (resumed && current()) displayed = value
+            } else {
+                val cold = OfflineTripSnapshots.loadColdPassport(mode.snapshot.owner, mode.snapshot.bookingId)
+                if (resumed && current() && cold != null) { displayed = cold.snapshot; displayedCold = cold }
+            }
         }
         loading = false
     }
-    LaunchedEffect(displayed, resumed) {
+    LaunchedEffect(displayed, displayedCold, resumed) {
         val value = displayed ?: return@LaunchedEffect
         while (resumed && current()) {
             val remaining = value.remaining(OfflineTripSnapshots.clockInBoot(value.stateStamp.boot)) ?: break
             delay(remaining)
         }
-        if (current()) OfflineTripSnapshots.load(value.owner, value.bookingId) // latch expiration before clock rollback
-        displayed = null
+        if (current()) {
+            if (displayedCold == null) OfflineTripSnapshots.load(value.owner, value.bookingId)
+            else OfflineTripSnapshots.loadColdPassport(value.owner, value.bookingId)
+        }
+        displayed = null; displayedCold = null
     }
-    fun visible() = resumed && lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) && current() &&
-        displayed?.let { value -> OfflineTripSnapshots.current(value.owner) && OfflineTripSnapshots.canDrawSnapshot(value) &&
-            value.remaining(OfflineTripSnapshots.clockInBoot(value.stateStamp.boot)) != null } == true
+    fun visible(): Boolean {
+        val value = displayed ?: return false
+        if (!resumed || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !current() ||
+            !OfflineTripSnapshots.current(value.owner) || value.owner != mode.snapshot.owner ||
+            value.bookingId != mode.snapshot.bookingId || value.rideId != mode.snapshot.rideId) return false
+        val cold = displayedCold
+        return if (cold != null) {
+            cold.snapshot === value && OfflineTripSnapshots.canDrawCold(cold) &&
+                cold.remaining(OfflineTripSnapshots.clockInBoot(value.stateStamp.boot)) != null
+        } else {
+            OfflineTripSnapshots.canDrawSnapshot(value) &&
+                value.remaining(OfflineTripSnapshots.clockInBoot(value.stateStamp.boot)) != null
+        }
+    }
     BackHandler { if (current()) onBack() }
     Column(Modifier.fillMaxSize().background(CanonBg).safeDrawingPadding()) {
         ScreenTopBar(appText("Сохранённая поездка", "Һаҡланған сәфәр"), onBack)
@@ -94,21 +127,22 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
                             }, style = CanonBodyStrong, color = CanonText)
                         }
                     }
-                    // Only the current in-process private projection may enrich a warm snapshot.
-                    // Persisted bytes and the separate historical summary never grant this content.
-                    val bound = value.owner == mode.snapshot.owner && value.bookingId == mode.snapshot.bookingId &&
-                        value.rideId == mode.snapshot.rideId && OfflineTripSnapshots.currentOwner() == value.owner
-                    val pass = if (visible() && bound) OfflineTripSnapshots.privatePass(value.bookingId) else null
-                    val method = pass?.payMethod?.takeIf { it in payMethodKeys }
-                    if (pass != null && method != null) {
-                        fun privateVisible() = visible() && isCurrent() && displayed === value &&
-                            OfflineTripSnapshots.currentOwner() == value.owner && OfflineTripSnapshots.matchesPass(pass)
-                        TripAuthorityContent(::privateVisible) {
-                            Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
-                                Text("${kopToRub(rideshareRubToKop(pass.effectivePayAmount))} · ${payMethodLabel(method)}",
-                                    style = CanonBodyStrong, color = CanonText)
-                                PayAgreementBlock(editable = false, method = method, amountText = "",
-                                    summaryAmount = pass.effectivePayAmount, onMethod = {}, onAmount = {})
+                    val cold = displayedCold?.takeIf { it.snapshot === value }
+                    if (cold != null) {
+                        ColdTripPassportCard(cold, isCurrent = { visible() && displayedCold === cold })
+                    } else {
+                        val pass = if (visible()) OfflineTripSnapshots.privatePass(value.bookingId) else null
+                        val method = pass?.payMethod?.takeIf { it in payMethodKeys }
+                        if (pass != null && method != null) {
+                            fun privateVisible() = visible() && isCurrent() && displayed === value &&
+                                OfflineTripSnapshots.currentOwner() == value.owner && OfflineTripSnapshots.matchesPass(pass)
+                            TripAuthorityContent(::privateVisible) {
+                                Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+                                    Text("${kopToRub(rideshareRubToKop(pass.effectivePayAmount))} · ${payMethodLabel(method)}",
+                                        style = CanonBodyStrong, color = CanonText)
+                                    PayAgreementBlock(editable = false, method = method, amountText = "",
+                                        summaryAmount = pass.effectivePayAmount, onMethod = {}, onAmount = {})
+                                }
                             }
                         }
                     }
