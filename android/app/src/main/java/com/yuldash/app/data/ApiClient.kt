@@ -5091,6 +5091,8 @@ object ApiClient {
                 driverGrossKop = o.optInt("driver_gross_kop"),
                 driverNetKop = o.optInt("driver_net_kop"),
                 commissionFreeKop = o.optInt("commission_free_kop"),
+                driverPromoCompKop = if (o.isNull("driver_promo_comp_kop")) null
+                    else o.optInt("driver_promo_comp_kop", -1),
             )
         }
 
@@ -7233,6 +7235,7 @@ data class InstantReceiptDto(
     val driverGrossKop: Int = 0,
     val driverNetKop: Int = 0,
     val commissionFreeKop: Int = 0,
+    val driverPromoCompKop: Int? = null,
 )
 
 /** Квитанция за доставку (GET /parcels/{id}/receipt). Телефонов и адресов в чеке нет.

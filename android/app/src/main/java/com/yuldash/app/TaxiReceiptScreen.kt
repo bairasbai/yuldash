@@ -609,24 +609,35 @@ private fun TaxiReceiptBreakdown(r: InstantReceiptDto) {
                 "−" + kopToRub(r.promoDiscountKop),
                 CanonGreen2,
                 hint = appText(
-                    "Водитель получил полную сумму — скидку оплатил Юлдаш",
-                    "Йөрөтөүсе тулы сумманы алды — ташламаны Юлдаш түләне",
+                    "Скидку оплатил Юлдаш",
+                    "Ташламаны Юлдаш түләне",
                 ),
             )
         }
-        if (r.role == "driver" && r.driverGrossKop > 0) {
+        val driverMoney = taxiReceiptDriverMoney(
+            r.role, r.driverGrossKop, r.amountKop, r.promoDiscountKop,
+            r.driverFeeKop, r.driverNetKop, r.driverPromoCompKop,
+        )
+        if (driverMoney != null) {
             val feeLabel = if (r.driverFeePercent % 1.0 == 0.0) r.driverFeePercent.toInt().toString()
             else String.format(java.util.Locale.US, "%.1f", r.driverFeePercent)
             Box(Modifier.fillMaxWidth().height(1.dp).background(CanonBorder))
             TaxiReceiptLine(
-                appText("Всего от пассажира", "Пассажирҙан барлығы"),
-                kopToRub(r.driverGrossKop),
+                if (r.paid) appText("От пассажира", "Пассажирҙан")
+                else appText("К оплате пассажиром", "Пассажир түләйһе сумма"),
+                kopToRub(driverMoney.passengerKop),
             )
+            if (driverMoney.promoCompKop > 0) {
+                TaxiReceiptLine(
+                    appText("Доплата Юлдаша", "Юлдаш өҫтәп түләне"),
+                    "+" + kopToRub(driverMoney.promoCompKop), CanonGreen2,
+                )
+            }
             TaxiReceiptLine(
                 // Процент печатаем тут же: «8» вместо «8.0», а дробный — с одним знаком.
                 // Тянуть ради этого приватный хелпер из соседнего экрана незачем.
                 appText("Комиссия Юлдаша $feeLabel%", "Юлдаш комиссияһы $feeLabel%"),
-                "−" + kopToRub(r.driverFeeKop), CanonRed,
+                "−" + kopToRub(driverMoney.feeKop), CanonRed,
                 hint = if (r.commissionFreeKop > 0)
                     appText(
                         "С ${kopToRub(r.commissionFreeKop)} комиссию не берём — это твой бензин и кресло",
@@ -636,7 +647,12 @@ private fun TaxiReceiptBreakdown(r: InstantReceiptDto) {
             )
             TaxiReceiptLine(
                 appText("Чистыми тебе", "Һиңә таҙа килем"),
-                kopToRub(r.driverNetKop), CanonGreen2,
+                kopToRub(driverMoney.netKop), CanonGreen2,
+            )
+        } else if (r.role == "driver" && r.driverGrossKop > 0) {
+            TaxiReceiptLine(
+                appText("Расчёт для водителя", "Йөрөтөүсе өсөн иҫәп"),
+                appText("Уточняется", "Асыҡлана"),
             )
         }
     }

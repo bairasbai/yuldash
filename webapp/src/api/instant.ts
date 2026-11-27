@@ -738,6 +738,7 @@ export interface TaxiReceipt {
   driver_fee_kop?: number;
   driver_gross_kop?: number;
   driver_net_kop?: number;
+  driver_promo_comp_kop?: number;
   commission_free_kop?: number;
 }
 

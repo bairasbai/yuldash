@@ -40,6 +40,7 @@ import {
   IconWarn,
 } from "../components/Icons";
 import { formatWhen, kopExactLabel, payMethodLabel } from "../utils/format";
+import { taxiReceiptDriverMoney } from "../utils/taxiReceiptDriverMoney";
 
 type State =
   | { kind: "loading" }
@@ -256,6 +257,7 @@ export default function TaxiReceiptScreen() {
 
   const r = state.kind === "ready" ? state.r : null;
   const isDriver = r?.role === "driver";
+  const driverMoney = r ? taxiReceiptDriverMoney(r) : null;
   const distanceText = r && r.distance_km != null && r.distance_km > 0 ? `${r.distance_km.toFixed(1).replace(".", ",")} ${appText("км", "км")}` : "";
   const meta = r ? [r.done_at ? formatWhen(r.done_at, ru) : "", distanceText].filter(Boolean).join("  ·  ") : "";
   const feeLabel = r?.driver_fee_percent != null ? (Number.isInteger(r.driver_fee_percent) ? String(r.driver_fee_percent) : r.driver_fee_percent.toFixed(1)) : "";
@@ -351,16 +353,22 @@ export default function TaxiReceiptScreen() {
                       label={appText("Скидка Юлдаша", "Юлдаш ташламаһы")}
                       value={"−" + kopExactLabel(r.promo_discount_kop)}
                       tone="green"
-                      hint={appText("Водитель получил полную сумму — скидку оплатил Юлдаш", "Йөрөтөүсе тулы сумманы алды — ташламаны Юлдаш түләне")}
+                      hint={appText("Скидку оплатил Юлдаш", "Ташламаны Юлдаш түләне")}
                     />
                   )}
-                  {isDriver && (r.driver_gross_kop ?? 0) > 0 && (
+                  {driverMoney && (
                     <>
                       <hr className="rcpt__sep" />
-                      <Line label={appText("Всего от пассажира", "Пассажирҙан барлығы")} value={kopExactLabel(r.driver_gross_kop ?? 0)} />
+                      <Line
+                        label={r.paid ? appText("От пассажира", "Пассажирҙан") : appText("К оплате пассажиром", "Пассажир түләйһе сумма")}
+                        value={kopExactLabel(driverMoney.passengerKop)}
+                      />
+                      {driverMoney.promoCompKop > 0 && (
+                        <Line label={appText("Доплата Юлдаша", "Юлдаш өҫтәп түләне")} value={"+" + kopExactLabel(driverMoney.promoCompKop)} tone="green" />
+                      )}
                       <Line
                         label={appText(`Комиссия Юлдаша ${feeLabel}%`, `Юлдаш комиссияһы ${feeLabel}%`)}
-                        value={"−" + kopExactLabel(r.driver_fee_kop ?? 0)}
+                        value={"−" + kopExactLabel(driverMoney.feeKop)}
                         tone="red"
                         hint={
                           (r.commission_free_kop ?? 0) > 0
@@ -371,8 +379,11 @@ export default function TaxiReceiptScreen() {
                             : undefined
                         }
                       />
-                      <Line label={appText("Чистыми тебе", "Һиңә таҙа килем")} value={kopExactLabel(r.driver_net_kop ?? 0)} tone="green" />
+                      <Line label={appText("Чистыми тебе", "Һиңә таҙа килем")} value={kopExactLabel(driverMoney.netKop)} tone="green" />
                     </>
+                  )}
+                  {isDriver && (r.driver_gross_kop ?? 0) > 0 && !driverMoney && (
+                    <Line label={appText("Расчёт для водителя", "Йөрөтөүсе өсөн иҫәп")} value={appText("Уточняется", "Асыҡлана")} />
                   )}
                 </div>
               )}
