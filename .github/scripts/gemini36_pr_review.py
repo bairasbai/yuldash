@@ -11,6 +11,7 @@ from urllib import error, request
 
 API = "https://api.github.com"
 MODEL = "gemini-3.6-flash"
+HTTP_TIMEOUT_SECONDS = 70
 MAX_FILES = 24
 MAX_PATCH_CHARS = 45_000
 MAX_FINDINGS = 8
@@ -56,14 +57,15 @@ class NoRedirect(request.HTTPRedirectHandler):
 
 
 def request_json(url: str, headers: dict[str, str],
-                 payload: dict | None = None, method: str = "GET") -> dict | list:
+                 payload: dict | None = None, method: str = "GET", *,
+                 timeout: int = HTTP_TIMEOUT_SECONDS) -> dict | list:
     raw = json.dumps(payload).encode("utf-8") if payload is not None else None
     req = request.Request(
         url, data=raw, method=method,
         headers={**headers, "Accept": "application/vnd.github+json",
                  "Content-Type": "application/json"},
     )
-    with request.build_opener(NoRedirect()).open(req, timeout=70) as resp:
+    with request.build_opener(NoRedirect()).open(req, timeout=timeout) as resp:
         return json.loads(resp.read(12_000_000))
 
 
@@ -168,7 +170,8 @@ REVIEW_INSTRUCTION = (
 )
 
 
-def generate_json(instruction: str, prompt: str, key: str) -> dict:
+def generate_json(instruction: str, prompt: str, key: str, *,
+                  timeout: int = HTTP_TIMEOUT_SECONDS) -> dict:
     payload = {
         "systemInstruction": {"parts": [{"text": instruction}]},
         "contents": [{"role": "user", "parts": [{"text": prompt}]}],
@@ -182,7 +185,7 @@ def generate_json(instruction: str, prompt: str, key: str) -> dict:
         try:
             data = request_json(
                 f"https://generativelanguage.googleapis.com/v1beta/models/{MODEL}:generateContent",
-                {"x-goog-api-key": key}, payload, method="POST",
+                {"x-goog-api-key": key}, payload, method="POST", timeout=timeout,
             )
             break
         except error.HTTPError as exc:

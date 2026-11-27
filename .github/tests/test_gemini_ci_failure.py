@@ -75,6 +75,7 @@ class CIRoutingTests(unittest.TestCase):
         self.assertIn("/runs/100/attempts/2", body)
         self.assertIn("/runs/100/job/4", body)
         _, prompt, _ = self.model.call_args.args
+        self.assertEqual(self.model.call_args.kwargs, {"timeout": 120})
         self.assertEqual(json.loads(prompt), [{
             "job": "BACKEND_SQLITE", "conclusion": "failure", "diagnostic": "PYTEST_FAILURE",
         }])
@@ -118,7 +119,7 @@ class CIRoutingTests(unittest.TestCase):
         self.post.assert_not_called()
 
     def test_head_or_attempt_changed_during_analysis(self):
-        def advance(*args):
+        def advance(*args, **kwargs):
             self.run_data["run_attempt"] += 1
             return {"cause": "x", "location": "y", "fix": "z"}
         self.model.side_effect = advance

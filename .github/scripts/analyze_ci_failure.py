@@ -14,6 +14,7 @@ import gemini36_pr_review as shared
 CI_PATH = ".github/workflows/ci.yml"
 FAILED = {"failure", "timed_out"}
 MAX_JOBS = 6
+GEMINI_CI_TIMEOUT_SECONDS = 120
 MAX_DOWNLOAD = 8 * 1024 * 1024
 STAMP = re.compile(r"^\d{4}-\d\d-\d\dT[\d:.]+Z\s*")
 ANSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -216,7 +217,9 @@ def analyze(event, repo, headers, key, *, enabled=False):
     if any(item["diagnostic"] in CATEGORIES for item in diagnostic):
         if current_pr(run, repo, headers, default_branch) != pr:
             return "Пропуск: версия PR или попытка CI изменилась до анализа."
-        result = shared.generate_json(INSTRUCTION, json.dumps(diagnostic), key)
+        result = shared.generate_json(
+            INSTRUCTION, json.dumps(diagnostic), key, timeout=GEMINI_CI_TIMEOUT_SECONDS,
+        )
         if not all(isinstance(result.get(k), str) and result[k].strip() for k in keys):
             raise ValueError("Incomplete model response")
     link = f"https://github.com/{repo}/actions/runs/{run_id}/attempts/{attempt}"
