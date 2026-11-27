@@ -149,6 +149,41 @@ def test_online_settlement_before_completion_retry_does_not_create_debt(
     assert _debt_row(oid) is None
 
 
+@pytest.mark.parametrize("complete_before_card,rate,fee", [
+    (False, 0.0, 0), (False, 3.0, 1800), (True, 3.0, 1800),
+])
+def test_online_commission_matches_wallet_after_rate_change(
+    client, user_factory, monkeypatch, complete_before_card, rate, fee,
+):
+    monkeypatch.setattr(settings, "fee_tier1_percent", rate)
+    net = 60000 - fee
+    driver = user_factory("CardFeeViewDriver", role=UserRole.driver)
+    pax = user_factory("CardFeeViewPassenger")
+    oid = _order(pax["id"], driver["id"], status=S.done, price=600,
+                 payment_method="cash")
+    path = f"/instant/orders/{oid}"
+    if complete_before_card:
+        assert client.post(f"{path}/done", headers=driver["auth"]).status_code == 200
+        assert _debt_row(oid).amount_kop == fee
+        monkeypatch.setattr(settings, "fee_tier1_percent", 8.0)
+    with Session(engine) as online:
+        assert ledger.settle_instant_order(online, oid, "card", 60000) == "settled"
+        assert ledger.settle_instant_order(online, oid, "card", 60000) == "already"
+        assert ledger.driver_balance(online, driver["id"]) == net
+    monkeypatch.setattr(settings, "fee_tier1_percent", 8.0)
+
+    for endpoint in (path, f"{path}/receipt"):
+        reply = client.get(endpoint, headers=driver["auth"])
+        assert reply.status_code == 200
+        assert (reply.json()["driver_fee_kop"], reply.json()["driver_net_kop"]) == (fee, net)
+    reply = client.get("/driver/taxi-rides", headers=driver["auth"])
+    assert reply.status_code == 200
+    record = next(ride for ride in reply.json()["rides"] if ride["order_id"] == oid)
+    assert (record["fee_kop"], record["net_kop"]) == (fee, net)
+    receipt = client.get(f"{path}/receipt", headers=pax["auth"]).json()
+    assert receipt["amount_kop"] == 60000 and "driver_fee_kop" not in receipt
+
+
 def test_promo_credit_without_debt_survives_rate_change(
     client, user_factory, monkeypatch,
 ):

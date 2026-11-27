@@ -395,6 +395,7 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
     commit=False: вызывающий сохраняет эффект и Payment в общей транзакции."""
     order = session.exec(
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
+        .execution_options(populate_existing=True)
     ).first()
     if not order or order.driver_id is None:
         return "skip"
@@ -412,7 +413,6 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
         # границу ступени/конец промо давала при оплате картой один процент, а в долге другой.
         # Фолбэк done_at/сейчас — для старых заказов без created_at.
         from . import debt as _debt
-        pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
         # F1 (аудит leaf-1.1, 2026-10-02, независимое ревью Opus). База — РОВНО
         # debt.order_commission_kop (цена МИНУС компенсация водителю: подача/кресло/зимняя
         # дорога), а не вся цена. До правки здесь стояло
@@ -423,8 +423,13 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
         # (Модель А, accrue_for_order → order_commission_kop) всегда считали верно — расхождение
         # жило только в безналичной оплате. Пример при 15%: цена 500 ₽ = поездка 400 + подача
         # 100 — нал удерживал 60 ₽, карта удерживала 75 ₽ с той же поездки.
-        full_fee = _debt.order_commission_kop(order, pct)
         has_promo = int(order.promo_discount_kop or 0) > 0
+        full_fee = _debt.recorded_order_debt(session, order.id, order.driver_id) if not has_promo else None
+        if full_fee is None:
+            pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
+            full_fee = _debt.order_commission_kop(order, pct)
+        else:
+            pct = _debt.effective_order_fee_percent(order, full_fee)
         # Скидка по промокоду уже вычтена из того, что заплатил пассажир (amount_kop). Комиссию
         # считаем от ПОЛНОЙ (без скидки) базы выше и гасим её скидкой — ровно как в долге Модели А
         # (accrue_for_order зовёт тот же order_commission_kop → split_commission). Иначе водитель

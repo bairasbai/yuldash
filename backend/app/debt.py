@@ -423,6 +423,22 @@ def driver_earnings(session: Session, driver_id: int, period: str = "week",
             "unpaid_total": неоплачено_сумма, "unpaid_trips": неоплачено_поездок}
 
 
+def _online_order_fees(session: Session, driver_id: int, order_ids: list[int]) -> dict[int, int]:
+    """Удержание в кошельке, включая подтверждённый ноль, только по проведённой оплате."""
+    if not order_ids:
+        return {}
+    rows = session.exec(select(
+        LedgerEntry.order_id, LedgerEntry.kind, func.sum(LedgerEntry.amount_kop),
+    ).where(
+        LedgerEntry.driver_id == driver_id,
+        LedgerEntry.order_id.in_(order_ids),
+        LedgerEntry.kind.in_([LedgerKind.earn, LedgerKind.fee]),
+    ).group_by(LedgerEntry.order_id, LedgerEntry.kind)).all()
+    earn_ids = {oid for oid, kind, _ in rows if kind == LedgerKind.earn}
+    fees = {oid: max(-int(amount), 0) for oid, kind, amount in rows if kind == LedgerKind.fee}
+    return {oid: fees.get(oid, 0) for oid in earn_ids}
+
+
 def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
     """Список ЗАВЕРШЁННЫХ поездок водителя с расшифровкой денег: цена, комиссия, чистыми.
 
@@ -444,6 +460,9 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
     debts = {d.order_id: d for d in session.exec(
         select(CommissionDebt).where(CommissionDebt.order_id.in_(order_ids))
     ).all() if d.order_id is not None}
+    online_fees = _online_order_fees(
+        session, driver_id, [o.id for o in orders if o.paid and not o.promo_discount_kop],
+    )
     # Компенсации промокодов по этим заказам (обычно пусто — лишний запрос не делаем).
     comps: dict = {}
     if any(int(o.promo_discount_kop or 0) > 0 for o in orders):
@@ -458,8 +477,8 @@ def driver_rides(session: Session, driver_id: int, limit: int = 100) -> dict:
     for o in orders:
         price_rub = int(o.price_final if o.price_final is not None else o.price_estimate)
         d = debts.get(o.id)
-        # Долга нет (промо 0% / грошовый заказ / списан) → комиссия по этой поездке ноль.
-        fee_kop = fee_charged_kop(d)
+        # Проведённая онлайн-оплата — факт кошелька, даже если долг не создавался.
+        fee_kop = online_fees.get(o.id, fee_charged_kop(d))
         # Промокод: на руки водитель взял меньше на скидку, зато комиссия уже уменьшена, а
         # остаток скидки платформа вернула в кошелёк. «Чистыми» = как будто промокода не было.
         disc_kop = max(int(o.promo_discount_kop or 0), 0)
@@ -517,18 +536,28 @@ def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -
     return fee_kop_for(base_rub * 100, percent)
 
 
+def recorded_order_debt(session: Session, order_id: int, driver_id: int) -> Optional[int]:
+    charged = session.exec(select(CommissionDebt).where(
+        CommissionDebt.order_id == order_id, CommissionDebt.driver_id == driver_id,
+    )).first()
+    return fee_charged_kop(charged) if charged is not None else None
+
+
+def effective_order_fee_percent(order: InstantOrder, fee_kop: int) -> float:
+    price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
+    base_kop = max(price_rub - comp_mod.compensation_rub(order), 0) * 100
+    return round(100 * fee_kop / base_kop, 2) if base_kop else 0.0
+
+
 def driver_order_fee(session: Session, order: InstantOrder, driver_id: int) -> tuple[float, int]:
-    """Ставка и сумма для заказа. Завершённый наличный заказ с начислением не переоцениваем."""
-    if (order.status == InstantOrderStatus.done and order.payment_method == "cash"
-            and not order.promo_discount_kop and order.driver_id == driver_id):
-        charged = session.exec(select(CommissionDebt).where(
-            CommissionDebt.order_id == order.id, CommissionDebt.driver_id == driver_id,
-        )).first()
-        if charged is not None:
-            fee_kop = fee_charged_kop(charged)
-            price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
-            base_kop = max(price_rub - comp_mod.compensation_rub(order), 0) * 100
-            return (round(100 * fee_kop / base_kop, 2) if base_kop else 0.0), fee_kop
+    """В завершённом заказе без промокода показываем записанную сумму, а не новую ставку."""
+    if (order.status == InstantOrderStatus.done and not order.promo_discount_kop
+            and order.driver_id == driver_id):
+        fee_kop = _online_order_fees(session, driver_id, [order.id]).get(order.id) if order.paid else None
+        if fee_kop is None and order.payment_method == "cash":
+            fee_kop = recorded_order_debt(session, order.id, driver_id)
+        if fee_kop is not None:
+            return effective_order_fee_percent(order, fee_kop), fee_kop
     percent = driver_fee_percent(session, driver_id, order.created_at or utcnow())
     return percent, order_commission_kop(order, percent)
 
