@@ -15,6 +15,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
 internal data class OfflineTripSnapshotMode(
@@ -209,8 +210,43 @@ internal suspend fun readBookingNavigation(bookingId: Int, navigation: TripNavig
     }
 }
 
+@Composable private fun SavedTripPassportAction(value: HistoricalTripSummary, onOpen: (Int) -> Unit) {
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    val lifecycleState by lifecycle.currentStateFlow.collectAsState()
+    val version by OfflineTripSnapshots.version.collectAsState()
+    val scope = rememberCoroutineScope()
+    var available by remember(value, lifecycleState, version) { mutableStateOf(false) }
+    var opening by remember(value, lifecycleState, version) { mutableStateOf(false) }
+    fun canOpen() = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) &&
+        version == OfflineTripSnapshots.version.value && OfflineTripSnapshots.canDrawHistorical(value)
+
+    LaunchedEffect(value, lifecycleState, version) {
+        if (!canOpen()) return@LaunchedEffect
+        val remaining = savedPassportRemaining(value) ?: return@LaunchedEffect
+        if (!canOpen()) return@LaunchedEffect
+        available = true
+        delay(remaining)
+        available = false
+    }
+    if (!available || !canOpen()) return
+    AppButton(appText("Открыть сохранённый паспорт", "Һаҡланған паспортты асыу"), loading = opening, onClick = {
+        if (opening || !available || !canOpen()) return@AppButton
+        opening = true
+        scope.launch {
+            try {
+                if (savedPassportRemaining(value) != null && available && canOpen()) onOpen(value.bookingId)
+                else available = false
+            } finally {
+                opening = false
+            }
+        }
+    })
+}
+
 /** Last-known history, not a restored active trip. No chat, location, phone, code or money is mounted. */
-@Composable internal fun HistoricalTripSummaryCard(value: HistoricalTripSummary, onRetry: () -> Unit) {
+@Composable internal fun HistoricalTripSummaryCard(
+    value: HistoricalTripSummary, onRetry: () -> Unit, onOpenPassport: (Int) -> Unit,
+) {
     val version by OfflineTripSnapshots.version.collectAsState()
     var tick by remember(value) { mutableIntStateOf(0) }
     LaunchedEffect(value) {
@@ -235,6 +271,7 @@ internal suspend fun readBookingNavigation(bookingId: Int, navigation: TripNavig
                 value.state.phase == "departed" -> appText("В сохранённой копии: водитель выехал", "Һаҡланған күсермәлә: йөрөтөүсе юлға сыҡҡан")
                 else -> appText("В сохранённой копии: поездка была подтверждена", "Һаҡланған күсермәлә: сәфәр раҫланған булған")
             }, style = CanonBody, color = CanonText)
+            SavedTripPassportAction(value, onOpenPassport)
             AppButton(appText("Проверить статус", "Хәлде тикшереү"), onClick = {
                 if (OfflineTripSnapshots.canDrawHistorical(value)) onRetry()
             }, style = AppButtonStyle.Secondary)

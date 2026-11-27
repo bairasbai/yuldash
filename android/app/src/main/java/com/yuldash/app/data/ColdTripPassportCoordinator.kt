@@ -8,6 +8,15 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
+/** The list receives only a lifetime for the exact public summary it displays. */
+internal suspend fun savedPassportRemaining(summary: HistoricalTripSummary): Long? = withContext(Dispatchers.IO) {
+    if (!OfflineTripSnapshots.canDrawHistorical(summary)) return@withContext null
+    val passport = OfflineTripSnapshots.loadColdPassport(summary.owner, summary.bookingId) ?: return@withContext null
+    if (passport.grant.snapshotCandidate != summary.candidate || !OfflineTripSnapshots.canDrawHistorical(summary) ||
+        !OfflineTripSnapshots.canDrawCold(passport)) return@withContext null
+    passport.remaining(OfflineTripSnapshots.clockInBoot(summary.stateStamp.boot))
+}
+
 /** Coordinates the secure passport and its separate authority in the snapshot repository. */
 internal class ColdTripPassportCoordinator(
     private val diskAccess: Mutex,

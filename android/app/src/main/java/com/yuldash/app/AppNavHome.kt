@@ -81,9 +81,11 @@ internal fun HomeRoute(
     val homeScope = rememberCoroutineScope()
     var homeDestinationEpoch by remember { mutableIntStateOf(0) }
     val callbackEpoch = homeDestinationEpoch
+    val homeRevision = vm.privateNavigationRevisions.collectAsState().value
+    fun isCurrentHomeDestination() = homeScope.isActive && screen == Screen.Home && callbackEpoch == homeDestinationEpoch
     fun openHomeDestination(requireLogin: Boolean = true, applyRoute: () -> Unit) {
         val applyIfHome = {
-            if (homeScope.isActive && screen == Screen.Home && callbackEpoch == homeDestinationEpoch) {
+            if (isCurrentHomeDestination()) {
                 vm.navigateLocally(applyRoute)
                 // Только принятый выбор Home отменяет прежние кнопки; входящее уведомление — нет.
                 if (screen != Screen.Home) homeDestinationEpoch++
@@ -179,7 +181,11 @@ internal fun HomeRoute(
                 if (bookingId > 0) openHomeDestination { onOpenReceipt(bookingId) }
             },
             onOpenRecoveredBooking = { bookingId, completed ->
-                vm.requestBookingDestination(bookingId, ApiClient.myUserId(), completed)
+                ApiClient.runIfCurrentSession(homeSession) {
+                    if (isCurrentHomeDestination() && vm.privateNavigationRevision == homeRevision) {
+                        vm.requestBookingDestination(bookingId, ApiClient.myUserId(), completed)
+                    }
+                }
             },
             onShareRide = { ride ->
                 val rideTime = if (language == AppLanguage.Ba) ride.timeBa ?: ride.time else ride.time

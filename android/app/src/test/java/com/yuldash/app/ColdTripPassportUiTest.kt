@@ -1,6 +1,7 @@
 package com.yuldash.app
 
 import android.app.Application
+import android.content.SharedPreferences
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -21,7 +22,12 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleOwner
 import androidx.lifecycle.LifecycleRegistry
 import androidx.lifecycle.SavedStateHandle
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.viewmodel.compose.LocalViewModelStoreOwner
 import com.yuldash.app.data.ApiClient
 import com.yuldash.app.data.ColdTripPassport
 import com.yuldash.app.data.MemoryDiskPreferences
@@ -32,8 +38,10 @@ import com.yuldash.app.data.SnapshotWiringFixture
 import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.runBlocking
+import okhttp3.mockwebserver.MockResponse
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicBoolean
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -272,6 +280,131 @@ internal class ColdTripPassportUiTest : SnapshotWiringFixture() {
         assertFalse(passSecure.restarted().contains("pass_11"))
         show(cleared)
         compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.DESTROYED }
+    }
+
+    @Test fun savedTripSummaryOffersPassportOnlyWhileItsGrantIsValid() {
+        val summary = runBlocking { saveCold(); OfflineTripSnapshots.historicalSummaries().single() }
+        val lifecycleOwner = TestOwner()
+        var opened = 0
+        compose.setContent {
+            YuldashTheme(darkTheme = false) {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru, LocalLifecycleOwner provides lifecycleOwner) {
+                    HistoricalTripSummaryCard(summary, onRetry = {}, onOpenPassport = { opened = it })
+                }
+            }
+        }
+        compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED }
+        val button = "Открыть сохранённый паспорт"
+        compose.waitUntil(5000) { compose.onAllNodes(hasText(button)).fetchSemanticsNodes().isNotEmpty() }
+        show(button)
+        compose.onAllNodes(hasText("4821"), useUnmergedTree = true).assertCountEquals(0)
+        compose.onAllNodes(hasText("QA-plate"), useUnmergedTree = true).assertCountEquals(0)
+        compose.onAllNodes(hasText("+70000000000"), useUnmergedTree = true).assertCountEquals(0)
+        compose.onNodeWithText(button).performClick()
+        compose.waitUntil(5000) { compose.runOnIdle { opened == 11 } }
+        assertEquals(TripPassStore.RemovalResult.CLEARED,
+            TripPassStore.hideOfflineCopy(context, summary.bookingId, summary.owner))
+        compose.waitUntil(5000) { compose.onAllNodes(hasText(button)).fetchSemanticsNodes().isEmpty() }
+        show("Проверить статус")
+        compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.DESTROYED }
+    }
+
+    private data class TripsWindow(val vm: YuldashViewModel, val lifecycle: TestOwner, val owner: ViewModelStoreOwner)
+
+    private fun mountMyTrips(): TripsWindow {
+        val lifecycleOwner = TestOwner()
+        val owner = object : ViewModelStoreOwner {
+            override val viewModelStore = ViewModelStore()
+        }
+        val vm = ViewModelProvider(owner, object : ViewModelProvider.Factory {
+            @Suppress("UNCHECKED_CAST")
+            override fun <T : ViewModel> create(modelClass: Class<T>): T = YuldashViewModel(SavedStateHandle()) as T
+        })[YuldashViewModel::class.java]
+        vm.screen.value = Screen.Home
+        vm.startHomeTab.value = HomeTab.Rides
+        vm.language.value = AppLanguage.Ru
+        compose.setContent {
+            YuldashTheme(darkTheme = false) {
+                CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru,
+                    LocalLifecycleOwner provides lifecycleOwner, LocalViewModelStoreOwner provides owner,
+                    LocalPoolingNativeMapEnabled provides false) { YuldashApp() }
+            }
+        }
+        compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.RESUMED }
+        return TripsWindow(vm, lifecycleOwner, owner)
+    }
+
+    private fun closeTrips(window: TripsWindow) = compose.runOnIdle {
+        window.lifecycle.registry.currentState = Lifecycle.State.DESTROYED
+        window.owner.viewModelStore.clear()
+    }
+
+    @Test fun myTripsOpensTheColdPassportThroughTheProductionNavigation() {
+        runBlocking { saveCold() }
+        server.shutdown()
+        val window = mountMyTrips()
+        val button = "Открыть сохранённый паспорт"
+        compose.waitUntil(15000) { compose.onAllNodes(hasText(button)).fetchSemanticsNodes().isNotEmpty() }
+        show(button)
+        compose.onAllNodes(hasText("QA-plate"), useUnmergedTree = true).assertCountEquals(0)
+        compose.onNodeWithText(button).performClick()
+        val passport = "Паспорт поездки"
+        compose.waitUntil(15000) { compose.onAllNodes(hasText(passport)).fetchSemanticsNodes().isNotEmpty() }
+        show(passport)
+        assertEquals(11, window.vm.activeBookingId.value)
+        assertFalse(OfflineTripSnapshots.allowsLive(11))
+        closeTrips(window)
+    }
+
+    @Test fun aNewBookingDestinationWinsWhilePassportClickWaitsForDisk() {
+        runBlocking { saveCold() }
+        val holdRead = AtomicBoolean(false)
+        val diskEntered = CountDownLatch(1)
+        val releaseDisk = CountDownLatch(1)
+        val newerStarted = CountDownLatch(1)
+        val releaseNewer = CountDownLatch(1)
+        val gatedStore = object : SharedPreferences by passSecure {
+            override fun getString(key: String?, defValue: String?): String? {
+                if (key == "pass_11" && holdRead.compareAndSet(true, false)) {
+                    diskEntered.countDown()
+                    check(releaseDisk.await(15, TimeUnit.SECONDS))
+                }
+                return passSecure.getString(key, defValue)
+            }
+        }
+        TripPassStore.initStores(passPlain, gatedStore)
+        ApiClient.testTimeoutMs = 15000
+        handler = { request ->
+            when (request.path) {
+                "/bookings/mine" -> MockResponse().setResponseCode(503)
+                "/bookings/22/role" -> {
+                    newerStarted.countDown()
+                    check(releaseNewer.await(15, TimeUnit.SECONDS))
+                    MockResponse().setResponseCode(403)
+                }
+                else -> defaultResponse(request)
+            }
+        }
+        val window = mountMyTrips()
+        try {
+            val button = "Открыть сохранённый паспорт"
+            compose.waitUntil(10000) { compose.onAllNodes(hasText(button)).fetchSemanticsNodes().isNotEmpty() }
+            show(button)
+            holdRead.set(true)
+            compose.onNodeWithText(button).performClick()
+            compose.waitUntil(5000) { diskEntered.count == 0L }
+            compose.runOnIdle { window.vm.requestBookingDestination(22, ApiClient.myUserId(), completed = false) }
+            compose.waitUntil(5000) { newerStarted.count == 0L }
+            releaseDisk.countDown()
+            compose.waitUntil(5000) { compose.onAllNodes(hasText(button)).fetchSemanticsNodes().isNotEmpty() }
+            assertEquals(22, window.vm.pendingBookingNavigation.value?.bookingId)
+            assertFalse(requests.any { it.path == "/bookings/11/role" })
+        } finally {
+            releaseDisk.countDown()
+            releaseNewer.countDown()
+            closeTrips(window)
+            ApiClient.testTimeoutMs = 500
+        }
     }
 
     @Test fun removedGrantShowsUnavailableWithoutPrivateFields() {
