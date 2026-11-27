@@ -136,6 +136,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
 
     private fun pass(id: Int, code: String, method: String, amount: Int) = TripPass.fromJson(JSONObject()
         .put("booking_id", id).put("boarding_code", code).put("price", 700)
+        .put("from_city", "Город А").put("to_city", "Город Б").put("depart_at", "2031-02-03T09:00:00")
         .put("pay_method", method).put("pay_amount", amount))
     private fun disk(id: Int = 42) = secure.restarted().getString("pass_$id", null)
     // Каждый шаг ожидания — idle главного Looper + доставка снимков (testing.md, правило 5).
@@ -193,13 +194,24 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         allowAutomaticCodeRecovery = !pollWhileHeld
         startHeldRetry(language, rapid)
         val sibling = disk(99)
+        assertTrue("The initial verified booking includes a complete route",
+            OfflineTripSnapshots.projection(42)?.permit?.inputRoute?.valid == true)
         if (pollWhileHeld) runBlocking {
             val polled = ApiClient.getTripState(42).getOrThrow()
             assertEquals("confirmed", polled.status)
             assertEquals("passenger", polled.role)
         }
         release.countDown()
-        waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
+        try {
+            waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            val projection = OfflineTripSnapshots.projection(42)
+            throw AssertionError("Code retry did not persist. Code reads=" + codeCalls.get() +
+                ", details reads=" + requests.count { it.first == "GET /bookings/42/details" } +
+                ", fresh code=" + (OfflineTripSnapshots.currentBoardingCode(42) == "5678") +
+                ", complete route=" + (projection?.permit?.inputRoute?.valid == true) +
+                ", last persistence=" + OfflineTripSnapshots.persistence.value, failure)
+        }
         // Диск и экран — разные события: ждём и сам код на экране, а не только запись на диск.
         waitFor { compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("5678").performScrollTo().assertIsDisplayed()
