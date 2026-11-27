@@ -2,7 +2,8 @@
 // Logs every real request/response (method, path, status, client family), and on command
 //  - "drop": forwards ONE matching request to the API, waits for its full response, then cuts
 //    the client socket without sending it (server processed, client lost the answer);
-//  - "before-forward": cuts one request before connecting to the API.
+//  - "before-forward": cuts matching requests before connecting to the API.
+//    Set untilClear to include transport retries of the same scenario until "clear".
 //  - "hold-response": waits for the API response, then keeps the client waiting for release.
 //  - "down": refuses/cuts all client connections (network loss), "up" restores.
 // Control: POST /fault {mode, method, path(regex), count}, GET /log?from=N.
@@ -32,7 +33,10 @@ function cleanPath(url) { const [p, q] = url.split("?"); return q ? p + "?" + q.
 function takeFault(method, path) {
   const i = faults.findIndex((f) => requestFaultModes.has(f.mode) && (!f.method || f.method === method) && new RegExp(f.path).test(path));
   if (i < 0) return null;
-  const f = faults[i]; f.count = (f.count || 1) - 1; if (f.count <= 0) faults.splice(i, 1);
+  const f = faults[i];
+  if (f.mode === "before-forward" && f.untilClear === true) return f;
+  f.count = (f.count || 1) - 1;
+  if (f.count <= 0) faults.splice(i, 1);
   return f;
 }
 

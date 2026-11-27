@@ -95,6 +95,23 @@ test("wire faults mark when a write can reach the API", { timeout: 15_000 }, asy
     assert.equal(requests.filter(key => key === "before").length, 1);
   });
 
+  await t.test("before-forward can cover transport retries until explicitly cleared", async () => {
+    const path = "/writes/retry";
+    const rule = await send(controlPort, "/fault", {
+      method: "POST", body: { mode: "before-forward", method: "POST", path: "^" + path + "$", untilClear: true },
+    });
+    assert.equal(rule.status, 200);
+    for (let index = 0; index < 3; index++) {
+      await assert.rejects(send(dataPort, path, { method: "POST", key: "retry" }), { code: "ECONNRESET" });
+    }
+    assert.equal(requests.includes("retry"), false);
+    const { body } = await send(controlPort, "/log");
+    assert.equal(body.filter(row => row.path === path && row.outcome === "held_before_forward").length, 3);
+    assert.equal((await send(controlPort, "/fault", { method: "POST", body: { mode: "clear" } })).status, 200);
+    assert.equal((await send(dataPort, path, { method: "POST", key: "retry" })).status, 200);
+    assert.equal(requests.filter(key => key === "retry").length, 1);
+  });
+
   await t.test("held response stays unread until the test checks the result and drops it", async () => {
     await arm("hold-response", "/writes/after");
     let settled = false;
