@@ -126,6 +126,8 @@ export default function HomeScreen() {
   const [season, setSeason] = useState<SeasonalEvent | null>(null);
   // Пресеты популярных маршрутов — чипы «Сибай → Уфа» в один тап.
   const [popular, setPopular] = useState<PopularRoute[]>([]);
+  const [pickedRoute, setPickedRoute] = useState<{ owner: string; route: PopularRoute } | null>(null);
+  const focus = pickedRoute?.owner === searchOwner ? pickedRoute.route : null;
   const [rides, setRides] = useState<NearRide[]>([]);
   /** Сколько поездок подходит всего (`count` сервера, с учётом условий) — для «Показать ещё» и кнопки шторки. */
   const [total, setTotal] = useState(0);
@@ -166,14 +168,15 @@ export default function HomeScreen() {
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
   const cityFilter = useNearbyCityFilter(reloadTick);
   const watchRoute = {
-    from: cityFilter.from.length === 1 ? cityFilter.from[0] : "",
-    to: cityFilter.to.length === 1 ? cityFilter.to[0] : "",
+    from: cityFilter.from.length > 1 ? "" : cityFilter.from[0] ?? focus?.from.name_ru ?? "",
+    to: cityFilter.to.length > 1 ? "" : cityFilter.to[0] ?? focus?.to.name_ru ?? "",
     day,
   };
   const previousSearchOwner = useRef(searchOwner);
   useEffect(() => {
     if (previousSearchOwner.current === searchOwner) return;
     previousSearchOwner.current = searchOwner;
+    setPickedRoute(null);
     cityFilter.clear();
     setSeats(loadFilters().seats);
     setSheet(null);
@@ -182,8 +185,12 @@ export default function HomeScreen() {
 
   /** Поиск с сохранённой настройкой: по его ключу (без места) «Показать» действует только здесь. */
   const savedFilters = useMemo<NearbyFilters>(
-    () => ({ coords: me, day, conditions, seats, verifiedOnly: storedVerifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
-    [me, day, conditions, seats, storedVerifiedOnly, cityFilter.from, cityFilter.to]
+    () => ({
+      coords: me, day, conditions, seats, verifiedOnly: storedVerifiedOnly,
+      fromCities: cityFilter.from, toCities: cityFilter.to,
+      focus: focus ? { from: focus.from.name_ru, to: focus.to.name_ru } : undefined,
+    }),
+    [me, day, conditions, seats, storedVerifiedOnly, cityFilter.from, cityFilter.to, focus]
   );
   const revealKey = JSON.stringify([searchOwner, nearbyRevealKey(savedFilters)]);
   const verifiedOnly = nearbyVerifiedOnly(storedVerifiedOnly, revealedFor, revealKey);
@@ -211,6 +218,20 @@ export default function HomeScreen() {
       rides.filter((r) => matchesNearbyConditions(r, conditions, verifiedOnly) && (seats === 1 || rideFitsGroup(r, seats))),
     [rides, conditions, verifiedOnly, seats, waitingForSeats]
   );
+
+  function scrollToNearby() {
+    requestAnimationFrame(() => nearbyHeader.current?.scrollIntoView({ block: "start" }));
+  }
+
+  function choosePopularRoute(route: PopularRoute) {
+    if (searchOwner !== getSessionGeneration()) return;
+    setPickedRoute({ owner: searchOwner, route });
+    void recordSearch(searchOwner, {
+      from: [route.from.name_ru], to: [route.to.name_ru],
+      labels: { [route.from.name_ru]: route.from.name_ba ?? "", [route.to.name_ru]: route.to.name_ba ?? "" },
+    }, false);
+    scrollToNearby();
+  }
 
   /** Сброс из пустой ленты: снимает условия и города. «Только проверенные» — настройка «Безопасности», её не трогаем. */
   function resetFeedFilters() {
@@ -434,11 +455,11 @@ export default function HomeScreen() {
           Ряд виден, пока есть что фильтровать, или включён хоть один фильтр (путь назад), или на
           сервере есть города с поездками — «Откуда» ведёт к ним, даже если рядом пусто.
           «Когда» видно ВСЕГДА: это путь назад со «Сегодня» на «Все дни». */}
-      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0 || seats > 1, citiesOffered: cityFilter.offered || hasHistory, nearOnly }) && (
+      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0 || seats > 1, citiesOffered: cityFilter.offered || hasHistory || focus !== null, nearOnly }) && (
         <div className="nearby-filters">
           <div className="nearby-filters__row" role="group" aria-label={appText("Фильтры ленты", "Таҫма фильтрҙары")}>
             <NearbyCityChips key={searchOwner} filter={cityFilter} hasHistory={hasHistory}
-              onRepeat={() => requestAnimationFrame(() => nearbyHeader.current?.scrollIntoView({ block: "start" }))} />
+              onRepeat={() => { setPickedRoute(null); scrollToNearby(); }} />
             <NearbyWhenChip day={day} onChange={setDay} />
             <NearbySeatsChip seats={seats} onChange={setSeats} />
             <NearbyConditionsChip chosen={conditions} onChange={setConditions} verifiedOnly={verifiedOnly} total={total} />
@@ -513,18 +534,14 @@ export default function HomeScreen() {
           {popular.map((r) => {
             const a = ru ? r.from.name_ru : r.from.name_ba || r.from.name_ru;
             const b = ru ? r.to.name_ru : r.to.name_ba || r.to.name_ru;
+            const selected = focus?.from.id === r.from.id && focus?.to.id === r.to.id;
             return (
               <button
                 key={`${r.from.id}-${r.to.id}`}
                 type="button"
-                className="chip"
-                onClick={() => {
-                  void recordSearch(searchOwner, {
-                    from: [r.from.name_ru], to: [r.to.name_ru],
-                    labels: { [r.from.name_ru]: r.from.name_ba ?? "", [r.to.name_ru]: r.to.name_ba ?? "" },
-                  }, false);
-                  navigate(`/rides/feed?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`);
-                }}
+                className={selected ? "chip chip--on" : "chip"}
+                aria-pressed={selected}
+                onClick={() => choosePopularRoute(r)}
               >
                 {a} → {b}
               </button>
@@ -544,6 +561,11 @@ export default function HomeScreen() {
           <span className="nearby-header__count">{appText(`${shownRides.length} рядом`, `${shownRides.length} яҡында`)}</span>
         )}
       </div>
+      {focus && (
+        <button type="button" className="chip chip--on" onClick={() => setPickedRoute(null)}>
+          {appText("Все маршруты", "Бөтә маршруттар")}
+        </button>
+      )}
       {seats > 1 && (
         <p className="nearby-seats-hint">
           {appText(`Показаны поездки, где свободно ${seats} ${pluralRu(seats, "место", "места", "мест")} и больше.`, `${seats} һәм күберәк буш урынлы сәфәрҙәр күрһәтелә.`)}

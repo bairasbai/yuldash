@@ -70,6 +70,23 @@ await test("число мест меняет запрос, страницу и s
   assert.equal(m.rideFitsGroup({ seats_on_segment: null, seats_left: 1, seats_by_leg: [1, 4] }, 4), true);
 });
 
+await test("фокус популярного маршрута добавляет отдельный участок и исключает радиус", async ({ m }) => {
+  const base = { ...NO_FILTERS, coords: { lat: 54, lng: 55 }, day: "2030-01-02", seats: 3, conditions: ["child"] };
+  const focus = { from: "Баймак", to: "Ургаза" };
+  const withRoute = { ...base, focus };
+  const q = new URLSearchParams(m.nearQueryString(m.nearbyQuery(withRoute, 30)));
+  assert.equal(q.get("from_city"), focus.from);
+  assert.equal(q.get("to_city"), focus.to);
+  assert.equal(q.get("radius_km"), null);
+  assert.equal(q.get("lat"), "54");
+  assert.equal(q.get("date"), base.day);
+  assert.equal(q.get("seats"), "3");
+  assert.equal(q.get("conditions"), "child");
+  assert.notEqual(m.nearbyContextKey(withRoute), m.nearbyContextKey(base));
+  assert.notEqual(m.nearbyRevealKey(withRoute), m.nearbyRevealKey(base));
+  assert.notEqual(m.nearbyContextKey(withRoute), m.nearbyContextKey({ ...base, focus: { from: focus.to, to: focus.from } }));
+});
+
 await test("подсказка считает рейсы ровно на рекомендуемое число мест", async ({ m }) => {
   const response = { count: 0, items: [], hidden_by_seats: 5, max_free_seats: 3, count_at_max_free: 2 };
   const suggestion = m.smallerGroup(response, 4);

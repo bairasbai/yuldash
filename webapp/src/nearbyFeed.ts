@@ -82,6 +82,8 @@ export const NEARBY_PAGE = 30;
 export const NEARBY_MAX = 200;
 
 export interface NearbyFilters {
+  /** Выбранный чип популярного маршрута поверх фильтров «Откуда» и «Куда». */
+  focus?: { from: string; to: string };
   coords: { lat: number; lng: number } | null;
   /** YYYY-MM-DD или null — все дни. */
   day: string | null;
@@ -102,7 +104,7 @@ export function cityFilterActive(f: Pick<NearbyFilters, "fromCities" | "toCities
 /**
  * Параметры запроса ленты.
  *
- * Радиус — только когда знаем место человека И не выбран город: место тогда задаёт сам
+ * Радиус действует при известной позиции, пока человек не задал город или маршрут. Место тогда задаёт сам
  * человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
  * Координаты при этом уходят — по ним считается расстояние на карточках.
  */
@@ -111,7 +113,11 @@ export function nearbyQuery(f: NearbyFilters, limit: number): NearQuery {
   if (f.coords) {
     query.lat = f.coords.lat;
     query.lng = f.coords.lng;
-    if (!cityFilterActive(f)) query.radius_km = NEARBY_RADIUS_KM;
+    if (!f.focus && !cityFilterActive(f)) query.radius_km = NEARBY_RADIUS_KM;
+  }
+  if (f.focus) {
+    query.from_city = f.focus.from;
+    query.to_city = f.focus.to;
   }
   if (f.day) query.date = f.day;
   if ((f.seats ?? 1) > 1) query.seats = f.seats;
@@ -136,6 +142,7 @@ export function nearbyContextKey(f: NearbyFilters): string {
     f.verifiedOnly,
     [...f.fromCities].sort(),
     [...f.toCities].sort(),
+    f.focus ? [f.focus.from, f.focus.to] : null,
   ]);
 }
 

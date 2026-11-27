@@ -36,6 +36,8 @@ export interface PopularRoute {
  * запросе люди видят разные поездки.
  */
 export interface NearQuery {
+  from_city?: string;
+  to_city?: string;
   lat?: number;
   lng?: number;
   radius_km?: number;
@@ -71,6 +73,8 @@ export function nearQueryString(params: NearQuery = {}): string {
   if (params.lat != null) q.set("lat", String(params.lat));
   if (params.lng != null) q.set("lng", String(params.lng));
   if (params.radius_km != null) q.set("radius_km", String(params.radius_km));
+  if (params.from_city) q.set("from_city", params.from_city);
+  if (params.to_city) q.set("to_city", params.to_city);
   if (params.date) q.set("date", params.date);
   if (params.seats != null && params.seats > 1) q.set("seats", String(params.seats));
   if (params.offset) q.set("offset", String(params.offset));

@@ -23,7 +23,7 @@ const Home = (
     [/^react$/, REACT],
     [/^react\/jsx-runtime$/, JSX],
     [/^react-dom$/, PORTAL],
-    [/^react-router-dom$/, `export const Link = "Link"; export const useNavigate = () => () => {};`],
+    [/^react-router-dom$/, `export const Link = "Link"; export const useNavigate = () => (path) => globalThis.__rt.navigated?.push(path);`],
     [/\/auth\/AuthProvider$/, `export const useAuth = () => ({ isAuthed: false, status: "guest", user: null });`],
     [/\/i18n\/lang$/, LANG],
     [/\/components\/ScreenHeader$/, `export default "ScreenHeader";`],
@@ -48,7 +48,7 @@ const Home = (
     [/\/components\/Icons$/, `export const IconRides = "Icon", IconGift = "Icon", IconLocate = "Icon", IconClose = "Icon", IconHospital = "Icon", IconChevron = "Icon";`],
     [/\/components\/BrandIcons$/, `export const YuModeTaxi = "Icon";`],
     [/\/components\/PartnerAd$/, `export const PartnerAdSlot = "PartnerAdSlot";`],
-    [/\/api\/geo$/, `export const fetchPopularRoutes = async () => [];`],
+    [/\/api\/geo$/, `export const fetchPopularRoutes = async () => globalThis.__rt.popular ?? [];`],
     [/\/utils\/useVisibleInterval$/, `export const useVisibleInterval = (_ms, cb) => { globalThis.__rt.tick = cb; };`],
     [/\/components\/ComingSoon$/, `export default "ComingSoon";`],
     [/\/components\/States$/, `export const LoadingList = "LoadingList";`],
@@ -86,6 +86,54 @@ async function homeWithList() {
 }
 const cards = (home) => all(home.tree, "NearbyRideCard").length;
 const errorCard = (home) => all(home.tree, "NearbyEmptyCard").find((n) => n.props.error === true);
+
+await test("популярный маршрут оставляет день, условия и места от поиска до брони", async () => {
+  const frame = globalThis.requestAnimationFrame;
+  const frames = [];
+  globalThis.requestAnimationFrame = callback => { frames.push(callback); return frames.length; };
+  rt.popular = [{ from: { id: 1, name_ru: "Баймак", name_ba: "Баймаҡ" }, to: { id: 2, name_ru: "Ургаза", name_ba: "Урғаҙа" } }];
+  rt.navigated = [];
+  try {
+    const { home, calls, net } = await homeWithList();
+    net.reply = ok([ride(7, { seats_left: 3, seats_on_segment: 3 })]);
+    one(home.tree, "NearbyWhenChip").props.onChange("2030-01-02");
+    one(home.tree, "NearbySeatsChip").props.onChange(3);
+    one(home.tree, "NearbyConditionsChip").props.onChange(["child"]);
+    rt.city = cityState({ from: ["Баймак", "Сибай"], active: true, offered: true });
+    await settle(home);
+    const chip = all(home.tree, "button").find(n => text(n) === "Баймак → Ургаза");
+    assert.ok(chip);
+    chip.props.onClick();
+    await settle(home);
+    const { from_city, to_city, from_cities, date, seats, conditions, limit } = calls.at(-1);
+    assert.equal(from_city, "Баймак", "чип должен применяться к существующей ленте");
+    assert.equal(to_city, "Ургаза");
+    assert.deepEqual(from_cities, ["Баймак", "Сибай"]);
+    assert.equal(date, "2030-01-02");
+    assert.equal(seats, 3);
+    assert.deepEqual(conditions, ["child"]);
+    assert.equal(limit, 30);
+    assert.deepEqual(rt.navigated, []);
+    assert.equal(frames.length, 1);
+    one(home.tree, "NearbyRideCard").props.onOpen();
+    await settle(home);
+    assert.equal(one(home.tree, "RideSheet").props.initialSeats, 3);
+    one(home.tree, "RideSheet").props.onClose();
+    const reset = all(home.tree, "button").find(n => text(n) === "Все маршруты");
+    assert.ok(reset);
+    reset.props.onClick();
+    await settle(home);
+    assert.equal(calls.at(-1).from_city, undefined);
+    assert.deepEqual(calls.at(-1).from_cities, ["Баймак", "Сибай"]);
+    assert.equal(calls.at(-1).date, date);
+    assert.equal(calls.at(-1).seats, seats);
+    assert.deepEqual(calls.at(-1).conditions, conditions);
+  } finally {
+    globalThis.requestAnimationFrame = frame;
+    delete rt.popular;
+    delete rt.navigated;
+  }
+});
 
 await test("сменили день, а сеть упала — вместо старого списка «нет сети» с «Повторить»", async () => {
   const { home, calls, net } = await homeWithList();
