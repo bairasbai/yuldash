@@ -68,6 +68,7 @@ def _migrate_sqlite_add_columns() -> None:
     """
     if not settings.database_url.startswith("sqlite"):
         return
+    is_dev = settings.env.strip().lower() in ("dev", "development")
     inspector = inspect(engine)
     existing_tables = set(inspector.get_table_names())
     with engine.begin() as conn:
@@ -75,11 +76,17 @@ def _migrate_sqlite_add_columns() -> None:
             if table.name not in existing_tables:
                 continue
             have = {c["name"] for c in inspector.get_columns(table.name)}
+            repair_user_epoch = is_dev and table.name == "user"
             for col in table.columns:
                 if col.name in have:
                     continue
-                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {_sqlite_coltype(col)} DEFAULT {_sqlite_default(col)}'
+                # У auth_epoch дефолт задан в server_default, а не в Column.default.
+                default = "0" if repair_user_epoch and col.name == "auth_epoch" else _sqlite_default(col)
+                ddl = f'ALTER TABLE "{table.name}" ADD COLUMN "{col.name}" {_sqlite_coltype(col)} DEFAULT {default}'
                 conn.execute(text(ddl))
+            if repair_user_epoch and "auth_epoch" in have:
+                # Старая dev-миграция оставляла NULL. Ненулевые эпохи отзыва сохраняем.
+                conn.execute(text('UPDATE "user" SET auth_epoch = 0 WHERE auth_epoch IS NULL'))
 
 
 def init_db() -> None:
