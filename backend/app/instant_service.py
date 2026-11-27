@@ -3433,6 +3433,8 @@ def _push_offer(session: Session, order: InstantOrder, driver_id: int) -> None:
             "from": from_shown,      # без номера дома и квартиры — см. выше
             "to": to_shown,          # без номера дома — см. выше
             "ttl_sec": str(settings.instant_offer_ttl_sec),
+            # Клиент не должен начинать новые 20 секунд, если пуш пришёл с задержкой.
+            "offer_expires_at": order.offer_expires_at.isoformat() if order.offer_expires_at else "",
             # Рейтинг/опыт пассажира (B7a-4): "" = новичок без оценок.
             "passenger_rating": "" if p_rating is None else str(p_rating),
             "passenger_trips": str(p_trips),

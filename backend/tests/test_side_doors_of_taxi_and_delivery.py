@@ -67,12 +67,17 @@ def test_пуш_не_выдаёт_номер_дома(client, user_factory, пу
     водитель = user_factory("БоковаяВодитель", role=UserRole.driver)
     пуши.clear()
 
+    deadline = utcnow() + timedelta(seconds=2)
     with Session(engine) as s:
-        isv._push_offer(s, s.get(InstantOrder, oid), водитель["id"])
+        order = s.get(InstantOrder, oid)
+        order.offer_expires_at = deadline
+        isv._push_offer(s, order, водитель["id"])
 
     оффер = [p for p in пуши if p[0] == "Новый заказ"]
     assert оффер, f"оффер не ушёл: {пуши}"
     title, body, data = оффер[-1]
+    assert data["offer_expires_at"] == deadline.isoformat()
+    assert data["ttl_sec"] == str(isv.settings.instant_offer_ttl_sec)
     assert "5к2" not in body, (
         f"номер дома в тексте пуша: {body}. Карточка его прячет, а уведомление всплывает "
         "поверх погасшего экрана — его читает любой, кто рядом с телефоном"
