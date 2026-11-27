@@ -1,6 +1,7 @@
 import { API_BASE, isAccountSession } from "../api/client";
 import { COMMAND_KEY_PREFIX } from "./commandFingerprint";
 import type { TripStatus } from "../api/family";
+import { purgePassengerTripStatusActions } from "./outboxStore";
 import type { RideSeriesIntent, RideSeriesResult } from "./rideSeriesIntent";
 
 type State = "unknown" | "applied" | "rejected" | "closed_no_effect";
@@ -359,32 +360,6 @@ export const reserveDriverStageCommand = driverStages.reserve;
 export const resolveDriverStageCommand = driverStages.resolve;
 export const passengerTripStatuses = bookingStageStore<TripStatus>(PASSENGER_TRIP_STATUS_SCOPE);
 
-export interface LegacyPassengerTripStatus {
-  id: string;
-  bookingId: number;
-  stage: TripStatus;
-  // Keep the import marker if another tab still holds the old row in memory.
-  settled?: true;
-}
-
-function legacyPassengerTransaction<T>(
-  owner: BookingCommandOwner, edit: (rows: LegacyPassengerTripStatus[]) => Edit<T, LegacyPassengerTripStatus>,
-  requireCurrent = true,
-) {
-  return transaction(owner, edit, requireCurrent, JSON.stringify(["legacy-trip-status", owner.namespace]));
-}
-
-export const legacyPassengerTripStatuses = {
-  read: (owner: BookingCommandOwner) => legacyPassengerTransaction(owner, rows => ({ result: rows.filter(row => !row.settled) })),
-  import: (owner: BookingCommandOwner, entries: LegacyPassengerTripStatus[]) => legacyPassengerTransaction(owner, rows => {
-    const known = new Set(rows.map(row => row.id));
-    return { result: undefined, updated: [...rows, ...entries.filter(entry => !known.has(entry.id))] };
-  }),
-  remove: (owner: BookingCommandOwner, ids: ReadonlySet<string>) =>
-    legacyPassengerTransaction(owner, rows => ({ result: undefined,
-      updated: rows.map(row => ids.has(row.id) ? { ...row, settled: true } : row) })),
-};
-
 export interface SavedCardConfirmation {
   bookingId: number;
   key: string;
@@ -428,7 +403,7 @@ export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<
     driverDecisionTransaction(owner, () => ({ result: undefined, updated: null }), false),
     driverStages.purge(owner),
     passengerTripStatuses.purge(owner),
-    legacyPassengerTransaction(owner, () => ({ result: undefined, updated: null }), false),
+    purgePassengerTripStatusActions(owner.generation, owner.namespace),
     cardConfirmationTransaction(owner, () => ({ result: undefined, updated: null }), false),
   ]);
 }

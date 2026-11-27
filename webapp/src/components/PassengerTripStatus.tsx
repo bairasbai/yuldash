@@ -10,9 +10,9 @@ import {
 } from "../api/passengerTripStatus";
 import {
   bookingCommandOwner, isCurrentBookingOwner, passengerTripStatuses,
-  type BookingCommandOwner, type LegacyPassengerTripStatus, type PassengerTripStatusCommand,
+  type BookingCommandOwner, type PassengerTripStatusCommand,
 } from "../utils/bookingCommandStore";
-import { legacyTripStatuses, reconcileLegacyTripStatuses } from "../utils/outbox";
+import { legacyTripStatuses, reconcileLegacyTripStatuses, type OutboxAction } from "../utils/outbox";
 
 export function PassengerTripStatus({ bookingId, bookingStatus, forAnother, onChanged }: {
   bookingId: number;
@@ -35,7 +35,7 @@ function StatusCard({ owner, bookingId, bookingStatus, forAnother, onChanged }: 
   onChanged: (status: BookingStatus) => void | Promise<void>;
 }) {
   const { appText } = useLang();
-  const [commands, setCommands] = useState<{ saved?: PassengerTripStatusCommand; legacy: LegacyPassengerTripStatus[] }>();
+  const [commands, setCommands] = useState<{ saved?: PassengerTripStatusCommand; legacy: OutboxAction[] }>();
   const [loadingFailed, setLoadingFailed] = useState(false);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");

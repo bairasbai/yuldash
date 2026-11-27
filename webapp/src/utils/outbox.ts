@@ -3,9 +3,9 @@ import { sendMessageRest, type ChatMessage } from "../api/chat";
 import { fetchTripState } from "../api/bookings";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { fetchBookingShares } from "../api/family";
-import { bookingCommandOwner, isCurrentBookingOwner, legacyPassengerTripStatuses,
-  type BookingCommandOwner, type LegacyPassengerTripStatus } from "./bookingCommandStore";
-import { clearActions, insertAction, listActions, removeAction } from "./outboxStore";
+import { bookingCommandOwner, isCurrentBookingOwner, type BookingCommandOwner } from "./bookingCommandStore";
+import { clearActions, insertAction, listActions, listLegacyPassengerTripStatusActions,
+  preservePassengerTripStatusActions, removeAction } from "./outboxStore";
 
 export type OutboxKind = "message" | "trip_status" | "driver_status";
 export interface OutboxAction {
@@ -152,22 +152,13 @@ export async function acknowledgeMessage(bookingId: number, id: string, expected
   await refreshOutbox().catch(() => {});
 }
 
-/** Migrate unkeyed passenger entries before the active generation is cleared. */
+/** Bind unkeyed passenger entries to their verified owner before the session changes. */
 export async function preserveLegacyTripStatuses(owner: BookingCommandOwner, signal?: AbortSignal) {
   const cleared = clearVersion;
   const active = () => isCurrentBookingOwner(owner) && !signal?.aborted && cleared === clearVersion;
   if (!active()) return;
-  const rows = (await listActions(owner.generation, active)).flatMap<{ action: OutboxAction; entry: LegacyPassengerTripStatus }>(action =>
-    action.kind === "trip_status" && (action.payload === "arrived" || action.payload === "done")
-      ? [{ action, entry: { id: JSON.stringify([action.session, action.id]), bookingId: action.bookingId, stage: action.payload } }]
-      : []);
-  if (!active() || rows.length === 0) return;
-  await legacyPassengerTripStatuses.import(owner, rows.map(row => row.entry));
-  for (const { action } of rows) {
-    if (!active()) return;
-    await removeAction(action, active);
-  }
-  if (active()) changed();
+  const moved = await preservePassengerTripStatusActions(owner.generation, owner.namespace, active);
+  if (moved && active()) changed();
 }
 
 export async function preserveTripStatusesForUser(user: { id: number; created_at?: string } | null,
@@ -179,7 +170,8 @@ export async function preserveTripStatusesForUser(user: { id: number; created_at
 export async function legacyTripStatuses(owner: BookingCommandOwner, bookingId: number, signal: AbortSignal) {
   await preserveLegacyTripStatuses(owner, signal);
   signal.throwIfAborted();
-  return (await legacyPassengerTripStatuses.read(owner)).filter(row => row.bookingId === bookingId);
+  const rows = await listLegacyPassengerTripStatusActions(owner.namespace, () => isCurrentBookingOwner(owner) && !signal.aborted);
+  return rows.filter(row => row.bookingId === bookingId);
 }
 
 export async function reconcileLegacyTripStatuses(owner: BookingCommandOwner, bookingId: number, signal: AbortSignal, forget = false) {
@@ -188,13 +180,19 @@ export async function reconcileLegacyTripStatuses(owner: BookingCommandOwner, bo
   if (!active() || rows.length === 0) return rows;
   const trip = forget ? null : await fetchTripState(bookingId, signal);
   if (!active() || (trip && trip.role !== "passenger")) return rows;
-  const shares = !forget && rows.some(row => row.stage === "arrived") ? await fetchBookingShares(bookingId, signal) : [];
+  const shares = !forget && rows.some(row => row.payload === "arrived") ? await fetchBookingShares(bookingId, signal) : [];
   if (!active()) return rows;
   const arrivalObserved = shares.length > 0 && shares.every(share => share.last_status === "arrived" || share.last_status === "done");
-  const settled = rows.filter(row => forget || (row.stage === "done" && trip?.status === "done") ||
-    (row.stage === "arrived" && arrivalObserved));
-  if (settled.length) await legacyPassengerTripStatuses.remove(owner, new Set(settled.map(row => row.id)));
-  return (await legacyPassengerTripStatuses.read(owner)).filter(row => row.bookingId === bookingId);
+  const remaining = [];
+  for (const row of rows) {
+    if (!active()) return rows;
+    if (forget || (row.payload === "done" && trip?.status === "done") || (row.payload === "arrived" && arrivalObserved)) {
+      await removeAction(row, active);
+    } else {
+      remaining.push(row);
+    }
+  }
+  return remaining;
 }
 
 async function run(a: OutboxAction): Promise<void> {

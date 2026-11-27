@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import { webcrypto } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
-import { IDBFactory } from "fake-indexeddb";
+import { IDBDatabase, IDBFactory } from "fake-indexeddb";
+import { storedActions } from "./outbox-helpers.mjs";
 import { checker } from "./shallow-harness.mjs";
 
 const t = checker();
@@ -249,6 +250,46 @@ await t.test("closing while original POST is held leaves the original slot termi
   assert.equal((await pending).state, "closed_no_effect");
   assert.equal((await api.passengerTripStatuses.read(owner))[0].state, "closed_no_effect");
   assert.equal(writes, 1);
+});
+
+await t.test("legacy binding and logout survive a failure opening the separate command database", async () => {
+  const { api, owner } = await fresh();
+  await api.enqueue(21, "trip_status", "done");
+  const original = indexedDB.open.bind(indexedDB);
+  indexedDB.open = (name, version) => {
+    if (name === "yuldash-booking-commands-v1") throw new DOMException("storage limit", "QuotaExceededError");
+    return original(name, version);
+  };
+  await api.preserveLegacyTripStatuses(owner);
+  await api.clearOutbox();
+  await api.setSession(token(7), "fixture-refresh-returned");
+  const returned = api.bookingCommandOwner(profile, api.getSessionGeneration());
+  assert.equal((await api.legacyTripStatuses(returned, 21, signal()))[0].payload, "done");
+  indexedDB.open = original;
+  await api.purgeBookingCommands(returned);
+  assert.deepEqual(await api.legacyTripStatuses(returned, 21, signal()), []);
+});
+
+await t.test("a failed binding does not erase original entries during logout cleanup", async () => {
+  const { api, owner } = await fresh();
+  await api.enqueue(21, "trip_status", "arrived");
+  const original = IDBDatabase.prototype.transaction;
+  IDBDatabase.prototype.transaction = function (...args) {
+    const tx = original.apply(this, args);
+    if (this.name === "yuldash-outbox-v1" && Array.isArray(args[0])) queueMicrotask(() => tx.abort());
+    return tx;
+  };
+  try {
+    await assert.rejects(api.preserveLegacyTripStatuses(owner));
+  } finally {
+    IDBDatabase.prototype.transaction = original;
+  }
+  await api.clearOutbox();
+  const rows = await storedActions();
+  assert.deepEqual(rows.map(action => [action.session, action.payload]), [["session-a", "arrived"]]);
+  await api.setSession(token(8), "fixture-refresh-b");
+  const other = api.bookingCommandOwner({ ...profile, id: 8 }, api.getSessionGeneration());
+  assert.deepEqual(await api.legacyTripStatuses(other, 21, signal()), []);
 });
 
 t.done();

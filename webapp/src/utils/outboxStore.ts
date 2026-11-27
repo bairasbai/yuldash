@@ -128,6 +128,50 @@ export function removeAction(action: OutboxAction, active: () => boolean): Promi
     };
   });
 }
+const legacyPassengerSession = (namespace: string) => JSON.stringify(["legacy-trip-status", namespace]);
+
+/** Move previously unkeyed attempts inside the same transaction and keep them out of flush. */
+export function preservePassengerTripStatusActions(generation: string, namespace: string, active: () => boolean) {
+  return transaction<boolean>(generation, active, (actions, done) => {
+    const request = actions.index("session").openCursor(generation);
+    let moved = false;
+    request.onsuccess = () => {
+      const cursor = request.result;
+      if (!cursor) { done(moved); return; }
+      const action: OutboxAction = cursor.value;
+      if (action.kind === "trip_status") {
+        const pinned = { ...action, session: legacyPassengerSession(namespace), id: identity(action) };
+        cursor.update({ ...pinned, identity: identity(pinned) });
+        moved = true;
+      }
+      cursor.continue();
+    };
+  });
+}
+
+export function listLegacyPassengerTripStatusActions(namespace: string, active: () => boolean) {
+  return listActions(legacyPassengerSession(namespace), active);
+}
+
+export async function purgePassengerTripStatusActions(generation: string, namespace: string): Promise<void> {
+  const db = await open();
+  return new Promise<void>((resolve, reject) => {
+    const tx = db.transaction("actions", "readwrite");
+    tx.oncomplete = () => resolve();
+    tx.onabort = () => reject(tx.error ?? new Error("Passenger trip status cleanup aborted"));
+    const index = tx.objectStore("actions").index("session");
+    for (const session of [generation, legacyPassengerSession(namespace)]) {
+      const request = index.openCursor(session);
+      request.onsuccess = () => {
+        const cursor = request.result;
+        if (!cursor) return;
+        if (cursor.value.kind === "trip_status") cursor.delete();
+        cursor.continue();
+      };
+    }
+  });
+}
+
 export async function clearActions(generation: string): Promise<void> {
   const db = await open();
   return new Promise<void>((resolve, reject) => {
@@ -139,7 +183,8 @@ export async function clearActions(generation: string): Promise<void> {
       const cursor = request.result;
       if (!cursor) return;
       // Поздняя очистка A не затрагивает уже вошедшего B.
-      if (cursor.value.session === generation || cursor.value.session !== getSessionGeneration()) cursor.delete();
+      if (cursor.value.kind !== "trip_status" &&
+          (cursor.value.session === generation || cursor.value.session !== getSessionGeneration())) cursor.delete();
       cursor.continue();
     };
   });
