@@ -24,7 +24,12 @@ internal class TaxiOfferPublication {
     }
 
     @Synchronized
-    fun observe(ticket: Ticket, offer: Offer?, post: () -> Boolean = { false }) {
+    fun observe(
+        ticket: Ticket,
+        offer: Offer?,
+        clear: () -> Unit = {},
+        post: () -> Boolean = { false },
+    ) {
         if (ticket.session != session || ticket.revision != revision) return
         if (!observed || current != offer) {
             observed = true
@@ -32,6 +37,11 @@ internal class TaxiOfferPublication {
             revision++
             shown = null
         }
-        if (offer != null && shown != offer && post()) shown = offer
+        if (offer == null) {
+            // Also clear a notification left by a previous process.
+            clear()
+        } else if (shown != offer && post()) {
+            shown = offer
+        }
     }
 }

@@ -32,7 +32,8 @@ internal object TaxiOfferNotifier {
     const val EXTRA_OPEN_OFFER = "yuldash_open_instant_offer"
     // B9b-2: тап по пушу о ходе заказа (instant_status) → открыть экран заказа пассажира.
     const val EXTRA_OPEN_ORDER = "yuldash_open_instant_order"
-    private const val NOTIF_ID = 4713   // фиксированный: новый оффер заменяет прошлое уведомление
+    internal const val NOTIF_TAG = "taxi-driver-offer"
+    internal const val NOTIF_ID = 4713   // фиксированный: новый оффер заменяет прошлое уведомление
 
     /**
      * Канал. Важность MAX + звук/вибрация — оффер живёт ~20с, его нельзя проспать.
@@ -124,13 +125,13 @@ internal object TaxiOfferNotifier {
             .apply { if (fullScreen) setFullScreenIntent(pi, true) }   // погасший экран → карточка на весь экран
         val remainingMs = instantOfferRemainingMillis(offerExpiresAt, System.currentTimeMillis())
         if (remainingMs <= 0L) return false
-        mgr.notify(NOTIF_ID, notif.setTimeoutAfter(remainingMs).build())
+        mgr.notify(NOTIF_TAG, NOTIF_ID, notif.setTimeoutAfter(remainingMs).build())
         return true
     }
 
     /** Убрать уведомление (оффер принят/протух/сошёл с линии). */
     fun cancel(ctx: Context) {
-        ctx.getSystemService(NotificationManager::class.java)?.cancel(NOTIF_ID)
+        ctx.getSystemService(NotificationManager::class.java)?.cancel(NOTIF_TAG, NOTIF_ID)
     }
 }
 

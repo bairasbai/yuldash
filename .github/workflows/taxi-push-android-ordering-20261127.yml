@@ -1,9 +1,9 @@
-name: Taxi offer Android draft (QA only)
+name: Taxi alert tray Android (QA only)
 
 on:
   push:
     branches:
-      - qa/taxi-offer-android-ordering-20261127
+      - qa/taxi-alert-tray-20261127
 
 permissions:
   contents: read
@@ -11,7 +11,7 @@ permissions:
 jobs:
   debug-qa:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 45
     env:
       YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:1
     defaults:
@@ -32,19 +32,37 @@ jobs:
           test -d "$ANDROID_HOME/platforms/android-36"
           echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
           echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
-      - name: Build debug APK
+      - name: Build matched debug and instrumentation APKs
         id: apk
-        run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
+        run: bash ./gradlew :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon --stacktrace
       - name: Run focused notification tests
         env:
           # Only this JVM test step uses the canonical Maven Central endpoint.
           JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
-        run: bash ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.TaxiOfferPublicationTest' --tests 'com.yuldash.app.LinePromiseIsHonestTest' --tests 'com.yuldash.app.MobilityUiStateTest' --no-daemon --stacktrace
-      - name: Keep debug APK for isolated acceptance
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.TaxiOfferPublicationTest' --tests 'com.yuldash.app.LinePromiseIsHonestTest' --tests 'com.yuldash.app.MobilityUiStateTest' --tests 'com.yuldash.app.SmallLogicTest' --no-daemon --stacktrace
+      - name: Keep matched APKs for isolated acceptance
         if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: taxi-offer-ordering-qa-debug-only
-          path: android/app/build/outputs/apk/debug/*.apk
+          name: taxi-alert-tray-qa-debug-only
+          path: |
+            android/app/build/outputs/apk/debug/*.apk
+            android/app/build/outputs/apk/androidTest/debug/*.apk
           if-no-files-found: error
           retention-days: 3
+      - name: Check KVM access
+        working-directory: .
+        shell: bash
+        run: |
+          test -c /dev/kvm
+          sudo chmod a+rw /dev/kvm
+      - name: Verify Android 14 notification tray on isolated emulator
+        uses: reactivecircus/android-emulator-runner@a421e43855164a8197daf9d8d40fe71c6996bb0d # v2.38.0
+        with:
+          api-level: 34
+          target: default
+          arch: x86_64
+          profile: pixel_2
+          emulator-boot-timeout: 300
+          emulator-options: -no-window -gpu swiftshader -feature -Vulkan -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/taxi_alert_tray_qa.sh

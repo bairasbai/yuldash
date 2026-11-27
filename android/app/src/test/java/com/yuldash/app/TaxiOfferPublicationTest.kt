@@ -38,6 +38,27 @@ class TaxiOfferPublicationTest {
         assertEquals(listOf(b), posted)
     }
 
+    @Test fun acceptedEmptyClearsPreviouslyPostedOfferAndLateEmptyDoesNotClearNewOffer() {
+        var displayed: TaxiOfferPublication.Offer? = null
+        fun publish(offer: TaxiOfferPublication.Offer) {
+            publication.observe(publication.snapshot(1), offer) {
+                displayed = offer
+                true
+            }
+        }
+        fun clear(ticket: TaxiOfferPublication.Ticket) {
+            publication.observe(ticket, null, clear = { displayed = null })
+        }
+
+        publish(a)
+        clear(publication.snapshot(1))
+        assertEquals(null, displayed)
+        val awaitingEmpty = publication.snapshot(1)
+        publish(b)
+        clear(awaitingEmpty)
+        assertEquals(b, displayed)
+    }
+
     @Test fun unchangedPollCanRecoverIfPublicationWasNotPermitted() {
         publication.observe(publication.snapshot(1), a) { false }
         post(publication.snapshot(1), a)

@@ -157,7 +157,9 @@ class TaxiLineService : Service() {
                     ApiClient.runIfCurrentSession(owner) {
                         val expiry = o?.offerExpiresAt
                         if (o == null || o.status != "offered" || expiry == null) {
-                            TaxiOfferNotifier.publication.observe(ticket, null)
+                            TaxiOfferNotifier.publication.observe(ticket, null, clear = {
+                                TaxiOfferNotifier.cancel(this@TaxiLineService)
+                            })
                         } else {
                             TaxiOfferNotifier.publication.observe(ticket, TaxiOfferPublication.Offer(o.id, expiry)) {
                                 TaxiOfferNotifier.show(
@@ -199,7 +201,7 @@ class TaxiLineService : Service() {
                 .setContentIntent(open)
                 .setAutoCancel(true)
                 .build()
-            getSystemService(NotificationManager::class.java)?.notify(NOTIF_ID_CLOSED, n)
+            getSystemService(NotificationManager::class.java)?.notify(NOTIF_TAG_CLOSED, NOTIF_ID_CLOSED, n)
         }
     }
 
@@ -262,7 +264,8 @@ class TaxiLineService : Service() {
         private const val NOTIF_ID = 4712
         // Отдельное уведомление «линию закрыли и вот почему»: постоянное гаснет вместе
         // с сервисом, а причина должна остаться на экране.
-        private const val NOTIF_ID_CLOSED = 4713
+        internal const val NOTIF_TAG_CLOSED = "taxi-line-closed"
+        internal const val NOTIF_ID_CLOSED = 4713
         private const val PRESENCE_INTERVAL_MS = 15_000L
         /** Сколько тиков подряд должно не пройти, чтобы честно сказать «сервер тебя не видит».
          *  Три тика ≈ 45с — ровно столько сервер помнит presence. Меньше — паника на пустом
