@@ -40,6 +40,68 @@ export function fetchMessages(
   });
 }
 
+export interface ChatMessagePage {
+  messages: ChatMessage[];
+  next_before_id: number | null;
+  next_after_id: number | null;
+  has_more: boolean;
+}
+
+export async function fetchChatMessagePage(
+  bookingId: number,
+  before: number | null,
+  signal: AbortSignal,
+): Promise<ChatMessagePage> {
+  const query = new URLSearchParams({ limit: "100" });
+  if (before !== null) query.set("before_id", String(before));
+  try {
+    return await apiGet<ChatMessagePage>(`/bookings/${bookingId}/message-page?${query}`, { signal });
+  } catch (error) {
+    if (before !== null || !(error instanceof ApiError) || error.status !== 404) throw error;
+    return { messages: await fetchMessages(bookingId, signal), next_before_id: null, next_after_id: null, has_more: false };
+  }
+}
+
+export interface ChatReceipt {
+  message_id: number;
+  peer_delivered: boolean;
+  peer_read: boolean;
+  my_delivered: boolean;
+  my_read: boolean;
+}
+
+export interface ChatReceiptFrame {
+  message_id: number;
+  user_id: number;
+  delivered: boolean;
+  read: boolean;
+}
+
+export interface ChatReceiptPage {
+  open: boolean;
+  receipts_since: string | null;
+  items: ChatReceipt[];
+  next_after_message_id: number | null;
+  unread: number;
+}
+
+export interface ChatReceiptBatch {
+  delivered_ids: number[];
+  read_ids: number[];
+}
+
+export function fetchChatReceipts(bookingId: number, after: number | null, signal: AbortSignal): Promise<ChatReceiptPage> {
+  const query = new URLSearchParams({ limit: "500" });
+  if (after !== null) query.set("after_message_id", String(after));
+  return apiGet<ChatReceiptPage>(`/bookings/${bookingId}/receipts?${query}`, { signal });
+}
+
+export function postChatReceipts(
+  bookingId: number, batch: ChatReceiptBatch, signal: AbortSignal, generation: string,
+): Promise<ChatReceiptPage> {
+  return apiPost<ChatReceiptPage>(`/bookings/${bookingId}/receipts`, batch, { signal, _generation: generation });
+}
+
 export function sendMessageRest(
   bookingId: number,
   text: string,
@@ -98,6 +160,7 @@ export interface Conversation {
   route: string;
   last_message: string;
   depart_at?: string | null;
+  unread?: number | null;
 }
 
 export function fetchConversations(signal?: AbortSignal): Promise<Conversation[]> {
@@ -121,6 +184,7 @@ export function openBookingChat(
     onMessage: (m: ChatMessage) => void;
     /** Content-free invalidation: the caller rereads only its authorized history. */
     onHistoryChanged?: () => void;
+    onReceipts?: (items: ChatReceiptFrame[]) => void;
     onAcknowledged?: (m: ChatMessage) => void;
     onOpen?: () => void;
     onClose?: () => void;
@@ -163,6 +227,11 @@ export function openBookingChat(
       handlers.onMessage(data as ChatMessage);
     } else if (data?.type === "history_changed") {
       handlers.onHistoryChanged?.();
+    } else if (data?.type === "receipt" && Array.isArray(data.items)) {
+      handlers.onReceipts?.(data.items.filter((item: ChatReceiptFrame | null) =>
+        item && Number.isSafeInteger(item.message_id) && item.message_id > 0 &&
+        Number.isSafeInteger(item.user_id) && item.user_id > 0 &&
+        typeof item.delivered === "boolean" && typeof item.read === "boolean"));
     } else if (data?.type === "rejected" && typeof data.request_id === "string") {
       const status = Number.isInteger(data.status_code) ? data.status_code : 503;
       finish(data.request_id, null, new ApiError(status, String(data.reason ?? "message rejected")));

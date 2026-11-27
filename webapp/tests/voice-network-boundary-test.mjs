@@ -18,7 +18,7 @@ export function useEffect(fn,deps){const x=h.current,i=x.cursor++,old=x.slots[i]
 export const useLayoutEffect=useEffect;export const useMemo=(fn)=>fn();`;
 const jsx = `export const Fragment='fragment';export const jsx=(type,props,key)=>({type,props,key}),jsxs=jsx;`;
 const lang = `export const useLang=()=>({appText:(ru,ba)=>globalThis.__voiceBoundary.lang==='ba'?ba:ru});`;
-const iconNames = ['IconMic', 'IconCheck', 'IconArrow', 'IconCar', 'IconChevron', 'IconWarn'];
+const iconNames = ['IconMic', 'IconCheck', 'IconCheckDouble', 'IconArrow', 'IconCar', 'IconChevron', 'IconWarn'];
 const iconModule = iconNames.map(name => `export function ${name}(){return null;}`).join('\n');
 async function bundle(contents, mocks, resolveDir = ROOT + 'src') {
   const result = await build({ stdin: { contents, resolveDir, loader: 'tsx' }, bundle: true,
@@ -42,6 +42,7 @@ parentMocks['../utils/outbox'] = `const h=globalThis.__voiceBoundary;export cons
 export const outboxCount=()=>0,watchOutbox=()=>()=>{},subscribeOutbox=()=>()=>{};
 export const acknowledgeMessage=async()=>{},enqueue=async()=>{h.voiceQueueAttempts++;},isPermanentRejection=()=>false;`;
 parentMocks['../utils/tripChat.js'] = `export const NO_MARK=0,getSeen=()=>0,setSeen=()=>0,isNearBottom=()=>true,newestId=()=>0,unreadCount=()=>0,viewportBox=()=>({});`;
+parentMocks['../utils/useChatReceipts'] = `const view={items:new Map(),unread:null,refresh(){}};export const useChatReceipts=()=>view;`;
 parentMocks['../components/ChatVoice'] = `export function ChatVoiceButton(){return null;}export function VoiceBubble(){return null;}`;
 const parentModule = await bundle(screenSource + '\nexport {TripChat as TestChat};export{setRefreshHandler,rotateSession,initializeSessionStorage,reconcileSession,setSession,getSessionGeneration}from"../api/client";', parentMocks, ROOT + 'src/screens');
 
@@ -82,9 +83,9 @@ async function reset({ lang = 'ru' } = {}) {
     const path = new URL(url).pathname, method = init.method ?? 'GET', headers = new Headers(init.headers);
     h.requests.push({ path, method, headers, body: init.body });
     if (path === '/voice') return h.uploadHold ? h.uploadHold.promise : reply({ url: '/voice/synthetic.webm' });
-    if (/\/bookings\/\d+\/messages$/.test(path) && method === 'GET') {
+    if (/\/bookings\/\d+\/message-page$/.test(path) && method === 'GET') {
       if (h.failHistory) throw TypeError('Controlled history disconnect');
-      return reply(h.historyRows ?? h.rows);
+      return reply({ messages: h.historyRows ?? h.rows, has_more: false });
     }
     if (/\/bookings\/\d+\/messages$/.test(path) && method === 'POST') {
       const body = JSON.parse(init.body), key = headers.get('Idempotency-Key');

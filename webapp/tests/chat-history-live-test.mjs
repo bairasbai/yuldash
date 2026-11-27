@@ -33,12 +33,13 @@ const mocks = lang => ({
   "/auth/AuthProvider": `export const useAuth=()=>({user:{id:7}});`,
   "/api/client": `export const getSessionGeneration=()=>globalThis.__chatHistoryLive.generation;`,
   "/api/bookings": `export const fetchBookingDetails=async()=>({role:'passenger',driver_name:'Synthetic driver',from_city:'Сибай',to_city:'Акъяр'});`,
-  "/api/chat": `export const fetchMessages=(booking)=>{const h=globalThis.__chatHistoryLive;h.gets++;h.inFlight++;h.maxConcurrent=Math.max(h.maxConcurrent,h.inFlight);let result;
-      try{result=h.fetch(h.gets,booking);}catch(error){result=Promise.reject(error);}return Promise.resolve(result).finally(()=>h.inFlight--);};
+  "/api/chat": `export const fetchChatMessagePage=(booking)=>{const h=globalThis.__chatHistoryLive;h.gets++;h.inFlight++;h.maxConcurrent=Math.max(h.maxConcurrent,h.inFlight);let result;
+      try{result=h.fetch(h.gets,booking);}catch(error){result=Promise.reject(error);}return Promise.resolve(result).then(messages=>({messages,has_more:false})).finally(()=>h.inFlight--);};
     export const openBookingChat=(booking,handlers)=>{const h=globalThis.__chatHistoryLive;h.handlers=handlers;handlers.onOpen?.();return{close(){},send:async()=>null};};
     export const sendMessageRest=(...args)=>{const h=globalThis.__chatHistoryLive;h.posts.push(args);return h.post(...args);};
     export const editMessage=(booking,id,value)=>{const h=globalThis.__chatHistoryLive;h.edits.push([booking,id,value]);return h.edit(id,value);};
     export const deleteMessage=(booking,id,scope)=>{const h=globalThis.__chatHistoryLive;h.deletes.push([booking,id,scope]);return h.remove(id,scope);};`,
+  "/utils/useChatReceipts": `const view={items:new Map(),unread:null,refresh(){}};export const useChatReceipts=()=>view;`,
   "/utils/outbox": `export const acknowledgeMessage=async(...args)=>{globalThis.__chatHistoryLive.acknowledgements.push(args);},createOutboxId=()=> 'history-live-intent',
     enqueue=async(...args)=>{globalThis.__chatHistoryLive.enqueues.push(args);},isPermanentRejection=()=>false,outboxCount=()=>0,
     subscribeOutbox=()=>()=>{},watchOutbox=(fn,onReceipt)=>{globalThis.__chatHistoryLive.flush=fn;globalThis.__chatHistoryLive.hiddenReceipt=onReceipt;return()=>{};};`,

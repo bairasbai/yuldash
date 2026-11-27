@@ -80,6 +80,12 @@ export const IconCheck = ({ size = 20 }: P) => (
   </svg>
 );
 
+export const IconCheckDouble = ({ size = 20 }: P) => (
+  <svg {...base(size)}>
+    <path d="m2 12.5 4.5 4.5L16 7M12 17l10-10" />
+  </svg>
+);
+
 export const IconChevron = ({ size = 22 }: P) => (
   <svg {...base(size)}>
     <path d="M9 6l6 6-6 6" />

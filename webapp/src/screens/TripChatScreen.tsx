@@ -19,7 +19,7 @@ import { useLang } from "../i18n/lang";
 import { getSessionGeneration } from "../api/client";
 import { fetchBookingDetails, type BookingDetails } from "../api/bookings";
 import {
-  fetchMessages,
+  fetchChatMessagePage,
   sendMessageRest,
   openBookingChat,
   editMessage,
@@ -30,9 +30,10 @@ import { ChatFlagPlate, ChatSafetyDisclaimer } from "../components/ChatSafety";
 import QuickReplies from "../components/QuickReplies";
 import { ChatPhotoButton, ChatMessageBody } from "../components/ChatPhoto";
 import { ChatVoiceButton, VoiceBubble } from "../components/ChatVoice";
-import { IconArrow, IconCar, IconChevron, IconWarn } from "../components/Icons";
+import { IconArrow, IconCar, IconCheck, IconCheckDouble, IconChevron, IconWarn } from "../components/Icons";
 import { acknowledgeMessage, createOutboxId, enqueue, isPermanentRejection, outboxCount, subscribeOutbox, watchOutbox } from "../utils/outbox";
 import { sosPath } from "../utils/sosLink";
+import { useChatReceipts } from "../utils/useChatReceipts";
 import {
   NO_MARK,
   getSeen,
@@ -218,6 +219,13 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   const [loadError, setLoadError] = useState(false);
   const [historyRefreshing, setHistoryRefreshing] = useState(false);
   const chatRef = useRef<ReturnType<typeof openBookingChat> | null>(null);
+  const feedRef = useRef<HTMLDivElement | null>(null);
+  const [pageVisible, setPageVisible] = useState(() => typeof document !== "undefined" && document.visibilityState === "visible");
+  const [olderCursor, setOlderCursor] = useState<number | null>(null);
+  const olderAnchor = useRef<{ id: number; top: number } | null>(null);
+  const receipts = useChatReceipts({ bookingId, generation: ownerSession, userId: myId }, messages,
+    feedRef, pageVisible, loaded && !loadError);
+  const refreshReceipts = receipts.refresh;
 
   /** Правка/удаление: id сообщения, которое сейчас в работе. */
   const [menuId, setMenuId] = useState<number | null>(null);
@@ -237,7 +245,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     running: null as Promise<ChatMessage[] | null> | null,
     controller: null as AbortController | null,
     rows: [] as ChatMessage[], hidden: new Set<number>(), suppressed: new Set<number>(),
-    authoritative: false, epoch: 0,
+    authoritative: false, epoch: 0, floor: null as number | null, extend: false,
   }).current;
   const writeMessages = useCallback((rows: ChatMessage[]) => {
     if (!history.alive || ownerSession !== getSessionGeneration()) return;
@@ -261,17 +269,36 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
           const baseline = new Set(history.rows.filter(row => row.id > 0).map(row => row.id));
           const controller = new AbortController(); history.controller = controller;
           try {
-            const list = await fetchMessages(bookingId, controller.signal);
+            let page = await fetchChatMessagePage(bookingId, null, controller.signal);
+            const chunks = [page.messages];
+            let extend = history.extend;
+            while (active() && version === history.version && lifetime === history.lifetime && page.has_more) {
+              const before = page.next_before_id;
+              if (before === null) throw new Error("Missing chat history cursor");
+              const trustedFloor = history.floor !== null && before > history.floor;
+              if (!trustedFloor && !extend) break;
+              if (!trustedFloor) extend = false;
+              page = await fetchChatMessagePage(bookingId, before, controller.signal);
+              if (page.next_before_id !== null && page.next_before_id >= before) throw new Error("Invalid chat history cursor");
+              chunks.unshift(page.messages);
+            }
             if (!active()) return null;
             if (version !== history.version || lifetime !== history.lifetime) continue;
+            const list = chunks.flat();
+            history.floor = list[0]?.id ?? null;
+            history.extend = false;
+            setOlderCursor(page.has_more ? page.next_before_id : null);
             const present = new Set(list.map(row => row.id));
             for (const id of baseline) if (!present.has(id)) history.suppressed.add(id);
             const visible = list.filter(row => !history.hidden.has(row.id) && !history.suppressed.has(row.id));
             writeMessages(visible); setLoadError(false); setLoaded(true);
+            refreshReceipts();
             return visible;
           } catch {
             if (!active()) return null;
             if (version !== history.version || lifetime !== history.lifetime) continue;
+            olderAnchor.current = null;
+            history.extend = false;
             setLoadError(true); setLoaded(true); return null;
           } finally {
             if (history.controller === controller) history.controller = null;
@@ -285,7 +312,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     })();
     history.running = work;
     return work;
-  }, [bookingId, history, ownerSession, writeMessages]);
+  }, [bookingId, history, ownerSession, refreshReceipts, writeMessages]);
 
   const upsert = useCallback((m: ChatMessage, stableNewVoice = false) => {
     if (!history.alive || ownerSession !== getSessionGeneration()) return;
@@ -318,9 +345,10 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   const loadHistory = useCallback(() => { void readHistory(); }, [readHistory]);
   const continuityLost = useCallback(() => {
     if (!history.alive || ownerSession !== getSessionGeneration()) return;
+    refreshReceipts(true);
     history.epoch++;
     void readHistory(true);
-  }, [history, ownerSession, readHistory]);
+  }, [history, ownerSession, readHistory, refreshReceipts]);
 
   useEffect(() => {
     let wasHidden = document.visibilityState === "hidden";
@@ -354,13 +382,15 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
         // A late ACK can arrive during REST fallback. Cleanup failure never changes delivery success.
         void acknowledgeMessage(bookingId, message.request_id, ownerSession).catch(() => {});
       },
-      onMessage: upsert,
+      onMessage: (message) => { upsert(message); refreshReceipts(); },
+      onReceipts: (items) => { if (items.length) refreshReceipts(); },
       onHistoryChanged: () => {
         if (!history.alive || ownerSession !== getSessionGeneration()) return;
         history.authoritative = true;
+        refreshReceipts(true);
         void readHistory(true);
       },
-      onOpen: () => setLive(true),
+      onOpen: () => { setLive(true); refreshReceipts(); },
       onClose: () => { continuityLost(); setLive(false); },
       onError: () => { continuityLost(); setLive(false); },
     });
@@ -371,7 +401,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       chat.close();
       chatRef.current = null;
     };
-  }, [bookingId, myId, ownerSession, upsert, loadHistory, readHistory, history, continuityLost]);
+  }, [bookingId, myId, ownerSession, upsert, loadHistory, readHistory, history, continuityLost, refreshReceipts]);
 
   // Сеть вернулась → досылаем накопленное и забираем историю с сервера (она авторитетная).
   useEffect(() => {
@@ -410,7 +440,6 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   }, [live, loaded]);
 
   // ---- Лента: прижата к низу, открывается на последнем, не дёргает при чтении старого ----
-  const feedRef = useRef<HTMLDivElement | null>(null);
   const listRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true); // человек у нижнего края → новое подтягивает ленту
   const [atBottom, setAtBottom] = useState(true);
@@ -430,6 +459,18 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     setAtBottom((prev) => (prev === near ? prev : near));
   }, []);
 
+  function loadOlder() {
+    const feed = feedRef.current;
+    if (!feed || olderCursor === null || history.extend || historyRefreshing) return;
+    const top = feed.getBoundingClientRect().top;
+    const anchor = [...feed.querySelectorAll<HTMLElement>("[data-history-id]")]
+      .find(node => node.getBoundingClientRect().bottom > top);
+    if (anchor) olderAnchor.current = { id: Number(anchor.dataset.historyId), top: anchor.getBoundingClientRect().top };
+    stickRef.current = false;
+    history.extend = true;
+    void readHistory(true);
+  }
+
   useEffect(() => {
     firstScrollDone.current = false;
     stickRef.current = true;
@@ -443,6 +484,14 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
       firstScrollDone.current = true;
       stickRef.current = true;
       scrollToEnd(false);
+      return;
+    }
+    const feed = feedRef.current;
+    const anchor = olderAnchor.current;
+    if (feed && anchor) {
+      olderAnchor.current = null;
+      const node = feed.querySelector(`[data-history-id="${anchor.id}"]`);
+      if (node) feed.scrollTop += node.getBoundingClientRect().top - anchor.top;
       return;
     }
     const last = messages[messages.length - 1];
@@ -470,7 +519,6 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
   // ---- Непрочитанные: метка живёт в памяти и привязана ко входу (utils/tripChat.js) ----
   const generation = getSessionGeneration();
   const [seenId, setSeenId] = useState<number>(() => getSeen(generation, bookingId));
-  const [pageVisible, setPageVisible] = useState(true);
   useEffect(() => {
     const onVis = () => setPageVisible(document.visibilityState === "visible");
     onVis();
@@ -481,7 +529,7 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     setSeenId(getSeen(generation, bookingId));
   }, [generation, bookingId]);
   useEffect(() => {
-    if (!loaded || loadError) return;
+    if (!loaded || loadError || receipts.unread !== null) return;
     const top = newestId(messages);
     if (seenId === NO_MARK) {
       // Первый показ: уже загруженная история считается прочитанной — лучше не показать
@@ -493,8 +541,10 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
     if (atBottom && pageVisible && top > seenId) {
       setSeenId(setSeen(generation, bookingId, top));
     }
-  }, [loaded, loadError, messages, atBottom, pageVisible, seenId, generation, bookingId]);
-  const unread = unreadCount(messages, seenId, myId);
+  }, [loaded, loadError, messages, atBottom, pageVisible, seenId, generation, bookingId, receipts.unread]);
+  const unread = receipts.unread ?? unreadCount(messages, seenId, myId);
+  const newestOwnMarked = messages.reduce<number | null>((last, message) =>
+    message.sender_id === myId && !message.deleted && receipts.items.has(message.id) ? message.id : last, null);
 
   // ---- Отправка ----
   // Общая отправка (поле ввода и быстрые ответы): живой сокет, фолбэк — REST.
@@ -763,20 +813,30 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
                 {appText("Напиши первым — обсудите детали встречи.", "Беренсе булып яҙ — осрашыуҙы һөйләшегеҙ.")}
               </p>
             )}
+            {olderCursor !== null && (
+              <button type="button" className="btn-soft tchat__retry" disabled={historyRefreshing} onClick={loadOlder}>
+                {appText("Загрузить ранние сообщения", "Элекке хәбәрҙәрҙе йөкләргә")}
+              </button>
+            )}
             {messages.map((m) => {
               const mine = m.sender_id === myId;
+              const receipt = mine ? receipts.items.get(m.id) : undefined;
+              const mark = receipt?.peer_read ? "read" : receipt?.peer_delivered ? "delivered" : "sent";
+              const label = mark === "read" ? appText("Прочитано", "Уҡылған")
+                : mark === "delivered" ? appText("Доставлено", "Еткерелгән")
+                  : appText("Отправлено", "Ебәрелгән");
               // Своё текстовое можно поправить, удалить у всех или скрыть у себя.
               // Чужое — только скрыть у себя: чужие слова не наши.
               const canEdit = mine && !m.deleted && !m.voice_url;
               if (m.deleted) {
                 return (
-                  <div key={m.id} className={"bubble bubble--gone" + (mine ? " bubble--mine" : "")}>
+                  <div key={m.id} data-history-id={m.id} className={"bubble bubble--gone" + (mine ? " bubble--mine" : "")}>
                     {appText("Сообщение удалено", "Хәбәр юйылды")}
                   </div>
                 );
               }
               return (
-                <div key={m.id} className={"msg" + (mine ? " msg--mine" : "")}>
+                <div key={m.id} data-history-id={m.id} data-message-id={!mine ? m.id : undefined} className={"msg" + (mine ? " msg--mine" : "")}>
                   <div className={"bubble" + (mine ? " bubble--mine" : "")}>
                     {m.from_admin && <span className="bubble__admin">Юлдаш ✓</span>}
 
@@ -847,6 +907,15 @@ function TripChat({ bookingId, myId, peer = "", route = "", onBack, onOpenTrip, 
                       </div>
                     )}
                   </div>
+                  {receipt && (
+                    <span className={`bubble__status bubble__status--${mark}`} role="img"
+                      aria-label={mark === "read" ? appText("Сообщение прочитано", "Хәбәр уҡылған")
+                        : mark === "delivered" ? appText("Сообщение доставлено", "Хәбәр еткерелгән")
+                          : appText("Сообщение отправлено", "Хәбәр ебәрелгән")}>
+                      {mark === "sent" ? <IconCheck size={16} /> : <IconCheckDouble size={16} />}
+                      {m.id === newestOwnMarked && <span aria-hidden>{label}</span>}
+                    </span>
+                  )}
                   <ChatFlagPlate flag={m.flag} mine={mine} />
                 </div>
               );

@@ -168,6 +168,7 @@ const ALL_SUITES = [
   { test: "trip-chat-page-test", src: null, out: null, bundle: false },
   { test: "chat-mutation-unknown-test", src: null, out: null, bundle: false },
   { test: "chat-history-live-test", src: null, out: null, bundle: false },
+  { test: "chat-receipts-test", src: null, out: null, bundle: false },
   { test: "voice-network-boundary-test", src: null, out: null, bundle: false },
   // Экран Android без маршрута PWA теперь ломает проверку в том же коммите.
   { test: "parity-test", src: null, out: null, bundle: false },
