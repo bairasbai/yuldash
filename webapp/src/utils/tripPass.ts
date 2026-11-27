@@ -49,6 +49,7 @@ export type TripPassRecord =
       revision: string | null;
       cancellationKey?: string;
       closedCancellationKeys?: Set<string>;
+      hidden?: true;
       pass?: TripPass;
     };
 
@@ -101,6 +102,7 @@ export function acceptTripPassState(
     if (current.status === "onboard" && (current.onboardAt === onboardAt ||
         sameBoardingTimestamp(current.onboardAt, onboardAt))) return current;
     return { status: "onboard", onboardAt, rideId: current.rideId, revision: crypto.randomUUID(),
+      hidden: current.hidden,
       cancellationKey: current.cancellationKey,
       closedCancellationKeys: current.closedCancellationKeys,
       pass: current.pass ? { ...current.pass, boardingCode: "" } : undefined };
@@ -110,6 +112,7 @@ export function acceptTripPassState(
     if (!isConfirmedBoardingUndo(observed, incoming)) return current;
     return { status: "confirmed", rideId: current.rideId, undoAt: incoming.boarding_undo_onboard_at,
       undoId: incoming.boarding_undo_confirmed_id, revision: crypto.randomUUID(),
+      hidden: current.hidden,
       cancellationKey: current.cancellationKey,
       closedCancellationKeys: current.closedCancellationKeys,
       pass: current.pass ? { ...current.pass, boardingCode: "" } : undefined };

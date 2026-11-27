@@ -30,7 +30,7 @@ import com.yuldash.app.data.*
         val actual = OfflineTripSnapshots.projection(id)?.details
         val passDetails = offlinePassDetails(actual, id, status)
         val currentCode = OfflineTripSnapshots.currentBoardingCode(id)
-        if (code.isBlank() || terminal != null || !current() || role == "driver" || passDetails == null ||
+        if (code.isBlank() || terminal != null || !current() || TripPassStore.isHidden(id) || role == "driver" || passDetails == null ||
             currentCode.isNullOrBlank() || currentCode != code) {
             // A new DETAILS is waiting for its own CODE; no disk write has failed.
             state.failed = false; return@LaunchedEffect

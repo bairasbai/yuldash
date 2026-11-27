@@ -393,7 +393,7 @@ internal fun BookingScreen(
                 // Так экран активной поездки поднимет данные без сети на трассе без связи.
                 // Только ПАССАЖИРУ (RS-03 А): паспорт с кодом посадки — его документ, на устройстве
                 // водителя он чужой файл (план RS-03, Android п.1).
-                if (loaded.contactUnlocked && loaded.role == "passenger" && loaded.status in CONTACT_STATUSES) {
+                if (loaded.contactUnlocked && loaded.role == "passenger" && loaded.status in CONTACT_STATUSES && !TripPassStore.isHidden(bid)) {
                     offlineSaveBusy = true
                     offlineSaveFailed = !saveTripPass(context, loaded, session)
                     offlineSaveBusy = false

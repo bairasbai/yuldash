@@ -32,7 +32,7 @@ import com.yuldash.app.data.OfflineTripSnapshots
 import kotlinx.coroutines.isActive
 
 @Composable
-internal fun ColdTripPassportCard(value: ColdTripPassport, isCurrent: () -> Boolean) {
+internal fun ColdTripPassportCard(value: ColdTripPassport, isCurrent: () -> Boolean, onHide: () -> Unit) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
     val latest by rememberUpdatedState(value)
@@ -86,6 +86,10 @@ internal fun ColdTripPassportCard(value: ColdTripPassport, isCurrent: () -> Bool
                 val amount = kopToRub(rideshareRubToKop(pass.effectivePayAmount))
                 TripPassRow(Icons.Default.Payments, appText("Оплата", "Түләү"), "$amount · $method")
             }
+            Text(appText("Действие удалит сохранённую копию с устройства.",
+                "Был эш һаҡланған күсермәне ҡоротманан юясаҡ."), style = CanonBody, color = CanonMutedStrong)
+            AppButton(appText("Скрыть личные данные", "Шәхси мәғлүмәтте йәшереү"),
+                onClick = { if (current()) onHide() }, style = AppButtonStyle.Danger, icon = Icons.Default.Lock)
         }
     }
 }

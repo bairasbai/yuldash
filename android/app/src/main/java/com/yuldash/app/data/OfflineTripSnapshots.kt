@@ -191,8 +191,9 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         return saveColdPassport(context, current.copy(boardingCode = code), retryMigration, expectedGeneration)
     }
 
-    suspend fun loadColdPassport(owner: SnapshotOwner, bookingId: Int): ColdTripPassport? =
-        coldPassport.loadColdPassport(owner, bookingId)
+    suspend fun loadColdPassport(owner: SnapshotOwner, bookingId: Int,
+        navigation: TripNavigationReadGate? = null): ColdTripPassport? =
+        coldPassport.loadColdPassport(owner, bookingId, navigation)
 
     fun canDrawCold(value: ColdTripPassport): Boolean = coldPassport.canDrawCold(value)
 

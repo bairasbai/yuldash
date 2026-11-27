@@ -50,11 +50,13 @@ internal object OfflineTripSnapshotHooks {
         return OfflineTripSnapshots.privateChanged(owner, bookingId)
     }
 
-    suspend fun details(bookingId: Int, expectedGeneration: Long? = null): Result<BookingDetailsDto> {
+    suspend fun details(bookingId: Int, expectedGeneration: Long? = null,
+        navigation: TripNavigationReadGate? = null): Result<BookingDetailsDto> {
+        navigation?.checkOpen()
         prepareRead()
         val started = android.os.SystemClock.elapsedRealtime()
         val generation = expectedGeneration ?: ApiClient.queueSessionGeneration()
-        val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.DETAILS, generation, OfflineTripSnapshots)
+        val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.DETAILS, generation, OfflineTripSnapshots, navigation)
         val result = ApiClient.readTripSnapshotJson("/bookings/$bookingId/details", read).mapCatching {
             require(!it.has("contact_unlocked") || it.get("contact_unlocked") is Boolean)
             parseBookingDetailsDto(it, started).also { value ->
@@ -63,6 +65,7 @@ internal object OfflineTripSnapshotHooks {
             }
         }
         if (result.isFailure && result.exceptionOrNull() !is java.io.IOException && result.exceptionOrNull() !is ApiException) read.invalid()
+        navigation?.checkOpen()
         if (result.isFailure) OfflineTripSnapshots.failedDetails(read.ticket, bookingId, read.fallbackAllowed)
         result.getOrNull()?.let { value -> read.proof()?.let {
             if (!OfflineTripSnapshots.acceptDetails(it, value)) {
@@ -72,11 +75,13 @@ internal object OfflineTripSnapshotHooks {
         } }
         return result
     }
-    suspend fun state(bookingId: Int): SnapshotReadResult<TripStateDto> {
+    suspend fun state(bookingId: Int, navigation: TripNavigationReadGate? = null): SnapshotReadResult<TripStateDto> {
+        navigation?.checkOpen()
         prepareRead()
-        val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.ROLE, ApiClient.queueSessionGeneration(), OfflineTripSnapshots)
+        val read = SnapshotTransportRead(bookingId, SnapshotAuthorityKind.ROLE, ApiClient.queueSessionGeneration(), OfflineTripSnapshots, navigation)
         val result = ApiClient.readTripSnapshotJson("/bookings/$bookingId/role", read).mapCatching { parseState(it) }
         if (result.isFailure && result.exceptionOrNull() !is java.io.IOException && result.exceptionOrNull() !is ApiException) read.invalid()
+        navigation?.checkOpen()
         if (result.isFailure) OfflineTripSnapshots.failedRead(read.ticket, bookingId, read.fallbackAllowed)
         val value = result.getOrNull()
         val proof = value?.let { read.proof() }

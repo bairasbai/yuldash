@@ -101,15 +101,15 @@ internal class ColdTripPassportCoordinator(
         result
     }
 
-    suspend fun loadColdPassport(owner: SnapshotOwner, bookingId: Int): ColdTripPassport? = withContext(Dispatchers.IO) {
+    suspend fun loadColdPassport(owner: SnapshotOwner, bookingId: Int, navigation: TripNavigationReadGate?): ColdTripPassport? = withContext(Dispatchers.IO) {
         val context = app() ?: return@withContext null
         val epoch = storageEpoch()
         diskAccess.withLock {
-            if (epoch != storageEpoch() || !OfflineTripSnapshots.cacheEnabled(owner)) return@withLock null
+            if (epoch != storageEpoch() || !OfflineTripSnapshots.cacheEnabled(owner) || navigation?.isOpen == false) return@withLock null
             val store = repo(owner) ?: return@withLock null
             val restore = OfflineTripSnapshots.gate.beginColdRestore(owner, bookingId) ?: return@withLock null
             val candidate = TripPassStore.readSecureCandidate(context, owner, bookingId) ?: return@withLock null
-            store.loadCold(owner, bookingId, candidate, restore)
+            store.loadCold(owner, bookingId, candidate, restore)?.takeIf { navigation?.isOpen != false }
         }
     }
 

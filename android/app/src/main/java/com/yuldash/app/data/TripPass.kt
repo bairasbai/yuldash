@@ -200,6 +200,16 @@ object TripPassStore {
     fun requestRemoval(context: Context, bookingId: Int, expectedGeneration: Long? = null): RemovalResult {
         val owner = OfflineTripSnapshots.currentOwner() ?: return RemovalResult.NOT_SAVED
         if (expectedGeneration != null && owner.generation != expectedGeneration) return RemovalResult.NOT_SAVED
+        return removeCurrentPassport(context, bookingId, owner, tripEnded = true)
+    }
+
+    internal fun hideOfflineCopy(context: Context, bookingId: Int, owner: SnapshotOwner): RemovalResult =
+        removeCurrentPassport(context, bookingId, owner, tripEnded = false)
+
+    @Synchronized internal fun isHidden(bookingId: Int): Boolean =
+        plainPrefs?.let { TripPassDeletion.blocks(it, bookingId) } == true
+
+    private fun removeCurrentPassport(context: Context, bookingId: Int, owner: SnapshotOwner, tripEnded: Boolean): RemovalResult {
         // Never wait for snapshot diskAccess while holding the store or session monitor.
         val cold = runCatching { runBlocking { OfflineTripSnapshots.revokeColdDurably(owner, bookingId) } }
             .getOrDefault(SnapshotPersistence.NOT_DURABLE)
@@ -210,18 +220,18 @@ object TripPassStore {
         if (!initialized) return RemovalResult.NOT_SAVED
         var removed = RemovalResult.NOT_SAVED
         ApiClient.runIfCurrentSession(owner.generation) {
-            removed = requestRemovalAfterCold(owner, bookingId)
+            removed = requestRemovalAfterCold(owner, bookingId, tripEnded)
         }
         return if (cold == SnapshotPersistence.DURABLY_BLOCKED && removed == RemovalResult.CLEARED) {
             RemovalResult.DEFERRED
         } else removed
     }
 
-    @Synchronized private fun requestRemovalAfterCold(owner: SnapshotOwner, bookingId: Int): RemovalResult = runCatching {
+    @Synchronized private fun requestRemovalAfterCold(owner: SnapshotOwner, bookingId: Int, tripEnded: Boolean): RemovalResult = runCatching {
         if (!OfflineTripSnapshots.cacheEnabled(owner)) return@runCatching RemovalResult.NOT_SAVED
         val ticket = OfflineTripSnapshots.ticket()?.takeIf { it.owner == owner }
             ?: return@runCatching RemovalResult.NOT_SAVED
-        if (!OfflineTripSnapshots.gate.close(ticket, bookingId)) return@runCatching RemovalResult.NOT_SAVED
+        if (tripEnded && !OfflineTripSnapshots.gate.close(ticket, bookingId)) return@runCatching RemovalResult.NOT_SAVED
         OfflineTripSnapshots.forgetLive(owner, bookingId)
         val plain = plainPrefs ?: return@runCatching RemovalResult.NOT_SAVED
         if (OfflineMigration.resetUnconfirmed(plain)) return@runCatching RemovalResult.NOT_SAVED

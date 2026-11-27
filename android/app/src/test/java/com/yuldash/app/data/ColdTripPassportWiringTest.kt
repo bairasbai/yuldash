@@ -1,6 +1,7 @@
 package com.yuldash.app.data
 
 import android.app.Application
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
@@ -265,6 +266,64 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         assertFalse(OfflineTripSnapshots.canDrawCold(restored))
         reopenCold()
         assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+    }
+
+    @Test fun hidingCancelsHeldDetailsAndPreventsItsRefresh() = runBlocking {
+        OfflineTripSnapshots.init(context)
+        installRefresh()
+        val entered = CompletableDeferred<Unit>()
+        val release = CountDownLatch(1)
+        handler = { request ->
+            if (request.path == "/bookings/11/details") {
+                entered.complete(Unit)
+                check(release.await(5, TimeUnit.SECONDS))
+                MockResponse().setResponseCode(401).setBody("{}")
+            } else defaultResponse(request)
+        }
+        ApiClient.testTimeoutMs = 5000
+        val origin = owner()
+        val navigation = TripNavigationReadGate()
+        val result = async { runCatching { OfflineTripSnapshotHooks.details(11, origin.generation, navigation) } }
+        try {
+            withTimeout(5000) { entered.await() }
+            navigation.hide(origin, 11)
+            // Cancellation, not a late HTTP denial, finishes the read while the reply is held.
+            assertTrue(withTimeout(2000) { result.await() }.exceptionOrNull() is CancellationException)
+        } finally {
+            release.countDown()
+        }
+        assertEquals(1, requests.count { it.path == "/bookings/11/details" })
+        assertTrue(requests.none { it.path == "/auth/refresh" })
+        assertNull(OfflineTripSnapshots.projection(11))
+        assertFalse(OfflineTripSnapshots.allowsLive(11))
+    }
+
+    @Test fun parentResponseParsedBeforeHideCannotPublishAfterIt() = runBlocking {
+        saveCold()
+        val entered = CompletableDeferred<Unit>()
+        val release = CountDownLatch(1)
+        val navigation = TripNavigationReadGate()
+        val origin = owner()
+        ApiClient.testTrace = { line ->
+            if (line == "ВЫШЛИ из вызова GET /bookings/11/details успешно (код 200)") {
+                entered.complete(Unit)
+                check(release.await(5, TimeUnit.SECONDS))
+            }
+        }
+        try {
+            val result = async { runCatching { OfflineTripSnapshotHooks.details(11, origin.generation, navigation) } }
+            try {
+                withTimeout(5000) { entered.await() }
+                navigation.hide(origin, 11)
+            } finally {
+                release.countDown()
+            }
+            assertTrue(result.await().exceptionOrNull() is CancellationException)
+            assertNull(OfflineTripSnapshots.projection(11))
+            assertFalse(OfflineTripSnapshots.allowsLive(11))
+        } finally {
+            ApiClient.testTrace = null
+        }
     }
 
     @Test fun cancellationWhileWritingGrantStillReportsItsCommit() = runBlocking {

@@ -13,6 +13,7 @@ import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollToNode
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsProperties
@@ -31,6 +32,8 @@ import com.yuldash.app.data.SnapshotWiringFixture
 import com.yuldash.app.data.TripPassStore
 import com.yuldash.app.ui.theme.YuldashTheme
 import kotlinx.coroutines.runBlocking
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 import org.junit.Assert.*
 import org.junit.Before
 import org.junit.Rule
@@ -71,7 +74,7 @@ internal class ColdTripPassportUiTest : SnapshotWiringFixture() {
 
     private fun mount(saved: ColdTripPassport, language: AppLanguage, dark: Boolean, lifecycleOwner: TestOwner) {
         val vm = YuldashViewModel(SavedStateHandle())
-        vm.openOfflineTrip(saved.snapshot, 0, saved)
+        vm.openOfflineTrip(saved.snapshot, 0)
         compose.setContent {
             YuldashTheme(darkTheme = dark) {
                 CompositionLocalProvider(LocalAppLanguage provides language, LocalLifecycleOwner provides lifecycleOwner) {
@@ -98,7 +101,7 @@ internal class ColdTripPassportUiTest : SnapshotWiringFixture() {
         compose.setContent {
             YuldashTheme(darkTheme = false) {
                 CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                    ColdTripPassportCard(saved, isCurrent = { true })
+                    ColdTripPassportCard(saved, isCurrent = { true }, onHide = {})
                 }
             }
         }
@@ -194,6 +197,80 @@ internal class ColdTripPassportUiTest : SnapshotWiringFixture() {
             compose.mainClock.autoAdvance = true
         }
         show("Паспорт поездки")
+        compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.DESTROYED }
+    }
+
+    @Test fun hideCancelsHeldParentRole() {
+        val path = "/bookings/11/role"
+        val saved = runBlocking { saveCold() }
+        val entered = CountDownLatch(1)
+        val release = CountDownLatch(1)
+        handler = { request ->
+            if (request.path == path) {
+                entered.countDown()
+                check(release.await(15, TimeUnit.SECONDS))
+            }
+            defaultResponse(request)
+        }
+        ApiClient.testTimeoutMs = 15000
+        requests.clear()
+        val lifecycleOwner = TestOwner()
+        try {
+            mount(saved, AppLanguage.Ru, false, lifecycleOwner)
+            compose.waitUntil(5000) { entered.count == 0L }
+            show("4821")
+            val button = "Скрыть личные данные"
+            show(button)
+            compose.onNodeWithText(button).performClick()
+            compose.waitUntil(5000) { !passSecure.restarted().contains("pass_11") }
+            show("Копия паспорта удалена")
+            compose.onAllNodes(hasText("4821"), useUnmergedTree = true).assertCountEquals(0)
+            compose.onAllNodes(hasText("QA-plate"), useUnmergedTree = true).assertCountEquals(0)
+            assertFalse(OfflineTripSnapshots.allowsLive(11))
+            assertNull(OfflineTripSnapshots.projection(11))
+            assertNull(runBlocking { OfflineTripSnapshots.loadColdPassport(owner(), 11) })
+            release.countDown()
+            compose.waitForIdle()
+            assertEquals(1, requests.count { it.path == path })
+            assertTrue(requests.none { it.path == "/bookings/11/details" })
+            assertTrue(requests.none { it.method == "POST" })
+            compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.DESTROYED }
+            // Manual removal is local. A fresh ordinary read of the same booking still works.
+            runBlocking { ApiClient.getBookingDetails(11).getOrThrow() }
+            assertNotNull(OfflineTripSnapshots.projection(11))
+            assertTrue(TripPassStore.isHidden(11))
+        } finally {
+            release.countDown()
+            ApiClient.testTimeoutMs = 500
+        }
+    }
+
+    @Test fun deferredHideStaysPrivateAndCanBeRetried() {
+        val saved = runBlocking { saveCold() }
+        server.shutdown()
+        val lifecycleOwner = TestOwner()
+        mount(saved, AppLanguage.Ru, false, lifecycleOwner)
+        val button = "Скрыть личные данные"
+        show(button)
+        passSecure.failRemovalOf = "pass_11"
+        compose.onNodeWithText(button).performClick()
+        val retry = "Повторить удаление"
+        compose.waitUntil(5000) {
+            compose.onAllNodes(hasText(retry)).fetchSemanticsNodes().isNotEmpty()
+        }
+        show("Доступ закрыт. Приложение повторит очистку при запуске.")
+        assertTrue(passSecure.restarted().contains("pass_11"))
+        compose.onAllNodes(hasText("4821"), useUnmergedTree = true).assertCountEquals(0)
+        assertNull(runBlocking { OfflineTripSnapshots.loadColdPassport(owner(), 11) })
+        compose.runOnIdle { passSecure.failRemovalOf = null }
+        show(retry)
+        compose.onNodeWithText(retry).assertIsEnabled().performClick()
+        val cleared = "Копия паспорта удалена"
+        compose.waitUntil(5000) {
+            compose.onAllNodes(hasText(cleared)).fetchSemanticsNodes().isNotEmpty()
+        }
+        assertFalse(passSecure.restarted().contains("pass_11"))
+        show(cleared)
         compose.runOnIdle { lifecycleOwner.registry.currentState = Lifecycle.State.DESTROYED }
     }
 

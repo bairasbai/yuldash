@@ -14,6 +14,7 @@ internal interface SnapshotTransportAuthority {
 internal class SnapshotTransportRead(
     val bookingId: Int, val kind: SnapshotAuthorityKind, val generation: Long,
     private val authority: SnapshotTransportAuthority,
+    val navigation: TripNavigationReadGate? = null,
 ) {
     private val owner = authority.currentOwner()?.takeIf { it.generation == generation }
     private var request = owner?.let { authority.gate.beginRead(bookingId, kind) }
@@ -45,9 +46,12 @@ internal class SnapshotTransportRead(
     fun invalid() { trace.invalid() }
     fun proof(): SnapshotNetworkProof? {
         val actual = authority.currentOwner() ?: return null
-        return request?.let { trace.confirmed200(it, actual) }
+        val proof = request?.let { trace.confirmed200(it, actual) } ?: return null
+        return if (navigation == null) proof else SnapshotNetworkProof(proof.request, proof.owner) {
+            navigation.isOpen && proof.verified()
+        }.takeIf { it.verified() }
     }
-    val fallbackAllowed: Boolean get() = owner != null && authority.cacheEnabled(owner) &&
+    val fallbackAllowed: Boolean get() = navigation?.isOpen != false && owner != null && authority.cacheEnabled(owner) &&
         authority.currentOwner() == owner && trace.allowsFallback
 
     companion object {

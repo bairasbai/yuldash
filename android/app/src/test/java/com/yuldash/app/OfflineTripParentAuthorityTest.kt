@@ -812,7 +812,7 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         compose.setContent {
             YuldashTheme {
                 CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                    if (warmMounted.value) OfflineActiveTripSnapshot(mode, parent, onRetry = {}, onBack = {})
+                    if (warmMounted.value) OfflineActiveTripSnapshot(mode, parent, onRetry = {}, onBack = {}, navigation = com.yuldash.app.data.TripNavigationReadGate())
                 }
             }
         }

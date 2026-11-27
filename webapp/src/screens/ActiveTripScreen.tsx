@@ -728,7 +728,7 @@ export default function ActiveTripScreen() {
         {/* Сервер не ответил — но если поездку уже открывали, снимок брони лежит рядом.
             Сверяют машину как раз там, где связи нет: перевал, ночная трасса, обочина
             у выезда из села. Пустой экран в этот момент — худшее, что можно показать. */}
-        {!savedInTransit && savedTrip?.pass ? <OfflineTripPass pass={savedTrip.pass} /> : null}
+        {!savedInTransit && <OfflineTripPass key={sessionGeneration + ":" + bookingId} pass={savedTrip?.pass ?? null} />}
         <ErrorState onRetry={() => load()} />
       </>
     );

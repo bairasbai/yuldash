@@ -13,19 +13,21 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.yuldash.app.data.*
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.withContext
 
 internal data class OfflineTripSnapshotMode(
     val snapshot: OfflineTripSnapshot,
     val revision: Long,
-    val cold: ColdTripPassport? = null,
 )
 internal data class BookingNavigationRead(
     val live: Result<TripStateDto>,
     val saved: OfflineTripSnapshot?,
     val fallbackAllowed: Boolean,
-    val cold: ColdTripPassport? = null,
 )
+
+private enum class PassportHideState { Idle, Running, Cleared, Deferred, NotSaved }
 
 /** Cache failure is separate from a successful server action and never retries its POST. */
 @Composable internal fun OfflineSnapshotSaveNotice() {
@@ -37,18 +39,23 @@ internal data class BookingNavigationRead(
     }
 }
 
-internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRead {
-    val read = ApiClient.getTripStateForNavigation(bookingId)
+internal suspend fun readBookingNavigation(bookingId: Int, navigation: TripNavigationReadGate? = null): BookingNavigationRead {
+    val read = ApiClient.getTripStateForNavigation(bookingId, navigation)
     val owner = read.ticket?.owner
     val saved = if (read.result.isFailure && read.fallbackAllowed && owner != null) OfflineTripSnapshots.load(owner, bookingId) else null
     val cold = if (read.result.isFailure && read.fallbackAllowed && saved == null && owner != null) {
-        OfflineTripSnapshots.loadColdPassport(owner, bookingId)
+        OfflineTripSnapshots.loadColdPassport(owner, bookingId, navigation)
     } else null
-    return BookingNavigationRead(read.result, saved ?: cold?.snapshot, read.fallbackAllowed, cold)
+    navigation?.checkOpen()
+    return BookingNavigationRead(read.result, saved ?: cold?.snapshot, read.fallbackAllowed)
 }
 
 /** Read-only offline fallback: never mounts ActiveTripScreen or its chat/action/location effects. */
-@Composable internal fun OfflineActiveTripSnapshot(mode: OfflineTripSnapshotMode, isCurrent: () -> Boolean, onRetry: () -> Unit, onBack: () -> Unit) {
+@Composable internal fun OfflineActiveTripSnapshot(
+    mode: OfflineTripSnapshotMode, isCurrent: () -> Boolean, onRetry: () -> Unit, onBack: () -> Unit,
+    navigation: TripNavigationReadGate,
+) {
+    val context = androidx.compose.ui.platform.LocalContext.current
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     val current by rememberUpdatedState(isCurrent)
     val version by OfflineTripSnapshots.version.collectAsState()
@@ -56,6 +63,10 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
     var displayed by remember(mode) { mutableStateOf<OfflineTripSnapshot?>(null) }
     var displayedCold by remember(mode) { mutableStateOf<ColdTripPassport?>(null) }
     var loading by remember(mode) { mutableStateOf(true) }
+    var hideState by remember(mode) { mutableStateOf(PassportHideState.Idle) }
+    var hideAttempt by remember(mode) { mutableIntStateOf(0) }
+    val owner = mode.snapshot.owner
+    val bookingId = mode.snapshot.bookingId
     DisposableEffect(lifecycle, mode) {
         val observer = LifecycleEventObserver { _, _ ->
             resumed = lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
@@ -64,34 +75,35 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer); displayed = null; displayedCold = null }
     }
-    LaunchedEffect(mode, version, resumed) {
+    fun mayRestore() = hideState == PassportHideState.Idle && navigation.isOpen && resumed && current()
+    LaunchedEffect(mode, version, resumed, hideState) {
         displayed = null; displayedCold = null; loading = true
-        if (resumed && current()) {
+        if (mayRestore()) {
             val value = OfflineTripSnapshots.load(mode.snapshot.owner, mode.snapshot.bookingId)
             if (value != null) {
-                if (resumed && current()) displayed = value
+                if (mayRestore()) displayed = value
             } else {
-                val cold = OfflineTripSnapshots.loadColdPassport(mode.snapshot.owner, mode.snapshot.bookingId)
-                if (resumed && current() && cold != null) { displayed = cold.snapshot; displayedCold = cold }
+                val cold = OfflineTripSnapshots.loadColdPassport(owner, bookingId, navigation)
+                if (mayRestore() && cold != null) { displayed = cold.snapshot; displayedCold = cold }
             }
         }
         loading = false
     }
     LaunchedEffect(displayed, displayedCold, resumed) {
         val value = displayed ?: return@LaunchedEffect
-        while (resumed && current()) {
+        while (mayRestore()) {
             val remaining = value.remaining(OfflineTripSnapshots.clockInBoot(value.stateStamp.boot)) ?: break
             delay(remaining)
         }
-        if (current()) {
+        if (mayRestore()) {
             if (displayedCold == null) OfflineTripSnapshots.load(value.owner, value.bookingId)
-            else OfflineTripSnapshots.loadColdPassport(value.owner, value.bookingId)
+            else OfflineTripSnapshots.loadColdPassport(value.owner, value.bookingId, navigation)
         }
         displayed = null; displayedCold = null
     }
     fun visible(): Boolean {
         val value = displayed ?: return false
-        if (!resumed || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) || !current() ||
+        if (!mayRestore() || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
             !OfflineTripSnapshots.current(value.owner) || value.owner != mode.snapshot.owner ||
             value.bookingId != mode.snapshot.bookingId || value.rideId != mode.snapshot.rideId) return false
         val cold = displayedCold
@@ -103,11 +115,34 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
                 value.remaining(OfflineTripSnapshots.clockInBoot(value.stateStamp.boot)) != null
         }
     }
-    BackHandler { if (current()) onBack() }
+    fun hide() {
+        if (!resumed || !lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED) ||
+            !current() || !OfflineTripSnapshots.current(owner) || hideState == PassportHideState.Running) return
+        hideState = PassportHideState.Running
+        displayed = null
+        displayedCold = null
+        navigation.hide(owner, bookingId)
+        hideAttempt++
+    }
+    LaunchedEffect(mode, hideAttempt) {
+        if (hideAttempt == 0 || hideState != PassportHideState.Running) return@LaunchedEffect
+        val result = withContext(Dispatchers.IO) { TripPassStore.hideOfflineCopy(context, bookingId, owner) }
+        if (current() && OfflineTripSnapshots.current(owner)) hideState = when (result) {
+            TripPassStore.RemovalResult.CLEARED -> PassportHideState.Cleared
+            TripPassStore.RemovalResult.DEFERRED -> PassportHideState.Deferred
+            TripPassStore.RemovalResult.NOT_SAVED -> PassportHideState.NotSaved
+        }
+    }
+    fun leave() { if (current() && hideState != PassportHideState.Running) onBack() }
+    BackHandler { leave() }
     Column(Modifier.fillMaxSize().background(CanonBg).safeDrawingPadding()) {
-        ScreenTopBar(appText("Сохранённая поездка", "Һаҡланған сәфәр"), onBack)
+        ScreenTopBar(appText("Сохранённая поездка", "Һаҡланған сәфәр"), ::leave)
         Column(Modifier.fillMaxWidth().weight(1f).verticalScroll(rememberScrollState()).padding(CanonSpace.lg),
             verticalArrangement = Arrangement.spacedBy(CanonSpace.md)) {
+            if (hideState != PassportHideState.Idle) {
+                PassportHideStatus(hideState, ::hide)
+                return@Column
+            }
             Text(appText("Показываем последнее сохранённое состояние. Оно могло измениться.",
                 "Һуңғы һаҡланған хәлде күрһәтәбеҙ. Ул үҙгәргән булыуы мөмкин."), style = CanonBody, color = CanonMutedStrong)
             if (visible()) TripAuthorityContent(::visible) {
@@ -129,7 +164,8 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
                     }
                     val cold = displayedCold?.takeIf { it.snapshot === value }
                     if (cold != null) {
-                        ColdTripPassportCard(cold, isCurrent = { visible() && displayedCold === cold })
+                        ColdTripPassportCard(cold, isCurrent = { visible() && displayedCold === cold },
+                            onHide = { if (visible() && displayedCold === cold) hide() })
                     } else {
                         val pass = if (visible()) OfflineTripSnapshots.privatePass(value.bookingId) else null
                         val method = pass?.payMethod?.takeIf { it in payMethodKeys }
@@ -151,6 +187,25 @@ internal suspend fun readBookingNavigation(bookingId: Int): BookingNavigationRea
             else Text(appText("Сохранённые данные устарели или недоступны", "Һаҡланған мәғлүмәт иҫкергән йәки уны асып булмай"), style = CanonBodyStrong, color = CanonText)
             AppButton(appText("Повторить", "Ҡабатлау"), onClick = { if (current()) onRetry() })
         }
+    }
+}
+
+@Composable private fun PassportHideStatus(state: PassportHideState, onRetry: () -> Unit) {
+    val message = when (state) {
+        PassportHideState.Idle -> return
+        PassportHideState.Running -> appText("Скрываем личные данные…", "Шәхси мәғлүмәтте йәшерәбеҙ…")
+        PassportHideState.Cleared -> appText("Копия паспорта удалена", "Паспорт күсермәһе юйылды")
+        PassportHideState.Deferred -> appText(
+            "Доступ закрыт. Приложение повторит очистку при запуске.",
+            "Инеү ябыҡ. Ҡулланма асылғанда таҙартыуҙы ҡабатлаясаҡ.")
+        PassportHideState.NotSaved -> appText(
+            "Не удалось подтвердить удаление. После перезапуска копия может появиться.",
+            "Юйыуҙы раҫлап булманы. Ҡабат асыуҙан һуң күсермә күренеүе мөмкин.")
+    }
+    Text(message, style = CanonBodyStrong, color = CanonText)
+    if (state == PassportHideState.Running) CircularProgressIndicator(color = CanonGreen2)
+    if (state == PassportHideState.Deferred || state == PassportHideState.NotSaved) {
+        AppButton(appText("Повторить удаление", "Юйыуҙы ҡабатлау"), onClick = onRetry, style = AppButtonStyle.Secondary)
     }
 }
 

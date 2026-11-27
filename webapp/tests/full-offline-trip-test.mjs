@@ -298,6 +298,22 @@ for (const lang of ["ru", "ba"]) await test("F07 offline card renders original c
   assert(text(view.tree).includes("QA001"));
   assert(text(view.tree).includes("4931"));
 });
+await test("F07 hide unmounts private fields while the disk write is running and keeps the receipt", async () => {
+  await save();
+  const pass = await read();
+  const view = await viewOf(PassCard, { pass });
+  const hide = button(view, "Скрыть личные данные");
+  assert(hide);
+  hide.props.onClick();
+  const pending = text(view.render());
+  assert(pending.includes("Скрываем личные данные"));
+  for (const value of ["QA001", "4931", snapshot.driverPhone]) assert(!pending.includes(value));
+  await view.settle();
+  assert.equal(await read(), null);
+  view.props.pass = null;
+  assert(text(view.render()).includes("Копия паспорта удалена"));
+});
+
 for (const status of ["guest", "loading", "authed", "online"]) await test("F07 fallback stays closed for " + status, async () => {
   await save();
   if (status === "online") navigator.onLine = true;
@@ -352,7 +368,12 @@ for (const kind of ["expired", "future", "other login", "no token"]) await test(
   if (kind === "future") await changeRow(row => ({ ...row, cancelledInTransitAt: Date.now() + 10000 }));
   if (kind === "other login") await api.setSession(token(7), "fixture-refresh-B");
   if (kind === "no token") await api.setSession(null, null);
-  assert.equal((await viewOf(Fallback)).tree, null);
+  const fallback = await viewOf(Fallback);
+  if (fallback.tree) {
+    assert.equal(fallback.tree.type, "OfflineTripPass");
+    assert.equal(fallback.tree.props.pass, null);
+    assert.equal((await viewOf(PassCard, fallback.tree.props)).tree, null);
+  }
 });
 
 t.done();

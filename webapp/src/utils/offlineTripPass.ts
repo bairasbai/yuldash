@@ -54,7 +54,7 @@ export async function observeTripPass(
     await change(owner, bookingId, (previous, closedRides) => {
       if (snapshot && closedRides.has(snapshot.rideId)) return { result: true, record: closeTripPass(previous) };
       let record = acceptTripPassState(previous, state, revision);
-      if (record && record.status !== "terminal" && !record.cancellationKey && snapshot &&
+      if (record && record.status !== "terminal" && !record.hidden && !record.cancellationKey && snapshot &&
           snapshot.bookingId === bookingId && revision !== undefined && revision ===
           (previous && previous.status !== "terminal" ? previous.revision : null) && record.status === state.status) {
         const matchingStage = record.status === "onboard"
@@ -126,7 +126,7 @@ export async function saveTripPassCode(
   if (!owner || revision === undefined || typeof code !== "string" || !code) return;
   try {
     await change(owner, bookingId, record => {
-      if (record?.status !== "confirmed" || record.cancellationKey || record.revision !== revision || !record.pass) {
+      if (record?.status !== "confirmed" || record.hidden || record.cancellationKey || record.revision !== revision || !record.pass) {
         return { result: false };
       }
       if (record.pass.boardingCode === code) return { result: true };
@@ -142,7 +142,7 @@ export async function saveTripPassPayment(
   if (!owner || revision === undefined) return;
   try {
     await change(owner, bookingId, record => {
-      if (!record || record.status === "terminal" || record.cancellationKey || record.revision !== revision || !record.pass) {
+      if (!record || record.status === "terminal" || record.hidden || record.cancellationKey || record.revision !== revision || !record.pass) {
         return { result: false };
       }
       const pass = { ...record.pass, payMethod, price: price ?? record.pass.price };
@@ -151,6 +151,18 @@ export async function saveTripPassPayment(
         : { result: false };
     }, false);
   } catch { /* Payment agreement was already returned by the server. */ }
+}
+
+/** Remove only this login's saved copy. Booking actions and terminal history retain their own state. */
+export async function hideTripPass(owner: TripPassOwner, bookingId: number): Promise<boolean> {
+  try {
+    return await change(owner, bookingId, previous => {
+      if (previous?.status === "terminal" || (previous?.hidden && !previous.pass)) return { result: true };
+      return { result: true, record: { ...(previous ?? newTripPassRecord()), hidden: true, pass: undefined } };
+    }, false);
+  } catch {
+    return false;
+  }
 }
 
 export function holdTripPassCancellation(owner: TripPassOwner, bookingId: number, key: string): Promise<"held" | "closed" | "blocked"> {
@@ -204,7 +216,7 @@ export type OfflineTripView = {
 };
 
 function visiblePass(record: TripPassRecord | undefined, owner: TripPassOwner, bookingId: number): TripPass | null {
-  if (!record || record.status === "terminal" || record.cancellationKey || !record.pass ||
+  if (!record || record.status === "terminal" || record.hidden || record.cancellationKey || !record.pass ||
       !validTripPass(record.pass, owner, bookingId)) return null;
   return record.status === "onboard" ? { ...record.pass, boardingCode: "" } : record.pass;
 }

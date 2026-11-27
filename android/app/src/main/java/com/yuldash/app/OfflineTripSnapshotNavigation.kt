@@ -5,12 +5,12 @@ import com.yuldash.app.data.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.isActive
 
-internal fun YuldashViewModel.openOfflineTrip(saved: OfflineTripSnapshot, revision: Long, cold: ColdTripPassport? = null) {
+internal fun YuldashViewModel.openOfflineTrip(saved: OfflineTripSnapshot, revision: Long) {
     if (privateNavigationRevision != revision || !OfflineTripSnapshots.current(saved.owner)) return
     selectedRide.value = bookingLinkStubRide(saved.bookingId)
     activeBookingId.value = saved.bookingId
     activeTrip.value = null; activeDriverBookingId.value = null
-    offlineTripSnapshot.value = OfflineTripSnapshotMode(saved, revision, cold)
+    offlineTripSnapshot.value = OfflineTripSnapshotMode(saved, revision)
     screen.value = Screen.ActiveTrip
 }
 
@@ -45,7 +45,7 @@ internal suspend fun restoreBookingSnapshotNavigation(
             if (requested.contentScreen() == Screen.ActiveTrip && target == Screen.Booking && state.role == "passenger" &&
                 bookingStatusAllowsActiveTrip(state.status)) vm.screen.value = requested
             onRestored(state); restored = true
-        } else read.saved?.let { saved -> vm.openOfflineTrip(saved, revision, read.cold); restored = true }
+        } else read.saved?.let { saved -> vm.openOfflineTrip(saved, revision); restored = true }
     }
     return restored
 }
@@ -65,6 +65,7 @@ internal suspend fun restoreBookingSnapshotNavigation(
     val initialTerminalContext = remember(owner, booking, session) { ride to revision }
     var confirmedTerminalContext by remember(owner, booking, session, ride, revision) { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val navigation = remember(owner, booking, session, revision) { TripNavigationReadGate() }
     var retry by remember(owner, booking, revision) { mutableIntStateOf(0) }
     var loading by remember(owner, booking, revision) { mutableStateOf(true) }
     var failure by remember(owner, booking, revision) { mutableStateOf<Throwable?>(null) }
@@ -79,10 +80,10 @@ internal suspend fun restoreBookingSnapshotNavigation(
             (vm.screen.value == Screen.TripReceipt && currentReceiptBookingId() in listOf(0, id)))
     LaunchedEffect(owner, booking, ride, revision, pending, retry) {
         val id = booking ?: return@LaunchedEffect
-        if (!currentLive()) return@LaunchedEffect
+        if (!currentLive() || !navigation.isOpen) return@LaunchedEffect
         loading = true; failure = null; unavailable = false
-        val read = readBookingNavigation(id)
-        if (!currentLive()) return@LaunchedEffect
+        val read = readBookingNavigation(id, navigation)
+        if (!currentLive() || !navigation.isOpen) return@LaunchedEffect
         val state = read.live.getOrNull()
         val error = read.live.exceptionOrNull()
         if (state?.status in setOf("done", "cancelled")) confirmedTerminalContext = true
@@ -92,8 +93,8 @@ internal suspend fun restoreBookingSnapshotNavigation(
         if (read.saved != null) {
             vm.openOfflineTrip(read.saved, revision); unavailable = true
         } else if (error == null || error is java.io.IOException || (error is ApiException && error.status in 500..599)) {
-            val details = ApiClient.getBookingDetails(id)
-            if (!currentLive()) return@LaunchedEffect
+            val details = OfflineTripSnapshotHooks.details(id, session, navigation)
+            if (!currentLive() || !navigation.isOpen) return@LaunchedEffect
             failure = details.exceptionOrNull() ?: error
             if (details.getOrNull()?.status in setOf("done", "cancelled")) confirmedTerminalContext = true
         } else failure = error
@@ -109,16 +110,16 @@ internal suspend fun restoreBookingSnapshotNavigation(
     }
     val mode = vm.offlineTripSnapshot.value
     LaunchedEffect(version, ride, booking, mode, loading) {
-        if (currentLive() && !loading && mode == null && booking != null && OfflineTripSnapshots.allowsLive(booking)) vm.activeTrip.value = ride.currentBookingMapRide(booking)
+        if (navigation.isOpen && currentLive() && !loading && mode == null && booking != null && OfflineTripSnapshots.allowsLive(booking)) vm.activeTrip.value = ride.currentBookingMapRide(booking)
     }
     val requestedFallback = booking?.let(OfflineTripSnapshots::warmFallback)
     LaunchedEffect(version, requestedFallback, revision) {
-        if (requestedFallback != null && currentLive() && vm.offlineTripSnapshot.value == null) vm.openOfflineTrip(requestedFallback, revision)
+        if (navigation.isOpen && requestedFallback != null && currentLive() && vm.offlineTripSnapshot.value == null) vm.openOfflineTrip(requestedFallback, revision)
     }
     if (mode != null && mode.snapshot.bookingId == booking) {
         OfflineActiveTripSnapshot(mode, { currentLive() && vm.offlineTripSnapshot.value === mode && mode.revision == revision },
-            onRetry = { if (currentLive()) { OfflineTripSnapshots.dismissFallback(mode.snapshot.bookingId); vm.offlineTripSnapshot.value = null; retry++ } },
-            onBack = { if (currentLive()) vm.navigateLocally(onBack) })
+            onRetry = { if (navigation.isOpen && currentLive()) { OfflineTripSnapshots.dismissFallback(mode.snapshot.bookingId); vm.offlineTripSnapshot.value = null; retry++ } },
+            onBack = { if (currentLive()) vm.navigateLocally(onBack) }, navigation = navigation)
         return
     }
     val observedTerminal = booking?.let(OfflineTripSnapshots::terminal)
