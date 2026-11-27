@@ -16,8 +16,9 @@ import pytest
 from sqlmodel import Session, select
 
 from app import instant_service as isv
+from app.config import settings
 from app.db import engine
-from app.models import InstantOrder, PriceComplaint, UserRole
+from app.models import CommissionDebt, PriceComplaint, UserRole
 
 ORIG = (52.591, 58.317)
 DEST = (52.716, 58.664)
@@ -97,6 +98,50 @@ def test_driver_sees_the_mirror_with_commission(client, user_factory, fake_redis
     # Компенсации комиссией не облагаются — водитель должен видеть это отдельной цифрой,
     # иначе процент на экране не сходится с вычетом и мы для него лгуны.
     assert r["commission_free_kop"] == r["pickup_fee_kop"] + r["options_fee_kop"]
+
+
+def test_cash_taxi_journey_and_repeated_completion_preserve_the_charged_commission(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    driver = _driver(client, user_factory, "CashJourneyDriver")
+    passenger = user_factory("CashJourneyPassenger")
+    body = {**_order_body(), "payment_method": "cash"}
+    quote = client.post("/instant/estimate", headers=passenger["auth"], json=body)
+    assert quote.status_code == 200
+    created = client.post("/instant/orders", headers=passenger["auth"], json=body)
+    assert created.status_code == 200
+    offer = created.json()
+    assert offer["status"] == "offered"
+    assert offer["price_estimate"] == quote.json()["price"]
+    path = f"/instant/orders/{offer['id']}"
+    for step, status in (("accept", "accepted"), ("arrived", "arriving"),
+                         ("onboard", "onboard"), ("done", "done")):
+        reply = client.post(f"{path}/{step}", headers=driver["auth"])
+        assert reply.status_code == 200
+        assert reply.json()["status"] == status
+    with Session(engine) as session:
+        charged = session.exec(select(CommissionDebt).where(CommissionDebt.order_id == offer["id"])).one()
+        fee_kop = charged.amount_kop
+        assert fee_kop > 0
+
+    # Configuration may be edited after the trip; a retried completion is not new income.
+    monkeypatch.setattr(settings, "fee_tier1_percent", 12.0)
+    repeated = client.post(f"{path}/done", headers=driver["auth"])
+    assert repeated.status_code == 200
+    assert repeated.json()["status"] == "done"
+    passenger_receipt = client.get(f"{path}/receipt", headers=passenger["auth"])
+    driver_receipt = client.get(f"{path}/receipt", headers=driver["auth"])
+    assert passenger_receipt.status_code == driver_receipt.status_code == 200
+    assert passenger_receipt.json()["amount_kop"] == offer["price_estimate"] * 100
+    assert "driver_fee_kop" not in passenger_receipt.json()
+    result = driver_receipt.json()
+    assert result["driver_fee_kop"] == fee_kop
+    assert result["driver_fee_percent"] == 3.0
+    assert result["driver_net_kop"] == result["driver_gross_kop"] - fee_kop
+    with Session(engine) as session:
+        assert session.exec(select(CommissionDebt.amount_kop)
+                            .where(CommissionDebt.order_id == offer["id"])).all() == [fee_kop]
 
 
 def test_surge_line_appears_only_when_there_was_surge(client, user_factory, fake_redis):
