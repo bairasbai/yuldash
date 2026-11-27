@@ -1,7 +1,7 @@
 import type { TripPassOwner } from "../utils/tripPass";
 import type { BookingDetails } from "./bookings";
 import { isCurrentRatingDraft, type RatingDraft } from "../push/rateDraft";
-import { apiCommand } from "./client";
+import { ApiError, apiCommand } from "./client";
 
 export async function rateBookingFromNotification(
   draft: RatingDraft, signal: AbortSignal,
@@ -12,8 +12,9 @@ export async function rateBookingFromNotification(
       allowAttempt: () => isCurrentRatingDraft(draft),
     },
   ).catch(error => {
-    if (!(error instanceof SyntaxError)) throw error;
-    return undefined;
+    if (error instanceof SyntaxError ||
+        (error instanceof ApiError && (error.status === 408 || error.status === 429))) return undefined;
+    throw error;
   });
   if (typeof result?.kept !== "boolean" || typeof result.my_stars !== "number" ||
       !Number.isInteger(result.my_stars) || result.my_stars < 1 || result.my_stars > 5 ||
@@ -24,11 +25,13 @@ export async function rateBookingFromNotification(
 export async function fetchNotificationRatingState(
   id: number, owner: TripPassOwner, signal: AbortSignal,
 ): Promise<{ allowed: boolean; stars: number }> {
-  const details = await apiCommand<BookingDetails>(`/bookings/${id}/details`, owner, { method: "GET", signal });
-  const participant = details.booking_id === id && (details.role === "driver" || details.role === "passenger");
-  const stars = details.my_stars;
-  return {
-    allowed: participant && details.status === "done" && details.can_rate === true,
-    stars: participant && typeof stars === "number" && Number.isInteger(stars) && stars >= 1 && stars <= 5 ? stars : 0,
-  };
+  const details = await apiCommand<BookingDetails | null>(`/bookings/${id}/details`, owner, { method: "GET", signal });
+  const stars = details?.my_stars;
+  if (details?.booking_id !== id || (details.role !== "driver" && details.role !== "passenger") ||
+      !["pending", "confirmed", "onboard", "done", "cancelled"].includes(details.status) ||
+      typeof details.can_rate !== "boolean" ||
+      typeof stars !== "number" || !Number.isInteger(stars) || stars < 0 || stars > 5) {
+    throw new SyntaxError("Invalid booking rating state");
+  }
+  return { allowed: details.status === "done" && details.can_rate, stars };
 }
