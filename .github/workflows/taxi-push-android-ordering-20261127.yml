@@ -1,0 +1,50 @@
+name: Taxi offer Android draft (QA only)
+
+on:
+  push:
+    branches:
+      - qa/taxi-offer-android-ordering-20261127
+
+permissions:
+  contents: read
+
+jobs:
+  debug-qa:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      YULDASH_DEBUG_API_BASE_URL: http://127.0.0.1:1
+    defaults:
+      run:
+        working-directory: android
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          persist-credentials: false
+      - name: Select runner JDK 21 and verify SDK
+        shell: bash
+        run: |
+          test -x "${JAVA_HOME_21_X64:?JDK 21 is required}/bin/java"
+          : "${ANDROID_HOME:?Android SDK is required}"
+          if [[ ! -d "$ANDROID_HOME/platforms/android-36" ]]; then
+            sdkmanager --install "platforms;android-36"
+          fi
+          test -d "$ANDROID_HOME/platforms/android-36"
+          echo "JAVA_HOME=$JAVA_HOME_21_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_21_X64/bin" >> "$GITHUB_PATH"
+      - name: Build debug APK
+        id: apk
+        run: bash ./gradlew :app:assembleDebug --no-daemon --stacktrace
+      - name: Run focused notification tests
+        env:
+          # Only this JVM test step uses the canonical Maven Central endpoint.
+          JAVA_TOOL_OPTIONS: -Drobolectric.dependency.repo.url=https://repo.maven.apache.org/maven2
+        run: bash ./gradlew :app:testDebugUnitTest --tests 'com.yuldash.app.TaxiOfferPublicationTest' --tests 'com.yuldash.app.LinePromiseIsHonestTest' --tests 'com.yuldash.app.MobilityUiStateTest' --no-daemon --stacktrace
+      - name: Keep debug APK for isolated acceptance
+        if: ${{ !cancelled() && steps.apk.outcome == 'success' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: taxi-offer-ordering-qa-debug-only
+          path: android/app/build/outputs/apk/debug/*.apk
+          if-no-files-found: error
+          retention-days: 3

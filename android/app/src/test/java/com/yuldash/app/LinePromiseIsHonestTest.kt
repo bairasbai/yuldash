@@ -56,7 +56,7 @@ class LinePromiseIsHonestTest {
         manager().cancelAll()
         TaxiOfferNotifier.show(
             ctx, orderId = 7, fromText = "Баймак", toText = "Сибай",
-            priceRub = 300, lang = AppLanguage.Ru, ttlSec = 20,
+            priceRub = 300, lang = AppLanguage.Ru, offerExpiresAt = java.time.Instant.now().plusSeconds(20).toString(),
         )
         return shadowOf(manager()).allNotifications.size
     }

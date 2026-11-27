@@ -3041,10 +3041,31 @@ object ApiClient {
         call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
 
     /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
-    suspend fun getDriverOffer(): Result<InstantOrderDto?> =
-        call("GET", "/instant/driver/offer", null, auth = true).map { o ->
+    suspend fun getDriverOffer(expectedGeneration: Long? = null): Result<InstantOrderDto?> =
+        call("GET", "/instant/driver/offer", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
             if (o.isNull("offer")) null else o.optJSONObject("offer")?.toInstantOrderDto()
         }
+
+    /** One bounded verification on Firebase's worker thread. No refresh, redirects, cache, or retry. */
+    internal fun verifyTaxiPushOffer(orderId: Int, deadline: String, owner: Long, budgetMs: Long): Boolean {
+        val snapshot = requestSession()
+        val bearer = snapshot.bearer ?: return false
+        if (snapshot.generation != owner || budgetMs <= 0) return false
+        val base = BASE
+        return runCatching {
+            val encodedDeadline = android.net.Uri.encode(deadline)
+            val request = Request.Builder()
+                .url("$base/instant/driver/offer-notification/v1?order_id=$orderId&offer_expires_at=$encodedDeadline")
+                .header("Authorization", "Bearer $bearer")
+                .header("Accept", "application/json")
+                .header("Cache-Control", "no-cache, no-store")
+                .build()
+            if (!isCurrentSession(owner) || base != BASE) return false
+            oneShotTransport(1_200, 1_200, budgetMs.coerceAtMost(1_200L)).newCall(request).execute().use { response ->
+                response.isSuccessful && JSONObject(response.body?.string().orEmpty()).opt("current") == true
+            }
+        }.getOrDefault(false) && isCurrentSession(owner) && base == BASE
+    }
 
     /**
      * Оффер ВМЕСТЕ с причиной, почему его нет.

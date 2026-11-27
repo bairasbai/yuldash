@@ -13,6 +13,8 @@ import com.yuldash.app.MainActivity
 import com.yuldash.app.R
 import com.yuldash.app.appTextFor
 import com.yuldash.app.TaxiOfferNotifier
+import com.yuldash.app.TaxiOfferPublication
+import com.yuldash.app.instantOfferRemainingMillis
 
 /**
  * Приём push-уведомлений (FCM). Работает после добавления app/google-services.json.
@@ -45,16 +47,24 @@ class FcmService : FirebaseMessagingService() {
         // Оффер такси (B7a-2): data-only пуш от matcher'а → полноэкранная карточка «Новый заказ 🚕»
         // (канал «Заказы такси», важность MAX, звук+вибро, full-screen intent → кабинет водителя).
         if (msg.data["type"] == "instant_offer") {
-            TaxiOfferNotifier.show(
-                this,
-                orderId = msg.data["order_id"]?.toIntOrNull() ?: 0,
-                fromText = msg.data["from"] ?: "",
-                toText = msg.data["to"] ?: "",
-                priceRub = msg.data["price"]?.toIntOrNull() ?: 0,
-                lang = AppPrefs.language(this),
-                ttlSec = msg.data["ttl_sec"]?.toIntOrNull() ?: 20,
-                recipientUserId = recipient,
-            )
+            val orderId = msg.data["order_id"]?.toIntOrNull()?.takeIf { it > 0 } ?: return
+            // Старый push без точного дедлайна проверкой не подтверждается; опрос линии сохраняется.
+            val expiry = msg.data["offer_expires_at"] ?: return
+            val remaining = instantOfferRemainingMillis(expiry, System.currentTimeMillis())
+            if (remaining <= 0) return
+            var snapshot: TaxiOfferPublication.Ticket? = null
+            ApiClient.runIfCurrentSession(generation) { snapshot = TaxiOfferNotifier.publication.snapshot(generation) }
+            val ticket = snapshot ?: return
+            if (!ApiClient.verifyTaxiPushOffer(orderId, expiry, generation, remaining)) return
+            ApiClient.runIfCurrentSession(generation) {
+                TaxiOfferNotifier.publication.observe(ticket, TaxiOfferPublication.Offer(orderId, expiry)) {
+                    TaxiOfferNotifier.show(
+                        this, orderId, msg.data["from"].orEmpty(), msg.data["to"].orEmpty(),
+                        msg.data["price"]?.toIntOrNull() ?: 0, AppPrefs.language(this),
+                        offerExpiresAt = expiry, recipientUserId = recipient,
+                    )
+                }
+            }
             return
         }
         val n = msg.notification

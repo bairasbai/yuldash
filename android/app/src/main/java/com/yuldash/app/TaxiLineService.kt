@@ -52,7 +52,6 @@ class TaxiLineService : Service() {
     private var loopsStarted = false
     private var misses = 0          // сколько heartbeat'ов подряд не дошло
     private var lineLost = false    // сервер нас уже не видит → уведомление говорит об этом честно
-    @Volatile private var lastNotifiedOrderId = -1   // не дребезжим: одно уведомление на оффер
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -150,12 +149,23 @@ class TaxiLineService : Service() {
         // ② Опрос оффера ~5с — страховка к push (B7a-2): нашли новый → полноэкранное уведомление.
         scope.launch {
             while (isActive) {
-                ApiClient.getDriverOffer().onSuccess { o ->
-                    if (o != null && o.status == "offered" && o.id != lastNotifiedOrderId) {
-                        lastNotifiedOrderId = o.id
-                        TaxiOfferNotifier.show(
-                            this@TaxiLineService, o.id, o.fromText, o.toText, o.priceEstimate, currentLang,
-                        )
+                val owner = ApiClient.queueSessionGeneration()
+                var snapshot: TaxiOfferPublication.Ticket? = null
+                ApiClient.runIfCurrentSession(owner) { snapshot = TaxiOfferNotifier.publication.snapshot(owner) }
+                val ticket = snapshot ?: return@launch
+                ApiClient.getDriverOffer(expectedGeneration = owner).onSuccess { o ->
+                    ApiClient.runIfCurrentSession(owner) {
+                        val expiry = o?.offerExpiresAt
+                        if (o == null || o.status != "offered" || expiry == null) {
+                            TaxiOfferNotifier.publication.observe(ticket, null)
+                        } else {
+                            TaxiOfferNotifier.publication.observe(ticket, TaxiOfferPublication.Offer(o.id, expiry)) {
+                                TaxiOfferNotifier.show(
+                                    this@TaxiLineService, o.id, o.fromText, o.toText, o.priceEstimate, currentLang,
+                                    offerExpiresAt = expiry,
+                                )
+                            }
+                        }
                     }
                 }
                 delay(OFFER_POLL_MS)
