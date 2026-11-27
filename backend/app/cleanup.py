@@ -845,49 +845,36 @@ def close_stale_orders(now=None) -> int:
     """Закрыть такси-заказы, зависшие в активном состоянии. Возвращает, сколько закрыто."""
     now = now or utcnow()
     cut = now - timedelta(hours=settings.taxi_stale_hours)
-    closed = 0
     with engine.begin() as conn:
-        # Водителю важнее всех: пока заказ висел, он не мог взять ни одного нового.
-        # Списки разные, потому что и правда разная: несостоявшийся заказ и состоявшаяся
-        # поездка с комиссией — это два разных письма человеку.
-        #
-        # Пассажира тоже уведомляем (аудит 2026-08-08, волна 19). Ровно та беда, что описана
-        # в шапке этой функции — «у пассажира в приложении оставалось "вы едете"» — чинилась
-        # только со стороны водителя: он получал письмо, пассажир не получал ничего.
-        cancel_victims = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, driver_id FROM instantorder "
-            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        cancel_pax = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, passenger_id FROM instantorder "
-            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        done_victims = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, driver_id FROM instantorder "
-            "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        done_pax = [(r[0], r[1]) for r in conn.execute(text(
-            "SELECT id, passenger_id FROM instantorder "
-            "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut}).all()]
-        closed += conn.execute(text(
+        # Возраст стадии, а не брони: предзаказ может создаваться за несколько дней.
+        # Для старых строк без времени стадии берём ближайшую предыдущую отметку.
+        # Уведомления, возвраты и начисления только по строкам, изменённым этим запуском.
+        cancelled = conn.execute(text(
             "UPDATE instantorder SET status = 'cancelled' "
-            "WHERE status IN ('accepted', 'arriving') AND created_at < :cut"
-        ), {"cut": cut}).rowcount or 0
-        # done_at обязателен: без него поездка выпадает из заработка водителя и из стажа для
-        # лесенки комиссии — комиссию бы взяли, а поездку человек в своей истории не нашёл.
-        closed += conn.execute(text(
-            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now) "
-            "WHERE status = 'onboard' AND created_at < :cut"
-        ), {"cut": cut, "now": now}).rowcount or 0
-        stale_scheduled = [r[0] for r in conn.execute(text(
-            "SELECT id FROM instantorder "
-            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
-        ), {"cut": cut}).all()]
-        closed += conn.execute(text(
+            "WHERE (status = 'accepted' AND COALESCE(accepted_at, scheduled_at, created_at) < :cut) "
+            "OR (status = 'arriving' "
+            "AND COALESCE(arriving_at, accepted_at, scheduled_at, created_at) < :cut) "
+            "RETURNING id, driver_id, passenger_id"
+        ), {"cut": cut}).all()
+        completed = conn.execute(text(
+            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now), "
+            # Как при ручном завершении: только уже записанное ожидание, в целых рублях.
+            # Таймер остановки в фоне не начисляем: неизвестно, когда закончилась остановка.
+            "price_final = COALESCE(price_final, price_estimate + COALESCE(waiting_fee_kop, 0) / 100) "
+            "WHERE status = 'onboard' "
+            "AND COALESCE(onboard_at, arriving_at, accepted_at, scheduled_at, created_at) < :cut "
+            "RETURNING id, driver_id, passenger_id"
+        ), {"cut": cut, "now": now}).all()
+        stale_scheduled = [row[0] for row in conn.execute(text(
             "UPDATE instantorder SET status = 'expired' "
-            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut"
-        ), {"cut": cut}).rowcount or 0
+            "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut "
+            "RETURNING id"
+        ), {"cut": cut}).all()]
+    closed = len(cancelled) + len(completed) + len(stale_scheduled)
+    cancel_victims = [(oid, driver_id) for oid, driver_id, _ in cancelled]
+    cancel_pax = [(oid, passenger_id) for oid, _, passenger_id in cancelled]
+    done_victims = [(oid, driver_id) for oid, driver_id, _ in completed]
+    done_pax = [(oid, passenger_id) for oid, _, passenger_id in completed]
     _accrue_auto_done([oid for oid, _ in done_victims])
     # Поездки не было → промокод возвращаем человеку (обещание в шапке `promo_ride`).
     # Закрытые как «done» сюда НЕ попадают: там поездка состоялась и скидка отработала.

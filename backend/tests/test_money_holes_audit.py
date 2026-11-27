@@ -159,6 +159,52 @@ def test_авто_закрытие_не_задваивает_комиссию(cl
     assert len(rows) == 1
 
 
+@pytest.mark.parametrize("status,stage_at", [
+    (S.accepted, "accepted_at"),
+    (S.arriving, "arriving_at"),
+    (S.onboard, "onboard_at"),
+    (S.onboard, None),  # старая запись без времени посадки, но с временем брони
+])
+def test_cleanup_keeps_fresh_stage_for_old_preorder(client, user_factory, status, stage_at):
+    now = utcnow()
+    d = user_factory("FreshStageDriver", role=UserRole.driver)
+    p = user_factory("FreshStagePassenger")
+    times = {stage_at: now - timedelta(minutes=1)} if stage_at else {}
+    oid = _order(p["id"], d["id"], status=status, price=600,
+                 created_at=now - timedelta(hours=settings.taxi_stale_hours + 2),
+                 scheduled_at=now - timedelta(minutes=3), price_final=None, **times)
+
+    cleanup.close_stale_orders(now)
+
+    with Session(engine) as session:
+        assert session.get(InstantOrder, oid).status == status
+    assert _debt_row(oid) is None
+
+
+@pytest.mark.parametrize("existing_final,expected", [(None, 610), (625, 625)])
+def test_auto_completion_includes_already_recorded_waiting(
+    client, user_factory, existing_final, expected,
+):
+    from app import debt
+
+    now = utcnow()
+    old = now - timedelta(hours=settings.taxi_stale_hours + 1)
+    d = user_factory("AutoWaitDriver", role=UserRole.driver)
+    p = user_factory("AutoWaitPassenger")
+    oid = _order(p["id"], d["id"], status=S.onboard, price=600,
+                 created_at=old, onboard_at=old, price_final=existing_final, waiting_fee_kop=1050)
+
+    cleanup.close_stale_orders(now)
+
+    receipt = client.get(f"/instant/orders/{oid}/receipt", headers=p["auth"])
+    assert receipt.status_code == 200
+    assert receipt.json()["amount_kop"] == expected * 100
+    with Session(engine) as session:
+        order = session.get(InstantOrder, oid)
+        assert order.price_final == expected
+        assert _debt_row(oid).amount_kop == debt.order_commission_kop(order, 3.0)
+
+
 def test_auto_completion_accrual_failure_does_not_drop_other_orders(client, user_factory, monkeypatch):
     """Если на одном заказе начисление упало, следующий всё равно закрывается с комиссией."""
     from app import debt

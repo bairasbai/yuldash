@@ -481,21 +481,27 @@ def _age_order(order_id: int, hours: int) -> None:
     from app.models import InstantOrder
     with Session(engine) as s:
         o = s.get(InstantOrder, order_id)
-        o.created_at = utcnow() - timedelta(hours=hours)
+        old = utcnow() - timedelta(hours=hours)
+        o.created_at = old
+        # Чистка смотрит на возраст активной стадии, а не на дату создания брони.
+        for field in ("accepted_at", "arriving_at", "onboard_at"):
+            if getattr(o, field) is not None:
+                setattr(o, field, old)
         s.add(o)
         s.commit()
 
 
-def test_забытый_заказ_не_запирает_водителя_навсегда(client, user_factory, fake_redis):
+def test_забытый_заказ_не_запирает_водителя_навсегда(client, user_factory, fake_redis, monkeypatch):
     """Водитель не нажал «завершил» — и без чистки он больше НИКОГДА не мог взять заказ."""
     from app.cleanup import close_stale_orders
 
+    # Здесь проверяем только блокировку активным заказом, а не отдельный лимит смены.
+    monkeypatch.setattr(settings, "taxi_shift_limit_hours", 25)
     passenger = user_factory("StaleTaxiPax")
     driver = user_factory("StaleTaxiDrv", role=UserRole.driver)
     oid = _taxi_order(client, passenger, driver)
     client.post(f"/instant/orders/{oid}/arrived", headers=driver["auth"])
     client.post(f"/instant/orders/{oid}/onboard", headers=driver["auth"])
-    _age_order(oid, hours=48)
 
     # Контроль: пока заказ висит, второй взять нельзя — это правильная защита.
     pax2 = user_factory("StaleTaxiPax2")
@@ -509,6 +515,7 @@ def test_забытый_заказ_не_запирает_водителя_нав
         f"защита «один заказ за раз» не работает — проверка ниже ничего не докажет: {blocked.status_code}"
     )
 
+    _age_order(oid, hours=settings.taxi_stale_hours + 1)
     assert close_stale_orders() >= 1, "чистка не закрыла ни одного забытого заказа"
 
     pax3 = user_factory("StaleTaxiPax3")
