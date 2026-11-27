@@ -6,7 +6,7 @@
 
 PWA подтверждает доставку после завершения транзакции IndexedDB с полным входящим сообщением. Запись привязана к аккаунту, поколению входа, брони и ID сообщения. Прочтение требует видимой строки в открытом чате. Пачки восстанавливаются после перезагрузки, отметки перечитываются с сервера после сигнала WebSocket. [Синхронизация PWA](../webapp/src/utils/useChatReceipts.ts) · [Хранилище PWA](../webapp/src/utils/chatReceiptStore.ts)
 
-Android хранит очередь квитанций в шифрованных настройках входа. `TripChatReceiptSync` связывает подтверждения с историей и видимостью строк, объединяет флаги по ID и принимает ответ на одну пачку WebSocket. Если ответа нет, повтор идёт через REST. Push передаёт подсказку для авторизованной загрузки полного сообщения. [Синхронизация Android](../android/app/src/main/java/com/yuldash/app/TripChatReceiptSync.kt) · [Хранилище Android](../android/app/src/main/java/com/yuldash/app/data/BookingChatReceiptStore.kt)
+Android хранит очередь квитанций в шифрованных настройках входа. `TripChatReceiptSync` связывает подтверждения с историей и видимостью строк, объединяет флаги по ID и принимает ответ на одну пачку WebSocket. Если ответа нет, повтор идёт через REST. Push передаёт подсказку для авторизованной загрузки полного сообщения. [Синхронизация Android](../android/app/src/main/java/com/yuldash/app/TripChatReceiptSync.kt) · [Хранилище Android](../android/app/src/main/java/com/yuldash/app/data/BookingChatReceiptStore.kt) · [HTTP чата](../android/app/src/main/java/com/yuldash/app/data/BookingChatReceiptApi.kt)
 
 ## RS-09Б — выбранные даты попутки
 
