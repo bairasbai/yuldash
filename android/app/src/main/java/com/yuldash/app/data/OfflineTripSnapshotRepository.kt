@@ -209,9 +209,11 @@ internal class OfflineTripSnapshotRepository(
         ticket: SnapshotTicket, bookingId: Int, state: SnapshotState, rideId: Int? = null, route: SnapshotRoute? = null,
         acknowledgement: Boolean = false, permit: SnapshotAuthorityPermit? = null, coldSave: Boolean = false,
     ): SnapshotPersistence = writer.withLock {
-        if (!valid(ticket) || bookingId <= 0 || !authority.canObserve(permit, ticket, bookingId, state, rideId, route) ||
-            acknowledgement != permit?.mutation ||
-            (coldSave && (acknowledgement || permit?.kind != SnapshotAuthorityKind.DETAILS || route?.valid != true))) {
+        fun authorized(): Boolean =
+            if (coldSave) authority.canObserveColdCode(permit, ticket, bookingId, state, rideId, route)
+            else authority.canObserve(permit, ticket, bookingId, state, rideId, route)
+
+        if (!valid(ticket) || bookingId <= 0 || !authorized() || acknowledgement != permit?.mutation) {
             return@withLock SnapshotPersistence.STALE
         }
         val owner = ticket.owner
@@ -232,7 +234,12 @@ internal class OfflineTripSnapshotRepository(
             val corrected = listOfNotNull(snapshotEpoch(diskMerged.corrected), snapshotEpoch(authorizedState.corrected)).maxOrNull()
             val merged = authorizedState.copy(corrected = corrected?.toString())
             val compatibleFirstFull = old != null && old.route == null && route?.valid == true && (rideId ?: 0) > 0 && merged == old.state
-            if (!acknowledgement && ticket.sequence < lastOrder && !compatibleFirstFull) return@withLock SnapshotPersistence.STALE
+            val compatibleColdCode = coldSave && old != null && merged == old.state &&
+                actualRide == old.rideId && route == old.route &&
+                (old.ticketProcess != ticket.process || ticket.sequence >= old.payloadTicket)
+            if (!acknowledgement && ticket.sequence < lastOrder && !compatibleFirstFull && !compatibleColdCode) {
+                return@withLock SnapshotPersistence.STALE
+            }
             val pendingCandidate = disk.barrier(orderKey)
             if (pendingCandidate != null && (old == null || pendingCandidate != proof(old))) {
                 val previousEpoch = snapshotEpoch(old?.state?.maxOnboard)
@@ -279,7 +286,7 @@ internal class OfflineTripSnapshotRepository(
                 maxOf(ticket.sequence, lastOrder), if (full) ticket.sequence else old?.payloadTicket ?: 0)
             val barrier = owner.barrier("booking", bookingId)
             val blocked = disk.setBarrier(barrier, proof(next))
-            if (!valid(ticket) || !authority.canObserve(permit, ticket, bookingId, state, rideId, route)) return@withLock SnapshotPersistence.STALE
+            if (!valid(ticket) || !authorized()) return@withLock SnapshotPersistence.STALE
             records.put(bookingId.toString(), encode(next)); doc.put("version", Math.addExact(doc.getLong("version"), 1))
             if (!disk.write(owner.namespace, doc.toString())) {
                 if (!blocked) quarantined += owner.namespace
@@ -289,8 +296,8 @@ internal class OfflineTripSnapshotRepository(
                     else SnapshotPersistence.NOT_DURABLE
             }
             val cleared = disk.setBarrier(barrier, null); changed()
-            if (cleared) authority.snapshotCommitted(permit, proof(next))
-            if (!valid(ticket) || !authority.canObserve(permit, ticket, bookingId, state, rideId, route)) SnapshotPersistence.STALE
+            if (cleared) authority.snapshotCommitted(permit, proof(next), coldSave)
+            if (!valid(ticket) || !authorized()) SnapshotPersistence.STALE
             else if (!coldBarrierSaved) SnapshotPersistence.NOT_DURABLE
             else if (cleared && coldSave &&
                 !authority.markColdSaveObserved(permit, requireNotNull(coldSaveEpoch))) SnapshotPersistence.STALE
@@ -303,14 +310,14 @@ internal class OfflineTripSnapshotRepository(
     ): SnapshotPersistence = writer.withLock {
         val owner = permit.owner
         val bookingId = permit.bookingId
-        if (!valid(permit.ticket) || !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route) ||
+        if (!valid(permit.ticket) || !authority.canObserveColdCode(permit, permit.ticket, bookingId, state, rideId, route) ||
             permit.kind != SnapshotAuthorityKind.DETAILS || !barrier.matches(Regex("blocked:[0-9a-f]{64}"))) {
             return@withLock SnapshotPersistence.STALE
         }
         authority.revokeColdProjection(owner, bookingId)
         val saved = runCatching { disk.setBarrier(owner.barrier("cold-booking", bookingId), barrier) }.getOrDefault(false)
         changed()
-        if (!valid(permit.ticket) || !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route)) {
+        if (!valid(permit.ticket) || !authority.canObserveColdCode(permit, permit.ticket, bookingId, state, rideId, route)) {
             SnapshotPersistence.STALE
         } else if (saved) SnapshotPersistence.COMMITTED else SnapshotPersistence.NOT_DURABLE
     }
@@ -326,7 +333,7 @@ internal class OfflineTripSnapshotRepository(
         val owner = permit.owner
         val bookingId = permit.bookingId
         if (!valid(permit.ticket) || permit.kind != SnapshotAuthorityKind.DETAILS || permit.mutation ||
-            !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route) ||
+            !authority.canObserveColdCode(permit, permit.ticket, bookingId, state, rideId, route) ||
             !authority.coldSaveCommitCurrent(permit) ||
             detailsTicket.owner != owner || detailsTicket.process != permit.ticket.process ||
             detailsTicket.sequence >= permit.ticket.sequence || receipt.bookingId != bookingId ||
@@ -362,7 +369,7 @@ internal class OfflineTripSnapshotRepository(
                 changed()
                 return@withLock SnapshotPersistence.DURABLY_BLOCKED
             }
-            if (!valid(permit.ticket) || !authority.canObserve(permit, permit.ticket, bookingId, state, rideId, route)) {
+            if (!valid(permit.ticket) || !authority.canObserveColdCode(permit, permit.ticket, bookingId, state, rideId, route)) {
                 return@withLock SnapshotPersistence.STALE
             }
             var clearAttempted = false

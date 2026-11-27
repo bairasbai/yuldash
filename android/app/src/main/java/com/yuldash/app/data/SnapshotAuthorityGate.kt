@@ -110,7 +110,7 @@ internal class SnapshotAuthorityGate(private val activeOwner: AtomicReference<Sn
         val route = permit.inputRoute ?: return false
         val value = entries[Key(permit.owner, permit.bookingId)] ?: return false
         if (permit.kind != SnapshotAuthorityKind.DETAILS || permit.mutation || value.coldEpoch != epoch ||
-            !value.restoreBlocked || !canObserve(permit, permit.ticket, permit.bookingId, state, ride, route)) return false
+            !value.restoreBlocked || !canObserveColdCode(permit, permit.ticket, permit.bookingId, state, ride, route)) return false
         value.coldSave = SnapshotColdSaveToken(permit, epoch)
         return true
     }
@@ -130,11 +130,8 @@ internal class SnapshotAuthorityGate(private val activeOwner: AtomicReference<Sn
             grant.rideId == rideId && grant.detailsTicket.owner == owner &&
             grant.detailsTicket.process == permit.ticket.process && permit.ticket == grant.codeTicket &&
             permit.kind == SnapshotAuthorityKind.DETAILS && !permit.mutation && permit.fingerprint == grant.sourcePrivateFingerprint &&
-            canObserve(permit, permit.ticket, permit.bookingId, state, rideId, route) &&
-            !entry.closed && !entry.cacheBlocked && grant.snapshotCandidate !in entry.expiredCandidates &&
-            entry.privateDetails?.fingerprint?.let { it != grant.sourcePrivateFingerprint } != true &&
-            entry.lastRead <= grant.codeTicket.sequence && entry.lastSuccessfulCodeSequence == grant.codeTicket.sequence &&
-            (owner to rideId) !in closedRides
+            canObserveColdCode(permit, permit.ticket, permit.bookingId, state, rideId, route) &&
+            !entry.cacheBlocked && grant.snapshotCandidate !in entry.expiredCandidates
         if (!allowed || !clearBarrier()) return false
         entry.coldSave = null
         entry.restoreBlocked = false
@@ -196,10 +193,36 @@ internal class SnapshotAuthorityGate(private val activeOwner: AtomicReference<Sn
         return permit
     }
 
-    /** Only attachCode, after its accepted nonblank result, may advance this watermark. */
-    @Synchronized fun recordCodeSuccess(proof: SnapshotNetworkProof): Boolean {
+    /** A passive ROLE read can advance lastRead while the same private details await CODE. */
+    @Synchronized fun acceptPassengerCode(
+        proof: SnapshotNetworkProof, base: SnapshotAuthorityPermit, fingerprint: String,
+    ): SnapshotAuthorityPermit? {
+        val (request, value) = validated(proof) ?: return null
+        val input = base.input ?: return null
+        val ride = base.inputRide ?: return null
+        val order = request.ticket.sequence
+        if (request.kind != SnapshotAuthorityKind.DETAILS || value.closed || value.privateDetails !== base ||
+            input.role != "passenger" || value.state != base.state || value.rideId != ride ||
+            (proof.owner to ride) in closedRides || !validFingerprint(fingerprint) ||
+            order <= value.detailsRead || order <= value.lastSuccessfulCodeSequence) return null
+        val permit = SnapshotAuthorityPermit(request.kind, proof.owner, request.bookingId, request.ticket,
+            input, base.state, fingerprint, inputRide = ride, inputRoute = base.inputRoute)
+        revokeColdEntry(value)
+        if (order >= value.lastRead) {
+            value.lastRead = order
+            value.live = permit
+            value.write = permit
+        }
+        value.detailsRead = order
+        value.lastSuccessfulCodeSequence = order
+        value.privateDetails = permit
+        return permit
+    }
+
+    /** Records the successful code of the current driver projection. */
+    @Synchronized fun recordDriverCodeSuccess(proof: SnapshotNetworkProof): Boolean {
         val (request, value) = validated(proof) ?: return false
-        if (request.kind != SnapshotAuthorityKind.DETAILS || value.closed) return false
+        if (request.kind != SnapshotAuthorityKind.DETAILS || value.closed || value.state?.role != "driver") return false
         value.lastSuccessfulCodeSequence = maxOf(value.lastSuccessfulCodeSequence, request.ticket.sequence)
         return true
     }
@@ -287,11 +310,14 @@ internal class SnapshotAuthorityGate(private val activeOwner: AtomicReference<Sn
     /** Called only after confirmed disk/clear success, or a fresh full read of an unchanged committed candidate.
      * A sparse ROLE response, POST or old permit cannot unfreeze the saved projection.
      */
-    @Synchronized fun snapshotCommitted(permit: SnapshotAuthorityPermit?, candidate: String): Boolean {
+    @Synchronized fun snapshotCommitted(
+        permit: SnapshotAuthorityPermit?, candidate: String, coldSave: Boolean = false,
+    ): Boolean {
         if (permit == null || permit.kind != SnapshotAuthorityKind.DETAILS || permit.mutation ||
             permit.inputRoute?.valid != true || !current(permit.ticket)) return false
         val value = entries[Key(permit.owner, permit.bookingId)] ?: return false
-        if (value.closed || value.write !== permit || candidate in value.expiredCandidates ||
+        val writeCurrent = if (coldSave) isCurrentColdCode(value, permit) else value.write === permit
+        if (value.closed || !writeCurrent || candidate in value.expiredCandidates ||
             (value.rideId != null && (permit.owner to value.rideId!!) in closedRides)) return false
         value.cacheBlocked = false
         return true
@@ -340,6 +366,26 @@ internal class SnapshotAuthorityGate(private val activeOwner: AtomicReference<Sn
         val value = entries[Key(ticket.owner, bookingId)] ?: return false
         return !value.closed && value.write === permit && (value.rideId == null || (ticket.owner to value.rideId!!) !in closedRides)
     }
+    /** Cold persistence follows the accepted passenger CODE while compatible ROLE reads stay passive. */
+    @Synchronized fun canObserveColdCode(
+        permit: SnapshotAuthorityPermit?, ticket: SnapshotTicket, bookingId: Int, state: SnapshotState,
+        rideId: Int?, route: SnapshotRoute?,
+    ): Boolean {
+        if (permit == null || !current(ticket) || permit.owner != ticket.owner || permit.bookingId != bookingId ||
+            permit.ticket != ticket || permit.input != state || permit.inputRide != rideId || permit.inputRoute != route) return false
+        val value = entries[Key(ticket.owner, bookingId)] ?: return false
+        return isCurrentColdCode(value, permit)
+    }
+
+    private fun isCurrentColdCode(value: Entry, permit: SnapshotAuthorityPermit): Boolean {
+        val ride = permit.inputRide ?: return false
+        return !value.closed && permit.kind == SnapshotAuthorityKind.DETAILS && !permit.mutation &&
+            permit.input?.role == "passenger" && permit.inputRoute?.valid == true &&
+            value.privateDetails === permit && value.state == permit.state &&
+            value.rideId == ride && value.route == permit.inputRoute &&
+            value.lastSuccessfulCodeSequence == permit.ticket.sequence && (permit.owner to ride) !in closedRides
+    }
+
     @Synchronized fun allowsSnapshot(
         owner: SnapshotOwner, bookingId: Int, state: SnapshotEpochState, rideId: Int?, route: SnapshotRoute? = null,
     ): Boolean {

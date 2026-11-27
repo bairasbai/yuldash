@@ -403,20 +403,19 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
             if (expected.driverCodeBlocked || proof.request.ticket.sequence < expected.proof.request.ticket.sequence) return false
             val previous = driverCodes[expected.details.bookingId]
             if (previous != null && previous.projection === expected && previous.proof.request.ticket.sequence > proof.request.ticket.sequence) return false
-            if (!gate.recordCodeSuccess(proof)) return false
+            if (!gate.recordDriverCodeSuccess(proof)) return false
             driverCodes[expected.details.bookingId] = DriverBoardingCodeProjection(expected, code, proof)
             changed()
             return true
         }
         if (expected.details.role != "passenger") return false
         val pass = expected.pass.copy(boardingCode = code)
-        val state = expected.permit?.input ?: return false
-        val permit = gate.acceptRead(proof, state, expected.permit.inputRide, expected.permit.inputRoute, true,
-            privateTripFingerprint(expected.details, pass)) ?: return false
-        if (!gate.canObserve(permit, permit.ticket, pass.bookingId, state, permit.inputRide, permit.inputRoute)) return false
-        if (!gate.recordCodeSuccess(proof)) return false
+        val base = expected.permit ?: return false
+        val permit = gate.acceptPassengerCode(proof, base, privateTripFingerprint(expected.details, pass)) ?: return false
         details[pass.bookingId] = expected.copy(pass = pass, permit = permit, codeProof = proof)
-        live[pass.bookingId] = Live(permit, expected.stamp)
+        if (permit.ticket.sequence >= (live[pass.bookingId]?.permit?.ticket?.sequence ?: 0L)) {
+            live[pass.bookingId] = Live(permit, expected.stamp)
+        }
         changed(); return true
     }
     suspend fun acknowledge(request: SnapshotMutationTicket?, role: String, result: BoardingResult) {

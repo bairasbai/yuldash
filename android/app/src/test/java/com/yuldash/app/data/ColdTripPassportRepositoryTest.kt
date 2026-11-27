@@ -31,12 +31,10 @@ class ColdTripPassportRepositoryTest {
     private fun prepare(f: SnapshotCoreFixture, marker: String): Prepared {
         val fingerprint = snapshotHash("current-private-projection:$marker")
         val details = f.gate.beginRead(11, SnapshotAuthorityKind.DETAILS)!!
-        assertNotNull(f.gate.acceptRead(f.proof(details), SnapshotCoreFixture.ONBOARD,
+        val base = requireNotNull(f.gate.acceptRead(f.proof(details), SnapshotCoreFixture.ONBOARD,
             22, SnapshotCoreFixture.ROUTE, contactUnlocked = true, privateFingerprint = fingerprint))
         val code = f.gate.beginRead(11, SnapshotAuthorityKind.DETAILS)!!
-        val permit = f.gate.acceptRead(f.proof(code), SnapshotCoreFixture.ONBOARD,
-            22, SnapshotCoreFixture.ROUTE, contactUnlocked = true, privateFingerprint = fingerprint)!!
-        assertTrue(f.gate.recordCodeSuccess(f.proof(code)))
+        val permit = requireNotNull(f.gate.acceptPassengerCode(f.proof(code), base, fingerprint))
         val pass = pass(marker)
         return Prepared(permit, details.ticket,
             TripPassCommitReceipt(11, fingerprint, candidate(pass).payloadSha256), pass)
@@ -189,6 +187,32 @@ class ColdTripPassportRepositoryTest {
         val restore = SnapshotColdRestoreTicket(f.gate.ticket()!!, 11, epoch)
         assertFalse(f.gate.restoreCold(restore, saved))
         assertNull(f.repo.loadCold(f.owner, 11, candidate(prepared.pass), restore))
+    }
+
+    @Test fun rolePollBeforeGrantKeepsCurrentCodeButNewDetailsRevokeIt() = runBlocking {
+        for (replaced in listOf(false, true)) {
+            val f = fixture()
+            val prepared = prepare(f, "before-grant")
+            val permit = prepared.permit
+            val state = SnapshotCoreFixture.ONBOARD
+            val route = SnapshotCoreFixture.ROUTE
+            assertEquals(SnapshotPersistence.COMMITTED, f.repo.beginColdSave(permit, state, 22, route,
+                "blocked:" + snapshotHash("before-grant")))
+            assertEquals(SnapshotPersistence.COMMITTED, f.repo.observe(permit.ticket, 11,
+                state, 22, route, permit = permit, coldSave = true))
+            val role = requireNotNull(f.gate.beginRead(11, SnapshotAuthorityKind.ROLE))
+            val polled = requireNotNull(f.gate.acceptRead(f.proof(role), state))
+            assertEquals(SnapshotPersistence.UNCHANGED, f.repo.observe(role.ticket, 11, state, permit = polled))
+            if (replaced) {
+                val details = requireNotNull(f.gate.beginRead(11, SnapshotAuthorityKind.DETAILS))
+                assertNotNull(f.gate.acceptRead(f.proof(details), state, 22, route,
+                    contactUnlocked = true, privateFingerprint = permit.fingerprint))
+            }
+            val committed = f.repo.commitColdGrant(permit, prepared.detailsTicket, prepared.receipt, state, 22, route)
+            assertEquals(if (replaced) SnapshotPersistence.STALE else SnapshotPersistence.COMMITTED, committed)
+            val reopened = load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass)
+            assertEquals(!replaced, reopened != null)
+        }
     }
 
     @Test fun revokeBetweenObserveAndGrantLastStaysDeniedAfterReopen() = runBlocking {
