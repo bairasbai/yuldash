@@ -397,6 +397,20 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
     }
 
+    @Test fun compatibleRolePollBetweenCodeAndSaveKeepsColdGrant() = runBlocking {
+        OfflineTripSnapshots.init(context)
+        val first = ApiClient.getTripState(11).getOrThrow()
+        ApiClient.getBookingDetails(11).getOrThrow()
+        assertEquals("4821", ApiClient.getBoardingCode(11).getOrThrow())
+        val pass = requireNotNull(OfflineTripSnapshots.privatePass(11))
+        val second = ApiClient.getTripState(11).getOrThrow()
+        assertEquals(first, second)
+        assertEquals("4821", OfflineTripSnapshots.currentBoardingCode(11))
+        assertEquals(SnapshotPersistence.COMMITTED, OfflineTripSnapshots.saveColdPassport(context, pass))
+        reopenCold()
+        assertEquals("4821", OfflineTripSnapshots.loadColdPassport(owner(), 11)?.pass?.boardingCode)
+    }
+
     @Test fun newDetailsBlankPrivatePostAndRemovalRevokeDurably() = runBlocking {
         saveCold()
         ApiClient.getBookingDetails(11).getOrThrow()

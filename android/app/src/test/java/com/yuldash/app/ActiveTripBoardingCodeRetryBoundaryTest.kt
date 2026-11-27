@@ -59,6 +59,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     private lateinit var server: MockWebServer
     @Volatile private var tripStatus = "confirmed"
     @Volatile private var lateStatus = 200
+    @Volatile private var allowAutomaticCodeRecovery = true
     private var ended = 0
     private var backed = 0
 
@@ -74,7 +75,9 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
                     requests += "${request.method} ${request.path}" to request.getHeader("Authorization")
                     if (request.path == "/bookings/42/boarding-code") {
                         val index = codeCalls.incrementAndGet()
-                        if (index == 1) return MockResponse().setResponseCode(503).setBody("{}")
+                        if (index == 1 || (index > 2 && !allowAutomaticCodeRecovery)) {
+                            return MockResponse().setResponseCode(503).setBody("{}")
+                        }
                         held.countDown()
                         if (!release.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                         returned.countDown()
@@ -186,9 +189,15 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         assertEquals(1, requests.count { it.first == "GET /bookings/42/messages" })
         assertFalse(requests.any { it.first.startsWith("POST /bookings/") })
     }
-    private fun successfulRetry(language: AppLanguage, rapid: Boolean = false) {
+    private fun successfulRetry(language: AppLanguage, rapid: Boolean = false, pollWhileHeld: Boolean = false) {
+        allowAutomaticCodeRecovery = !pollWhileHeld
         startHeldRetry(language, rapid)
         val sibling = disk(99)
+        if (pollWhileHeld) runBlocking {
+            val polled = ApiClient.getTripState(42).getOrThrow()
+            assertEquals("confirmed", polled.status)
+            assertEquals("passenger", polled.role)
+        }
         release.countDown()
         waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
         // Диск и экран — разные события: ждём и сам код на экране, а не только запись на диск.
@@ -206,6 +215,9 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     @Test fun heldRetryKeepsOldDiskCodeUntilSuccessRu() = successfulRetry(AppLanguage.Ru)
     @Test fun heldRetryKeepsOldDiskCodeUntilSuccessBa() = successfulRetry(AppLanguage.Ba)
     @Test fun twoRapidPointerTapsProduceOneCodeRetry() = successfulRetry(AppLanguage.Ru, rapid = true)
+
+    @Test fun compatibleRolePollWhileCodeIsPendingStillSavesNewCode() =
+        successfulRetry(AppLanguage.Ru, pollWhileHeld = true)
 
     @Test fun lateSuccessfulRetryCannotReplaceNewAccountSnapshot() = switchAccount(200)
     @Test fun lateRejectedRetryCannotOfferOldScreenAnotherRequestAsNewAccount() = switchAccount(503)
