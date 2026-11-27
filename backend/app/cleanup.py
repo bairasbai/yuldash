@@ -813,33 +813,32 @@ def close_stale_parcels(now=None) -> int:
 # Теперь начисляем — но по обычному пути (debt.accrue_for_order, идемпотентно), и спорный
 # случай админ по-прежнему закрывает списанием: POST /admin/debts/{id}/forgive.
 def _accrue_auto_done(order_ids: list[int]) -> None:
-    """Комиссия за поездки, которые закрыл автомат. Ошибку глотаем: чистка важнее начисления,
-    а пропущенное начисление подберёт следующий прогон (accrue_for_order идемпотентен)."""
+    """Начислить комиссию по авто-закрытым заказам; сбой одного не блокирует остальные."""
     if not order_ids:
         return
-    try:
-        from sqlmodel import Session
+    from sqlmodel import Session
 
-        from . import debt as debt_mod
-        from .models import InstantOrder
-        n = 0
-        with Session(engine) as session:
-            for oid in order_ids:
+    from . import debt as debt_mod
+    from .models import InstantOrder
+
+    n = 0
+    for oid in order_ids:
+        try:
+            # Отдельная сессия: ошибка flush/commit не отравляет следующий заказ.
+            with Session(engine) as session:
                 order = session.get(InstantOrder, oid)
                 if order is None:
                     continue
-                # pay_now_allowed=False: поездку закрыл автомат ночью. Короткий срок оплаты
-                # тут был бы ловушкой — водитель спит, пуша не видел, а к утру уже в блоке.
+                # Водитель мог не видеть ночное завершение — не включаем срочную оплату.
                 d = debt_mod.accrue_for_order(session, order, pay_now_allowed=False)
                 if d is not None and not d.note:
-                    # След для админа: по этой поездке водитель «Завершил» не нажимал.
                     d.note = "Поездку закрыл автомат (водитель не нажал «Завершил»)"
                     session.add(d)
                     session.commit()
                     n += 1
-        print(f"  комиссия за авто-закрытые заказы: начислено {n}")
-    except Exception as ex:  # noqa: BLE001 — чистка важнее начисления
-        print(f"  комиссия за авто-закрытые заказы: ОШИБКА {type(ex).__name__}: {ex}")
+        except Exception as ex:  # noqa: BLE001 — не мешаем другим заказам в пачке
+            print(f"  комиссия за авто-закрытый заказ {oid}: ОШИБКА {type(ex).__name__}: {ex}")
+    print(f"  комиссия за авто-закрытые заказы: начислено {n}")
 
 
 def close_stale_orders(now=None) -> int:

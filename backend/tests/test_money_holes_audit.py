@@ -159,6 +159,32 @@ def test_авто_закрытие_не_задваивает_комиссию(cl
     assert len(rows) == 1
 
 
+def test_auto_completion_accrual_failure_does_not_drop_other_orders(client, user_factory, monkeypatch):
+    """Если на одном заказе начисление упало, следующий всё равно закрывается с комиссией."""
+    from app import debt
+
+    old = utcnow() - timedelta(hours=settings.taxi_stale_hours + 1)
+    for i in range(2):
+        d = user_factory(f"BatchAutoDriver{i}", role=UserRole.driver)
+        p = user_factory(f"BatchAutoPassenger{i}")
+        _order(p["id"], d["id"], status=S.onboard, price=400, created_at=old)
+    real = debt.accrue_for_order
+    calls = []
+
+    def fail_first(session, order, *, pay_now_allowed):
+        assert pay_now_allowed is False
+        calls.append(order.id)
+        if len(calls) == 1:
+            raise RuntimeError("first accrual unavailable")
+        return real(session, order, pay_now_allowed=pay_now_allowed)
+
+    monkeypatch.setattr(debt, "accrue_for_order", fail_first)
+    assert cleanup.close_stale_orders() == 2
+    assert len(calls) == 2
+    assert _debt_row(calls[0]) is None
+    assert _debt_row(calls[1]).amount_kop == 1200
+
+
 def test_отменённая_авто_закрытием_поездка_комиссию_не_берёт(client, user_factory):
     """accepted/arriving закрываются как cancelled — человек не сел в машину, поездки не было.
     Тут комиссии быть НЕ должно, иначе водитель платит за несостоявшийся заказ."""
