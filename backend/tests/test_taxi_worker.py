@@ -11,7 +11,6 @@
 from datetime import timedelta
 
 import pytest
-import pytest
 from sqlalchemy import delete
 from sqlmodel import Session, select
 
@@ -189,6 +188,37 @@ def test_preorder_search_resumes_after_commit_without_repricing(
     assert offers == [(oid, driver["id"])]
 
 
+def test_preorder_recovery_ignores_unsaved_offer_but_not_committed_offer(
+    client, user_factory, fake_redis, monkeypatch,
+):
+    pax = user_factory("SchedTriedPax")
+    driver = _driver_online(client, user_factory, "SchedTriedDriver")
+    _heartbeat(client, driver, ORIG)
+    now = utcnow()
+    started = now - timedelta(minutes=5)
+    oid = _order(pax["id"], status=S.searching, scheduled_at=started, searching_at=started,
+                 from_lat=ORIG[0], from_lng=ORIG[1], price_estimate=420)
+    # Остаток прерванной попытки: Redis записан, SQL-оффера ещё нет.
+    key = tw.isv._tried_key(oid)
+    fake_redis.sadd(key, driver["id"], driver["id"] + 1000000)
+    pushed = []
+
+    def capture_offer(_session, order, did):
+        if order.id == oid:
+            pushed.append(did)
+
+    monkeypatch.setattr(tw.isv, "_push_offer", capture_offer)
+    with Session(engine) as s:
+        assert oid in tw.activate_due_scheduled(s)
+        assert oid not in tw.activate_due_scheduled(s)
+        order = s.get(M.InstantOrder, oid, populate_existing=True)
+        assert (order.status, order.current_offer_driver_id, order.search_round) == (S.offered, driver["id"], 1)
+        assert order.price_estimate == 420
+        assert tw.isv._tried_set(fake_redis, oid) == {driver["id"]}
+        assert tw.isv.advance_after_no_accept(s, order, notify=False).status == S.expired
+    assert pushed == [driver["id"]]
+
+
 @pytest.mark.parametrize("new_status", [S.cancelled, S.offered])
 def test_preorder_recovery_rechecks_status_after_selecting_id(client, user_factory, monkeypatch, new_status):
     pax = user_factory("SchedResumeStale")
@@ -209,7 +239,7 @@ def test_preorder_recovery_rechecks_status_after_selecting_id(client, user_facto
             session.commit()
         return finish(session, order_id, stamp, **kwargs)
 
-    def unexpected_match(_session, order, *_args):
+    def unexpected_match(_session, order, *_args, **_kwargs):
         if order.id == oid:
             pytest.fail("recovery must not run matching after cancellation or a newer offer")
         return order

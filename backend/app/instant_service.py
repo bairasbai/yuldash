@@ -3097,7 +3097,8 @@ def cancel_for_suspended_passenger(session: Session, order: InstantOrder) -> Ins
     return cancelled
 
 
-def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
+def try_offer_next(session: Session, order: InstantOrder, notify: bool = True, *,
+                   first_scheduled_search: bool = False) -> InstantOrder:
     """Найти следующего кандидата и отправить ему оффер. Никого/лимит → expired."""
     stopped = cancel_for_suspended_passenger(session, order)
     if stopped is not None:
@@ -3107,7 +3108,15 @@ def try_offer_next(session: Session, order: InstantOrder, notify: bool = True) -
         return _expire_no_drivers(session, order, notify)
     if order.search_round >= settings.instant_max_offers:
         return _expire_no_drivers(session, order, notify)
-    cands = candidates(r, session, order, exclude=_tried_set(r, order.id))
+    if first_scheduled_search:
+        # Вызывающий держит блокировку и проверил отсутствие сохранённых офферов.
+        # Redis мог запомнить водителя до прерванного commit. Отбрасываем такой след,
+        # даже если Redis не подтвердил удаление. Последующие попытки не сбрасываем.
+        _cleanup_tried(order.id)
+        excluded = set()
+    else:
+        excluded = _tried_set(r, order.id)
+    cands = candidates(r, session, order, exclude=excluded)
     if not cands:
         return _expire_no_drivers(session, order, notify)
     did = cands[0]
@@ -3264,7 +3273,7 @@ def finish_scheduled_first_search(session: Session, order_id: int, started_at: d
     ).first()
     if order is None:
         return None  # Уже отменён, предложен или обработан другим исполнителем.
-    return try_offer_next(session, order, notify)
+    return try_offer_next(session, order, notify, first_scheduled_search=True)
 
 
 # Из каких статусов поиск можно (пере)запустить: свежесозданный заказ, предзаказ в момент

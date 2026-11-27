@@ -247,7 +247,7 @@ def test_two_preorders_for_one_passenger_only_start_one(client, user_factory, mo
                 "tariff_id": None, "surge_k": 1.0}
 
     monkeypatch.setattr(isv, "estimate", estimate_together)
-    monkeypatch.setattr(isv, "try_offer_next", lambda _session, order, *_: order)
+    monkeypatch.setattr(isv, "try_offer_next", lambda _session, order, *_, **_kwargs: order)
 
     def start(order_id):
         with Session(engine) as session:
