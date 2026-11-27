@@ -668,6 +668,11 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
     return [isv.order_payload(session, o, user) for o in rows]
 
 
+def _driver_offer_line_online(session: Session, user_id: int) -> bool:
+    # Use the database flag, not a presence TTL: voluntary sign-off is immediate.
+    return session.exec(select(DriverProfile.online).where(DriverProfile.user_id == user_id)).first() is True
+
+
 def _driver_offer_block_reason(session: Session, user: User, *, refresh_safety: bool = True) -> str | None:
     if not taxi_mod.is_approved_taxi_driver(session, user.id):
         return "not_approved"
@@ -711,7 +716,9 @@ def driver_offer_notification(
         return {"current": False}
     if _driver_offer_block_reason(session, user, refresh_safety=False) is not None:
         return {"current": False}
-    return {"current": taxi_mod.availability(session, current[2], current[3])["enabled"] and expiry > utcnow()}
+    if not taxi_mod.availability(session, current[2], current[3])["enabled"]:
+        return {"current": False}
+    return {"current": _driver_offer_line_online(session, user.id) and expiry > utcnow()}
 
 
 @router.get("/instant/driver/offer")
@@ -728,6 +735,8 @@ def driver_offer(user: User = Depends(current_user), session: Session = Depends(
     blocked = _driver_offer_block_reason(session, user)
     if blocked is not None:
         return {"offer": None, "blocked": blocked}
+    if not _driver_offer_line_online(session, user.id):
+        return {"offer": None}
     order = session.exec(
         select(InstantOrder).where(
             InstantOrder.current_offer_driver_id == user.id,

@@ -5,7 +5,7 @@ import pytest
 from sqlmodel import Session
 
 from app.db import engine
-from app.models import InstantOrder, InstantOrderStatus as S, UserRole
+from app.models import DriverProfile, InstantOrder, InstantOrderStatus as S, UserRole
 from app.routers import instant
 
 PATH = "/instant/driver/offer-notification/v1"
@@ -24,6 +24,7 @@ def offers(monkeypatch, user_factory):
         order = InstantOrder(passenger_id=user["id"], current_offer_driver_id=driver["id"],
                              status=S.offered, offer_expires_at=DEADLINE)
         session.add(order)
+        session.add(DriverProfile(user_id=driver["id"], online=True))
         session.commit()
         order_id = order.id
     return order_id, user, driver, other
@@ -99,6 +100,22 @@ def test_push_confirmation_respects_live_driver_offer_gates(client, offers, monk
     else:
         monkeypatch.setattr(instant.taxi_mod, "availability", lambda *_: {"enabled": False})
     assert check(client, order_id, driver["auth"]) == {"current": False}
+    with Session(engine) as session:
+        order = session.get(InstantOrder, order_id)
+        assert (order.status, order.current_offer_driver_id, order.offer_expires_at) == (S.offered, driver["id"], DEADLINE)
+
+
+def test_voluntary_offline_hides_an_issued_offer_without_mutating_the_order(client, offers):
+    order_id, _, driver, _ = offers
+    assert check(client, order_id, driver["auth"]) == {"current": True}
+    offline = client.post("/driver/online", headers=driver["auth"], json={"online": False})
+    assert offline.status_code == 200 and offline.json()["online"] is False
+    heartbeat = client.post("/instant/presence", headers=driver["auth"],
+                            json={"lat": 54.7388, "lng": 55.9721})
+    assert heartbeat.status_code == 409
+    assert check(client, order_id, driver["auth"]) == {"current": False}
+    poll = client.get("/instant/driver/offer", headers=driver["auth"])
+    assert poll.status_code == 200 and poll.json()["offer"] is None
     with Session(engine) as session:
         order = session.get(InstantOrder, order_id)
         assert (order.status, order.current_offer_driver_id, order.offer_expires_at) == (S.offered, driver["id"], DEADLINE)
