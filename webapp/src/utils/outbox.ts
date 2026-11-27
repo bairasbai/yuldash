@@ -3,7 +3,10 @@ import { sendMessageRest, type ChatMessage } from "../api/chat";
 import { fetchTripState } from "../api/bookings";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
 import { fetchBookingShares } from "../api/family";
-import { bookingCommandOwner, isCurrentBookingOwner, type BookingCommandOwner } from "./bookingCommandStore";
+import {
+  bookingCommandOwner, forgetLegacyPassengerGeneration, isCurrentBookingOwner,
+  readLegacyPassengerGenerations, rememberLegacyPassengerGeneration, type BookingCommandOwner,
+} from "./bookingCommandStore";
 import { clearActions, insertAction, listActions, listLegacyPassengerTripStatusActions,
   preservePassengerTripStatusActions, removeAction } from "./outboxStore";
 
@@ -128,7 +131,6 @@ export async function clearOutbox(): Promise<void> {
   const generation = getSessionGeneration();
   clearVersion++; readVersion++; snapshot = []; snapshotSession = generation; notify();
   refusals = []; notifyRefusals();
-  try { localStorage.removeItem("yuldash.outbox"); } catch { /* Вход не зависит от localStorage cleanup. */ }
   await clearActions(generation);
   changed();
 }
@@ -157,8 +159,14 @@ export async function preserveLegacyTripStatuses(owner: BookingCommandOwner, sig
   const cleared = clearVersion;
   const active = () => isCurrentBookingOwner(owner) && !signal?.aborted && cleared === clearVersion;
   if (!active()) return;
-  const moved = await preservePassengerTripStatusActions(owner.generation, owner.namespace, active);
-  if (moved && active()) changed();
+  try {
+    const moved = await preservePassengerTripStatusActions(owner.generation, owner.namespace, active);
+    if (moved && active()) changed();
+  } catch (error) {
+    // Keep the verified owner binding when the move aborts. The original action stays in the outbox.
+    if (active()) await rememberLegacyPassengerGeneration(owner);
+    throw error;
+  }
 }
 
 export async function preserveTripStatusesForUser(user: { id: number; created_at?: string } | null,
@@ -169,8 +177,14 @@ export async function preserveTripStatusesForUser(user: { id: number; created_at
 
 export async function legacyTripStatuses(owner: BookingCommandOwner, bookingId: number, signal: AbortSignal) {
   await preserveLegacyTripStatuses(owner, signal);
-  signal.throwIfAborted();
-  const rows = await listLegacyPassengerTripStatusActions(owner.namespace, () => isCurrentBookingOwner(owner) && !signal.aborted);
+  const active = () => isCurrentBookingOwner(owner) && !signal.aborted;
+  for (const generation of await readLegacyPassengerGenerations(owner)) {
+    const moved = await preservePassengerTripStatusActions(generation, owner.namespace, active);
+    if (!active()) throw new Error("Queue session changed");
+    await forgetLegacyPassengerGeneration(owner, generation);
+    if (moved && active()) changed();
+  }
+  const rows = await listLegacyPassengerTripStatusActions(owner.namespace, active);
   return rows.filter(row => row.bookingId === bookingId);
 }
 

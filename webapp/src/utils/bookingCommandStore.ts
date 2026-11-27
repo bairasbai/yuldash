@@ -395,6 +395,35 @@ export function releaseCardConfirmation(owner: BookingCommandOwner, command: Sav
   });
 }
 
+function legacyPassengerGenerationTransaction<T>(
+  owner: BookingCommandOwner, edit: (rows: string[]) => Edit<T, string>, requireCurrent = true,
+) {
+  return transaction(owner, edit, requireCurrent, JSON.stringify(["legacy-passenger-generations", owner.namespace]));
+}
+
+export function readLegacyPassengerGenerations(owner: BookingCommandOwner) {
+  return legacyPassengerGenerationTransaction(owner, rows => ({ result: rows }));
+}
+
+export function rememberLegacyPassengerGeneration(owner: BookingCommandOwner) {
+  return legacyPassengerGenerationTransaction(owner, rows => ({
+    result: undefined, updated: rows.includes(owner.generation) ? undefined : [...rows, owner.generation],
+  }));
+}
+
+export function forgetLegacyPassengerGeneration(owner: BookingCommandOwner, generation: string) {
+  return legacyPassengerGenerationTransaction(owner, rows => {
+    const remaining = rows.filter(row => row !== generation);
+    return { result: undefined, updated: remaining.length > 0 ? remaining : null };
+  });
+}
+
+async function purgeLegacyPassengerStatuses(owner: BookingCommandOwner) {
+  const generations = await legacyPassengerGenerationTransaction(owner, rows => ({ result: rows }), false);
+  await purgePassengerTripStatusActions([...generations, owner.generation], owner.namespace);
+  await legacyPassengerGenerationTransaction(owner, () => ({ result: undefined, updated: null }), false);
+}
+
 /** Call only after deleting the account and publishing the logged-out generation. */
 export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<void> {
   await Promise.all([
@@ -403,7 +432,7 @@ export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<
     driverDecisionTransaction(owner, () => ({ result: undefined, updated: null }), false),
     driverStages.purge(owner),
     passengerTripStatuses.purge(owner),
-    purgePassengerTripStatusActions(owner.generation, owner.namespace),
+    purgeLegacyPassengerStatuses(owner),
     cardConfirmationTransaction(owner, () => ({ result: undefined, updated: null }), false),
   ]);
 }

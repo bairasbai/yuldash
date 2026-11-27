@@ -3,6 +3,7 @@ import { getSessionGeneration } from "../api/client";
 import type { OutboxAction } from "./outbox";
 
 const DATABASE = "yuldash-outbox-v1";
+const LEGACY_KEY = "yuldash.outbox";
 let connection: Promise<IDBDatabase> | null = null;
 
 function open(): Promise<IDBDatabase> {
@@ -34,7 +35,7 @@ async function legacy(generation: string): Promise<Map<string, { action: OutboxA
   const groups = new Map<string, { action: OutboxAction; fingerprint: string; position: number }[]>();
   let rows: OutboxAction[];
   try {
-    const parsed: unknown = JSON.parse(storageOperation(() => localStorage.getItem("yuldash.outbox")) ?? "[]");
+    const parsed: unknown = JSON.parse(storageOperation(() => localStorage.getItem(LEGACY_KEY)) ?? "[]");
     if (!Array.isArray(parsed)) return groups;
     rows = parsed.filter((a): a is OutboxAction => a != null && a.session === generation &&
       (typeof a.id === "string" || typeof a.id === "number") && Number.isFinite(a.bookingId) &&
@@ -130,9 +131,19 @@ export function removeAction(action: OutboxAction, active: () => boolean): Promi
 }
 const legacyPassengerSession = (namespace: string) => JSON.stringify(["legacy-trip-status", namespace]);
 
+function pruneLegacyOutbox(keep: (row: OutboxAction) => boolean) {
+  const raw = localStorage.getItem(LEGACY_KEY);
+  if (raw === null) return;
+  let parsed: unknown;
+  try { parsed = JSON.parse(raw); } catch { /* Invalid snapshots cannot be imported. */ }
+  const rows: OutboxAction[] = Array.isArray(parsed) ? parsed.filter(row => row && keep(row)) : [];
+  if (rows.length === 0) localStorage.removeItem(LEGACY_KEY);
+  else if (!Array.isArray(parsed) || rows.length !== parsed.length) localStorage.setItem(LEGACY_KEY, JSON.stringify(rows));
+}
+
 /** Move previously unkeyed attempts inside the same transaction and keep them out of flush. */
-export function preservePassengerTripStatusActions(generation: string, namespace: string, active: () => boolean) {
-  return transaction<boolean>(generation, active, (actions, done) => {
+export async function preservePassengerTripStatusActions(generation: string, namespace: string, active: () => boolean) {
+  const moved = await transaction<boolean>(generation, active, (actions, done) => {
     const request = actions.index("session").openCursor(generation);
     let moved = false;
     request.onsuccess = () => {
@@ -147,20 +158,23 @@ export function preservePassengerTripStatusActions(generation: string, namespace
       cursor.continue();
     };
   });
+  if (active()) pruneLegacyOutbox(row => row.kind !== "trip_status" || row.session !== generation);
+  return moved;
 }
 
 export function listLegacyPassengerTripStatusActions(namespace: string, active: () => boolean) {
   return listActions(legacyPassengerSession(namespace), active);
 }
 
-export async function purgePassengerTripStatusActions(generation: string, namespace: string): Promise<void> {
+export async function purgePassengerTripStatusActions(generations: string[], namespace: string): Promise<void> {
+  const sessions = new Set([...generations, legacyPassengerSession(namespace)]);
   const db = await open();
-  return new Promise<void>((resolve, reject) => {
+  await new Promise<void>((resolve, reject) => {
     const tx = db.transaction("actions", "readwrite");
     tx.oncomplete = () => resolve();
     tx.onabort = () => reject(tx.error ?? new Error("Passenger trip status cleanup aborted"));
     const index = tx.objectStore("actions").index("session");
-    for (const session of [generation, legacyPassengerSession(namespace)]) {
+    for (const session of sessions) {
       const request = index.openCursor(session);
       request.onsuccess = () => {
         const cursor = request.result;
@@ -170,9 +184,15 @@ export async function purgePassengerTripStatusActions(generation: string, namesp
       };
     }
   });
+  pruneLegacyOutbox(row => row.kind !== "trip_status" || !sessions.has(row.session));
 }
 
 export async function clearActions(generation: string): Promise<void> {
+  try {
+    pruneLegacyOutbox(row => row.kind === "trip_status" && (row.payload === "arrived" || row.payload === "done") &&
+      typeof row.session === "string" && (typeof row.id === "string" || typeof row.id === "number") &&
+      Number.isSafeInteger(row.bookingId) && Number.isFinite(row.createdAt));
+  } catch { /* Session cleanup in IndexedDB still runs when localStorage is unavailable. */ }
   const db = await open();
   return new Promise<void>((resolve, reject) => {
     const tx = db.transaction("actions", "readwrite"), actions = tx.objectStore("actions");

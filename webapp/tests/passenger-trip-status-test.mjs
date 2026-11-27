@@ -264,15 +264,20 @@ await t.test("legacy binding and logout survive a failure opening the separate c
   await api.clearOutbox();
   await api.setSession(token(7), "fixture-refresh-returned");
   const returned = api.bookingCommandOwner(profile, api.getSessionGeneration());
-  assert.equal((await api.legacyTripStatuses(returned, 21, signal()))[0].payload, "done");
+  await assert.rejects(api.passengerTripStatuses.read(returned), { name: "QuotaExceededError" });
   indexedDB.open = original;
+  assert.equal((await api.legacyTripStatuses(returned, 21, signal()))[0].payload, "done");
   await api.purgeBookingCommands(returned);
   assert.deepEqual(await api.legacyTripStatuses(returned, 21, signal()), []);
 });
 
-await t.test("a failed binding does not erase original entries during logout cleanup", async () => {
+await t.test("a failed binding of IndexedDB and legacy localStorage survives logout and is owned by the original account", async () => {
   const { api, owner } = await fresh();
   await api.enqueue(21, "trip_status", "arrived");
+  localStorage.setItem("yuldash.outbox", JSON.stringify([
+    { id: "old-done", session: "session-a", bookingId: 21, kind: "trip_status", payload: "done", createdAt: 100 },
+    { id: "old-chat", session: "session-a", bookingId: 21, kind: "message", payload: "private", createdAt: 101 },
+  ]));
   const original = IDBDatabase.prototype.transaction;
   IDBDatabase.prototype.transaction = function (...args) {
     const tx = original.apply(this, args);
@@ -287,9 +292,43 @@ await t.test("a failed binding does not erase original entries during logout cle
   await api.clearOutbox();
   const rows = await storedActions();
   assert.deepEqual(rows.map(action => [action.session, action.payload]), [["session-a", "arrived"]]);
+  assert.deepEqual(JSON.parse(localStorage.getItem("yuldash.outbox")).map(row => row.id), ["old-done"]);
   await api.setSession(token(8), "fixture-refresh-b");
   const other = api.bookingCommandOwner({ ...profile, id: 8 }, api.getSessionGeneration());
   assert.deepEqual(await api.legacyTripStatuses(other, 21, signal()), []);
+  await api.purgeBookingCommands(other);
+  await api.setSession(token(7), "fixture-refresh-returned");
+  const returned = api.bookingCommandOwner(profile, api.getSessionGeneration());
+  assert.deepEqual((await api.legacyTripStatuses(returned, 21, signal())).map(row => row.payload), ["arrived", "done"]);
+  assert.equal(localStorage.getItem("yuldash.outbox"), null);
+  await api.reconcileLegacyTripStatuses(returned, 21, signal(), true);
+  assert.deepEqual(await api.legacyTripStatuses(returned, 21, signal()), []);
+});
+
+await t.test("account deletion purges failed bindings from previous login generations", async () => {
+  const { api, owner } = await fresh();
+  await api.enqueue(21, "trip_status", "done");
+  localStorage.setItem("yuldash.outbox", JSON.stringify([
+    { id: "old-arrival", session: "session-a", bookingId: 21, kind: "trip_status", payload: "arrived", createdAt: 100 },
+  ]));
+  const original = IDBDatabase.prototype.transaction;
+  IDBDatabase.prototype.transaction = function (...args) {
+    const tx = original.apply(this, args);
+    if (this.name === "yuldash-outbox-v1" && Array.isArray(args[0])) queueMicrotask(() => tx.abort());
+    return tx;
+  };
+  try {
+    await assert.rejects(api.preserveLegacyTripStatuses(owner));
+  } finally {
+    IDBDatabase.prototype.transaction = original;
+  }
+  await api.clearOutbox();
+  await api.setSession(token(7), "fixture-refresh-returned");
+  const returned = api.bookingCommandOwner(profile, api.getSessionGeneration());
+  await api.setSession(null);
+  await api.purgeBookingCommands(returned);
+  assert.deepEqual(await storedActions(), []);
+  assert.equal(localStorage.getItem("yuldash.outbox"), null);
 });
 
 t.done();
