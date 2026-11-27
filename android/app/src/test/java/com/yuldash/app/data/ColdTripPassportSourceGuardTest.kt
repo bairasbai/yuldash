@@ -21,7 +21,7 @@ class ColdTripPassportSourceGuardTest {
         val files = sources()
         assertTrue("Cold source guard could not locate production data sources", files.size > 20)
         val callers = files.filter { file -> file.readLines().any { it.contains("TripPassStore.commitSecure(") } }
-        assertEquals(listOf("OfflineTripSnapshots.kt"), callers.map { it.name })
+        assertEquals(listOf("ColdTripPassportCoordinator.kt"), callers.map { it.name })
         val coordinator = callers.single().readText()
         val save = coordinator.substringAfter("suspend fun saveColdPassport(")
             .substringBefore("suspend fun loadColdPassport(")

@@ -215,3 +215,6 @@ internal data class SnapshotReadResult<T>(
     val acceptedRole: AcceptedRoleRead? = null,
 )
 internal enum class SnapshotPersistence { COMMITTED, UNCHANGED, DURABLY_BLOCKED, NOT_DURABLE, STALE }
+
+internal fun snapshotState(role: String, status: String, phase: String?, undo: BoardingUndoTerms): SnapshotState =
+    SnapshotState(role, status, phase, undo.onboardAt, undo.sourceOnboardAt, !undo.confirmedId.isNullOrBlank())

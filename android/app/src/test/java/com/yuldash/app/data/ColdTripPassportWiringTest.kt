@@ -1,8 +1,10 @@
 package com.yuldash.app.data
 
 import android.app.Application
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
@@ -14,6 +16,7 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
@@ -262,6 +265,36 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         assertFalse(OfflineTripSnapshots.canDrawCold(restored))
         reopenCold()
         assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+    }
+
+    @Test fun cancellationWhileWritingGrantStillReportsItsCommit() = runBlocking {
+        OfflineTripSnapshots.init(context)
+        ApiClient.getBookingDetails(11).getOrThrow()
+        ApiClient.getBoardingCode(11).getOrThrow()
+        val pass = requireNotNull(OfflineTripSnapshots.privatePass(11))
+        val namespace = owner().namespace
+        val grantWriteStarted = CompletableDeferred<Unit>()
+        val releaseGrantWrite = CountDownLatch(1)
+        secureFault.reject = { changes ->
+            if (changes[namespace]?.contains("\"cold_grant\"") == true) {
+                grantWriteStarted.complete(Unit)
+                !releaseGrantWrite.await(5, TimeUnit.SECONDS)
+            } else false
+        }
+        secureFault.armed = true
+        val save = launch { OfflineTripSnapshots.saveColdPassport(context, pass) }
+        try {
+            withTimeout(5000) { grantWriteStarted.await() }
+            save.cancel()
+        } finally {
+            releaseGrantWrite.countDown()
+        }
+        save.join()
+        assertTrue(save.isCancelled)
+        assertEquals(SnapshotPersistence.COMMITTED, OfflineTripSnapshots.persistence.value)
+        secureFault.armed = false
+        reopenCold()
+        assertNotNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
     }
 
     @Test fun warmBytesWithoutGrantRemainProcessOnly() = runBlocking {

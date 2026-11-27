@@ -302,8 +302,9 @@ internal class SnapshotAuthorityGate(private val activeOwner: AtomicReference<Sn
             closedRides += ticket.owner to id
             entries.filter { it.key.owner == ticket.owner && it.value.rideId == id }.values
         } else listOf(entry(ticket.owner, id))
-        values.forEach {
-            if (!it.closed) it.epoch++
+        // Reading the same terminal fact from disk must not invalidate its pending cleanup.
+        values.filterNot { it.closed }.forEach {
+            it.epoch++
             it.closed = true; it.live = null; it.privateDetails = null; it.write = null; revokeColdEntry(it)
         }
         return true

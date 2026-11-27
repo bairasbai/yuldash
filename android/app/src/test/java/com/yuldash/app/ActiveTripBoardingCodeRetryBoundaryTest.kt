@@ -44,6 +44,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     }
     private var plain = MemoryDiskPreferences()
     private var secure = MemoryDiskPreferences()
+    private lateinit var cryptoFixture: com.yuldash.app.data.JvmAndroidKeyStoreFixture
+    private lateinit var clockFixture: com.yuldash.app.data.OfflinePassportFixture03
     @Volatile private var preparingPass: TripPass? = null
     private val preparationRequests = CopyOnWriteArrayList<String>()
     private val tokenA = TripPassAuthorityFixture.jwt(7)
@@ -61,6 +63,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     private var backed = 0
 
     @Before fun prepare() {
+        cryptoFixture = com.yuldash.app.data.JvmAndroidKeyStoreFixture.install()
+        clockFixture = com.yuldash.app.data.OfflinePassportFixture03(context).also { it.prepareClock() }
         ApiClient.resetForTest()
         ApiClient.serverUnreachable.value = false
         server = MockWebServer().apply {
@@ -79,7 +83,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
                     val body = when (request.path) {
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/role" -> """{"role":"passenger","status":"$tripStatus","driver_phase":"departed"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"price":700,"pay_method":"cash","pay_amount":400}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","price":700,"pay_method":"cash","pay_amount":400}"""
                         "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","amount":400}"""
                         else -> "{}"
                     }
@@ -105,21 +109,26 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
 
     @After fun cleanup() {
         release.countDown()
-        compose.runOnIdle {
-            mounted.value = false
-            if (owner.registry.currentState.isAtLeast(Lifecycle.State.CREATED))
-                owner.registry.currentState = Lifecycle.State.DESTROYED
+        try {
+            compose.runOnIdle {
+                mounted.value = false
+                if (owner.registry.currentState.isAtLeast(Lifecycle.State.CREATED))
+                    owner.registry.currentState = Lifecycle.State.DESTROYED
+            }
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val logoutBearer = ApiClient.currentToken()?.let { "Bearer $it" }
+            ApiClient.logout()
+            if (logoutBearer != null) waitFor { requests.contains("POST /auth/logout" to logoutBearer) }
+            ApiClient.resetForTest()
+            ApiClient.testTrace = null
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            Outbox.initStores(MemoryDiskPreferences(), null)
+            if (::server.isInitialized) server.shutdown()
+        } finally {
+            if (::clockFixture.isInitialized) clockFixture.restoreClock()
+            if (::cryptoFixture.isInitialized) cryptoFixture.close()
         }
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        val logoutBearer = ApiClient.currentToken()?.let { "Bearer $it" }
-        ApiClient.logout()
-        if (logoutBearer != null) waitFor { requests.contains("POST /auth/logout" to logoutBearer) }
-        ApiClient.resetForTest()
-        ApiClient.testTrace = null
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
     }
 
     private fun pass(id: Int, code: String, method: String, amount: Int) = TripPass.fromJson(JSONObject()

@@ -219,6 +219,17 @@ class ColdTripPassportRepositoryTest {
         assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
     }
 
+    @Test fun rereadingClosedTripDoesNotInvalidateItsPassportCleanup() = runBlocking {
+        val f = fixture()
+        val prepared = save(f)
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.close(f.repo.ticket()!!, 11))
+
+        // The closed booking is loaded from disk during revokeCold.
+        val removal = f.gate.revokeCold(f.gate.ticket()!!, 11)!!
+        assertEquals(SnapshotPersistence.COMMITTED, f.repo.revokeCold(removal))
+        assertNull(load(SnapshotCoreFixture(f.disk, f.owner), prepared.pass))
+    }
+
     @Test fun everyColdTerminalAndScopeBarrierSuppressesRestore() = runBlocking {
         val barriers = listOf(
             Triple("cold-booking", 11, "blocked"), Triple("cold-ride", 22, "blocked"),

@@ -125,7 +125,7 @@ class SessionKeysGuardTest {
             "default_filters" to "через putStringSet — им сохраняются фильтры поиска (KEY в SecondaryScreens.kt)",
             "font_scale" to "через KEY в CanonTokens.kt — одноимённая константа из другого файла её не перекрывает",
             "trip_pass_deletions_v1" to "через KEY в TripPassDeletion.kt — метки удалённых паспортов поездок",
-            "queue" to "через commitOfflineString(…, KEY, …) в TripPass.kt — очередь неотправленных сообщений",
+            "queue" to "через commitOfflineString(…, KEY, …) в Outbox.kt — очередь неотправленных сообщений",
         )
         val blind = mustSee.filterKeys { it !in seen }
         assertTrue(
