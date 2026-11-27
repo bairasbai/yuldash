@@ -17,7 +17,7 @@ from ..config import settings as app_settings
 from ..db import get_session
 from ..errors import herr
 from ..middleware import user_over_limit
-from ..models import (CommissionDebt, DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
+from ..models import (DriverProfile, InstantOrder, InstantOrderStatus as S, PriceComplaint,
                       Rating, Settlement, User)
 from ..safety_logic import account_paused, ensure_active
 from ..security import current_user, require_telegram_admin
@@ -1386,22 +1386,10 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
     # в Модели А он платит водителю напрямую, наши 15% через него не проходят, и строка
     # «комиссия платформы 45 ₽» была бы неправдой о его собственных деньгах.
     if role == "driver":
-        fee_percent = debt_mod.driver_fee_percent(session, user.id, order.created_at or utcnow())
-        fee_kop = debt_mod.order_commission_kop(order, fee_percent)
+        fee_percent, fee_kop = debt_mod.driver_order_fee(session, order, user.id)
         gross_kop = max(int(order.price_final if order.price_final is not None
                             else order.price_estimate), 0) * 100
         commission_free_kop = isv.order_compensation_rub(order) * 100
-        if order.payment_method == "cash" and not order.promo_discount_kop:
-            # Ставку могут изменить после завершения. В историческом чеке показываем
-            # фактическое начисление, а не сегодняшнюю формулу. Промо и онлайн-оплата
-            # имеют отдельный расчёт (долг там не обязательно равен комиссии).
-            charged = session.exec(select(CommissionDebt).where(
-                CommissionDebt.order_id == order.id, CommissionDebt.driver_id == user.id,
-            )).first()
-            if charged is not None:
-                fee_kop = debt_mod.fee_charged_kop(charged)
-                base_kop = max(gross_kop - commission_free_kop, 0)
-                fee_percent = round(100 * fee_kop / base_kop, 2) if base_kop else 0.0
         body.update({
             "driver_fee_percent": fee_percent,
             "driver_fee_kop": fee_kop,

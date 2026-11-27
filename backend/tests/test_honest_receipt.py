@@ -130,6 +130,14 @@ def test_cash_taxi_journey_and_repeated_completion_preserve_the_charged_commissi
     repeated = client.post(f"{path}/done", headers=driver["auth"])
     assert repeated.status_code == 200
     assert repeated.json()["status"] == "done"
+    details = client.get(path, headers=driver["auth"])
+    history = client.get("/driver/taxi-rides", headers=driver["auth"])
+    assert details.status_code == history.status_code == 200
+    historic = next(ride for ride in history.json()["rides"] if ride["order_id"] == offer["id"])
+    assert historic["fee_kop"] == fee_kop
+    for view in (reply.json(), repeated.json(), details.json()):
+        assert view["driver_fee_kop"] == fee_kop
+        assert view["driver_net_kop"] == historic["net_kop"]
     passenger_receipt = client.get(f"{path}/receipt", headers=passenger["auth"])
     driver_receipt = client.get(f"{path}/receipt", headers=driver["auth"])
     assert passenger_receipt.status_code == driver_receipt.status_code == 200

@@ -3819,11 +3819,7 @@ def order_payload(session: Session, order: InstantOrder, viewer: User, *,
         from . import debt as debt_mod
         price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
         driver_gross_kop = max(price_rub, 0) * 100
-        # Фиксируем смысл upfront: ступень комиссии берём на момент создания заказа.
-        driver_fee_percent = debt_mod.driver_fee_percent(
-            session, viewer.id, order.created_at or utcnow()
-        )
-        driver_fee_kop = debt_mod.order_commission_kop(order, driver_fee_percent)
+        driver_fee_percent, driver_fee_kop = debt_mod.driver_order_fee(session, order, viewer.id)
         driver_net_kop = max(driver_gross_kop - driver_fee_kop, 0)
         # Оффер должен отвечать на главный вопрос водителя: сколько ехать ДО пассажира.
         # `pickup_km` в заказе относится к цене и мог быть рассчитан по другой ближайшей

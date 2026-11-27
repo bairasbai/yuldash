@@ -517,6 +517,22 @@ def order_commission_kop(order: InstantOrder, percent: Optional[float] = None) -
     return fee_kop_for(base_rub * 100, percent)
 
 
+def driver_order_fee(session: Session, order: InstantOrder, driver_id: int) -> tuple[float, int]:
+    """Ставка и сумма для заказа. Завершённый наличный заказ с начислением не переоцениваем."""
+    if (order.status == InstantOrderStatus.done and order.payment_method == "cash"
+            and not order.promo_discount_kop and order.driver_id == driver_id):
+        charged = session.exec(select(CommissionDebt).where(
+            CommissionDebt.order_id == order.id, CommissionDebt.driver_id == driver_id,
+        )).first()
+        if charged is not None:
+            fee_kop = fee_charged_kop(charged)
+            price_rub = int(order.price_final if order.price_final is not None else order.price_estimate)
+            base_kop = max(price_rub - comp_mod.compensation_rub(order), 0) * 100
+            return (round(100 * fee_kop / base_kop, 2) if base_kop else 0.0), fee_kop
+    percent = driver_fee_percent(session, driver_id, order.created_at or utcnow())
+    return percent, order_commission_kop(order, percent)
+
+
 def _clock_starts(now: datetime) -> datetime:
     """С какого момента считать часы на оплату: ночью — с утра, днём — прямо сейчас.
 
