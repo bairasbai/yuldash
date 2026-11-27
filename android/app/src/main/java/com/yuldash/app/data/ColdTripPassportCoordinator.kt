@@ -147,13 +147,16 @@ internal class ColdTripPassportCoordinator(
         return OfflineTripSnapshots.gate.allowsCold(value)
     }
 
-    suspend fun revokeColdDurably(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence {
-        if (!OfflineTripSnapshots.current(owner)) return SnapshotPersistence.STALE
+    private val revocations = Mutex()
+
+    suspend fun revokeColdDurably(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence = revocations.withLock {
+        // A migration retry and an explicit removal must not invalidate each other's durable attempt.
+        if (!OfflineTripSnapshots.current(owner)) return@withLock SnapshotPersistence.STALE
         val gate = OfflineTripSnapshots.gate
-        val ticket = gate.ticket()?.takeIf { it.owner == owner } ?: return SnapshotPersistence.STALE
-        val revocation = gate.revokeCold(ticket, bookingId) ?: return SnapshotPersistence.STALE
-        val store = repo(owner) ?: return SnapshotPersistence.NOT_DURABLE
-        return persistRevocation(revocation, store)
+        val ticket = gate.ticket()?.takeIf { it.owner == owner } ?: return@withLock SnapshotPersistence.STALE
+        val revocation = gate.revokeCold(ticket, bookingId) ?: return@withLock SnapshotPersistence.STALE
+        val store = repo(owner) ?: return@withLock SnapshotPersistence.NOT_DURABLE
+        persistRevocation(revocation, store)
     }
 
     fun retryRemovedPassports(bookingIds: Set<Int>) {

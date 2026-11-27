@@ -226,6 +226,12 @@ class ActiveTripInitialHistoryReadinessTest {
     private fun textExists(value: String) = compose.onAllNodesWithText(value).fetchSemanticsNodes().isNotEmpty().also {
         if (value == "Не удалось загрузить данные поездки") dataErrorLastObserved09 = it
     }
+    private fun assertDisplayedBoardingCode(code: String) {
+        waitFor { OfflineTripSnapshots.currentBoardingCode(42) == code }
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText(code))
+        compose.onNodeWithText(code).assertIsDisplayed()
+    }
+
     private fun pump(millis: Long) {
         repeat((millis / 100).toInt()) {
             compose.mainClock.advanceTimeBy(100)
@@ -400,7 +406,8 @@ class ActiveTripInitialHistoryReadinessTest {
         pump(300)
         assertEquals(0, historyCalls.get())
         authorityRelease.countDown()
-        waitFor { authenticated.count == 0L && textExists("1234") }
+        waitFor { authenticated.count == 0L }
+        assertDisplayedBoardingCode("1234")
         waitFor { historyCalls.get() >= 1 }
         assertEquals(1, historyCalls.get())
         openChat()
@@ -431,7 +438,7 @@ class ActiveTripInitialHistoryReadinessTest {
         val recoveryBoundary = requests.size
         codeValue = "5678"
         compose.onNodeWithText("Повторить загрузку данных").performScrollTo().assertIsEnabled().performClick()
-        waitFor { textExists("5678") }
+        assertDisplayedBoardingCode("5678")
         assertEquals(listOf("GET /bookings/42/details", "GET /bookings/42/boarding-code"),
             requests.drop(recoveryBoundary).filter { it in setOf("GET /bookings/42/details", "GET /bookings/42/boarding-code") })
         assertEquals("Recovery must not automatically repeat a started initial history", 1, historyCalls.get())
@@ -494,7 +501,7 @@ class ActiveTripInitialHistoryReadinessTest {
 
     @Test fun heldInitialCannotApplyAfterReplacementSessionOfSameUser() {
         val oldRead = warmHeldHistory("OLD_SESSION_42")
-        waitFor { textExists("1234") }
+        assertDisplayedBoardingCode("1234")
         val generation = ApiClient.queueSessionGeneration()
         ApiClient.logout()
         awaitReset()
@@ -513,7 +520,7 @@ class ActiveTripInitialHistoryReadinessTest {
 
     @Test fun heldInitialIsNotAdoptedByDisposedParentAndFreshParentReadsAgain() {
         val oldRead = warmHeldHistory("OLD_PARENT_42")
-        waitFor { textExists("1234") }
+        assertDisplayedBoardingCode("1234")
         compose.runOnIdle { mounted.value = false }
         compose.waitForIdle()
         historyRelease.countDown()

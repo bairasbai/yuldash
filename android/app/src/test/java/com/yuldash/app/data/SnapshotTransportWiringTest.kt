@@ -446,8 +446,12 @@ internal open class SnapshotWiringFixture {
     }
     protected fun armFault(kind: String) {
         val namespace = owner().namespace
+        val warmBarrier = owner().barrier("booking", 11)
         metaFault.reject = { changes -> changes[SNAPSHOT_BARRIERS_KEY]?.let { value ->
-            if (kind == "clear") JSONObject(value).length() == 0
+            if (kind == "clear") {
+                val durableBarriers = meta.restarted().getString(SNAPSHOT_BARRIERS_KEY, null)?.let(::JSONObject)
+                durableBarriers?.has(warmBarrier) == true && !JSONObject(value).has(warmBarrier)
+            }
             else kind in setOf("barrier", "both") && value.contains("closed")
         } == true }
         secureFault.reject = { changes -> kind in setOf("payload", "both") && changes[namespace]?.let {

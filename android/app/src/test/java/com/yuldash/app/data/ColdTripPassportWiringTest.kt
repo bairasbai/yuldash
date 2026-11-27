@@ -2,11 +2,13 @@ package com.yuldash.app.data
 
 import android.app.Application
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.withTimeout
 import okhttp3.mockwebserver.MockResponse
 import org.json.JSONObject
@@ -19,6 +21,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import java.util.concurrent.CountDownLatch
 import java.util.concurrent.FutureTask
+import java.util.concurrent.atomic.AtomicReference
 import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
@@ -481,6 +484,38 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         saveCold()
         reopenCold()
         assertNotNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+    }
+
+    @Test fun concurrentRemovalsDoNotSupersedeEachOtherBeforeDiskCommit() = runBlocking {
+        saveCold()
+        val current = owner()
+        val gate = OfflineTripSnapshots.gate
+        val store = OfflineTripSnapshotRepository(
+            SnapshotPreferencesDisk(meta, secure), AtomicReference(current), { clock }, gate,
+        )
+        val started = CompletableDeferred<SnapshotColdRevocation>()
+        val release = CompletableDeferred<Unit>()
+        val coordinator = ColdTripPassportCoordinator(
+            Mutex(), { context }, { 0 }, { store }, { null },
+            { false }, {}, this, {},
+        ) { request, repository ->
+            if (started.complete(request)) release.await()
+            repository.revokeCold(request)
+        }
+        val migrationRetry = async(start = CoroutineStart.UNDISPATCHED) {
+            coordinator.revokeColdDurably(current, 11)
+        }
+        val pending = withTimeout(5_000) { started.await() }
+        val manual = async(start = CoroutineStart.UNDISPATCHED) {
+            coordinator.revokeColdDurably(current, 11)
+        }
+        val firstStillOwnsAttempt = gate.coldCurrent(pending)
+        release.complete(Unit)
+        assertTrue(firstStillOwnsAttempt)
+        assertEquals(SnapshotPersistence.COMMITTED, migrationRetry.await())
+        assertEquals(SnapshotPersistence.COMMITTED, manual.await())
+        reopenCold()
+        assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
     }
 
     @Test fun startupRetriesDeferredRemovalOfBothStoredPassportParts() = runBlocking {
