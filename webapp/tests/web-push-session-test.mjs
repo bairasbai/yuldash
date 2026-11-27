@@ -268,12 +268,45 @@ await check("a late taxi offer hides private details and a live tap opens the dr
     assert.equal(stale.renotify, false);
     await sw.dispatch("notificationclick", { notification: stale });
   }
-  await sw.dispatch("push", { data: { json: () => ({ ...payload, offer_expires_at_ms: Date.now() + 20000 }) } });
+  await sw.dispatch("push", { data: { json: () => ({ ...payload, offer_expires_at_ms: Date.now() + 20000, offer_issued_at_us: Date.now() * 1000 }) } });
   const live = sw.notifications.at(-1);
   assert.equal(live.title, "Taxi offer");
   assert.equal(live.body, "Fixture");
   await sw.dispatch("notificationclick", { notification: live });
   assert.deepEqual(sw.targets, ["/", "/", "/", "https://pwa.invalid/taxi-drive"]);
+});
+
+await check("a delayed older taxi push cannot replace the current driver notification", async env => {
+  const sw = worker();
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  const now = Date.now();
+  const payload = { title: "Taxi offer", url: "/taxi-drive", tag: "instant_offer",
+    kind: "instant_offer", session_id: idA, binding_id: bindA };
+  const push = (target, body, sent, lifetime) => target.dispatch("push", { data: { json: () => ({
+    ...payload, body, offer_issued_at_us: sent, offer_expires_at_ms: now + lifetime,
+  }) } });
+  const a = (now - 1000) * 1000 + 123, b = (now - 100) * 1000 + 456;
+  await push(sw, "420 ₽", b, 12000);
+  const live = sw.notifications.at(-1);
+  assert.equal(live.body, "420 ₽");
+  // A was issued earlier despite having a later deadline (different TTL).
+  for (const issued of [a, b, undefined]) {
+    await push(sw, "285 ₽", issued, 25000);
+    const old = sw.notifications.at(-1);
+    assert.equal(old.body, undefined);
+    assert.notEqual(old.tag, live.tag);
+    assert.equal(old.renotify, false);
+    assert.equal(old.silent, true);
+  }
+  await sw.dispatch("notificationclick", { notification: live });
+  assert.deepEqual(sw.targets, ["https://pwa.invalid/taxi-drive"]);
+  const restarted = worker();
+  await push(restarted, "285 ₽", a, 25000);
+  assert.equal(restarted.notifications.at(-1).body, undefined);
+  await push(restarted, "500 ₽", b + 1, 12000);
+  assert.equal(restarted.notifications.at(-1).body, "500 ₽");
 });
 
 await check("after account replacement, queued and already shown old pushes hide trip details", async env => {

@@ -154,6 +154,7 @@ def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_
     driver = user_factory("WebOfferDeadline", role=UserRole.driver)
     now = utcnow()
     expiry = now + timedelta(seconds=2, milliseconds=500)
+    issued = now.replace(microsecond=123456) - timedelta(seconds=1)
     sid = f"taxi-web-offer-{driver['id']}"
     with Session(engine) as session:
         session.add(AuthSession(id=sid, user_id=driver["id"], access_expires_at=now + timedelta(hours=1)))
@@ -169,7 +170,8 @@ def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_
     monkeypatch.setattr(services.settings, "vapid_private_key", "fixture-private")
     monkeypatch.setattr(pywebpush, "webpush", lambda **kw: deliveries.append(kw))
     monkeypatch.setattr(services, "utcnow", lambda: now)
-    data = {"type": "instant_offer", "order_id": "42", "offer_expires_at": expiry.isoformat()}
+    data = {"type": "instant_offer", "order_id": "42", "offer_expires_at": expiry.isoformat(),
+            "offer_issued_at": issued.isoformat()}
     with Session(engine) as session:
         services._send_web_push(session, driver["id"], "New offer", "Fixture", data, own_read_session=True)
         now = expiry
@@ -181,6 +183,8 @@ def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_
     assert payload["session_id"] == sid
     assert payload["url"] == "/taxi-drive"
     assert payload["offer_expires_at_ms"] == int(expiry.replace(tzinfo=timezone.utc).timestamp() * 1000)
+    whole_seconds = int(issued.replace(tzinfo=timezone.utc, microsecond=0).timestamp())
+    assert payload["offer_issued_at_us"] == whole_seconds * 1_000_000 + 123456
     assert deliveries[0]["ttl"] == 2
 
 

@@ -471,9 +471,9 @@ _offer_web_push_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="tax
 _offer_web_push_slots = threading.BoundedSemaphore(16)  # очередь вместе с работающими задачами
 
 
-def _taxi_offer_deadline(data: dict) -> datetime | None:
+def _taxi_offer_timestamp(data: dict, key: str = "offer_expires_at") -> datetime | None:
     try:
-        expiry = datetime.fromisoformat(data["offer_expires_at"])
+        expiry = datetime.fromisoformat(data[key])
         return expiry.astimezone(timezone.utc).replace(tzinfo=None) if expiry.tzinfo else expiry
     except (KeyError, TypeError, ValueError, OverflowError):
         return None
@@ -538,7 +538,7 @@ def send_push(session: Session, user_id: int, title: str, body: str,
     before_send обновляет допуск непосредственно перед вызовом транспорта."""
     metadata = data or {}
     is_offer = (metadata.get("type") or metadata.get("ref_kind")) == "instant_offer"
-    expiry = _taxi_offer_deadline(metadata) if is_offer else None
+    expiry = _taxi_offer_timestamp(metadata) if is_offer else None
     if is_offer and (expiry is None or expiry <= utcnow()):
         return
     # Офферы без внешней проверки не ждут медленный браузерный провайдер.
@@ -679,7 +679,7 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
     offer_expiry = None
     if is_offer:
         # Оффер живёт только до срока, уже сохранённого сервером. Наивная дата в модели — UTC.
-        offer_expiry = _taxi_offer_deadline(metadata)
+        offer_expiry = _taxi_offer_timestamp(metadata)
         if offer_expiry is None or offer_expiry <= now:
             return
     live_refresh = select(RefreshToken.id).where(
@@ -704,6 +704,10 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         message.update(kind="instant_offer", offer_expires_at_ms=int(
             offer_expiry.replace(tzinfo=timezone.utc).timestamp() * 1000
         ))
+        issued = _taxi_offer_timestamp(metadata, "offer_issued_at")
+        if issued is not None and issued < offer_expiry:
+            age = issued - datetime(1970, 1, 1)
+            message["offer_issued_at_us"] = (age.days * 86_400 + age.seconds) * 1_000_000 + age.microseconds
     if any(s.auth_session_id and s.binding_id for s in subs):
         message.update(_rating_web_push(session, user_id, data))
     if own_read_session:
