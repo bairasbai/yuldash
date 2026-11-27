@@ -84,6 +84,9 @@ object TripPassStore {
         migration = OfflineMigration.open(plain, available) { it.startsWith(KEY_PREFIX) }
         prefs = migration!!.storage
         TripPassDeletion.reconcile(plain, available, migration!!.writable)
+        if (!OfflineMigration.resetUnconfirmed(plain)) {
+            OfflineTripSnapshots.retryRemovedPassports(TripPassDeletion.confirmedIds(plain))
+        }
     }
 
     /**
@@ -199,27 +202,31 @@ object TripPassStore {
 
     /** CLEARED means both sources were erased; DEFERRED means a durable deletion barrier exists. */
     fun requestRemoval(context: Context, bookingId: Int, expectedGeneration: Long? = null): RemovalResult {
-        // Never hold this store's monitor while OfflineTripSnapshots acquires diskAccess.
-        val cold = runCatching { runBlocking { OfflineTripSnapshots.revokeForRemoval(bookingId, expectedGeneration) } }
+        val owner = OfflineTripSnapshots.currentOwner() ?: return RemovalResult.NOT_SAVED
+        if (expectedGeneration != null && owner.generation != expectedGeneration) return RemovalResult.NOT_SAVED
+        // Never wait for snapshot diskAccess while holding the store or session monitor.
+        val cold = runCatching { runBlocking { OfflineTripSnapshots.revokeColdDurably(owner, bookingId) } }
             .getOrDefault(SnapshotPersistence.NOT_DURABLE)
         if (cold == SnapshotPersistence.STALE || cold == SnapshotPersistence.NOT_DURABLE) return RemovalResult.NOT_SAVED
-        val removed = synchronized(this) { requestRemovalAfterCold(context, bookingId, expectedGeneration) }
+        val initialized = synchronized(this) {
+            OfflineTripSnapshots.cacheEnabled(owner) && runCatching { sp(context) }.isSuccess
+        }
+        if (!initialized) return RemovalResult.NOT_SAVED
+        var removed = RemovalResult.NOT_SAVED
+        ApiClient.runIfCurrentSession(owner.generation) {
+            removed = requestRemovalAfterCold(owner, bookingId)
+        }
         return if (cold == SnapshotPersistence.DURABLY_BLOCKED && removed == RemovalResult.CLEARED) {
             RemovalResult.DEFERRED
         } else removed
     }
 
-    @Synchronized private fun requestRemovalAfterCold(
-        context: Context, bookingId: Int, expectedGeneration: Long?,
-    ): RemovalResult = runCatching {
-        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) {
-            return@runCatching RemovalResult.NOT_SAVED
-        }
-        val owner = OfflineTripSnapshots.currentOwner() ?: return@runCatching RemovalResult.NOT_SAVED
-        OfflineTripSnapshots.ticket()?.let { OfflineTripSnapshots.gate.close(it, bookingId) }
-        OfflineTripSnapshots.forgetLive(owner, bookingId)
+    @Synchronized private fun requestRemovalAfterCold(owner: SnapshotOwner, bookingId: Int): RemovalResult = runCatching {
         if (!OfflineTripSnapshots.cacheEnabled(owner)) return@runCatching RemovalResult.NOT_SAVED
-        sp(context)
+        val ticket = OfflineTripSnapshots.ticket()?.takeIf { it.owner == owner }
+            ?: return@runCatching RemovalResult.NOT_SAVED
+        if (!OfflineTripSnapshots.gate.close(ticket, bookingId)) return@runCatching RemovalResult.NOT_SAVED
+        OfflineTripSnapshots.forgetLive(owner, bookingId)
         val plain = plainPrefs ?: return@runCatching RemovalResult.NOT_SAVED
         if (OfflineMigration.resetUnconfirmed(plain)) return@runCatching RemovalResult.NOT_SAVED
         if (!TripPassDeletion.request(plain, bookingId)) return@runCatching RemovalResult.NOT_SAVED

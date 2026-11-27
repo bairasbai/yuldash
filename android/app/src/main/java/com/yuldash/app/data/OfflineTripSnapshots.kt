@@ -354,20 +354,21 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         val store = repo(owner) ?: return SnapshotPersistence.NOT_DURABLE
         return publish(durableAck = true) { store.revokeCold(revocation) }
     }
-    private suspend fun revokeColdDurably(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence {
+    internal suspend fun revokeColdDurably(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence {
         if (!current(owner)) return SnapshotPersistence.STALE
-        val revocation = gate.ticket()?.let { gate.revokeCold(it, bookingId) } ?: return SnapshotPersistence.STALE
+        val ticket = gate.ticket()?.takeIf { it.owner == owner } ?: return SnapshotPersistence.STALE
+        val revocation = gate.revokeCold(ticket, bookingId) ?: return SnapshotPersistence.STALE
         val store = repo(owner) ?: return SnapshotPersistence.NOT_DURABLE
         return publish(durableAck = true) { store.revokeCold(revocation) }
     }
-    internal suspend fun revokeForRemoval(bookingId: Int, expectedGeneration: Long?): SnapshotPersistence {
-        if (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration()) {
-            return SnapshotPersistence.STALE
+
+    fun retryRemovedPassports(bookingIds: Set<Int>) {
+        if (bookingIds.isEmpty()) return
+        val owner = currentOwner()?.takeIf(::cacheEnabled) ?: return
+        // Pass-store initialization can already hold its monitor and the auth lock.
+        jobs.launch {
+            for (bookingId in bookingIds) revokeColdDurably(owner, bookingId)
         }
-        val owner = currentOwner() ?: return SnapshotPersistence.STALE
-        val revocation = gate.ticket()?.let { gate.revokeCold(it, bookingId) } ?: return SnapshotPersistence.STALE
-        val store = repo(owner) ?: return SnapshotPersistence.UNCHANGED
-        return publish(durableAck = true) { store.revokeCold(revocation) }
     }
     override fun revoked(owner: SnapshotOwner, bookingId: Int) {
         synchronized(this) {

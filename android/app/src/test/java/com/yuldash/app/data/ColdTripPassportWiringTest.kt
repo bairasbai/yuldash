@@ -14,6 +14,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
+import java.util.concurrent.FutureTask
+import java.util.concurrent.TimeUnit
 
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [34], application = Application::class)
@@ -171,12 +173,12 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
 
     @Test fun privateMutationBlockNewRestoreBeforeDurableWrite() = runBlocking {
         handler = { request ->
-            if (request.path?.endsWith("/confirm") == true) MockResponse().setBody("{}") else defaultResponse(request)
+            if (request.path == "/bookings/11/meeting-point") MockResponse().setBody("{}") else defaultResponse(request)
         }
         saveCold()
         val originalOwner = owner()
         val mutex = diskAccessMutex().apply { lock() }
-        val operation = async { ApiClient.confirmBooking(11) }
+        val operation = async { ApiClient.proposeMeetingPoint(11, "pickup", MeetingPointInput(clear = true), baseVersion = 2) }
         expectRevocationBlocksNewRestore(originalOwner, operation, mutex, reopen = true)
     }
 
@@ -200,11 +202,11 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         assertEquals(SnapshotPersistence.COMMITTED, repository.observe(permit.ticket, 11,
             state, details.rideId, route, permit = permit, coldSave = true))
         handler = { request ->
-            if (request.path?.endsWith("/confirm") == true) MockResponse().setBody("{}") else defaultResponse(request)
+            if (request.path == "/bookings/11/meeting-point") MockResponse().setBody("{}") else defaultResponse(request)
         }
         val originalOwner = owner()
         val mutex = diskAccessMutex().apply { lock() }
-        val operation = async { ApiClient.confirmBooking(11) }
+        val operation = async { ApiClient.proposeMeetingPoint(11, "pickup", MeetingPointInput(clear = true), baseVersion = 2) }
         try {
             withTimeout(5000) {
                 while (OfflineTripSnapshots.projection(11) != null) delay(5)
@@ -320,10 +322,10 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         handler = ::defaultResponse
         saveCold()
         handler = { request ->
-            if (request.path?.endsWith("/confirm") == true) MockResponse().setBody("{}")
+            if (request.path == "/bookings/11/meeting-point") MockResponse().setBody("{}")
             else defaultResponse(request)
         }
-        assertTrue(ApiClient.confirmBooking(11).isSuccess)
+        assertTrue(ApiClient.proposeMeetingPoint(11, "pickup", MeetingPointInput(clear = true), baseVersion = 2).isSuccess)
         reopenCold()
         assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
 
@@ -354,6 +356,68 @@ internal class ColdTripPassportWiringTest : SnapshotWiringFixture() {
         val saved = saveCold()
         passSecure.edit().putString("pass_11", saved.toJson().put("unexpected", true).toString()).commit()
         reopenCold()
+        assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+    }
+
+    @Test fun removalWaitingForAuthorityCannotRevokeReplacementSessionOfSameUser() = runBlocking {
+        saveCold()
+        val previous = owner()
+        val gate = OfflineTripSnapshots.gate
+        val removal = FutureTask {
+            TripPassStore.requestRemoval(context, 11, expectedGeneration = previous.generation)
+        }
+        val worker = Thread(removal, "cold-pass-old-removal").apply { isDaemon = true }
+
+        // The first gate entry happens after reading the old session. Publish a new login
+        // before the delayed removal thread can obtain a ticket.
+        val originalEpoch = synchronized(gate) {
+            worker.start()
+            val deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(5)
+            while (worker.state != Thread.State.BLOCKED && !removal.isDone && System.nanoTime() < deadline) {
+                Thread.sleep(2)
+            }
+            assertTrue(worker.stackTrace.any { it.className == gate.javaClass.name && it.methodName == "ticket" })
+            ApiClient.saveToken(jwt(previous.userId, "replacement"))
+            assertEquals(previous.userId, owner().userId)
+            assertNotEquals(previous.generation, owner().generation)
+            gate.coldEpoch(owner(), 11)
+        }
+
+        assertEquals(TripPassStore.RemovalResult.NOT_SAVED, removal.get(5, TimeUnit.SECONDS))
+        assertEquals(originalEpoch, gate.coldEpoch(owner(), 11))
+        assertFalse(passPlain.restarted().contains(TripPassDeletion.KEY))
+        saveCold()
+        reopenCold()
+        assertNotNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+    }
+
+    @Test fun startupRetriesDeferredRemovalOfBothStoredPassportParts() = runBlocking {
+        saveCold()
+        val namespace = owner().namespace
+        fun grantOnDisk(): Boolean = JSONObject(requireNotNull(secure.restarted().getString(namespace, null)))
+            .getJSONObject("records").getJSONObject("11").has("cold_grant")
+
+        secureFault.reject = { changes -> changes.containsKey(namespace) }
+        secureFault.armed = true
+        passSecure.failRemovalOf = "pass_11"
+        assertEquals(TripPassStore.RemovalResult.DEFERRED,
+            TripPassStore.requestRemoval(context, 11, expectedGeneration = ApiClient.queueSessionGeneration()))
+        assertTrue(passPlain.restarted().contains(TripPassDeletion.KEY))
+        assertTrue(passSecure.restarted().contains("pass_11"))
+        assertTrue(grantOnDisk())
+
+        reopenCold()
+        drainColdBackgroundJobs()
+        assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
+        assertFalse(passSecure.restarted().contains("pass_11"))
+        assertTrue(grantOnDisk())
+
+        secureFault.armed = false
+        reopenCold()
+        drainColdBackgroundJobs()
+        assertFalse(grantOnDisk())
+        assertFalse(passSecure.restarted().contains("pass_11"))
+        assertTrue(passPlain.restarted().contains(TripPassDeletion.KEY))
         assertNull(OfflineTripSnapshots.loadColdPassport(owner(), 11))
     }
 
