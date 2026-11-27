@@ -1,5 +1,6 @@
 """Offline, no-secret regression checks for the Gemini PR reviewer."""
 import importlib.util
+from io import BytesIO
 import os
 from pathlib import Path
 import unittest
@@ -57,16 +58,24 @@ class GeminiReviewerTests(unittest.TestCase):
     def test_model_request_uses_gemini_36_with_json_response(self):
         seen = {}
 
-        def fake_request(url, headers, payload, method):
-            seen.update(url=url, headers=headers, payload=payload, method=method)
+        def fake_request(url, headers, payload, method, *, timeout):
+            seen.update(url=url, headers=headers, payload=payload, method=method, timeout=timeout)
             return {"candidates": [{"content": {"parts": [{"text": '{"changes":["Изменение"],"key_files":[],"risks":[],"findings":[]}'}]}}]}
 
         with patch.object(reviewer, "request_json", side_effect=fake_request):
             result = reviewer.ask_gemini("diff", "dummy-key-for-test")
         self.assertEqual(result["findings"], [])
         self.assertIn("/gemini-3.6-flash:generateContent", seen["url"])
+        self.assertEqual(seen["timeout"], 70)
         self.assertEqual(seen["payload"]["generationConfig"]["responseMimeType"], "application/json")
         self.assertNotIn("dummy-key-for-test", str(seen["payload"]))
+
+    def test_model_timeout_is_forwarded_to_the_http_client(self):
+        with patch.object(reviewer.request, "build_opener") as build_opener:
+            send = build_opener.return_value.open
+            send.return_value = BytesIO(b'{"candidates":[{"content":{"parts":[{"text":"{}"}]}}]}')
+            self.assertEqual(reviewer.generate_json("instruction", "diagnostic", "dummy", timeout=120), {})
+            self.assertEqual(send.call_args.kwargs, {"timeout": 120})
 
     def test_summary_renders_separate_sections_and_excludes_unseen_paths(self):
         result = {"changes": ["Добавлено ожидание готовности"], "risks": ["Медленный запуск"],
