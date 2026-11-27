@@ -61,9 +61,35 @@ def _last_move_at(o: InstantOrder):
 
 
 # ----------------------------- 1. Предзаказы -----------------------------
+def _resume_scheduled_first_searches(session: Session, now, dry_run: bool) -> list[int]:
+    """Подхватываем прерванный первый подбор, не пересчитывая уже сохранённую цену."""
+    retry_before = now - timedelta(minutes=settings.order_retry_every_min)
+    cutoff = now - timedelta(hours=settings.order_stuck_hours)
+    pending = session.exec(
+        select(InstantOrder.id, InstantOrder.searching_at).where(
+            *isv.pending_scheduled_first_search(),
+            InstantOrder.searching_at > cutoff, InstantOrder.searching_at <= retry_before,
+        ).order_by(InstantOrder.searching_at, InstantOrder.id).limit(50)
+    ).all()
+    resumed = []
+    for order_id, started_at in pending:
+        if dry_run:
+            resumed.append(order_id)
+            continue
+        try:
+            fresh = isv.finish_scheduled_first_search(session, order_id, started_at, skip_locked=True)
+            if fresh is not None:
+                resumed.append(order_id)
+        except Exception as e:  # noqa: BLE001 — продолжаем работу с остальными заказами
+            log.warning(f"[TAXI-WORKER] восстановление предзаказа #{order_id}: {type(e).__name__}")
+            session.rollback()
+    return resumed
+
+
 def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
     """Запускает наступившие предзаказы; dry_run возвращает кандидатов без изменений."""
     now = utcnow()
+    resumed = _resume_scheduled_first_searches(session, now, dry_run)
     live = aliased(InstantOrder)
     busy = (
         select(live.id).where(
@@ -80,8 +106,8 @@ def activate_due_scheduled(session: Session, dry_run: bool = False) -> list:
         ).order_by(busy.asc(), InstantOrder.scheduled_at, InstantOrder.id).limit(200)
     ).all()
     if dry_run:
-        return list(ids)
-    done = []
+        return resumed + list(ids)
+    done = resumed
     for order_id in ids:
         try:
             order = session.get(InstantOrder, order_id, populate_existing=True)

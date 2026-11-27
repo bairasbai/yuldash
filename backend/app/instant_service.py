@@ -3238,6 +3238,35 @@ def activate_scheduled(session: Session, order: InstantOrder) -> InstantOrder:
     return start_matching(session, order)
 
 
+def pending_scheduled_first_search():
+    """Только первый подбор предзаказа, ещё без попытки предложения и отдельной очереди."""
+    return (
+        InstantOrder.scheduled_at.is_not(None),
+        InstantOrder.status == S.searching,
+        InstantOrder.searching_at.is_not(None),
+        InstantOrder.search_round == 0,
+        InstantOrder.offered_at.is_(None),
+        InstantOrder.offer_expires_at.is_(None),
+        InstantOrder.current_offer_driver_id.is_(None),
+        InstantOrder.driver_id.is_(None),
+        InstantOrder.wait_until.is_(None),
+    )
+
+
+def finish_scheduled_first_search(session: Session, order_id: int, started_at: datetime, *,
+                                  notify: bool = True, skip_locked: bool = False) -> InstantOrder | None:
+    """Обычный запуск и восстановление одного круга используют одну блокировку заказа."""
+    order = session.exec(
+        select(InstantOrder).where(
+            InstantOrder.id == order_id, InstantOrder.searching_at == started_at,
+            *pending_scheduled_first_search(),
+        ).with_for_update(skip_locked=skip_locked).execution_options(populate_existing=True)
+    ).first()
+    if order is None:
+        return None  # Уже отменён, предложен или обработан другим исполнителем.
+    return try_offer_next(session, order, notify)
+
+
 # Из каких статусов поиск можно (пере)запустить: свежесозданный заказ, предзаказ в момент
 # активации, очередь «рядом никого» (expired + wait_until) и уже идущий круг подбора.
 _MATCHABLE = (S.created, S.scheduled, S.searching, S.expired)
@@ -3257,16 +3286,23 @@ def start_matching(session: Session, order: InstantOrder, notify: bool = True) -
     раз предлагать заказ ЗА КРУГ». Он копился за всю жизнь заказа, и очередь «подожду машину»
     после 8 суммарных офферов замолкала навсегда — полоска «ищем машину» живая, а сервер уже
     никому не предлагает, даже если свободный водитель стоит в ста метрах."""
+    order_id = order.id
+    scheduled = order.status == S.scheduled and order.scheduled_at is not None
+    started_at = utcnow()
     result = session.execute(
         update(InstantOrder)
-        .where(InstantOrder.id == order.id, InstantOrder.status.in_(_MATCHABLE))
-        .values(status=S.searching, searching_at=utcnow(), search_round=0)
+        .where(InstantOrder.id == order_id, InstantOrder.status.in_(_MATCHABLE))
+        .values(status=S.searching, searching_at=started_at, search_round=0)
     )
     session.commit()
-    order = session.get(InstantOrder, order.id)
     if result.rowcount == 0:
-        return order        # заказ успели закрыть/принять — поиск не начинаем
-    return try_offer_next(session, order, notify)
+        return session.get(InstantOrder, order_id)  # заказ успели закрыть или принять
+    if scheduled:
+        fresh = finish_scheduled_first_search(session, order_id, started_at, notify=notify)
+        if fresh is not None:
+            return fresh
+        return session.get(InstantOrder, order_id, populate_existing=True)
+    return try_offer_next(session, session.get(InstantOrder, order_id), notify)
 
 
 def advance_after_no_accept(session: Session, order: InstantOrder, notify: bool = True) -> InstantOrder:
