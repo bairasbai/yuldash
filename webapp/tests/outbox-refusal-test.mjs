@@ -37,11 +37,15 @@ for (const status of [400, 403, 404, 409, 410, 422]) await check('отказ н�
   assert.deepEqual(api.getOutboxRefusals().map(r => [r.payload, r.message]), [['departed', 'Отказ ' + status]]);
 });
 
-await check('«Доехала» (trip_status) тоже: отказ запомнен', async api => {
+await check('старая «Доехала» удерживается без повторного POST и не блокирует очередь', async api => {
   await api.enqueue(7, 'trip_status', 'arrived');
-  globalThis.fetch = refuse(409, { ru: 'Доехал — после посадки', ba: 'Барып етеү — ултырғандан һуң' });
+  await api.enqueue(8, 'driver_status', 'departed');
+  const calls = [];
+  globalThis.fetch = async (url, init) => { calls.push([new URL(url).pathname, init.method]); return new Response('{}'); };
   await api.flushOutbox();
-  const [r] = api.getOutboxRefusals(); assert.equal(r.kind, 'trip_status'); assert.equal(r.payload, 'arrived'); assert.equal(r.bookingId, 7);
+  assert.deepEqual(calls, [['/bookings/8/driver-status', 'POST']]);
+  assert.deepEqual((await storedActions()).map(row => [row.bookingId, row.kind]), [[7, 'trip_status']]);
+  assert.deepEqual(api.getOutboxRefusals(), []);
 });
 
 await check('сообщение чата с отказом насовсем отказом-плашкой не становится (у чата свой путь)', async api => {

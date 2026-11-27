@@ -95,6 +95,7 @@ const ALL_SUITES = [
   { test: "driver-bank-recipient-test", src: null, out: null, bundle: false },
   { test: "card-switch-test", src: null, out: null, bundle: false },
   { test: "driver-stage-retry-test", src: null, out: null, bundle: false },
+  { test: "passenger-trip-status-test", src: null, out: null, bundle: false },
   { test: "ride-publication-retry-test", src: null, out: null, bundle: false },
   { test: "ride-series-retry-test", src: null, out: null, bundle: false },
   { test: "ride-series-recovery-content-test", src: null, out: null, bundle: false },

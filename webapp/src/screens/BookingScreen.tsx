@@ -291,7 +291,7 @@ export default function BookingScreen() {
             {cancelling ? appText("Отменяем…", "Кире алабыҙ…") : appText("Отменить бронь", "Бронде кире алырға")}
           </button>}
           {d.booking_id === bookingId && d.role === "passenger" && d.status === "pending" && d.traveler_name &&
-            <ShareTripCard key={bookingId} bookingId={bookingId} bookingStatus="pending" forAnother />}
+            <ShareTripCard key={bookingId} bookingId={bookingId} />}
           {passengerCancellation?.content}
           <PartnerAdSlot placement="tripDetails" />
         </div>

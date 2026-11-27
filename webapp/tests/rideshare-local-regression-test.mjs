@@ -136,7 +136,21 @@ const definitions = {
   fetchBoardingCode: `(...args)=>h.passStorage.fetchBoardingCode(...args)`,
   fetchBookingShares: `async()=>{h.requests.push('shares');if(h.sharesError)throw new h.ApiError(h.sharesError);return h.shares}`,
   fetchTrustedContacts: `async()=>h.contacts`, shareBooking: `async()=>{h.requests.push('create-share');return {}}`,
-  setTripStatus: `async(id,status)=>{h.sent.push([id,status]);if(h.sendError!==null)throw new h.ApiError(h.sendError);if(status==='done')h.trip.status='done';h.details.status=h.trip.status;return h.shares??[]}`,
+  PassengerStatusProblem: `class PassengerStatusProblem extends Error{constructor(reason){super(reason);this.reason=reason;}}`,
+  BOOKING_RETRY_WINDOW: `86400000`,
+  passengerTripStatuses: `{read:async()=>h.statusCommands}`,
+  legacyTripStatuses: `async()=>[]`,
+  reconcileLegacyTripStatuses: `async()=>[]`,
+  checkPassengerTripStatus: `async()=>{h.statusCommands=[];return {state:'applied',bookingStatus:h.statusResult??h.trip.status}}`,
+  repeatPassengerTripStatus: `async()=>{throw Error("Unexpected retry in this UI case")}`,
+  submitPassengerTripStatus: `async(owner,id,stage)=>{
+    h.sent.push([id,stage]);
+    if(h.sendError===0){h.statusCommands=[{key:'old-status',bookingId:id,stage,state:'unknown',createdAt:Date.now()}];throw Error("offline");}
+    if(h.sendError!==null)return {state:'rejected',refusal:new h.ApiError(h.sendError,h.statusRefusal)};
+    if(h.failRoleAfterStatus){h.tripError=true;h.detailsError=true;return {state:'applied',bookingStatus:'done'};}
+    if(stage==='done'){h.trip.status='done';h.details.status='done';}
+    return {state:'applied',bookingStatus:h.trip.status};
+  }`,
   // Посадку отмечает водитель (решение 17.10.2026): ответы его «Сел» / «Отменить».
   FileIncidentCard: `'FileIncidentCard'`,
   DriverBoardedDispute: `'DriverBoardedDispute'`,
@@ -189,12 +203,13 @@ async function compile(path, exported = 'default') {
     for (const entry of named?.split(',') ?? []) { const n = entry.trim(); if (n && !n.startsWith('type ')) names.push(n); }
     return '';
   });
-  const prelude = `const h=globalThis.__rideshareLocal;const __jsx=(type,props,...children)=>({type,props:{...props,children}}),__fragment='fragment';\n` + names.map(n => `const ${n}=${definitions[n] ?? (['ShareTripCard', 'StatusPill', 'OfflineTripPass', 'BoardingWait', 'DriverBoarding', 'DriverLocationShare'].includes(n) ? `(...args)=>h.components.${n}(...args)` : '()=>null')};`).join('\n');
+  const prelude = `const h=globalThis.__rideshareLocal;const __jsx=(type,props,...children)=>({type,props:{...props,children}}),__fragment='fragment';\n` + names.map(n => `const ${n}=${definitions[n] ?? (['ShareTripCard', 'PassengerTripStatus', 'StatusPill', 'OfflineTripPass', 'BoardingWait', 'DriverBoarding', 'DriverLocationShare'].includes(n) ? `(...args)=>h.components.${n}(...args)` : '()=>null')};`).join('\n');
   const result = await transform(prelude + body, { loader: 'tsx', format: 'esm', jsx: 'transform', jsxFactory: '__jsx', jsxFragment: '__fragment' });
   return (await import('data:text/javascript;base64,' + Buffer.from(result.code).toString('base64')))[exported];
 }
 h.components.BookingSegmentNote = await compile('components/PickupStopChoice.tsx', 'BookingSegmentNote');
 h.components.ShareTripCard = await compile('components/ShareTripCard.tsx');
+h.components.PassengerTripStatus = await compile('components/PassengerTripStatus.tsx', 'PassengerTripStatus');
 h.components.StatusPill = await compile('components/StatusPill.tsx', 'StatusPill');
 h.components.OfflineTripPass = await compile('components/OfflineTripPass.tsx');
 h.components.BoardingWait = await compile('components/BoardingWait.tsx');
@@ -234,7 +249,7 @@ function reset({ role = 'passenger', status = 'confirmed', lang = 'ru', shares =
   globalThis.window = new EventTarget();
   globalThis.document = new EventTarget();
   passFixture();
-  Object.assign(h, { markHolds: [], markHeldRequests: [], markReplyTransform: null, boardingAt: BOARDING_AT, undoResponses: [], undoResponseHolds: [], userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, denyPassRead: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], records: new Map(), passes: new Map(), passWrites: [], diskFenced: false, stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, boarded: [], unboarded: [],
+  Object.assign(h, { markHolds: [], markHeldRequests: [], markReplyTransform: null, boardingAt: BOARDING_AT, undoResponses: [], undoResponseHolds: [], userId: 7, bookingId: 42, detailsError: false, tripError: false, failPassWrites: false, denyPassRead: false, tripHolds: [], tripHeldRequests: [], detailsHolds: [], detailsHeldRequests: [], locationConnections: [], locationShares: [], cancelCalls: [], cancelResult: { status: 'cancelled', contact_then_cancel: true }, failRoleAfterCancel: false, refreshOwnCalls: 0, detailsById: new Map(), tripById: new Map(), codeHolds: new Map(), codeRequests: [], records: new Map(), passes: new Map(), passWrites: [], diskFenced: false, stateCalls: [], instances: new Map(), effects: [], dirty: false, lang, generation: 'A', requests: [], sent: [], queued: [], thanks: [], navigation: [], shares, sharesError, contacts: [], sendError: null, statusCommands: [], statusResult: undefined, statusRefusal: 'Доехал — после посадки', failRoleAfterStatus: false, boarded: [], unboarded: [],
     details: { booking_id: 42, ride_id: 7, role, status, from_city: 'Уфа', to_city: 'Сибай', depart_at: '2026-10-15T10:00:00Z', contact_unlocked: true, driver_name: 'QA Driver', driver_car: 'QA Car', driver_plate: 'QA001', driver_phone: '+79990000000', pickup: 'QA Pickup', price: 300, pay_method: 'cash', seats: 1 },
     trip: { role, status, onboard_at: status === 'onboard' ? BOARDING_AT : null, driver_phase: 'arriving', arrival_verified: true, peer_id: role === 'driver' ? 7 : 3, boarding_undo_sec: 0 },
     receipt: { role, booking_id: 42, from_city: 'Уфа', to_city: 'Сибай', amount: 300, paid: false, pay_method: 'cash' },
@@ -363,13 +378,36 @@ await test('waiting passenger sends nothing: no «Я сел» request, nothing i
   await h.interval(); await settle(Active);
   assert.deepEqual(h.sent, []); assert.deepEqual(h.queued, []); assert.equal(h.trip.status, 'confirmed'); assert.ok(text(h.tree).includes('4931'));
 });
-await test('server rejection of «Доехала» is not queued for a retry', async () => {
-  reset({ status: 'onboard' }); h.shares = [{ id: 1, contact_id: 1 }]; h.sendError = 409; await settle(Active);
-  await button('Доехала').props.onClick(); await settle(Active); assert.deepEqual(h.sent, [[42, 'arrived']]); assert.deepEqual(h.queued, []);
+await test('known refusal shows the server explanation and is not queued', async () => {
+  reset({ status: 'onboard' }); h.sendError = 409; await settle(Active);
+  await button('Доехала').props.onClick(); await settle(Active);
+  assert.deepEqual(h.sent, [[42, 'arrived']]); assert.deepEqual(h.queued, []);
+  assert.ok(text(h.tree).includes(h.statusRefusal));
+  assert.ok(!button('Проверить результат'));
 });
-await test('transport failure keeps «Доехала» in the explicit offline queue', async () => {
-  reset({ status: 'onboard' }); h.shares = [{ id: 1, contact_id: 1 }]; h.sendError = 0; await settle(Active);
-  await button('Доехала').props.onClick(); await settle(Active); assert.deepEqual(h.queued, [[42, 'trip_status', 'arrived']]);
+await test('unknown «Доехала» offers recovery and does not send a second unkeyed command', async () => {
+  reset({ status: 'onboard' }); h.sendError = 0; await settle(Active);
+  await button('Доехала').props.onClick(); await settle(Active);
+  assert.deepEqual(h.queued, []); assert.deepEqual(h.sent, [[42, 'arrived']]);
+  assert.ok(button('Проверить результат')); assert.ok(button('Повторить отправку'));
+  assert.ok(button('Закрыть запрос')); assert.ok(!button('Поездка завершена'));
+  assert.ok(!text(h.tree).includes('Сохранено'));
+});
+await test('terminal command response closes active UI even if subsequent reads fail', async () => {
+  reset({ status: 'onboard' }); h.failRoleAfterStatus = true; await settle(Active);
+  await button('Поездка завершена').props.onClick(); await settle(Active);
+  assert.ok(!button('Поездка завершена'));
+  assert.ok(!text(h.tree).includes('QA001'));
+  assert.ok(text(h.tree).includes('Сохранено'));
+});
+await test('old unknown status can be checked after the trip is already completed', async () => {
+  reset({ status: 'done' });
+  h.statusCommands = [{ key: 'saved-done', bookingId: 42, stage: 'done', state: 'unknown', createdAt: Date.now() }];
+  await settle(Active);
+  await button('Проверить результат').props.onClick(); await settle(Active);
+  assert.ok(text(h.tree).includes('Сохранено'));
+  assert.deepEqual(h.sent, []);
+  assert.ok(!button('Проверить результат'));
 });
 await test('passenger «Сообщить о проблеме» opens a dispute with the driver of this booking', async () => {
   reset(); await settle(Active);

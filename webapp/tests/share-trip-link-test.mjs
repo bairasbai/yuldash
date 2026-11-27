@@ -259,52 +259,6 @@ for (const ba of [false, true]) {
     assert.deepEqual(await api("GET", "/bookings/42/shares"), [share]);
   });
 }
-await test("отметка «Доехала»: пишем «Сохранено», а не «Близкие получили сообщение»", async () => {
-  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
-  const tree = await open({ shares: [share], props });
-  await byText(tree, "Доехала").props.onClick();
-  await tick();
-  assert.ok(h.calls.some(([m, p, b]) => m === "POST" && p === "/bookings/42/trip-status" && b?.status === "arrived"));
-  const t = text(render(props));
-  assert.ok(t.includes("Сохранено"));
-  assert.ok(!/получили|китте/.test(t));
-});
-// Отказ сервера — его словами (приёмка PR174): «завершить можно через 4 мин» объясняет, что делать;
-// общее «Не получилось отправить статус» — неправда, сеть работает.
-await test("отказ сервера по отметке — его словами, а не «Не получилось отправить статус»", async () => {
-  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
-  const refusal = new h.ApiError(409, "Водитель только что отметил посадку — завершить поездку можно через 4 мин.");
-  const tree = await open({ shares: [share], props, statusFails: refusal });
-  await byText(tree, "Поездка завершена").props.onClick();
-  await tick();
-  const t = text(render(props));
-  assert.ok(t.includes("завершить поездку можно через 4 мин"), t);
-  assert.ok(!t.includes("Не получилось отправить статус"));
-});
-// «Доехала» без сети ждёт в очереди; сервер потом отказал — «Нет сети — отправим позже» больше неправда.
-await test("«Доехала» без сети, потом отказ сервера: вместо «отправим позже» — слова отказа; чужой вид отметки не трогает", async () => {
-  const props = { bookingId: 42, showStatuses: true, bookingStatus: "onboard" };
-  const tree = await open({ shares: [share], props, statusFails: new h.ApiError(0, "offline") });
-  await byText(tree, "Доехала").props.onClick();
-  await tick();
-  assert.ok(text(render(props)).includes("Нет сети — отправим позже"));
-  assert.equal(h.refusal.id, 42, "карточка слушает отказы своей брони");
-  h.refusal.fn({ kind: "driver_status", message: "Отказ водительской отметки" });
-  assert.ok(!text(render(props)).includes("Отказ водительской отметки"), "отметку водителя карточка пассажира не показывает");
-  h.refusal.fn({ kind: "trip_status", message: "Поездка уже завершена" });
-  const t = text(render(props));
-  assert.ok(t.includes("Поездка уже завершена"), t);
-  assert.ok(!t.includes("Нет сети — отправим позже"), "ложное обещание ушло");
-});
-// Посадку отмечает водитель (решение 17.10.2026): до неё у пассажира нет ни «Села в машину»,
-// ни других отметок — нечего отправлять. Старый «sat» сервер и так отклоняет (409).
-await test("до посадки «Села в машину» нет — посадку отмечает водитель", async () => {
-  const props = { bookingId: 42, showStatuses: true, bookingStatus: "confirmed" };
-  const tree = await open({ shares: [share], props });
-  assert.equal(byText(tree, "Села в машину"), undefined);
-  assert.equal(byText(tree, "Доехала"), undefined);
-  assert.ok(!h.calls.some(([, p]) => /trip-status$/.test(p)));
-});
 await test("такси-заказ: та же ссылка (shareOrder)", async () => {
   const props = { orderId: 5 };
   let tree = await open({ props });
