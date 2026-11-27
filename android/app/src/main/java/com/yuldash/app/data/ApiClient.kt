@@ -1732,7 +1732,8 @@ object ApiClient {
      *  (""/departed/arriving). Экран активной поездки опрашивает это раз в ~12с. */
     suspend fun getTripState(bookingId: Int): Result<TripStateDto> =
         OfflineTripSnapshotHooks.state(bookingId).result
-    internal suspend fun getTripStateForNavigation(bookingId: Int) = OfflineTripSnapshotHooks.state(bookingId)
+    internal suspend fun getTripStateForNavigation(bookingId: Int, navigation: TripNavigationReadGate? = null) =
+        OfflineTripSnapshotHooks.state(bookingId, navigation)
     internal suspend fun readTripSnapshotJson(path: String, read: SnapshotTransportRead): Result<JSONObject> =
         call("GET", path, null, auth = true, expectedGeneration = read.generation, snapshotRead = read)
 
@@ -3619,6 +3620,7 @@ object ApiClient {
         withoutAuthReplay: Boolean = false,
         mutationTimeoutMs: Long = 0,
         claimBody: (() -> Boolean)? = null,
+        navigation: TripNavigationReadGate? = snapshotRead?.navigation,
     ): Result<JSONObject> {
         val snapshot = requestSession()
         val generation = expectedGeneration ?: snapshot.generation
@@ -3648,14 +3650,16 @@ object ApiClient {
         val backoff = if (retryOnNetwork && testTimeoutMs == null) longArrayOf(400L, 900L) else LongArray(0)
         var attempt = 0
         while (true) {
+            navigation?.checkOpen()
             if ((sessionBound && !sameSession(generation)) || (expectedBase != null && expectedBase != BASE)) return@withContext staleSession()
             snapshotRead?.attempt()
             var conn: HttpURLConnection? = null
             var mutationResponse: Response? = null
+            var navigationCall: okhttp3.Call? = null
             try {
                 val code: Int
                 val text: String
-                if (singleAttemptMutation || rideshareMutation(method, path)) {
+                if (navigation != null || singleAttemptMutation || rideshareMutation(method, path)) {
                     val requestBody = if (idempotent) null else
                         oneShotBody(wireBody ?: body?.toString(), admitWire, claimBody)
                     val headers = Headers.Builder().add("Accept", "application/json").apply {
@@ -3671,7 +3675,11 @@ object ApiClient {
                     val request = Request.Builder().url((expectedBase ?: BASE) + path).method(method, requestBody).headers(headers).build()
                     snapshotRead?.startWire(auth && !usedToken.isNullOrBlank())
                     if (admitWire?.invoke() == false) return@withContext staleSession()
-                    mutationResponse = oneShotTransport(connectMs, readMs, mutationTimeoutMs).newCall(request).execute()
+                    val call = oneShotTransport(connectMs, readMs, mutationTimeoutMs).newCall(request)
+                    navigation?.attach(call)
+                    navigationCall = call
+                    mutationResponse = call.execute()
+                    navigation?.checkOpen()
                     code = mutationResponse.code
                     snapshotRead?.status(code)
                     serverUnreachable.value = false
@@ -3704,6 +3712,7 @@ object ApiClient {
                     val stream = if (code in 200..299) conn.inputStream else conn.errorStream
                     text = stream?.bufferedReader(Charsets.UTF_8)?.use { it.readText() }.orEmpty()
                 }
+                navigation?.checkOpen()
                 if (onDeletionConfirmed != null && code in 200..299 && runCatching { JSONObject(text).opt("ok") == true }.getOrDefault(false)) {
                     onDeletionConfirmed()
                 }
@@ -3725,12 +3734,13 @@ object ApiClient {
                     // Access протух → пробуем обновить по refresh-токену и повторить ОДИН раз.
                     conn?.disconnect(); conn = null
                     mutationResponse?.close(); mutationResponse = null
-                    val refreshed = tryRefresh(usedToken, generation, admitWire.takeIf { mutationTimeoutMs > 0 })
+                    navigation?.release(navigationCall)
+                    val refreshed = tryRefresh(usedToken, generation, admitWire.takeIf { mutationTimeoutMs > 0 }, navigation)
                     snapshotRead?.refresh()
                     if (refreshed.isSuccess) call(method, path, body, auth, isRetry = true, expectedGeneration = generation,
                         idempotencyKey = idempotencyKey, singleAttemptMutation = singleAttemptMutation, snapshotRead = snapshotRead,
                         wireBody = wireBody, expectedBase = expectedBase, onDeletionConfirmed = onDeletionConfirmed,
-                        admitWire = admitWire, freshRead = freshRead, mutationTimeoutMs = mutationTimeoutMs, claimBody = claimBody)
+                        admitWire = admitWire, freshRead = freshRead, mutationTimeoutMs = mutationTimeoutMs, claimBody = claimBody, navigation = navigation)
                     else Result.failure(refreshed.exceptionOrNull()!!)
                 } else if (code == 401 && auth) {
                     // Токен мёртв, а обновить его НЕЧЕМ: refresh пуст (сессия из старой версии,
@@ -3756,6 +3766,7 @@ object ApiClient {
                 testTrace?.invoke("вызов $method $path ОТМЕНЁН (корутину закрыли снаружи)")
                 throw ce   // отмена корутины — не глотаем и не повторяем, пробрасываем дальше
             } catch (e: IOException) {
+                navigation?.checkOpen()
                 snapshotRead?.wireFailed()
                 // Обрыв связи ДО получения ответа. Повторяем, только если это безопасно:
                 // чтение (GET) — всегда, меняющий запрос — лишь когда до сервера мы вообще
@@ -3775,6 +3786,7 @@ object ApiClient {
             } finally {
                 conn?.disconnect()
                 mutationResponse?.close()
+                navigation?.release(navigationCall)
             }
         }
         @Suppress("UNREACHABLE_CODE")
@@ -3851,7 +3863,9 @@ object ApiClient {
 
     /** Обновить пару токенов по refresh. Mutex: при пачке 401 рефреш идёт один раз.
      *  `staleToken` — access, с которым словили 401; если он уже сменился — другой поток обновил. */
-    internal suspend fun tryRefresh(staleToken: String?, generation: Long, admitWire: (() -> Boolean)? = null): Result<Unit> = refreshMutex.withLock {
+    internal suspend fun tryRefresh(staleToken: String?, generation: Long, admitWire: (() -> Boolean)? = null,
+        navigation: TripNavigationReadGate? = null): Result<Unit> = refreshMutex.withLock {
+        navigation?.checkOpen()
         if (admitWire?.invoke() == false) return@withLock staleSession()
         val intent = synchronized(sessionLock) {
             if (!sameSession(generation)) return@withLock staleSession()
@@ -3874,8 +3888,9 @@ object ApiClient {
         val result = call("POST", "/auth/refresh", JSONObject().put("refresh_token", rt).put("rotation_id", rotationId),
             auth = false, isRetry = true, expectedGeneration = generation,
             singleAttemptMutation = admitWire != null, admitWire = admitWire,
-            retryOnNetwork = admitWire == null)
+            retryOnNetwork = admitWire == null, navigation = navigation)
         synchronized(sessionLock) {
+            navigation?.checkOpen()
             if (!sameSession(generation)) return@withLock staleSession()
             result.exceptionOrNull()?.let { failure ->
                 // Только явный отказ в продлении завершает вход. Сеть/5xx не означают,
@@ -7252,19 +7267,6 @@ data class AchievementsDto(
 
 /** Трекинг-ссылка посылки: url для получателя + ушла ли ему SMS. */
 data class ParcelTrackLinkDto(val url: String, val smsSent: Boolean)
-
-/** Текстовый отзыв о поездке, ждущий модерации. Пока не одобрен — в профиле его нет. */
-data class PendingRatingDto(
-    val id: Int,
-    val author: String,       // кто оставил (админу; в публичном профиле — тоже без телефона)
-    val rateeId: Int,         // кому адресован
-    // Имя того, О КОМ отзыв. Без него модератор читал текст вслепую: видно «вёз молча»,
-    // а чей это профиль и кому прилетит публикация — нет. Телефон не отдаём, имени хватает.
-    val ratee: String = "",
-    val stars: Int,
-    val text: String,
-    val createdAt: String,
-)
 
 /** Спор «Справедливости» (двусторонний разбор). Поля `reporterId/Name/Phone` и
  *  `respondentId/Name/Phone` заполнены ТОЛЬКО в админ-выдаче: участникам телефон второй

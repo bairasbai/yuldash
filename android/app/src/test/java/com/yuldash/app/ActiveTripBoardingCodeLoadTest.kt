@@ -57,7 +57,7 @@ class ActiveTripBoardingCodeLoadTest {
                 val body = when (request.path) {
                     "/bookings/42/messages" -> """{"items":[]}"""
                     "/bookings/42/role" -> """{"role":"passenger","status":"confirmed","driver_phase":"departed"}"""
-                    "/bookings/42/details" -> privateRecoveryDetails ?: """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"negotiate"}"""
+                    "/bookings/42/details" -> privateRecoveryDetails ?: """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","pay_method":"negotiate"}"""
                     else -> return MockResponse().setResponseCode(404).setBody("{}")
                 }
                 return MockResponse().setBody(body)
@@ -94,9 +94,21 @@ class ActiveTripBoardingCodeLoadTest {
             }
         }
     }
-    private fun waitFor(text: String) = compose.waitUntil(10000) {
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty()
+    private fun waitFor(text: String) {
+        try {
+            compose.waitUntil(10000) {
+                Shadows.shadowOf(Looper.getMainLooper()).idle()
+                compose.mainClock.advanceTimeByFrame()
+                compose.onAllNodesWithText(text).fetchSemanticsNodes().isNotEmpty() ||
+                    runCatching { compose.onNode(hasScrollAction()).performScrollToNode(hasText(text)) }.isSuccess
+            }
+        } catch (failure: ComposeTimeoutException) {
+            throw AssertionError("Expected screen state missing. requests=$requested; " +
+                "privateReady=" + (OfflineTripSnapshots.projection(42) != null) +
+                "; codeReady=" + !OfflineTripSnapshots.currentBoardingCode(42).isNullOrBlank() +
+                "; live=" + OfflineTripSnapshots.allowsLive(42) +
+                "; persistence=" + OfflineTripSnapshots.persistence.value, failure)
+        }
     }
 
     private fun rejectsThenRetries(status: Int, body: String) {
@@ -248,7 +260,7 @@ class ActiveTripBoardingCodeLoadTest {
     }
 
     @Test fun freshRoleAfterBlankKeepsChatAndOffersExplicitPrivateDataRecovery() {
-        privateRecoveryDetails = """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"pay_method":"negotiate","driver_phone":"+70000000042","pickup":"PRIVATE_RECOVERY_POINT_42"}"""
+        privateRecoveryDetails = """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","pay_method":"negotiate","driver_phone":"+70000000042","pickup":"PRIVATE_RECOVERY_POINT_42"}"""
         codeBody = """{"code":""}"""
         mount()
         compose.waitUntil(10000) {

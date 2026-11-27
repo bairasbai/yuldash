@@ -44,6 +44,8 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     }
     private var plain = MemoryDiskPreferences()
     private var secure = MemoryDiskPreferences()
+    private lateinit var cryptoFixture: com.yuldash.app.data.JvmAndroidKeyStoreFixture
+    private lateinit var clockFixture: com.yuldash.app.data.OfflinePassportFixture03
     @Volatile private var preparingPass: TripPass? = null
     private val preparationRequests = CopyOnWriteArrayList<String>()
     private val tokenA = TripPassAuthorityFixture.jwt(7)
@@ -57,10 +59,13 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     private lateinit var server: MockWebServer
     @Volatile private var tripStatus = "confirmed"
     @Volatile private var lateStatus = 200
+    @Volatile private var allowAutomaticCodeRecovery = true
     private var ended = 0
     private var backed = 0
 
     @Before fun prepare() {
+        cryptoFixture = com.yuldash.app.data.JvmAndroidKeyStoreFixture.install()
+        clockFixture = com.yuldash.app.data.OfflinePassportFixture03(context).also { it.prepareClock() }
         ApiClient.resetForTest()
         ApiClient.serverUnreachable.value = false
         server = MockWebServer().apply {
@@ -70,7 +75,9 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
                     requests += "${request.method} ${request.path}" to request.getHeader("Authorization")
                     if (request.path == "/bookings/42/boarding-code") {
                         val index = codeCalls.incrementAndGet()
-                        if (index == 1) return MockResponse().setResponseCode(503).setBody("{}")
+                        if (index == 1 || (index > 2 && !allowAutomaticCodeRecovery)) {
+                            return MockResponse().setResponseCode(503).setBody("{}")
+                        }
                         held.countDown()
                         if (!release.await(30, TimeUnit.SECONDS)) return MockResponse().setResponseCode(503)
                         returned.countDown()
@@ -79,7 +86,7 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
                     val body = when (request.path) {
                         "/bookings/42/messages" -> """{"items":[]}"""
                         "/bookings/42/role" -> """{"role":"passenger","status":"$tripStatus","driver_phase":"departed"}"""
-                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"price":700,"pay_method":"cash","pay_amount":400}"""
+                        "/bookings/42/details" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00","price":700,"pay_method":"cash","pay_amount":400}"""
                         "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","amount":400}"""
                         else -> "{}"
                     }
@@ -105,25 +112,31 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
 
     @After fun cleanup() {
         release.countDown()
-        compose.runOnIdle {
-            mounted.value = false
-            if (owner.registry.currentState.isAtLeast(Lifecycle.State.CREATED))
-                owner.registry.currentState = Lifecycle.State.DESTROYED
+        try {
+            compose.runOnIdle {
+                mounted.value = false
+                if (owner.registry.currentState.isAtLeast(Lifecycle.State.CREATED))
+                    owner.registry.currentState = Lifecycle.State.DESTROYED
+            }
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            val logoutBearer = ApiClient.currentToken()?.let { "Bearer $it" }
+            ApiClient.logout()
+            if (logoutBearer != null) waitFor { requests.contains("POST /auth/logout" to logoutBearer) }
+            ApiClient.resetForTest()
+            ApiClient.testTrace = null
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            Outbox.initStores(MemoryDiskPreferences(), null)
+            if (::server.isInitialized) server.shutdown()
+        } finally {
+            if (::clockFixture.isInitialized) clockFixture.restoreClock()
+            if (::cryptoFixture.isInitialized) cryptoFixture.close()
         }
-        Shadows.shadowOf(Looper.getMainLooper()).idle()
-        val logoutBearer = ApiClient.currentToken()?.let { "Bearer $it" }
-        ApiClient.logout()
-        if (logoutBearer != null) waitFor { requests.contains("POST /auth/logout" to logoutBearer) }
-        ApiClient.resetForTest()
-        ApiClient.testTrace = null
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        Outbox.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
     }
 
     private fun pass(id: Int, code: String, method: String, amount: Int) = TripPass.fromJson(JSONObject()
         .put("booking_id", id).put("boarding_code", code).put("price", 700)
+        .put("from_city", "Город А").put("to_city", "Город Б").put("depart_at", "2031-02-03T09:00:00")
         .put("pay_method", method).put("pay_amount", amount))
     private fun disk(id: Int = 42) = secure.restarted().getString("pass_$id", null)
     // Каждый шаг ожидания — idle главного Looper + доставка снимков (testing.md, правило 5).
@@ -177,11 +190,28 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
         assertEquals(1, requests.count { it.first == "GET /bookings/42/messages" })
         assertFalse(requests.any { it.first.startsWith("POST /bookings/") })
     }
-    private fun successfulRetry(language: AppLanguage, rapid: Boolean = false) {
+    private fun successfulRetry(language: AppLanguage, rapid: Boolean = false, pollWhileHeld: Boolean = false) {
+        allowAutomaticCodeRecovery = !pollWhileHeld
         startHeldRetry(language, rapid)
         val sibling = disk(99)
+        assertTrue("The initial verified booking includes a complete route",
+            OfflineTripSnapshots.projection(42)?.permit?.inputRoute?.valid == true)
+        if (pollWhileHeld) runBlocking {
+            val polled = ApiClient.getTripState(42).getOrThrow()
+            assertEquals("confirmed", polled.status)
+            assertEquals("passenger", polled.role)
+        }
         release.countDown()
-        waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
+        try {
+            waitFor { JSONObject(requireNotNull(disk())).optString("boarding_code") == "5678" }
+        } catch (failure: androidx.compose.ui.test.ComposeTimeoutException) {
+            val projection = OfflineTripSnapshots.projection(42)
+            throw AssertionError("Code retry did not persist. Code reads=" + codeCalls.get() +
+                ", details reads=" + requests.count { it.first == "GET /bookings/42/details" } +
+                ", fresh code=" + (OfflineTripSnapshots.currentBoardingCode(42) == "5678") +
+                ", complete route=" + (projection?.permit?.inputRoute?.valid == true) +
+                ", last persistence=" + OfflineTripSnapshots.persistence.value, failure)
+        }
         // Диск и экран — разные события: ждём и сам код на экране, а не только запись на диск.
         waitFor { compose.onAllNodesWithText("5678").fetchSemanticsNodes().isNotEmpty() }
         compose.onNodeWithText("5678").performScrollTo().assertIsDisplayed()
@@ -197,6 +227,9 @@ class ActiveTripBoardingCodeRetryBoundaryTest {
     @Test fun heldRetryKeepsOldDiskCodeUntilSuccessRu() = successfulRetry(AppLanguage.Ru)
     @Test fun heldRetryKeepsOldDiskCodeUntilSuccessBa() = successfulRetry(AppLanguage.Ba)
     @Test fun twoRapidPointerTapsProduceOneCodeRetry() = successfulRetry(AppLanguage.Ru, rapid = true)
+
+    @Test fun compatibleRolePollWhileCodeIsPendingStillSavesNewCode() =
+        successfulRetry(AppLanguage.Ru, pollWhileHeld = true)
 
     @Test fun lateSuccessfulRetryCannotReplaceNewAccountSnapshot() = switchAccount(200)
     @Test fun lateRejectedRetryCannotOfferOldScreenAnotherRequestAsNewAccount() = switchAccount(503)

@@ -194,10 +194,16 @@ class ActiveTripDeletionTest {
         terminalStatus = "confirmed"
         plain.failWriteOf = TripPassDeletion.KEY
         openScreen()
-        // This label requires the server's departed phase; the initial empty state is insufficient.
-        waitForText("Водитель выехал к тебе")
         // An empty or still pending CODE can withdraw the authority needed to cancel.
-        waitForText("5678")
+        compose.waitUntil(15000) {
+            Shadows.shadowOf(Looper.getMainLooper()).idle()
+            OfflineTripSnapshots.currentBoardingCode(42) == "5678"
+        }
+        // Showing the card and the departed label are separate checks below the loading state.
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("5678"))
+        compose.onNodeWithText("5678").assertIsDisplayed()
+        compose.onNode(hasScrollAction()).performScrollToNode(hasText("Водитель выехал к тебе"))
+        compose.onNodeWithText("Водитель выехал к тебе").assertIsDisplayed()
         assertTrue(requests.contains("GET /bookings/42/role"))
         compose.onNode(hasScrollAction()).performScrollToNode(hasText("Отменить поездку"))
         compose.onNodeWithText("Отменить поездку").assertIsDisplayed()
@@ -305,6 +311,7 @@ class ActiveTripDeletionTest {
         if (details) {
             if (!value.has("contact_unlocked")) value.put("contact_unlocked", value.optString("status") in setOf("confirmed", "onboard"))
             if (!value.has("pay_method")) value.put("pay_method", "negotiate")
+            if (!value.has("depart_at")) value.put("depart_at", "2031-02-03T09:00:00")
         }
         if (role && value.optString("driver_phase") == "waiting") value.put("driver_phase", "")
         if ((role || details) && value.optString("status") == "onboard" && !value.has("onboard_at"))

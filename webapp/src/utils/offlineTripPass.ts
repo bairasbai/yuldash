@@ -5,7 +5,7 @@ import { serverDate } from "./serverTime";
 import { sameBoardingTimestamp } from "./boardingUndo";
 import { IN_TRANSIT_MARKER_TTL_MS, inTransitHelpAvailable } from "./inTransitCancel";
 import {
-  acceptTripPassState, closeTripPass, newTripPassRecord, positiveTripId, validTripPass,
+  acceptTripPassState, closeTripPass, newTripPassRecord, positiveTripId, tripPassExpiresAt, validTripPass,
   type TripPass, type TripPassOwner, type TripPassRecord, type TripPassSnapshot, type TripPassState,
 } from "./tripPass";
 import { editTripRecords, readTripRecords } from "./tripPassStore";
@@ -54,15 +54,17 @@ export async function observeTripPass(
     await change(owner, bookingId, (previous, closedRides) => {
       if (snapshot && closedRides.has(snapshot.rideId)) return { result: true, record: closeTripPass(previous) };
       let record = acceptTripPassState(previous, state, revision);
-      if (record && record.status !== "terminal" && !record.cancellationKey && snapshot &&
+      if (record && record.status !== "terminal" && !record.hidden && !record.cancellationKey && snapshot &&
           snapshot.bookingId === bookingId && revision !== undefined && revision ===
           (previous && previous.status !== "terminal" ? previous.revision : null) && record.status === state.status) {
         const matchingStage = record.status === "onboard"
           ? !record.onboardAt || sameBoardingTimestamp(record.onboardAt, state.onboard_at)
           : !record.undoId || (record.undoId === state.boarding_undo_confirmed_id &&
             sameBoardingTimestamp(record.undoAt, state.boarding_undo_onboard_at));
-        const pass = { ...snapshot, ownerId: owner.userId, sessionGeneration: owner.generation,
-          boardingCode: record.status === "confirmed" ? record.pass?.boardingCode ?? "" : "", savedAt: Date.now() };
+        const savedAt = Date.now();
+        const boardingCode = record.status === "confirmed" && record.pass &&
+          validTripPass(record.pass, owner, bookingId, savedAt) ? record.pass.boardingCode : "";
+        const pass = { ...snapshot, ownerId: owner.userId, sessionGeneration: owner.generation, boardingCode, savedAt };
         if (matchingStage && validTripPass(pass, owner, bookingId)) record = { ...record, rideId: snapshot.rideId, pass };
       }
       return { result: true, record };
@@ -126,7 +128,8 @@ export async function saveTripPassCode(
   if (!owner || revision === undefined || typeof code !== "string" || !code) return;
   try {
     await change(owner, bookingId, record => {
-      if (record?.status !== "confirmed" || record.cancellationKey || record.revision !== revision || !record.pass) {
+      if (record?.status !== "confirmed" || record.hidden || record.cancellationKey || record.revision !== revision ||
+          !record.pass || !validTripPass(record.pass, owner, bookingId)) {
         return { result: false };
       }
       if (record.pass.boardingCode === code) return { result: true };
@@ -142,7 +145,7 @@ export async function saveTripPassPayment(
   if (!owner || revision === undefined) return;
   try {
     await change(owner, bookingId, record => {
-      if (!record || record.status === "terminal" || record.cancellationKey || record.revision !== revision || !record.pass) {
+      if (!record || record.status === "terminal" || record.hidden || record.cancellationKey || record.revision !== revision || !record.pass) {
         return { result: false };
       }
       const pass = { ...record.pass, payMethod, price: price ?? record.pass.price };
@@ -151,6 +154,18 @@ export async function saveTripPassPayment(
         : { result: false };
     }, false);
   } catch { /* Payment agreement was already returned by the server. */ }
+}
+
+/** Remove only this login's saved copy. Booking actions and terminal history retain their own state. */
+export async function hideTripPass(owner: TripPassOwner, bookingId: number): Promise<boolean> {
+  try {
+    return await change(owner, bookingId, previous => {
+      if (previous?.status === "terminal" || (previous?.hidden && !previous.pass)) return { result: true };
+      return { result: true, record: { ...(previous ?? newTripPassRecord()), hidden: true, pass: undefined } };
+    }, false);
+  } catch {
+    return false;
+  }
 }
 
 export function holdTripPassCancellation(owner: TripPassOwner, bookingId: number, key: string): Promise<"held" | "closed" | "blocked"> {
@@ -204,7 +219,7 @@ export type OfflineTripView = {
 };
 
 function visiblePass(record: TripPassRecord | undefined, owner: TripPassOwner, bookingId: number): TripPass | null {
-  if (!record || record.status === "terminal" || record.cancellationKey || !record.pass ||
+  if (!record || record.status === "terminal" || record.hidden || record.cancellationKey || !record.pass ||
       !validTripPass(record.pass, owner, bookingId)) return null;
   return record.status === "onboard" ? { ...record.pass, boardingCode: "" } : record.pass;
 }
@@ -219,12 +234,15 @@ export async function readOfflineTrip(bookingId: number): Promise<OfflineTripVie
     const record = rows.get(bookingId);
     const cancelledAt = record?.status === "terminal" ? record.cancelledInTransitAt : undefined;
     const cancelledInTransit = inTransitHelpAvailable(cancelledAt);
+    const pass = visiblePass(record, owner, bookingId);
+    const expiresAt = cancelledInTransit && cancelledAt !== undefined ? cancelledAt + IN_TRANSIT_MARKER_TTL_MS + 1
+      : pass ? tripPassExpiresAt(pass) : undefined;
     return { generation: owner.generation,
       status: record && record.status !== "terminal" && record.cancellationKey ? "held" : record?.status ?? "confirmed",
       cancelledInTransit,
-      expiresAt: cancelledInTransit && cancelledAt !== undefined ? cancelledAt + IN_TRANSIT_MARKER_TTL_MS + 1 : undefined,
+      expiresAt,
       revision: record?.status === "terminal" ? undefined : record?.revision ?? null,
-      pass: visiblePass(record, owner, bookingId) };
+      pass };
   } catch {
     return currentOwner(owner)
       ? { generation: owner.generation, status: "storage-unavailable", cancelledInTransit: false, pass: null }
@@ -233,7 +251,7 @@ export async function readOfflineTrip(bookingId: number): Promise<OfflineTripVie
 }
 
 export type OfflineTripOption = Pick<TripPass, "bookingId" | "fromCity" | "toCity" | "departAt">;
-export type OfflineTripOptions = { generation: string; trips: OfflineTripOption[] };
+export type OfflineTripOptions = { generation: string; trips: OfflineTripOption[]; expiresAt?: number };
 
 /** The start screen gets only selection metadata from snapshots it can actually open. */
 export async function listOfflineTripOptions(): Promise<OfflineTripOptions | null> {
@@ -244,15 +262,18 @@ export async function listOfflineTripOptions(): Promise<OfflineTripOptions | nul
     await reconcileSession();
     if (!rows || !currentOwner(owner)) return null;
     const trips: Array<OfflineTripOption & { savedAt: number }> = [];
+    let expiresAt: number | undefined;
     for (const [id, record] of rows) {
       if (!positiveTripId(id)) continue;
       const pass = visiblePass(record, owner, id);
       if (!pass || !pass.fromCity.trim() || !pass.toCity.trim() || (pass.departAt && !serverDate(pass.departAt))) continue;
       const { bookingId, fromCity, toCity, departAt, savedAt } = pass;
       trips.push({ bookingId, fromCity, toCity, departAt, savedAt });
+      const expiry = tripPassExpiresAt(pass);
+      expiresAt = expiresAt === undefined ? expiry : Math.min(expiresAt, expiry);
     }
     trips.sort((a, b) => b.savedAt - a.savedAt || b.bookingId - a.bookingId);
-    return { generation: owner.generation,
+    return { generation: owner.generation, expiresAt,
       trips: trips.map(({ bookingId, fromCity, toCity, departAt }) => ({ bookingId, fromCity, toCity, departAt })) };
   } catch {
     return null;

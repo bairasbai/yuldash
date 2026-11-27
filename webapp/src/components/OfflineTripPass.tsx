@@ -13,14 +13,48 @@
 //  статусов, «водитель подъезжает»: всё это без сети было бы
 //  враньём. Прямо об этом и написано в шапке карточки.
 // ================================================================
+import { useState } from "react";
 import { useLang } from "../i18n/lang";
-import type { TripPass } from "../utils/tripPass";
+import { hideTripPass } from "../utils/offlineTripPass";
+import type { TripPass, TripPassOwner } from "../utils/tripPass";
 import { formatWhen, priceLabel, payMethodLabel } from "../utils/format";
 import { BookingSegmentNote } from "./PickupStopChoice";
 import { IconPhone, IconWarn } from "./Icons";
 
-export default function OfflineTripPass({ pass }: { pass: TripPass }) {
+type HideAttempt = { owner: TripPassOwner; bookingId: number; phase: "pending" | "done" | "failed" };
+
+export default function OfflineTripPass({ pass }: { pass: TripPass | null }) {
   const { appText, lang } = useLang();
+  const [attempt, setAttempt] = useState<HideAttempt | null>(null);
+
+  async function hide(owner: TripPassOwner, bookingId: number) {
+    setAttempt({ owner, bookingId, phase: "pending" });
+    const done = await hideTripPass(owner, bookingId);
+    setAttempt({ owner, bookingId, phase: done ? "done" : "failed" });
+  }
+
+  if (attempt) {
+    const message = attempt.phase === "pending"
+      ? appText("Скрываем личные данные…", "Шәхси мәғлүмәтте йәшерәбеҙ…")
+      : attempt.phase === "done"
+        ? appText("Копия паспорта удалена", "Паспорт күсермәһе юйылды")
+        : appText(
+          "Не удалось подтвердить удаление. После перезапуска копия может появиться.",
+          "Юйыуҙы раҫлап булманы. Ҡабат асыуҙан һуң күсермә күренеүе мөмкин.",
+        );
+    return (
+      <div className="act-card act-card--warn">
+        <p className="act-card__text" role="status">{message}</p>
+        {attempt.phase === "failed" && (
+          <button type="button" className="btn-soft trip-btn" onClick={() => void hide(attempt.owner, attempt.bookingId)}>
+            {appText("Повторить удаление", "Юйыуҙы ҡабатлау")}
+          </button>
+        )}
+      </div>
+    );
+  }
+
+  if (!pass) return null;
   const ru = lang !== "ba";
 
   return (
@@ -106,6 +140,17 @@ export default function OfflineTripPass({ pass }: { pass: TripPass }) {
           <IconPhone size={18} /> {appText("Позвонить водителю", "Йөрөтөүсегә шылтыратыу")}
         </a>
       )}
+      <button
+        type="button"
+        className="btn-soft trip-btn"
+        style={{ marginTop: 12 }}
+        onClick={() => void hide({ userId: pass.ownerId, generation: pass.sessionGeneration }, pass.bookingId)}
+      >
+        {appText("Скрыть личные данные", "Шәхси мәғлүмәтте йәшереү")}
+      </button>
+      <p className="act-card__text">
+        {appText("Это удалит сохранённую копию с устройства.", "Был эш һаҡланған күсермәне ҡоролманан юясаҡ.")}
+      </p>
     </div>
   );
 }

@@ -6,7 +6,7 @@ import org.junit.Test
 import java.io.File
 
 /**
- * leaf-2.3, 152-ФЗ: ни один из восьми файлов листа не смеет писать в лог телефон водителя
+ * leaf-2.3, 152-ФЗ: файлы из списка проверки не должны писать в лог телефон водителя
  * (`TripPass.driverPhone`), координаты точки сбора, текст переписки из очереди исходящих или
  * содержимое экспорта "Мои данные". Сейчас ни один из них не вызывает `Log`/`println` вовсе —
  * но это не самоочевидно и не закреплено нигде: будущая правка (например, отладочный `Log.d`
@@ -25,6 +25,8 @@ class NoPersonalDataLoggingTest {
         "data/OfflineWrites.kt",
         "data/PersonalDataExports.kt",
         "data/TripPass.kt",
+        "data/Outbox.kt",
+        "data/ColdTripPassportCoordinator.kt",
         "data/TripPassDto.kt",
     )
 
@@ -40,11 +42,11 @@ class NoPersonalDataLoggingTest {
         error("could not locate com.yuldash.app source root")
     }
 
-    @Test fun `сторож видит все восемь файлов листа`() {
+    @Test fun `сторож видит все десять файлов листа`() {
         val dir = sourceDir()
         val missing = files.filterNot { File(dir, it).isFile }
         assertTrue("не нашёл файлы листа, сторож ничего не проверяет: $missing", missing.isEmpty())
-        assertEquals(8, files.size)
+        assertEquals(10, files.size)
     }
 
     @Test fun `ни один файл листа не пишет в лог или на консоль`() {

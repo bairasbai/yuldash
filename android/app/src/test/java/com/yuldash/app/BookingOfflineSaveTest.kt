@@ -43,6 +43,8 @@ import java.util.concurrent.CopyOnWriteArrayList
 class BookingOfflineSaveTest {
     @get:Rule val compose = createComposeRule()
     private val context = ApplicationProvider.getApplicationContext<Context>()
+    private lateinit var cryptoFixture: com.yuldash.app.data.JvmAndroidKeyStoreFixture
+    private lateinit var clockFixture: com.yuldash.app.data.OfflinePassportFixture03
     private val plain = MemoryDiskPreferences()
     private val secure = MemoryDiskPreferences()
     private lateinit var server: MockWebServer
@@ -129,6 +131,8 @@ class BookingOfflineSaveTest {
     }
 
     @Before fun setup() {
+        cryptoFixture = com.yuldash.app.data.JvmAndroidKeyStoreFixture.install()
+        clockFixture = com.yuldash.app.data.OfflinePassportFixture03(context).also { it.prepareClock() }
         awaitApiBackgroundCompletion();awaitSnapshotCleanup()
         ApiClient.resetForTest()
         server = MockWebServer().apply {
@@ -176,15 +180,20 @@ class BookingOfflineSaveTest {
     }
 
     @After fun cleanup() {
-        if (!::server.isInitialized) { awaitApiBackgroundCompletion(); awaitSnapshotCleanup(); return }
-        plain.failRemovalOf = null
-        ApiClient.logout()
-        awaitApiBackgroundCompletion()
-        awaitSnapshotCleanup()
-        ApiClient.resetForTest()
-        ApiClient.testTimeoutMs = null
-        TripPassStore.initStores(MemoryDiskPreferences(), null)
-        server.shutdown()
+        try {
+            if (!::server.isInitialized) { awaitApiBackgroundCompletion(); awaitSnapshotCleanup(); return }
+            plain.failRemovalOf = null
+            ApiClient.logout()
+            awaitApiBackgroundCompletion()
+            awaitSnapshotCleanup()
+            ApiClient.resetForTest()
+            ApiClient.testTimeoutMs = null
+            TripPassStore.initStores(MemoryDiskPreferences(), null)
+            server.shutdown()
+        } finally {
+            if (::clockFixture.isInitialized) clockFixture.restoreClock()
+            if (::cryptoFixture.isInitialized) cryptoFixture.close()
+        }
     }
 
     private fun render(allowWithdrawnPrivate: Boolean = false) {

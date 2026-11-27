@@ -151,26 +151,31 @@ internal class SnapshotCoreDisk(private val directory: Path) : SnapshotDisk {
     var failPayload = false
     var failBarrier = false
     var failClear = false
+    var barrierFault: ((String, String?) -> Boolean)? = null
+    var writeFault: ((String, String) -> Boolean)? = null
     var entered: CountDownLatch? = null
     var continueWrite: CountDownLatch? = null
     private val barriers get() = directory.resolve("barriers.json")
     override fun read(namespace: String): String? = directory.resolve("$namespace.json").takeIf(Files::exists)?.toFile()?.readText(Charsets.UTF_8)
     override fun write(namespace: String, value: String): Boolean {
         entered?.countDown(); continueWrite?.let { check(it.await(5, TimeUnit.SECONDS)) }
-        if (failPayload) return false
+        if (failPayload || writeFault?.invoke(namespace, value) == true) return false
         directory.resolve("$namespace.json").toFile().writeText(value, Charsets.UTF_8); return true
     }
     private fun barrierMap() = if (Files.exists(barriers)) JSONObject(barriers.toFile().readText(Charsets.UTF_8)) else JSONObject()
     override fun barrier(key: String): String? = barrierMap().let { if (it.has(key)) it.getString(key) else null }
     override fun setBarrier(key: String, value: String?): Boolean {
-        if (failBarrier || (failClear && value == null)) return false
+        if (failBarrier || (failClear && value == null) || barrierFault?.invoke(key, value) == true) return false
         val map = barrierMap()
         if (map.optString(key) == "closed" && value != "closed") return false
         if (value == null) map.remove(key) else map.put(key, value)
         barriers.toFile().writeText(map.toString(), Charsets.UTF_8); return true
     }
     override fun retire(namespace: String): Boolean { Files.deleteIfExists(directory.resolve("$namespace.json")); return true }
-    fun recoverWrites() { failPayload = false; failBarrier = false; failClear = false }
+    fun recoverWrites() {
+        failPayload = false; failBarrier = false; failClear = false
+        barrierFault = null; writeFault = null
+    }
 }
 
 internal class SnapshotCoreFixture(

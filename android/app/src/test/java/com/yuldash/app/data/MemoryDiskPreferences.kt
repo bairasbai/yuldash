@@ -4,7 +4,7 @@ import android.content.SharedPreferences
 
 /** SharedPreferences fault model: a failed disk write can still change process memory. */
 internal class MemoryDiskPreferences(private val disk: MutableMap<String, Any> = mutableMapOf()) : SharedPreferences {
-    private val memory = HashMap(disk)
+    private val memory = synchronized(disk) { HashMap(disk) }
     var failMarkerRemoval = false
     var failMarkerRestore = false
     var failRemovalOf: String? = null
@@ -34,16 +34,16 @@ internal class MemoryDiskPreferences(private val disk: MutableMap<String, Any> =
         override fun remove(key: String?) = put(key, null)
         override fun clear(): SharedPreferences.Editor { clearing = true; return this }
         override fun apply() { commit() }
-        override fun commit(): Boolean {
-            if (failMarkerRestore && changes[OfflineStoreReset.PENDING] == true) return false
+        override fun commit(): Boolean = synchronized(disk) {
+            if (failMarkerRestore && changes[OfflineStoreReset.PENDING] == true) return@synchronized false
             if (clearing) memory.clear()
             changes.forEach { (key, value) -> if (value == null) memory.remove(key) else memory[key] = value }
-            if (failWriteOf?.let { changes[it] != null } == true) return false
-            if (failRemovalOf?.let { clearing || (changes.containsKey(it) && changes[it] == null) } == true) return false
-            if (failMarkerRemoval && changes.containsKey(OfflineStoreReset.PENDING) && changes[OfflineStoreReset.PENDING] == null) return false
+            if (failWriteOf?.let { changes[it] != null } == true) return@synchronized false
+            if (failRemovalOf?.let { clearing || (changes.containsKey(it) && changes[it] == null) } == true) return@synchronized false
+            if (failMarkerRemoval && changes.containsKey(OfflineStoreReset.PENDING) && changes[OfflineStoreReset.PENDING] == null) return@synchronized false
             disk.clear()
             disk.putAll(memory)
-            return true
+            true
         }
     }
 }

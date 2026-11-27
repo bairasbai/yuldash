@@ -402,7 +402,9 @@ internal fun RidesScreen(
             }
             if (bookingsError && historicalAllowed && !bookingsLoading) {
                 items(historical, key = { "historical-" + it.bookingId }) { saved ->
-                    HistoricalTripSummaryCard(saved, onRetry = { bookingsReload++ })
+                    HistoricalTripSummaryCard(saved, onRetry = { bookingsReload++ }, onOpenPassport = { id ->
+                        if (bookingsError && historicalAllowed && !bookingsLoading) onOpenRecoveredBooking(id, false)
+                    })
                 }
             }
             when {

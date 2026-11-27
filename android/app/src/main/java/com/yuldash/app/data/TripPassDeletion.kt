@@ -24,6 +24,9 @@ internal object TripPassDeletion {
     @Synchronized fun blocks(plain: SharedPreferences, bookingId: Int): Boolean =
         runCatching { bookingId in ids(plain) }.getOrDefault(true)
 
+    @Synchronized fun confirmedIds(plain: SharedPreferences): Set<Int> =
+        if (uncommitted.containsKey(plain)) emptySet() else runCatching { ids(plain) }.getOrDefault(emptySet())
+
     private fun commit(plain: SharedPreferences, values: Set<Int>): Boolean {
         uncommitted[plain] = values
         val saved = runCatching {

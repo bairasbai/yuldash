@@ -574,7 +574,8 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
             compose.onAllNodes(text(a, "Готово")).fetchSemanticsNodes().isNotEmpty() }
         scroll(a, hasText("Рәхмәт передано"))
         node(a, "Рәхмәт передано").assertExists()
-        scroll(a, hasText("Чат поездки снова открыт"))
+        scroll(a, hasTestTag("rideshareLostItem"))
+        awaitUi { compose.onAllNodes(text(a, "Чат поездки снова открыт")).fetchSemanticsNodes().isNotEmpty() }
         node(a, "Чат поездки снова открыт").assertExists()
         assertSame(history, actualHistory(11))
         assertTrue(OfflineTripSnapshots.allowsHistory(history))
@@ -597,7 +598,8 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
             compose.onAllNodes(text(a, "Готово")).fetchSemanticsNodes().isNotEmpty() }
         scroll(a, hasText("Рәхмәт передано"))
         node(a, "Рәхмәт передано").assertExists()
-        scroll(a, hasText("Чат поездки снова открыт"))
+        scroll(a, hasTestTag("rideshareLostItem"))
+        awaitUi { compose.onAllNodes(text(a, "Чат поездки снова открыт")).fetchSemanticsNodes().isNotEmpty() }
         node(a, "Чат поездки снова открыт").assertExists()
         assertSame(history, actualHistory(11))
         assertTrue(OfflineTripSnapshots.allowsHistory(history))
@@ -812,7 +814,7 @@ internal class OfflineTripParentAuthorityTest : SnapshotWiringFixture() {
         compose.setContent {
             YuldashTheme {
                 CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                    if (warmMounted.value) OfflineActiveTripSnapshot(mode, parent, onRetry = {}, onBack = {})
+                    if (warmMounted.value) OfflineActiveTripSnapshot(mode, parent, onRetry = {}, onBack = {}, navigation = com.yuldash.app.data.TripNavigationReadGate())
                 }
             }
         }

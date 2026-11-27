@@ -86,7 +86,6 @@ class SecureStoreFallbackGuardTest {
     @Test
     fun `у каждого хранилища с мягким падением есть переезд и уборка открытого`() {
         val src = source("TripPass.kt")
-        // Оба объекта в этом файле держат пару «шифрованное + открытое».
         assertTrue(
             "у паспортов поездок нет переноса из открытого хранилища в шифрованное: " +
                 "данные, записанные при неподнявшемся Keystore, останутся открытыми навсегда",
@@ -100,7 +99,7 @@ class SecureStoreFallbackGuardTest {
         )
         assertTrue(
             "у очереди исходящих пропал разовый перенос из открытого хранилища",
-            src.contains("OfflineMigration.open(plain, available) { it == KEY }") &&
+            source("Outbox.kt").contains("OfflineMigration.open(plain, available) { it == KEY }") &&
                 source("OfflineMigration.kt").contains("remove(JOURNAL)"),
         )
     }

@@ -128,10 +128,7 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         }.getOrNull()
     }
     /** Memory projections cannot cross a boot/process. No optional BOOT_COUNT read is needed. */
-    fun processClock(): SnapshotClock = suppliedClock?.invoke()?.let { it.copy(boot = 0) } ?: run {
-        val before = SystemClock.elapsedRealtime()
-        SnapshotClock(0, System.currentTimeMillis(), before, SystemClock.elapsedRealtime())
-    }
+    fun processClock(): SnapshotClock = clockInBoot(0).let { if (it.boot == 0) it else it.copy(boot = 0) }
     fun clockInBoot(boot: Int): SnapshotClock = suppliedClock?.invoke() ?: run {
         val before = SystemClock.elapsedRealtime()
         SnapshotClock(boot, System.currentTimeMillis(), before, SystemClock.elapsedRealtime())
@@ -170,6 +167,36 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
     }
     fun canDrawSnapshot(value: OfflineTripSnapshot): Boolean = cacheEnabled(value.owner) &&
         gate.allowsSnapshot(value.owner, value.bookingId, value.state, value.rideId, value.route)
+
+    private val coldPassport = ColdTripPassportCoordinator(
+        diskAccess, { app }, { storageEpoch }, ::repo, { details[it] }, ::proofCurrent, ::changed, jobs,
+        { writes.value = it; changed() },
+    ) { revocation, store -> publish(durableAck = true) { store.revokeCold(revocation) } }
+
+    suspend fun saveColdPassport(context: Context, pass: TripPass, retryMigration: Boolean = false,
+        expectedGeneration: Long? = null, shouldContinue: () -> Boolean = { true }): SnapshotPersistence =
+        coldPassport.saveColdPassport(context, pass, retryMigration, expectedGeneration, shouldContinue)
+
+    suspend fun updateColdBoardingCode(
+        context: Context,
+        bookingId: Int,
+        code: String,
+        expectedGeneration: Long? = null,
+        retryMigration: Boolean = false,
+    ): SnapshotPersistence {
+        if (code.isBlank() || (expectedGeneration != null && expectedGeneration != ApiClient.queueSessionGeneration())) {
+            return SnapshotPersistence.STALE
+        }
+        val current = privatePass(bookingId) ?: return SnapshotPersistence.STALE
+        return saveColdPassport(context, current.copy(boardingCode = code), retryMigration, expectedGeneration)
+    }
+
+    suspend fun loadColdPassport(owner: SnapshotOwner, bookingId: Int,
+        navigation: TripNavigationReadGate? = null): ColdTripPassport? =
+        coldPassport.loadColdPassport(owner, bookingId, navigation)
+
+    fun canDrawCold(value: ColdTripPassport): Boolean = coldPassport.canDrawCold(value)
+
     private fun timeCurrent(owner: SnapshotOwner, bookingId: Int, stamp: SnapshotClock, candidate: String): Boolean {
         if (!current(owner)) return false
         if (stamp.remaining(processClock()) != null) return true
@@ -217,11 +244,24 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
     }
     @Synchronized fun projection(bookingId: Int): TripPrivateProjection? = details[bookingId]?.takeIf { freshDetails(it.details) }
     @Synchronized fun forgetDetails(bookingId: Int) { details.remove(bookingId); driverCodes.remove(bookingId); changed() }
+    suspend fun privateChanged(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence {
+        if (!current(owner) || bookingId <= 0) return SnapshotPersistence.STALE
+        val revocation = gate.ticket()?.let { gate.revokeCold(it, bookingId) } ?: return SnapshotPersistence.STALE
+        forgetDetails(bookingId)
+        val store = repo(owner) ?: return SnapshotPersistence.NOT_DURABLE
+        return publish(durableAck = true) { store.revokeCold(revocation) }
+    }
+    suspend fun revokeColdDurably(owner: SnapshotOwner, bookingId: Int): SnapshotPersistence =
+        coldPassport.revokeColdDurably(owner, bookingId)
+    fun retryRemovedPassports(bookingIds: Set<Int>) = coldPassport.retryRemovedPassports(bookingIds)
+
     override fun revoked(owner: SnapshotOwner, bookingId: Int) {
         synchronized(this) {
             if (current(owner)) { live.remove(bookingId); details.remove(bookingId); driverCodes.remove(bookingId); histories.remove(bookingId); terminals.remove(bookingId); warmFallbacks.remove(bookingId); changed() }
         }
     }
+    override suspend fun coldDenied(ticket: SnapshotTicket, bookingId: Int): SnapshotPersistence =
+        privateChanged(ticket.owner, bookingId)
     @Synchronized fun forgetLive(owner: SnapshotOwner, bookingId: Int) {
         if (current(owner)) { live.remove(bookingId); driverCodes.remove(bookingId); if (details[bookingId]?.details?.status !in setOf("done", "cancelled")) details.remove(bookingId); changed() }
     }
@@ -253,6 +293,13 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         if (ticket.sequence < newest) return
         gate.expireCandidate(ticket.owner, bookingId, "blocked:" + snapshotHash("invalid-read:${ticket.process}:${ticket.sequence}"))
         forgetLive(ticket.owner, bookingId)
+        if (!fallbackAllowed) {
+            val revocation = gate.revokeCold(ticket, bookingId)
+            val store = repo(ticket.owner)
+            if (revocation != null && store != null) {
+                jobs.launch { publish(durableAck = true) { store.revokeCold(revocation) } }
+            }
+        }
     }
     @Synchronized private fun olderThanPublished(proof: SnapshotNetworkProof): Boolean = proof.request.ticket.sequence < maxOf(
         live[proof.request.bookingId]?.permit?.ticket?.sequence ?: 0L,
@@ -277,15 +324,17 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
             return true
         }
         if (value.status == "pending") {
-            return synchronized(this) { if (olderThanPublished(proof) || !proofCurrent(proof)) false else {
+            val accepted = synchronized(this) { if (olderThanPublished(proof) || !proofCurrent(proof)) false else {
                 gate.invalidate(proof.request.ticket, id); revoked(proof.owner, id); true
             } }
+            if (accepted && value.role == "passenger") revokeColdDurably(proof.owner, id)
+            return accepted
         }
         val state = snapshotState(value.role, value.status, value.driverPhase, value.boardingUndo)
         val permit = synchronized(this) {
             gate.acceptRead(proof, state)?.also { live[id] = Live(it, processClock()); warmFallbacks.remove(id); changed() }
         } ?: return false
-        repo(proof.owner)?.let { store -> publish { store.observe(permit.ticket, id, state, permit = permit) } }
+        repo(proof.owner)?.let { store -> publish(durableAck = true) { store.observe(permit.ticket, id, state, permit = permit) } }
         return gate.canObserve(permit, permit.ticket, id, state)
     }
     suspend fun acceptDetails(proof: SnapshotNetworkProof, value: BookingDetailsDto): Boolean {
@@ -320,22 +369,29 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
             changed()
         }
         val accepted = permit
-        if (accepted != null) repo(proof.owner)?.let { store -> publish {
+        if (accepted != null) repo(proof.owner)?.let { store -> publish(durableAck = true) {
             store.observe(accepted.ticket, value.bookingId, state, value.rideId, route.takeIf { it.valid }, permit = accepted)
         } }
+        if (value.status == "pending") revokeColdDurably(proof.owner, value.bookingId)
         return synchronized(this) { details[value.bookingId]?.details === value && freshDetails(value) }
     }
-    @Synchronized fun denyBlankCode(expected: TripPrivateProjection, proof: SnapshotNetworkProof): Boolean {
+    suspend fun denyBlankCode(expected: TripPrivateProjection, proof: SnapshotNetworkProof): SnapshotPersistence {
         val id = expected.details.bookingId
-        val actual = details[id] ?: return false
-        val state = expected.permit?.state ?: return false
-        if (!proof.verified() || proof.owner != expected.owner || actual.owner != expected.owner ||
-            !current(expected.owner) || proof.request.bookingId != id || proof.request.kind != SnapshotAuthorityKind.DETAILS ||
-            actual.fingerprint != expected.fingerprint || actual.permit?.state != state || !privateDetails(actual.details)) return false
-        if (!gate.denyBlankCode(proof, expected.fingerprint, state)) return false
-        live.remove(id); details.remove(id); driverCodes.remove(id); warmFallbacks.remove(id)
-        changed()
-        return true
+        val revocation = synchronized(this) {
+            val actual = details[id] ?: return@synchronized null
+            val state = expected.permit?.state ?: return@synchronized null
+            if (!proof.verified() || proof.owner != expected.owner || actual.owner != expected.owner ||
+                !current(expected.owner) || proof.request.bookingId != id || proof.request.kind != SnapshotAuthorityKind.DETAILS ||
+                actual.fingerprint != expected.fingerprint || actual.permit?.state != state || !privateDetails(actual.details)) {
+                return@synchronized null
+            }
+            val accepted = gate.denyBlankCode(proof, expected.fingerprint, state) ?: return@synchronized null
+            live.remove(id); details.remove(id); driverCodes.remove(id); warmFallbacks.remove(id)
+            changed()
+            accepted
+        } ?: return SnapshotPersistence.STALE
+        val store = repo(expected.owner) ?: return SnapshotPersistence.NOT_DURABLE
+        return publish(durableAck = true) { store.revokeCold(revocation) }
     }
 
     @Synchronized fun attachCode(expected: TripPrivateProjection, code: String, proof: SnapshotNetworkProof): Boolean {
@@ -347,20 +403,19 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
             if (expected.driverCodeBlocked || proof.request.ticket.sequence < expected.proof.request.ticket.sequence) return false
             val previous = driverCodes[expected.details.bookingId]
             if (previous != null && previous.projection === expected && previous.proof.request.ticket.sequence > proof.request.ticket.sequence) return false
-            if (!gate.recordCodeSuccess(proof)) return false
+            if (!gate.recordDriverCodeSuccess(proof)) return false
             driverCodes[expected.details.bookingId] = DriverBoardingCodeProjection(expected, code, proof)
             changed()
             return true
         }
         if (expected.details.role != "passenger") return false
         val pass = expected.pass.copy(boardingCode = code)
-        val state = expected.permit?.input ?: return false
-        val permit = gate.acceptRead(proof, state, expected.permit.inputRide, expected.permit.inputRoute, true,
-            privateTripFingerprint(expected.details, pass)) ?: return false
-        if (!gate.canObserve(permit, permit.ticket, pass.bookingId, state, permit.inputRide, permit.inputRoute)) return false
-        if (!gate.recordCodeSuccess(proof)) return false
-        details[pass.bookingId] = expected.copy(pass = pass, permit = permit)
-        live[pass.bookingId] = Live(permit, expected.stamp)
+        val base = expected.permit ?: return false
+        val permit = gate.acceptPassengerCode(proof, base, privateTripFingerprint(expected.details, pass)) ?: return false
+        details[pass.bookingId] = expected.copy(pass = pass, permit = permit, codeProof = proof)
+        if (permit.ticket.sequence >= (live[pass.bookingId]?.permit?.ticket?.sequence ?: 0L)) {
+            live[pass.bookingId] = Live(permit, expected.stamp)
+        }
         changed(); return true
     }
     suspend fun acknowledge(request: SnapshotMutationTicket?, role: String, result: BoardingResult) {
@@ -393,6 +448,16 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
                 synchronized(this) {
                     if (!allowsLive(request.bookingId)) { live.remove(request.bookingId); details.remove(request.bookingId); driverCodes.remove(request.bookingId) }
                     writes.value = SnapshotPersistence.NOT_DURABLE; changed()
+                }
+                if (known?.role == "passenger") {
+                    val revocation = gate.revokeCold(request.ticket, request.bookingId)
+                    val store = repo(request.ticket.owner)
+                    if (revocation != null && store != null) {
+                        publish(durableAck = true) {
+                            val persisted = store.revokeCold(revocation)
+                            if (persisted == SnapshotPersistence.COMMITTED) SnapshotPersistence.NOT_DURABLE else persisted
+                        }
+                    }
                 }
             }
             return
@@ -531,29 +596,3 @@ internal object OfflineTripSnapshots : SnapshotTransportAuthority {
         repository = OfflineTripSnapshotRepository(disk, active, { this.clock() }, gate, ::changed)
     }
 }
-
-/** Exact registered preference pair only. The shared Android Keystore alias is never touched. */
-internal class SnapshotLogoutCleanup(
-    private val context: Context,
-    private val delete: (String) -> Boolean = { context.deleteSharedPreferences(it) },
-    private val absent: (String) -> Boolean = { name ->
-        val directory = java.io.File(context.applicationInfo.dataDir, "shared_prefs")
-        !java.io.File(directory, "$name.xml").exists() && !java.io.File(directory, "$name.xml.bak").exists()
-    },
-) {
-    fun pending(): Boolean? = runCatching {
-        context.getSharedPreferences(SNAPSHOT_META_PREFS, Context.MODE_PRIVATE).getBoolean(OfflineStoreReset.PENDING, false)
-    }.getOrNull()
-    fun run(): SnapshotPersistence {
-        val meta = context.getSharedPreferences(SNAPSHOT_META_PREFS, Context.MODE_PRIVATE)
-        val marked = runCatching { meta.edit().putBoolean(OfflineStoreReset.PENDING, true).commit() }.getOrDefault(false)
-        val removed = runCatching { delete(SNAPSHOT_SECURE_PREFS) && absent(SNAPSHOT_SECURE_PREFS) }.getOrDefault(false)
-        if (!removed) return if (marked) SnapshotPersistence.DURABLY_BLOCKED else SnapshotPersistence.NOT_DURABLE
-        val cleaned = runCatching { delete(SNAPSHOT_META_PREFS) && absent(SNAPSHOT_META_PREFS) }.getOrDefault(false)
-        if (cleaned) discardOfflineWriteRecovery(meta)
-        return if (cleaned) SnapshotPersistence.COMMITTED else SnapshotPersistence.DURABLY_BLOCKED
-    }
-}
-
-internal fun snapshotState(role: String, status: String, phase: String?, undo: BoardingUndoTerms): SnapshotState =
-    SnapshotState(role, status, phase, undo.onboardAt, undo.sourceOnboardAt, !undo.confirmedId.isNullOrBlank())

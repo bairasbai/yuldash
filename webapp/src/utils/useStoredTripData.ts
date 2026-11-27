@@ -3,6 +3,9 @@ import { getSessionGeneration } from "../api/client";
 import { isSessionStorageSignal } from "./sessionCredentials";
 import { subscribeTripPassChanges } from "./tripPassStore";
 
+const hasExpired = (value: { expiresAt?: number }): boolean =>
+  value.expiresAt !== undefined && value.expiresAt <= Date.now();
+
 /** Recheck the current generation on every asynchronous read and browser boundary. */
 export function useStoredTripData<T extends { generation: string; expiresAt?: number }>(
   enabled: boolean, read: () => Promise<T | null>, clearOnRefresh = true,
@@ -12,20 +15,29 @@ export function useStoredTripData<T extends { generation: string; expiresAt?: nu
     if (!enabled) return;
     let revision = 0;
     let expiry: ReturnType<typeof setTimeout> | undefined;
-    const refresh = () => {
+    let displayed: T | null = null;
+    const publish = (result: T | null) => {
       clearTimeout(expiry);
+      displayed = result;
+      setValue(result ? { read, result } : null);
+    };
+    const refresh = () => {
       const expected = ++revision;
-      if (clearOnRefresh) setValue(null);
+      if (clearOnRefresh || (displayed && hasExpired(displayed))) publish(null);
       void read().then(result => {
         if (expected !== revision) return;
-        if (!result || result.generation !== getSessionGeneration()) {
-          setValue(null);
+        if (!result || hasExpired(result) || result.generation !== getSessionGeneration()) {
+          publish(null);
           return;
         }
-        setValue({ read, result });
-        if (result.expiresAt !== undefined) expiry = setTimeout(refresh, Math.max(0, result.expiresAt - Date.now()));
+        publish(result);
+        if (result.expiresAt !== undefined) expiry = setTimeout(() => {
+          if (displayed !== result) return;
+          publish(null);
+          refresh();
+        }, Math.max(0, result.expiresAt - Date.now()));
       }).catch(() => {
-        if (expected === revision) setValue(null);
+        if (expected === revision) publish(null);
       });
     };
     const storageChanged = (event: StorageEvent) => {
@@ -49,5 +61,6 @@ export function useStoredTripData<T extends { generation: string; expiresAt?: nu
       document.removeEventListener("visibilitychange", refresh);
     };
   }, [enabled, read, clearOnRefresh]);
-  return enabled && value?.read === read && value.result.generation === getSessionGeneration() ? value.result : null;
+  return enabled && value?.read === read && !hasExpired(value.result) &&
+    value.result.generation === getSessionGeneration() ? value.result : null;
 }

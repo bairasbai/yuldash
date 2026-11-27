@@ -1,6 +1,7 @@
 import { useCallback } from "react";
 import { useParams } from "react-router-dom";
 import { useAuth } from "../auth/AuthProvider";
+import { getSessionGeneration } from "../api/client";
 import { useLang } from "../i18n/lang";
 import { readOfflineTrip } from "../utils/offlineTripPass";
 import { useStoredTripData } from "../utils/useStoredTripData";
@@ -26,7 +27,7 @@ export default function OfflineTripFallback() {
   const bookingId = Number(id);
   const read = useCallback(async () => navigator.onLine === false ? readOfflineTrip(bookingId) : null, [bookingId]);
   const saved = useStoredTripData(status === "unavailable", read);
-  if (navigator.onLine !== false || !saved) return null;
-  if (saved.cancelledInTransit) return <OfflineCancellationHelp bookingId={bookingId} />;
-  return saved.pass ? <OfflineTripPass pass={saved.pass} /> : null;
+  if (navigator.onLine !== false || status !== "unavailable") return null;
+  if (saved?.cancelledInTransit) return <OfflineCancellationHelp bookingId={bookingId} />;
+  return <OfflineTripPass key={getSessionGeneration() + ":" + bookingId} pass={saved?.pass ?? null} />;
 }

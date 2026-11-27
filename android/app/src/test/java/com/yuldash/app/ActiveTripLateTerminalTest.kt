@@ -91,7 +91,7 @@ class ActiveTripLateTerminalTest {
                         "/bookings/42/details" -> {
                             // Details no longer wait for the outstanding boarding-code request.
                             detailsRequested.countDown()
-                            """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"driver_phone":"$phone","from_city":"Город А","to_city":"Город Б"}"""
+                            """{"booking_id":42,"ride_id":1042,"role":"passenger","status":"confirmed","contact_unlocked":true,"driver_phone":"$phone","from_city":"Город А","to_city":"Город Б","depart_at":"2031-02-03T09:00:00"}"""
                         }
                         "/trips/42/receipt" -> """{"booking_id":42,"ride_id":1042,"role":"passenger","from_city":"Город А","to_city":"Город Б","counterparty_name":"Серверный водитель","amount":700,"paid":true}"""
                         "/bookings/42/tip" -> """{"already_thanked":false}"""
