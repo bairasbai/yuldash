@@ -205,6 +205,49 @@ def test_promo_credit_without_debt_survives_rate_change(
     assert _debt_row(oid) is None
 
 
+@pytest.mark.parametrize("complete_before_card", [False, True])
+@pytest.mark.parametrize("discount,fee,credit", [(3000, 0, 1200), (500, 1300, 0)])
+def test_card_and_completion_preserve_platform_promo(
+    client, user_factory, monkeypatch, complete_before_card, discount, fee, credit,
+):
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    driver = user_factory("CardPromoDriver", role=UserRole.driver)
+    passenger = user_factory("CardPromoPassenger")
+    oid = _order(passenger["id"], driver["id"], status=S.done, price=600,
+                 payment_method="cash", promo_discount_kop=discount)
+    charged = 60000 - discount
+    expected_credits = [credit] if credit else []
+    path = f"/instant/orders/{oid}/done"
+    if complete_before_card:
+        assert client.post(path, headers=driver["auth"]).status_code == 200
+        assert [row.amount_kop for row in _comp_rows(oid)] == expected_credits
+        monkeypatch.setattr(settings, "fee_tier1_percent", 8.0)
+
+    # Provider transaction rollback must also undo paid, earn and compensation.
+    with Session(engine) as online:
+        assert ledger.settle_instant_order(online, oid, "card", charged, commit=False) == "settled"
+        online.rollback()
+    with Session(engine) as online:
+        assert not online.get(InstantOrder, oid).paid
+        assert ledger.driver_balance(online, driver["id"]) == (credit if complete_before_card else 0)
+        assert ledger.settle_instant_order(online, oid, "card", charged) == "settled"
+        assert ledger.settle_instant_order(online, oid, "card", charged) == "already"
+
+    monkeypatch.setattr(settings, "fee_tier1_percent", 8.0)
+    assert client.post(path, headers=driver["auth"]).status_code == 200
+    debt = _debt_row(oid)
+    if complete_before_card and fee:
+        assert debt.amount_kop == fee and debt.status == DebtStatus.paid
+    else:
+        assert debt is None
+    assert [row.amount_kop for row in _comp_rows(oid)] == expected_credits
+    with Session(engine) as session:
+        assert ledger.driver_balance(session, driver["id"]) == 58200
+        rows = session.exec(select(LedgerEntry).where(LedgerEntry.order_id == oid)).all()
+        assert [row.amount_kop for row in rows if row.kind == LedgerKind.earn] == [charged]
+        assert [row.amount_kop for row in rows if row.kind == LedgerKind.fee] == ([-fee] if fee else [])
+
+
 # ============ 2. «Не нажал Завершил» больше не бесплатно ============
 def test_авто_закрытая_поездка_начисляет_комиссию(client, user_factory):
     """Водитель не жмёт «Завершил» — ночная чистка сама закрывает поездку как состоявшуюся.

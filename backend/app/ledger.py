@@ -307,7 +307,7 @@ def promo_comp_ext_id(order_id: int) -> str:
 
 
 def post_promo_compensation(session: Session, driver_id: Optional[int], order_id: Optional[int],
-                            amount_kop: int) -> Optional[LedgerEntry]:
+                            amount_kop: int, *, commit: bool = True) -> Optional[LedgerEntry]:
     """Доплатить водителю остаток промо-скидки, который не влез в нашу комиссию.
 
     Скидку пассажиру оплачивает платформа: сначала своей комиссией, а если скидка оказалась
@@ -316,6 +316,7 @@ def post_promo_compensation(session: Session, driver_id: Optional[int], order_id
 
     Идемпотентно по ext_id: повторный «done» / ретрай не начислит второй раз. Коммитит сам —
     это самостоятельный денежный эффект, он не должен зависеть от того, завёлся ли долг.
+    commit=False оставляет атомарность и обработку ошибок за вызывающей транзакцией оплаты.
 
     Гонку двух «Завершил» проверка в коде не ловит (обе сессии видят «компенсации нет»), поэтому
     последнее слово за частичным UNIQUE-индексом uq_ledgerentry_promo_comp: проигравший вставку
@@ -338,6 +339,8 @@ def post_promo_compensation(session: Session, driver_id: Optional[int], order_id
         note="Компенсация промокода пассажира",
     )
     session.add(entry)
+    if not commit:
+        return entry
     try:
         session.commit()
     except IntegrityError:
@@ -423,21 +426,32 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
         # (Модель А, accrue_for_order → order_commission_kop) всегда считали верно — расхождение
         # жило только в безналичной оплате. Пример при 15%: цена 500 ₽ = поездка 400 + подача
         # 100 — нал удерживал 60 ₽, карта удерживала 75 ₽ с той же поездки.
-        has_promo = int(order.promo_discount_kop or 0) > 0
-        full_fee = _debt.recorded_order_debt(session, order.id, order.driver_id) if not has_promo else None
-        if full_fee is None:
+        discount = max(int(order.promo_discount_kop or 0), 0)
+        recorded_credit = discount > 0 and session.exec(select(LedgerEntry.id).where(
+            LedgerEntry.order_id == order.id,
+            LedgerEntry.driver_id == order.driver_id,
+            LedgerEntry.kind == LedgerKind.adj,
+            LedgerEntry.ext_id == promo_comp_ext_id(order.id),
+            LedgerEntry.amount_kop > 0,
+        )).first() is not None
+        recorded_fee = _debt.recorded_order_debt(session, order.id, order.driver_id)
+        if recorded_credit:
+            # Положительная доплата означает, что скидка уже поглотила всю комиссию.
+            fee_due, pct = 0, 0.0
+        elif recorded_fee is not None:
+            # Долг уже учитывает скидку, повторно её не применяем.
+            fee_due = recorded_fee
+            pct = _debt.effective_order_fee_percent(order, fee_due + discount) if fee_due else 0.0
+        else:
             pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
             full_fee = _debt.order_commission_kop(order, pct)
-        else:
-            pct = _debt.effective_order_fee_percent(order, full_fee)
-        # Скидка по промокоду уже вычтена из того, что заплатил пассажир (amount_kop). Комиссию
-        # считаем от ПОЛНОЙ (без скидки) базы выше и гасим её скидкой — ровно как в долге Модели А
-        # (accrue_for_order зовёт тот же order_commission_kop → split_commission). Иначе водитель
-        # заплатил бы процент с урезанной суммы, а платформа не оплатила бы обещанную скидку.
-        fee_due, _comp = promo_ride.split_commission(full_fee, order.promo_discount_kop)
+            fee_due, comp = promo_ride.split_commission(full_fee, discount)
+            if comp > 0:
+                # Сохраняем доплату вместе с earn и paid: при сбое откатываются все три.
+                post_promo_compensation(session, order.driver_id, order.id, comp, commit=False)
         _post_earn_and_fee(session, order.driver_id, amount_kop,
                            order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct,
-                           fee_kop=fee_due, promo_reduced=has_promo)
+                           fee_kop=fee_due, promo_reduced=discount > 0)
         # Комиссия удержана в ledger fee → снимаем долг Модели А по этому заказу, иначе
         # двойная комиссия + фантомный unpaid-долг заблокирует водителя на онлайн-оплате.
         # note важен: комиссию тут ВЗЯЛИ (записью fee), поэтому в расшифровке заработка она
