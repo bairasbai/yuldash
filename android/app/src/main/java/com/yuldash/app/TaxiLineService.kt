@@ -52,8 +52,7 @@ class TaxiLineService : Service() {
     private var currentLang = AppLanguage.Ru
     private val lineRun = TaxiLineRun()
     private var loopScope: CoroutineScope? = null
-    private var misses = 0          // сколько heartbeat'ов подряд не дошло
-    private var lineLost = false    // сервер нас уже не видит → уведомление говорит об этом честно
+    private var presence = TaxiPresenceHealth()
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -76,8 +75,7 @@ class TaxiLineService : Service() {
             return START_NOT_STICKY
         }
         if (lineRun.current?.owner != owner) {
-            misses = 0
-            lineLost = false
+            presence = TaxiPresenceHealth()
         }
         lineRun.started(owner, startId)
         ServiceCompat.startForeground(
@@ -161,13 +159,7 @@ class TaxiLineService : Service() {
                     // стоит на трассе и ждёт заказы, которых не будет, потому что для сервера его
                     // нет (аудит 2026-08-06). Молчать тут — то же самое, что показать «заявок нет»
                     // при мёртвой сети: экран уверен, а человек обманут.
-                    if (res.isSuccess) {
-                        misses = 0
-                        if (lineLost) { lineLost = false; refreshNotification() }
-                    } else {
-                        misses++
-                        if (!lineLost && misses >= PRESENCE_MISSES_TO_WARN) { lineLost = true; refreshNotification() }
-                    }
+                    if (presence.record(res)) refreshNotification()
                 }
                 delay(PRESENCE_INTERVAL_MS)
             }
@@ -279,11 +271,11 @@ class TaxiLineService : Service() {
         )
         return NotificationCompat.Builder(this, CHANNEL)
             .setContentTitle(
-                if (lineLost) appTextFor(currentLang, "Юлдаш · Связь потеряна", "Юлдаш · Бәйләнеш юғалды")
+                if (presence.lost) appTextFor(currentLang, "Юлдаш · Связь потеряна", "Юлдаш · Бәйләнеш юғалды")
                 else appTextFor(currentLang, "Юлдаш · Ты на линии 🚕", "Юлдаш · Һин линияла 🚕")
             )
             .setContentText(
-                if (lineLost) appTextFor(
+                if (presence.lost) appTextFor(
                     currentLang,
                     "Сервер тебя больше не видит — заказы не придут. Проверь интернет, вернёмся сами.",
                     "Сервер һине күрмәй — заказдар килмәй. Интернетты тикшер, үҙебеҙ кире ҡайтабыҙ.",
@@ -319,10 +311,6 @@ class TaxiLineService : Service() {
         internal const val NOTIF_TAG_CLOSED = "taxi-line-closed"
         internal const val NOTIF_ID_CLOSED = 4713
         private const val PRESENCE_INTERVAL_MS = 15_000L
-        /** Сколько тиков подряд должно не пройти, чтобы честно сказать «сервер тебя не видит».
-         *  Три тика ≈ 45с — ровно столько сервер помнит presence. Меньше — паника на пустом
-         *  месте (лифт, тоннель), больше — человек уже потерял заказы. */
-        private const val PRESENCE_MISSES_TO_WARN = 3
         private const val OFFER_POLL_MS = 5_000L
         private const val MAX_LIFETIME_MS = 12 * 3600_000L   // страховка; реальный предел — 8ч смены на сервере
 

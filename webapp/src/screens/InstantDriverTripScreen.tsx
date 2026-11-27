@@ -319,27 +319,31 @@ export default function InstantDriverTripScreen() {
       return;
     }
     let alive = true;
+    const markMiss = () => setPresenceFails((count) => Math.min(99, count + 1));
     const beat = () => {
+      if (!alive) return;
       const pos = posRef.current;
       if (!pos) return;
       sendPresence(pos.lat, pos.lng)
         .then((r) => {
           if (!alive) return;
-          setPresenceFails(0);
+          if (r.ok === true) setPresenceFails(0);
+          else markMiss(); // HTTP 200 ещё не означает, что координаты приняты.
           // Смена тикает на сервере — подтягиваем её в шапку без отдельного запроса.
           setWorkday((wd) =>
             wd ? { ...wd, seconds_online: r.shift_seconds_online, remaining_sec: r.shift_remaining_sec } : wd
           );
         })
         .catch((e) => {
-          // 403 = гейт → выключаем. Остальные сбои считаем: молчащий heartbeat
-          // означает, что сервер уже не видит машину и не пришлёт заказ.
+          // 403 = гейт, 409 = водитель уже не на линии на сервере.
+          // Временные сбои не выключают линию, но меняют индикатор связи.
           if (!alive) return;
-          if (e instanceof ApiError && e.status === 403) {
+          if (e instanceof ApiError && (e.status === 403 || e.status === 409)) {
+            alive = false;
             setPresenceFails(0);
             setDriver((d) => (d ? { ...d, online: false } : d));
           } else {
-            setPresenceFails((count) => Math.min(99, count + 1));
+            markMiss();
           }
         });
     };
