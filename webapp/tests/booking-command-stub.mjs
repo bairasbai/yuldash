@@ -6,6 +6,7 @@ export function bookingCommandStub(createBooking) {
     }
     export const bookingCommandOwner = () => null;
     export const readBookingCommand = async () => undefined;
+    export const restorePublicBookingInput = async () => undefined;
     export const reconcileBookingCommand = async () => { throw new Error("Unexpected command reconciliation"); };
   `;
 }
