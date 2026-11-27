@@ -121,6 +121,53 @@ await test("legacy ownership pair is ignored and a fresh authenticated pass surv
   assert(h.durability.every(level => level === "strict"));
 });
 
+await test("the six-hour deadline follows the authenticated details, not later patches", async api => {
+  const realNow = Date.now;
+  const start = realNow();
+  const sixHours = 6 * 3_600_000;
+  let now = start;
+  Date.now = () => now;
+  try {
+    await save(api);
+    now += 1500;
+    const other = { ...snapshot, bookingId: booking + 1, rideId: rideId + 1 };
+    await save(api, owner, other);
+    const revision = await api.readTripPassRevision(owner, booking);
+
+    now = start + sixHours - 1;
+    await api.saveTripPassPayment(owner, booking, revision, "cash", 450);
+    await api.saveTripPassCode(owner, booking, revision, "1294");
+    assert.equal((await state(api)).pass.boardingCode, "1294");
+    assert.equal((await state(api)).expiresAt, start + sixHours);
+    assert.equal((await api.listOfflineTripOptions()).expiresAt, start + sixHours);
+
+    now++;
+    assert.equal((await state(api)).pass, null);
+    const reload = await fresh();
+    assert.equal((await state(reload)).pass, null);
+    const options = await reload.listOfflineTripOptions();
+    assert.deepEqual(options.trips.map(trip => trip.bookingId), [other.bookingId]);
+    assert.equal(options.expiresAt, start + 1500 + sixHours);
+    now++;
+    await reload.saveTripPassCode(owner, booking, revision, "too-late");
+    await reload.saveTripPassPayment(owner, booking, revision, "sbp", 999);
+    assert.equal((await raw(reload)).pass.boardingCode, "1294");
+    assert.equal((await raw(reload)).pass.price, 450);
+    assert.equal((await state(reload)).pass, null);
+
+    await reload.observeTripPass(owner, booking, active, revision, snapshot);
+    const renewed = await state(reload);
+    assert.equal(renewed.pass.savedAt, now);
+    assert.equal(renewed.pass.boardingCode, "");
+    assert.equal(renewed.expiresAt, now + sixHours);
+    await reload.saveTripPassCode(owner, booking, renewed.revision, "6973");
+    assert.equal((await state(reload)).pass.boardingCode, "6973");
+    assert.equal((await state(reload)).expiresAt, renewed.expiresAt);
+  } finally {
+    Date.now = realNow;
+  }
+});
+
 await test("hide commits once, survives reload and keeps late writes and other trips isolated", async (api, h) => {
   await save(api);
   const other = { ...snapshot, bookingId: booking + 1, rideId: rideId + 1 };

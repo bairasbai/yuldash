@@ -2,6 +2,8 @@ import type { BoardingUndoTerms } from "../api/bookings";
 import { isConfirmedBoardingUndo, isNewBoardingUndo, isStaleBoardingAfterUndo, sameBoardingTimestamp } from "./boardingUndo";
 import { serverDate } from "./serverTime";
 
+export const TRIP_PASS_MAX_AGE_MS = 6 * 3_600_000;
+
 export interface TripPassOwner {
   userId: number;
   generation: string;
@@ -61,9 +63,13 @@ export const newTripPassRecord = (): TripPassRecord & { status: "confirmed" } =>
 export const positiveTripId = (value: unknown): value is number =>
   typeof value === "number" && Number.isSafeInteger(value) && value > 0;
 
-export function validTripPass(pass: TripPass, owner: TripPassOwner, bookingId: number): boolean {
+export function tripPassExpiresAt(pass: TripPass): number {
+  return pass.savedAt + TRIP_PASS_MAX_AGE_MS;
+}
+
+export function validTripPass(pass: TripPass, owner: TripPassOwner, bookingId: number, now = Date.now()): boolean {
   return pass?.bookingId === bookingId && pass.ownerId === owner.userId && pass.sessionGeneration === owner.generation &&
-    Number.isFinite(pass.savedAt) && pass.savedAt > 0 && pass.savedAt <= Date.now() &&
+    Number.isFinite(pass.savedAt) && pass.savedAt > 0 && pass.savedAt <= now && now < tripPassExpiresAt(pass) &&
     Number.isFinite(pass.price) && pass.price >= 0 && positiveTripId(pass.seats) && positiveTripId(pass.rideId) &&
     [pass.fromCity, pass.toCity, pass.departAt, pass.driverName, pass.driverCar, pass.driverPlate,
       pass.driverPhone, pass.boardingCode, pass.pickup].every(value => typeof value === "string") &&

@@ -18,12 +18,13 @@ const mocks = {
   "/splashTarget": `export const scheduleSplashNavigation=()=>()=>{};`,
 };
 const define = { "import.meta.env": JSON.stringify({ VITE_API_BASE: "https://trip.test" }) };
-const real = ["/offlineTripPass", "/useStoredTripData", "/format"];
+const real = ["/offlineTripPass", "/useStoredTripData", "/format", "/tripPassStore", "/sessionCredentials"];
 const component = (entry, exportName) => bundleComponent(entry, { mocks, real, define, exportName });
 const RequireAuth = await component("src/components/RequireAuth.tsx");
 const Fallback = await component("src/components/OfflineTripFallback.tsx");
 const Splash = await component("src/screens/SplashScreen.tsx");
 const PassCard = await component("src/components/OfflineTripPass.tsx");
+const useStoredTripData = await component("src/utils/useStoredTripData.ts", "useStoredTripData");
 const result = await build({
   stdin: {
     contents: `export * from "./src/utils/offlineTripPass"; export * from "./src/utils/tripPassStore";
@@ -164,9 +165,11 @@ await test("F07 aborted list preserves an active card", async () => {
 
 await test("START offline selects only current route metadata", async () => {
   await save();
-  assert.deepEqual(await api.listOfflineTripOptions(), { generation: owner.generation, trips: [
-    { bookingId: id, fromCity: snapshot.fromCity, toCity: snapshot.toCity, departAt: snapshot.departAt },
-  ] });
+  assert.deepEqual(await api.listOfflineTripOptions(), {
+    generation: owner.generation,
+    expiresAt: (await read()).savedAt + 6 * 3_600_000,
+    trips: [{ bookingId: id, fromCity: snapshot.fromCity, toCity: snapshot.toCity, departAt: snapshot.departAt }],
+  });
   const view = await viewOf(Splash);
   assert(button(view, "Открыть сохранённую поездку"));
   assert(!text(view.tree).includes(snapshot.fromCity));
@@ -312,6 +315,46 @@ await test("F07 hide unmounts private fields while the disk write is running and
   assert.equal(await read(), null);
   view.props.pass = null;
   assert(text(view.render()).includes("Копия паспорта удалена"));
+});
+
+await test("F07 expired card clears while a focus refresh is still waiting on disk", async () => {
+  await save();
+  const result = await api.readOfflineTrip(id);
+  const savedTimer = globalThis.setTimeout;
+  const savedClear = globalThis.clearTimeout;
+  const realNow = Date.now;
+  const timers = new Set();
+  const delayed = [];
+  let first = true;
+  const reader = () => {
+    if (first) { first = false; return Promise.resolve(result); }
+    return new Promise(resolve => delayed.push(resolve));
+  };
+  globalThis.setTimeout = callback => { const timer = { callback }; timers.add(timer); return timer; };
+  globalThis.clearTimeout = timer => timers.delete(timer);
+  try {
+    const view = await viewOf(() => useStoredTripData(true, reader, false));
+    assert.equal(view.tree.pass.boardingCode, "4931");
+    const [deadline] = timers;
+    assert(deadline);
+    window.dispatchEvent(new Event("focus"));
+    await view.settle();
+    assert.equal(delayed.length, 1);
+    assert(timers.has(deadline));
+
+    Date.now = () => result.expiresAt;
+    deadline.callback();
+    await view.settle();
+    assert.equal(view.tree, null);
+    assert.equal(delayed.length, 2);
+    for (const resolve of delayed) resolve(result);
+    await view.settle();
+    assert.equal(view.tree, null);
+  } finally {
+    Date.now = realNow;
+    globalThis.setTimeout = savedTimer;
+    globalThis.clearTimeout = savedClear;
+  }
 });
 
 for (const status of ["guest", "loading", "authed", "online"]) await test("F07 fallback stays closed for " + status, async () => {
