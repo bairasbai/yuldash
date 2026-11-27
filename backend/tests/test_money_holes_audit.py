@@ -124,6 +124,52 @@ def test_гонка_двух_завершил_не_задваивает_комп
         assert ledger.driver_balance(s, drv["id"]) == 27_900   # а не 55 800
 
 
+@pytest.mark.parametrize("discount,fee", [(0, 1800), (500, 1300)])
+def test_online_settlement_before_completion_retry_does_not_create_debt(
+    client, user_factory, monkeypatch, discount, fee,
+):
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    driver = user_factory("AlreadyOnlineDriver", role=UserRole.driver)
+    passenger = user_factory("AlreadyOnlinePassenger")
+    oid = _order(passenger["id"], driver["id"], status=S.done, price=600,
+                 promo_discount_kop=discount)
+    with Session(engine) as online:
+        assert ledger.settle_instant_order(online, oid, "card", 60000 - discount) == "settled"
+    assert _debt_row(oid) is None
+
+    reply = client.post(f"/instant/orders/{oid}/done", headers=driver["auth"])
+    assert reply.status_code == 200, reply.text
+    with Session(engine) as session:
+        fees = session.exec(select(LedgerEntry.amount_kop).where(
+            LedgerEntry.order_id == oid, LedgerEntry.kind == LedgerKind.fee,
+        )).all()
+    assert fees == [-fee]
+    with Session(engine) as session:
+        assert ledger.driver_balance(session, driver["id"]) == 60000 - discount - fee
+    assert _debt_row(oid) is None
+
+
+def test_promo_credit_without_debt_survives_rate_change(
+    client, user_factory, monkeypatch,
+):
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    driver = user_factory("AlreadyCompensatedDriver", role=UserRole.driver)
+    passenger = user_factory("AlreadyCompensatedPassenger")
+    oid = _order(passenger["id"], driver["id"], status=S.done, price=600,
+                 payment_method="cash", promo_discount_kop=3000)
+    path = f"/instant/orders/{oid}/done"
+    first = client.post(path, headers=driver["auth"])
+    assert first.status_code == 200, first.text
+    assert [r.amount_kop for r in _comp_rows(oid)] == [1200]
+    assert _debt_row(oid) is None
+
+    monkeypatch.setattr(settings, "fee_tier1_percent", 8.0)
+    retry = client.post(path, headers=driver["auth"])
+    assert retry.status_code == 200, retry.text
+    assert [r.amount_kop for r in _comp_rows(oid)] == [1200]
+    assert _debt_row(oid) is None
+
+
 # ============ 2. «Не нажал Завершил» больше не бесплатно ============
 def test_авто_закрытая_поездка_начисляет_комиссию(client, user_factory):
     """Водитель не жмёт «Завершил» — ночная чистка сама закрывает поездку как состоявшуюся.

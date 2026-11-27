@@ -598,7 +598,12 @@ def accrue_for_order(session: Session, order: InstantOrder,
     Вызывать ПОСЛЕ перехода в done. На один order_id заводим не больше одной записи долга —
     повторный тап «done» (идемпотентный переход) не задваивает долг. Нулевая комиссия
     (бесплатный/грошовый заказ) долг не создаёт."""
-    if order.driver_id is None:
+    # Та же блокировка заказа, что у settle_instant_order. После ожидания
+    # обновляем объект сессии: в нём могло остаться старое значение paid.
+    order = session.exec(select(InstantOrder).where(
+        InstantOrder.id == order.id,
+    ).with_for_update().execution_options(populate_existing=True)).first()
+    if order is None or order.driver_id is None:
         return None
     existing = session.exec(
         select(CommissionDebt).where(CommissionDebt.order_id == order.id)
@@ -606,6 +611,26 @@ def accrue_for_order(session: Session, order: InstantOrder,
     if existing:
         return existing                       # уже начислено — не задваиваем
     now = utcnow()
+    if order.promo_discount_kop and session.exec(select(LedgerEntry.id).where(
+        LedgerEntry.order_id == order.id,
+        LedgerEntry.driver_id == order.driver_id,
+        LedgerEntry.kind == LedgerKind.adj,
+        LedgerEntry.ext_id == promo_comp_ext_id(order.id),
+        LedgerEntry.amount_kop > 0,
+    )).first() is not None:
+        # Положительная компенсация означает, что скидка уже поглотила всю комиссию.
+        settle_debt_from_wallet(session, order.driver_id, now)
+        return None
+    if order.paid:
+        # Наличные тоже помечаются paid, но только онлайн-оплата создаёт earn.
+        # При наличии промо и нулевом удержании компенсация ещё может быть нужна.
+        online_kind = LedgerKind.fee if order.promo_discount_kop else LedgerKind.earn
+        if session.exec(select(LedgerEntry.id).where(
+            LedgerEntry.order_id == order.id,
+            LedgerEntry.driver_id == order.driver_id,
+            LedgerEntry.kind == online_kind,
+        )).first() is not None:
+            return None
     # Ступень фиксируем на момент создания: upfront net в оффере и фактический долг совпадут,
     # даже если короткая поездка пересекла календарную границу тарифной ступени.
     percent = driver_fee_percent(session, order.driver_id, order.created_at or now)
