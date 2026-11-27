@@ -149,6 +149,40 @@ def test_web_push_delivers_rating_buttons_only_to_a_current_bound_login(client, 
     assert [item["action"] for item in deliveries["live"]["actions"]] == ["rate_five", "rate_details"]
 
 
+def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_factory, monkeypatch):
+    driver = user_factory("WebOfferDeadline", role=UserRole.driver)
+    now = utcnow()
+    expiry = now + timedelta(seconds=2, milliseconds=500)
+    sid = f"taxi-web-offer-{driver['id']}"
+    with Session(engine) as session:
+        session.add(AuthSession(id=sid, user_id=driver["id"], access_expires_at=now + timedelta(hours=1)))
+        session.flush()
+        for auth_session_id in (sid, None):
+            session.add(WebPushSubscription(
+                user_id=driver["id"], endpoint=f"https://push.invalid/{driver['id']}/{auth_session_id}",
+                auth_session_id=auth_session_id, binding_id="a" * 32 if auth_session_id else None,
+            ))
+        session.commit()
+    deliveries = []
+    monkeypatch.setattr(services.settings, "vapid_public_key", "fixture-public")
+    monkeypatch.setattr(services.settings, "vapid_private_key", "fixture-private")
+    monkeypatch.setattr(pywebpush, "webpush", lambda **kw: deliveries.append(kw))
+    monkeypatch.setattr(services, "utcnow", lambda: now)
+    data = {"type": "instant_offer", "order_id": "42", "offer_expires_at": expiry.isoformat()}
+    with Session(engine) as session:
+        services._send_web_push(session, driver["id"], "New offer", "Fixture", data)
+        now = expiry
+        services._send_web_push(session, driver["id"], "Expired offer", "Fixture", data)
+        services._send_web_push(session, driver["id"], "Missing deadline", "Fixture",
+                                {"type": "instant_offer", "order_id": "42"})
+    assert len(deliveries) == 1
+    payload = json.loads(deliveries[0]["data"])
+    assert payload["session_id"] == sid
+    assert payload["url"] == "/taxi-drive"
+    assert payload["offer_expires_at_ms"] == int(expiry.replace(tzinfo=timezone.utc).timestamp() * 1000)
+    assert deliveries[0]["ttl"] == 2
+
+
 def test_rideshare_reminder_waits_until_morning_and_builds_bound_actions(client, user_factory, monkeypatch):
     bid, passenger, driver, depart = _booking(user_factory, age=timedelta(days=5))
     sent = []

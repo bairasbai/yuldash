@@ -253,6 +253,29 @@ await check("current signed-in browser displays its notification and opens only 
   assert.deepEqual(sw.targets, ["https://pwa.invalid/rides/17", "/", "/"]);
 });
 
+await check("a late taxi offer hides private details and a live tap opens the driver screen", async env => {
+  const sw = worker();
+  await env.api.setSession(scopedAccess(idA), "refresh-A");
+  env.reply = async () => bindingReply(bindA);
+  assert.equal(await env.api.enableWebPush(), "ok");
+  const payload = { title: "Taxi offer", body: "Fixture", url: "/taxi-drive", tag: "instant_offer",
+    kind: "instant_offer", session_id: idA, binding_id: bindA };
+  for (const offer_expires_at_ms of [undefined, NaN, Date.now() - 1]) {
+    await sw.dispatch("push", { data: { json: () => ({ ...payload, offer_expires_at_ms }) } });
+    const stale = sw.notifications.at(-1);
+    assert.equal(stale.title, "Юлдаш");
+    assert.equal(stale.body, undefined);
+    assert.equal(stale.renotify, false);
+    await sw.dispatch("notificationclick", { notification: stale });
+  }
+  await sw.dispatch("push", { data: { json: () => ({ ...payload, offer_expires_at_ms: Date.now() + 20000 }) } });
+  const live = sw.notifications.at(-1);
+  assert.equal(live.title, "Taxi offer");
+  assert.equal(live.body, "Fixture");
+  await sw.dispatch("notificationclick", { notification: live });
+  assert.deepEqual(sw.targets, ["/", "/", "/", "https://pwa.invalid/taxi-drive"]);
+});
+
 await check("after account replacement, queued and already shown old pushes hide trip details", async env => {
   const sw = worker();
   const dataA = { data: { json: () => ({

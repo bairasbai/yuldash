@@ -98,7 +98,13 @@ self.addEventListener("push", (event) => {
 
   event.waitUntil(withSessionLock(async guarded => {
     const binding = guarded ? await currentPushBinding() : undefined;
-    const showDetails = matchesPushBinding(data, binding);
+    // tag also recognizes offers queued by the server before it sent the explicit kind.
+    const offer = data?.kind === "instant_offer" || data?.tag === "instant_offer";
+    const staleOffer = offer && (!Number.isSafeInteger(data.offer_expires_at_ms) ||
+      data.offer_expires_at_ms <= Date.now());
+    // This subscription requires a visible notification. If an offer arrives too late,
+    // show the neutral fallback, not a "new order" or any route/address from the stale push.
+    const showDetails = !staleOffer && matchesPushBinding(data, binding);
     const tag = showDetails && data.tag ? binding.bindingId + ":" + data.tag : "yuldash";
     const rate = notificationRating(data, binding);
     const maxActions = typeof Notification === "undefined" ? 0 : Notification.maxActions;
@@ -115,6 +121,7 @@ self.addEventListener("push", (event) => {
       badge: "/icon-192.png",
       tag,
       renotify: showDetails && Boolean(data.tag),
+      ...(staleOffer ? { silent: true } : {}),
       ...(actions.length ? { actions } : {}),
       data: showDetails ? {
         session_id: binding.sessionId, binding_id: binding.bindingId, url: localNotificationTarget(data.url),

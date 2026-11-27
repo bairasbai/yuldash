@@ -8,7 +8,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 """
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
-from datetime import timedelta, timezone
+from datetime import datetime, timedelta, timezone
 import base64
 import json
 import re
@@ -555,6 +555,7 @@ def _web_push_url(data: dict | None) -> str:
     return {
         "parcel": "/parcels",
         "instant": "/taxi",
+        "instant_offer": "/taxi-drive",
         "instant_status": "/taxi",
         "instant_payment": "/taxi",
         "instant_im_coming": "/taxi",
@@ -611,6 +612,19 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         return
 
     now = utcnow()
+    metadata = data or {}
+    is_offer = (metadata.get("type") or metadata.get("ref_kind")) == "instant_offer"
+    offer_expiry = None
+    if is_offer:
+        # Оффер живёт только до срока, уже сохранённого сервером. Наивная дата в модели — UTC.
+        try:
+            offer_expiry = datetime.fromisoformat(metadata["offer_expires_at"])
+        except (KeyError, TypeError, ValueError):
+            return
+        if offer_expiry.tzinfo is not None:
+            offer_expiry = offer_expiry.astimezone(timezone.utc).replace(tzinfo=None)
+        if offer_expiry <= now:
+            return
     live_refresh = select(RefreshToken.id).where(
         RefreshToken.auth_session_id == AuthSession.id, RefreshToken.revoked.is_(False), RefreshToken.expires_at > now,
     ).exists()
@@ -629,10 +643,16 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
                  str((data or {}).get("id") or (data or {}).get("ref_id") or "")]
     tag = "-".join([x for x in tag_parts if x])
     message = {"title": title, "body": body, "tag": tag or None, "url": _web_push_url(data)}
+    if offer_expiry is not None:
+        message.update(kind="instant_offer", offer_expires_at_ms=int(
+            offer_expiry.replace(tzinfo=timezone.utc).timestamp() * 1000
+        ))
     if any(s.auth_session_id and s.binding_id for s in subs):
         message.update(_rating_web_push(session, user_id, data))
     dead = []
     for s in subs:
+        if is_offer and not s.auth_session_id:
+            continue  # Старой подписке без сессии нельзя показывать заказ.
         if s.auth_session_id and not s.binding_id:
             continue
         # A worker from before scoped push may still be active during a PWA update.
@@ -643,6 +663,13 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         payload = json.dumps(content, ensure_ascii=False)
         if before_send is not None and not before_send():
             break
+        ttl = 0
+        if offer_expiry is not None:
+            remaining = (offer_expiry - utcnow()).total_seconds()
+            if remaining <= 0:
+                break
+            # TTL Web Push — целые секунды; не держим пакет дольше срока оффера.
+            ttl = int(remaining)
         try:
             webpush(
                 subscription_info={
@@ -653,6 +680,7 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
                 vapid_private_key=settings.vapid_private_key,
                 vapid_claims={"sub": settings.vapid_subject},
                 content_encoding=(s.content_encoding or "aes128gcm"),
+                ttl=ttl,
                 timeout=10,
             )
         except WebPushException as e:  # noqa: PERF203
