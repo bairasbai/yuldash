@@ -492,7 +492,14 @@ def _queue_taxi_offer_web_push(user_id: int, title: str, body: str, data: dict, 
         if not order_id.isascii() or not order_id.isdecimal() or len(order_id) > 19 or int(order_id) >= 2**63:
             return False
         with Session(engine) as read_session:
+            # A committed offer can survive voluntary sign-off. Require the same database
+            # flag as offer polling and Android confirmation, not the Redis presence TTL.
+            online = select(DriverProfile.user_id).where(
+                DriverProfile.user_id == user_id,
+                DriverProfile.online.is_(True),
+            ).exists()
             return read_session.exec(select(InstantOrder.id).where(
+                online,
                 InstantOrder.id == int(order_id),
                 InstantOrder.status == InstantOrderStatus.offered,
                 InstantOrder.current_offer_driver_id == user_id,
