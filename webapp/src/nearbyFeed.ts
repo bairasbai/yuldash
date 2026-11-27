@@ -82,7 +82,7 @@ export const NEARBY_PAGE = 30;
 export const NEARBY_MAX = 200;
 
 export interface NearbyFilters {
-  /** Выбранный чип популярного маршрута поверх фильтров «Откуда» и «Куда». */
+  /** Популярный маршрут. Ручные «Откуда» и «Куда» имеют приоритет. */
   focus?: { from: string; to: string };
   coords: { lat: number; lng: number } | null;
   /** YYYY-MM-DD или null — все дни. */
@@ -104,18 +104,19 @@ export function cityFilterActive(f: Pick<NearbyFilters, "fromCities" | "toCities
 /**
  * Параметры запроса ленты.
  *
- * Радиус действует при известной позиции, пока человек не задал город или маршрут. Место тогда задаёт сам
- * человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
+ * С ручным выбором городов сервер ищет по нему. Иначе учитывает популярный маршрут
+ * и радиус, если известна позиция человека. Так же устроен поиск в Android.
  * Координаты при этом уходят — по ним считается расстояние на карточках.
  */
 export function nearbyQuery(f: NearbyFilters, limit: number): NearQuery {
   const query: NearQuery = { limit: Math.min(Math.max(1, Math.floor(limit)), NEARBY_MAX) };
+  const manualCities = cityFilterActive(f);
   if (f.coords) {
     query.lat = f.coords.lat;
     query.lng = f.coords.lng;
-    if (!f.focus && !cityFilterActive(f)) query.radius_km = NEARBY_RADIUS_KM;
+    if (!manualCities) query.radius_km = NEARBY_RADIUS_KM;
   }
-  if (f.focus) {
+  if (f.focus && !manualCities) {
     query.from_city = f.focus.from;
     query.to_city = f.focus.to;
   }

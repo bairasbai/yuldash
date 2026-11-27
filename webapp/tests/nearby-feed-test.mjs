@@ -70,14 +70,14 @@ await test("число мест меняет запрос, страницу и s
   assert.equal(m.rideFitsGroup({ seats_on_segment: null, seats_left: 1, seats_by_leg: [1, 4] }, 4), true);
 });
 
-await test("фокус популярного маршрута добавляет отдельный участок и исключает радиус", async ({ m }) => {
+await test("фокус популярного маршрута учитывает радиус и уступает ручному выбору", async ({ m }) => {
   const base = { ...NO_FILTERS, coords: { lat: 54, lng: 55 }, day: "2030-01-02", seats: 3, conditions: ["child"] };
   const focus = { from: "Баймак", to: "Ургаза" };
   const withRoute = { ...base, focus };
   const q = new URLSearchParams(m.nearQueryString(m.nearbyQuery(withRoute, 30)));
   assert.equal(q.get("from_city"), focus.from);
   assert.equal(q.get("to_city"), focus.to);
-  assert.equal(q.get("radius_km"), null);
+  assert.equal(q.get("radius_km"), "50");
   assert.equal(q.get("lat"), "54");
   assert.equal(q.get("date"), base.day);
   assert.equal(q.get("seats"), "3");
@@ -85,6 +85,11 @@ await test("фокус популярного маршрута добавляе�
   assert.notEqual(m.nearbyContextKey(withRoute), m.nearbyContextKey(base));
   assert.notEqual(m.nearbyRevealKey(withRoute), m.nearbyRevealKey(base));
   assert.notEqual(m.nearbyContextKey(withRoute), m.nearbyContextKey({ ...base, focus: { from: focus.to, to: focus.from } }));
+  const manual = new URLSearchParams(m.nearQueryString(m.nearbyQuery({ ...withRoute, fromCities: ["Сибай"] }, 30)));
+  assert.equal(manual.get("from_city"), null);
+  assert.equal(manual.get("to_city"), null);
+  assert.equal(manual.get("radius_km"), null);
+  assert.equal(manual.get("from_cities"), "Сибай");
 });
 
 await test("подсказка считает рейсы ровно на рекомендуемое число мест", async ({ m }) => {
