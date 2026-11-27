@@ -7,7 +7,7 @@ import json
 from datetime import datetime, timedelta, timezone
 from typing import Literal, Optional
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Query, Response
 from pydantic import BaseModel, Field
 from sqlalchemy import update
 from sqlmodel import Session, select
@@ -666,6 +666,34 @@ def my_orders(limit: int = 20, user: User = Depends(current_user), session: Sess
         .order_by(InstantOrder.id.desc()).limit(max(1, min(limit, 100)))
     ).all()
     return [isv.order_payload(session, o, user) for o in rows]
+
+
+@router.get("/instant/driver/offer-notification/v1")
+def driver_offer_notification(
+    response: Response,
+    order_id: int = Query(gt=0, le=2**31 - 1),
+    offer_expires_at: str = Query(min_length=1, max_length=40),
+    user: User = Depends(current_user),
+    session: Session = Depends(get_session),
+) -> dict[str, bool]:
+    """Сверка адресного push: не меняет поиск и не отдаёт данные заказа."""
+    response.headers["Cache-Control"] = "no-store"
+    try:
+        expiry = datetime.fromisoformat(offer_expires_at)
+        if expiry.tzinfo is not None:
+            expiry = expiry.astimezone(timezone.utc).replace(tzinfo=None)
+    except (ValueError, OverflowError):
+        return {"current": False}
+    if expiry <= utcnow():
+        return {"current": False}
+    current = session.exec(
+        select(InstantOrder.id, InstantOrder.offer_expires_at).where(
+            InstantOrder.current_offer_driver_id == user.id,
+            InstantOrder.status == S.offered,
+            InstantOrder.offer_expires_at > utcnow(),
+        ).order_by(InstantOrder.id.desc()).limit(1)
+    ).first()
+    return {"current": current == (order_id, expiry) and expiry > utcnow()}
 
 
 @router.get("/instant/driver/offer")
