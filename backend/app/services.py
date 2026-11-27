@@ -8,6 +8,7 @@ push (FCM), SMS, гео-дистанция, загрузка медиа, сид 
 """
 from collections import deque
 from collections.abc import Awaitable, Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timedelta, timezone
 import base64
 import json
@@ -466,6 +467,40 @@ def revoke_verification_on_car_change(session: Session, user: User,
 
 # ----------------------------- Push (FCM) -----------------------------
 _fcm_app = None
+_offer_web_push_pool = ThreadPoolExecutor(max_workers=4, thread_name_prefix="taxi-webpush")
+_offer_web_push_slots = threading.BoundedSemaphore(16)  # очередь вместе с работающими задачами
+
+
+def _taxi_offer_deadline(data: dict) -> datetime | None:
+    try:
+        expiry = datetime.fromisoformat(data["offer_expires_at"])
+        return expiry.astimezone(timezone.utc).replace(tzinfo=None) if expiry.tzinfo else expiry
+    except (KeyError, TypeError, ValueError, OverflowError):
+        return None
+
+
+def _queue_taxi_offer_web_push(user_id: int, title: str, body: str, data: dict, expiry: datetime) -> None:
+    if not (settings.vapid_private_key and settings.vapid_public_key):
+        return
+    if not _offer_web_push_slots.acquire(blocking=False):
+        log.warning("[WEBPUSH] очередь офферов занята; клиент может получить заказ опросом")
+        return
+
+    def send() -> None:
+        try:
+            if expiry > utcnow():
+                # ORM-сессию обработчика нельзя передавать фоновому потоку.
+                with Session(engine) as web_session:
+                    _send_web_push(web_session, user_id, title, body, data, own_read_session=True)
+        except Exception as e:  # noqa: BLE001
+            log.warning(f"[WEBPUSH] отправка оффера не прошла: {type(e).__name__}")
+        finally:
+            _offer_web_push_slots.release()
+
+    try:
+        _offer_web_push_pool.submit(send)
+    except RuntimeError:  # Пул уже закрывается вместе с процессом.
+        _offer_web_push_slots.release()
 
 
 def send_push(session: Session, user_id: int, title: str, body: str,
@@ -486,9 +521,16 @@ def send_push(session: Session, user_id: int, title: str, body: str,
     Параметр data_only оставлен для совместимости вызовов, безопасный формат общий для всех.
     В браузере такого различия нет: там уведомление рисует service worker в любом случае.
     before_send обновляет допуск непосредственно перед вызовом транспорта."""
-    # Браузер — ПЕРВЫМ и отдельно: раньше функция выходила на первой же строке, когда
-    # Firebase не настроен, и веб-подписки не получали вообще ничего.
-    if before_send is None:
+    metadata = data or {}
+    is_offer = (metadata.get("type") or metadata.get("ref_kind")) == "instant_offer"
+    expiry = _taxi_offer_deadline(metadata) if is_offer else None
+    if is_offer and (expiry is None or expiry <= utcnow()):
+        return
+    # Офферы без внешней проверки не ждут медленный браузерный провайдер.
+    # Для остальных событий и callback'ов сохраняем старый порядок и контекст вызова.
+    if expiry is not None and before_send is None:
+        _queue_taxi_offer_web_push(user_id, title, body, dict(metadata), expiry)
+    elif before_send is None:
         _send_web_push(session, user_id, title, body, data)
     else:
         _send_web_push(session, user_id, title, body, data, before_send=before_send)
@@ -508,14 +550,18 @@ def send_push(session: Session, user_id: int, title: str, body: str,
         tokens = [d.token for d in session.exec(select(DeviceToken).where(DeviceToken.user_id == user_id)).all()]
         if not tokens:
             return
-        messages = []
-        for t in tokens:
-            messages.append(messaging.Message(token=t, data=payload_data,
-                                              android=messaging.AndroidConfig(priority="high")))
-        # Устойчивость к нагрузке: один batch-вызов вместо N последовательных сетевых round-trip
-        # (массовые каскадные уведомления перестают тормозить обработчик).
         if before_send is not None and not before_send():
             return
+        android_ttl = None
+        if expiry is not None:
+            remaining = (expiry - utcnow()).total_seconds()
+            if remaining <= 0:
+                return
+            # TTL транспорта FCM, а не прежний ttl_sec из data. Ноль — без хранения.
+            android_ttl = int(remaining)
+        android_config = messaging.AndroidConfig(priority="high", ttl=android_ttl)
+        messages = [messaging.Message(token=t, data=payload_data, android=android_config) for t in tokens]
+        # Устойчивость к нагрузке: один batch-вызов вместо N последовательных сетевых round-trip.
         resp = messaging.send_each(messages)
         # Чистим МЁРТВЫЕ токены (приложение удалено/токен протух) — иначе DeviceToken растёт вечно.
         # В ОТДЕЛЬНОЙ сессии: commit в переданной session сбросил бы ORM-объекты вызывающего.
@@ -592,7 +638,8 @@ def _rating_web_push(session: Session, recipient_id: int, data: dict | None) -> 
 
 
 def _send_web_push(session: Session, user_id: int, title: str, body: str,
-                   data: dict | None = None, *, before_send: Callable[[], bool] | None = None) -> None:
+                   data: dict | None = None, *, before_send: Callable[[], bool] | None = None,
+                   own_read_session: bool = False) -> None:
     """Web Push во все браузеры человека. Тихо ничего, если VAPID-ключи не настроены.
 
     Сообщение шифруется ключами САМОЙ подписки (`p256dh` + `auth`) — этим занимается
@@ -617,13 +664,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
     offer_expiry = None
     if is_offer:
         # Оффер живёт только до срока, уже сохранённого сервером. Наивная дата в модели — UTC.
-        try:
-            offer_expiry = datetime.fromisoformat(metadata["offer_expires_at"])
-        except (KeyError, TypeError, ValueError):
-            return
-        if offer_expiry.tzinfo is not None:
-            offer_expiry = offer_expiry.astimezone(timezone.utc).replace(tzinfo=None)
-        if offer_expiry <= now:
+        offer_expiry = _taxi_offer_deadline(metadata)
+        if offer_expiry is None or offer_expiry <= now:
             return
     live_refresh = select(RefreshToken.id).where(
         RefreshToken.auth_session_id == AuthSession.id, RefreshToken.revoked.is_(False), RefreshToken.expires_at > now,
@@ -649,6 +691,8 @@ def _send_web_push(session: Session, user_id: int, title: str, body: str,
         ))
     if any(s.auth_session_id and s.binding_id for s in subs):
         message.update(_rating_web_push(session, user_id, data))
+    if own_read_session:
+        session.close()  # Все поля подписок прочитаны; не держим соединение во время сети.
     dead = []
     for s in subs:
         if is_offer and not s.auth_session_id:

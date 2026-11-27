@@ -170,7 +170,7 @@ def test_taxi_web_push_uses_live_deadline_and_private_driver_route(client, user_
     monkeypatch.setattr(services, "utcnow", lambda: now)
     data = {"type": "instant_offer", "order_id": "42", "offer_expires_at": expiry.isoformat()}
     with Session(engine) as session:
-        services._send_web_push(session, driver["id"], "New offer", "Fixture", data)
+        services._send_web_push(session, driver["id"], "New offer", "Fixture", data, own_read_session=True)
         now = expiry
         services._send_web_push(session, driver["id"], "Expired offer", "Fixture", data)
         services._send_web_push(session, driver["id"], "Missing deadline", "Fixture",
