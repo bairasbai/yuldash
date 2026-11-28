@@ -206,7 +206,7 @@ def test_promo_credit_without_debt_survives_rate_change(
 
 
 @pytest.mark.parametrize("complete_before_card", [False, True])
-@pytest.mark.parametrize("discount,fee,credit", [(3000, 0, 1200), (500, 1300, 0)])
+@pytest.mark.parametrize("discount,fee,credit", [(3000, 0, 1200), (1800, 0, 0), (500, 1300, 0)])
 def test_card_and_completion_preserve_platform_promo(
     client, user_factory, monkeypatch, complete_before_card, discount, fee, credit,
 ):
@@ -228,7 +228,9 @@ def test_card_and_completion_preserve_platform_promo(
         assert ledger.settle_instant_order(online, oid, "card", charged, commit=False) == "settled"
         online.rollback()
     with Session(engine) as online:
-        assert not online.get(InstantOrder, oid).paid
+        order = online.get(InstantOrder, oid)
+        assert not order.paid
+        assert order.commission_assessed_kop == (fee if complete_before_card else None)
         assert ledger.driver_balance(online, driver["id"]) == (credit if complete_before_card else 0)
         assert ledger.settle_instant_order(online, oid, "card", charged) == "settled"
         assert ledger.settle_instant_order(online, oid, "card", charged) == "already"
@@ -242,6 +244,7 @@ def test_card_and_completion_preserve_platform_promo(
         assert debt is None
     assert [row.amount_kop for row in _comp_rows(oid)] == expected_credits
     with Session(engine) as session:
+        assert session.get(InstantOrder, oid).commission_assessed_kop == fee
         assert ledger.driver_balance(session, driver["id"]) == 58200
         rows = session.exec(select(LedgerEntry).where(LedgerEntry.order_id == oid)).all()
         assert [row.amount_kop for row in rows if row.kind == LedgerKind.earn] == [charged]

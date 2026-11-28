@@ -1225,6 +1225,9 @@ class InstantOrder(SQLModel, table=True):
     # price − promo_discount_kop, а водитель НЕ теряет ни копейки: скидку оплачивает платформа
     # (комиссия за поездку уменьшается, остаток идёт водителю в кошелёк). См. app/promo_ride.py.
     promo_discount_kop: int = Field(default=0, sa_type=BigInteger)
+    # Первое проведённое начисление комиссии после скидки, в копейках.
+    # None = нет снимка (в том числе старые заказы), 0 = подтверждённые ноль копеек.
+    commission_assessed_kop: Optional[int] = Field(default=None, sa_type=BigInteger)
     distance_km: float = 0.0
     eta_min: float = 0.0
     # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты (нал/безнал). Наличные через

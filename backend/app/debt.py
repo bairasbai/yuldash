@@ -560,6 +560,8 @@ def driver_order_income(session: Session, order: InstantOrder, driver_id: int, g
             fee_kop = recorded_order_debt(session, order.id, driver_id)
             if fee_kop is None and comp > 0:
                 fee_kop = 0
+        if fee_kop is None:
+            fee_kop = order.commission_assessed_kop
         if fee_kop is not None:
             net = max(gross_kop - discount - fee_kop + comp, 0)
             return effective_order_fee_percent(order, fee_kop), fee_kop, comp, net
@@ -645,6 +647,8 @@ def accrue_for_order(session: Session, order: InstantOrder,
     ).first()
     if existing:
         return existing                       # уже начислено — не задваиваем
+    if order.commission_assessed_kop is not None:
+        return None   # Ноль тоже результат. Онлайн-проведение не заводит долг.
     now = utcnow()
     if order.promo_discount_kop and session.exec(select(LedgerEntry.id).where(
         LedgerEntry.order_id == order.id,
@@ -674,28 +678,27 @@ def accrue_for_order(session: Session, order: InstantOrder,
     # комиссией (вплоть до нуля), остаток кладём водителю в кошелёк. Водитель в любом случае
     # получает столько же, как без промокода (см. app/promo_ride.py).
     amount, comp = promo_ride.split_commission(full, order.promo_discount_kop)
+    order.commission_assessed_kop = amount
+    session.add(order)
     if comp > 0:
-        post_promo_compensation(session, order.driver_id, order.id, comp)   # идемпотентно по ext_id
-    if amount <= 0:
-        # Долга по этому заказу нет, но компенсация могла пополнить кошелёк — и ею закрывается
-        # долг за прошлые поездки (волна 154).
-        settle_debt_from_wallet(session, order.driver_id, now)
-        return None                           # нулевая комиссия (промо 0% / грошовый заказ) — долг не заводим
-    debt = CommissionDebt(
-        driver_id=order.driver_id,
-        order_id=order.id,
-        amount_kop=amount,
-        week=_week_key(now),
-        status=DebtStatus.unpaid,
-        created_at=now,
-        due_at=_due_at(now, amount, pay_now_allowed),
-    )
-    session.add(debt)
+        post_promo_compensation(session, order.driver_id, order.id, comp, commit=False)
+    debt = None
+    if amount > 0:
+        debt = CommissionDebt(
+            driver_id=order.driver_id,
+            order_id=order.id,
+            amount_kop=amount,
+            week=_week_key(now),
+            status=DebtStatus.unpaid,
+            created_at=now,
+            due_at=_due_at(now, amount, pay_now_allowed),
+        )
+        session.add(debt)
     try:
         session.commit()
     except IntegrityError:
-        # Гонка: параллельный «done» успел вставить долг по этому order_id первым (UNIQUE order_id).
-        # Не задваиваем — откатываемся и возвращаем уже существующую запись.
+        # Снимок, долг и доплата атомарны. При конфликте уникальной записи не
+        # оставляем значение комиссии без связанного денежного эффекта.
         session.rollback()
         return session.exec(
             select(CommissionDebt).where(CommissionDebt.order_id == order.id)
@@ -703,7 +706,8 @@ def accrue_for_order(session: Session, order: InstantOrder,
     # Деньги платформы, уже лежащие у водителя в кошельке (компенсация промо-скидки), гасят
     # свежий долг сразу — иначе он видит недоступную сумму и одновременно долг за ту же поездку.
     settle_debt_from_wallet(session, order.driver_id, now)
-    session.refresh(debt)
+    if debt is not None:
+        session.refresh(debt)
     return debt
 
 

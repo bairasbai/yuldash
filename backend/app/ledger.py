@@ -442,6 +442,9 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
             # Долг уже учитывает скидку, повторно её не применяем.
             fee_due = recorded_fee
             pct = _debt.effective_order_fee_percent(order, fee_due + discount) if fee_due else 0.0
+        elif order.commission_assessed_kop is not None:
+            fee_due = order.commission_assessed_kop
+            pct = _debt.effective_order_fee_percent(order, fee_due + discount) if fee_due else 0.0
         else:
             pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
             full_fee = _debt.order_commission_kop(order, pct)
@@ -449,6 +452,8 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
             if comp > 0:
                 # Сохраняем доплату вместе с earn и paid: при сбое откатываются все три.
                 post_promo_compensation(session, order.driver_id, order.id, comp, commit=False)
+        if order.commission_assessed_kop is None:
+            order.commission_assessed_kop = fee_due
         _post_earn_and_fee(session, order.driver_id, amount_kop,
                            order_id=order.id, note=f"Быстрый заказ #{order.id}", percent=pct,
                            fee_kop=fee_due, promo_reduced=discount > 0)
