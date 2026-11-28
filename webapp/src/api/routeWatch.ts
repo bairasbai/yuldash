@@ -37,6 +37,7 @@ export interface RouteWatchInput {
 }
 
 const yuldashCalendar = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Yekaterinburg", year: "numeric", month: "2-digit", day: "2-digit" });
+const localInputDate = /^(\d{4}-\d{2}-\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)?$/;
 
 export function validWatchPlace(name: string): boolean {
   const letters = name.match(/\p{L}/gu);
@@ -88,14 +89,14 @@ export function routeWatchOutcomeUnknown(error: unknown): boolean {
 function readRouteWatch(value: unknown): RouteWatch {
   if (!value || typeof value !== "object") throw new TypeError("Invalid route watch");
   const row = value as Partial<RouteWatch>;
-  const direction = row.direction ?? "forward";
-  const kind = row.watch_kind ?? "rides";
+  const direction = row.direction === undefined ? "forward" : row.direction;
+  const kind = row.watch_kind === undefined ? "rides" : row.watch_kind;
   if (typeof row.id !== "number" || !Number.isSafeInteger(row.id) || row.id <= 0 ||
       typeof row.from_city !== "string" || !row.from_city.trim() ||
       typeof row.to_city !== "string" || !row.to_city.trim() ||
       (direction !== "forward" && direction !== "both") ||
       (kind !== "rides" && kind !== "requests" && kind !== "both") ||
-      (row.watch_date != null && typeof row.watch_date !== "string")) {
+      (row.watch_date != null && (typeof row.watch_date !== "string" || !serverDate(row.watch_date)))) {
     throw new TypeError("Invalid route watch identity");
   }
   return { ...row, direction, watch_kind: kind } as RouteWatch;
@@ -108,10 +109,21 @@ export async function fetchRouteWatches(owner: WatchOwner, signal?: AbortSignal)
 }
 
 export async function createRouteWatch(owner: WatchOwner, body: RouteWatchInput): Promise<RouteWatch> {
-  const row = await apiCommand<unknown>("/route-watch", owner, { method: "POST", body: JSON.stringify(body) });
-  return readRouteWatch(row);
+  const row = readRouteWatch(await apiCommand<unknown>("/route-watch", owner, { method: "POST", body: JSON.stringify(body) }));
+  // Input without an offset is Ufa time. Returned timestamps without an offset are UTC.
+  const inputDate = body.watch_date?.trim();
+  const requestedDay = inputDate?.match(localInputDate)?.[1] ?? watchLocalDay(inputDate);
+  if (watchPlaceKey(row.from_city) !== watchPlaceKey(body.from_city) ||
+      watchPlaceKey(row.to_city) !== watchPlaceKey(body.to_city) ||
+      row.direction !== (body.direction ?? "forward") || row.watch_kind !== (body.watch_kind ?? "rides") ||
+      watchLocalDay(row.watch_date) !== requestedDay) {
+    throw new TypeError("Unexpected route watch identity");
+  }
+  return row;
 }
 
-export function deleteRouteWatch(owner: WatchOwner, id: number): Promise<{ ok: boolean }> {
-  return apiCommand<{ ok: boolean }>(`/route-watch/${id}`, owner, { method: "DELETE" });
+export async function deleteRouteWatch(owner: WatchOwner, id: number): Promise<{ ok: boolean }> {
+  const result = await apiCommand<{ ok?: unknown } | null>(`/route-watch/${id}`, owner, { method: "DELETE" });
+  if (result?.ok !== true) throw new TypeError("Unconfirmed route watch deletion");
+  return { ok: true };
 }

@@ -35,9 +35,9 @@ assert.equal(owner?.userId, 7);
 
 const legacy = { id: 7, from_city: "Ургаза", to_city: "Акъяр" };
 const current = { ...legacy, direction: "both", watch_kind: "requests", watch_date: "2030-05-01T19:00:00" };
-function returnResponse(value, method = "GET") {
+function returnResponse(value, method = "GET", path = "/route-watch") {
   globalThis.fetch = async (url, init) => {
-    assert.equal(String(url), "http://127.0.0.1:9/route-watch");
+    assert.equal(String(url), "http://127.0.0.1:9" + path);
     assert.equal(init.method ?? "GET", method);
     return new Response(JSON.stringify(value), { status: 200 });
   };
@@ -52,6 +52,8 @@ await t.test("an unreadable list cannot confirm absence or an unrelated row", as
   const malformed = [
     {}, [{}], [{ ...legacy, id: 0 }], [{ ...legacy, id: 7.9 }], [{ ...legacy, id: "7" }],
     [{ ...legacy, from_city: 42 }], [{ ...legacy, from_city: "" }], [{ ...legacy, direction: "unknown" }],
+    [{ ...legacy, direction: null }], [{ ...legacy, watch_kind: null }],
+    [{ ...legacy, watch_date: "" }], [{ ...legacy, watch_date: "unreadable" }],
   ];
   for (const body of malformed) {
     returnResponse(body);
@@ -74,6 +76,32 @@ await t.test("a malformed successful POST is still an unknown write outcome", as
   returnResponse({ ...legacy, id: 0 }, "POST");
   await assert.rejects(api.createRouteWatch(owner, legacy), (error) =>
     error instanceof TypeError && api.routeWatchOutcomeUnknown(error));
+});
+
+await t.test("POST must confirm the same route, kind, direction and local day", async () => {
+  const form = { ...legacy, from_city: "  ургаза ", direction: "both", watch_kind: "requests",
+    watch_date: "2030-05-01T23:30:00" };
+  const row = { ...current, watch_date: "2030-05-01T18:30:00" };
+  returnResponse(row, "POST");
+  assert.equal((await api.createRouteWatch(owner, form)).id, row.id);
+  for (const mismatch of [
+    { from_city: "Уфа" }, { to_city: "Сибай" }, { direction: "forward" }, { watch_kind: "both" },
+    { watch_date: null }, { watch_date: "2030-05-01T19:00:00" },
+  ]) {
+    returnResponse({ ...row, ...mismatch }, "POST");
+    await assert.rejects(api.createRouteWatch(owner, form), (error) =>
+      error instanceof TypeError && api.routeWatchOutcomeUnknown(error));
+  }
+});
+
+await t.test("DELETE must explicitly confirm success or require read-back", async () => {
+  returnResponse({ ok: true }, "DELETE", "/route-watch/7");
+  assert.deepEqual(await api.deleteRouteWatch(owner, 7), { ok: true });
+  for (const body of [{}, null, { ok: false }, { ok: "true" }]) {
+    returnResponse(body, "DELETE", "/route-watch/7");
+    await assert.rejects(api.deleteRouteWatch(owner, 7), (error) =>
+      error instanceof TypeError && api.routeWatchOutcomeUnknown(error));
+  }
 });
 
 t.done();
