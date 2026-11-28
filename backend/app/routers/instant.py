@@ -1592,17 +1592,16 @@ def _confirm_direct_order_payment(
     if order.payment_method not in expected:
         raise herr(409, "Способ оплаты не совпадает с заказом", "Түләү ысулы заказға тап килмәй")
     amount_kop = promo_ride.payable_kop(order)
-    if method == isv.PAY_SBP:
-        if amount_kop <= 0:
-            raise herr(409, "У заказа нет суммы к оплате", "Заказда түләргә сумма юҡ")
-        # Читаем без блокировки Payment: обработчик банка берёт её до блокировки заказа.
-        # Новый банковский счёт создаётся под той же блокировкой заказа.
-        pending = session.exec(select(Payment.id).where(
-            Payment.order_id == order.id, Payment.user_id == order.passenger_id,
-            Payment.purpose == "ride", Payment.status == "pending",
-        ).limit(1)).first()
-        if pending is not None:
-            raise herr(409, "Онлайн-оплата ещё проверяется", "Онлайн түләү әле тикшерелә")
+    if amount_kop <= 0:
+        raise herr(409, "У заказа нет суммы к оплате", "Заказда түләргә сумма юҡ")
+    # Читаем без блокировки Payment: обработчик банка берёт её до блокировки заказа.
+    # Новый банковский счёт создаётся под той же блокировкой заказа.
+    pending = session.exec(select(Payment.id).where(
+        Payment.order_id == order.id, Payment.user_id == order.passenger_id,
+        Payment.purpose == "ride", Payment.status == "pending",
+    ).limit(1)).first()
+    if pending is not None:
+        raise herr(409, "Онлайн-оплата ещё проверяется", "Онлайн түләү әле тикшерелә")
     order.paid = True
     order.payment_method = method
     session.add(order)
