@@ -85,12 +85,31 @@ export function routeWatchOutcomeUnknown(error: unknown): boolean {
   return !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
 }
 
-export function fetchRouteWatches(owner: WatchOwner, signal?: AbortSignal): Promise<RouteWatch[]> {
-  return apiCommand<RouteWatch[]>("/route-watch", owner, { method: "GET", signal });
+function readRouteWatch(value: unknown): RouteWatch {
+  if (!value || typeof value !== "object") throw new TypeError("Invalid route watch");
+  const row = value as Partial<RouteWatch>;
+  const direction = row.direction ?? "forward";
+  const kind = row.watch_kind ?? "rides";
+  if (typeof row.id !== "number" || !Number.isSafeInteger(row.id) || row.id <= 0 ||
+      typeof row.from_city !== "string" || !row.from_city.trim() ||
+      typeof row.to_city !== "string" || !row.to_city.trim() ||
+      (direction !== "forward" && direction !== "both") ||
+      (kind !== "rides" && kind !== "requests" && kind !== "both") ||
+      (row.watch_date != null && typeof row.watch_date !== "string")) {
+    throw new TypeError("Invalid route watch identity");
+  }
+  return { ...row, direction, watch_kind: kind } as RouteWatch;
 }
 
-export function createRouteWatch(owner: WatchOwner, body: RouteWatchInput): Promise<RouteWatch> {
-  return apiCommand<RouteWatch>("/route-watch", owner, { method: "POST", body: JSON.stringify(body) });
+export async function fetchRouteWatches(owner: WatchOwner, signal?: AbortSignal): Promise<RouteWatch[]> {
+  const rows = await apiCommand<unknown>("/route-watch", owner, { method: "GET", signal });
+  if (!Array.isArray(rows)) throw new TypeError("Invalid route watch list");
+  return rows.map(readRouteWatch);
+}
+
+export async function createRouteWatch(owner: WatchOwner, body: RouteWatchInput): Promise<RouteWatch> {
+  const row = await apiCommand<unknown>("/route-watch", owner, { method: "POST", body: JSON.stringify(body) });
+  return readRouteWatch(row);
 }
 
 export function deleteRouteWatch(owner: WatchOwner, id: number): Promise<{ ok: boolean }> {
