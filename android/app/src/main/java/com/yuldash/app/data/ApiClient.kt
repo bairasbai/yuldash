@@ -3042,6 +3042,35 @@ object ApiClient {
     suspend fun getInstantOrder(id: Int, expectedGeneration: Long? = null): Result<InstantOrderDto> =
         call("GET", "/instant/orders/$id", null, auth = true, expectedGeneration = expectedGeneration).map { it.toInstantOrderDto() }
 
+    internal suspend fun getDriverCurrentOrder(generation: Long, driverId: Int): DriverCurrentOrder<InstantOrderDto> =
+        lookupDriverCurrentOrder(
+            sameOwner = { isCurrentSession(generation) && myUserId() == driverId && driverId > 0 },
+            readId = {
+                val response = readDriverCurrentOrderSnapshot("/instant/driver/current-order", generation)
+                val error = response.exceptionOrNull()
+                if (error is ApiException && error.status == 409 && error.detailCode == "taxi_multiple_active_orders") {
+                    Result.failure(DriverCurrentOrderConflict())
+                } else response.mapCatching { payload ->
+                    val value = payload.get("order_id")
+                    if (value === JSONObject.NULL) null else {
+                        require(value is Int && value > 0) { "Invalid current driver order id" }
+                        value
+                    }
+                }
+            },
+            readOrder = { id ->
+                readDriverCurrentOrderSnapshot("/instant/orders/$id", generation)
+                    .mapCatching { it.toInstantOrderDto() }
+            },
+            isOwnedActive = { id, order ->
+                driverOwnsActiveOrder(id, driverId, order.id, order.driverId, order.role, order.status)
+            },
+        )
+
+    private suspend fun readDriverCurrentOrderSnapshot(path: String, generation: Long): Result<JSONObject> =
+        call("GET", path, null, auth = true, expectedGeneration = generation, retryOnNetwork = false,
+            singleAttemptMutation = true, freshRead = true, withoutAuthReplay = true, mutationTimeoutMs = 5_000L)
+
     /** Активный оффер для водителя (поллинг-фолбэк к пушу). null = нет входящего заказа. */
     suspend fun getDriverOffer(expectedGeneration: Long? = null): Result<InstantOrderDto?> =
         call("GET", "/instant/driver/offer", null, auth = true, expectedGeneration = expectedGeneration).map { o ->
