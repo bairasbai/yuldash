@@ -12,6 +12,12 @@ from app.timeutil import utcnow
 from test_money_holes_audit import _debt_row, _order
 
 
+def _recover_only(order_id):
+    # Keep these per-order assertions independent of other journeys sharing the test DB.
+    # The public worker's query and dispatch are covered by test_taxi_auto_commission_retry.
+    return taxi_auto_commission._accrue_auto_done([order_id], utcnow(), engine)
+
+
 @pytest.mark.parametrize("path", ["done", "passenger-done", "destination/decline"])
 @pytest.mark.parametrize("first_effect", ["recovery", "card"])
 def test_manual_completion_survives_process_loss_and_rate_change(
@@ -46,8 +52,8 @@ def test_manual_completion_survives_process_loss_and_rate_change(
     if first_effect == "card":
         with Session(engine) as session:
             assert ledger.settle_instant_order(session, oid, "card", rub * 100) == "settled"
-    assert taxi_auto_commission.retry_auto_commissions() == 1
-    assert taxi_auto_commission.retry_auto_commissions() == 0
+    assert _recover_only(oid) == 1
+    assert _recover_only(oid) == 0
     assert _debt_row(legacy) is None
     assert client.post(f"/instant/orders/{oid}/done", headers=driver["auth"]).status_code == 200
     with Session(engine) as session:
@@ -93,7 +99,7 @@ def test_driver_replay_preserves_the_winning_close_policy(client, monkeypatch, u
     assert posted.amount_kop > 0
     assert debt.is_pay_now(posted) == (path != "passenger-done")
     assert ("пассажир" in posted.note) == (path == "passenger-done")
-    assert taxi_auto_commission.retry_auto_commissions() == 1
+    assert _recover_only(oid) == 1
     assert _debt_row(oid).id == posted.id
 
 
@@ -115,7 +121,7 @@ def test_zero_rate_stays_zero_before_the_first_accrual(client, monkeypatch, user
     if card_first:
         with Session(engine) as session:
             assert ledger.settle_instant_order(session, oid, "card", 40000) == "settled"
-    assert taxi_auto_commission.retry_auto_commissions() == 1
+    assert _recover_only(oid) == 1
     assert _debt_row(oid) is None
     with Session(engine) as session:
         assert session.get(InstantOrder, oid).commission_assessed_kop == 0
