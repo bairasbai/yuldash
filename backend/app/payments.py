@@ -14,6 +14,7 @@
 `PaymentsUnavailable`. Реальные деньги — только yookassa с ключами.
 """
 import uuid
+from datetime import datetime, timedelta
 
 from .config import PAYMENTS_PROVIDERS, settings
 
@@ -128,6 +129,53 @@ def create_payment(amount_kop: int, description: str, metadata: dict, customer_p
         "status": data.get("status", "pending"),
         "mock": False,
     }
+
+
+def find_taxi_provider_payment(payment_id: int, amount_kop: int, created_at: datetime) -> str | None:
+    """Find the original taxi payment by merchant metadata; never create a new one."""
+    if not _yookassa_live():
+        return None
+    import httpx
+
+    shop = settings.yookassa_shop_id
+    params = {"created_at.gte": (created_at - timedelta(minutes=5)).isoformat() + "Z", "limit": "100"}
+    match = None
+    seen_cursors = set()
+    for _ in range(3):
+        response = httpx.get(
+            YOOKASSA_API, params=params, auth=(shop, settings.yookassa_secret_key), timeout=3,
+        )
+        response.raise_for_status()
+        page = response.json()
+        if not isinstance(page, dict) or page.get("type") != "list" or not isinstance(page.get("items"), list):
+            return None
+        for item in page["items"]:
+            if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
+                continue
+            if item["metadata"].get("payment_id") != str(payment_id):
+                continue
+            provider_id, amount, recipient = item.get("id"), item.get("amount"), item.get("recipient")
+            if not isinstance(provider_id, str) or not isinstance(amount, dict) or not isinstance(recipient, dict):
+                return None
+            try:
+                if str(uuid.UUID(provider_id)) != provider_id:
+                    return None
+            except ValueError:
+                return None
+            if (
+                amount.get("currency") != "RUB" or amount.get("value") != _rub(amount_kop)
+                or recipient.get("account_id") != shop or (match and match != provider_id)
+            ):
+                return None
+            match = provider_id
+        cursor = page.get("next_cursor")
+        if cursor is None:
+            return match
+        if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+            return None
+        seen_cursors.add(cursor)
+        params["cursor"] = cursor
+    return None  # неполная выдача не доказывает уникальность
 
 
 def fetch_payment(provider_id: str) -> dict:

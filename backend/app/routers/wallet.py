@@ -32,7 +32,7 @@ from ..models import (
     Booking, BookingStatus, DriverProfile, InstantOrder, InstantOrderStatus,
     LedgerEntry, LedgerKind, Payment, User,
 )
-from ..payments import payments_closed
+from ..payments import find_taxi_provider_payment, payments_closed
 from ..security import current_user, require_telegram_admin
 from ..timeutil import utcnow
 from .payments import _activate_payment, _start_yookassa, _sync_provider_status
@@ -73,6 +73,39 @@ def _cancel_own_pending_cashless(session: Session, user_id: int, *, order_id=Non
     stmt = stmt.where(Payment.order_id == order_id) if order_id is not None else stmt.where(Payment.booking_id == booking_id)
     session.execute(stmt.values(status="canceled"))
     session.commit()
+
+
+def _reconcile_interrupted_taxi_checkout(session: Session, payment: Payment) -> dict:
+    # ЮKassa гарантирует дедуп только 24 часа и только при неизменном запросе.
+    # Исходное тело в старой строке не хранится: профиль и настройки могли измениться.
+    # Не повторяем POST даже со старым ключом. Отсутствие совпадения не равно отмене.
+    pid = payment.id
+    amount, created_at = payment.amount_kop, payment.created_at
+    session.commit()  # Не держим локальные блокировки при запросе в банк.
+    try:
+        provider_id = find_taxi_provider_payment(pid, amount, created_at)
+    except Exception:  # noqa: BLE001 — банк недоступен, исход по-прежнему неизвестен
+        provider_id = None
+    payment = session.get(Payment, pid, with_for_update=True, populate_existing=True)
+    if payment is not None and payment.status == "pending":
+        if not payment.provider_id and provider_id:
+            claimed = session.exec(select(Payment.id).where(Payment.provider_id == provider_id).limit(1)).first()
+            if claimed is None:
+                payment.provider_id = provider_id
+                session.add(payment)
+        session.commit()
+        if payment.provider_id:
+            payment, info = _sync_provider_status(session, payment)
+            if payment.status == "pending":
+                return {"status": "pending", "method": "yookassa", "payment_id": pid,
+                        "confirmation_url": (info or {}).get("confirmation_url", "")}
+    if payment is not None:
+        if payment.status in ("succeeded", "canceled"):
+            return {"status": payment.status, "method": "yookassa", "payment_id": pid}
+        if payment.status == "refund_due":
+            return {"status": "already_paid", "method": "yookassa"}
+    raise herr(409, "Онлайн-оплата ещё проверяется. Не плати повторно.",
+               "Онлайн түләү әле тикшерелә. Ҡабат түләмә.", code="taxi_checkout_unresolved")
 
 
 def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: int,
@@ -126,6 +159,8 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
                 # строке — и то, и другое не «заплати ещё раз».
                 return {"status": "already_paid", "method": existing.method or "yookassa"}
             existing = None  # provider canceled окончательно: ниже создадим новую строку и ключ
+        if existing is not None and purpose == "ride" and order_id is not None and settings.payments_provider == "yookassa":
+            return _reconcile_interrupted_taxi_checkout(session, existing)
         if existing is not None:
             # Неизвестный исход первого обращения: повторяем ту же локальную строку, поэтому
             # _start_yookassa отправит провайдеру тот же Idempotence-Key и не создаст второе списание.
@@ -234,6 +269,13 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
         # передавать из рук в руки, а order.paid=True на пустом месте маскирует эту скидку).
         raise herr(409, "У заказа нет суммы к оплате", "Заказда түләргә сумма юҡ")
     if body.method == "cash":
+        pending = session.exec(select(Payment.id).where(
+            Payment.order_id == order.id, Payment.user_id == user.id,
+            Payment.purpose == "ride", Payment.status == "pending",
+        ).limit(1)).first()
+        if pending is not None:
+            raise herr(409, "Онлайн-оплата ещё проверяется. Не плати повторно.",
+                       "Онлайн түләү әле тикшерелә. Ҡабат түләмә.", code="taxi_checkout_unresolved")
         from .. import ledger
         result = ledger.settle_instant_order(session, order.id, "cash", amount_kop)
         if result != "settled":
