@@ -54,6 +54,8 @@ await t.test("an unreadable list cannot confirm absence or an unrelated row", as
     [{ ...legacy, from_city: 42 }], [{ ...legacy, from_city: "" }], [{ ...legacy, direction: "unknown" }],
     [{ ...legacy, direction: null }], [{ ...legacy, watch_kind: null }],
     [{ ...legacy, watch_date: "" }], [{ ...legacy, watch_date: "unreadable" }],
+    [{ ...legacy, watch_date: "2030-02-30" }], [{ ...legacy, watch_date: "2030-02-30T19:00:00" }],
+    [{ ...legacy, watch_date: "2030-02-28T24:00:00" }],
   ];
   for (const body of malformed) {
     returnResponse(body);
@@ -70,6 +72,8 @@ await t.test("an older row and current fields both remain usable", async () => {
   assert.equal(rows[1].direction, "both");
   assert.equal(rows[1].watch_kind, "requests");
   assert.equal(rows[1].watch_date, current.watch_date);
+  returnResponse([{ ...legacy, watch_date: "2000-02-29T19:00:00.123456" }]);
+  assert.equal(api.watchLocalDay((await api.fetchRouteWatches(owner))[0].watch_date), "2000-03-01");
 });
 
 await t.test("a malformed successful POST is still an unknown write outcome", async () => {
@@ -84,6 +88,8 @@ await t.test("POST must confirm the same route, kind, direction and local day", 
   const row = { ...current, watch_date: "2030-05-01T18:30:00" };
   returnResponse(row, "POST");
   assert.equal((await api.createRouteWatch(owner, form)).id, row.id);
+  returnResponse({ ...row, watch_date: "2030-05-01T23:00:00" }, "POST");
+  assert.equal((await api.createRouteWatch(owner, { ...form, watch_date: "2030-05-01T23:00:00Z" })).id, row.id);
   for (const mismatch of [
     { from_city: "Уфа" }, { to_city: "Сибай" }, { direction: "forward" }, { watch_kind: "both" },
     { watch_date: null }, { watch_date: "2030-05-01T19:00:00" },

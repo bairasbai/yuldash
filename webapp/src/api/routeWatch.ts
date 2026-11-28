@@ -37,7 +37,7 @@ export interface RouteWatchInput {
 }
 
 const yuldashCalendar = new Intl.DateTimeFormat("sv-SE", { timeZone: "Asia/Yekaterinburg", year: "numeric", month: "2-digit", day: "2-digit" });
-const localInputDate = /^(\d{4}-\d{2}-\d{2})(?:[T ]\d{2}:\d{2}(?::\d{2})?(?:\.\d+)?)?$/;
+const watchDateFormat = /^(\d{4}-\d{2}-\d{2})(?:[T ](?:[01]\d|2[0-3]):[0-5]\d(?::[0-5]\d(?:\.\d+)?)?([Zz]|[+-]\d{2}:?\d{2})?)?$/;
 
 export function validWatchPlace(name: string): boolean {
   const letters = name.match(/\p{L}/gu);
@@ -86,6 +86,13 @@ export function routeWatchOutcomeUnknown(error: unknown): boolean {
   return !(error instanceof ApiError) || error.status === 0 || error.status >= 500;
 }
 
+function validServerWatchDate(value: string): boolean {
+  const day = value.match(watchDateFormat)?.[1];
+  if (!day || day.startsWith("0000-") || !serverDate(value)) return false;
+  const utcDay = new Date(`${day}T00:00:00Z`);
+  return Number.isFinite(utcDay.getTime()) && utcDay.toISOString().slice(0, 10) === day;
+}
+
 function readRouteWatch(value: unknown): RouteWatch {
   if (!value || typeof value !== "object") throw new TypeError("Invalid route watch");
   const row = value as Partial<RouteWatch>;
@@ -96,7 +103,7 @@ function readRouteWatch(value: unknown): RouteWatch {
       typeof row.to_city !== "string" || !row.to_city.trim() ||
       (direction !== "forward" && direction !== "both") ||
       (kind !== "rides" && kind !== "requests" && kind !== "both") ||
-      (row.watch_date != null && (typeof row.watch_date !== "string" || !serverDate(row.watch_date)))) {
+      (row.watch_date != null && (typeof row.watch_date !== "string" || !validServerWatchDate(row.watch_date)))) {
     throw new TypeError("Invalid route watch identity");
   }
   return { ...row, direction, watch_kind: kind } as RouteWatch;
@@ -112,7 +119,8 @@ export async function createRouteWatch(owner: WatchOwner, body: RouteWatchInput)
   const row = readRouteWatch(await apiCommand<unknown>("/route-watch", owner, { method: "POST", body: JSON.stringify(body) }));
   // Input without an offset is Ufa time. Returned timestamps without an offset are UTC.
   const inputDate = body.watch_date?.trim();
-  const requestedDay = inputDate?.match(localInputDate)?.[1] ?? watchLocalDay(inputDate);
+  const input = inputDate?.match(watchDateFormat);
+  const requestedDay = input && !input[2] ? input[1] : watchLocalDay(inputDate);
   if (watchPlaceKey(row.from_city) !== watchPlaceKey(body.from_city) ||
       watchPlaceKey(row.to_city) !== watchPlaceKey(body.to_city) ||
       row.direction !== (body.direction ?? "forward") || row.watch_kind !== (body.watch_kind ?? "rides") ||
