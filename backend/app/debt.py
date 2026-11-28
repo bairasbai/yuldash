@@ -626,11 +626,13 @@ def is_pay_now(d: CommissionDebt) -> bool:
 
 
 def accrue_for_order(session: Session, order: InstantOrder,
-                     pay_now_allowed: bool = True) -> Optional[CommissionDebt]:
+                     pay_now_allowed: bool = True, *, settle_wallet: bool = True) -> Optional[CommissionDebt]:
     """Начислить долг по комиссии за завершённый такси-заказ. Идемпотентно.
 
     `pay_now_allowed=False` зовёт ночная чистка за водителя, который не нажал «Завершил»:
     крупную комиссию в этом случае в «оплатить сразу» не переводим (см. `_due_after`).
+
+    Воркер передаёт `settle_wallet=False`: зачёт он восстанавливает отдельно до снятия маркера.
 
     Вызывать ПОСЛЕ перехода в done. На один order_id заводим не больше одной записи долга —
     повторный тап «done» (идемпотентный переход) не задваивает долг. Нулевая комиссия
@@ -658,7 +660,8 @@ def accrue_for_order(session: Session, order: InstantOrder,
         LedgerEntry.amount_kop > 0,
     )).first() is not None:
         # Положительная компенсация означает, что скидка уже поглотила всю комиссию.
-        settle_debt_from_wallet(session, order.driver_id, now)
+        if settle_wallet:
+            settle_debt_from_wallet(session, order.driver_id, now)
         return None
     if order.paid:
         # Наличные тоже помечаются paid, но только онлайн-оплата создаёт earn.
@@ -715,7 +718,8 @@ def accrue_for_order(session: Session, order: InstantOrder,
         ).first()
     # Деньги платформы, уже лежащие у водителя в кошельке (компенсация промо-скидки), гасят
     # свежий долг сразу — иначе он видит недоступную сумму и одновременно долг за ту же поездку.
-    settle_debt_from_wallet(session, order.driver_id, now)
+    if settle_wallet:
+        settle_debt_from_wallet(session, order.driver_id, now)
     if debt is not None:
         session.refresh(debt)
     return debt

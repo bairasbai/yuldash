@@ -155,3 +155,57 @@ def test_interruption_while_saving_rate_rolls_back_automatic_completion(
     assert cleanup.close_stale_orders(now) == 1
     assert _state(oid) == (S.done, None, 1200)
     assert _debt_row(oid).amount_kop == 1200
+
+
+@pytest.mark.parametrize("stop_after_offset", [False, True])
+def test_restart_replays_wallet_offset_without_recrediting_promo(
+    client, monkeypatch, user_factory, stop_after_offset,
+):
+    from app import ledger
+    from app.models import DebtStatus, LedgerEntry, LedgerKind
+    from test_money_holes_audit import _make_debt
+
+    now = utcnow().replace(microsecond=0)
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    driver, oid = _stale_order(user_factory, "WalletCrash", now)
+    older_passenger = user_factory("PaidOlderOrder")
+    older_oid = _order(older_passenger["id"], driver["id"], price=400, paid=True)
+    _make_debt(driver["id"], amount=1000, order_id=older_oid)
+    with Session(engine) as session:
+        order = session.get(InstantOrder, oid)
+        order.promo_discount_kop = 2400  # 12 ₽ fee + 12 ₽ credit.
+        session.commit()
+
+    def wallet_state():
+        with Session(engine) as session:
+            rows = session.exec(select(LedgerEntry.kind, LedgerEntry.amount_kop).where(
+                LedgerEntry.driver_id == driver["id"],
+            ).order_by(LedgerEntry.id)).all()
+            return ledger.driver_balance(session, driver["id"]), rows
+
+    original = debt.settle_debt_from_wallet
+
+    def stop(*args, **kwargs):
+        if stop_after_offset:
+            original(*args, **kwargs)
+        raise ProcessStopped
+
+    with monkeypatch.context() as patch:
+        patch.setattr(debt, "settle_debt_from_wallet", stop)
+        with pytest.raises(ProcessStopped):
+            cleanup.close_stale_orders(now)
+
+    assert _state(oid) == (S.done, now, 0)
+    if stop_after_offset:
+        assert _debt_row(older_oid).status == DebtStatus.paid
+        assert wallet_state() == (200, [(LedgerKind.adj, 1200), (LedgerKind.fee, -1000)])
+    else:
+        assert _debt_row(older_oid).status == DebtStatus.unpaid
+        assert wallet_state() == (1200, [(LedgerKind.adj, 1200)])
+
+    assert taxi_auto_commission.retry_auto_commissions(now) == 1
+    assert taxi_auto_commission.retry_auto_commissions(now) == 0
+    assert _state(oid) == (S.done, None, 0)
+    assert _debt_row(older_oid).status == DebtStatus.paid
+    assert _debt_row(oid) is None
+    assert wallet_state() == (200, [(LedgerKind.adj, 1200), (LedgerKind.fee, -1000)])

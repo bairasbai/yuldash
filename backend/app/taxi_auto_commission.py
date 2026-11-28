@@ -61,13 +61,18 @@ def _accrue_auto_done(order_ids: list[int], now, db_engine: Engine) -> int:
                 # The lock inside accrual serializes this with manual retry and card settlement.
                 # The debt and assessed commission are idempotent across a restart before ack.
                 if order.driver_id is not None:
-                    posted_debt = debt_mod.accrue_for_order(session, order, pay_now_allowed=False) is not None
-                    # The wallet sweep can leave the user lock held on its read-only path.
-                    # Release it before the acknowledgement takes the order lock again.
+                    posted_debt = debt_mod.accrue_for_order(
+                        session, order, pay_now_allowed=False, settle_wallet=False,
+                    ) is not None
+                    # Leave the accrual transaction before acquiring the driver lock.
                     session.rollback()
                     session.refresh(order)
                     if not posted_debt and order.commission_assessed_kop is None:
                         raise RuntimeError("completion accrual is not yet committed")
+                    debt_mod.settle_debt_from_wallet(session, order.driver_id, now)
+                    # A no-op may still hold the driver lock. Acknowledge under the
+                    # order lock only after the wallet transaction has finished.
+                    session.rollback()
                 ack = session.execute(update(InstantOrder).where(
                     InstantOrder.id == oid,
                     InstantOrder.auto_commission_retry_at == expected,

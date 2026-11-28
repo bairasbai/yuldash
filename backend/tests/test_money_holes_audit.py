@@ -414,12 +414,13 @@ def test_auto_completion_accrual_failure_does_not_drop_other_orders(client, user
     real = debt.accrue_for_order
     calls = []
 
-    def fail_first(session, order, *, pay_now_allowed):
+    def fail_first(session, order, *, pay_now_allowed, settle_wallet):
         assert pay_now_allowed is False
+        assert settle_wallet is False
         calls.append(order.id)
         if len(calls) == 1:
             raise RuntimeError("first accrual unavailable")
-        return real(session, order, pay_now_allowed=pay_now_allowed)
+        return real(session, order, pay_now_allowed=pay_now_allowed, settle_wallet=settle_wallet)
 
     monkeypatch.setattr(debt, "accrue_for_order", fail_first)
     assert cleanup.close_stale_orders() == 2
