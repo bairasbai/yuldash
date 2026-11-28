@@ -15,14 +15,14 @@ import time
 from calendar import timegm
 from datetime import timedelta
 
-from sqlalchemy import DateTime, bindparam, text
+from sqlalchemy import bindparam, text
 
 from .config import settings
 from .db import engine
 from .otp_budget import DAY_SECONDS, HOUR_SECONDS
 from .rideshare_bank_recipient import BANK_RECIPIENT_RECEIPT_WINDOW
 from .storage import StorageError, get_storage
-from .taxi_auto_commission import retry_auto_commissions
+from .taxi_auto_commission import close_stale_onboard_orders, retry_auto_commissions
 from .timeutil import RIDE_PAST_GRACE_HOURS, utcnow
 from .security import REFRESH_RECOVERY_SECONDS
 
@@ -829,16 +829,7 @@ def close_stale_orders(now=None) -> int:
             "AND COALESCE(arriving_at, accepted_at, scheduled_at, created_at) < :cut) "
             "RETURNING id, driver_id, passenger_id"
         ), {"cut": cut}).all()
-        completed = conn.execute(text(
-            "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now), "
-            "auto_commission_retry_at = :now, "
-            # Как при ручном завершении: только уже записанное ожидание, в целых рублях.
-            # Таймер остановки в фоне не начисляем: неизвестно, когда закончилась остановка.
-            "price_final = COALESCE(price_final, price_estimate + COALESCE(waiting_fee_kop, 0) / 100) "
-            "WHERE status = 'onboard' "
-            "AND COALESCE(onboard_at, arriving_at, accepted_at, scheduled_at, created_at) < :cut "
-            "RETURNING id, driver_id, passenger_id"
-        ).bindparams(bindparam("now", type_=DateTime())), {"cut": cut, "now": now}).all()
+        completed = close_stale_onboard_orders(conn, cut, now)
         stale_scheduled = [row[0] for row in conn.execute(text(
             "UPDATE instantorder SET status = 'expired' "
             "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut "

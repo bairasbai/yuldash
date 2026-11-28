@@ -1,9 +1,9 @@
 """Recover commission after taxi completion, including manual close and retention cleanup."""
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
-from sqlalchemy import update
-from sqlalchemy.engine import Engine
+from sqlalchemy import DateTime, bindparam, text, update
+from sqlalchemy.engine import Connection, Engine
 from sqlmodel import Session, select
 
 from . import debt as debt_mod
@@ -13,6 +13,36 @@ from .timeutil import utcnow
 
 _AUTO_COMMISSION_BATCH = 50
 _AUTO_COMMISSION_BACKOFF = timedelta(minutes=5)
+
+
+def close_stale_onboard_orders(
+    conn: Connection, cut: datetime, now: datetime,
+) -> list[tuple[int, int | None, int]]:
+    """Finalize stale onboard trips and freeze their rates on the caller's transaction."""
+    closed = conn.execute(text(
+        "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now), "
+        "auto_commission_retry_at = :now, "
+        # Only waiting already recorded is chargeable; the stop timer may still be running.
+        "price_final = COALESCE(price_final, price_estimate + COALESCE(waiting_fee_kop, 0) / 100) "
+        "WHERE status = 'onboard' "
+        "AND COALESCE(onboard_at, arriving_at, accepted_at, scheduled_at, created_at) < :cut "
+        "RETURNING id, driver_id, passenger_id, created_at"
+    ).bindparams(bindparam("now", type_=DateTime())).columns(created_at=DateTime()),
+        {"cut": cut, "now": now},
+    ).all()
+
+    # UPDATE holds the trip lock: card settlement and manual completion cannot see
+    # the new status without its rate. No second connection or session commit here.
+    with Session(bind=conn) as session:
+        for oid, driver_id, _, created_at in closed:
+            if driver_id is None:
+                continue
+            percent = debt_mod.driver_fee_percent(session, driver_id, created_at or now)
+            conn.execute(update(InstantOrder).where(
+                InstantOrder.id == oid,
+            ).values(commission_close_percent=percent))
+
+    return [(oid, driver_id, passenger_id) for oid, driver_id, passenger_id, _ in closed]
 
 
 def _accrue_auto_done(order_ids: list[int], now, db_engine: Engine) -> int:

@@ -55,6 +55,7 @@ def test_restart_recovers_auto_commission_once_without_touching_legacy(
     with Session(engine) as session:
         assert taxi_worker.run_once(session, dry_run=True)["auto_commissions_recovered"] == 0
     assert _state(oid)[1] == now
+    monkeypatch.setattr(settings, "fee_tier1_percent", 12.0)
     assert cleanup.close_stale_orders(now) == 0  # No second status change or close notification.
     assert _state(oid) == (S.done, None, 1200)
     assert taxi_auto_commission.retry_auto_commissions(now) == 0
@@ -101,7 +102,7 @@ def test_failed_order_backs_off_and_manual_retry_does_not_make_debt_urgent(
 
 
 @pytest.mark.parametrize("fee_percent,card_first", [(0.0, False), (3.0, True)])
-def test_recovery_respects_zero_or_an_already_settled_card_payment(
+def test_recovery_and_card_settlement_use_the_rate_frozen_at_close(
     client, monkeypatch, user_factory, fee_percent, card_first,
 ):
     from app import ledger
@@ -118,10 +119,10 @@ def test_recovery_respects_zero_or_an_already_settled_card_payment(
         patch.setattr(taxi_auto_commission, "_accrue_auto_done", stop)
         with pytest.raises(ProcessStopped):
             cleanup.close_stale_orders(now)
+    monkeypatch.setattr(settings, "fee_tier1_percent", 12.0)
     if card_first:
         with Session(engine) as session:
             assert ledger.settle_instant_order(session, oid, "card", 40000) == "settled"
-        monkeypatch.setattr(settings, "fee_tier1_percent", 12.0)
     assert taxi_auto_commission.retry_auto_commissions(now) == 1
     assert taxi_auto_commission.retry_auto_commissions(now) == 0
     assert _debt_row(oid) is None
@@ -131,3 +132,26 @@ def test_recovery_respects_zero_or_an_already_settled_card_payment(
             LedgerEntry.order_id == oid, LedgerEntry.kind == LedgerKind.fee,
         )).all()
     assert fees == ([-1200] if card_first else [])
+
+
+
+def test_interruption_while_saving_rate_rolls_back_automatic_completion(
+    client, monkeypatch, user_factory,
+):
+    now = utcnow().replace(microsecond=0)
+    monkeypatch.setattr(settings, "fee_tier1_percent", 3.0)
+    _, oid = _stale_order(user_factory, "AtomicSnapshot", now)
+
+    def stop(*_args):
+        raise ProcessStopped
+
+    with monkeypatch.context() as patch:
+        patch.setattr(debt, "driver_fee_percent", stop)
+        with pytest.raises(ProcessStopped):
+            cleanup.close_stale_orders(now)
+    assert _state(oid) == (S.onboard, None, None)
+    assert _debt_row(oid) is None
+
+    assert cleanup.close_stale_orders(now) == 1
+    assert _state(oid) == (S.done, None, 1200)
+    assert _debt_row(oid).amount_kop == 1200

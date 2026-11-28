@@ -1230,9 +1230,9 @@ class InstantOrder(SQLModel, table=True):
     commission_assessed_kop: Optional[int] = Field(default=None, sa_type=BigInteger)
     # Ожидающая обработка комиссии. Имя индекса/поля наследовано от авто-завершения.
     auto_commission_retry_at: Optional[datetime] = Field(default=None, index=True)
-    # Источник ручного завершения и ставка, сохранённые вместе с финальной ценой.
-    # NULL у старых заказов и у ночной чистки; нулевую ставку сохраняем явно.
+    # Источник ручного завершения; NULL у старых заказов и у ночной чистки.
     commission_close_source: Optional[str] = Field(default=None, max_length=16)
+    # Ставка при завершении, в том числе автоматическом. Ноль сохраняем явно.
     commission_close_percent: Optional[float] = None
     distance_km: float = 0.0
     eta_min: float = 0.0
