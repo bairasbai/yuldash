@@ -64,11 +64,17 @@ def test_editing_the_ad_is_checked_too(client, user_factory, monkeypatch):
     assert created.status_code in (200, 201), created.text
     ride_id = created.json()["id"]
 
-    seen = _watch(monkeypatch, rides_router)
+    seen = []
+
+    def inspect_comment(text, *, check_contact):
+        seen.append((text, check_contact))
+        return af.moderate_text(text, check_contact=check_contact)
+
+    monkeypatch.setattr(rides_router, "moderate_text", inspect_comment)
     r = client.post(f"/rides/{ride_id}/edit", headers=drv["auth"],
                     json={"comment": "звоните на другой номер"})
     assert r.status_code == 200, r.text
-    assert "звоните на другой номер" in seen, "правку объявления никто не смотрит"
+    assert seen == [("звоните на другой номер", False)], "правку объявления никто не смотрит"
 
 
 def test_taxi_order_comment_is_checked(client, user_factory, monkeypatch):
