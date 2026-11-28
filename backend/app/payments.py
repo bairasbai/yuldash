@@ -14,6 +14,7 @@
 `PaymentsUnavailable`. Реальные деньги — только yookassa с ключами.
 """
 import uuid
+from dataclasses import dataclass
 from datetime import datetime, timedelta
 
 from .config import PAYMENTS_PROVIDERS, settings
@@ -131,50 +132,76 @@ def create_payment(amount_kop: int, description: str, metadata: dict, customer_p
     }
 
 
-def find_taxi_provider_payment(payment_id: int, amount_kop: int, created_at: datetime) -> str | None:
-    """Find the original taxi payment by merchant metadata; never create a new one."""
+@dataclass(frozen=True)
+class TaxiPaymentPage:
+    cursor: str | None
+    match: str | None
+    ambiguous: bool = False
+
+
+def read_taxi_payment_page(
+    payment_id: int, amount_kop: int, created_at: datetime, *,
+    cursor: str | None = None, cutoff: datetime | None = None, match: str | None = None,
+) -> TaxiPaymentPage:
+    """Verify one authenticated merchant page; never create or release a payment."""
     if not _yookassa_live():
-        return None
+        raise PaymentsUnavailable("Taxi checkout reconciliation requires YooKassa")
     import httpx
 
     shop = settings.yookassa_shop_id
     params = {"created_at.gte": (created_at - timedelta(minutes=5)).isoformat() + "Z", "limit": "100"}
-    match = None
+    if cutoff is not None:
+        params["created_at.lt"] = cutoff.isoformat() + "Z"
+    if cursor is not None:
+        params["cursor"] = cursor
+    response = httpx.get(
+        YOOKASSA_API, params=params, auth=(shop, settings.yookassa_secret_key), timeout=3,
+    )
+    response.raise_for_status()
+    page = response.json()
+    if not isinstance(page, dict) or page.get("type") != "list" or not isinstance(page.get("items"), list):
+        raise ValueError("Invalid merchant page")
+    for item in page["items"]:
+        if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
+            continue
+        if item["metadata"].get("payment_id") != str(payment_id):
+            continue
+        provider_id, amount, recipient = item.get("id"), item.get("amount"), item.get("recipient")
+        if not isinstance(provider_id, str) or not isinstance(amount, dict) or not isinstance(recipient, dict):
+            return TaxiPaymentPage(None, None, ambiguous=True)
+        try:
+            if str(uuid.UUID(provider_id)) != provider_id:
+                return TaxiPaymentPage(None, None, ambiguous=True)
+        except ValueError:
+            return TaxiPaymentPage(None, None, ambiguous=True)
+        if (
+            amount.get("currency") != "RUB" or amount.get("value") != _rub(amount_kop)
+            or recipient.get("account_id") != shop or (match and match != provider_id)
+        ):
+            return TaxiPaymentPage(None, None, ambiguous=True)
+        match = provider_id
+    nxt = page.get("next_cursor")
+    if nxt is not None and (not isinstance(nxt, str) or not nxt or len(nxt) > 512 or nxt == cursor):
+        raise ValueError("Invalid merchant cursor")
+    return TaxiPaymentPage(nxt, match)
+
+
+def find_taxi_provider_payment(payment_id: int, amount_kop: int, created_at: datetime) -> str | None:
+    """Find the original taxi payment by merchant metadata; never create a new one."""
+    if not _yookassa_live():
+        return None
+    cursor = match = None
     seen_cursors = set()
     for _ in range(3):
-        response = httpx.get(
-            YOOKASSA_API, params=params, auth=(shop, settings.yookassa_secret_key), timeout=3,
-        )
-        response.raise_for_status()
-        page = response.json()
-        if not isinstance(page, dict) or page.get("type") != "list" or not isinstance(page.get("items"), list):
+        page = read_taxi_payment_page(payment_id, amount_kop, created_at, cursor=cursor, match=match)
+        if page.ambiguous:
             return None
-        for item in page["items"]:
-            if not isinstance(item, dict) or not isinstance(item.get("metadata"), dict):
-                continue
-            if item["metadata"].get("payment_id") != str(payment_id):
-                continue
-            provider_id, amount, recipient = item.get("id"), item.get("amount"), item.get("recipient")
-            if not isinstance(provider_id, str) or not isinstance(amount, dict) or not isinstance(recipient, dict):
-                return None
-            try:
-                if str(uuid.UUID(provider_id)) != provider_id:
-                    return None
-            except ValueError:
-                return None
-            if (
-                amount.get("currency") != "RUB" or amount.get("value") != _rub(amount_kop)
-                or recipient.get("account_id") != shop or (match and match != provider_id)
-            ):
-                return None
-            match = provider_id
-        cursor = page.get("next_cursor")
+        cursor, match = page.cursor, page.match
         if cursor is None:
             return match
-        if not isinstance(cursor, str) or not cursor or cursor in seen_cursors:
+        if cursor in seen_cursors:
             return None
         seen_cursors.add(cursor)
-        params["cursor"] = cursor
     return None  # неполная выдача не доказывает уникальность
 
 

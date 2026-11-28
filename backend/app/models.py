@@ -1406,6 +1406,16 @@ class Payment(SQLModel, table=True):
     settled_at: Optional[datetime] = Field(default=None, index=True)
 
 
+class TaxiCheckoutScan(SQLModel, table=True):
+    """Курсор доверенной сверки ЮKassa; не хранит контакты или содержимое страниц."""
+    payment_id: int = Field(foreign_key="payment.id", primary_key=True, ondelete="CASCADE")
+    cutoff: datetime
+    shop_id: str = Field(max_length=128)
+    cursor: Optional[str] = Field(default=None, max_length=512)
+    candidate: Optional[str] = Field(default=None, max_length=36)
+    state: str = Field(default="scanning", max_length=16)
+
+
 class LedgerKind(str, Enum):
     """Тип записи в ledger (кошельке водителя). Append-only, историю НЕ редактируем."""
     earn = "earn"        # начисление водителю за поездку (полная сумма, +)
