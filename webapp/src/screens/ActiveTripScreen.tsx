@@ -769,6 +769,10 @@ export default function ActiveTripScreen() {
       onBack={() => navigate(-1)}
     />
   );
+  const passengerStatusCard = details.role === "passenger" && trip?.role !== "driver" && (
+    <PassengerTripStatus bookingId={bookingId} bookingStatus={st ?? details.status}
+      forAnother={Boolean(details.traveler_name)} onChanged={applyPassengerStatus} />
+  );
   if (inTransitCancel) {
     return (
       <>
@@ -784,6 +788,7 @@ export default function ActiveTripScreen() {
           canRate={details.can_rate === true}
           myStars={details.my_stars ?? 0}
         />
+        {passengerStatusCard}
       </>
     );
   }
@@ -1161,10 +1166,7 @@ export default function ActiveTripScreen() {
       {(active || (st === "pending" && details.traveler_name)) && details.role === "passenger" && (
         <ShareTripCard bookingId={bookingId} />
       )}
-      {details.role === "passenger" && (
-        <PassengerTripStatus bookingId={bookingId} bookingStatus={st ?? details.status}
-          forAnother={Boolean(details.traveler_name)} onChanged={applyPassengerStatus} />
-      )}
+      {passengerStatusCard}
 
       {details.role === "passenger" && st === "confirmed" && <div className="trip-cancel">
           <button type="button" className="trip-cancel__btn" onClick={passengerCancellation?.open} disabled={passengerCancellation?.disabled}>
