@@ -38,6 +38,7 @@ from .. import taxi as taxi_mod
 from .. import workday as workday_mod
 
 router = APIRouter(tags=["instant"])
+_ASSIGNED_ACTIVE = (S.accepted, S.arriving, S.onboard)
 
 
 def _guard_taxi_not_blocked(session: Session, driver_id: int) -> None:
@@ -721,6 +722,32 @@ def driver_offer_notification(
     return {"current": _driver_offer_line_online(session, user.id) and expiry > utcnow()}
 
 
+class CurrentDriverOrderOut(BaseModel):
+    order_id: int | None
+
+
+@router.get("/instant/driver/current-order", response_model=CurrentDriverOrderOut)
+def current_driver_order(
+    response: Response, user: User = Depends(current_user), session: Session = Depends(get_session),
+):
+    """Восстановление только назначенного заказа. Выход с линии не завершает поездку."""
+    response.headers["Cache-Control"] = "no-store"
+    ids = session.exec(
+        select(InstantOrder.id)
+        .where(InstantOrder.driver_id == user.id, InstantOrder.status.in_(_ASSIGNED_ACTIVE))
+        .limit(2)
+    ).all()
+    if len(ids) > 1:
+        # Не выбираем за водителя из нескольких активных заказов при нарушении инварианта.
+        conflict = herr(
+            409, "Найдено несколько активных поездок", "Бер нисә актив сәфәр табылды",
+            code="taxi_multiple_active_orders",
+        )
+        conflict.headers = {"Cache-Control": "no-store"}
+        raise conflict
+    return CurrentDriverOrderOut(order_id=ids[0] if ids else None)
+
+
 @router.get("/instant/driver/offer")
 def driver_offer(user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Активный оффер для водителя (поллинг-фолбэк к пушу). Протухший — сам двигается дальше.
@@ -815,7 +842,7 @@ def accept(order_id: int, user: User = Depends(current_user), session: Session =
     other_active = session.exec(
         select(InstantOrder.id).where(
             InstantOrder.driver_id == user.id,
-            InstantOrder.status.in_([S.accepted, S.arriving, S.onboard]),
+            InstantOrder.status.in_(_ASSIGNED_ACTIVE),
             InstantOrder.id != order_id,
         )
     ).first()

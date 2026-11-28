@@ -58,10 +58,16 @@ def test_taxi_now_money_journey(client, user_factory, isolated_matcher, monkeypa
     offer = _ok(client.get("/instant/driver/offer", headers=drv))["offer"]
     assert offer["id"] == oid
     assert offer["driver_net_kop"] > 0
+    lookup = "/instant/driver/current-order"
+    assert _ok(client.get(lookup, headers=drv)) == {"order_id": None}
+    assert _ok(client.get(lookup, headers=outsider["auth"])) == {"order_id": None}
     for action, expected in (("accept", "accepted"), ("arrived", "arriving"),
                              ("onboard", "onboard"), ("done", "done")):
         assert _ok(client.post(f"{path}/{action}", headers=drv))["status"] == expected
         assert _ok(client.get(path, headers=pax))["status"] == expected
+        recovered = client.get(lookup, headers=drv)
+        assert recovered.headers["Cache-Control"] == "no-store"
+        assert _ok(recovered) == {"order_id": oid if expected != "done" else None}
 
     passenger_before = _ok(client.get(f"{path}/receipt", headers=pax))
     driver_before = _ok(client.get(f"{path}/receipt", headers=drv))
