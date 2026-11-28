@@ -314,7 +314,7 @@ def ensure_active(session: Session, user_id: int, *, refresh: bool = True) -> No
                "Аккаунт тикшереүгә тиклем паузала. Ғәҙеллек үҙәгенә ин — сәбәбе һәм ваҡыты шунда.")
 
 
-def may_ride_together(session: Session, passenger_id: int, driver_id: int) -> bool:
+def may_ride_together(session: Session, passenger_id: int, driver_id: int, *, refresh: bool = True) -> bool:
     """Можно ли вообще свести этих двоих в одну поездку. Вопрос про ПАРУ, а не про того,
     кто нажал кнопку, — потому и решается без `user`.
 
@@ -327,7 +327,8 @@ def may_ride_together(session: Session, passenger_id: int, driver_id: int) -> bo
     Проверяем обе стороны сразу: одностороннего «мне можно» тут не бывает — едут вдвоём."""
     if not passenger_id or not driver_id or passenger_id == driver_id:
         return True
-    if account_paused(session, passenger_id) or account_paused(session, driver_id):
+    if (account_paused(session, passenger_id, refresh=refresh)
+            or account_paused(session, driver_id, refresh=refresh)):
         return False
     return not is_blocked(session, passenger_id, driver_id)
 

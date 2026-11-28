@@ -61,7 +61,7 @@ def test_only_trusted_ride_refusal_does_not_reveal_passenger_trust(client, user_
     passenger = user_factory("Oracle trust passenger", gender="female")
     rid, reqid = seed_route(driver, passenger)
     _flag_ride(rid, only_trusted=True)
-    monkeypatch.setattr(requests_mod, "trust_level", lambda *a: 0)
+    monkeypatch.setattr(requests_mod, "trust_level", lambda *a, **kw: 0)
     refused = _respond(client, driver, reqid, rid)
     assert refused.status_code == 409, refused.text
     text = json.dumps(refused.json(), ensure_ascii=False)

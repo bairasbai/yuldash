@@ -3,11 +3,14 @@ from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import text, update
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.sql.dml import Update
 from sqlmodel import Session, select
 
+from app import antifraud
 from app.db import engine
-from app.models import Block, Booking, BookingStatus, RequestResponse, Ride, RideRequest, RideStatus, User, UserRole
+from app.models import Block, Booking, BookingStatus, RequestResponse, Ride, RideRequest, RideStatus, SafetyProfile, User, UserRole
 from app.routers import requests as requests_mod
 from app.timeutil import utcnow
 from test_booking_segments import seed_route
@@ -96,6 +99,76 @@ def test_named_request_confirmation_keeps_one_booking_in_the_original_ride(clien
         assert booking.ride_id == rid and booking.traveler_name == body["traveler_name"]
         assert (booking.pickup_stop, booking.dropoff_stop, booking.price) == ("Ургаза", "Бурибай", 450)
         assert session.exec(select(Ride.id).where(Ride.driver_id == driver["id"])).all() == [rid]
+
+
+def test_flagged_bound_offer_is_committed_before_moderation_log(client, deal, monkeypatch):
+    driver, _, ride_id, request_id = deal
+    comment = "У вокзала, звоните 8 917 000-00-00"
+    real_log = antifraud.log_text_flag
+    logged = []
+
+    def check_committed(session, user_id, kind, place, ref_id):
+        with Session(engine) as reader:
+            row = reader.exec(select(RequestResponse).where(
+                RequestResponse.request_id == request_id,
+                RequestResponse.driver_id == driver["id"],
+            )).one_or_none()
+            logged.append((row.id if row else None, kind, place))
+        real_log(session, user_id, kind, place, ref_id)
+
+    monkeypatch.setattr(antifraud, "log_text_flag", check_committed)
+    url = f"/requests/{request_id}/respond"
+    data = {"ride_id": ride_id, "price": 450, "comment": comment}
+    first = client.post(url, headers=driver["auth"], json=data)
+    repeat = client.post(url, headers=driver["auth"], json=data)
+    assert first.status_code == repeat.status_code == 200, first.text
+    response_id = first.json()["id"]
+    assert repeat.json()["id"] == response_id
+    assert logged == [(response_id, "contact", "response")]
+    with Session(engine) as session:
+        assert session.get(RequestResponse, response_id).comment == comment
+
+
+@pytest.mark.parametrize("profile_needs_refresh", [False, True])
+def test_bound_offer_holds_route_and_request_locks_while_capturing_terms(
+    client, deal, monkeypatch, profile_needs_refresh,
+):
+    driver, passenger, ride_id, request_id = deal
+    if profile_needs_refresh:
+        with Session(engine) as session:
+            session.add(SafetyProfile(
+                user_id=passenger["id"], standing="suspended", suspended_until=utcnow() - timedelta(days=1),
+            ))
+            session.commit()
+    real_snapshot = requests_mod.request_segments.snapshot
+    contended = []
+
+    def check_locks(ride, req):
+        for model, row_id in ((RideRequest, request_id), (Ride, ride_id)):
+            with Session(engine) as writer:
+                sqlite = writer.get_bind().dialect.name == "sqlite"
+                if sqlite:
+                    previous_timeout = writer.exec(text("PRAGMA busy_timeout")).scalar_one()
+                    writer.execute(text("PRAGMA busy_timeout = 20"))
+                try:
+                    if sqlite:
+                        writer.execute(update(model).where(model.id == row_id).values(id=model.id))
+                    else:
+                        writer.exec(select(model.id).where(model.id == row_id).with_for_update(nowait=True))
+                except OperationalError as error:
+                    if sqlite:
+                        assert error.orig.sqlite_errorname == "SQLITE_BUSY"
+                    else:
+                        assert error.orig.pgcode == "55P03"
+                    contended.append(model)
+                finally:
+                    if sqlite:
+                        writer.execute(text(f"PRAGMA busy_timeout = {previous_timeout}"))
+        return real_snapshot(ride, req)
+
+    monkeypatch.setattr(requests_mod.request_segments, "snapshot", check_locks)
+    offer(client, driver, request_id, ride_id)
+    assert contended == [RideRequest, Ride]
 
 
 def test_repeat_respond_cannot_silently_rebind_an_offer(client, deal):
@@ -211,7 +284,7 @@ def test_common_accept_rechecks_pair_restrictions(client, deal, guard, monkeypat
         session.add(req)
         session.add(ride)
         session.commit()
-    monkeypatch.setattr(requests_mod, "trust_level", lambda *a: 0)
+    monkeypatch.setattr(requests_mod, "trust_level", lambda *a, **kw: 0)
     # Вызываем именно общее ядро: Telegram/автоподбор не зависят от проверок HTTP-обёртки.
     with Session(engine) as session:
         from fastapi import HTTPException

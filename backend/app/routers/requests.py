@@ -785,21 +785,21 @@ class RespondIn(BaseModel):
     ride_id: Optional[int] = Field(None, gt=0)
 
 
-def _guard_request_parties(session, req, driver):
+def _guard_request_parties(session, req, driver, *, refresh: bool = True):
     if driver is None or req.passenger_id == driver.id:
         raise herr(409, "Это предложение недоступно", "Был тәҡдим мөмкин түгел")
-    if not may_ride_together(session, req.passenger_id, driver.id):
+    if not may_ride_together(session, req.passenger_id, driver.id, refresh=refresh):
         raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
                    "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
     if req.women_only:
         guard_women_only(driver, msg=MSG_WOMEN_ONLY_RESPOND)
-    if req.only_trusted and trust_level(session, driver) < INSIDER_LEVEL:
+    if req.only_trusted and trust_level(session, driver, refresh=refresh) < INSIDER_LEVEL:
         raise herr(403, "Заявка только для своих", "Заявка тик үҙ кешеләр өсөн")
 
 
-def _bound_section(session, req, driver, ride):
+def _bound_section(session, req, driver, ride, *, refresh: bool = True):
     """Все применимые правила обычной брони повторно действуют на предложении своего рейса."""
-    _guard_request_parties(session, req, driver)
+    _guard_request_parties(session, req, driver, refresh=refresh)
     if session.exec(select(RideRequest.id).where(RideRequest.id == req.id, *live_request_conds())).first() is None:
         raise herr(409, "Заявка уже закрыта или её время прошло", "Заявка ябылған йәки уның ваҡыты үткән инде")
     if ride.driver_id != driver.id:
@@ -813,7 +813,7 @@ def _bound_section(session, req, driver, ride):
     # 23.10.2026). Отклик шлёт ВОДИТЕЛЬ, а пассажира это про себя не спрашивало: «Эта поездка только для
     # женщин» / «Укажи пол» / «Поездка только для своих» выдавали бы ему пол и уровень доверия незнакомого
     # человека — предложи свой рейс и прочти ответ. Причину знает только сам пассажир, в своей брони.
-    if ride.only_trusted and trust_level(session, passenger) < INSIDER_LEVEL:
+    if ride.only_trusted and trust_level(session, passenger, refresh=refresh) < INSIDER_LEVEL:
         raise _ride_no_longer_fits()
     if ride.women_only and (request_traveler_mode(req) != "self" or gender_of(passenger) != GENDER_FEMALE):
         raise _ride_no_longer_fits()
@@ -833,10 +833,13 @@ def _ride_no_longer_fits():
 def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(current_user), session: Session = Depends(get_session)):
     """Водитель откликается на заявку. Уведомляет пассажира (push); если у пассажира нет
     устройства (заявка создана админом, без приложения) — уведомляет админа в Telegram."""
-    # Дедуп-хвост (P3): row-lock на заявке сериализует параллельные отклики одного водителя — иначе
-    # два одновременных respond оба проходят dup-проверку ниже и создают дубль. На SQLite no-op
-    # (тесты однопоточны), на проде Postgres второй ждёт коммита первого и видит dup.
-    req = session.exec(select(RideRequest).where(RideRequest.id == request_id).with_for_update()).first()
+    # Заявка → отклик → рейс. Проверки паузы ниже читают срок без коммита.
+    if session.get_bind().dialect.name == "sqlite":
+        # Начать транзакцию записи до чтения заявки и снимка рейса.
+        session.execute(update(RideRequest).where(RideRequest.id == request_id)
+                        .values(status=RideRequest.status).execution_options(synchronize_session=False))
+    req = session.exec(select(RideRequest).where(RideRequest.id == request_id)
+                       .with_for_update().execution_options(populate_existing=True)).first()
     if not req or req.status != "active":
         raise herr(404, "Заявка не найдена или закрыта", "Заявка табылманы йәки ябылған")
     guard_delivery_ride(req.category)   # откликнуться на посылку = взять доставку: при выключенных — «скоро»
@@ -852,7 +855,7 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         raise herr(403, "Недоступно", "Мөмкин түгел")
     # Пассажир на паузе — принять отклик он не сможет (волна 9). Из ленты такие заявки убраны,
     # но прямая ссылка ленту обходит. Про наказание второй стороны не сообщаем.
-    if account_paused(session, req.passenger_id):
+    if account_paused(session, req.passenger_id, refresh=False):
         raise herr(409, "Эта заявка сейчас недоступна. Посмотри другие — рядом есть ещё.",
                    "Был заявка хәҙер юҡ. Башҡаларын ҡара — яҡында тағы бар.")
     # Заявка «только женщины» — зеркало правила на поездке: пассажирка просит женщину за рулём,
@@ -863,11 +866,11 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     # Пауза «Справедливости» (§2): отклик — это предложение человеку сесть в машину. Раньше
     # проверка стояла только на создании заявки, и отстранённый разбором жалобы водитель
     # спокойно откликался на чужие (аудит 2026-08-06).
-    ensure_active(session, user.id)
+    ensure_active(session, user.id, refresh=False)
     # Отдых водителя (§8): во время блока такси новые обязательства не берём — домой
     # везёт «один попутчик» из СВОЕЙ публикации (POST /rides), а не отклики на заявки.
     workday_mod.guard_respond_request(session, user.id)
-    if getattr(req, "only_trusted", False) and trust_level(session, user) < INSIDER_LEVEL:
+    if req.only_trusted and trust_level(session, user, refresh=False) < INSIDER_LEVEL:
         raise herr(403, "Заявка только для своих", "Заявка тик үҙ кешеләр өсөн")   # IDOR-защита: прямой id не обходит фильтр
     # Потолок на ТЕМП откликов: каждый будит пассажира пушем, а отзыв позволял начать заново.
     # Отозванные из счёта не исчезают — строка теперь остаётся (волна 51).
@@ -878,7 +881,8 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
     # Отозванный отклик дублем не считаем: водитель вправе вернуться к заявке, передумав.
     dup = session.exec(select(RequestResponse).where(
         RequestResponse.request_id == request_id, RequestResponse.driver_id == user.id,
-        RequestResponse.status != "withdrawn")).first()
+        RequestResponse.status != "withdrawn")
+        .with_for_update().execution_options(populate_existing=True)).first()
     if dup:
         if dup.ride_id != body.ride_id:
             raise herr(409, "Отклик уже отправлен с другим рейсом. Отзови его перед новым предложением.",
@@ -886,15 +890,12 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
         return {"ok": True, "id": dup.id}     # идемпотентно — повторный отклик не плодим
     bound_ride, section = None, None
     if body.ride_id is not None:
-        bound_ride = session.get(Ride, body.ride_id)
-        if bound_ride is None or bound_ride.driver_id != user.id:
+        bound_ride = session.exec(select(Ride).where(Ride.id == body.ride_id, Ride.driver_id == user.id)
+                                  .with_for_update().execution_options(populate_existing=True)).first()
+        if bound_ride is None:
             raise herr(403, "Предложить можно только свой рейс", "Тик үҙ рейсыңды ғына тәҡдим итеп була")
-        section = _bound_section(session, req, user, bound_ride)
+        section = _bound_section(session, req, user, bound_ride, refresh=False)
     # current_price = цена НА СТОЛЕ: пока торга не было, это первое предложение водителя.
-    # Модерация открытого поля. В личном чате попутки телефон не трогаем (соседи так и
-    # договариваются), но заявку и отклик видят ВСЕ — это уже публичное объявление,
-    # и номер там висит для кого угодно. Помечаем, текст не меняем, сохранение не рвём.
-    moderate_open_text(body.comment, user.id, place="response", session=session)
     resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price,
                            comment=body.comment, current_price=body.price, last_offer_by="driver",
                            ride_id=body.ride_id,
@@ -903,6 +904,8 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
                            route_snapshot=request_segments.snapshot(bound_ride, req) if bound_ride else "")
     session.add(resp)
     session.commit()
+    # Журнал модерации сам коммитит. К этому моменту отклик уже сохранён под блокировками.
+    moderate_open_text(body.comment, user.id, place="response", session=session)
     session.refresh(resp)
     price_s = f", {body.price}₽" if body.price else ""
     drv_name = user.name or "Водитель"
