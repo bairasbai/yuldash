@@ -785,21 +785,22 @@ class RespondIn(BaseModel):
     ride_id: Optional[int] = Field(None, gt=0)
 
 
-def _guard_request_parties(session, req, driver, *, refresh: bool = True):
+def _guard_request_parties(session, req, driver):
+    """Внутри команды с блокировками проверки читают паузу без пересчёта и коммита."""
     if driver is None or req.passenger_id == driver.id:
         raise herr(409, "Это предложение недоступно", "Был тәҡдим мөмкин түгел")
-    if not may_ride_together(session, req.passenger_id, driver.id, refresh=refresh):
+    if not may_ride_together(session, req.passenger_id, driver.id, refresh=False):
         raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
                    "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
     if req.women_only:
         guard_women_only(driver, msg=MSG_WOMEN_ONLY_RESPOND)
-    if req.only_trusted and trust_level(session, driver, refresh=refresh) < INSIDER_LEVEL:
+    if req.only_trusted and trust_level(session, driver, refresh=False) < INSIDER_LEVEL:
         raise herr(403, "Заявка только для своих", "Заявка тик үҙ кешеләр өсөн")
 
 
-def _bound_section(session, req, driver, ride, *, refresh: bool = True):
+def _bound_section(session, req, driver, ride):
     """Все применимые правила обычной брони повторно действуют на предложении своего рейса."""
-    _guard_request_parties(session, req, driver, refresh=refresh)
+    _guard_request_parties(session, req, driver)
     if session.exec(select(RideRequest.id).where(RideRequest.id == req.id, *live_request_conds())).first() is None:
         raise herr(409, "Заявка уже закрыта или её время прошло", "Заявка ябылған йәки уның ваҡыты үткән инде")
     if ride.driver_id != driver.id:
@@ -813,7 +814,7 @@ def _bound_section(session, req, driver, ride, *, refresh: bool = True):
     # 23.10.2026). Отклик шлёт ВОДИТЕЛЬ, а пассажира это про себя не спрашивало: «Эта поездка только для
     # женщин» / «Укажи пол» / «Поездка только для своих» выдавали бы ему пол и уровень доверия незнакомого
     # человека — предложи свой рейс и прочти ответ. Причину знает только сам пассажир, в своей брони.
-    if ride.only_trusted and trust_level(session, passenger, refresh=refresh) < INSIDER_LEVEL:
+    if ride.only_trusted and trust_level(session, passenger, refresh=False) < INSIDER_LEVEL:
         raise _ride_no_longer_fits()
     if ride.women_only and (request_traveler_mode(req) != "self" or gender_of(passenger) != GENDER_FEMALE):
         raise _ride_no_longer_fits()
@@ -894,7 +895,7 @@ def respond_to_request(request_id: int, body: RespondIn, user: User = Depends(cu
                                   .with_for_update().execution_options(populate_existing=True)).first()
         if bound_ride is None:
             raise herr(403, "Предложить можно только свой рейс", "Тик үҙ рейсыңды ғына тәҡдим итеп була")
-        section = _bound_section(session, req, user, bound_ride, refresh=False)
+        section = _bound_section(session, req, user, bound_ride)
     # current_price = цена НА СТОЛЕ: пока торга не было, это первое предложение водителя.
     resp = RequestResponse(request_id=request_id, driver_id=user.id, price=body.price,
                            comment=body.comment, current_price=body.price, last_offer_by="driver",
@@ -1395,7 +1396,7 @@ def accept_request_response(session: Session, resp: RequestResponse, *, actor: O
     #
     # Проверка стоит ДО захвата заявки ниже: иначе негодный отклик закрыл бы заявку и упал,
     # оставив пассажира и без этой поездки, и без права дождаться честного отклика.
-    if not may_ride_together(session, req.passenger_id, resp.driver_id):
+    if not may_ride_together(session, req.passenger_id, resp.driver_id, refresh=False):
         raise herr(409, "Сейчас эту поездку оформить не получится. Заявка активна — дождись другого отклика.",
                    "Хәҙер был сәфәрҙе асып булмай. Заявка актив — башҡа яуапты көт.")
     bound_ride, section = None, None
