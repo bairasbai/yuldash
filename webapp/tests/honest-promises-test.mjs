@@ -98,20 +98,40 @@ for (const lang of ["ru", "ba"]) {
     assert.ok(text(s.tree).includes(lang === "ru" ? "Оплата картой сейчас недоступна" : "Карта менән түләү хәҙер мөмкин түгел"));
     assert.ok(!button(s.tree, lang === "ru" ? "Картой" : "Карта менән")); s.unmount();
   });
-  const Feed = await bundleComponent("src/screens/RequestsFeedScreen.tsx", { real: ["/components/PartialFeedNotice"], mocks: {
+  const Feed = await bundleComponent("src/screens/RequestsFeedScreen.tsx", { real: ["/components/PartialFeedNotice", "/utils/format"], mocks: {
     "/i18n/lang": langMock(lang), "/api/client": clientMock,
-    "/api/requests": "export const fetchRequestsFeed=async()=>({items:[],partial:globalThis.__honestPromises.partial}),respondToRequest=async()=>({});",
+    "/api/requests": "export const fetchRequestsFeed=async()=>({items:globalThis.__honestPromises.feedItems,partial:globalThis.__honestPromises.partial}),respondToRequest=async()=>({});",
   } });
-  await t.test(`${lang}: empty request feed still reports a partial scan`, async () => {
-    // Shallow tree retains the actual notice component; render it separately to verify both texts.
-    h.partial = true; const s = mount(Feed); await s.settle();
-    const notice = all(s.tree).find(n => typeof n.type === "function" && n.type.name === "PartialFeedNotice");
-    assert.ok(notice); s.unmount();
+  await t.test(`${lang}: request feed distinguishes all three completed search states`, async () => {
     const Notice = await bundleComponent("src/components/PartialFeedNotice.tsx", { mocks: { "/i18n/lang": langMock(lang) } });
-    const n = mount(Notice); n.render();
-    assert.ok(text(n.tree).includes(lang === "ru" ? "Показаны не все — уточни село или дату" : "Бөтәһе лә күрһәтелмәгән")); n.unmount();
-    h.partial = false; const full = mount(Feed); await full.settle();
-    assert.ok(!all(full.tree).some(n => typeof n.type === "function" && n.type.name === "PartialFeedNotice")); full.unmount();
+    const emptyText = lang === "ru" ? "Пока нет заявок" : "Әле заявкалар юҡ";
+    const onRouteText = lang === "ru" ? "По твоим маршрутам пока нет заявок" : "Һинең юлдарың буйынса әле заявкалар юҡ";
+    const limitedText = lang === "ru" ? "В просмотренной части совпадений нет" : "Ҡаралған өлөштә тап килгәндәре юҡ";
+    const shortText = lang === "ru" ? "Показаны не все результаты" : "Бөтә һөҙөмтәләр ҙә күрһәтелмәгән";
+    for (const [partial, items] of [[false, []], [true, []], [true, [{ id: 42, from_city: "Баймак", to_city: "Ургаза", prefs: [], seats: 1 }]]]) {
+      Object.assign(h, { partial, feedItems: items });
+      const s = mount(Feed); await s.settle();
+      assert.equal(text(s.tree).includes(emptyText), !partial);
+      assert.equal(text(s.tree).includes("Баймак"), items.length > 0);
+      const notices = all(s.tree).filter(n => typeof n.type === "function" && n.type.name === "PartialFeedNotice");
+      assert.equal(notices.length, Number(partial));
+      if (partial && items.length === 0) {
+        all(s.tree).find(n => n.type === "input" && n.props.type === "checkbox").props.onChange({ target: { checked: true } });
+        await s.settle();
+        assert.ok(!text(s.tree).includes(onRouteText));
+        const showAll = button(s.tree, lang === "ru" ? "Все заявки" : "Бөтә заявкалар");
+        assert.ok(showAll);
+        assert.equal(all(s.tree).filter(n => typeof n.type === "function" && n.type.name === "PartialFeedNotice").length, 1);
+        showAll.props.onClick(); await s.settle();
+        assert.ok(!button(s.tree, lang === "ru" ? "Все заявки" : "Бөтә заявкалар"));
+      }
+      s.unmount();
+      if (partial) {
+        assert.equal(Boolean(notices[0].props.empty), items.length === 0);
+        const n = mount(Notice, notices[0].props); n.render();
+        assert.ok(text(n.tree).includes(items.length === 0 ? limitedText : shortText)); n.unmount();
+      }
+    }
   });
   const matchingMocks = {
     "/i18n/lang": langMock(lang), "/api/client": clientMock,
@@ -120,16 +140,25 @@ for (const lang of ["ru", "ba"]) {
   };
   const MyRequests = await bundleComponent("src/screens/MyRequestsScreen.tsx", { mocks: matchingMocks });
   const Responses = await bundleComponent("src/screens/RequestResponsesScreen.tsx", { mocks: matchingMocks });
-  await t.test(`${lang}: both matching surfaces preserve the warning even with zero matching rides`, async () => {
+  await t.test(`${lang}: both matching surfaces distinguish incomplete and complete empty results`, async () => {
+    const emptyText = lang === "ru" ? "Пока нет совпадений" : "Әлегә тап килгәне юҡ";
     for (const partial of [false, true]) {
       h.partial = partial;
       const outer = mount(MyRequests); await outer.settle();
       const section = all(outer.tree).find(n => typeof n.type === "function" && n.type.name === "MatchingRidesSection");
       assert.ok(section); outer.unmount();
       const matches = mount(section.type, section.props); await matches.settle();
-      assert.equal(all(matches.tree).some(n => n.type === "PartialFeedNotice"), partial); matches.unmount();
+      const matchingNotice = all(matches.tree).find(n => n.type === "PartialFeedNotice");
+      assert.equal(Boolean(matchingNotice), partial);
+      if (partial) assert.equal(matchingNotice.props.empty, true);
+      assert.equal(text(matches.tree).includes(emptyText), !partial);
+      matches.unmount();
       const responses = mount(Responses); await responses.settle();
-      assert.equal(all(responses.tree).some(n => n.type === "PartialFeedNotice"), partial); responses.unmount();
+      const responseNotice = all(responses.tree).find(n => n.type === "PartialFeedNotice");
+      assert.equal(Boolean(responseNotice), partial);
+      if (partial) assert.equal(responseNotice.props.empty, true);
+      assert.equal(text(responses.tree).includes(lang === "ru" ? emptyText : "Әле тап килгәндәр юҡ"), !partial);
+      responses.unmount();
     }
   });
 }
