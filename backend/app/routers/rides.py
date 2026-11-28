@@ -615,6 +615,9 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
     if body.expected_terms_version is not None and ride.terms_version != body.expected_terms_version:
         raise herr(409, "Условия поездки изменились — обнови и попробуй ещё раз",
                    "Сәфәр шарттары үҙгәрҙе — яңырт та тағы кабатла", code="ride_terms_changed")
+    # Классификация не пишет в БД. Журнал вызываем только после commit правки.
+    comment_changed = body.comment is not None and body.comment != ride.comment
+    comment_flag = moderate_text(body.comment, check_contact=False) if comment_changed else ""
     new_stop_prices: Optional[list] = None
     if body.stop_prices is not None:
         probe = SimpleNamespace(price=body.price if body.price is not None else ride.price,
@@ -651,8 +654,7 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
             if b.pay_amount is not None and b.pay_amount > b.price:
                 b.pay_amount = b.price
             session.add(b)
-    if body.comment is not None and body.comment != ride.comment:
-        moderate_open_text(body.comment, user.id, check_contact=False, place="ride_comment", ref_id=ride.id, session=session)   # правка — тот же путь, что публикация
+    if comment_changed:
         ride.comment = body.comment
         changed.append(("комментарий", "аңлатма"))
     if body.depart_at is not None:
@@ -721,6 +723,8 @@ def edit_ride(ride_id: int, body: RideEditIn, user: User = Depends(current_user)
                        "Сәфәр шарттары үҙгәрҙе — яңырт та тағы кабатла", code="ride_terms_changed")
     session.add(ride)
     session.commit()
+    if comment_flag:
+        record_open_text_flag(comment_flag, user.id, place="ride_comment", ref_id=ride_id, session=session)
     session.refresh(ride)
     notify_map_changed()   # карточка на карте/в ленте обновится live
     # Уведомления — после commit. Через push_notification, как отмена рейса: пуш уходит на языке
