@@ -394,4 +394,4 @@ def test_run_once_is_safe_on_empty_and_dry_run(client, user_factory):
                          # Жалоба, на которую обвинённый не ответил за три дня (волна 175):
                          # молчание перестало быть способом похоронить разбор.
                          "incidents_escalated", "declares_reminded",
-                         "people_waiting"}
+                         "people_waiting", "auto_commissions_recovered"}

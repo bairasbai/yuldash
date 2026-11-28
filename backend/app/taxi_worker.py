@@ -42,6 +42,7 @@ from .db import engine
 from .logs import log
 from .models import InstantOrder, InstantOrderStatus as S, ParcelDelivery
 from .services import push_notification
+from .taxi_auto_commission import retry_auto_commissions
 from .timeutil import utcnow
 
 # Статусы, из которых заказ уже никуда не уедет сам (терминальные).
@@ -456,6 +457,7 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
     ("waits_retried", lambda s, d: retry_waiting_orders(s, d), []),
     ("waits_finished", lambda s, d: finish_expired_waits(s, d), []),
     ("offers_advanced", lambda s, d: advance_stale_offers(s, d), []),
+    ("auto_commissions_recovered", lambda s, d: 0 if d else retry_auto_commissions(), 0),
     ("parcels_handled", lambda s, d: close_stuck_parcels(s, d), []),
     # Реклама с вышедшим сроком (волна 125): показы прекращались сами, а в кабинете горело
     # «Оплачено · показывается» и уведомления не было — человек шёл в поддержку с обвинением.
@@ -505,6 +507,7 @@ def main():
     }
     for key, label in labels.items():
         print(f"  {label}: {len(res[key])}")
+    print(f"  начислений автозавершённых поездок восстановлено: {res['auto_commissions_recovered']}")
     print("=== Готово ===")
 
 

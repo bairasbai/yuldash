@@ -15,13 +15,14 @@ import time
 from calendar import timegm
 from datetime import timedelta
 
-from sqlalchemy import bindparam, text
+from sqlalchemy import DateTime, bindparam, text
 
 from .config import settings
 from .db import engine
 from .otp_budget import DAY_SECONDS, HOUR_SECONDS
 from .rideshare_bank_recipient import BANK_RECIPIENT_RECEIPT_WINDOW
 from .storage import StorageError, get_storage
+from .taxi_auto_commission import retry_auto_commissions
 from .timeutil import RIDE_PAST_GRACE_HOURS, utcnow
 from .security import REFRESH_RECOVERY_SECONDS
 
@@ -812,35 +813,6 @@ def close_stale_parcels(now=None) -> int:
 # закроется сама, без комиссии и без штрафа. Одна бесплатная поездка в сутки, повторяемо.
 # Теперь начисляем — но по обычному пути (debt.accrue_for_order, идемпотентно), и спорный
 # случай админ по-прежнему закрывает списанием: POST /admin/debts/{id}/forgive.
-def _accrue_auto_done(order_ids: list[int]) -> None:
-    """Начислить комиссию по авто-закрытым заказам; сбой одного не блокирует остальные."""
-    if not order_ids:
-        return
-    from sqlmodel import Session
-
-    from . import debt as debt_mod
-    from .models import InstantOrder
-
-    n = 0
-    for oid in order_ids:
-        try:
-            # Отдельная сессия: ошибка flush/commit не отравляет следующий заказ.
-            with Session(engine) as session:
-                order = session.get(InstantOrder, oid)
-                if order is None:
-                    continue
-                # Водитель мог не видеть ночное завершение — не включаем срочную оплату.
-                d = debt_mod.accrue_for_order(session, order, pay_now_allowed=False)
-                if d is not None and not d.note:
-                    d.note = "Поездку закрыл автомат (водитель не нажал «Завершил»)"
-                    session.add(d)
-                    session.commit()
-                    n += 1
-        except Exception as ex:  # noqa: BLE001 — не мешаем другим заказам в пачке
-            print(f"  комиссия за авто-закрытый заказ {oid}: ОШИБКА {type(ex).__name__}: {ex}")
-    print(f"  комиссия за авто-закрытые заказы: начислено {n}")
-
-
 def close_stale_orders(now=None) -> int:
     """Закрыть такси-заказы, зависшие в активном состоянии. Возвращает, сколько закрыто."""
     now = now or utcnow()
@@ -848,7 +820,8 @@ def close_stale_orders(now=None) -> int:
     with engine.begin() as conn:
         # Возраст стадии, а не брони: предзаказ может создаваться за несколько дней.
         # Для старых строк без времени стадии берём ближайшую предыдущую отметку.
-        # Уведомления, возвраты и начисления только по строкам, изменённым этим запуском.
+        # Уведомления и возвраты только по строкам этого запуска; комиссия может
+        # восстановиться после остановки процесса на прошлом запуске.
         cancelled = conn.execute(text(
             "UPDATE instantorder SET status = 'cancelled' "
             "WHERE (status = 'accepted' AND COALESCE(accepted_at, scheduled_at, created_at) < :cut) "
@@ -858,13 +831,14 @@ def close_stale_orders(now=None) -> int:
         ), {"cut": cut}).all()
         completed = conn.execute(text(
             "UPDATE instantorder SET status = 'done', done_at = COALESCE(done_at, :now), "
+            "auto_commission_retry_at = :now, "
             # Как при ручном завершении: только уже записанное ожидание, в целых рублях.
             # Таймер остановки в фоне не начисляем: неизвестно, когда закончилась остановка.
             "price_final = COALESCE(price_final, price_estimate + COALESCE(waiting_fee_kop, 0) / 100) "
             "WHERE status = 'onboard' "
             "AND COALESCE(onboard_at, arriving_at, accepted_at, scheduled_at, created_at) < :cut "
             "RETURNING id, driver_id, passenger_id"
-        ), {"cut": cut, "now": now}).all()
+        ).bindparams(bindparam("now", type_=DateTime())), {"cut": cut, "now": now}).all()
         stale_scheduled = [row[0] for row in conn.execute(text(
             "UPDATE instantorder SET status = 'expired' "
             "WHERE status = 'scheduled' AND scheduled_at IS NOT NULL AND scheduled_at < :cut "
@@ -875,7 +849,7 @@ def close_stale_orders(now=None) -> int:
     cancel_pax = [(oid, passenger_id) for oid, _, passenger_id in cancelled]
     done_victims = [(oid, driver_id) for oid, driver_id, _ in completed]
     done_pax = [(oid, passenger_id) for oid, _, passenger_id in completed]
-    _accrue_auto_done([oid for oid, _ in done_victims])
+    retry_auto_commissions(now, db_engine=engine)
     # Поездки не было → промокод возвращаем человеку (обещание в шапке `promo_ride`).
     # Закрытые как «done» сюда НЕ попадают: там поездка состоялась и скидка отработала.
     from . import promo_ride

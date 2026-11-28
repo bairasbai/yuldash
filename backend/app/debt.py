@@ -682,6 +682,7 @@ def accrue_for_order(session: Session, order: InstantOrder,
     session.add(order)
     if comp > 0:
         post_promo_compensation(session, order.driver_id, order.id, comp, commit=False)
+    auto_completed = order.auto_commission_retry_at is not None
     debt = None
     if amount > 0:
         debt = CommissionDebt(
@@ -691,7 +692,8 @@ def accrue_for_order(session: Session, order: InstantOrder,
             week=_week_key(now),
             status=DebtStatus.unpaid,
             created_at=now,
-            due_at=_due_at(now, amount, pay_now_allowed),
+            due_at=_due_at(now, amount, pay_now_allowed and not auto_completed),
+            note="Поездку закрыл автомат (водитель не нажал «Завершил»)" if auto_completed else "",
         )
         session.add(debt)
     try:
