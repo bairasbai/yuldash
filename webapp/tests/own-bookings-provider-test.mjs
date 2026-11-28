@@ -29,6 +29,7 @@ const mocks = {
   commands: bookingCommandStub(`export const createBooking=body=>{const h=globalThis.__ownBookingsHarness;h.posts.push(body);return h.book(body);};`),
   stageHook: `export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
   stageRecovery: `export const DriverStageRecovery=()=>null;`,
+  passengerStatus: `export const PassengerTripStatus=()=>null;`,
   decisionStore: passengerDecisionStoreStub,
   decisions: passengerDecisionStub('id=>{const h=globalThis.__ownBookingsHarness;h.cancels.push(id);return h.cancel(id);}'),
   bookings: `const h=()=>globalThis.__ownBookingsHarness;
@@ -81,7 +82,7 @@ const mocks = {
 const icons = [...readFileSync(root+"src/components/Icons.tsx","utf8").matchAll(/export (?:const|function) (Icon\w+)/g)].map(m=>m[1]);
 mocks.icons=icons.map(name=>`export const ${name}="icon";`).join("\n");
 const suffixes = {
-  "/utils/useDriverStages":"stageHook", "/components/DriverStageRecovery":"stageRecovery",
+  "/utils/useDriverStages":"stageHook", "/components/DriverStageRecovery":"stageRecovery", "/components/PassengerTripStatus":"passengerStatus",
   "/api/bookingDecisions":"decisions", "/utils/bookingCommandStore":"decisionStore",
   "/api/client":"client", "/api/bookings":"bookings", "/api/bookingCommands":"commands", "/api/geo":"geo", "/api/medical":"medical", "/api/rides":"rides", "/auth/AuthProvider":"auth", "/i18n/lang":"lang",
   "/features":"features", "/ComingSoon":"soon",

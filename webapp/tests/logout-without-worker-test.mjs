@@ -16,7 +16,7 @@ const mocks = {
     export const flushPendingLogouts=()=>{globalThis.__events.push(['server-logout',globalThis.__pendingLogout]);return new Promise(()=>{});};`,
   "../api/push": `export class PushBackendMissing extends Error {}; export const sendWebPushSubscription=async()=>{};
     export const unsubscribeWebPush=async endpoint=>{globalThis.__events.push(['push-revoke',endpoint]);};`,
-  "../utils/outbox": `export const clearOutbox=()=>globalThis.__events.push(['outbox-clear']);`,
+  "../utils/outbox": `export const clearOutbox=()=>globalThis.__events.push(['outbox-clear']); export const preserveTripStatusesForUser=async()=>{};`,
   "../utils/formDraft": `export const clearAllDrafts=()=>globalThis.__events.push(['drafts-clear']);`,
   "../utils/privacy": `export const syncPersonalSession=()=>{}; export const clearPersonalSearchHistory=()=>{}; export const clearPersonalLocal=()=>globalThis.__events.push(['personal-clear']);`,
 };

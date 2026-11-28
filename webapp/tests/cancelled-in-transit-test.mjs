@@ -12,7 +12,7 @@
 //  Обычная отмена — как раньше: машина стирается, помощи «в пути» нет.
 //
 //  Приёмка PR207 (24.10.2026):
-//   • №1 — при отмене в пути на экране ТОЛЬКО помощь: ни чата с водителем, ни карты, ни живого статуса;
+//   • №1 — после отмены в пути доступны помощь и сверка сохранённого запроса. Чат, карта и живой статус скрыты;
 //   • №3 — вкладка помнит отмену (номер брони, машина, госномер — без телефона): ушёл на SOS и вернулся
 //     без связи — экран помощи на месте, а не «Не удалось загрузить»;
 //   • №4 — признак приходит из любой ручки: только /details или только /role — машина не стирается,
@@ -123,12 +123,15 @@ await t.test("водителю отмена в пути карточку пом�
 });
 
 // ---------------------------------------------------------------- приёмка PR207, №1: только помощь
-await t.test("отменили в пути — на экране только помощь: ни чата с водителем, ни карты, ни живого статуса", async () => {
+await t.test("после отмены в пути можно сверить отметку, чат и карта закрыты", async () => {
   session.clear();
   const ROUTE = { from_lat: 54.73, from_lng: 55.95, to_lat: 52.71, to_lng: 58.66 };
   // Сразу открыли уже отменённую в пути поездку.
   const opened = await openActiveTrip({ status: "cancelled", details: { ...IN_TRANSIT, ...ROUTE }, trip: TRIP_IN_TRANSIT });
-  assert.deepEqual(parts(opened.h.tree), ["SubHeader", "CancelledInTransitCard"], parts(opened.h.tree).join(", "));
+  assert.deepEqual(parts(opened.h.tree), ["SubHeader", "CancelledInTransitCard", "PassengerTripStatus"]);
+  const reopened = ofType(opened.h.tree, "PassengerTripStatus")[0];
+  assert.equal(reopened.props.bookingId, 42);
+  assert.equal(reopened.props.bookingStatus, "cancelled");
   // Экран был открыт в пути — чат и карта были; отмена пришла опросом — их нет.
   const { h, at } = await openActiveTrip({ status: "onboard", details: { ...ROUTE, driver_plate: "М555ОР102" } });
   assert.ok(ofType(h.tree, "TripChatCard").length === 1 && ofType(h.tree, "YandexMap").length === 1, "в пути чат и карта есть");
@@ -138,8 +141,15 @@ await t.test("отменили в пути — на экране только п
   for (const live of ["TripChatCard", "YandexMap", "StatusPill", "ShareTripCard", "RoadsideHelp", "BookingSegmentNote"]) {
     assert.equal(ofType(h.tree, live).length, 0, `после отмены в пути осталось живое: ${live}`);
   }
-  assert.deepEqual(parts(h.tree), ["SubHeader", "CancelledInTransitCard"], parts(h.tree).join(", "));
+  assert.deepEqual(parts(h.tree), ["SubHeader", "CancelledInTransitCard", "PassengerTripStatus"]);
+  assert.equal(ofType(h.tree, "PassengerTripStatus")[0].props.bookingStatus, "cancelled");
   assert.ok(!all(h.tree).some((n) => n.props?.className === "trip-banner"), "живой баннер статуса остался");
+});
+
+await t.test("свежая роль водителя скрывает пассажирскую сверку из старых деталей", async () => {
+  const { h } = await openActiveTrip({ status: "cancelled", details: IN_TRANSIT,
+    trip: { ...TRIP_IN_TRANSIT, role: "driver" } });
+  assert.equal(ofType(h.tree, "PassengerTripStatus").length, 0);
 });
 
 // ---------------------------------------------------------------- №4: признак из одной ручки

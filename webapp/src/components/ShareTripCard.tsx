@@ -20,43 +20,28 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { useLang } from "../i18n/lang";
 import { ApiError, getSessionGeneration } from "../api/client";
-import { enqueue } from "../utils/outbox";
-import { useBookingRefusal } from "../utils/useBookingRefusal";
 import {
   fetchBookingShares,
   fetchOrderShares,
   fetchTrustedContacts,
   revokeBookingShare,
   revokeOrderShare,
-  setTripStatus,
   shareBooking,
   shareOrder,
   tripLiveLink,
   type TripShare,
   type TrustedContact,
-  type TripStatus,
 } from "../api/family";
 import { IconCheck, IconCopy, IconShare, IconTrash, IconUsers } from "./Icons";
 import { track } from "../analytics";
-import type { BookingStatus } from "../api/bookings";
 
 export default function ShareTripCard({
   bookingId,
   orderId,
-  showStatuses = false,
-  bookingStatus = "confirmed",
-  forAnother = false,
-  onStatusChange,
 }: {
   /** Ровно одно из двух: бронь попутки или такси-заказ. */
   bookingId?: number;
   orderId?: number;
-  /** Показывать ли кнопки статуса для близких (только у пассажира попутки). */
-  showStatuses?: boolean;
-  bookingStatus?: BookingStatus;
-  forAnother?: boolean;
-  /** После записи статуса перечитать авторитетное состояние брони. */
-  onStatusChange?: () => void | Promise<void>;
 }) {
   const { appText } = useLang();
 
@@ -64,8 +49,6 @@ export default function ShareTripCard({
   const [shares, setShares] = useState<TripShare[] | null>(null); // null = блок скрыт
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState("");
-  // То же для «Доехала» / «Поездка завершена» из очереди: отказ сервера заменяет «Нет сети — отправим позже».
-  useBookingRefusal(bookingId, (refusal) => { if (refusal.kind === "trip_status") setNote(refusal.message); });
   const [open, setOpen] = useState(false);
   /** Чья ссылка на экране: только что созданная, иначе первая из активных. */
   const [focusId, setFocusId] = useState<number | null>(null);
@@ -118,8 +101,8 @@ export default function ShareTripCard({
     return () => ac.abort();
   }, [load]);
 
-  if (shares === null && !showStatuses) return null;
-  const activeShares = shares ?? [];
+  if (shares === null) return null;
+  const activeShares = shares;
 
   async function share(contactId: number) {
     if (busy) return;
@@ -165,50 +148,6 @@ export default function ShareTripCard({
     } catch {
       setShares(prev); // откат
       setNote(appText("Не получилось отозвать доступ.", "Рөхсәтте кире алып булманы."));
-    }
-  }
-
-  async function sendStatus(status: TripStatus) {
-    if (!bookingId || busy) return;
-    const generation = getSessionGeneration();
-    const currentSession = () => generation === getSessionGeneration();
-    setBusy(true);
-    try {
-      const updated = await setTripStatus(bookingId, status);
-      if (!currentSession()) return;
-      setShares(updated);
-      await onStatusChange?.();
-      if (!currentSession()) return;
-      // Только «сохранено»: дошло ли сообщение близким, мы не знаем (SMS на проде выключены).
-      setNote(appText("Сохранено", "Һаҡланды"));
-    } catch (e) {
-      if (!currentSession()) return;
-      // Трасса без связи — это норма, а не сбой. «Доехал» и «завершил» — ровно те отметки,
-      // которые человек делает в дороге между сёлами, и терять их нельзя: близкие ждут
-      // именно их. Кладём в очередь — уйдёт само, когда сеть вернётся.
-      //
-      // Отличаем обрыв связи от отказа сервера: `status === 0` — до сервера не достучались.
-      // Ответ сервера («поездка уже завершена») повторять бессмысленно, он не изменится.
-      if (e instanceof ApiError && e.status === 0) {
-        try {
-          await enqueue(bookingId, "trip_status", status);
-          if (!currentSession()) return;
-          setNote(appText("Нет сети — отправим позже", "Селтәр юҡ — һуңыраҡ ебәрербеҙ"));
-        } catch {
-          if (currentSession()) setNote(appText("Не получилось отправить статус.", "Хәлде ебәреп булманы."));
-        }
-      } else {
-        // Отказ сервера — его словами: «Водитель только что отметил посадку — завершить можно
-        // через 4 мин», «„Доехал“ — после посадки». Общее «не получилось» тут неправда: сеть
-        // работает, и человек не понял бы, что делать (приёмка PR174).
-        setNote(
-          e instanceof ApiError && e.message
-            ? e.message
-            : appText("Не получилось отправить статус.", "Хәлде ебәреп булманы.")
-        );
-      }
-    } finally {
-      if (currentSession()) setBusy(false);
     }
   }
 
@@ -269,7 +208,6 @@ export default function ShareTripCard({
 
   return (
     <div className="act-card">
-      {shares !== null && (<>
       <div className="act-card__title">
         <IconUsers size={18} /> {appText("Поделиться поездкой", "Сәфәр менән бүлешеү")}
       </div>
@@ -365,29 +303,6 @@ export default function ShareTripCard({
             ? appText("Поделиться ещё с кем-то", "Тағы кемгәлер ебәреү")
             : appText("Поделиться поездкой с близким", "Яҡын кешегә ебәреү")}
         </button>
-      )}
-
-      </>)}
-
-      {/* «Доехала» и завершение не требуют ссылки или доверенных контактов. Посадку отмечает
-          водитель (решение 17.10.2026) — до неё пассажиру отмечать нечего. */}
-      {showStatuses && bookingId && bookingStatus === "onboard" && (
-        <>
-          <p className="act-card__text" style={{ margin: "14px 0 8px" }}>
-            {appText(
-              "Как идёт поездка?",
-              "Сәфәр нисек бара?"
-            )}
-          </p>
-          <div className="chips">
-            <button type="button" className="chip" onClick={() => sendStatus("arrived")} disabled={busy}>
-              {forAnother ? appText("Пассажир доехал", "Юлсы барып етте") : appText("Доехала", "Барып еттем")}
-            </button>
-            <button type="button" className="chip" onClick={() => sendStatus("done")} disabled={busy}>
-              {appText("Поездка завершена", "Сәфәр тамамланды")}
-            </button>
-          </div>
-        </>
       )}
 
       {note && <p className="demand__quiet">{note}</p>}

@@ -1,5 +1,7 @@
 import { API_BASE, isAccountSession } from "../api/client";
 import { COMMAND_KEY_PREFIX } from "./commandFingerprint";
+import type { TripStatus } from "../api/family";
+import { purgePassengerTripStatusActions } from "./outboxStore";
 import type { RideSeriesIntent, RideSeriesResult } from "./rideSeriesIntent";
 
 type State = "unknown" | "applied" | "rejected" | "closed_no_effect";
@@ -306,49 +308,57 @@ export function resolveDriverDecision(owner: BookingCommandOwner, decision: Book
 
 export type DriverStage = "boarded" | "done" | "no_show";
 
-export interface DriverStageCommand extends CommandSlot {
+interface BookingStageCommand<Stage extends string> extends CommandSlot {
   bookingId: number;
-  stage: DriverStage;
+  stage: Stage;
 }
 
-function driverStageTransaction<T>(
-  owner: BookingCommandOwner, edit: (rows: DriverStageCommand[]) => Edit<T, DriverStageCommand>,
-  requireCurrent = true,
-): Promise<T> {
-  return transaction(owner, edit, requireCurrent, JSON.stringify(["booking.driver_status", owner.namespace]));
+export type DriverStageCommand = BookingStageCommand<DriverStage>;
+export type PassengerTripStatusCommand = BookingStageCommand<TripStatus>;
+export const PASSENGER_TRIP_STATUS_SCOPE = "booking.trip_status";
+
+function bookingStageStore<Stage extends string>(scope: string) {
+  type Row = BookingStageCommand<Stage>;
+  function stageTransaction<T>(
+    owner: BookingCommandOwner, edit: (rows: Row[]) => Edit<T, Row>, requireCurrent = true,
+  ): Promise<T> {
+    return transaction(owner, edit, requireCurrent, JSON.stringify([scope, owner.namespace]));
+  }
+  return {
+    read: (owner: BookingCommandOwner) => stageTransaction(owner, rows => ({ result: rows })),
+    reserve(owner: BookingCommandOwner, bookingId: number, stage: Stage, hash: string, previousKey: string | undefined) {
+      return stageTransaction<Row | undefined>(owner, rows => {
+        const prior = rows.find(row => row.bookingId === bookingId);
+        if (prior?.state === "unknown" || prior?.key !== previousKey) return { result: undefined };
+        const updated = rows.filter(row => row !== prior);
+        if (updated.length >= MAX_SLOTS) {
+          const evict = updated.findIndex(row => row.state !== "unknown");
+          if (evict < 0) return { result: undefined };
+          updated.splice(evict, 1);
+        }
+        const command: Row = {
+          bookingId, stage, hash, key: COMMAND_KEY_PREFIX + crypto.randomUUID(), createdAt: Date.now(), state: "unknown",
+        };
+        return { result: command, updated: [...updated, command] };
+      });
+    },
+    resolve(owner: BookingCommandOwner, command: Row, state: State) {
+      return stageTransaction(owner, rows => {
+        const current = rows.find(row => row.bookingId === command.bookingId);
+        if (current?.key !== command.key) return { result: false };
+        if (current.state !== "unknown" || state === "unknown") return { result: current.state === state };
+        return { result: true, updated: rows.map(row => row === current ? { ...row, state } : row) };
+      });
+    },
+    purge: (owner: BookingCommandOwner) => stageTransaction(owner, () => ({ result: undefined, updated: null }), false),
+  };
 }
 
-export function readDriverStageCommands(owner: BookingCommandOwner) {
-  return driverStageTransaction(owner, rows => ({ result: rows }));
-}
-
-export function reserveDriverStageCommand(
-  owner: BookingCommandOwner, bookingId: number, stage: DriverStage, hash: string, previousKey: string | undefined,
-): Promise<DriverStageCommand | undefined> {
-  return driverStageTransaction(owner, rows => {
-    const prior = rows.find(row => row.bookingId === bookingId);
-    if (prior?.state === "unknown" || prior?.key !== previousKey) return { result: undefined };
-    const updated = rows.filter(row => row !== prior);
-    if (updated.length >= MAX_SLOTS) {
-      const evict = updated.findIndex(row => row.state !== "unknown");
-      if (evict < 0) return { result: undefined };
-      updated.splice(evict, 1);
-    }
-    const command: DriverStageCommand = {
-      bookingId, stage, hash, key: COMMAND_KEY_PREFIX + crypto.randomUUID(), createdAt: Date.now(), state: "unknown",
-    };
-    return { result: command, updated: [...updated, command] };
-  });
-}
-
-export function resolveDriverStageCommand(owner: BookingCommandOwner, command: DriverStageCommand, state: State) {
-  return driverStageTransaction(owner, rows => {
-    const current = rows.find(row => row.bookingId === command.bookingId);
-    if (current?.key !== command.key) return { result: false };
-    if (current.state !== "unknown" || state === "unknown") return { result: current.state === state };
-    return { result: true, updated: rows.map(row => row === current ? { ...row, state } : row) };
-  });
-}
+const driverStages = bookingStageStore<DriverStage>("booking.driver_status");
+export const readDriverStageCommands = driverStages.read;
+export const reserveDriverStageCommand = driverStages.reserve;
+export const resolveDriverStageCommand = driverStages.resolve;
+export const passengerTripStatuses = bookingStageStore<TripStatus>(PASSENGER_TRIP_STATUS_SCOPE);
 
 export interface SavedCardConfirmation {
   bookingId: number;
@@ -385,13 +395,44 @@ export function releaseCardConfirmation(owner: BookingCommandOwner, command: Sav
   });
 }
 
+function legacyPassengerGenerationTransaction<T>(
+  owner: BookingCommandOwner, edit: (rows: string[]) => Edit<T, string>, requireCurrent = true,
+) {
+  return transaction(owner, edit, requireCurrent, JSON.stringify(["legacy-passenger-generations", owner.namespace]));
+}
+
+export function readLegacyPassengerGenerations(owner: BookingCommandOwner) {
+  return legacyPassengerGenerationTransaction(owner, rows => ({ result: rows }));
+}
+
+export function rememberLegacyPassengerGeneration(owner: BookingCommandOwner) {
+  return legacyPassengerGenerationTransaction(owner, rows => ({
+    result: undefined, updated: rows.includes(owner.generation) ? undefined : [...rows, owner.generation],
+  }));
+}
+
+export function forgetLegacyPassengerGeneration(owner: BookingCommandOwner, generation: string) {
+  return legacyPassengerGenerationTransaction(owner, rows => {
+    const remaining = rows.filter(row => row !== generation);
+    return { result: undefined, updated: remaining.length > 0 ? remaining : null };
+  });
+}
+
+async function purgeLegacyPassengerStatuses(owner: BookingCommandOwner) {
+  const generations = await legacyPassengerGenerationTransaction(owner, rows => ({ result: rows }), false);
+  await purgePassengerTripStatusActions([...generations, owner.generation], owner.namespace);
+  await legacyPassengerGenerationTransaction(owner, () => ({ result: undefined, updated: null }), false);
+}
+
 /** Call only after deleting the account and publishing the logged-out generation. */
 export async function purgeBookingCommands(owner: BookingCommandOwner): Promise<void> {
   await Promise.all([
     transaction(owner, () => ({ result: undefined, updated: null }), false),
     publicationTransaction(owner, () => ({ result: undefined, updated: null }), false),
     driverDecisionTransaction(owner, () => ({ result: undefined, updated: null }), false),
-    driverStageTransaction(owner, () => ({ result: undefined, updated: null }), false),
+    driverStages.purge(owner),
+    passengerTripStatuses.purge(owner),
+    purgeLegacyPassengerStatuses(owner),
     cardConfirmationTransaction(owner, () => ({ result: undefined, updated: null }), false),
   ]);
 }

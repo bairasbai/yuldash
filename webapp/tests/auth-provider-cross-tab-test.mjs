@@ -26,7 +26,7 @@ const mocks = {
     export const flushPendingLogouts=()=>{if(!h.pendingLogout)return Promise.resolve();h.logoutBearers.push(h.pendingLogout);h.pendingLogout=null;return h.serverLogout.promise.catch(()=>{});};`,
   push: `export const disableLocalPushAfterLogout=()=>globalThis.__authProviderCrossTab.disable.promise;`,
   credentials: `export const subscribeSessionChanges=listener=>{globalThis.__authProviderCrossTab.sessionChanged=listener;return()=>{};};`,
-  outbox: `export const clearOutbox=()=>globalThis.__authProviderCrossTab.clears.push('outbox');`,
+  outbox: `export const clearOutbox=()=>globalThis.__authProviderCrossTab.clears.push('outbox'); export const preserveTripStatusesForUser=async()=>{};`,
   drafts: `export const clearAllDrafts=()=>globalThis.__authProviderCrossTab.clears.push('drafts');`,
   privacy: `export const syncPersonalSession=()=>{}; export const clearPersonalSearchHistory=()=>{}; export const clearPersonalLocal=()=>globalThis.__authProviderCrossTab.clears.push('personal');`,
 };

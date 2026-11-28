@@ -26,7 +26,7 @@ import {
 } from "../api/auth";
 import { disableLocalPushAfterLogout } from "../push/webPush";
 import { pruneRatingDraft } from "../push/rateDraft";
-import { clearOutbox } from "../utils/outbox";
+import { clearOutbox, preserveTripStatusesForUser } from "../utils/outbox";
 import { clearAllDrafts } from "../utils/formDraft";
 import { clearPersonalLocal, clearPersonalSearchHistory, syncPersonalSession } from "../utils/privacy";
 import { clearSessionCaches } from "../utils/sessionCaches";
@@ -127,9 +127,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       const request = new AbortController();
       ac = request;
       fetchMe(request.signal)
-      .then((me) => {
+      .then(async (me) => {
         if (!mounted.current || request.signal.aborted || generation !== getSessionGeneration() || !getToken()) return;
         confirmStorageSession(generation);
+        await preserveTripStatusesForUser(me, generation, request.signal).catch(() => {});
+        if (!mounted.current || request.signal.aborted || generation !== getSessionGeneration() || !getToken()) return;
         setUser(me);
         setStatus("authed");
       })
@@ -201,6 +203,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         await reconcileSession();
         if (generation !== getSessionGeneration()) return;
         if (!getToken()) return;
+        await preserveTripStatusesForUser(user, generation).catch(() => {});
+        if (generation !== getSessionGeneration()) return;
         const guest = await setSession(null, null, permit, generation);
         if (!guest || guest !== getSessionGeneration()) return;
         setUser(null);
@@ -212,7 +216,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } catch (error) {
       if (!storageFenced()) throw error;
     }
-  }, []);
+  }, [user]);
 
   const refresh = useCallback(async () => {
     const generation = getSessionGeneration();

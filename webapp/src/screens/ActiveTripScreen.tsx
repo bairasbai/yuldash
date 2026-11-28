@@ -66,6 +66,7 @@ import { StatusPill } from "../components/StatusPill";
 import { SubHeader } from "./ConsentsScreen";
 import WeatherWarningCard, { useRouteWeather } from "../components/WeatherWarningCard";
 import ShareTripCard from "../components/ShareTripCard";
+import { PassengerTripStatus } from "../components/PassengerTripStatus";
 import { BookingTraveler } from "../components/BookingTraveler";
 import DriverBoarding from "../components/DriverBoarding";
 import { DriverStageRecovery } from "../components/DriverStageRecovery";
@@ -413,6 +414,28 @@ export default function ActiveTripScreen() {
     [acceptBoardingSnapshot, tickTrip, bookingId, sessionGeneration]
   );
 
+  const applyPassengerStatus = useCallback((serverStatus: BookingStatus) => {
+    if (currentBookingIdRef.current !== bookingId || getSessionGeneration() !== sessionGeneration) return;
+    if (isTerminalBookingStatus(serverStatus) && acceptBoardingSnapshot({ status: serverStatus })) {
+      boardingSeqRef.current += 1;
+      if (serverStatus === "cancelled") {
+        applyCancelledState(inTransitRef.current);
+      } else {
+        detailsStatusRef.current = "done";
+        if (tripRef.current) tripRef.current = { ...tripRef.current, status: "done" };
+        setTrip(current => current && { ...current, status: "done" });
+        setDetails(current => current && {
+          ...current, status: "done", contact_unlocked: false, driver_phone: "", traveler_name: null,
+          driver_car: "", driver_car_color: "", driver_plate: "", pickup: "", pickup_lat: null, pickup_lng: null,
+        });
+        setCode(null);
+        setDriverLoc(null);
+      }
+      void syncBookingDetails();
+    }
+    return tickTrip();
+  }, [acceptBoardingSnapshot, applyCancelledState, bookingId, sessionGeneration, syncBookingDetails, tickTrip]);
+
   const st = trip?.status ?? details?.status;
   const active = st === "confirmed" || st === "onboard";
   const driverStages = useDriverStages(bookingId);
@@ -746,6 +769,10 @@ export default function ActiveTripScreen() {
       onBack={() => navigate(-1)}
     />
   );
+  const passengerStatusCard = details.role === "passenger" && trip?.role !== "driver" && (
+    <PassengerTripStatus bookingId={bookingId} bookingStatus={st ?? details.status}
+      forAnother={Boolean(details.traveler_name)} onChanged={applyPassengerStatus} />
+  );
   if (inTransitCancel) {
     return (
       <>
@@ -761,6 +788,7 @@ export default function ActiveTripScreen() {
           canRate={details.can_rate === true}
           myStars={details.my_stars ?? 0}
         />
+        {passengerStatusCard}
       </>
     );
   }
@@ -1135,11 +1163,10 @@ export default function ActiveTripScreen() {
         </div>
       )}
 
-      {/* Поделиться поездкой с близким + статусы (у пассажира) */}
       {(active || (st === "pending" && details.traveler_name)) && details.role === "passenger" && (
-        <ShareTripCard bookingId={bookingId} showStatuses={active} bookingStatus={st}
-          forAnother={Boolean(details.traveler_name)} onStatusChange={tickTrip} />
+        <ShareTripCard bookingId={bookingId} />
       )}
+      {passengerStatusCard}
 
       {details.role === "passenger" && st === "confirmed" && <div className="trip-cancel">
           <button type="button" className="trip-cancel__btn" onClick={passengerCancellation?.open} disabled={passengerCancellation?.disabled}>

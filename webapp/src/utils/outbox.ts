@@ -2,8 +2,13 @@ import { ApiError, getSessionGeneration } from "../api/client";
 import { sendMessageRest, type ChatMessage } from "../api/chat";
 import { fetchTripState } from "../api/bookings";
 import { setDriverStatus, type DriverPhase } from "../api/driver";
-import { setTripStatus, type TripStatus } from "../api/family";
-import { clearActions, insertAction, listActions, removeAction } from "./outboxStore";
+import { fetchBookingShares } from "../api/family";
+import {
+  bookingCommandOwner, forgetLegacyPassengerGeneration, isCurrentBookingOwner,
+  readLegacyPassengerGenerations, rememberLegacyPassengerGeneration, type BookingCommandOwner,
+} from "./bookingCommandStore";
+import { clearActions, insertAction, listActions, listLegacyPassengerTripStatusActions,
+  preservePassengerTripStatusActions, removeAction } from "./outboxStore";
 
 export type OutboxKind = "message" | "trip_status" | "driver_status";
 export interface OutboxAction {
@@ -117,16 +122,15 @@ export async function enqueue(bookingId: number, kind: OutboxKind, payload: stri
   await refreshOutbox().catch(() => {});
 }
 export function outboxCount(bookingId: number): number {
-  return snapshotSession === getSessionGeneration() ? snapshot.filter(a => a.bookingId === bookingId).length : 0;
+  return snapshotSession === getSessionGeneration() ? snapshot.filter(a => a.bookingId === bookingId && a.kind !== "trip_status").length : 0;
 }
 export function hasPending(): boolean {
-  return snapshotSession === getSessionGeneration() && snapshot.length > 0;
+  return snapshotSession === getSessionGeneration() && snapshot.some(action => action.kind !== "trip_status");
 }
 export async function clearOutbox(): Promise<void> {
   const generation = getSessionGeneration();
   clearVersion++; readVersion++; snapshot = []; snapshotSession = generation; notify();
   refusals = []; notifyRefusals();
-  try { localStorage.removeItem("yuldash.outbox"); } catch { /* Вход не зависит от localStorage cleanup. */ }
   await clearActions(generation);
   changed();
 }
@@ -150,6 +154,61 @@ export async function acknowledgeMessage(bookingId: number, id: string, expected
   await refreshOutbox().catch(() => {});
 }
 
+/** Bind unkeyed passenger entries to their verified owner before the session changes. */
+export async function preserveLegacyTripStatuses(owner: BookingCommandOwner, signal?: AbortSignal) {
+  const cleared = clearVersion;
+  const active = () => isCurrentBookingOwner(owner) && !signal?.aborted && cleared === clearVersion;
+  if (!active()) return;
+  try {
+    const moved = await preservePassengerTripStatusActions(owner.generation, owner.namespace, active);
+    if (moved && active()) changed();
+  } catch (error) {
+    // Keep the verified owner binding when the move aborts. The original action stays in the outbox.
+    if (active()) await rememberLegacyPassengerGeneration(owner);
+    throw error;
+  }
+}
+
+export async function preserveTripStatusesForUser(user: { id: number; created_at?: string } | null,
+                                                  generation: string, signal?: AbortSignal) {
+  const owner = bookingCommandOwner(user, generation);
+  if (owner) await preserveLegacyTripStatuses(owner, signal);
+}
+
+export async function legacyTripStatuses(owner: BookingCommandOwner, bookingId: number, signal: AbortSignal) {
+  await preserveLegacyTripStatuses(owner, signal);
+  const active = () => isCurrentBookingOwner(owner) && !signal.aborted;
+  for (const generation of await readLegacyPassengerGenerations(owner)) {
+    const moved = await preservePassengerTripStatusActions(generation, owner.namespace, active);
+    if (!active()) throw new Error("Queue session changed");
+    await forgetLegacyPassengerGeneration(owner, generation);
+    if (moved && active()) changed();
+  }
+  const rows = await listLegacyPassengerTripStatusActions(owner.namespace, active);
+  return rows.filter(row => row.bookingId === bookingId);
+}
+
+export async function reconcileLegacyTripStatuses(owner: BookingCommandOwner, bookingId: number, signal: AbortSignal, forget = false) {
+  const active = () => isCurrentBookingOwner(owner) && !signal.aborted;
+  const rows = await legacyTripStatuses(owner, bookingId, signal);
+  if (!active() || rows.length === 0) return rows;
+  const trip = forget ? null : await fetchTripState(bookingId, signal);
+  if (!active() || (trip && trip.role !== "passenger")) return rows;
+  const shares = !forget && rows.some(row => row.payload === "arrived") ? await fetchBookingShares(bookingId, signal) : [];
+  if (!active()) return rows;
+  const arrivalObserved = shares.length > 0 && shares.every(share => share.last_status === "arrived" || share.last_status === "done");
+  const remaining = [];
+  for (const row of rows) {
+    if (!active()) return rows;
+    if (forget || (row.payload === "done" && trip?.status === "done") || (row.payload === "arrived" && arrivalObserved)) {
+      await removeAction(row, active);
+    } else {
+      remaining.push(row);
+    }
+  }
+  return remaining;
+}
+
 async function run(a: OutboxAction): Promise<void> {
   switch (a.kind) {
     case "message": {
@@ -159,9 +218,6 @@ async function run(a: OutboxAction): Promise<void> {
       });
       return;
     }
-    case "trip_status":
-      await setTripStatus(a.bookingId, a.payload as TripStatus);
-      return;
     case "driver_status":
       if (a.payload === "done" || a.payload === "boarded") {
         // A legacy action without a key may already have committed. A new key would
@@ -189,7 +245,8 @@ export async function flushOutbox(): Promise<boolean> {
     while (active()) {
       const rows = await listActions(generation, active);
       if (!active() || rows.length === 0) break;
-      const action = rows[0];
+      const action = rows.find(row => row.kind !== "trip_status");
+      if (!action) break;
       try { await run(action); }
       catch (error) {
         if (!active()) return false;
