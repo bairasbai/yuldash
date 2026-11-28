@@ -99,9 +99,13 @@ export default function RequestsFeedScreen() {
       {status === "ready" &&
         (items.length === 0 ? (
           <div className="state">
-            <div className="state__icon"><IconRequest size={34} /></div>
-            <h2>{onRoute ? appText("По твоим маршрутам пока нет заявок", "Һинең юлдарың буйынса әле заявкалар юҡ") : appText("Пока нет заявок", "Әле заявкалар юҡ")}</h2>
-            <p>{onRoute ? appText("Проверь опубликованные рейсы или посмотри все заявки.", "Баҫылған сәфәрҙәреңде тикшер йәки бөтә заявкаларҙы ҡара.") : appText("Как только кто-то будет искать попутку — покажем здесь.", "Кемдер юлдаш эҙләһә — бында күрһәтәбеҙ.")}</p>
+            {partial ? <PartialFeedNotice empty /> : (
+              <>
+                <div className="state__icon"><IconRequest size={34} /></div>
+                <h2>{onRoute ? appText("По твоим маршрутам пока нет заявок", "Һинең юлдарың буйынса әле заявкалар юҡ") : appText("Пока нет заявок", "Әле заявкалар юҡ")}</h2>
+                <p>{onRoute ? appText("Проверь опубликованные рейсы или посмотри все заявки.", "Баҫылған сәфәрҙәреңде тикшер йәки бөтә заявкаларҙы ҡара.") : appText("Как только кто-то будет искать попутку — покажем здесь.", "Кемдер юлдаш эҙләһә — бында күрһәтәбеҙ.")}</p>
+              </>
+            )}
             {onRoute && <button type="button" className="btn-soft" onClick={() => setOnRoute(false)}>{appText("Все заявки", "Бөтә заявкалар")}</button>}
           </div>
         ) : (
@@ -196,7 +200,7 @@ export default function RequestsFeedScreen() {
           </div>
         ))}
 
-      {status === "ready" && partial && <PartialFeedNotice />}
+      {status === "ready" && partial && items.length > 0 && <PartialFeedNotice />}
 
       {respondTo && (
         <RespondSheet

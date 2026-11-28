@@ -372,7 +372,7 @@ export default function RequestResponsesScreen() {
           <h2 className="section-title">
             {appText("Подходящие поездки", "Тап килгән сәфәрҙәр")}
           </h2>
-          {matches.length === 0 ? (
+          {matches.length === 0 ? !matchesPartial && (
             <div className="state" style={{ paddingTop: 8 }}>
               <div className="state__icon">
                 <IconClock size={30} />
@@ -398,7 +398,7 @@ export default function RequestResponsesScreen() {
               ))}
             </div>
           )}
-          {matchesPartial && <PartialFeedNotice />}
+          {matchesPartial && <PartialFeedNotice empty={matches.length === 0} />}
         </>
       )}
 

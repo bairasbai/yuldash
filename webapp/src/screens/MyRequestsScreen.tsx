@@ -68,7 +68,7 @@ function MatchingRidesSection({ requestId }: { requestId: number }) {
           </button>
         </div>
       )}
-      {state === "ready" && rides.length === 0 && (
+      {state === "ready" && rides.length === 0 && !partial && (
         <p className="my-request-matches__empty">
           {appText(
             "Пока нет совпадений — как появятся, покажем.",
@@ -90,7 +90,7 @@ function MatchingRidesSection({ requestId }: { requestId: number }) {
           ))}
         </div>
       )}
-      {state === "ready" && partial && <PartialFeedNotice />}
+      {state === "ready" && partial && <PartialFeedNotice empty={rides.length === 0} />}
       {openedRide && <RideSheet ride={openedRide} onClose={() => setOpenedRide(null)} />}
     </section>
   );
