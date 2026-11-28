@@ -81,7 +81,7 @@ for (const lang of ["ru", "ba"]) {
   });
   const Pay = await bundleComponent("src/components/PayTripCard.tsx", { mocks: {
     "/i18n/lang": langMock(lang), "/api/client": clientMock,
-    "/api/wallet": `export const payBooking=async(id,method)=>{globalThis.__honestPromises.pays.push({id,method});return {ok:true};};export const payInstantOrder=async()=>{throw new globalThis.__honestPromises.ApiError(503);};`,
+    "/api/wallet": `export const payBooking=async(id,method)=>{globalThis.__honestPromises.pays.push({id,method});return {status:"paid"};};export const payInstantOrder=async()=>{throw new globalThis.__honestPromises.ApiError(503,"","taxi_online_pay_off");};`,
   } });
   await t.test(`${lang}: booking never displays a bank button and cash still records the agreement`, async () => {
     h.pays = [];
@@ -92,10 +92,10 @@ for (const lang of ["ru", "ba"]) {
     await button(s.tree, lang === "ru" ? "Наличными" : "Наличный менән").props.onClick(); await s.settle();
     assert.deepEqual(h.pays, [{ id: 42, method: "cash" }]); s.unmount();
   });
-  await t.test(`${lang}: order keeps bank buttons but 503 explains the current refusal`, async () => {
+  await t.test(`${lang}: order keeps bank buttons until a typed provider-off response`, async () => {
     const s = mount(Pay, { kind: "order", id: 42, amountLabel: "450 ₽" }); await s.settle();
     await button(s.tree, lang === "ru" ? "Картой" : "Карта менән").props.onClick(); await s.settle();
-    assert.ok(text(s.tree).includes(lang === "ru" ? "Оплата картой сейчас недоступна" : "Карта менән түләү хәҙер мөмкин түгел"));
+    assert.ok(text(s.tree).includes(lang === "ru" ? "Оплата картой и СБП сейчас недоступна" : "Карта һәм СБП аша түләү әле мөмкин түгел"));
     assert.ok(!button(s.tree, lang === "ru" ? "Картой" : "Карта менән")); s.unmount();
   });
   const Feed = await bundleComponent("src/screens/RequestsFeedScreen.tsx", { real: ["/components/PartialFeedNotice"], mocks: {

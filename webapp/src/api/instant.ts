@@ -708,6 +708,7 @@ export interface TaxiReceipt {
   waiting_fee_kop: number;
   payment_method: string;
   paid: boolean;
+  online_payment_pending?: boolean;
   driver_name: string;
   driver_verified: boolean;
   /** Вторая сторона (для разбора спора) — id и имя, без телефона. */

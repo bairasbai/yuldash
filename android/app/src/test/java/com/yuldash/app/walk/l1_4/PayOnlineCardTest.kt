@@ -154,7 +154,7 @@ class PayOnlineCardTest {
     }
 
     @Test
-    fun serverSays503_hidesCardForTheRestOfTheSession() {
+    fun confirmedDisabled_hidesCardForTheRestOfTheSession() {
         startServerGateOpen()
         // Сумма — mutableState ВНУТРИ одной композиции (не второй setContent): реальный экран
         // тоже не пересоздаёт PayOnlineCard с нуля, он просто перерисовывает её с новым amountKop
@@ -163,7 +163,7 @@ class PayOnlineCardTest {
         val amountKop = androidx.compose.runtime.mutableStateOf<Int?>(100_00)
         compose.setContent {
             CompositionLocalProvider(LocalAppLanguage provides AppLanguage.Ru) {
-                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "")) })
+                PayOnlineCard(amountKop = amountKop.value, pay = { _, _ -> Result.failure(ApiException(503, "Оплата скоро", "taxi_online_pay_off")) })
             }
         }
 
@@ -262,9 +262,10 @@ class PayOnlineCardTest {
 
     @Test
     fun checkPayment_succeeded_movesFromWaitingToPaid() {
-        startServerGateOpen(statusBody = "{\"payment_id\":77,\"status\":\"succeeded\",\"purpose\":\"ride\"}")
+        startServerGateOpen()
         render(amountKop = 100_00) {
-            Result.success(PayTripResultDto("pending", it, 77, "https://example.invalid/confirm"))
+            Result.success(if (it == "check") PayTripResultDto("succeeded", "yookassa", 77, null)
+                else PayTripResultDto("pending", it, 77, "https://example.invalid/confirm"))
         }
         awaitSubmit()
         compose.onNodeWithTag("pay_online_submit").performClick()
@@ -272,10 +273,28 @@ class PayOnlineCardTest {
         compose.onNodeWithText("Ждём подтверждения оплаты").assertIsDisplayed()
 
         compose.onNodeWithText("Проверить оплату").performClick()
-        // GET /payments/{id}/status идёт на Dispatchers.IO — waitForIdle() его не ждёт.
         compose.waitUntil(5_000) { compose.onAllNodesWithText("Оплачено — спасибо!").fetchSemanticsNodes().isNotEmpty() }
         compose.waitForIdle()
 
         compose.onNodeWithText("Оплачено — спасибо!").assertIsDisplayed()
     }
+    @Test
+    fun untyped503_isUncertain_andCheckUsesOnlyTheCheckAction() {
+        startServerGateOpen()
+        val calls = mutableListOf<String>()
+        render(amountKop = 100_00) {
+            calls += it
+            if (it == "check") Result.success(PayTripResultDto("canceled", "yookassa", 77, null))
+            else Result.failure(ApiException(503, "Временная ошибка"))
+        }
+        awaitSubmit()
+        compose.onNodeWithTag("pay_online_submit").performClick()
+        compose.onNodeWithText("Онлайн-оплата ещё проверяется. Не плати повторно.").assertIsDisplayed()
+        compose.onNodeWithText("Выбрать другой способ").assertDoesNotExist()
+        compose.onNodeWithText("Проверить оплату").performClick()
+        awaitSubmit()
+        compose.onNodeWithText("Оплачено — спасибо!").assertDoesNotExist()
+        assertEquals(listOf("card", "check"), calls)
+    }
+
 }

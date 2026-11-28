@@ -44,7 +44,7 @@ _METHODS = ("cash", "card", "sbp")
 
 
 class PayIn(BaseModel):
-    method: str = Field("card", max_length=16)   # cash | card | sbp
+    method: str = Field("card", max_length=16)   # cash | card | sbp | check (taxi only)
 
 
 def _guard_method(method: str) -> None:
@@ -73,6 +73,37 @@ def _cancel_own_pending_cashless(session: Session, user_id: int, *, order_id=Non
     stmt = stmt.where(Payment.order_id == order_id) if order_id is not None else stmt.where(Payment.booking_id == booking_id)
     session.execute(stmt.values(status="canceled"))
     session.commit()
+
+
+def _checkout_unresolved() -> HTTPException:
+    return herr(409, "Онлайн-оплата ещё проверяется. Не плати повторно.",
+                "Онлайн түләү әле тикшерелә. Ҡабат түләмә.", code="taxi_checkout_unresolved")
+
+
+def _pending_ride_payment(session: Session, order_id: int, passenger_id: int) -> Payment | None:
+    return session.exec(select(Payment).where(
+        Payment.order_id == order_id, Payment.user_id == passenger_id,
+        Payment.purpose == "ride", Payment.status == "pending",
+    ).order_by(Payment.id.desc()).limit(1)).first()
+
+
+def _check_taxi_checkout(session: Session, order: InstantOrder) -> dict:
+    # This action never creates a checkout, including on an older server (unknown method).
+    payment = _pending_ride_payment(session, order.id, order.passenger_id)
+    if payment is None or settings.payments_provider != "yookassa" or payments_closed():
+        raise _checkout_unresolved()
+    if not payment.provider_id:
+        return _reconcile_interrupted_taxi_checkout(session, payment)
+    session.commit()
+    payment, info = _sync_provider_status(session, payment)
+    if payment.status in ("succeeded", "canceled", "pending"):
+        body = {"status": payment.status, "method": "yookassa", "payment_id": payment.id}
+        if payment.status == "pending":
+            body["confirmation_url"] = (info or {}).get("confirmation_url", "")
+        return body
+    if payment.status == "refund_due":
+        return {"status": "already_paid", "method": "yookassa"}
+    raise _checkout_unresolved()
 
 
 def _reconcile_interrupted_taxi_checkout(session: Session, payment: Payment) -> dict:
@@ -104,8 +135,7 @@ def _reconcile_interrupted_taxi_checkout(session: Session, payment: Payment) -> 
             return {"status": payment.status, "method": "yookassa", "payment_id": pid}
         if payment.status == "refund_due":
             return {"status": "already_paid", "method": "yookassa"}
-    raise herr(409, "Онлайн-оплата ещё проверяется. Не плати повторно.",
-               "Онлайн түләү әле тикшерелә. Ҡабат түләмә.", code="taxi_checkout_unresolved")
+    raise _checkout_unresolved()
 
 
 def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: int,
@@ -113,10 +143,16 @@ def _pay_cashless(session: Session, payer: User, *, purpose: str, amount_kop: in
     """Общий безналичный поток через ЮKassa (карта/СБП). mock/dev → succeeded сразу
     (активируем и начисляем); yookassa → confirmation_url, начисление придёт по webhook."""
     # Онлайн-оплата поездки идёт ТОЛЬКО через реальный yookassa. В проде любой другой провайдер
-    # (mock/sbp_manual) вернул бы «succeeded» без денег → начисление фантома. Блокируем 503:
-    # клиент по 503 прячет карту (OnlinePayGate), остаётся нал / перевод «на доверии».
+    # (mock/sbp_manual) вернул бы «succeeded» без денег → начисление фантома.
+    # Для такси 503 с кодом разрешает сменить способ только при отсутствии pending.
     # Неизвестный провайдер — то же «скоро» и вне прода: иначе строка платежа зависала бы pending.
-    if payments_closed() or (settings.is_prod and settings.payments_provider != "yookassa"):
+    disabled = payments_closed() or (settings.is_prod and settings.payments_provider != "yookassa")
+    if disabled:
+        if purpose == "ride" and order_id is not None:
+            if _pending_ride_payment(session, order_id, payer.id) is not None:
+                raise _checkout_unresolved()
+            raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ",
+                       code="taxi_online_pay_off")
         raise herr(503, "Оплата скоро будет доступна", "Түләү оҙаҡламай мөмкин буласаҡ")
     # Дедуп pending: уже есть висящий платёж на этот заказ/бронь → возвращаем его, НЕ создаём второй
     # (иначе два тапа «Оплатить» / ретрай при задержке вебхука = два реальных списания). Образец — debt.py.
@@ -257,6 +293,8 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
         raise herr(409, "У заказа нет водителя", "Заказдың водителе юҡ")
     if order.paid:                                        # идемпотентно: повторная оплата не начисляет второй раз
         return {"status": "already_paid", "method": order.payment_method}
+    if body.method == "check":
+        return _check_taxi_checkout(session, order)
     _guard_method(body.method)
     # Пассажир платит цену МИНУС скидку по промокоду (её оплачивает платформа своей комиссией,
     # см. app/promo_ride.py) — без этого промокод молча пропадал бы при оплате картой.
@@ -269,13 +307,8 @@ def pay_instant_order(order_id: int, body: PayIn, user: User = Depends(current_u
         # передавать из рук в руки, а order.paid=True на пустом месте маскирует эту скидку).
         raise herr(409, "У заказа нет суммы к оплате", "Заказда түләргә сумма юҡ")
     if body.method == "cash":
-        pending = session.exec(select(Payment.id).where(
-            Payment.order_id == order.id, Payment.user_id == user.id,
-            Payment.purpose == "ride", Payment.status == "pending",
-        ).limit(1)).first()
-        if pending is not None:
-            raise herr(409, "Онлайн-оплата ещё проверяется. Не плати повторно.",
-                       "Онлайн түләү әле тикшерелә. Ҡабат түләмә.", code="taxi_checkout_unresolved")
+        if _pending_ride_payment(session, order.id, user.id) is not None:
+            raise _checkout_unresolved()
         from .. import ledger
         result = ledger.settle_instant_order(session, order.id, "cash", amount_kop)
         if result != "settled":

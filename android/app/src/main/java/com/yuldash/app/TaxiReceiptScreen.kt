@@ -858,6 +858,7 @@ private fun TaxiAfterRideActions(
                 amountKop = r.amountKop,
                 pay = { method, owner -> ApiClient.payInstantOrder(r.orderId, method, expectedGeneration = owner) },
                 targetKey = "taxi:${r.orderId}",
+                onlinePaymentPending = r.onlinePaymentPending,
                 ownerGeneration = paymentOwner,
                 isCurrentParent = { isCurrent() },
             )

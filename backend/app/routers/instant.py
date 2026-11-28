@@ -1314,7 +1314,7 @@ def passenger_done(order_id: int, user: User = Depends(current_user),
 
 
 @router.get("/instant/orders/{order_id}/receipt")
-def order_receipt(order_id: int, user: User = Depends(current_user),
+def order_receipt(order_id: int, response: Response, user: User = Depends(current_user),
                   session: Session = Depends(get_session)):
     """Квитанция за такси-поездку (по образцу /trips/{id}/receipt у попуток).
 
@@ -1381,6 +1381,13 @@ def order_receipt(order_id: int, user: User = Depends(current_user),
         "my_stars": int(my_rating.stars) if my_rating else 0,
         "my_rating_tags": (my_rating.tags or "") if my_rating else "",
     }
+
+    response.headers["Cache-Control"] = "no-store"
+    if role == "passenger" and not order.paid:
+        body["online_payment_pending"] = session.exec(select(Payment.id).where(
+            Payment.order_id == order.id, Payment.user_id == user.id,
+            Payment.purpose == "ride", Payment.status == "pending",
+        ).limit(1)).first() is not None
 
     # Комиссию видит ТОЛЬКО водитель — он её реально платит. Пассажиру её показывать нельзя:
     # в Модели А он платит водителю напрямую, наши 15% через него не проходят, и строка

@@ -16,6 +16,7 @@ from test_money_holes_audit import _order
 
 
 
+@pytest.mark.parametrize("method", ["card", "check"])
 @pytest.mark.parametrize("age_hours,result", [
     (23, "missing"),
     (25, "missing"),
@@ -26,7 +27,7 @@ from test_money_holes_audit import _order
     (25, "truncated"),
 ])
 def test_interrupted_taxi_checkout_reconciles_without_resubmitting(
-    client, monkeypatch, user_factory, age_hours, result,
+    client, monkeypatch, user_factory, age_hours, result, method,
 ):
     monkeypatch.setattr(settings, "payments_provider", "yookassa")
     monkeypatch.setattr(settings, "yookassa_shop_id", "fixture-shop")
@@ -89,7 +90,7 @@ def test_interrupted_taxi_checkout_reconciles_without_resubmitting(
 
     monkeypatch.setattr(httpx, "post", fake_post)
     path = f"/instant/orders/{oid}"
-    response = client.post(f"{path}/pay", headers=passenger["auth"], json={"method": "card"})
+    response = client.post(f"{path}/pay", headers=passenger["auth"], json={"method": method})
     assert posts == [], "do not re-create an unresolved payment, even with the original key"
     assert calls
     endpoint = f"{path}/cash-received"
@@ -116,3 +117,94 @@ def test_interrupted_taxi_checkout_reconciles_without_resubmitting(
         assert [e.amount_kop for e in entries if e.kind == LedgerKind.earn] == (
             [60000] if result == "succeeded" else []
         )
+
+
+def test_first_timeout_keeps_cash_on_hold_even_if_provider_becomes_disabled(
+    client, monkeypatch, user_factory,
+):
+    monkeypatch.setattr(settings, "payments_provider", "yookassa")
+    monkeypatch.setattr(settings, "yookassa_shop_id", "fixture-shop")
+    monkeypatch.setattr(settings, "yookassa_secret_key", "fixture-not-a-credential")
+    driver = user_factory("TimeoutCheckoutDriver", role=UserRole.driver)
+    passenger = user_factory("TimeoutCheckoutPassenger")
+    path = f"/instant/orders/{_order(passenger['id'], driver['id'], price=600, payment_method='cash')}"
+    untouched = f"/instant/orders/{_order(passenger['id'], driver['id'], price=600, payment_method='cash')}"
+    calls = []
+
+    def lost_response(*args, **kwargs):
+        calls.append(args)
+        raise httpx.ReadTimeout("synthetic provider response lost")
+
+    monkeypatch.setattr(httpx, "post", lost_response)
+
+    def pay(method, route=path, auth=passenger["auth"]):
+        return client.post(f"{route}/pay", headers=auth, json={"method": method})
+
+    initial = pay("card")
+    assert initial.status_code == 409, initial.text
+    assert initial.json()["detail"]["code"] == "taxi_checkout_unresolved"
+    fresh_check = pay("check", untouched)
+    assert fresh_check.status_code == 409
+    assert len(calls) == 1
+    receipt = client.get(f"{path}/receipt", headers=passenger["auth"])
+    assert receipt.headers["Cache-Control"] == "no-store"
+    assert receipt.json()["online_payment_pending"] is True and not receipt.json()["paid"]
+    assert "online_payment_pending" not in client.get(f"{path}/receipt", headers=driver["auth"]).json()
+    assert pay("check", auth=driver["auth"]).status_code == 403
+
+    monkeypatch.setattr(settings, "payments_provider", "disabled-test")
+    disabled = pay("card", untouched)
+    assert disabled.status_code == 503
+    assert disabled.json()["detail"]["code"] == "taxi_online_pay_off"
+    for method in ("check", "sbp", "cash"):
+        hold = pay(method)
+        assert hold.status_code == 409
+        assert hold.json()["detail"]["code"] == "taxi_checkout_unresolved"
+    assert len(calls) == 1
+
+
+@pytest.mark.parametrize("status,with_link", [
+    ("pending", False), ("pending", True), ("canceled", False), ("succeeded", False),
+])
+def test_check_existing_taxi_checkout_never_starts_a_second_checkout(
+    client, monkeypatch, user_factory, status, with_link,
+):
+    monkeypatch.setattr(settings, "payments_provider", "yookassa")
+    monkeypatch.setattr(settings, "yookassa_shop_id", "fixture-shop")
+    monkeypatch.setattr(settings, "yookassa_secret_key", "fixture-not-a-credential")
+    driver = user_factory("CheckCheckoutDriver", role=UserRole.driver)
+    passenger = user_factory("CheckCheckoutPassenger")
+    oid = _order(passenger["id"], driver["id"], price=600, payment_method="cash")
+    provider_id = "f02f2e50-38d3-4697-9014-f96d93bb8e41"
+    with Session(engine) as s:
+        payment = Payment(user_id=passenger["id"], order_id=oid, purpose="ride",
+                          amount_kop=60000, method="yookassa", provider_id=provider_id)
+        s.add(payment)
+        s.commit()
+        pid = payment.id
+
+    calls = []
+    link = "https://yookassa.ru/fixture/confirm"
+
+    def fake_get(url, *, auth, timeout):
+        calls.append(("GET", url))
+        payload = {"id": provider_id, "status": status, "metadata": {"payment_id": str(pid)}}
+        if with_link:
+            payload["confirmation"] = {"confirmation_url": link}
+        return httpx.Response(200, request=httpx.Request("GET", url), json=payload)
+
+    def fake_post(url, **kwargs):
+        calls.append(("POST", url))
+        raise AssertionError("checking never creates a payment")
+
+    monkeypatch.setattr(httpx, "get", fake_get)
+    monkeypatch.setattr(httpx, "post", fake_post)
+    response = client.post(f"/instant/orders/{oid}/pay", headers=passenger["auth"], json={"method": "check"})
+    assert response.status_code == 200, response.text
+    assert response.json()["status"] == status
+    assert bool(response.json().get("confirmation_url")) == with_link
+    assert calls == [("GET", f"{YOOKASSA_API}/{provider_id}")]
+    if status != "succeeded":
+        receipt = client.get(f"/instant/orders/{oid}/receipt", headers=passenger["auth"]).json()
+        assert receipt["online_payment_pending"] == (status == "pending")
+        assert receipt["paid"] is False

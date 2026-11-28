@@ -4885,14 +4885,14 @@ object ApiClient {
         }
 
     // ---------- Оплата завершённой поездки онлайн (ЮKassa, за флагом провайдера) ----------
-    // 503 = онлайн-оплата ещё не включена (mock в проде) → UI прячет карточку, «на доверии» остаётся.
+    // Только taxi_online_pay_off означает, что онлайн-оплата не включена и попытки нет.
 
     /** Оплатить ЗАВЕРШЁННУЮ бронь плановой поездки. methodKey: cash | card | sbp. */
     suspend fun payBooking(bookingId: Int, methodKey: String, expectedGeneration: Long? = null): Result<PayTripResultDto> =
         call("POST", "/bookings/$bookingId/pay", JSONObject().put("method", methodKey), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toPayTripResult() }
 
-    /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ (такси). methodKey: cash | card | sbp. */
+    /** Оплатить ЗАВЕРШЁННЫЙ быстрый заказ (такси). methodKey: cash | card | sbp | check. */
     suspend fun payInstantOrder(orderId: Int, methodKey: String, expectedGeneration: Long? = null): Result<PayTripResultDto> =
         call("POST", "/instant/orders/$orderId/pay", JSONObject().put("method", methodKey), auth = true, expectedGeneration = expectedGeneration)
             .map { it.toPayTripResult() }
@@ -5093,6 +5093,7 @@ object ApiClient {
                 commissionFreeKop = o.optInt("commission_free_kop"),
                 driverPromoCompKop = if (o.isNull("driver_promo_comp_kop")) null
                     else o.optInt("driver_promo_comp_kop", -1),
+                onlinePaymentPending = o.optBoolean("online_payment_pending"),
             )
         }
 
@@ -7241,6 +7242,7 @@ data class InstantReceiptDto(
     val driverNetKop: Int = 0,
     val commissionFreeKop: Int = 0,
     val driverPromoCompKop: Int? = null,
+    val onlinePaymentPending: Boolean = false,
 )
 
 /** Квитанция за доставку (GET /parcels/{id}/receipt). Телефонов и адресов в чеке нет.

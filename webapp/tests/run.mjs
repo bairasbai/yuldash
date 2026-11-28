@@ -43,6 +43,7 @@ const ALL_SUITES = [
   { test: "rideshare-acceptance-labels-test", src: null, out: null, bundle: false },
   { test: "receipt-owner-test", src: null, out: null, bundle: false },
   { test: "taxi-receipt-promo-test", src: null, out: null, bundle: false },
+  { test: "taxi-passenger-payment-test", src: null, out: null, bundle: false },
   { test: "receipt-lost-item-test", src: null, out: null, bundle: false },
   { test: "login-flow-test", src: null, out: null, bundle: false },
   { test: "honest-promises-test", src: null, out: null, bundle: false },

@@ -538,7 +538,7 @@ export default function TaxiReceiptScreen() {
             )}
 
             {/* Пассажир может завершить оплату прямо из чека, если закрыл финальный экран. */}
-            {!isDriver && !r.paid && <PayTripCard kind="order" id={id} amountLabel={kopExactLabel(r.amount_kop)} onPaid={() => load()} />}
+            {!isDriver && !r.paid && <PayTripCard key={id} kind="order" id={id} onlinePaymentPending={r.online_payment_pending} amountLabel={kopExactLabel(r.amount_kop)} onPaid={() => load()} />}
 
             {successText && <p className="rcpt-msg rcpt-msg--ok">{successText}</p>}
             {errText && <p className="rcpt-msg rcpt-msg--err">{errText}</p>}

@@ -158,6 +158,9 @@ def _start_yookassa(session: Session, payment: Payment, description: str, phone:
             idempotence_key=f"yuldash-payment-{payment.id}",
         )
     except Exception:  # noqa: BLE001 — исход неизвестен: строку/ключ сохраняем для безопасного повтора
+        if payment.purpose == "ride" and payment.order_id is not None:
+            raise herr(409, "Онлайн-оплата ещё проверяется. Не плати повторно.",
+                       "Онлайн түләү әле тикшерелә. Ҡабат түләмә.", code="taxi_checkout_unresolved")
         raise herr(503, "Оплата временно недоступна. Попробуй ещё раз.", "Түләү ваҡытлыса эшләмәй. Тағы ҡабатла.")
 
 

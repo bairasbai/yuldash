@@ -103,6 +103,6 @@ export function payBooking(bookingId: number, method: PayMethodKey): Promise<Pay
   return apiPost<PayTripResult>(`/bookings/${bookingId}/pay`, { method });
 }
 
-export function payInstantOrder(orderId: number, method: PayMethodKey): Promise<PayTripResult> {
+export function payInstantOrder(orderId: number, method: PayMethodKey | "check"): Promise<PayTripResult> {
   return apiPost<PayTripResult>(`/instant/orders/${orderId}/pay`, { method });
 }
