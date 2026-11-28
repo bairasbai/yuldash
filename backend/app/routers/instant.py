@@ -1174,7 +1174,7 @@ def decline_destination(order_id: int, body: DeclineDestinationIn | None = None,
     Если ждало согласия на крупную смену — адрес просто не меняется, поездка продолжается
     по старому. Отказ от НОВОГО маршрута не должен рвать тот, на который человек соглашался.
     """
-    order = session.get(InstantOrder, order_id)
+    order = session.get(InstantOrder, order_id, with_for_update=True, populate_existing=True)
     if not order or order.driver_id != user.id:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
     reason = (body.reason if body else "other")

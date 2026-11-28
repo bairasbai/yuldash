@@ -2055,12 +2055,10 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
     order.early_finish_reason = reason
     _clear_pending_destination(order)
     session.add(order)
+    # Checkout starts as soon as done is visible. Publish the fare and the lowered
+    # promo cap in one transaction, otherwise the bank can get the old discount.
+    promo_ride.reclamp(session, order, commit=False)
     session.commit()
-    session.refresh(order)
-    # Цена по факту может оказаться ниже обещанной — потолок скидки по промокоду чиним ТОЛЬКО
-    # вниз ДО расчёта долга по комиссии (аудит leaf-1.3, B-2): вызывающий эндпоинт зовёт
-    # `debt.accrue_for_order` сразу следующей строкой, и там считает именно это поле.
-    promo_ride.reclamp(session, order)
     session.refresh(order)
 
     ru, ba = EARLY_FINISH_TEXT[reason]
