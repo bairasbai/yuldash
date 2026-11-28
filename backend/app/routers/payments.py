@@ -56,9 +56,11 @@ def _handle_unclaimed_payment(session: Session, payment: Payment) -> None:
     from ..models import SupportMessage, SupportSender, SupportTicket
     from ..services import push_notification
 
+    taxi_refund = payment.purpose == "ride" and payment.order_id is not None
     payment.status = REFUND_DUE
     session.add(payment)
-    session.commit()
+    if not taxi_refund:
+        session.commit()
 
     rub = payment.amount_kop // 100
     payer = session.get(User, payment.user_id)
@@ -73,13 +75,20 @@ def _handle_unclaimed_payment(session: Session, payment: Payment) -> None:
     try:
         ticket = SupportTicket(user_id=payment.user_id, subject="Возврат лишней оплаты")
         session.add(ticket)
-        session.commit()
-        session.refresh(ticket)
+        if taxi_refund:
+            # Не публикуем terminal-статус без обращения: при обрыве до commit
+            # повторная сверка провайдера должна заново провести всю операцию.
+            session.flush()
+        else:
+            session.commit()
+            session.refresh(ticket)
+        ref_id = ticket.id
         session.add(SupportMessage(ticket_id=ticket.id, sender=SupportSender.admin,
                                    body=(body_ba if lang == "ba" else body_ru)))
         session.commit()
-        ref_id = ticket.id
-    except Exception as e:  # noqa: BLE001 — тред вторичен, отметку о возврате не теряем
+    except Exception as e:  # noqa: BLE001
+        if taxi_refund:
+            raise
         ref_id = None
         log.warning(f"[REFUND] не удалось открыть тред по платежу {payment.id}: {e}")
 
