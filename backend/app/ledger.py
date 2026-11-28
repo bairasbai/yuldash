@@ -446,7 +446,9 @@ def settle_instant_order(session: Session, order_id: int, method: str, amount_ko
             fee_due = order.commission_assessed_kop
             pct = _debt.effective_order_fee_percent(order, fee_due + discount) if fee_due else 0.0
         else:
-            pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
+            pct = order.commission_close_percent
+            if pct is None:
+                pct = _debt.driver_fee_percent(session, order.driver_id, order.created_at or order.done_at)
             full_fee = _debt.order_commission_kop(order, pct)
             fee_due, comp = promo_ride.split_commission(full_fee, discount)
             if comp > 0:

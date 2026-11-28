@@ -672,7 +672,9 @@ def accrue_for_order(session: Session, order: InstantOrder,
             return None
     # Ступень фиксируем на момент создания: upfront net в оффере и фактический долг совпадут,
     # даже если короткая поездка пересекла календарную границу тарифной ступени.
-    percent = driver_fee_percent(session, order.driver_id, order.created_at or now)
+    percent = order.commission_close_percent
+    if percent is None:
+        percent = driver_fee_percent(session, order.driver_id, order.created_at or now)
     full = order_commission_kop(order, percent)
     # Скидку пассажира по промокоду оплачивает ПЛАТФОРМА, а не водитель: сначала гасим её своей
     # комиссией (вплоть до нуля), остаток кладём водителю в кошелёк. Водитель в любом случае
@@ -682,7 +684,13 @@ def accrue_for_order(session: Session, order: InstantOrder,
     session.add(order)
     if comp > 0:
         post_promo_compensation(session, order.driver_id, order.id, comp, commit=False)
-    auto_completed = order.auto_commission_retry_at is not None
+    auto_completed = order.auto_commission_retry_at is not None and order.commission_close_source is None
+    passenger_completed = order.commission_close_source == "passenger"
+    note = ""
+    if auto_completed:
+        note = "Поездку закрыл автомат (водитель не нажал «Завершил»)"
+    elif passenger_completed:
+        note = "Поездку закрыл пассажир (водитель не нажал «Завершил»)"
     debt = None
     if amount > 0:
         debt = CommissionDebt(
@@ -692,8 +700,8 @@ def accrue_for_order(session: Session, order: InstantOrder,
             week=_week_key(now),
             status=DebtStatus.unpaid,
             created_at=now,
-            due_at=_due_at(now, amount, pay_now_allowed and not auto_completed),
-            note="Поездку закрыл автомат (водитель не нажал «Завершил»)" if auto_completed else "",
+            due_at=_due_at(now, amount, pay_now_allowed and not (auto_completed or passenger_completed)),
+            note=note,
         )
         session.add(debt)
     try:

@@ -2058,6 +2058,8 @@ def finish_early(session: Session, order: InstantOrder, reason: str = "other",
     # Checkout starts as soon as done is visible. Publish the fare and the lowered
     # promo cap in one transaction, otherwise the bank can get the old discount.
     promo_ride.reclamp(session, order, commit=False)
+    for field, value in _manual_commission_intent(session, order, now).items():
+        setattr(order, field, value)
     session.commit()
     session.refresh(order)
 
@@ -2584,8 +2586,24 @@ def _notify_pickup_fee(session: Session, order: InstantOrder, before_kop: int) -
     )
 
 
+def _manual_commission_intent(session: Session, order: InstantOrder, now: datetime,
+                              *, passenger_closed: bool = False) -> dict:
+    from . import debt as debt_mod
+
+    if order.driver_id is None:
+        return {}
+    return {
+        "auto_commission_retry_at": now,
+        "commission_close_source": "passenger" if passenger_closed else "driver",
+        "commission_close_percent": debt_mod.driver_fee_percent(
+            session, order.driver_id, order.created_at or now,
+        ),
+    }
+
+
 def transition(session: Session, order_id: int, actor: Actor, target: S,
-               user_id: int, idempotent: bool = True) -> InstantOrder:
+               user_id: int, idempotent: bool = True, *,
+               passenger_closed: bool = False) -> InstantOrder:
     """Один переход состояния заказа. Гонки безопасны на любой БД:
     — row-lock (`with_for_update`, паттерн из bookings.py) для Postgres в проде;
     — атомарный условный UPDATE `WHERE status = <ожидаемый>` — корректно и на SQLite
@@ -2595,6 +2613,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
     Остальные переходы идемпотентны (двойной тап не ломает)."""
     order = session.exec(
         select(InstantOrder).where(InstantOrder.id == order_id).with_for_update()
+        .execution_options(populate_existing=True)
     ).first()
     if not order:
         raise herr(404, "Заказ не найден", "Заказ табылманы")
@@ -2622,6 +2641,7 @@ def transition(session: Session, order_id: int, actor: Actor, target: S,
         # Пассажир сел → фиксируем платное ожидание (целые копейки, задним числом не меняем).
         values["waiting_fee_kop"] = waiting_fee_kop(order.waiting_started_at, now)
     if target == S.done:
+        values.update(_manual_commission_intent(session, order, now, passenger_closed=passenger_closed))
         # Водитель мог завершить поездку, не нажав «Поехали» после остановки. Раньше это
         # время пропадало: человек стоял и ждал, а деньги не доставались никому. То же
         # самое чинится в `finish_early` — двери две, правило одно.

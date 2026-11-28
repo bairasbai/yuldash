@@ -1,4 +1,4 @@
-"""Recover commission for taxi orders auto-completed by retention cleanup."""
+"""Recover commission after taxi completion, including manual close and retention cleanup."""
 
 from datetime import timedelta
 
@@ -16,7 +16,7 @@ _AUTO_COMMISSION_BACKOFF = timedelta(minutes=5)
 
 
 def _accrue_auto_done(order_ids: list[int], now, db_engine: Engine) -> int:
-    """Process persisted auto-completion work in independent transactions."""
+    """Process persisted completion work in independent transactions."""
     completed = 0
     for oid in order_ids:
         expected = None
@@ -37,7 +37,7 @@ def _accrue_auto_done(order_ids: list[int], now, db_engine: Engine) -> int:
                     session.rollback()
                     session.refresh(order)
                     if not posted_debt and order.commission_assessed_kop is None:
-                        raise RuntimeError("auto-completion accrual is not yet committed")
+                        raise RuntimeError("completion accrual is not yet committed")
                 ack = session.execute(update(InstantOrder).where(
                     InstantOrder.id == oid,
                     InstantOrder.auto_commission_retry_at == expected,
@@ -45,7 +45,7 @@ def _accrue_auto_done(order_ids: list[int], now, db_engine: Engine) -> int:
                 session.commit()
                 completed += ack.rowcount
         except Exception as ex:  # noqa: BLE001 — a failed order cannot block the rest
-            print(f"  комиссия за авто-закрытый заказ {oid}: ОШИБКА {type(ex).__name__}")
+            print(f"  комиссия за завершённый заказ {oid}: ОШИБКА {type(ex).__name__}")
             if expected is not None:
                 try:
                     with Session(db_engine) as session:

@@ -1228,8 +1228,12 @@ class InstantOrder(SQLModel, table=True):
     # Первое проведённое начисление комиссии после скидки, в копейках.
     # None = нет снимка (в том числе старые заказы), 0 = подтверждённые ноль копеек.
     commission_assessed_kop: Optional[int] = Field(default=None, sa_type=BigInteger)
-    # Только авто-завершение. Пока отметка есть, обработчик ещё не подтвердил начисление.
+    # Ожидающая обработка комиссии. Имя индекса/поля наследовано от авто-завершения.
     auto_commission_retry_at: Optional[datetime] = Field(default=None, index=True)
+    # Источник ручного завершения и ставка, сохранённые вместе с финальной ценой.
+    # NULL у старых заказов и у ночной чистки; нулевую ставку сохраняем явно.
+    commission_close_source: Optional[str] = Field(default=None, max_length=16)
+    commission_close_percent: Optional[float] = None
     distance_km: float = 0.0
     eta_min: float = 0.0
     # Оплата после done (Фаза 3, деньги v1). paid — факт оплаты (нал/безнал). Наличные через

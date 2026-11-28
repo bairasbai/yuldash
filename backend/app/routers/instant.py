@@ -1298,12 +1298,10 @@ def passenger_done(order_id: int, user: User = Depends(current_user),
                    "Сәфәр әле бара — водитель тамамлар")
     # Переход выполняем от имени водителя: это его шаг, он его просто не сделал. Так вся
     # денежная логика (цена, ожидание, остановки) остаётся одна на оба пути закрытия.
-    order = isv.transition(session, order_id, isv.Actor.driver, S.done, order.driver_id)
+    order = isv.transition(
+        session, order_id, isv.Actor.driver, S.done, order.driver_id, passenger_closed=True,
+    )
     debt = debt_mod.accrue_for_order(session, order, pay_now_allowed=False)
-    if debt is not None and not debt.note:
-        debt.note = "Поездку закрыл пассажир (водитель не нажал «Завершил»)"
-        session.add(debt)
-        session.commit()
     # Предупредить о близком блоке — можно и нужно: это не требование заплатить сейчас,
     # а шанс не проснуться отключённым. Срочный пуш «плати немедленно» намеренно НЕ шлём.
     isv.notify_debt_near_block(session, debt)
