@@ -30,7 +30,6 @@ import {
   answerMeetingPoint,
   fetchDriverBookings,
   markArriving,
-  markNoShow,
   rateBooking,
   type DriverBookingRow,
 } from "../api/bookings";
@@ -269,7 +268,11 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
   }, [boot]);
 
   /** `done` — что сказать после успеха (как тост в приложении: «Пассажир уведомлён»). */
-  async function act(id: number, fn: () => Promise<unknown>, fail: { ru: string; ba: string }, done?: { ru: string; ba: string }, gps?: { rideId: number; closing: boolean }) {
+  async function act<T>(
+    id: number, fn: () => Promise<T>, fail: { ru: string; ba: string },
+    done?: { ru: string; ba: string }, gps?: { rideId: number; closing: boolean },
+    accepted: (result: T) => boolean = () => true,
+  ) {
     if (actionSending.current || busyId) return;
     actionSending.current = true;
     const click = gps ? beginDriverClick(id, gps.rideId, gps.closing) : null;
@@ -277,11 +280,11 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
     setBusyId(id);
     setNote("");
     try {
-      await fn();
+      const succeeded = accepted(await fn());
       if (pendingClick.current !== click) return;
-      finishDriverClick(click, true);
+      finishDriverClick(click, succeeded);
       pendingClick.current = null;
-      if (done) setNote(appText(done.ru, done.ba));
+      if (succeeded && done) setNote(appText(done.ru, done.ba));
       load();
     } catch (e) {
       finishDriverClick(click, false);
@@ -331,7 +334,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
   /** «4 звезды» / «4 йондоҙ» — как `starsText` в Android. */
   const starsText = (n: number) => appText(`${n} ${pluralRu(n, "звезда", "звезды", "звёзд")}`, `${n} йондоҙ`);
 
-  if (boot === "hidden") return null;
+  if (boot === "hidden" && !stages.pending.length && !stages.notice && !stages.loadFailed) return null;
   if (boot === "loading") return <LoadingList count={1} />;
   // Брони, ждущие ответа, показывает блок «Ждут твоего ответа» ВЫШЕ — он про срочное:
   // пока водитель молчит, человек не знает, поедет он или нет. Здесь остальные.
@@ -386,6 +389,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
           <div className="list">
             {riding.map((b) => {
               const st = String(b.status);
+              const stageBlocked = !stages.ready || stages.busy || stages.pending.some(row => row.bookingId === b.booking_id);
               return (
                 <div key={b.booking_id} className="list-row list-row--stack">
                   {passengerMain(b)}
@@ -398,7 +402,7 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
                   {/* Посадку отмечает водитель: «Сел» рядом с «Не вышел» (решение 17.10.2026). */}
                   {st === CONFIRMED && (
                     <DriverBoarding bookingId={b.booking_id} rideId={b.ride_id} status={st} onChanged={reload} onError={setNote}
-                      boardingBlocked={!stages.ready || stages.busy || stages.pending.some(row => row.bookingId === b.booking_id)}
+                      boardingBlocked={stageBlocked}
                       onBoard={async () => {
                         const result = await stages.advance(b.booking_id, "boarded");
                         if (result?.state !== "applied") return undefined;
@@ -423,13 +427,16 @@ export default function DriverPassengers({ onOpenTrip, reloadKey = 0 }: { onOpen
                       needsArriving={b.no_show_needs_arriving === true}
                       arrivingOpensAt={b.arriving_opens_at}
                       arrivingWaitSec={b.arriving_wait_sec}
-                      busy={busyId === b.booking_id}
-                      onConfirm={() =>
-                        void act(b.booking_id, () => markNoShow(b.booking_id), {
-                          ru: "Не получилось отметить. Проверь сеть.",
-                          ba: "Билдәләп булманы. Селтәрҙе тикшер.",
-                        }, undefined, { rideId: b.ride_id ?? 0, closing: true })
-                      }
+                      busy={busyId === b.booking_id || stageBlocked}
+                      onConfirm={() => {
+                        if (stageBlocked) return;
+                        void act(
+                          b.booking_id, () => stages.advance(b.booking_id, "no_show"),
+                          { ru: "Не получилось отметить. Проверь сеть.", ba: "Билдәләп булманы. Селтәрҙе тикшер." },
+                          undefined, { rideId: b.ride_id ?? 0, closing: true },
+                          outcome => outcome?.state === "applied" && outcome.trip?.status === "cancelled",
+                        );
+                      }}
                       onArriving={() =>
                         void act(
                           b.booking_id,

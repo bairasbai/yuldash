@@ -304,7 +304,7 @@ export function resolveDriverDecision(owner: BookingCommandOwner, decision: Book
   });
 }
 
-export type DriverStage = "boarded" | "done";
+export type DriverStage = "boarded" | "done" | "no_show";
 
 export interface DriverStageCommand extends CommandSlot {
   bookingId: number;

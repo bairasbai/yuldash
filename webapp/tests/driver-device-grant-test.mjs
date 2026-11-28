@@ -205,16 +205,21 @@ await t.test("настоящий кабинет: первый NoShow до GPS-с
  const r=gpsRig();r.rows=[row(101,"confirmed",{passenger_name:"Айгуль",route:"Сибай → Уфа",passenger_rating:null,my_stars:0}),row(102,"onboard",{passenger_name:"Бота",route:"Сибай → Уфа",passenger_rating:null,my_stars:0})];
  const http=deferred();const order=[];globalThis.__cabGrant={r,http,order};
  const View=await bundleComponent("src/components/DriverPassengers.tsx",{mocks:{
-  "/utils/useDriverStages":`export const useDriverStages=()=>({ready:true,busy:false,pending:[]});`,
+  "/utils/useDriverStages":`export const useDriverStages=()=>({ready:true,busy:false,pending:[],advance:(id,stage)=>{
+    const r=globalThis.__cabGrant;
+    r.stage=[id,stage];
+    r.order.push("HTTP");
+    return r.http.promise;
+  }});`,
     "/i18n/lang":langMock("ru"),"/api/client":`export class ApiError extends Error{};export const getSessionGeneration=()=>globalThis.__cabGrant.r.session;`,
-  "/api/bookings":`export const fetchDriverBookings=async()=>structuredClone(globalThis.__cabGrant.r.rows);export const markNoShow=()=>{globalThis.__cabGrant.order.push("HTTP");return globalThis.__cabGrant.http.promise;};export const markArriving=async()=>({});export const rateBooking=async()=>({});export const answerMeetingPoint=async()=>({});`,
+  "/api/bookings":`export const fetchDriverBookings=async()=>structuredClone(globalThis.__cabGrant.r.rows);export const markArriving=async()=>({});export const rateBooking=async()=>({});export const answerMeetingPoint=async()=>({});`,
   "/utils/driverActions":`export const beginDriverClick=(...args)=>{globalThis.__cabGrant.order.push("CLICK");return globalThis.__cabGrant.r.share.beginClick(...args);};export const finishDriverClick=(...args)=>{void globalThis.__cabGrant.r.share.finishClick(...args);};`,
   "/utils/rideShareStore":`export const rideShareKeep=rows=>globalThis.__cabGrant.r.share.keep(rows);export const subscribeRideShare=fn=>globalThis.__cabGrant.r.share.subscribe(fn);export const takeRidingFocus=()=>false;`
  }});
  const h=mount(View,{onOpenTrip:()=>{}});h.render();await h.settle();nothing(r);
  assert.equal(ofType(h.tree,"DriverBoarding")[0].props.rideId,7,"canonical ride передан контролу посадки");
- const callback=ofType(h.tree,"DriverNoShow")[0].props.onConfirm;callback();callback();assert.deepEqual(order,["CLICK","HTTP"]);nothing(r);
- r.rows=[row(101,"cancelled"),row(102,"onboard")];http.resolve({status:"cancelled"});await h.settle();await settle();
+ const callback=ofType(h.tree,"DriverNoShow")[0].props.onConfirm;callback();callback();assert.deepEqual(order,["CLICK","HTTP"]);assert.deepEqual(globalThis.__cabGrant.stage,[101,"no_show"]);nothing(r);
+ r.rows=[row(101,"cancelled"),row(102,"onboard")];http.resolve({state:"applied",trip:{role:"driver",status:"cancelled"}});await h.settle();await settle();
  assert.equal(r.started().id,102);r.fix();r.openSocket();assert.equal(r.frames().length,1);assert.ok(r.sockets.at(-1).url.includes("/102/"));
  h.unmount();await r.advance(GPS.HOLD_GRACE_MS);assert.equal(r.activeWatches().length,0);r.share.stop();
 });
@@ -244,7 +249,7 @@ for(const remains of [true,false])await t.test(`настоящий ActiveTrip: �
 
 await t.test("настоящие API/проводка/шина: queued status не создаёт grant; только связанное UI-нажатие до HTTP",async()=>{
   const r={requests:[],gets:[],starts:[],rows:[row(101)],generation:"A",time:1000,timers:[],ticket:null,queue:[],permissionListeners:[]};globalThis.__grantWire=r;
-  const lib=await build({stdin:{contents:`export {setDriverStatus} from "./src/api/driver.ts";export {markNoShow} from "./src/api/bookings.ts";
+  const lib=await build({stdin:{contents:`export {setDriverStatus} from "./src/api/driver.ts";
     export {beginDriverClick,finishDriverClick} from "./src/utils/driverActions.ts";export {enqueue,flushOutbox} from "./src/utils/outbox.ts";
     export {rideShareOpen,rideShareEnable} from "./src/utils/driverRideShare.ts";export {subscribeRideShare} from "./src/utils/rideShareStore.ts";`,resolveDir:ROOT,loader:"ts"},bundle:true,write:false,format:"esm",platform:"node",logLevel:"silent",
     define:{window:"globalThis.__grantWire.window",performance:"globalThis.__grantWire.performance"},plugins:[{name:"browser-http",setup(b){

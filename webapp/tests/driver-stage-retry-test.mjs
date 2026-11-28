@@ -49,7 +49,7 @@ async function fresh() {
   return { api, owner: api.bookingCommandOwner(driver, "session-a") };
 }
 
-for (const [stage, changedStatus] of [["boarded", "onboard"], ["done", "done"]]) {
+for (const [stage, changedStatus] of [["boarded", "onboard"], ["done", "done"], ["no_show", "cancelled"]]) {
   await t.test(stage + ": lost request before dispatch keeps the same key and body through restart", async () => {
     const { api, owner } = await fresh();
     const sent = [];
@@ -57,13 +57,14 @@ for (const [stage, changedStatus] of [["boarded", "onboard"], ["done", "done"]])
       const path = new URL(url).pathname;
       if (path.endsWith("/role")) return reply(role(changedStatus));
       if (path.startsWith("/command-intents/")) return reply(unseen);
-      assert.equal(path, "/bookings/21/commands/v1/driver-status");
+      const endpoint = stage === "no_show" ? "no-show" : "driver-status";
+      assert.equal(path, "/bookings/21/commands/v1/" + endpoint);
       const [saved] = await api.readDriverStageCommands(owner);
       assert.equal(saved.state, "unknown");
       assert.equal(saved.key, init.headers["Idempotency-Key"]);
       sent.push([saved.key, init.body]);
       if (sent.length === 1) throw TypeError("no response");
-      return reply({ ok: true, id: 21, status: changedStatus });
+      return reply(stage === "no_show" ? { id: 21, status: changedStatus, no_show: true } : { ok: true, id: 21, status: changedStatus });
     };
     await assert.rejects(api.advanceDriverStage(owner, 21, stage, signal()), { kind: "unknown" });
     const restarted = await start();
@@ -73,7 +74,8 @@ for (const [stage, changedStatus] of [["boarded", "onboard"], ["done", "done"]])
     assert.equal(sent.length, 1);
     const result = await restarted.repeatDriverStage(owner, saved, signal());
     assert.deepEqual(result, { state: "applied", trip: role(changedStatus) });
-    assert.deepEqual(sent, [[saved.key, JSON.stringify({ status: stage })], [saved.key, JSON.stringify({ status: stage })]]);
+    const body = stage === "no_show" ? undefined : JSON.stringify({ status: stage });
+    assert.deepEqual(sent, [[saved.key, body], [saved.key, body]]);
     assert.equal((await restarted.readDriverStageCommands(owner))[0].state, "applied");
   });
 }
@@ -99,6 +101,56 @@ await t.test("lost response after save reconciles with GET, and consented undo a
   assert.equal(keys.length, 1);
   status = "confirmed";
   assert.equal((await restarted.advanceDriverStage(owner, 21, "boarded", signal())).trip.status, "onboard");
+  assert.notEqual(keys[0], keys[1]);
+});
+
+await t.test("no-show loss after saving restores the terminal booking without another write", async () => {
+  const { api, owner } = await fresh();
+  const posts = [];
+  globalThis.fetch = async (url, init) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith("/role")) return reply(role("cancelled"));
+    if (path.startsWith("/command-intents/")) {
+      assert.equal(init.method, "GET");
+      return reply({ ...applied, scope: "booking.no_show", current: { id: 21, status: "cancelled", no_show: true } });
+    }
+    posts.push({ path, key: init.headers["Idempotency-Key"], body: init.body });
+    throw TypeError("saved but answer lost");
+  };
+  await assert.rejects(api.advanceDriverStage(owner, 21, "no_show", signal()), { kind: "unknown" });
+  const reopened = await start();
+  const [saved] = await reopened.readDriverStageCommands(owner);
+  const observed = await reopened.checkDriverStage(owner, saved, false, signal());
+  assert.equal(observed.state, "applied");
+  assert.equal(observed.trip.status, "cancelled");
+  assert.deepEqual(posts, [{ path: "/bookings/21/commands/v1/no-show", key: saved.key, body: undefined }]);
+  assert.equal((await reopened.readDriverStageCommands(owner))[0].state, "applied");
+});
+
+await t.test("early no-show stores a rejection and the next explicit confirmation uses a new key", async () => {
+  const { api, owner } = await fresh();
+  const keys = [];
+  globalThis.fetch = async (url, init) => {
+    const path = new URL(url).pathname;
+    if (path.endsWith("/role")) return reply(role("cancelled"));
+    if (path.startsWith("/command-intents/")) return reply({
+      state: "rejected", scope: "booking.no_show", ref_id: null, ref_kind: null, current: null,
+      result_code: "no_show_too_early",
+    });
+    assert.equal(path, "/bookings/21/commands/v1/no-show");
+    assert.equal(init.body, undefined);
+    keys.push(init.headers["Idempotency-Key"]);
+    return keys.length === 1
+      ? reply({ detail: { code: "no_show_too_early", ru: "Ещё рано" } }, 409)
+      : reply({ id: 21, status: "cancelled", no_show: true });
+  };
+  const refused = await api.advanceDriverStage(owner, 21, "no_show", signal());
+  assert.equal(refused.state, "rejected");
+  assert.equal(refused.refusal.status, 409);
+  const [previous] = await api.readDriverStageCommands(owner);
+  assert.equal(previous.state, "rejected");
+  assert.equal((await api.advanceDriverStage(owner, 21, "no_show", signal())).state, "applied");
+  assert.equal(keys.length, 2);
   assert.notEqual(keys[0], keys[1]);
 });
 
