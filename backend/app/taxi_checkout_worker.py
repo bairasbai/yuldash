@@ -13,6 +13,9 @@ from .routers.payments import _sync_provider_status
 from .timeutil import utcnow
 
 
+_NOT_SEEN_RESCAN_DELAY = timedelta(minutes=10)
+
+
 def _lock_taxi_payment(session: Session, payment_id: int) -> Payment | None:
     payment = session.get(Payment, payment_id, with_for_update=True, populate_existing=True)
     if payment and payment.purpose == "ride" and payment.order_id is not None and payment.method == "yookassa":
@@ -40,17 +43,24 @@ def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = 
         scan = session.get(TaxiCheckoutScan, payment_id)
         if scan is not None and scan.shop_id != settings.yookassa_shop_id:
             return "shop_changed"
-        if payment.provider_id:
-            return _sync_linked(session, payment) if scan and scan.state == "linked" else "already_linked"
+        if payment.provider_id and scan is None:
+            return "already_linked"
+        if payment.provider_id and scan.state == "linked":
+            return _sync_linked(session, payment)
         if scan is None:
             if payment.created_at > now - timedelta(minutes=5):
                 return "too_recent"
             scan = TaxiCheckoutScan(payment_id=payment_id, cutoff=now, shop_id=settings.yookassa_shop_id)
             session.add(scan)
+        elif scan.state == "not_seen" and now >= scan.cutoff + _NOT_SEEN_RESCAN_DELAY:
+            # Сканируем весь расширенный интервал, не только хвост, чтобы увидеть конфликт
+            # со строкой старого окна, которую провайдер мог опубликовать с задержкой.
+            scan.cutoff, scan.cursor, scan.candidate, scan.state = now, None, None, "scanning"
+            session.add(scan)
         if scan.state != "scanning":
             return scan.state
         cutoff, shop, cursor, match = scan.cutoff, scan.shop_id, scan.cursor, scan.candidate
-        created_at, amount = payment.created_at, payment.amount_kop
+        created_at, amount, known_id = payment.created_at, payment.amount_kop, payment.provider_id
         session.commit()
 
     try:
@@ -61,7 +71,7 @@ def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = 
     with Session(db) as session:
         payment = _lock_taxi_payment(session, payment_id)
         scan = session.get(TaxiCheckoutScan, payment_id)
-        if payment is None or scan is None or payment.status != "pending" or payment.provider_id:
+        if payment is None or scan is None or payment.status != "pending" or payment.provider_id != known_id:
             return "changed"
         if (
             (scan.state, scan.cutoff, scan.shop_id, scan.cursor, scan.candidate)
@@ -76,12 +86,17 @@ def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = 
             scan.cursor, scan.candidate = page.cursor, page.match
         elif page.match is None:
             scan.state = "not_seen"  # отсутствие платежа не является подтверждённой отменой
-        elif session.exec(select(Payment.id).where(Payment.provider_id == page.match).limit(1)).first() is not None:
+        elif (known_id and known_id != page.match) or session.exec(select(Payment.id).where(
+            Payment.provider_id == page.match, Payment.id != payment_id,
+        ).limit(1)).first() is not None:
             scan.state = "ambiguous"
         else:
-            scan.state = "linked"
-            payment.provider_id = page.match
-            session.add(payment)
+            # Пассажир мог уже привязать этот id и потерять ответ о статусе. Завершаем
+            # ту же сверку, только если весь интервал подтвердил именно этот id.
+            scan.state, scan.candidate = "linked", page.match
+            if not known_id:
+                payment.provider_id = page.match
+                session.add(payment)
         session.add(scan)
         result = scan.state
         if result == "linked":
