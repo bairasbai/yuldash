@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Статус | не начато |
+| Статус | [Реестр RS-12](../../audit-blocks.md) |
 | Ждёт «да» Александра | нет — миграций, денег, тарифов нет |
 | Зависит от | **А:** —. **Б:** RS-02 (`ride_seats.py`: `any_free_sql`, `free_on`, `max_free`; кеш `v3`) |
 | Не параллельно с | RS-02 (`rides.py`); RS-10, RS-11 (`MapScreen.kt`, `HomeScreen.tsx`, `SessionKeys.kt`); RS-05, RS-07, RS-09 (`ApiClient.kt`, `YuldashApp.kt`) |
@@ -44,7 +44,7 @@
 ### Сайт (`webapp/`)
 1. **W1 (А).** `api/discovery.ts`: `NearQuery.seats` → `seats=` при > 1; `NearRidesPage.hidden_by_seats`, `max_free_seats`, `count_at_max_free`. `api/rides.ts`: `RidesQuery.seats` (зеркало сервера). **`RidesScreen.tsx` (`/rides/feed`) места не применяет и не передаёт**: там нет чипа и строки, поездки пропадали бы молча.
 2. **W2.** `filterPrefs.ts`: `seats` (1…8, по умолчанию 1) в JSON, чтение с проверкой диапазона; `write` и `saveVerifiedOnly` не теряют `seats`; строка в `FiltersScreen.tsx`.
-3. **W3.** `nearbyFeed.ts`: `seats` в `NearbyFilters`, `nearbyQuery`, `nearbyContextKey`; состояние `"seats"` в `nearbyFeedState`; `seatsHiddenLabel(...)` использует `count_at_max_free` как M и `max_free_seats` как K, не `hidden_by_seats`; правило и фраза строго как A5. `NearbyFilters.tsx`: чип «Мест» + шторка; `HomeScreen.tsx`: состояние `seats` (старт — `loadFilters().seats`), карточка `NearbySeatsCard.tsx`, сброс в `resetFeedFilters`; чип меняет цвет CSS-переходом.
+3. **W3.** `nearbyFeed.ts`: `seats` в `NearbyFilters`, `nearbyQuery`, `nearbyContextKey`; состояние `"seats"` в `nearbyFeedState`; `seatsHiddenLabel(...)` использует `count_at_max_free` как M и `max_free_seats` как K, не `hidden_by_seats`; правило и фраза строго как A5. `NearbyFilters.tsx`: чип «Мест» + шторка; `HomeScreen.tsx`: состояние `seats` (старт — `loadFilters().seats`), карточка `NearbySeatsCard.tsx`, сброс в `resetFeedFilters`; чип меняет цвет CSS-переходом. При выборе популярного маршрута `HomeScreen.tsx` сохраняет дату, условия и места в текущей ленте карты. Ручные города имеют приоритет, как в Android. Карточки относятся только к текущему ключу поиска.
 4. **W4.** `RideSheet.tsx`: `initialSeats` из ленты (иначе `loadFilters().seats`) — стартовое значение в `useState` и в сбросе `:85`, **без clamp** по `seats_left`. При нехватке после обновления/смены участка — сохранить N, отключить отправку, показать «Уменьшить до K» с новым итогом; только отдельное нажатие меняет N, как A6. Случай 0 — поиск другой поездки.
 
 ## 4. База данных

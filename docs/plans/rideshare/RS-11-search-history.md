@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Статус | не начато |
+| Статус | [Реестр RS-11](../../audit-blocks.md) |
 | Ждёт «да» Александра | нет — сервер не меняется, базы и денег нет |
 | Зависит от | — |
 | Не параллельно с | RS-10, RS-12 (`MapScreen.kt`, `NearbyFilters.tsx` — общий с RS-12, `RidesScreen.tsx`, `tests/run.mjs`); RS-12 (строка `yuldash_filters` в `SessionKeys.kt`); `CreateRideScreen.kt` в зону RS-11 не входит |
@@ -41,7 +41,7 @@
 ### Сайт (`webapp/`)
 1. **W1.** `utils/searchHistory.ts` — те же правила; ключ `yuldash.searchHistory` в `localStorage` через `storageOperation`/`storageFenced` (как `utils/formDraft.ts`); недоступное хранилище — истории просто нет, без ошибок на экране.
 2. **W2.** `utils/privacy.ts`: `"yuldash.searchHistory"` в `PERSONAL_KEYS` — без этого `privacy-guard-test.mjs` красный. `tests/privacy-test.mjs`: ключ в проверяемом наборе.
-3. **W3.** Запись: закрытие шторки городов (`NearbyFilters.tsx:368`, новый колбэк) и `RidesScreen.tsx` при `?from=&to=` (название чипа может быть башкирским — привести к русскому по справочнику, не нашлось — не писать).
+3. **W3.** Запись: закрытие шторки городов (`NearbyFilters.tsx:368`, новый колбэк) и явное нажатие чипа популярного маршрута в `HomeScreen.tsx`. Записывать русские имена из справочника. Башкирский вариант используется для подписи. Прямое открытие `/rides/feed?from=&to=` не создаёт запись.
 4. **W4.** `components/SearchHistory.tsx` — тот же блок, что А4, вверху шторки городов; повтор → `cityFilter.setFrom/setTo`, сбросить карусельный маршрут, сохранить текущий день/условия/места, закрыть шторку, лента сверху; «Очистить» — с подтверждением, как `RecentPlaces.tsx:86-123`. Появление и уход строк — CSS-переход (`ui.css`, токены движения сайта).
 
 ## 4. База данных

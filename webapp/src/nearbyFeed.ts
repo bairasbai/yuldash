@@ -82,6 +82,8 @@ export const NEARBY_PAGE = 30;
 export const NEARBY_MAX = 200;
 
 export interface NearbyFilters {
+  /** Популярный маршрут. Ручные «Откуда» и «Куда» имеют приоритет. */
+  focus?: { from: string; to: string };
   coords: { lat: number; lng: number } | null;
   /** YYYY-MM-DD или null — все дни. */
   day: string | null;
@@ -102,16 +104,21 @@ export function cityFilterActive(f: Pick<NearbyFilters, "fromCities" | "toCities
 /**
  * Параметры запроса ленты.
  *
- * Радиус — только когда знаем место человека И не выбран город: место тогда задаёт сам
- * человек, а «Куда · Сибай» из Уфы иначе дал бы ложное «поездок нет» (поездки — из Баймака).
+ * С ручным выбором городов сервер ищет по нему. Иначе учитывает популярный маршрут
+ * и радиус, если известна позиция человека. Так же устроен поиск в Android.
  * Координаты при этом уходят — по ним считается расстояние на карточках.
  */
 export function nearbyQuery(f: NearbyFilters, limit: number): NearQuery {
   const query: NearQuery = { limit: Math.min(Math.max(1, Math.floor(limit)), NEARBY_MAX) };
+  const manualCities = cityFilterActive(f);
   if (f.coords) {
     query.lat = f.coords.lat;
     query.lng = f.coords.lng;
-    if (!cityFilterActive(f)) query.radius_km = NEARBY_RADIUS_KM;
+    if (!manualCities) query.radius_km = NEARBY_RADIUS_KM;
+  }
+  if (f.focus && !manualCities) {
+    query.from_city = f.focus.from;
+    query.to_city = f.focus.to;
   }
   if (f.day) query.date = f.day;
   if ((f.seats ?? 1) > 1) query.seats = f.seats;
@@ -136,6 +143,7 @@ export function nearbyContextKey(f: NearbyFilters): string {
     f.verifiedOnly,
     [...f.fromCities].sort(),
     [...f.toCities].sort(),
+    f.focus ? [f.focus.from, f.focus.to] : null,
   ]);
 }
 

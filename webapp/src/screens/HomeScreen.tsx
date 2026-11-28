@@ -126,6 +126,8 @@ export default function HomeScreen() {
   const [season, setSeason] = useState<SeasonalEvent | null>(null);
   // Пресеты популярных маршрутов — чипы «Сибай → Уфа» в один тап.
   const [popular, setPopular] = useState<PopularRoute[]>([]);
+  const [pickedRoute, setPickedRoute] = useState<{ owner: string; route: PopularRoute } | null>(null);
+  const focus = pickedRoute?.owner === searchOwner ? pickedRoute.route : null;
   const [rides, setRides] = useState<NearRide[]>([]);
   /** Сколько поездок подходит всего (`count` сервера, с учётом условий) — для «Показать ещё» и кнопки шторки. */
   const [total, setTotal] = useState(0);
@@ -149,7 +151,7 @@ export default function HomeScreen() {
    */
   const [conditions, setConditions] = useState<NearbyCondition[]>(() => loadFilters().conditions);
   const [seats, setSeats] = useState(() => loadFilters().seats);
-  const [seatsResult, setSeatsResult] = useState<{ key: string; owner: string; seats: number; group: SmallerGroup | null } | null>(null);
+  const [searchResult, setSearchResult] = useState<{ key: string; group: SmallerGroup | null } | null>(null);
   /**
    * «Проверенные водители на карте» из раздела «Безопасность»: здесь её не переключают, только читают.
    * С 17.10.2026 включена по умолчанию у всех, кто не выбирал (решение Александра), — значит, и у гостя:
@@ -166,14 +168,15 @@ export default function HomeScreen() {
   /** «Откуда» и «Куда»: выбранные города и из чего выбирать. */
   const cityFilter = useNearbyCityFilter(reloadTick);
   const watchRoute = {
-    from: cityFilter.from.length === 1 ? cityFilter.from[0] : "",
-    to: cityFilter.to.length === 1 ? cityFilter.to[0] : "",
+    from: cityFilter.from.length > 1 ? "" : cityFilter.from[0] ?? focus?.from.name_ru ?? "",
+    to: cityFilter.to.length > 1 ? "" : cityFilter.to[0] ?? focus?.to.name_ru ?? "",
     day,
   };
   const previousSearchOwner = useRef(searchOwner);
   useEffect(() => {
     if (previousSearchOwner.current === searchOwner) return;
     previousSearchOwner.current = searchOwner;
+    setPickedRoute(null);
     cityFilter.clear();
     setSeats(loadFilters().seats);
     setSheet(null);
@@ -182,8 +185,12 @@ export default function HomeScreen() {
 
   /** Поиск с сохранённой настройкой: по его ключу (без места) «Показать» действует только здесь. */
   const savedFilters = useMemo<NearbyFilters>(
-    () => ({ coords: me, day, conditions, seats, verifiedOnly: storedVerifiedOnly, fromCities: cityFilter.from, toCities: cityFilter.to }),
-    [me, day, conditions, seats, storedVerifiedOnly, cityFilter.from, cityFilter.to]
+    () => ({
+      coords: me, day, conditions, seats, verifiedOnly: storedVerifiedOnly,
+      fromCities: cityFilter.from, toCities: cityFilter.to,
+      focus: focus ? { from: focus.from.name_ru, to: focus.to.name_ru } : undefined,
+    }),
+    [me, day, conditions, seats, storedVerifiedOnly, cityFilter.from, cityFilter.to, focus]
   );
   const revealKey = JSON.stringify([searchOwner, nearbyRevealKey(savedFilters)]);
   const verifiedOnly = nearbyVerifiedOnly(storedVerifiedOnly, revealedFor, revealKey);
@@ -200,17 +207,30 @@ export default function HomeScreen() {
   // не просила сервер дважды: сначала со старым лимитом, потом с новым.
   if (pageState.key !== contextKey) setPageState({ key: contextKey, limit: NEARBY_PAGE });
   const limit = pageState.key === contextKey ? pageState.limit : NEARBY_PAGE;
-  const group = seatsResult?.key === contextKey && status === "ready" ? seatsResult.group : null;
-  const staleOwner = seatsResult !== null && seatsResult.owner !== searchOwner;
-  const waitingForSeats = staleOwner || ((seatsResult?.seats ?? 1) !== seats && status !== "error");
+  const currentResult = searchResult?.key === contextKey ? searchResult : null;
+  const group = status === "ready" ? currentResult?.group ?? null : null;
   const hasResettableFilter = conditions.length > 0 || cityFilter.active || day != null || seats > 1;
 
   /** Условия режет сервер; здесь — подстраховка на старый сервер, где их не знают (`shownNearby` в MapScreen.kt). */
   const shownRides = useMemo(
-    () => waitingForSeats ? [] : conditions.length === 0 && !verifiedOnly && seats === 1 ? rides :
+    () => !currentResult ? [] : conditions.length === 0 && !verifiedOnly && seats === 1 ? rides :
       rides.filter((r) => matchesNearbyConditions(r, conditions, verifiedOnly) && (seats === 1 || rideFitsGroup(r, seats))),
-    [rides, conditions, verifiedOnly, seats, waitingForSeats]
+    [rides, conditions, verifiedOnly, seats, currentResult]
   );
+
+  function scrollToNearby() {
+    requestAnimationFrame(() => nearbyHeader.current?.scrollIntoView({ block: "start" }));
+  }
+
+  function choosePopularRoute(route: PopularRoute) {
+    if (searchOwner !== getSessionGeneration()) return;
+    setPickedRoute({ owner: searchOwner, route });
+    void recordSearch(searchOwner, {
+      from: [route.from.name_ru], to: [route.to.name_ru],
+      labels: { [route.from.name_ru]: route.from.name_ba ?? "", [route.to.name_ru]: route.to.name_ba ?? "" },
+    }, false);
+    scrollToNearby();
+  }
 
   /** Сброс из пустой ленты: снимает условия и города. «Только проверенные» — настройка «Безопасности», её не трогаем. */
   function resetFeedFilters() {
@@ -221,15 +241,15 @@ export default function HomeScreen() {
   }
 
   const feedState = nearbyFeedState({
-    loading: status === "loading" || waitingForSeats,
-    error: status === "error",
-    fetched: rides.length,
+    loading: status === "loading" || !currentResult,
+    error: status === "error" && currentResult !== null,
+    fetched: currentResult ? rides.length : 0,
     shown: shownRides.length,
     conditionsOn: conditions.length > 0,
     cityActive: cityFilter.active,
     dayOn: day != null,
     verifiedOnly,
-    hiddenUnverified: seatsResult?.key === contextKey ? hiddenUnverified : 0,
+    hiddenUnverified: currentResult ? hiddenUnverified : 0,
     seatsOn: seats > 1, smallerGroupAvailable: group != null,
   });
 
@@ -255,7 +275,7 @@ export default function HomeScreen() {
           setRides(r.items);
           setTotal(r.count);
           setHiddenUnverified(r.hidden_unverified ?? 0);
-          setSeatsResult({ key, owner: searchOwner, seats: filters.seats ?? 1, group: smallerGroup(r, filters.seats ?? 1) });
+          setSearchResult({ key, group: smallerGroup(r, filters.seats ?? 1) });
           setStatus("ready");
         })
         .catch((e) => {
@@ -270,8 +290,8 @@ export default function HomeScreen() {
             setRides([]);
             setTotal(0);
             setHiddenUnverified(0);
-            setSeatsResult(null);
           }
+          setSearchResult({ key, group: null });
           setStatus("error");
         });
     },
@@ -434,14 +454,14 @@ export default function HomeScreen() {
           Ряд виден, пока есть что фильтровать, или включён хоть один фильтр (путь назад), или на
           сервере есть города с поездками — «Откуда» ведёт к ним, даже если рядом пусто.
           «Когда» видно ВСЕГДА: это путь назад со «Сегодня» на «Все дни». */}
-      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0 || seats > 1, citiesOffered: cityFilter.offered || hasHistory, nearOnly }) && (
+      {filtersRowVisible({ fetched: rides.length, day, conditionsOn: conditions.length > 0 || seats > 1, citiesOffered: cityFilter.offered || hasHistory || focus !== null, nearOnly }) && (
         <div className="nearby-filters">
           <div className="nearby-filters__row" role="group" aria-label={appText("Фильтры ленты", "Таҫма фильтрҙары")}>
             <NearbyCityChips key={searchOwner} filter={cityFilter} hasHistory={hasHistory}
-              onRepeat={() => requestAnimationFrame(() => nearbyHeader.current?.scrollIntoView({ block: "start" }))} />
+              onRepeat={() => { setPickedRoute(null); scrollToNearby(); }} />
             <NearbyWhenChip day={day} onChange={setDay} />
             <NearbySeatsChip seats={seats} onChange={setSeats} />
-            <NearbyConditionsChip chosen={conditions} onChange={setConditions} verifiedOnly={verifiedOnly} total={total} />
+            <NearbyConditionsChip chosen={conditions} onChange={setConditions} verifiedOnly={verifiedOnly} total={currentResult ? total : 0} />
             {/* Только в вебе: браузер не знает место без разрешения — чип просит его и сужает выдачу. */}
             <span className="nearby-filters__div" aria-hidden />
             <NearbyChip icon={<IconLocate size={15} />} label={appText("Ближайшие", "Иң яҡындар")} active={nearOnly} onClick={toggleNear} />
@@ -513,18 +533,14 @@ export default function HomeScreen() {
           {popular.map((r) => {
             const a = ru ? r.from.name_ru : r.from.name_ba || r.from.name_ru;
             const b = ru ? r.to.name_ru : r.to.name_ba || r.to.name_ru;
+            const selected = !cityFilter.active && focus?.from.id === r.from.id && focus?.to.id === r.to.id;
             return (
               <button
                 key={`${r.from.id}-${r.to.id}`}
                 type="button"
-                className="chip"
-                onClick={() => {
-                  void recordSearch(searchOwner, {
-                    from: [r.from.name_ru], to: [r.to.name_ru],
-                    labels: { [r.from.name_ru]: r.from.name_ba ?? "", [r.to.name_ru]: r.to.name_ba ?? "" },
-                  }, false);
-                  navigate(`/rides/feed?from=${encodeURIComponent(a)}&to=${encodeURIComponent(b)}`);
-                }}
+                className={selected ? "chip chip--on" : "chip"}
+                aria-pressed={selected}
+                onClick={() => choosePopularRoute(r)}
               >
                 {a} → {b}
               </button>
@@ -540,10 +556,15 @@ export default function HomeScreen() {
 
       <div ref={nearbyHeader} className="nearby-header">
         <h2 className="section-title">{appText("Ближайшие поездки", "Яҡындағы сәфәрҙәр")}</h2>
-        {!staleOwner && rides.length > 0 && (
+        {shownRides.length > 0 && (
           <span className="nearby-header__count">{appText(`${shownRides.length} рядом`, `${shownRides.length} яҡында`)}</span>
         )}
       </div>
+      {focus && (
+        <button type="button" className="chip chip--on" onClick={() => setPickedRoute(null)}>
+          {appText("Все маршруты", "Бөтә маршруттар")}
+        </button>
+      )}
       {seats > 1 && (
         <p className="nearby-seats-hint">
           {appText(`Показаны поездки, где свободно ${seats} ${pluralRu(seats, "место", "места", "мест")} и больше.`, `${seats} һәм күберәк буш урынлы сәфәрҙәр күрһәтелә.`)}
