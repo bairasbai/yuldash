@@ -1,5 +1,7 @@
 """Предложение своего опубликованного рейса не создаёт второй рейс и не теряет участок."""
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
+from threading import Event
 from types import SimpleNamespace
 
 import pytest
@@ -169,6 +171,71 @@ def test_bound_offer_holds_route_and_request_locks_while_capturing_terms(
     monkeypatch.setattr(requests_mod.request_segments, "snapshot", check_locks)
     offer(client, driver, request_id, ride_id)
     assert contended == [RideRequest, Ride]
+
+
+def test_concurrent_bound_offer_replay_keeps_one_response(client, deal, monkeypatch):
+    driver, _, ride_id, request_id = deal
+    first_logged = Event()
+    release_first = Event()
+    real_log = antifraud.log_text_flag
+
+    def hold_first_reply(session, user_id, kind, place, ref_id):
+        real_log(session, user_id, kind, place, ref_id)
+        if not first_logged.is_set():
+            first_logged.set()
+            assert release_first.wait(5), "Повтор не получил ответ параллельно первой отправке"
+
+    monkeypatch.setattr(antifraud, "log_text_flag", hold_first_reply)
+    url = f"/requests/{request_id}/respond"
+    data = {"ride_id": ride_id, "price": 450, "comment": "У вокзала, звоните 8 917 000-00-00"}
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first_future = pool.submit(client.post, url, headers=driver["auth"], json=data)
+        try:
+            assert first_logged.wait(5), "Первая отправка не дошла до записи метки"
+            repeat = pool.submit(client.post, url, headers=driver["auth"], json=data).result(timeout=5)
+        finally:
+            release_first.set()
+        first = first_future.result(timeout=5)
+
+    assert first.status_code == repeat.status_code == 200, (first.text, repeat.text)
+    response_id = first.json()["id"]
+    assert repeat.json()["id"] == response_id
+    with Session(engine) as session:
+        assert session.exec(select(RequestResponse.id).where(
+            RequestResponse.request_id == request_id,
+            RequestResponse.driver_id == driver["id"],
+        )).all() == [response_id]
+
+
+@pytest.mark.skipif(engine.dialect.name != "postgresql", reason="PostgreSQL row locks")
+def test_accept_keeps_bound_offer_locks_with_expired_safety_standing(client, deal, monkeypatch):
+    driver, passenger, ride_id, request_id = deal
+    response_id = offer(client, driver, request_id, ride_id)
+    with Session(engine) as session:
+        session.add(SafetyProfile(
+            user_id=passenger["id"], standing="suspended", suspended_until=utcnow() - timedelta(days=1),
+        ))
+        session.commit()
+
+    real_snapshot = requests_mod.request_segments.snapshot
+    contended = []
+
+    def check_locks(ride, req):
+        for model, row_id in ((RideRequest, request_id), (RequestResponse, response_id), (Ride, ride_id)):
+            with Session(engine) as competing:
+                try:
+                    competing.exec(select(model.id).where(model.id == row_id).with_for_update(nowait=True))
+                except OperationalError as error:
+                    assert error.orig.pgcode == "55P03"
+                    contended.append(model)
+        return real_snapshot(ride, req)
+
+    monkeypatch.setattr(requests_mod.request_segments, "snapshot", check_locks)
+    with Session(engine) as session:
+        row = session.get(RequestResponse, response_id)
+        booking = requests_mod.accept_request_response(session, row)
+        assert booking.ride_id == ride_id
+    assert contended == [RideRequest, RequestResponse, Ride]
 
 
 def test_repeat_respond_cannot_silently_rebind_an_offer(client, deal):
