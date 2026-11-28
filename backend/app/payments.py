@@ -205,6 +205,33 @@ def find_taxi_provider_payment(payment_id: int, amount_kop: int, created_at: dat
     return None  # неполная выдача не доказывает уникальность
 
 
+def fetch_taxi_payment_status(provider_id: str, payment_id: int, amount_kop: int, shop: str) -> dict:
+    """Authenticated, bounded status read for the background taxi reconciler."""
+    if not _yookassa_live() or settings.yookassa_shop_id != shop:
+        raise PaymentsUnavailable("Taxi checkout merchant changed or is disabled")
+    if str(uuid.UUID(provider_id)) != provider_id:
+        raise ValueError("Invalid taxi payment provider id")
+    import httpx
+    response = httpx.get(
+        f"{YOOKASSA_API}/{provider_id}",
+        auth=(shop, settings.yookassa_secret_key), timeout=3,
+    )
+    response.raise_for_status()
+    result = response.json()
+    if not isinstance(result, dict) or result.get("id") != provider_id:
+        raise ValueError("Unexpected taxi payment id")
+    metadata, amount, recipient = result.get("metadata"), result.get("amount"), result.get("recipient")
+    if not isinstance(metadata, dict) or metadata.get("payment_id") != str(payment_id):
+        raise ValueError("Unexpected taxi payment metadata")
+    if (
+        not isinstance(amount, dict) or not isinstance(recipient, dict)
+        or amount.get("currency") != "RUB" or amount.get("value") != _rub(amount_kop)
+        or recipient.get("account_id") != shop or settings.yookassa_shop_id != shop
+    ):
+        raise ValueError("Unexpected taxi payment merchant or amount")
+    return result
+
+
 def fetch_payment(provider_id: str) -> dict:
     """Перепроверить платёж по id в ЮKassa (для вебхука — не доверяем телу).
     Возврат: {status, metadata, confirmation_url}. mock (только dev) — всегда succeeded;

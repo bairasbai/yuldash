@@ -43,6 +43,7 @@ from .logs import log
 from .models import InstantOrder, InstantOrderStatus as S, ParcelDelivery
 from .services import push_notification
 from .taxi_auto_commission import retry_auto_commissions
+from .taxi_checkout_sweep import sweep_taxi_checkouts
 from .timeutil import utcnow
 
 # Статусы, из которых заказ уже никуда не уедет сам (терминальные).
@@ -462,6 +463,8 @@ def close_stuck_parcels(session: Session, dry_run: bool = False) -> list:
     # Реклама с вышедшим сроком (волна 125): показы прекращались сами, а в кабинете горело
     # «Оплачено · показывается» и уведомления не было — человек шёл в поддержку с обвинением.
     ("ads_expired", lambda s, d: ads_expire.expire_finished_ads(s, d), 0),
+    # Last and strictly bounded: no bank latency before active ride tasks.
+    ("taxi_checkouts_polled", lambda s, d: 0 if d else sweep_taxi_checkouts(), 0),
 )
 
 

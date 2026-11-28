@@ -32,19 +32,21 @@ def yookassa_says_paid(monkeypatch):
     return sent
 
 
-def _done_order_with_stale_link(client, user_factory, provider_id: str):
-    """Завершённая поездка + начатая, но брошенная оплата картой (ссылка ЮKassa жива)."""
+def _done_order_with_stale_link(user_factory, provider_id: str, *, legacy_cash: bool = True):
+    """Исторический статус: до запрета наличных при открытой оплате ссылка могла пережить отмену."""
     pax = user_factory(name="Пассажир с двойной оплатой")
     drv = user_factory(name="Водитель наличными", role=UserRole.driver)
     with Session(engine) as s:
         o = InstantOrder(passenger_id=pax["id"], driver_id=drv["id"],
-                         status=InstantOrderStatus.done, price_final=500,
+                         status=InstantOrderStatus.done, price_final=500, paid=legacy_cash,
+                         payment_method="cash" if legacy_cash else "",
                          from_lat=53.0, from_lng=58.0, to_lat=53.1, to_lng=58.1)
         s.add(o)
         s.commit()
         s.refresh(o)
         p = Payment(user_id=pax["id"], purpose="ride", order_id=o.id, amount_kop=50000,
-                    method="card", provider_id=provider_id, status="pending")
+                    method="yookassa", provider_id=provider_id,
+                    status="canceled" if legacy_cash else "pending")
         s.add(p)
         s.commit()
         s.refresh(p)
@@ -53,12 +55,7 @@ def _done_order_with_stale_link(client, user_factory, provider_id: str):
 
 def test_оплата_по_старой_ссылке_не_растворяется(client, user_factory, yookassa_says_paid):
     """Заплатил наличными, потом случайно ещё и картой — деньги видны, и человеку сказали."""
-    pax, _drv, order_id, payment_id = _done_order_with_stale_link(client, user_factory, "pid_late_1")
-
-    r = client.post(f"/instant/orders/{order_id}/pay", headers=pax["auth"], json={"method": "cash"})
-    assert r.status_code == 200 and r.json()["status"] == "paid"
-    with Session(engine) as s:
-        assert s.get(Payment, payment_id).status == "canceled"   # свой безнал погасили
+    pax, _drv, _order_id, payment_id = _done_order_with_stale_link(user_factory, "pid_late_1")
 
     # По старой ссылке всё-таки заплатили.
     assert client.post("/payments/yookassa/webhook",
@@ -87,8 +84,7 @@ def test_оплата_по_старой_ссылке_не_растворяетс
 
 def test_повторный_вебхук_не_плодит_обращения(client, user_factory, yookassa_says_paid):
     """ЮKassa повторяет вебхуки. Второй раз — ни второго тикета, ни второго обещания."""
-    pax, _drv, order_id, payment_id = _done_order_with_stale_link(client, user_factory, "pid_late_2")
-    client.post(f"/instant/orders/{order_id}/pay", headers=pax["auth"], json={"method": "cash"})
+    pax, _drv, _order_id, payment_id = _done_order_with_stale_link(user_factory, "pid_late_2")
 
     for _ in range(3):
         assert client.post("/payments/yookassa/webhook",
@@ -104,7 +100,7 @@ def test_повторный_вебхук_не_плодит_обращения(cl
 
 def test_обычная_оплата_картой_по_прежнему_доходит_до_водителя(client, user_factory, yookassa_says_paid):
     """Регресс: живой платёж (pending) вебхук как применял, так и применяет."""
-    pax, drv, _order_id, payment_id = _done_order_with_stale_link(client, user_factory, "pid_ok_1")
+    pax, drv, _order_id, payment_id = _done_order_with_stale_link(user_factory, "pid_ok_1", legacy_cash=False)
 
     assert client.post("/payments/yookassa/webhook",
                        json={"object": {"id": "pid_ok_1"}}).status_code == 200
@@ -122,8 +118,7 @@ def test_вторая_дверь_проверка_статуса_тоже_зам
     Раньше она смотрела только на «ещё не оплачен» и мимо отменённого платежа проходила молча:
     правило стояло на одной двери из двух.
     """
-    pax, _drv, order_id, payment_id = _done_order_with_stale_link(client, user_factory, "pid_late_3")
-    client.post(f"/instant/orders/{order_id}/pay", headers=pax["auth"], json={"method": "cash"})
+    pax, _drv, _order_id, payment_id = _done_order_with_stale_link(user_factory, "pid_late_3")
 
     # Вебхука НЕ было. Человек просто вернулся в приложение, и оно спросило статус платежа.
     r = client.get(f"/payments/{payment_id}/status", headers=pax["auth"])

@@ -87,16 +87,43 @@ def _pending_ride_payment(session: Session, order_id: int, passenger_id: int) ->
     ).order_by(Payment.id.desc()).limit(1)).first()
 
 
+def _check_completed_cancellation(session: Session, order_id: int, passenger_id: int) -> dict:
+    # The caller might have released the order lock for HTTP. Recheck payment and
+    # newer attempts under the order lock before suggesting a different method.
+    order = session.get(InstantOrder, order_id, with_for_update=True, populate_existing=True)
+    if order is None or order.passenger_id != passenger_id:
+        raise _checkout_unresolved()
+    if order.paid:
+        return {"status": "already_paid", "method": order.payment_method}
+    if _pending_ride_payment(session, order_id, passenger_id) is not None:
+        raise _checkout_unresolved()
+    latest = session.exec(select(Payment).where(
+        Payment.order_id == order_id, Payment.user_id == passenger_id,
+        Payment.purpose == "ride", Payment.method == "yookassa",
+    ).order_by(Payment.id.desc()).limit(1).execution_options(populate_existing=True)).first()
+    if latest and latest.status == "canceled" and latest.taxi_provider_canceled_at is not None:
+        return {"status": "canceled", "method": "yookassa", "payment_id": latest.id}
+    raise _checkout_unresolved()
+
+
 def _check_taxi_checkout(session: Session, order: InstantOrder) -> dict:
     # This action never creates a checkout, including on an older server (unknown method).
-    payment = _pending_ride_payment(session, order.id, order.passenger_id)
-    if payment is None or settings.payments_provider != "yookassa" or payments_closed():
+    order_id, passenger_id = order.id, order.passenger_id
+    payment = _pending_ride_payment(session, order_id, passenger_id)
+    if payment is None:
+        return _check_completed_cancellation(session, order_id, passenger_id)
+    if settings.payments_provider != "yookassa" or payments_closed():
         raise _checkout_unresolved()
     if not payment.provider_id:
-        return _reconcile_interrupted_taxi_checkout(session, payment)
+        result = _reconcile_interrupted_taxi_checkout(session, payment)
+        if result["status"] == "canceled":
+            return _check_completed_cancellation(session, order_id, passenger_id)
+        return result
     session.commit()
     payment, info = _sync_provider_status(session, payment)
-    if payment.status in ("succeeded", "canceled", "pending"):
+    if payment.status == "canceled":
+        return _check_completed_cancellation(session, order_id, passenger_id)
+    if payment.status in ("succeeded", "pending"):
         body = {"status": payment.status, "method": "yookassa", "payment_id": payment.id}
         if payment.status == "pending":
             body["confirmation_url"] = (info or {}).get("confirmation_url", "")

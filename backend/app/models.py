@@ -1413,6 +1413,9 @@ class Payment(SQLModel, table=True):
     # в 23:58, деньги приходят в 00:03. Сверка ledger↔оплаты обязана сравнивать по этому полю,
     # иначе обычная ночная оплата даёт красный diff два дня подряд (аудит 2026-08-12, волна 27).
     settled_at: Optional[datetime] = Field(default=None, index=True)
+    # Durable taxi reconciler lease/backoff; NULL for rows not yet polled.
+    taxi_reconcile_after: Optional[datetime] = None
+    taxi_provider_canceled_at: Optional[datetime] = None  # never set by local cancellation
 
 
 class TaxiCheckoutScan(SQLModel, table=True):

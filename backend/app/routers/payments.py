@@ -4,6 +4,7 @@
 `POST /boost/create`            — оплатить поднятие своей поездки → confirmation_url ЮKassa.
 `POST /payments/yookassa/webhook` — уведомление ЮKassa: перепроверяем платёж и активируем.
 """
+from collections.abc import Callable
 from datetime import timedelta
 
 from fastapi import APIRouter, Depends, Request
@@ -427,7 +428,9 @@ def _activate_payment(session: Session, payment: Payment) -> None:
     _tell_about_payment(session, payment, ok=True)
 
 
-def _sync_provider_status(session: Session, payment: Payment) -> tuple[Payment, dict | None]:
+def _sync_provider_status(
+    session: Session, payment: Payment, *, verified_fetch: Callable[[str, int, int], dict] | None = None,
+) -> tuple[Payment, dict | None]:
     """Сверить локальный платёж с достоверным статусом ЮKassa под блокировкой строки.
 
     Только два ответа провайдера меняют наши деньги: succeeded применяет платёж, canceled
@@ -437,8 +440,10 @@ def _sync_provider_status(session: Session, payment: Payment) -> tuple[Payment, 
     """
     if payment.status in ("succeeded", REFUND_DUE) or not payment.provider_id:
         return payment, None
+    provider_id, amount_kop = payment.provider_id, payment.amount_kop
     try:
-        info = fetch_payment(payment.provider_id)
+        info = (verified_fetch(provider_id, payment.id, amount_kop) if verified_fetch
+                else fetch_payment(provider_id))
     except Exception:  # noqa: BLE001 — неизвестный исход: локальный статус сохраняем для ретрая
         return payment, None
 
@@ -452,6 +457,8 @@ def _sync_provider_status(session: Session, payment: Payment) -> tuple[Payment, 
     ).one_or_none()
     if locked is None or locked.status in ("succeeded", REFUND_DUE):
         return locked or payment, info
+    if locked.provider_id != provider_id or locked.amount_kop != amount_kop:
+        return locked, None  # the evidence was for a different attempt/snapshot
     if provider_status == "succeeded":
         if locked.status == "pending":
             _activate_payment(session, locked)
@@ -460,6 +467,8 @@ def _sync_provider_status(session: Session, payment: Payment) -> tuple[Payment, 
             _handle_unclaimed_payment(session, locked)
     elif provider_status == "canceled" and locked.status == "pending":
         locked.status = "canceled"
+        if locked.purpose == "ride" and locked.order_id is not None and locked.method == "yookassa":
+            locked.taxi_provider_canceled_at = utcnow()
         session.add(locked)
         session.commit()
     return locked, info

@@ -29,7 +29,8 @@ def _sync_linked(session: Session, payment: Payment) -> str:
     return payment.status
 
 
-def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = None) -> str:
+def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = None,
+                                 defer_status: bool = False) -> str:
     """Read at most one merchant page and checkpoint it before handing off to the next pass."""
     if not _yookassa_live():
         return "disabled"
@@ -46,7 +47,7 @@ def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = 
         if payment.provider_id and scan is None:
             return "already_linked"
         if payment.provider_id and scan.state == "linked":
-            return _sync_linked(session, payment)
+            return "linked" if defer_status else _sync_linked(session, payment)
         if scan is None:
             if payment.created_at > now - timedelta(minutes=5):
                 return "too_recent"
@@ -99,7 +100,7 @@ def reconcile_taxi_checkout_once(db, payment_id: int, *, now: datetime | None = 
                 session.add(payment)
         session.add(scan)
         result = scan.state
-        if result == "linked":
+        if result == "linked" and not defer_status:
             return _sync_linked(session, payment)
         session.commit()
         return result
