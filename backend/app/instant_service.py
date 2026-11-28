@@ -1866,16 +1866,34 @@ def toggle_stop(session: Session, order: InstantOrder,
     Тронулись — накопленное за эту стоянку уходит в общий счётчик ожидания заказа. Так
     человек видит одну понятную сумму, а не отдельный счёт за каждую остановку.
     """
+    order_id, driver_id = order.id, order.driver_id
+    fresh = session.exec(select(InstantOrder).where(
+        InstantOrder.id == order_id,
+    ).with_for_update().execution_options(populate_existing=True)).first()
+    if fresh is None or fresh.driver_id != driver_id:
+        raise herr(404, "Заказ не найден", "Заказ табылманы")
+    if fresh.status != S.onboard:
+        raise herr(409, "Так можно только в поездке", "Былай тик сәфәр барышында була")
+
     now = now or utcnow()
-    if order.stop_started_at is None:
-        order.stop_started_at = now
-    else:
-        add_waiting_fee(order, order.stop_started_at, now)
-        order.stop_started_at = None
-    session.add(order)
+    started = fresh.stop_started_at
+    fields = {"stop_started_at": now} if started is None else {
+        "stop_started_at": None,
+        "waiting_fee_kop": capped_waiting_kop(fresh.waiting_fee_kop, started, now),
+    }
+    # Guard the write as well: SQLite does not implement SELECT FOR UPDATE.
+    saved = session.execute(update(InstantOrder).where(
+        InstantOrder.id == order_id,
+        InstantOrder.driver_id == driver_id,
+        InstantOrder.status == S.onboard,
+        InstantOrder.stop_started_at == started,
+    ).values(**fields).execution_options(synchronize_session=False))
+    if saved.rowcount != 1:
+        session.rollback()
+        raise herr(409, "Состояние поездки изменилось", "Сәфәрҙең торошо үҙгәрҙе")
     session.commit()
-    session.refresh(order)
-    return order
+    session.refresh(fresh)
+    return fresh
 
 
 def _clear_pending_destination(order: InstantOrder) -> None:
